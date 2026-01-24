@@ -49,47 +49,17 @@ namespace Mila::Data
         }
 
         /**
-         * @brief Append text to the trainer's corpus.
-         *
-         * Callers may invoke this multiple times to accumulate data from
-         * different sources. Text is stored as-is; normalization is the
-         * responsibility of the trainer implementation or upstream callers.
-         *
-         * @param text UTF-8 encoded text to include in the corpus.
-         */
-        void addCorpus( const std::string& text ) override
-        {
-            corpus_.push_back( text );
-        }
-
-        /**
          * @brief Execute the BPE training algorithm.
          *
          * After train() completes a subsequent call to buildVocabulary() must
          * return a valid TokenizerVocabulary instance. This method may throw
          * std::runtime_error on algorithm or I/O failures.
          */
-        void train() override
+        std::shared_ptr<TokenizerVocabulary> train() override
         {
             // Convert vector to span and call implementation.
             trained_vocab_ = trainImpl( std::span<const std::string>( corpus_.data(), corpus_.size() ) );
             trained_ = static_cast<bool>( trained_vocab_ );
-        }
-
-        /**
-         * @brief Build and return the trained tokenizer vocabulary.
-         *
-         * Transfers ownership of the trained vocabulary to the caller. If
-         * train() has not yet been called this method triggers training.
-         *
-         * @return std::unique_ptr<TokenizerVocabulary> Owned trained vocabulary.
-         */
-        std::unique_ptr<TokenizerVocabulary> buildVocabulary() override
-        {
-            if ( !trained_ )
-            {
-                train();
-            }
 
             return std::move( trained_vocab_ );
         }

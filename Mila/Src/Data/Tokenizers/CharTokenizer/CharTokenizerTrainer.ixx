@@ -29,6 +29,7 @@ import Data.TokenizerVocabulary;
 namespace Mila::Data
 {
     namespace fs = std::filesystem;
+
     using Mila::Dnn::Data::TokenizerVocabulary;
     using Mila::Dnn::Data::TokenId;
 
@@ -53,44 +54,26 @@ namespace Mila::Data
         }
 
         /**
-         * @brief Append text to internal corpus used for training.
-         *
-         * Text is accumulated; multiple calls append to the internal buffer.
-         *
-         * @param text UTF-8 encoded text to include in the training corpus.
-         */
-        void addCorpus( const std::string& text ) override
-        {
-            corpus_.append( text );
-        }
-
-        /**
          * @brief Execute training to build the character vocabulary.
          *
          * After this call buildVocabulary() will produce a TokenizerVocabulary
          * reflecting the trained character vocabulary.
          */
-        void train() override
+        std::shared_ptr<TokenizerVocabulary> train() override
         {
             char_vocab_.buildFromText( corpus_, add_special_tokens_ );
             trained_ = true;
+
+            return std::make_shared<CharTokenizerVocabulary>( char_vocab_ );
         }
 
-        /**
-         * @brief Construct and return the trained TokenizerVocabulary.
-         *
-         * Transfers ownership of the underlying CharTokenizerVocabulary to the caller.
-         *
-         * @return std::unique_ptr<TokenizerVocabulary> Owned pointer to the trained vocabulary.
-         */
-        std::unique_ptr<TokenizerVocabulary> buildVocabulary() override
+        void addCorpusFromStream( std::istream& stream ) override
         {
-            if ( !trained_ )
+            std::string line;
+            while ( std::getline( stream, line ) )
             {
-                train();
+                corpus_ += line + '\n';
             }
-
-            return std::make_unique<CharTokenizerVocabulary>( std::move( char_vocab_ ) );
         }
 
         /**
@@ -144,22 +127,23 @@ namespace Mila::Data
 
             CharTokenizerTrainer trainer;
             trainer.addCorpus( text );
-            trainer.train();
+            auto vocab = trainer.train();
 
-            auto vocab_ptr = trainer.buildVocabulary();
-            size_t vocab_size = vocab_ptr->getSize();
+            //auto vocab_ptr = trainer.buildVocabulary();
+            //size_t vocab_size = vocab_ptr->getSize();
 
-            size_t num_tokens = tokenizeAndOptionallySave( text, *vocab_ptr, tokens_file, write_outputs );
+            //size_t num_tokens = tokenizeAndOptionallySave( text, *vocab_ptr, tokens_file, write_outputs );
 
-            if ( write_outputs )
-            {
-                vocab_ptr->save( vocab_file );
-            }
+            //if ( write_outputs )
+            //{
+            //    vocab_ptr->save( vocab_file );
+            //}
 
-            return { vocab_size, num_tokens };
+            return { 10, 10 };// FIXME: vocab_size, num_tokens
         }
 
     private:
+        
         static std::string loadText( const std::string& filename )
         {
             std::ifstream file( filename, std::ios::binary );

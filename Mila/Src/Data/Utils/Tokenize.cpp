@@ -1,13 +1,18 @@
 /**
  * \file
- * \brief Generic tokenize utility that can preprocess text using different tokenizers.
+ * \brief Tokenize utility for training vocabularies and encoding/decoding text corpora.
  *
- * Uses TokenizerFactory to obtain a trainer and vocabulary loader for the
- * selected TokenizerType. Currently supports `char` tokenizer.
+ * Supports three commands:
+ * - train:  Build a vocabulary from a text corpus
+ * - encode: Convert text to token IDs using a vocabulary
+ * - decode: Convert token IDs back to text using a vocabulary
+ *
+ * Uses TokenizerFactory to obtain trainers and tokenizers for different types (char, bpe).
  */
 
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <stdexcept>
 #include <exception>
 #include <filesystem>
@@ -16,209 +21,414 @@
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <memory>
 
 import Data.TokenizerFactory;
 import Data.TokenizerType;
 import Data.TokenizerVocabulary;
+import Data.Tokenizer;
 
 namespace fs = std::filesystem;
+using namespace Mila::Data;
 using namespace Mila::Dnn::Data;
+
+// ============================================================================
+// Command-line argument structure
+// ============================================================================
+
+enum class Command {
+    Unknown,
+    Train,
+    Encode,
+    Decode,
+    Help
+};
+
+struct Args {
+    Command command = Command::Unknown;
+    std::string input_file;
+    std::string output_file;
+    std::string vocab_file;
+    TokenizerType tokenizer_type = TokenizerType::Char;
+    size_t vocab_size = 0;  // For BPE training
+    bool force = false;
+};
+
+// ============================================================================
+// Usage and help
+// ============================================================================
 
 static void printUsage()
 {
-    std::cout << "Usage: Tokenize <input_text_file> [--force] [--tokenizer <char|bpe>]" << std::endl;
-    std::cout << std::endl;
-    std::cout << "Preprocesses text file producing <input>.vocab and <input>.tokens." << std::endl;
-    std::cout << std::endl;
-    std::cout << "Options:" << std::endl;
-    std::cout << "  --force            Force rebuild even if preprocessed files exist" << std::endl;
-    std::cout << "  --tokenizer <type> Tokenizer type (default: char). Supported: char" << std::endl;
-    std::cout << "  --help             Show this help message" << std::endl;
+    std::cout << R"(Usage: tokenize <command> [options]
+
+Commands:
+  train   Build a vocabulary from a text corpus
+  encode  Convert text to token IDs using a vocabulary
+  decode  Convert token IDs back to text using a vocabulary
+  help    Show this help message
+
+Train Options:
+  --input <file>       Input text corpus file (required)
+  --output <file>      Output vocabulary file (required)
+  --type <char|bpe>    Tokenizer type (default: char)
+  --vocab-size <n>     Vocabulary size for BPE (required for BPE)
+  --force              Force rebuild even if output exists
+
+Encode Options:
+  --vocab <file>       Vocabulary file (required)
+  --input <file>       Input text file (required)
+  --output <file>      Output tokens file (required)
+  --type <char|bpe>    Tokenizer type (default: char)
+
+Decode Options:
+  --vocab <file>       Vocabulary file (required)
+  --input <file>       Input tokens file (required)
+  --output <file>      Output text file (required)
+  --type <char|bpe>    Tokenizer type (default: char)
+
+Examples:
+  # Train a character-level vocabulary
+  tokenize train --input corpus.txt --output vocab.bin --type char
+
+  # Train a BPE vocabulary with 32000 tokens
+  tokenize train --input corpus.txt --output vocab.bin --type bpe --vocab-size 32000
+
+  # Encode text using the vocabulary
+  tokenize encode --vocab vocab.bin --input train.txt --output train.tokens --type char
+
+  # Decode tokens back to text
+  tokenize decode --vocab vocab.bin --input train.tokens --output train.txt --type char
+)";
 }
 
-static std::string loadText( const std::string& filename )
+static Command commandFromString( std::string_view str )
 {
-    std::ifstream file( filename, std::ios::binary );
-    if ( !file )
-    {
-        throw std::runtime_error( "Cannot open text file: " + filename );
+    if ( str == "train" ) return Command::Train;
+    if ( str == "encode" ) return Command::Encode;
+    if ( str == "decode" ) return Command::Decode;
+    if ( str == "help" || str == "--help" || str == "-h" ) return Command::Help;
+    return Command::Unknown;
+}
+
+// ============================================================================
+// Argument parsing
+// ============================================================================
+
+static Args parseArgs( int argc, char** argv )
+{
+    Args args;
+
+    if ( argc < 2 ) {
+        return args;  // Will trigger help
     }
 
-    file.seekg( 0, std::ios::end );
-    size_t file_size = static_cast<size_t>( file.tellg() );
-    file.seekg( 0, std::ios::beg );
+    args.command = commandFromString( argv[ 1 ] );
+
+    for ( int i = 2; i < argc; ++i ) {
+        std::string arg = argv[ i ];
+
+        if ( arg == "--input" && i + 1 < argc ) {
+            args.input_file = argv[ ++i ];
+        }
+        else if ( arg == "--output" && i + 1 < argc ) {
+            args.output_file = argv[ ++i ];
+        }
+        else if ( arg == "--vocab" && i + 1 < argc ) {
+            args.vocab_file = argv[ ++i ];
+        }
+        else if ( arg == "--type" && i + 1 < argc ) {
+            args.tokenizer_type = from_string( argv[ ++i ] );
+            if ( args.tokenizer_type == TokenizerType::Unknown ) {
+                throw std::runtime_error( "Unknown tokenizer type: " + std::string( argv[ i ] ) );
+            }
+        }
+        else if ( arg == "--vocab-size" && i + 1 < argc ) {
+            args.vocab_size = std::stoull( argv[ ++i ] );
+        }
+        else if ( arg == "--force" || arg == "-f" ) {
+            args.force = true;
+        }
+        else {
+            throw std::runtime_error( "Unknown argument: " + arg );
+        }
+    }
+
+    return args;
+}
+
+static void validateTrainArgs( const Args& args )
+{
+    if ( args.input_file.empty() ) {
+        throw std::runtime_error( "--input is required for train command" );
+    }
+    if ( args.output_file.empty() ) {
+        throw std::runtime_error( "--output is required for train command" );
+    }
+    if ( args.tokenizer_type == TokenizerType::Bpe && args.vocab_size == 0 ) {
+        throw std::runtime_error( "--vocab-size is required for BPE tokenizer" );
+    }
+}
+
+static void validateEncodeArgs( const Args& args )
+{
+    if ( args.vocab_file.empty() ) {
+        throw std::runtime_error( "--vocab is required for encode command" );
+    }
+    if ( args.input_file.empty() ) {
+        throw std::runtime_error( "--input is required for encode command" );
+    }
+    if ( args.output_file.empty() ) {
+        throw std::runtime_error( "--output is required for encode command" );
+    }
+}
+
+static void validateDecodeArgs( const Args& args )
+{
+    if ( args.vocab_file.empty() ) {
+        throw std::runtime_error( "--vocab is required for decode command" );
+    }
+    if ( args.input_file.empty() ) {
+        throw std::runtime_error( "--input is required for decode command" );
+    }
+    if ( args.output_file.empty() ) {
+        throw std::runtime_error( "--output is required for decode command" );
+    }
+}
+
+// ============================================================================
+// Train command
+// ============================================================================
+
+static int trainCommand( const Args& args )
+{
+    validateTrainArgs( args );
+
+    // Check if output exists and skip if not forcing
+    if ( !args.force && fs::exists( args.output_file ) ) {
+        std::cout << "Vocabulary file already exists: " << args.output_file << std::endl;
+        std::cout << "Use --force to rebuild" << std::endl;
+        return 0;
+    }
+
+    std::cout << "Training vocabulary..." << std::endl;
+    std::cout << "  Input:      " << args.input_file << std::endl;
+    std::cout << "  Output:     " << args.output_file << std::endl;
+    std::cout << "  Type:       " << to_string( args.tokenizer_type ) << std::endl;
+    if ( args.vocab_size > 0 ) {
+        std::cout << "  Vocab size: " << args.vocab_size << std::endl;
+    }
+    std::cout << std::endl;
+
+    // Create trainer
+    auto trainer = TokenizerFactory::createTrainer( args.tokenizer_type );
+    if ( !trainer ) {
+        throw std::runtime_error( "Failed to create trainer for type: " +
+            std::string( to_string( args.tokenizer_type ) ) );
+    }
+
+    // Add corpus from file
+    trainer->addCorpusFromFile( args.input_file );
+
+    // Train vocabulary
+    auto vocab = trainer->train();
+    if ( !vocab ) {
+        throw std::runtime_error( "Training failed to produce vocabulary" );
+    }
+
+    // Save vocabulary
+    vocab->save( args.output_file );
+
+    std::cout << "Training complete!" << std::endl;
+    std::cout << "  Vocabulary size: " << vocab->getSize() << std::endl;
+    std::cout << "  Saved to: " << args.output_file << std::endl;
+
+    return 0;
+}
+
+// ============================================================================
+// Encode command
+// ============================================================================
+
+static int encodeCommand( const Args& args )
+{
+    validateEncodeArgs( args );
+
+    std::cout << "Encoding corpus..." << std::endl;
+    std::cout << "  Vocabulary: " << args.vocab_file << std::endl;
+    std::cout << "  Input:      " << args.input_file << std::endl;
+    std::cout << "  Output:     " << args.output_file << std::endl;
+    std::cout << "  Type:       " << to_string( args.tokenizer_type ) << std::endl;
+    std::cout << std::endl;
+
+    // Load vocabulary
+    auto vocab = TokenizerFactory::createVocabulary( args.tokenizer_type );
+    if ( !vocab ) {
+        throw std::runtime_error( "Failed to create vocabulary for type: " +
+            std::string( to_string( args.tokenizer_type ) ) );
+    }
+    vocab->load( args.vocab_file );
+
+    std::cout << "  Loaded vocabulary: " << vocab->getSize() << " tokens" << std::endl;
+
+    // Create tokenizer
+    auto tokenizer = TokenizerFactory::createTokenizer( args.tokenizer_type, vocab );
+    if ( !tokenizer ) {
+        throw std::runtime_error( "Failed to create tokenizer for type: " +
+            std::string( to_string( args.tokenizer_type ) ) );
+    }
+
+    // Read input text
+    std::ifstream input( args.input_file, std::ios::binary );
+    if ( !input ) {
+        throw std::runtime_error( "Cannot open input file: " + args.input_file );
+    }
+
+    input.seekg( 0, std::ios::end );
+    size_t file_size = static_cast<size_t>(input.tellg());
+    input.seekg( 0, std::ios::beg );
 
     std::string text( file_size, '\0' );
-    file.read( &text[0], static_cast<std::streamsize>( file_size ) );
+    input.read( text.data(), static_cast<std::streamsize>(file_size) );
 
-    if ( !file && !file.eof() )
-    {
-        throw std::runtime_error( "Error reading text file: " + filename );
+    if ( !input && !input.eof() ) {
+        throw std::runtime_error( "Error reading input file: " + args.input_file );
     }
 
-    return text;
+    std::cout << "  Read " << text.size() << " characters" << std::endl;
+
+    // Encode text
+    auto tokens = tokenizer->encode( text );
+    std::cout << "  Encoded to " << tokens.size() << " tokens" << std::endl;
+
+    // Write tokens file: [size_t num_tokens][uint32_t token_ids...]
+    std::ofstream output( args.output_file, std::ios::binary );
+    if ( !output ) {
+        throw std::runtime_error( "Cannot open output file: " + args.output_file );
+    }
+
+    size_t num_tokens = tokens.size();
+    output.write( reinterpret_cast<const char*>(&num_tokens), sizeof( num_tokens ) );
+    output.write( reinterpret_cast<const char*>(tokens.data()),
+        static_cast<std::streamsize>(tokens.size() * sizeof( uint32_t )) );
+
+    if ( !output ) {
+        throw std::runtime_error( "Error writing output file: " + args.output_file );
+    }
+
+    std::cout << "Encoding complete!" << std::endl;
+    std::cout << "  Tokens saved to: " << args.output_file << std::endl;
+
+    return 0;
 }
 
-static bool isPreprocessedUpToDate( const fs::path& src, const fs::path& vocab, const fs::path& tokens )
+// ============================================================================
+// Decode command
+// ============================================================================
+
+static int decodeCommand( const Args& args )
 {
-    if ( !fs::exists( vocab ) || !fs::exists( tokens ) )
-    {
-        return false;
+    validateDecodeArgs( args );
+
+    std::cout << "Decoding tokens..." << std::endl;
+    std::cout << "  Vocabulary: " << args.vocab_file << std::endl;
+    std::cout << "  Input:      " << args.input_file << std::endl;
+    std::cout << "  Output:     " << args.output_file << std::endl;
+    std::cout << "  Type:       " << to_string( args.tokenizer_type ) << std::endl;
+    std::cout << std::endl;
+
+    // Load vocabulary
+    auto vocab = TokenizerFactory::createVocabulary( args.tokenizer_type );
+    if ( !vocab ) {
+        throw std::runtime_error( "Failed to create vocabulary for type: " +
+            std::string( to_string( args.tokenizer_type ) ) );
+    }
+    vocab->load( args.vocab_file );
+
+    std::cout << "  Loaded vocabulary: " << vocab->getSize() << " tokens" << std::endl;
+
+    // Create tokenizer
+    auto tokenizer = TokenizerFactory::createTokenizer( args.tokenizer_type, vocab );
+    if ( !tokenizer ) {
+        throw std::runtime_error( "Failed to create tokenizer for type: " +
+            std::string( to_string( args.tokenizer_type ) ) );
     }
 
-    auto src_time = fs::last_write_time( src );
-    auto vocab_time = fs::last_write_time( vocab );
-    auto tokens_time = fs::last_write_time( tokens );
+    // Read tokens file: [size_t num_tokens][uint32_t token_ids...]
+    std::ifstream input( args.input_file, std::ios::binary );
+    if ( !input ) {
+        throw std::runtime_error( "Cannot open input file: " + args.input_file );
+    }
 
-    return vocab_time >= src_time && tokens_time >= src_time;
+    size_t num_tokens;
+    input.read( reinterpret_cast<char*>(&num_tokens), sizeof( num_tokens ) );
+    if ( !input ) {
+        throw std::runtime_error( "Error reading token count from: " + args.input_file );
+    }
+
+    std::vector<uint32_t> tokens( num_tokens );
+    input.read( reinterpret_cast<char*>(tokens.data()),
+        static_cast<std::streamsize>(num_tokens * sizeof( uint32_t )) );
+
+    if ( !input && !input.eof() ) {
+        throw std::runtime_error( "Error reading tokens from: " + args.input_file );
+    }
+
+    std::cout << "  Read " << num_tokens << " tokens" << std::endl;
+
+    // Decode tokens
+    auto text = tokenizer->decode( tokens );
+    std::cout << "  Decoded to " << text.size() << " characters" << std::endl;
+
+    // Write output text
+    std::ofstream output( args.output_file, std::ios::binary );
+    if ( !output ) {
+        throw std::runtime_error( "Cannot open output file: " + args.output_file );
+    }
+
+    output.write( text.data(), static_cast<std::streamsize>(text.size()) );
+
+    if ( !output ) {
+        throw std::runtime_error( "Error writing output file: " + args.output_file );
+    }
+
+    std::cout << "Decoding complete!" << std::endl;
+    std::cout << "  Text saved to: " << args.output_file << std::endl;
+
+    return 0;
 }
+
+// ============================================================================
+// Main
+// ============================================================================
 
 int main( int argc, char** argv )
 {
-    try
-    {
-        std::string input_file;
-        bool force_rebuild = false;
-        TokenizerType tokenizer_type = TokenizerType::Char;
+    try {
+        Args args = parseArgs( argc, argv );
 
-        for ( int i = 1; i < argc; ++i )
-        {
-            std::string arg = argv[i];
+        switch ( args.command ) {
+            case Command::Train:
+                return trainCommand( args );
 
-            if ( arg == "--help" || arg == "-h" )
-            {
+            case Command::Encode:
+                return encodeCommand( args );
+
+            case Command::Decode:
+                return decodeCommand( args );
+
+            case Command::Help:
                 printUsage();
                 return 0;
-            }
-            else if ( arg == "--force" || arg == "-f" )
-            {
-                force_rebuild = true;
-            }
-            else if ( arg == "--tokenizer" && i + 1 < argc )
-            {
-                ++i;
-                tokenizer_type = from_string( argv[i] );
-                if ( tokenizer_type == TokenizerType::Unknown )
-                {
-                    std::cerr << "Unknown tokenizer: " << argv[i] << std::endl;
-                    return 1;
-                }
-            }
-            else if ( input_file.empty() )
-            {
-                input_file = arg;
-            }
-            else
-            {
-                std::cerr << "Unknown argument: " << arg << std::endl;
+
+            case Command::Unknown:
+            default:
+                std::cerr << "Error: Unknown or missing command" << std::endl << std::endl;
                 printUsage();
                 return 1;
-            }
         }
-
-        if ( input_file.empty() )
-        {
-            input_file = "../Data/DataSets/TinyShakespeare/input.txt";
-            std::cout << "No input file specified. Using default: " << input_file << std::endl;
-        }
-
-        std::cout << "Preprocessing: " << input_file << std::endl;
-        std::cout << "Force rebuild: " << (force_rebuild ? "yes" : "no") << std::endl;
-        std::cout << "Tokenizer: " << to_string( tokenizer_type ) << std::endl;
-        std::cout << std::endl;
-
-        fs::path vocab_file = input_file + ".vocab";
-        fs::path tokens_file = input_file + ".tokens";
-
-        if ( !force_rebuild && isPreprocessedUpToDate( input_file, vocab_file, tokens_file ) )
-        {
-            std::cout << "Using existing preprocessed files for: " << input_file << std::endl;
-
-            std::ifstream vf( vocab_file, std::ios::binary );
-            if ( !vf ) throw std::runtime_error( "Cannot open vocab file: " + vocab_file.string() );
-
-            size_t vocab_size;
-            vf.read( reinterpret_cast<char*>( &vocab_size ), sizeof( vocab_size ) );
-
-            std::ifstream tf( tokens_file, std::ios::binary );
-            if ( !tf ) throw std::runtime_error( "Cannot open tokens file: " + tokens_file.string() );
-
-            size_t num_tokens;
-            tf.read( reinterpret_cast<char*>( &num_tokens ), sizeof( num_tokens ) );
-
-            std::cout << std::endl;
-            std::cout << "Preprocessing complete (existing files used)!" << std::endl;
-            std::cout << "  Vocabulary size: " << vocab_size << std::endl;
-            std::cout << "  Total tokens: " << num_tokens << std::endl;
-            return 0;
-        }
-
-        // Load raw text
-        std::string text = loadText( input_file );
-        std::cout << "  Loaded " << text.size() << " characters" << std::endl;
-
-        // Create trainer via factory
-        auto trainer = TokenizerFactory::createTrainer( tokenizer_type );
-        if ( !trainer )
-        {
-            throw std::runtime_error( "No trainer available for tokenizer type: " + std::string( to_string( tokenizer_type ) ) );
-        }
-
-        trainer->addCorpus( text );
-        trainer->train();
-
-        auto vocab_ptr = trainer->buildVocabulary();
-        if ( !vocab_ptr )
-        {
-            throw std::runtime_error( "Trainer failed to produce a vocabulary" );
-        }
-
-        size_t vocab_size = vocab_ptr->getSize();
-        std::cout << "  Built vocabulary: " << vocab_size << " tokens" << std::endl;
-
-        // Save vocabulary
-        vocab_ptr->save( vocab_file );
-        std::cout << "  Saved vocabulary to: " << vocab_file.string() << std::endl;
-
-        // Tokenize and save tokens file (header: size_t num_tokens, then uint32_t ids)
-        size_t num_tokens = text.size();
-
-        std::ofstream out( tokens_file, std::ios::binary );
-        if ( !out ) throw std::runtime_error( "Cannot open tokens file for writing: " + tokens_file.string() );
-
-        out.write( reinterpret_cast<const char*>( &num_tokens ), sizeof( num_tokens ) );
-
-        constexpr size_t CHUNK_SIZE = 1024 * 1024;
-        std::vector<uint32_t> buffer;
-        buffer.reserve( std::min( num_tokens, CHUNK_SIZE ) );
-
-        for ( size_t i = 0; i < text.size(); ++i )
-        {
-            std::string tk( 1, text[i] );
-            auto id_opt = vocab_ptr->tokenToId( tk );
-            uint32_t id = id_opt ? *id_opt : 0u;
-            buffer.push_back( id );
-
-            if ( buffer.size() >= CHUNK_SIZE || i == text.size() - 1 )
-            {
-                out.write( reinterpret_cast<const char*>( buffer.data() ), static_cast<std::streamsize>( buffer.size() * sizeof( uint32_t ) ) );
-                buffer.clear();
-            }
-        }
-
-        if ( !out ) throw std::runtime_error( "Error writing tokens file: " + tokens_file.string() );
-
-        std::cout << "  Tokenized and saved " << num_tokens << " tokens to: " << tokens_file.string() << std::endl;
-
-        std::cout << std::endl;
-        std::cout << "Preprocessing complete!" << std::endl;
-        std::cout << "  Vocabulary size: " << vocab_size << std::endl;
-        std::cout << "  Total tokens: " << num_tokens << std::endl;
-
-        return 0;
     }
-    catch ( const std::exception& e )
-    {
+    catch ( const std::exception& e ) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
