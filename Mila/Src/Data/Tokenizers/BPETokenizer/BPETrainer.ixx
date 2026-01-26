@@ -12,12 +12,18 @@ module;
 #include <vector>
 #include <memory>
 #include <stdexcept>
+#include <istream>
+#include <fstream>
+#include <filesystem>
 
-export module Data.BpeTokenizerTrainer;
+export module Data.BpeTrainer;
 export import :Config;
+
+import Data.BpeTokenizer;
 
 import Data.TokenizerTrainer;
 import Data.TokenizerVocabulary;
+import Data.BpeVocabulary;
 
 namespace Mila::Data
 {
@@ -34,60 +40,60 @@ namespace Mila::Data
      * - train() runs the algorithm over the accumulated corpus.
      * - buildVocabulary() returns ownership of the trained TokenizerVocabulary.
      */
-    export class BPETokenizerTrainer : public TokenizerTrainer
-    {
+    export class BpeTrainer { // }; : public TokenizerTrainer {
     public:
         /**
-         * @brief Construct a BPE trainer with configuration.
+         * @brief Construct with configuration.
          *
-         * @param config Configuration controlling merges, vocabulary size, etc.
+         * @param config BPE tokenizer configuration.
+         * @throws std::invalid_argument if config is invalid.
          */
-        explicit BPETokenizerTrainer( BpeTokenizerTrainerConfig config )
-            : config_( std::move( config ) ),
-              trained_( false )
+        explicit BpeTrainer( const BpeTrainerConfig& config = BpeTrainerConfig{} )
+            : config_( config )
         {
+            if ( !config_.isValid() ) {
+                throw std::invalid_argument( "Invalid BPE tokenizer configuration" );
+            }
         }
 
-        /**
-         * @brief Execute the BPE training algorithm.
-         *
-         * After train() completes a subsequent call to buildVocabulary() must
-         * return a valid TokenizerVocabulary instance. This method may throw
-         * std::runtime_error on algorithm or I/O failures.
-         */
-        std::shared_ptr<TokenizerVocabulary> train() override
-        {
-            // Convert vector to span and call implementation.
-            trained_vocab_ = trainImpl( std::span<const std::string>( corpus_.data(), corpus_.size() ) );
-            trained_ = static_cast<bool>( trained_vocab_ );
+        void addCorpusFromStream( std::istream& stream ) {
+            std::string buffer;
+            buffer.resize( 64 * 1024 );
 
-            return std::move( trained_vocab_ );
+            while ( stream.read( buffer.data(), buffer.size() ) || stream.gcount() > 0 ) {
+                size_t bytes_read = stream.gcount();
+                corpus_.append( buffer.data(), bytes_read );
+            }
+        }
+
+        void addCorpusFromFile( const std::filesystem::path& path ) {
+            std::ifstream file( path, std::ios::binary );
+            if ( !file ) {
+                throw std::runtime_error( "Cannot open corpus file: " + path.string() );
+            }
+            addCorpusFromStream( file );
+        }
+
+        BpeVocabulary train() {
+            auto vocab = BpeVocabulary();
+
+            // Build vocabulary using config
+            vocab.buildFromText(
+                corpus_,
+                config_.getVocabSize(),
+                config_.getSpecialTokens()
+                //config_.getMinFrequency(),
+                //config_.isByteLevel(),
+                //config_.getPreTokenizationPattern(),
+                //config_.getMaxMerges()
+            );
+
+            corpus_.clear();  // Free memory
+            return vocab;
         }
 
     private:
-        /**
-         * @brief Implementation hook for the BPE algorithm.
-         *
-         * Concrete training logic should be implemented here. For now this
-         * function throws to indicate the method is not implemented.
-         *
-         * @param texts Span of corpus strings to train on.
-         * @return std::unique_ptr<TokenizerVocabulary> Trained vocabulary.
-         */
-        std::unique_ptr<TokenizerVocabulary> trainImpl( std::span<const std::string> texts )
-        {
-            (void)texts; // placeholder to avoid unused param warnings
-
-            // TODO: Implement BPE training algorithm (merge operations, token ranking,
-            // vocabulary construction). The implementation should return a concrete
-            // TokenizerVocabulary instance (derived from TokenizerVocabulary).
-            throw std::runtime_error( "BPE training not implemented" );
-        }
-
-    private:
-        BpeTokenizerTrainerConfig config_;
-        std::vector<std::string> corpus_;
-        bool trained_;
-        std::unique_ptr<TokenizerVocabulary> trained_vocab_;
+        BpeTrainerConfig config_;
+        std::string corpus_;
     };
 }

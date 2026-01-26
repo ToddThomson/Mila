@@ -1,0 +1,650 @@
+/**
+ * @file BPEVocabulary.ixx
+ * @brief Byte-Pair Encoding vocabulary implementation that can be built from text.
+ *
+ * Implements a simple, deterministic BPE learning loop suitable for small
+ * corpora and preprocessing tooling. The implementation is intentionally
+ * minimal and safe for repository-level tooling (not optimized for large-scale
+ * production BPE training).
+ */
+
+module;
+#include <string>
+#include <vector>
+#include <unordered_map>
+#include <unordered_set>
+#include <optional>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+#include <stdexcept>
+#include <cstdint>
+
+export module Data.BpeVocabulary;
+
+import Data.SpecialTokens;
+import Data.TokenizerVocabulary;
+
+namespace Mila::Data
+{
+    namespace fs = std::filesystem;
+    using Mila::Dnn::Data::TokenizerVocabulary;
+
+    /**
+     * @brief Byte Pair Encoding (BPE) vocabulary implementation.
+     *
+     * This implementation follows modern BPE practices used in GPT-2, GPT-3, and similar models:
+     * - Byte-level BPE: operates on UTF-8 bytes, not characters
+     * - Pre-tokenization: splits on whitespace and punctuation
+     * - Merge rules: stores and applies learned merge operations
+     * - Special tokens: supports configurable special tokens (PAD, UNK, BOS, EOS, etc.)
+     *
+     * Key differences from character-level tokenization:
+     * - Can represent any Unicode text without unknown tokens at byte level
+     * - Learns subword units that balance vocabulary size and sequence length
+     * - More efficient than character-level for most languages
+     *
+     * Algorithm overview:
+     * 1. Initialize vocabulary with all 256 possible byte values
+     * 2. Add special tokens if requested
+     * 3. Pre-tokenize text into words/subwords
+     * 4. Iteratively merge the most frequent adjacent byte pair
+     * 5. Continue until target vocabulary size is reached
+     *
+     * Thread safety: Not thread-safe. External synchronization required for concurrent access.
+     */
+    export class BpeVocabulary : public TokenizerVocabulary
+    {
+    public:
+        
+        // ========================================================================
+        // Loading
+        // ========================================================================
+
+        /**
+         * @brief Load vocabulary from disk.
+         *
+         * Reads binary format written by save(). Validates version compatibility.
+         *
+         * @param path Input file path.
+         *
+         * @throws std::runtime_error on I/O errors or format incompatibility.
+         */
+        static BpeVocabulary load( const std::filesystem::path& path )
+        {
+            std::ifstream file( path, std::ios::binary );
+            
+            if ( !file ) {
+                throw std::runtime_error( "Cannot open vocabulary file: " + path.string() );
+            }
+
+            BpeVocabulary vocab;
+
+            vocab.token_to_id_.clear();
+            vocab.id_to_token_.clear();
+            vocab.merges_.clear();
+            vocab.special_token_ids_.clear();
+
+            // Version check
+            uint32_t version = 0;
+            file.read( reinterpret_cast<char*>(&version), sizeof( version ) );
+            if ( version != 1 ) {
+                throw std::runtime_error( "Unsupported vocabulary file version: " + std::to_string( version ) );
+            }
+
+            // Vocabulary size
+            uint32_t vocab_size = 0;
+            file.read( reinterpret_cast<char*>(&vocab_size), sizeof( vocab_size ) );
+
+            // Special tokens
+            uint32_t num_special = 0;
+            file.read( reinterpret_cast<char*>(&num_special), sizeof( num_special ) );
+
+            for ( uint32_t i = 0; i < num_special; ++i ) {
+                uint8_t type_byte = 0;
+                file.read( reinterpret_cast<char*>( &type_byte ), sizeof( type_byte ) );
+
+                uint32_t token_id = 0;
+                file.read( reinterpret_cast<char*>( &token_id ), sizeof( token_id ) );
+
+                uint32_t len = 0;
+                file.read( reinterpret_cast<char*>( &len ), sizeof( len ) );
+
+                std::string token_str;
+                if ( len > 0 ) {
+                    token_str.resize( len );
+                    file.read( token_str.data(), len );
+                }
+
+                vocab.special_token_ids_[ static_cast<char>(type_byte) ] = token_id;
+            }
+
+            // Merge rules
+            uint32_t num_merges = 0;
+            file.read( reinterpret_cast<char*>(&num_merges), sizeof( num_merges ) );
+
+            vocab.merges_.reserve( num_merges );
+            for ( uint32_t i = 0; i < num_merges; ++i ) {
+                uint32_t left_len = 0;
+                file.read( reinterpret_cast<char*>( &left_len ), sizeof( left_len ) );
+
+                std::string left;
+                if ( left_len > 0 ) {
+                    left.resize( left_len );
+                    file.read( left.data(), left_len );
+                }
+
+                uint32_t right_len = 0;
+                file.read( reinterpret_cast<char*>(&right_len), sizeof( right_len ) );
+
+                std::string right;
+                if ( right_len > 0 ) {
+                    right.resize( right_len );
+                    file.read( right.data(), right_len );
+                }
+
+                vocab.merges_.emplace_back( left, right );
+            }
+
+            // Token strings
+            vocab.id_to_token_.resize( vocab_size );
+            for ( uint32_t i = 0; i < vocab_size; ++i ) {
+                uint32_t len = 0;
+                file.read( reinterpret_cast<char*>( &len ), sizeof( len ) );
+
+                std::string token;
+                if ( len > 0 ) {
+                    token.resize( len );
+                    file.read( token.data(), len );
+                }
+
+                vocab.id_to_token_[ i ] = std::move( token );
+                vocab.token_to_id_[ vocab.id_to_token_[ i ] ] = i;
+            }
+
+        }
+
+        // Load pre-trained vocabularies from external sources
+        static BpeVocabulary loadGpt2(
+            const std::filesystem::path& vocabPath,
+            const std::filesystem::path& mergesPath
+        );
+
+        static BpeVocabulary loadLlama(
+            const std::filesystem::path& modelPath
+        );
+
+        static BpeVocabulary loadMistral(
+            const std::filesystem::path& vocabPath,
+            const std::filesystem::path& mergesPath
+        );
+
+        BpeVocabulary() = default;
+
+        /**
+         * @brief Build a BPE vocabulary from raw text corpus.
+         *
+         * This is the primary training method that implements the BPE algorithm.
+         * The method:
+         * 1. Initializes with all 256 byte values (byte-level BPE)
+         * 2. Optionally adds special tokens
+         * 3. Pre-tokenizes text (splits on whitespace/punctuation)
+         * 4. Iteratively merges most frequent byte pairs
+         * 5. Stores merge rules for encoding
+         *
+         * Pre-tokenization strategy:
+         * - Modern approach: GPT-2 style regex pattern matching
+         * - Current implementation: Simple whitespace splitting (can be enhanced)
+         *
+         * @param text Source corpus. Should be representative of target domain.
+         *             Larger, more diverse corpora generally produce better vocabularies.
+         * @param target_vocab_size Desired final vocabulary size including base bytes
+         *                          and special tokens. Typical values: 32000-50000 for LLMs.
+         *                          If 0 or <= base size, only byte tokens are included.
+         * @param special_tokens Configuration for special tokens to include.
+         *
+         * @return size_t Final vocabulary size (may be less than target if merges exhausted).
+         *
+         * @throws std::invalid_argument if target_vocab_size < base vocabulary size when
+         *                               special tokens would exceed available space.
+         *
+         * Performance notes:
+         * - Time complexity: O(n * m) where n = corpus size, m = merges performed
+         * - Space complexity: O(corpus_size + vocab_size)
+         * - For very large corpora (>1GB), consider sampling or chunked processing
+         *
+         * Example:
+         * @code
+         * BpeTokenizerVocabulary vocab;
+         * SpecialTokens config;
+         * config.add_special_tokens = true;
+         * size_t final_size = vocab.buildFromText(corpus, 32000, config);
+         * vocab.save("vocab.bin");
+         * @endcode
+         */
+        size_t buildFromText( const std::string& text,
+            size_t target_vocab_size = 50000,
+            const SpecialTokens& special_tokens = SpecialTokens{} )
+        {
+            token_to_id_.clear();
+            id_to_token_.clear();
+            merges_.clear();
+            special_token_ids_.clear();
+
+            uint32_t current_id = 0;
+
+            // Step 1: Add all 256 byte values as base vocabulary (byte-level BPE)
+            // This ensures we can represent any UTF-8 text
+            for ( int i = 0; i < 256; ++i ) {
+                std::string byte_token( 1, static_cast<char>( i ) );
+                id_to_token_.push_back( byte_token );
+                token_to_id_[ byte_token ] = current_id++;
+            }
+
+            // Step 2: Add special tokens
+            if ( special_tokens.enabled ) {
+                addSpecialToken( special_tokens.pad_token, current_id++, "pad" );
+                addSpecialToken( special_tokens.unk_token, current_id++, "unk" );
+                addSpecialToken( special_tokens.bos_token, current_id++, "bos" );
+                addSpecialToken( special_tokens.eos_token, current_id++, "eos" );
+            }
+
+            // If target is less than current size, we're done
+            if ( target_vocab_size == 0 || current_id >= target_vocab_size ) {
+                return id_to_token_.size();
+            }
+
+            // Step 3: Pre-tokenize text into words
+            // TODO: Enhance with GPT-2 style regex pattern for better pre-tokenization
+            auto words = preTokenize( text );
+
+            // Step 4: Convert words to byte sequences
+            std::vector<std::vector<std::string>> corpus_tokens;
+            corpus_tokens.reserve( words.size() );
+
+            for ( const auto& word : words ) {
+                std::vector<std::string> tokens;
+                tokens.reserve( word.size() );
+
+                // Each byte becomes a token
+                for ( unsigned char byte : word ) {
+                    tokens.push_back( std::string( 1, static_cast<char>(byte) ) );
+                }
+
+                if ( !tokens.empty() ) {
+                    corpus_tokens.push_back( std::move( tokens ) );
+                }
+            }
+
+            // Step 5: BPE merge loop
+            while ( current_id < target_vocab_size ) {
+                // Count all adjacent pairs in corpus
+                auto pair_counts = countPairs( corpus_tokens );
+
+                if ( pair_counts.empty() ) {
+                    break;  // No more pairs to merge
+                }
+
+                // Find most frequent pair
+                auto [best_pair, count] = getMostFrequentPair( pair_counts );
+
+                if ( count == 0 ) {
+                    break;  // No valid pairs
+                }
+
+                // Create merged token
+                std::string merged = best_pair.first + best_pair.second;
+
+                // Check if merged token already exists (shouldn't happen, but safety check)
+                if ( token_to_id_.find( merged ) != token_to_id_.end() ) {
+                    // Skip this pair and continue
+                    continue;
+                }
+
+                // Apply merge to corpus
+                applyMerge( corpus_tokens, best_pair.first, best_pair.second, merged );
+
+                // Add to vocabulary
+                id_to_token_.push_back( merged );
+                token_to_id_[ merged ] = current_id;
+
+                // Store merge rule for encoding
+                merges_.push_back( best_pair );
+
+                ++current_id;
+            }
+
+            return id_to_token_.size();
+        }
+
+        /**
+         * @brief Serialize vocabulary to disk.
+         *
+         * File format (binary):
+         * - [uint32_t] Version number (for future compatibility)
+         * - [uint32_t] Vocabulary size
+         * - [uint32_t] Number of special tokens
+         * - For each special token:
+         *   - [uint8_t] Type (0=pad, 1=unk, 2=bos, 3=eos, etc.)
+         *   - [uint32_t] Token ID
+         *   - [uint32_t] Token string length
+         *   - [bytes] Token string data
+         * - [uint32_t] Number of merge rules
+         * - For each merge rule:
+         *   - [uint32_t] Left token length
+         *   - [bytes] Left token data
+         *   - [uint32_t] Right token length
+         *   - [bytes] Right token data
+         * - For each vocabulary token:
+         *   - [uint32_t] Token string length
+         *   - [bytes] Token string data
+         *
+         * @param path Output file path. Parent directory must exist.
+         *
+         * @throws std::runtime_error on I/O errors.
+         */
+        void save( const fs::path& path ) const override
+        {
+            std::ofstream file( path, std::ios::binary );
+            if ( !file ) {
+                throw std::runtime_error( "Cannot open vocabulary file for writing: " + path.string() );
+            }
+
+            // Version for future compatibility
+            uint32_t version = 1;
+            file.write( reinterpret_cast<const char*>(&version), sizeof( version ) );
+
+            // Vocabulary size
+            uint32_t vocab_size = static_cast<uint32_t>(id_to_token_.size());
+            file.write( reinterpret_cast<const char*>(&vocab_size), sizeof( vocab_size ) );
+
+            // Special tokens
+            uint32_t num_special = static_cast<uint32_t>(special_token_ids_.size());
+            file.write( reinterpret_cast<const char*>(&num_special), sizeof( num_special ) );
+
+            for ( const auto& [type, id] : special_token_ids_ ) {
+                uint8_t type_byte = static_cast<uint8_t>(type);
+                file.write( reinterpret_cast<const char*>(&type_byte), sizeof( type_byte ) );
+
+                uint32_t token_id = static_cast<uint32_t>(id);
+                file.write( reinterpret_cast<const char*>(&token_id), sizeof( token_id ) );
+
+                const std::string& token_str = id_to_token_[ id ];
+                uint32_t len = static_cast<uint32_t>(token_str.size());
+                file.write( reinterpret_cast<const char*>(&len), sizeof( len ) );
+                file.write( token_str.data(), len );
+            }
+
+            // Merge rules
+            uint32_t num_merges = static_cast<uint32_t>(merges_.size());
+            file.write( reinterpret_cast<const char*>(&num_merges), sizeof( num_merges ) );
+
+            for ( const auto& [left, right] : merges_ ) {
+                uint32_t left_len = static_cast<uint32_t>(left.size());
+                file.write( reinterpret_cast<const char*>(&left_len), sizeof( left_len ) );
+                file.write( left.data(), left_len );
+
+                uint32_t right_len = static_cast<uint32_t>(right.size());
+                file.write( reinterpret_cast<const char*>(&right_len), sizeof( right_len ) );
+                file.write( right.data(), right_len );
+            }
+
+            // Token strings
+            for ( const auto& token : id_to_token_ ) {
+                uint32_t len = static_cast<uint32_t>(token.size());
+                file.write( reinterpret_cast<const char*>(&len), sizeof( len ) );
+                if ( len > 0 ) {
+                    file.write( token.data(), len );
+                }
+            }
+
+            if ( !file ) {
+                throw std::runtime_error( "Error writing vocabulary file: " + path.string() );
+            }
+        }
+
+        size_t getSize() const override
+        {
+            return id_to_token_.size();
+        }
+
+        std::optional<uint32_t> tokenToId( const std::string& token ) const override
+        {
+            auto it = token_to_id_.find( token );
+            if ( it != token_to_id_.end() ) {
+                return it->second;
+            }
+
+            // Return UNK token if available
+            auto unk_it = special_token_ids_.find( 'u' );  // 'u' for unk
+            if ( unk_it != special_token_ids_.end() ) {
+                return unk_it->second;
+            }
+
+            return std::nullopt;
+        }
+
+        std::optional<std::string> idToToken( uint32_t id ) const override
+        {
+            if ( id < id_to_token_.size() ) {
+                return id_to_token_[ id ];
+            }
+            return std::nullopt;
+        }
+
+        /**
+         * @brief Get merge rules learned during training.
+         *
+         * Merge rules define the order in which byte pairs should be merged
+         * during encoding. Rules are ordered by training priority (most
+         * frequent pairs merged first become earlier rules).
+         *
+         * @return const std::vector<std::pair<std::string, std::string>>&
+         *         Ordered list of (left, right) token pairs to merge.
+         */
+        const std::vector<std::pair<std::string, std::string>>& getMergeRules() const
+        {
+            return merges_;
+        }
+
+        /**
+         * @brief Get special token ID by type.
+         *
+         * @param type Special token type ('p'=pad, 'u'=unk, 'b'=bos, 'e'=eos)
+         * @return std::optional<uint32_t> Token ID if present, nullopt otherwise.
+         */
+        std::optional<uint32_t> getSpecialTokenId( char type ) const
+        {
+            auto it = special_token_ids_.find( type );
+            if ( it != special_token_ids_.end() ) {
+                return it->second;
+            }
+            return std::nullopt;
+        }
+
+    private:
+
+        /**
+         * @brief Hash function for string pairs (for unordered_map).
+         */
+        struct PairHash {
+            size_t operator()( const std::pair<std::string, std::string>& p ) const {
+                return std::hash<std::string>{}(p.first) ^
+                    (std::hash<std::string>{}(p.second) << 1);
+            }
+        };
+
+        /**
+         * @brief Pre-tokenize text into words/units for BPE processing.
+         *
+         * Current implementation: Simple whitespace splitting.
+         *
+         * TODO: Implement GPT-2 style regex pattern:
+         * - Splits on whitespace and punctuation
+         * - Preserves contractions (don't, can't)
+         * - Handles numbers specially
+         * Pattern: r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+         */
+        std::vector<std::string> preTokenize( const std::string& text ) const
+        {
+            std::vector<std::string> words;
+            std::istringstream stream( text );
+            std::string word;
+
+            while ( stream >> word ) {
+                if ( !word.empty() ) {
+                    words.push_back( word );
+                }
+            }
+
+            return words;
+        }
+
+        /**
+         * @brief Count all adjacent token pairs in the corpus.
+         */
+        std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash>
+            countPairs( const std::vector<std::vector<std::string>>& corpus ) const
+        {
+            std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash> counts;
+
+            for ( const auto& tokens : corpus ) {
+                for ( size_t i = 0; i + 1 < tokens.size(); ++i ) {
+                    counts[ {tokens[ i ], tokens[ i + 1 ]} ]++;
+                }
+            }
+
+            return counts;
+        }
+
+        /**
+         * @brief Find the most frequent pair in the counts map.
+         */
+        std::pair<std::pair<std::string, std::string>, size_t>
+            getMostFrequentPair( const std::unordered_map<std::pair<std::string, std::string>,
+                size_t, PairHash>& counts ) const
+        {
+            if ( counts.empty() ) {
+                return std::make_pair( std::make_pair( std::string(), std::string() ), size_t( 0 ) );
+                //return { {{"", ""}, 0} };
+            }
+
+            auto best = std::max_element(
+                counts.begin(), counts.end(),
+                []( const auto& a, const auto& b ) { return a.second < b.second; }
+            );
+
+            return *best;
+        }
+
+        /**
+         * @brief Apply a merge operation to the entire corpus.
+         */
+        void applyMerge( std::vector<std::vector<std::string>>& corpus,
+            const std::string& left,
+            const std::string& right,
+            const std::string& merged ) const
+        {
+            for ( auto& tokens : corpus ) {
+                std::vector<std::string> new_tokens;
+                new_tokens.reserve( tokens.size() );
+
+                size_t i = 0;
+                while ( i < tokens.size() ) {
+                    if ( i + 1 < tokens.size() &&
+                        tokens[ i ] == left &&
+                        tokens[ i + 1 ] == right ) {
+                        new_tokens.push_back( merged );
+                        i += 2;
+                    }
+                    else {
+                        new_tokens.push_back( tokens[ i ] );
+                        ++i;
+                    }
+                }
+
+                tokens = std::move( new_tokens );
+            }
+        }
+
+        /**
+         * @brief Add a special token to the vocabulary.
+         */
+        void addSpecialToken( const std::string& token, uint32_t id, const std::string& type )
+        {
+            id_to_token_.push_back( token );
+            token_to_id_[ token ] = id;
+
+            // Map type to char: pad='p', unk='u', bos='b', eos='e'
+            char type_char = type.empty() ? '?' : type[ 0 ];
+            special_token_ids_[ type_char ] = id;
+        }
+
+        std::unordered_map<std::string, uint32_t> token_to_id_;
+        std::vector<std::string> id_to_token_;
+        std::vector<std::pair<std::string, std::string>> merges_;
+        std::unordered_map<char, uint32_t> special_token_ids_;  // type -> id
+    };
+
+    // ------------------------------------------------------------------------
+    // Basic external-format loaders (stubs)
+    //
+    // These provide definitions for pre-trained loader entry points that are
+    // referenced by BpeTokenizer::load* helper functions. The current project
+    // uses a compact binary `save()`/`load()` format; if callers provide the
+    // binary file written by `save()` we forward to `load()`. For other
+    // external formats (GPT-2/LLAMA/Mistral) a proper parser should be
+    // implemented here in the future. For now we raise a clear runtime error
+    // explaining the limitation.
+    // ------------------------------------------------------------------------
+
+    BpeVocabulary BpeVocabulary::loadGpt2(
+        const std::filesystem::path& vocabPath,
+        const std::filesystem::path& mergesPath
+    )
+    {
+        // Prefer to load an existing binary vocabulary if provided.
+        try {
+            return load( vocabPath );
+        }
+        catch ( const std::exception& e ) {
+            (void)e;
+            throw std::runtime_error(
+                "BpeVocabulary::loadGpt2 not implemented for non-binary vocab files. "
+                "Provide a binary vocabulary produced by BpeVocabulary::save(), or implement GPT-2 parsing."
+            );
+        }
+    }
+
+    BpeVocabulary BpeVocabulary::loadLlama( const std::filesystem::path& modelPath )
+    {
+        try {
+            return load( modelPath );
+        }
+        catch ( const std::exception& e ) {
+            (void)e;
+            throw std::runtime_error(
+                "BpeVocabulary::loadLlama not implemented for model formats; "
+                "provide a binary vocabulary produced by BpeVocabulary::save(), or implement LLAMA parsing."
+            );
+        }
+    }
+
+    BpeVocabulary BpeVocabulary::loadMistral(
+        const std::filesystem::path& vocabPath,
+        const std::filesystem::path& mergesPath
+    )
+    {
+        try {
+            return load( vocabPath );
+        }
+        catch ( const std::exception& e ) {
+            (void)e;
+            throw std::runtime_error(
+                "BpeVocabulary::loadMistral not implemented for non-binary vocab files. "
+                "Provide a binary vocabulary produced by BpeVocabulary::save(), or implement Mistral parsing."
+            );
+        }
+    }
+}

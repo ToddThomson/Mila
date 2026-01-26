@@ -111,31 +111,6 @@ namespace Mila::Dnn::Data
         }
 
         /**
-         * @brief Encode and optionally add special tokens (BOS/EOS).
-         * @param text Input text to encode.
-         * @param addBos When true and a BOS token is available, insert at front.
-         * @param addEos When true and an EOS token is available, append at end.
-         * @return Token id vector including requested special tokens.
-         */
-        std::vector<TokenId> encodeWithSpecial(
-            const std::string& text,
-            bool addBos = true,
-            bool addEos = true
-        ) override {
-            auto tokens = encode( text );
-
-            if ( addBos && bosTokenId_ ) {
-                tokens.insert( tokens.begin(), *bosTokenId_ );
-            }
-
-            if ( addEos && eosTokenId_ ) {
-                tokens.push_back( *eosTokenId_ );
-            }
-
-            return tokens;
-        }
-
-        /**
          * @brief Get vocabulary size.
          * @return Number of tokens in the loaded vocabulary.
          */

@@ -22,12 +22,6 @@ namespace Mila::Dnn::Data
         std::vector<TokenId> encode( const std::string& text ) override;
         std::string decode( std::span<const TokenId> tokens ) override;
 
-        std::vector<TokenId> encodeWithSpecial(
-            const std::string& text,
-            bool addBos = true,
-            bool addEos = true
-        ) override;
-
         size_t getVocabSize() const override {
             return vocabSize_;
         }
@@ -175,24 +169,6 @@ namespace Mila::Dnn::Data
     std::vector<TokenId> LlamaTokenizer::encode( const std::string& text ) {
         std::string normalized = normalizeText( text );
         return sentencePieceEncode( normalized );
-    }
-
-    std::vector<TokenId> LlamaTokenizer::encodeWithSpecial(
-        const std::string& text,
-        bool addBos,
-        bool addEos
-    ) {
-        auto tokens = encode( text );
-
-        if ( addBos && bosTokenId_ ) {
-            tokens.insert( tokens.begin(), *bosTokenId_ );
-        }
-
-        if ( addEos && eosTokenId_ ) {
-            tokens.push_back( *eosTokenId_ );
-        }
-
-        return tokens;
     }
 
     std::vector<TokenId> LlamaTokenizer::sentencePieceEncode( const std::string& text ) const {

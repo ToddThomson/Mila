@@ -26,13 +26,6 @@ namespace Mila::Dnn::Data
         // Decode token IDs back to text
         virtual std::string decode( std::span<const TokenId> tokens ) = 0;
 
-        // Encode with special tokens (BOS/EOS)
-        virtual std::vector<TokenId> encodeWithSpecial(
-            const std::string& text,
-            bool addBos = true,
-            bool addEos = true
-        ) = 0;
-
         // Get vocabulary size
         virtual size_t getVocabSize() const = 0;
 

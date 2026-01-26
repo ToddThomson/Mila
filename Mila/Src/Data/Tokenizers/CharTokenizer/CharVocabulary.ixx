@@ -17,9 +17,10 @@ module;
 #include <filesystem>
 #include <optional>
 
-export module Data.CharTokenizerVocabulary;
+export module Data.CharVocabulary;
 
 import Data.TokenizerVocabulary;
+import Data.SpecialTokens;
 
 namespace Mila::Data
 {
@@ -39,13 +40,59 @@ namespace Mila::Data
      * - Special token ids (pad/unk) are optional; when present their ids are
      *   returned by tokenToId() for unknown tokens if configured.
      */
-    export class CharTokenizerVocabulary : public TokenizerVocabulary
+    export class CharVocabulary : public TokenizerVocabulary
     {
     public:
+
         /**
-         * @brief Construct an empty vocabulary.
+         * @brief Load vocabulary state from disk.
+         *
+         * Replaces the in-memory state with the contents of the file.
+         * Throws std::runtime_error on I/O or format errors.
+         *
+         * @param path Filesystem path to read the vocabulary from.
+         * @return Number of tokens loaded.
          */
-        CharTokenizerVocabulary() = default;
+        static CharVocabulary load( const std::filesystem::path& path )
+        {
+            std::ifstream file( path.string(), std::ios::binary );
+
+            if ( !file )
+            {
+                throw std::runtime_error( "Cannot open vocabulary file: " + path.string() );
+            }
+
+            CharVocabulary vocab;
+
+            vocab.char_to_idx_.clear();
+            vocab.idx_to_char_.clear();
+
+            size_t vocab_size;
+            file.read( reinterpret_cast<char*>(&vocab_size), sizeof( vocab_size ) );
+
+            bool has_special;
+            file.read( reinterpret_cast<char*>(&has_special), sizeof( has_special ) );
+
+            if ( has_special )
+            {
+                file.read( reinterpret_cast<char*>(&vocab.pad_token_id_), sizeof( vocab.pad_token_id_ ) );
+                file.read( reinterpret_cast<char*>(&vocab.unk_token_id_), sizeof( vocab.unk_token_id_ ) );
+            }
+            else
+            {
+                vocab.pad_token_id_ = -1;
+                vocab.unk_token_id_ = -1;
+            }
+
+            vocab.idx_to_char_.resize( vocab_size );
+            for ( size_t i = 0; i < vocab_size; ++i )
+            {
+                char c;
+                file.read( &c, sizeof( char ) );
+                vocab.idx_to_char_[ i ] = c;
+                vocab.char_to_idx_[ c ] = static_cast<int>( i );
+            }
+        }
 
         /**
          * @brief Builds vocabulary from text corpus.
@@ -57,7 +104,12 @@ namespace Mila::Data
          * @param add_special_tokens Whether to include PAD and UNK at the start.
          * @return Number of tokens in vocabulary after build.
          */
-        size_t buildFromText( const std::string& text, bool add_special_tokens = true )
+        size_t buildFromText(
+            const std::string& text,
+            const SpecialTokens& special_tokens = SpecialTokens{},
+            bool case_sensitive = true,
+            bool normalize_unicode = false,
+            bool byte_level = false )
         {
             char_to_idx_.clear();
             idx_to_char_.clear();
@@ -105,7 +157,7 @@ namespace Mila::Data
 
             int idx = 0;
 
-            if ( add_special_tokens )
+            if ( special_tokens.enabled )
             {
                 pad_token_id_ = idx++;
                 unk_token_id_ = idx++;
@@ -121,7 +173,7 @@ namespace Mila::Data
             {
                 char c = static_cast<char>( ub );
 
-                if ( !add_special_tokens || ( c != '\0' && c != '\1' ) )
+                if ( !special_tokens.enabled || ( c != '\0' && c != '\1' ) )
                 {
                     idx_to_char_.push_back( c );
                     char_to_idx_[ c ] = idx++;
@@ -170,57 +222,7 @@ namespace Mila::Data
             }
         }
 
-        /**
-         * @brief Load vocabulary state from disk.
-         *
-         * Replaces the in-memory state with the contents of the file.
-         * Throws std::runtime_error on I/O or format errors.
-         *
-         * @param path Filesystem path to read the vocabulary from.
-         * @return Number of tokens loaded.
-         */
-        void load( const std::filesystem::path& path ) override
-        {
-            std::ifstream file( path.string(), std::ios::binary );
-            if (!file)
-            {
-                throw std::runtime_error( "Cannot open vocabulary file: " + path.string() );
-            }
-
-            char_to_idx_.clear();
-            idx_to_char_.clear();
-
-            size_t vocab_size;
-            file.read( reinterpret_cast<char*>(&vocab_size), sizeof( vocab_size ) );
-
-            bool has_special;
-            file.read( reinterpret_cast<char*>(&has_special), sizeof( has_special ) );
-
-            if (has_special)
-            {
-                file.read( reinterpret_cast<char*>(&pad_token_id_), sizeof( pad_token_id_ ) );
-                file.read( reinterpret_cast<char*>(&unk_token_id_), sizeof( unk_token_id_ ) );
-            }
-            else
-            {
-                pad_token_id_ = -1;
-                unk_token_id_ = -1;
-            }
-
-            idx_to_char_.resize( vocab_size );
-            for ( size_t i = 0; i < vocab_size; ++i )
-            {
-                char c;
-                file.read( &c, sizeof( char ) );
-                idx_to_char_[i] = c;
-                char_to_idx_[c] = static_cast<int>( i );
-            }
-
-            if (!file)
-            {
-                throw std::runtime_error( "Error reading vocabulary file: " + path.string() );
-            }
-        }
+        
 
         /**
          * @brief Returns vocabulary size.
@@ -333,6 +335,12 @@ namespace Mila::Data
         ///@}
 
     private:
+
+        friend class CharTrainer;
+        friend class CharTokenizer;
+
+        CharVocabulary() = default;
+
         std::unordered_map<char, int> char_to_idx_;
         std::vector<char> idx_to_char_;
         int pad_token_id_{ -1 };

@@ -124,17 +124,6 @@ TEST(Gpt2TokenizerTest, LoadEncodeDecodeAndSpecialTokens)
     ASSERT_EQ(encoded.size(), 1u);
     EXPECT_EQ(encoded[0], 2u);
 
-    // Encode with special tokens -> [BOS, A, EOS]
-    auto encodedWith = tokenizer->encodeWithSpecial("A", true, true);
-    ASSERT_EQ(encodedWith.size(), 3u);
-    EXPECT_EQ(encodedWith[0], 0u);
-    EXPECT_EQ(encodedWith[1], 2u);
-    EXPECT_EQ(encodedWith[2], 1u);
-
-    // Decode should concatenate token strings
-    std::string decoded = tokenizer->decode(std::span<const TokenId>(encodedWith.data(), encodedWith.size()));
-    EXPECT_EQ(decoded, std::string("<bos>") + "A" + std::string("<eos>"));
-
     // tokenToString for unknown token id should return "<UNK>"
     EXPECT_EQ(tokenizer->tokenToString(0xFFFFFFFFu), std::string("<UNK>"));
 

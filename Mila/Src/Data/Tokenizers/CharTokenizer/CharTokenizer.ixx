@@ -13,9 +13,11 @@ module;
 #include <span>
 #include <memory>
 #include <optional>
+#include <filesystem>
 
 export module Data.CharTokenizer;
 
+import Data.CharVocabulary;
 import Data.Tokenizer;
 import Data.TokenizerVocabulary;
 
@@ -50,15 +52,24 @@ namespace Mila::Data
     export class CharTokenizer : public Tokenizer
     {
     public:
+
         /**
          * @brief Construct a CharTokenizer with a vocabulary.
          *
          * @param vocab Shared pointer to a TokenizerVocabulary implementation.
          *              Must remain valid for the lifetime of this tokenizer.
          */
-        explicit CharTokenizer( std::shared_ptr<TokenizerVocabulary> vocab )
+        explicit CharTokenizer( CharVocabulary vocab )
             : vocab_( std::move( vocab ) )
+        {}
+
+        // ========================================================================
+        // Convenience Loading Method(s)
+        // ========================================================================
+
+        static CharTokenizer load( const std::filesystem::path& path )
         {
+            return CharTokenizer( CharVocabulary::load( path ) );
         }
 
         /**
@@ -77,33 +88,11 @@ namespace Mila::Data
             for ( unsigned char c : text )
             {
                 std::string tk( 1, static_cast<char>( c ) );
-                auto id_opt = vocab_->tokenToId( tk );
+                auto id_opt = vocab_.tokenToId( tk );
                 out.push_back( id_opt ? *id_opt : static_cast<TokenId>( 0u ) );
             }
 
             return out;
-        }
-
-        /**
-         * @brief Encode text with optional special tokens.
-         *
-         * The generic vocabulary interface does not provide BOS/EOS ids, so the
-         * `addBos` and `addEos` flags are ignored and this forwards to `encode()`.
-         *
-         * @param text Input text.
-         * @param addBos Ignored.
-         * @param addEos Ignored.
-         * @return Vector of token ids.
-         */
-        std::vector<TokenId> encodeWithSpecial(
-            const std::string& text,
-            bool addBos = true,
-            bool addEos = true ) override
-        {
-            (void)addBos;
-            (void)addEos;
-
-            return encode( text );
         }
 
         /**
@@ -123,7 +112,7 @@ namespace Mila::Data
 
             for ( TokenId id : tokens )
             {
-                auto tok_opt = vocab_->idToToken( id );
+                auto tok_opt = vocab_.idToToken( id );
                 if ( tok_opt && !tok_opt->empty() )
                 {
                     out.push_back( (*tok_opt)[0] );
@@ -142,7 +131,7 @@ namespace Mila::Data
          */
         size_t getVocabSize() const override
         {
-            return vocab_ ? vocab_->getSize() : 0u;
+            return vocab_.getSize();
         }
 
         /**
@@ -179,7 +168,7 @@ namespace Mila::Data
          */
         std::string tokenToString( TokenId tokenId ) const override
         {
-            auto tok = vocab_->idToToken( tokenId );
+            auto tok = vocab_.idToToken( tokenId );
             return tok ? *tok : std::string();
         }
 
@@ -188,10 +177,10 @@ namespace Mila::Data
          */
         bool isValidToken( TokenId tokenId ) const override
         {
-            return static_cast<bool>( vocab_->idToToken( tokenId ) );
+            return static_cast<bool>( vocab_.idToToken( tokenId ) );
         }
 
     private:
-        std::shared_ptr<TokenizerVocabulary> vocab_;
+        CharVocabulary vocab_;
     };
 }

@@ -7,7 +7,7 @@
  * - encode: Convert text to token IDs using a vocabulary
  * - decode: Convert token IDs back to text using a vocabulary
  *
- * Uses TokenizerFactory to obtain trainers and tokenizers for different types (char, bpe).
+ * Uses TrainerFactory to obtain trainers and tokenizers for different types (char, bpe).
  */
 
 #include <iostream>
@@ -23,10 +23,12 @@
 #include <optional>
 #include <memory>
 
-import Data.TokenizerFactory;
-import Data.TokenizerType;
-import Data.TokenizerVocabulary;
+import Data.TrainerFactory;
+import Data.BpeTrainer;
+import Data.CharTrainer;
 import Data.Tokenizer;
+import Data.BpeTokenizer;
+import Data.CharTokenizer;
 
 namespace fs = std::filesystem;
 using namespace Mila::Data;
@@ -44,15 +46,44 @@ enum class Command {
     Help
 };
 
+enum class TokenizerType {
+    Unknown,
+    Char,
+    Bpe
+};
+
 struct Args {
     Command command = Command::Unknown;
     std::string input_file;
     std::string output_file;
     std::string vocab_file;
     TokenizerType tokenizer_type = TokenizerType::Char;
-    size_t vocab_size = 0;  // For BPE training
+    size_t vocab_size = 30000;      // Default for BPE
+    size_t min_frequency = 2;       // Default for BPE
+    bool byte_level = false;        // Default for BPE/Char
+    bool case_sensitive = true;     // Default for Char
     bool force = false;
 };
+
+// ============================================================================
+// Helper functions
+// ============================================================================
+
+static std::string_view tokenizerTypeToString( TokenizerType type )
+{
+    switch ( type ) {
+        case TokenizerType::Char: return "char";
+        case TokenizerType::Bpe:  return "bpe";
+        default:                  return "unknown";
+    }
+}
+
+static TokenizerType tokenizerTypeFromString( std::string_view str )
+{
+    if ( str == "char" ) return TokenizerType::Char;
+    if ( str == "bpe" )  return TokenizerType::Bpe;
+    return TokenizerType::Unknown;
+}
 
 // ============================================================================
 // Usage and help
@@ -72,7 +103,11 @@ Train Options:
   --input <file>       Input text corpus file (required)
   --output <file>      Output vocabulary file (required)
   --type <char|bpe>    Tokenizer type (default: char)
-  --vocab-size <n>     Vocabulary size for BPE (required for BPE)
+  --vocab-size <n>     Vocabulary size for BPE (default: 30000)
+  --min-freq <n>       Minimum frequency for BPE merges (default: 2)
+  --byte-level         Use byte-level encoding
+  --case-sensitive     Use case-sensitive encoding (char only, default: true)
+  --case-insensitive   Use case-insensitive encoding (char only)
   --force              Force rebuild even if output exists
 
 Encode Options:
@@ -91,8 +126,14 @@ Examples:
   # Train a character-level vocabulary
   tokenize train --input corpus.txt --output vocab.bin --type char
 
+  # Train a case-insensitive character vocabulary
+  tokenize train --input corpus.txt --output vocab.bin --type char --case-insensitive
+
   # Train a BPE vocabulary with 32000 tokens
   tokenize train --input corpus.txt --output vocab.bin --type bpe --vocab-size 32000
+
+  # Train a byte-level BPE vocabulary
+  tokenize train --input corpus.txt --output vocab.bin --type bpe --byte-level
 
   # Encode text using the vocabulary
   tokenize encode --vocab vocab.bin --input train.txt --output train.tokens --type char
@@ -104,7 +145,7 @@ Examples:
 
 static Command commandFromString( std::string_view str )
 {
-    if ( str == "train" ) return Command::Train;
+    if ( str == "train" )  return Command::Train;
     if ( str == "encode" ) return Command::Encode;
     if ( str == "decode" ) return Command::Decode;
     if ( str == "help" || str == "--help" || str == "-h" ) return Command::Help;
@@ -138,13 +179,25 @@ static Args parseArgs( int argc, char** argv )
             args.vocab_file = argv[ ++i ];
         }
         else if ( arg == "--type" && i + 1 < argc ) {
-            args.tokenizer_type = from_string( argv[ ++i ] );
+            args.tokenizer_type = tokenizerTypeFromString( argv[ ++i ] );
             if ( args.tokenizer_type == TokenizerType::Unknown ) {
                 throw std::runtime_error( "Unknown tokenizer type: " + std::string( argv[ i ] ) );
             }
         }
         else if ( arg == "--vocab-size" && i + 1 < argc ) {
             args.vocab_size = std::stoull( argv[ ++i ] );
+        }
+        else if ( arg == "--min-freq" && i + 1 < argc ) {
+            args.min_frequency = std::stoull( argv[ ++i ] );
+        }
+        else if ( arg == "--byte-level" ) {
+            args.byte_level = true;
+        }
+        else if ( arg == "--case-sensitive" ) {
+            args.case_sensitive = true;
+        }
+        else if ( arg == "--case-insensitive" ) {
+            args.case_sensitive = false;
         }
         else if ( arg == "--force" || arg == "-f" ) {
             args.force = true;
@@ -164,9 +217,6 @@ static void validateTrainArgs( const Args& args )
     }
     if ( args.output_file.empty() ) {
         throw std::runtime_error( "--output is required for train command" );
-    }
-    if ( args.tokenizer_type == TokenizerType::Bpe && args.vocab_size == 0 ) {
-        throw std::runtime_error( "--vocab-size is required for BPE tokenizer" );
     }
 }
 
@@ -214,34 +264,64 @@ static int trainCommand( const Args& args )
     std::cout << "Training vocabulary..." << std::endl;
     std::cout << "  Input:      " << args.input_file << std::endl;
     std::cout << "  Output:     " << args.output_file << std::endl;
-    std::cout << "  Type:       " << to_string( args.tokenizer_type ) << std::endl;
-    if ( args.vocab_size > 0 ) {
+    std::cout << "  Type:       " << tokenizerTypeToString( args.tokenizer_type ) << std::endl;
+
+    if ( args.tokenizer_type == TokenizerType::Bpe ) {
         std::cout << "  Vocab size: " << args.vocab_size << std::endl;
+        std::cout << "  Min freq:   " << args.min_frequency << std::endl;
     }
+
+    std::cout << "  Byte-level: " << (args.byte_level ? "yes" : "no") << std::endl;
+
+    if ( args.tokenizer_type == TokenizerType::Char ) {
+        std::cout << "  Case-sens:  " << (args.case_sensitive ? "yes" : "no") << std::endl;
+    }
+
     std::cout << std::endl;
 
-    // Create trainer
-    auto trainer = TokenizerFactory::createTrainer( args.tokenizer_type );
-    if ( !trainer ) {
-        throw std::runtime_error( "Failed to create trainer for type: " +
-            std::string( to_string( args.tokenizer_type ) ) );
+    // Train based on type
+    if ( args.tokenizer_type == TokenizerType::Bpe ) {
+        // Create BPE config using fluent API
+        BpeTrainerConfig config;
+        config.withVocabSize( args.vocab_size )
+            .withMinFrequency( args.min_frequency )
+            .withByteLevel( args.byte_level );
+            // FIXME: .withSpecialTokens( { "<|endoftext|>", "<|pad|>" } );
+
+        // Create trainer and add corpus
+        BpeTrainer trainer( config );
+        trainer.addCorpusFromFile( args.input_file );
+
+        // Train and save
+        BpeVocabulary vocab = trainer.train();
+        vocab.save( args.output_file );
+
+        std::cout << "Training complete!" << std::endl;
+        std::cout << "  Vocabulary size: " << vocab.getSize() << std::endl;
+        std::cout << "  Saved to: " << args.output_file << std::endl;
     }
+    else if ( args.tokenizer_type == TokenizerType::Char ) {
+        // Create Char config using fluent API
+        CharTrainerConfig config;
+        config.withCaseSensitive( args.case_sensitive )
+            .withByteLevel( args.byte_level );
+            // FIXME:.withSpecialTokens( { "<PAD>", "<UNK>", "<BOS>", "<EOS>" } );
 
-    // Add corpus from file
-    trainer->addCorpusFromFile( args.input_file );
+        // Create trainer and add corpus
+        CharTrainer trainer( config );
+        trainer.addCorpusFromFile( args.input_file );
 
-    // Train vocabulary
-    auto vocab = trainer->train();
-    if ( !vocab ) {
-        throw std::runtime_error( "Training failed to produce vocabulary" );
+        // Train and save
+        CharVocabulary vocab = trainer.train();
+        vocab.save( args.output_file );
+
+        std::cout << "Training complete!" << std::endl;
+        std::cout << "  Vocabulary size: " << vocab.size() << std::endl;
+        std::cout << "  Saved to: " << args.output_file << std::endl;
     }
-
-    // Save vocabulary
-    vocab->save( args.output_file );
-
-    std::cout << "Training complete!" << std::endl;
-    std::cout << "  Vocabulary size: " << vocab->getSize() << std::endl;
-    std::cout << "  Saved to: " << args.output_file << std::endl;
+    else {
+        throw std::runtime_error( "Unsupported tokenizer type" );
+    }
 
     return 0;
 }
@@ -258,24 +338,24 @@ static int encodeCommand( const Args& args )
     std::cout << "  Vocabulary: " << args.vocab_file << std::endl;
     std::cout << "  Input:      " << args.input_file << std::endl;
     std::cout << "  Output:     " << args.output_file << std::endl;
-    std::cout << "  Type:       " << to_string( args.tokenizer_type ) << std::endl;
+    std::cout << "  Type:       " << tokenizerTypeToString( args.tokenizer_type ) << std::endl;
     std::cout << std::endl;
 
-    // Load vocabulary
-    auto vocab = TokenizerFactory::createVocabulary( args.tokenizer_type );
-    if ( !vocab ) {
-        throw std::runtime_error( "Failed to create vocabulary for type: " +
-            std::string( to_string( args.tokenizer_type ) ) );
+    // Load tokenizer based on type
+    std::unique_ptr<Tokenizer> tokenizer;
+
+    if ( args.tokenizer_type == TokenizerType::Bpe ) {
+        BpeVocabulary vocab = BpeVocabulary::load( args.vocab_file );
+        std::cout << "  Loaded vocabulary: " << vocab.getSize() << " tokens" << std::endl;
+        tokenizer = std::make_unique<BpeTokenizer>( std::move( vocab ) );
     }
-    vocab->load( args.vocab_file );
-
-    std::cout << "  Loaded vocabulary: " << vocab->getSize() << " tokens" << std::endl;
-
-    // Create tokenizer
-    auto tokenizer = TokenizerFactory::createTokenizer( args.tokenizer_type, vocab );
-    if ( !tokenizer ) {
-        throw std::runtime_error( "Failed to create tokenizer for type: " +
-            std::string( to_string( args.tokenizer_type ) ) );
+    else if ( args.tokenizer_type == TokenizerType::Char ) {
+        CharVocabulary vocab = CharVocabulary::load( args.vocab_file );
+        std::cout << "  Loaded vocabulary: " << vocab.size() << " tokens" << std::endl;
+        tokenizer = std::make_unique<CharTokenizer>( std::move( vocab ) );
+    }
+    else {
+        throw std::runtime_error( "Unsupported tokenizer type" );
     }
 
     // Read input text
@@ -310,7 +390,7 @@ static int encodeCommand( const Args& args )
     size_t num_tokens = tokens.size();
     output.write( reinterpret_cast<const char*>(&num_tokens), sizeof( num_tokens ) );
     output.write( reinterpret_cast<const char*>(tokens.data()),
-        static_cast<std::streamsize>(tokens.size() * sizeof( uint32_t )) );
+        static_cast<std::streamsize>(tokens.size() * sizeof( TokenId )) );
 
     if ( !output ) {
         throw std::runtime_error( "Error writing output file: " + args.output_file );
@@ -334,24 +414,24 @@ static int decodeCommand( const Args& args )
     std::cout << "  Vocabulary: " << args.vocab_file << std::endl;
     std::cout << "  Input:      " << args.input_file << std::endl;
     std::cout << "  Output:     " << args.output_file << std::endl;
-    std::cout << "  Type:       " << to_string( args.tokenizer_type ) << std::endl;
+    std::cout << "  Type:       " << tokenizerTypeToString( args.tokenizer_type ) << std::endl;
     std::cout << std::endl;
 
-    // Load vocabulary
-    auto vocab = TokenizerFactory::createVocabulary( args.tokenizer_type );
-    if ( !vocab ) {
-        throw std::runtime_error( "Failed to create vocabulary for type: " +
-            std::string( to_string( args.tokenizer_type ) ) );
+    // Load tokenizer based on type
+    std::unique_ptr<Tokenizer> tokenizer;
+
+    if ( args.tokenizer_type == TokenizerType::Bpe ) {
+        BpeVocabulary vocab = BpeVocabulary::load( args.vocab_file );
+        std::cout << "  Loaded vocabulary: " << vocab.getSize() << " tokens" << std::endl;
+        tokenizer = std::make_unique<BpeTokenizer>( std::move( vocab ) );
     }
-    vocab->load( args.vocab_file );
-
-    std::cout << "  Loaded vocabulary: " << vocab->getSize() << " tokens" << std::endl;
-
-    // Create tokenizer
-    auto tokenizer = TokenizerFactory::createTokenizer( args.tokenizer_type, vocab );
-    if ( !tokenizer ) {
-        throw std::runtime_error( "Failed to create tokenizer for type: " +
-            std::string( to_string( args.tokenizer_type ) ) );
+    else if ( args.tokenizer_type == TokenizerType::Char ) {
+        CharVocabulary vocab = CharVocabulary::load( args.vocab_file );
+        std::cout << "  Loaded vocabulary: " << vocab.getSize() << " tokens" << std::endl;
+        tokenizer = std::make_unique<CharTokenizer>( std::move( vocab ) );
+    }
+    else {
+        throw std::runtime_error( "Unsupported tokenizer type" );
     }
 
     // Read tokens file: [size_t num_tokens][uint32_t token_ids...]
@@ -366,9 +446,9 @@ static int decodeCommand( const Args& args )
         throw std::runtime_error( "Error reading token count from: " + args.input_file );
     }
 
-    std::vector<uint32_t> tokens( num_tokens );
+    std::vector<TokenId> tokens( num_tokens );
     input.read( reinterpret_cast<char*>(tokens.data()),
-        static_cast<std::streamsize>(num_tokens * sizeof( uint32_t )) );
+        static_cast<std::streamsize>(num_tokens * sizeof( TokenId )) );
 
     if ( !input && !input.eof() ) {
         throw std::runtime_error( "Error reading tokens from: " + args.input_file );

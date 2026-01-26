@@ -366,16 +366,21 @@ PUBLIC
         "Src/Dnn/Data/LlamaTokenizer.ixx"
         "Src/Dnn/Data/TokenizerVocabulary.ixx"
         "Src/Dnn/Data/TokenizerType.ixx"
-        
+
+        "Src/Data/Core/SpecialTokens.ixx"
+        "Src/Data/Core/TrainerConfig.ixx"        
         "Src/Data/Core/TokenizerTrainer.ixx"
-        "Src/Data/Core/TokenizerFactory.ixx"
+        "Src/Data/Core/TrainerFactory.ixx"
 
-        "src/Data/Tokenizers/BpeTokenizer/BpeTrainer.ixx"
-        "src/Data/Tokenizers/BpeTokenizer/BpeTrainer.Config.ixx"
+        "Src/Data/Tokenizers/BPETokenizer/BPETokenizer.ixx"
+        "Src/Data/Tokenizers/BpeTokenizer/BpeTrainer.ixx"
+        "Src/Data/Tokenizers/BpeTokenizer/BpeTrainer.Config.ixx"
+        "Src/Data/Tokenizers/BPETokenizer/BPEVocabulary.ixx"
 
-        "src/Data/Tokenizers/CharTokenizer/CharTokenizer.ixx"
-        "src/Data/Tokenizers/CharTokenizer/CharTokenizerTrainer.ixx"
-        "src/Data/Tokenizers/CharTokenizer/CharTokenizerVocabulary.ixx"
+        "Src/Data/Tokenizers/CharTokenizer/CharTokenizer.ixx"
+        "Src/Data/Tokenizers/CharTokenizer/CharTrainer.Config.ixx"
+        "Src/Data/Tokenizers/CharTokenizer/CharTrainer.ixx"
+        "Src/Data/Tokenizers/CharTokenizer/CharVocabulary.ixx"
 )
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)

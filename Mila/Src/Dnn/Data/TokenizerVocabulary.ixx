@@ -99,6 +99,6 @@ namespace Mila::Dnn::Data
          *
          * @param path Filesystem path to read the vocabulary from.
          */
-        virtual void load( const std::filesystem::path& path ) = 0;
+        //virtual void load( const std::filesystem::path& path ) = 0;
     };
 }
