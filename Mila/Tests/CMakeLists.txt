@@ -197,7 +197,7 @@ add_executable( MilaTests
     #"Dnn/Serialization/ModelArchive.cpp" 
     "Dnn/Networks/Gpt.Presets.cpp"
     "Dnn/Networks/Gpt.cpp"
- "Dnn/Networks/Llama.cpp" "Dnn/Networks/Llama.Presets.cpp" "Dnn/Data/Gpt2Tokenizer.cpp")
+ "Dnn/Networks/Llama.cpp" "Dnn/Networks/Llama.Presets.cpp" "Dnn/Data/Gpt2Tokenizer.cpp" "Data/CharTokenizer/CharVocabulary.cpp" "Data/BpeTokenizer/BpeVocabulary.cpp")
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

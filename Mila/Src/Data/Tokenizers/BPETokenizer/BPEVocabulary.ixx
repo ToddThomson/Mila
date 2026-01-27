@@ -23,7 +23,8 @@ module;
 
 export module Data.BpeVocabulary;
 
-import Data.SpecialTokens;
+import Data.BpeSpecialTokens;
+import Data.BpeTrainerConfig;
 import Data.TokenizerVocabulary;
 
 namespace Mila::Data
@@ -46,7 +47,7 @@ namespace Mila::Data
      * - More efficient than character-level for most languages
      *
      * Algorithm overview:
-     * 1. Initialize vocabulary with all 256 possible byte values
+     * 1. Initialize vocabulary with all 256 possible byte values (byte-level BPE)
      * 2. Add special tokens if requested
      * 3. Pre-tokenize text into words/subwords
      * 4. Iteratively merge the most frequent adjacent byte pair
@@ -163,6 +164,7 @@ namespace Mila::Data
                 vocab.token_to_id_[ vocab.id_to_token_[ i ] ] = i;
             }
 
+            return vocab;
         }
 
         // Load pre-trained vocabularies from external sources
@@ -183,49 +185,18 @@ namespace Mila::Data
         BpeVocabulary() = default;
 
         /**
-         * @brief Build a BPE vocabulary from raw text corpus.
+         * @brief Build a BPE vocabulary from raw text corpus using trainer config.
          *
-         * This is the primary training method that implements the BPE algorithm.
-         * The method:
-         * 1. Initializes with all 256 byte values (byte-level BPE)
-         * 2. Optionally adds special tokens
-         * 3. Pre-tokenizes text (splits on whitespace/punctuation)
-         * 4. Iteratively merges most frequent byte pairs
-         * 5. Stores merge rules for encoding
+         * The trainer config controls:
+         * - target vocabulary size (getVocabSize())
+         * - special tokens (getSpecialTokens())
+         * - minimum pair frequency (getMinFrequency())
+         * - byte-level vs char-level (isByteLevel())
+         * - max merges (getMaxMerges())
          *
-         * Pre-tokenization strategy:
-         * - Modern approach: GPT-2 style regex pattern matching
-         * - Current implementation: Simple whitespace splitting (can be enhanced)
-         *
-         * @param text Source corpus. Should be representative of target domain.
-         *             Larger, more diverse corpora generally produce better vocabularies.
-         * @param target_vocab_size Desired final vocabulary size including base bytes
-         *                          and special tokens. Typical values: 32000-50000 for LLMs.
-         *                          If 0 or <= base size, only byte tokens are included.
-         * @param special_tokens Configuration for special tokens to include.
-         *
-         * @return size_t Final vocabulary size (may be less than target if merges exhausted).
-         *
-         * @throws std::invalid_argument if target_vocab_size < base vocabulary size when
-         *                               special tokens would exceed available space.
-         *
-         * Performance notes:
-         * - Time complexity: O(n * m) where n = corpus size, m = merges performed
-         * - Space complexity: O(corpus_size + vocab_size)
-         * - For very large corpora (>1GB), consider sampling or chunked processing
-         *
-         * Example:
-         * @code
-         * BpeTokenizerVocabulary vocab;
-         * SpecialTokens config;
-         * config.add_special_tokens = true;
-         * size_t final_size = vocab.buildFromText(corpus, 32000, config);
-         * vocab.save("vocab.bin");
-         * @endcode
+         * Returns the final vocabulary size.
          */
-        size_t buildFromText( const std::string& text,
-            size_t target_vocab_size = 50000,
-            const SpecialTokens& special_tokens = SpecialTokens{} )
+        size_t buildFromText( const std::string& text, const BpeTrainerConfig& config )
         {
             token_to_id_.clear();
             id_to_token_.clear();
@@ -234,32 +205,73 @@ namespace Mila::Data
 
             uint32_t current_id = 0;
 
-            // Step 1: Add all 256 byte values as base vocabulary (byte-level BPE)
-            // This ensures we can represent any UTF-8 text
-            for ( int i = 0; i < 256; ++i ) {
-                std::string byte_token( 1, static_cast<char>( i ) );
-                id_to_token_.push_back( byte_token );
-                token_to_id_[ byte_token ] = current_id++;
+            const auto& special_tokens = config.getSpecialTokens();
+            const size_t target_vocab_size = config.getVocabSize();
+            const size_t min_frequency = config.getMinFrequency();
+            const bool byte_level = config.isByteLevel();
+            const size_t max_merges = config.getMaxMerges();
+
+            // Validate special token configuration (throws on invalid config)
+            if ( special_tokens.enabled ) {
+                special_tokens.validate();
             }
 
-            // Step 2: Add special tokens
+            // Step 1: Initialize base vocabulary
+            if ( byte_level ) {
+                // Add all 256 byte values as base vocabulary (byte-level BPE)
+                for ( int i = 0; i < 256; ++i ) {
+                    std::string byte_token( 1, static_cast<char>( i ) );
+                    id_to_token_.push_back( byte_token );
+                    token_to_id_[ byte_token ] = current_id++;
+                }
+            }
+            else {
+                // Character-level base vocabulary derived from the input text
+                std::unordered_set<unsigned char> unique_chars;
+                for ( unsigned char cu : text ) {
+                    unique_chars.insert( cu );
+                }
+
+                // Deterministic ordering
+                std::vector<unsigned char> sorted_chars( unique_chars.begin(), unique_chars.end() );
+                std::sort( sorted_chars.begin(), sorted_chars.end() );
+
+                for ( unsigned char cu : sorted_chars ) {
+                    std::string tok( 1, static_cast<char>( cu ) );
+                    id_to_token_.push_back( tok );
+                    token_to_id_[ tok ] = current_id++;
+                }
+            }
+
+            // Step 2: Add special tokens (BPE tokens are full strings; the token strings matter)
             if ( special_tokens.enabled ) {
+                // Core tokens
                 addSpecialToken( special_tokens.pad_token, current_id++, "pad" );
                 addSpecialToken( special_tokens.unk_token, current_id++, "unk" );
                 addSpecialToken( special_tokens.bos_token, current_id++, "bos" );
                 addSpecialToken( special_tokens.eos_token, current_id++, "eos" );
+
+                // Extended tokens (optional)
+                if ( !special_tokens.mask_token.empty() ) {
+                    addSpecialToken( special_tokens.mask_token, current_id++, "mask" );
+                }
+                if ( !special_tokens.sep_token.empty() ) {
+                    addSpecialToken( special_tokens.sep_token, current_id++, "sep" );
+                }
+                if ( !special_tokens.cls_token.empty() ) {
+                    addSpecialToken( special_tokens.cls_token, current_id++, "cls" );
+                }
             }
 
-            // If target is less than current size, we're done
-            if ( target_vocab_size == 0 || current_id >= target_vocab_size ) {
+            // If target is zero or already satisfied, return current size
+            if ( target_vocab_size == 0 || current_id >= static_cast<uint32_t>( target_vocab_size ) ) {
                 return id_to_token_.size();
             }
 
             // Step 3: Pre-tokenize text into words
-            // TODO: Enhance with GPT-2 style regex pattern for better pre-tokenization
             auto words = preTokenize( text );
 
-            // Step 4: Convert words to byte sequences
+            // Step 4: Convert words into token sequences (initial tokens are bytes or chars)
             std::vector<std::vector<std::string>> corpus_tokens;
             corpus_tokens.reserve( words.size() );
 
@@ -267,9 +279,16 @@ namespace Mila::Data
                 std::vector<std::string> tokens;
                 tokens.reserve( word.size() );
 
-                // Each byte becomes a token
-                for ( unsigned char byte : word ) {
-                    tokens.push_back( std::string( 1, static_cast<char>(byte) ) );
+                if ( byte_level ) {
+                    for ( unsigned char byte : word ) {
+                        tokens.push_back( std::string( 1, static_cast<char>( byte ) ) );
+                    }
+                }
+                else {
+                    // character-level: treat each char (byte) as token for now
+                    for ( unsigned char cu : word ) {
+                        tokens.push_back( std::string( 1, static_cast<char>( cu ) ) );
+                    }
                 }
 
                 if ( !tokens.empty() ) {
@@ -277,44 +296,51 @@ namespace Mila::Data
                 }
             }
 
-            // Step 5: BPE merge loop
-            while ( current_id < target_vocab_size ) {
-                // Count all adjacent pairs in corpus
+            // Step 5: BPE merge loop with frequency and max merge limits
+            size_t merges_performed = 0;
+            while ( current_id < static_cast<uint32_t>( target_vocab_size ) ) {
                 auto pair_counts = countPairs( corpus_tokens );
 
                 if ( pair_counts.empty() ) {
                     break;  // No more pairs to merge
                 }
 
-                // Find most frequent pair
-                auto [best_pair, count] = getMostFrequentPair( pair_counts );
+                auto best = getMostFrequentPair( pair_counts );
 
-                if ( count == 0 ) {
-                    break;  // No valid pairs
+                const auto& best_pair = best.first;
+                size_t best_count = best.second;
+
+                if ( best_count < min_frequency ) {
+                    break;  // No pair meets the minimum frequency threshold
                 }
 
-                // Create merged token
+                // Create merged token string
                 std::string merged = best_pair.first + best_pair.second;
 
-                // Check if merged token already exists (shouldn't happen, but safety check)
+                // Skip if token already exists
                 if ( token_to_id_.find( merged ) != token_to_id_.end() ) {
-                    // Skip this pair and continue
-                    continue;
+                    // Remove this pair and continue; but to keep simplicity, break if duplicated
+                    break;
                 }
 
                 // Apply merge to corpus
                 applyMerge( corpus_tokens, best_pair.first, best_pair.second, merged );
 
-                // Add to vocabulary
+                // Add merged token to vocabulary and record the merge rule
                 id_to_token_.push_back( merged );
                 token_to_id_[ merged ] = current_id;
-
-                // Store merge rule for encoding
                 merges_.push_back( best_pair );
 
                 ++current_id;
+                ++merges_performed;
+
+                if ( max_merges > 0 && merges_performed >= max_merges ) {
+                    break;
+                }
             }
 
+            // Final vocabulary size
+            
             return id_to_token_.size();
         }
 

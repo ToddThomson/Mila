@@ -241,6 +241,24 @@ export import Dnn.Networks.Llama;
 export import Dnn.Model;
 export import Dnn.ModelConfig;
 
+// ============================================================================
+// Data - Core
+// ============================================================================
+export import Data.SpecialTokens;
+
+// Data - Tokenizers
+export import Data.CharVocabulary;
+export import Data.CharTokenizer;
+export import Data.CharTrainer;
+export import Data.CharTrainerConfig;
+export import Data.CharSpecialTokens;
+
+export import Data.BpeVocabulary;
+export import Data.BpeTokenizer;
+export import Data.BpeTrainer;
+export import Data.BpeTrainerConfig;
+export import Data.BpeSpecialTokens;
+
 namespace Mila
 {
     namespace detail

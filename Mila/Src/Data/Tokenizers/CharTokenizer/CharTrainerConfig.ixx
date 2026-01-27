@@ -1,7 +1,6 @@
-export module Data.CharTrainer:Config;
+export module Data.CharTrainerConfig;
 
-import Data.TrainerConfig;
-import Data.SpecialTokens;
+import Data.CharSpecialTokens;
 
 namespace Mila::Data
 {
@@ -19,7 +18,7 @@ namespace Mila::Data
      *     .withNormalizeUnicode(true);
      * @endcode
      */
-    export class CharTrainerConfig : public TrainerConfig {
+    export class CharTrainerConfig {
     public:
         CharTrainerConfig() = default;
 
@@ -29,8 +28,9 @@ namespace Mila::Data
          * @param tokens SpecialTokens configuration.
          * @return Reference to this config for method chaining.
          */
-        CharTrainerConfig& withSpecialTokens( const SpecialTokens& tokens ) {
+        CharTrainerConfig& withSpecialTokens( const CharSpecialTokens& tokens ) {
             special_tokens_ = tokens;
+            
             return *this;
         }
 
@@ -45,6 +45,7 @@ namespace Mila::Data
          */
         CharTrainerConfig& withCaseSensitive( bool sensitive ) {
             case_sensitive_ = sensitive;
+            
             return *this;
         }
 
@@ -76,6 +77,10 @@ namespace Mila::Data
             return *this;
         }
 
+        const CharSpecialTokens& getSpecialTokens() const {
+            return special_tokens_;
+        }
+
         bool isCaseSensitive() const {
             return case_sensitive_;
         }
@@ -92,5 +97,6 @@ namespace Mila::Data
         bool case_sensitive_ = true;
         bool normalize_unicode_ = false;
         bool byte_level_ = false;
+        CharSpecialTokens special_tokens_{};
     };
 }

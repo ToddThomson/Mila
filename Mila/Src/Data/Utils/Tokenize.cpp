@@ -25,7 +25,9 @@
 
 import Data.TrainerFactory;
 import Data.BpeTrainer;
+import Data.BpeTrainerConfig;
 import Data.CharTrainer;
+import Data.CharTrainerConfig;
 import Data.Tokenizer;
 import Data.BpeTokenizer;
 import Data.CharTokenizer;
@@ -316,7 +318,7 @@ static int trainCommand( const Args& args )
         vocab.save( args.output_file );
 
         std::cout << "Training complete!" << std::endl;
-        std::cout << "  Vocabulary size: " << vocab.size() << std::endl;
+        std::cout << "  Vocabulary size: " << vocab.getSize() << std::endl;
         std::cout << "  Saved to: " << args.output_file << std::endl;
     }
     else {
@@ -351,7 +353,7 @@ static int encodeCommand( const Args& args )
     }
     else if ( args.tokenizer_type == TokenizerType::Char ) {
         CharVocabulary vocab = CharVocabulary::load( args.vocab_file );
-        std::cout << "  Loaded vocabulary: " << vocab.size() << " tokens" << std::endl;
+        std::cout << "  Loaded vocabulary: " << vocab.getSize() << " tokens" << std::endl;
         tokenizer = std::make_unique<CharTokenizer>( std::move( vocab ) );
     }
     else {

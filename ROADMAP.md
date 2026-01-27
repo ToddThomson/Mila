@@ -12,8 +12,8 @@
 - Core NN components with backward() implemented (Linear, Gelu, Softmax, CrossEntropy, etc.)
 - CUDA + CPU kernels for all built-in components and backend operations
 - MLP Block implementation
-- Gpt Block implementation
-- Llama Block implementation
+- Gpt2 TransformerBlock implementation
+- Llama TransformerBlock implementation
 - MNIST network implementation
 - MNIST data pipeline (functional)
 - DatasetReader interface (good, not production-ready)
@@ -26,9 +26,6 @@
 - Model class (experimental, unstable API, minimal functionality)
 - Loss functions on GPU (currently CPU-only with CPU gradients)
 - Testing completion (40% remaining)
-
-### ❌ Out of Scope
-- Autograd system (manual backward() only - design decision)
 
 ---
 

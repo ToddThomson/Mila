@@ -2,9 +2,9 @@ module;
 #include <cstddef>
 #include <string>
 
-export module Data.BpeTrainer:Config;
+export module Data.BpeTrainerConfig;
 
-import Data.TrainerConfig;
+import Data.BpeSpecialTokens;
 
 namespace Mila::Data
 {
@@ -30,7 +30,7 @@ namespace Mila::Data
     *     .withSpecialTokens(my_tokens);
     * @endcode
     */
-    export class BpeTrainerConfig : public TrainerConfig {
+    export class BpeTrainerConfig {
     public:
         BpeTrainerConfig() = default;
 
@@ -59,7 +59,7 @@ namespace Mila::Data
          * @param tokens SpecialTokens configuration.
          * @return Reference to this config for method chaining.
          */
-        BpeTrainerConfig& withSpecialTokens( const SpecialTokens& tokens ) {
+        BpeTrainerConfig& withSpecialTokens( const BpeSpecialTokens& tokens ) {
             special_tokens_ = tokens;
             return *this;
         }
@@ -152,7 +152,7 @@ namespace Mila::Data
          *
          * @return true if valid, false otherwise.
          */
-        bool isValid() const override {
+        bool isValid() const {
             if ( vocab_size_ == 0 ) return false;
             if ( min_frequency_ == 0 ) return false;
 
@@ -165,7 +165,10 @@ namespace Mila::Data
             return vocab_size_ > base_size;
         }
 
-        // Getters
+        const BpeSpecialTokens& getSpecialTokens() const {
+            return special_tokens_;
+        }
+
         size_t getVocabSize() const {
             return vocab_size_;
         }
@@ -189,6 +192,7 @@ namespace Mila::Data
         size_t vocab_size_ = 50000;
         size_t min_frequency_ = 2;
         bool byte_level_ = true;
+        BpeSpecialTokens special_tokens_;
         std::string pre_tokenization_pattern_ = "";  // Empty = simple whitespace
         size_t max_merges_ = 0;  // 0 = no limit
         bool enable_merge_caching_ = true;

@@ -19,7 +19,8 @@ module;
 #include <algorithm>
 
 export module Data.CharTrainer;
-export import :Config;
+
+import Data.CharTrainerConfig;
 
 import Data.CharTokenizer;
 import Data.CharVocabulary;
@@ -35,7 +36,7 @@ namespace Mila::Data
     using Mila::Dnn::Data::TokenizerVocabulary;
     using Mila::Dnn::Data::TokenId;
 
-    export class CharTrainer { // : public TokenizerTrainer {
+    export class CharTrainer {
     public:
         /**
          * @brief Construct with configuration.
@@ -46,7 +47,7 @@ namespace Mila::Data
             : config_( config )
         {}
 
-        void addCorpusFromStream( std::istream& stream ){
+        void addCorpusFromStream( std::istream& stream ) {
             // Read and accumulate corpus
             std::string buffer;
             buffer.resize( 64 * 1024 );
@@ -59,26 +60,22 @@ namespace Mila::Data
 
         void addCorpusFromFile( const fs::path& path ) {
             std::ifstream file( path, std::ios::binary );
+
             if ( !file ) {
                 throw std::runtime_error( "Cannot open corpus file: " + path.string() );
             }
+
             addCorpusFromStream( file );
         }
 
-        CharVocabulary train(){
+        CharVocabulary train()
+        {
             auto vocab = CharVocabulary();
 
-            // Build vocabulary from accumulated corpus using config
-            vocab.buildFromText(
-                corpus_,
-                config_.getSpecialTokens(),
-                config_.isCaseSensitive(),
-                config_.shouldNormalizeUnicode(),
-                config_.isByteLevel()
-            );
+            vocab.buildFromText( corpus_, config_ );
 
             corpus_.clear();  // Free memory
-            
+
             return vocab;
         }
 

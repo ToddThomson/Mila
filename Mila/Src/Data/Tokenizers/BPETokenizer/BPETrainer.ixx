@@ -17,8 +17,8 @@ module;
 #include <filesystem>
 
 export module Data.BpeTrainer;
-export import :Config;
 
+import Data.BpeTrainerConfig;
 import Data.BpeTokenizer;
 
 import Data.TokenizerTrainer;
@@ -78,17 +78,10 @@ namespace Mila::Data
             auto vocab = BpeVocabulary();
 
             // Build vocabulary using config
-            vocab.buildFromText(
-                corpus_,
-                config_.getVocabSize(),
-                config_.getSpecialTokens()
-                //config_.getMinFrequency(),
-                //config_.isByteLevel(),
-                //config_.getPreTokenizationPattern(),
-                //config_.getMaxMerges()
-            );
+            vocab.buildFromText( corpus_, config_ );
 
             corpus_.clear();  // Free memory
+
             return vocab;
         }
 

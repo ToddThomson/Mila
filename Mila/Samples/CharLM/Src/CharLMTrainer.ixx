@@ -258,13 +258,13 @@ namespace CharLM
 
         template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
             requires PrecisionSupportedOnDevice<TDataType, TDeviceType> &&
-        (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
-            std::string generateSample(
-                CharTransformer<TDeviceType, TDataType>* model,
-                const CharVocabulary& vocab,
-                DeviceId device_id,
-                const CharLMConfig& config,
-                size_t epoch )
+                (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
+        std::string generateSample(
+            CharTransformer<TDeviceType, TDataType>* model,
+            const CharVocabulary& vocab,
+            DeviceId device_id,
+            const CharLMConfig& config,
+            size_t epoch )
         {
             using DeviceMR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
 

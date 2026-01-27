@@ -22,10 +22,12 @@ import Data.TokenizerTrainer;
 import Data.TokenizerVocabulary;
 
 import Data.CharTrainer;
+import Data.CharTrainerConfig;
 import Data.CharVocabulary;
 import Data.CharTokenizer;
 
 import Data.BpeTrainer;
+import Data.BpeTrainerConfig;
 import Data.BpeVocabulary;
 import Data.BpeTokenizer;
 

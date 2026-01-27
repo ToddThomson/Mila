@@ -18,29 +18,32 @@ namespace Mila::Data
      *
      * This class is abstract and cannot be instantiated directly.
      */
-    export class TrainerConfig {
-    public:
-        virtual ~TrainerConfig() = default;
+     
+     // TJT: Remove as not required
+     
+    //export class TrainerConfig {
+    //public:
+    //    virtual ~TrainerConfig() = default;
 
-        /**
-         * @brief Get the configured special tokens.
-         */
-        const SpecialTokens& getSpecialTokens() const {
-            return special_tokens_;
-        }
+    //    /**
+    //     * @brief Get the configured special tokens.
+    //     */
+    //    const SpecialTokens& getSpecialTokens() const {
+    //        return special_tokens_;
+    //    }
 
-        /**
-         * @brief Check if configuration is valid.
-         *
-         * Implementations should override to add type-specific validation.
-         *
-         * @return true if configuration is valid, false otherwise.
-         */
-        virtual bool isValid() const {
-            return true;  // Base class has no invariants to check
-        }
+    //    /**
+    //     * @brief Check if configuration is valid.
+    //     *
+    //     * Implementations should override to add type-specific validation.
+    //     *
+    //     * @return true if configuration is valid, false otherwise.
+    //     */
+    //    virtual bool isValid() const {
+    //        return true;  // Base class has no invariants to check
+    //    }
 
-    protected:
-        SpecialTokens special_tokens_;
-    };
+    //protected:
+    //    SpecialTokens special_tokens_;
+    //};
 }

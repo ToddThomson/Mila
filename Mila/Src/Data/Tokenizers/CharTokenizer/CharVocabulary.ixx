@@ -16,11 +16,12 @@ module;
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <cctype>
 
 export module Data.CharVocabulary;
 
 import Data.TokenizerVocabulary;
-import Data.SpecialTokens;
+import Data.CharTrainerConfig;
 
 namespace Mila::Data
 {
@@ -92,24 +93,34 @@ namespace Mila::Data
                 vocab.idx_to_char_[ i ] = c;
                 vocab.char_to_idx_[ c ] = static_cast<int>( i );
             }
+
+            return vocab;
         }
 
         /**
          * @brief Builds vocabulary from text corpus.
          *
          * Extracts unique bytes and creates sorted, deterministic mappings.
-         * Optionally adds special tokens for padding and unknown values.
+         * Respects the training configuration provided by `CharTrainerConfig`.
+         *
+         * Behavior details:
+         * - CRLF sequences ("\r\n") are normalized to a single '\n'.
+         * - If `config.isCaseSensitive()` is false input bytes are lower-cased
+         *   using `std::tolower` on each byte (this is byte-level lowercasing).
+         * - Special tokens are reserved in a deterministic order:
+         *     PAD -> '\0', UNK -> '\1', BOS -> '\2', EOS -> '\3', MASK -> '\4'
+         *   Only PAD and UNK are surfaced by this class via `padTokenId()` and
+         *   `unkTokenId()`. Other reserved entries are present in the index
+         *   table for deterministic ordering but do not have dedicated getters.
          *
          * @param text Source text for vocabulary extraction.
-         * @param add_special_tokens Whether to include PAD and UNK at the start.
+         * @param config Trainer configuration that describes special token usage
+         *               and other flags (case sensitivity, byte-level, etc.)
          * @return Number of tokens in vocabulary after build.
          */
         size_t buildFromText(
             const std::string& text,
-            const SpecialTokens& special_tokens = SpecialTokens{},
-            bool case_sensitive = true,
-            bool normalize_unicode = false,
-            bool byte_level = false )
+            const CharTrainerConfig& config )
         {
             char_to_idx_.clear();
             idx_to_char_.clear();
@@ -120,22 +131,49 @@ namespace Mila::Data
             std::string norm;
             norm.reserve( text.size() );
 
-            for ( size_t i = 0; i < text.size(); ++i )
+            // Normalize CRLF -> LF and optionally lowercase depending on config
+            if ( config.isCaseSensitive() )
             {
-                char c = text[ i ];
-
-                if ( c == '\r' )
+                for ( size_t i = 0; i < text.size(); ++i )
                 {
-                    if ( i + 1 < text.size() && text[ i + 1 ] == '\n' )
+                    char c = text[ i ];
+
+                    if ( c == '\r' )
                     {
-                        continue;
-                    }
+                        if ( i + 1 < text.size() && text[ i + 1 ] == '\n' )
+                        {
+                            continue;
+                        }
 
-                    norm.push_back( '\n' );
+                        norm.push_back( '\n' );
+                    }
+                    else
+                    {
+                        norm.push_back( c );
+                    }
                 }
-                else
+            }
+            else
+            {
+                for ( size_t i = 0; i < text.size(); ++i )
                 {
-                    norm.push_back( c );
+                    unsigned char cu = static_cast<unsigned char>( text[ i ] );
+
+                    if ( cu == '\r' )
+                    {
+                        if ( i + 1 < text.size() && static_cast<unsigned char>( text[ i + 1 ] ) == '\n' )
+                        {
+                            continue;
+                        }
+
+                        norm.push_back( '\n' );
+                    }
+                    else
+                    {
+                        // Lowercase the byte (byte-level lowercasing)
+                        char lowered = static_cast<char>( std::tolower( cu ) );
+                        norm.push_back( lowered );
+                    }
                 }
             }
 
@@ -157,29 +195,75 @@ namespace Mila::Data
 
             int idx = 0;
 
-            if ( special_tokens.enabled )
+            // Reserve special tokens in deterministic order if requested by config.
+            // We map them to low-valued control bytes so they do not collide with
+            // printable characters when sorting the remainder.
+            std::vector<unsigned char> reserved_bytes;
+
+            const CharSpecialTokens& st = config.getSpecialTokens();
+
+            if ( st.use_pad )
             {
                 pad_token_id_ = idx++;
-                unk_token_id_ = idx++;
-
-                idx_to_char_.push_back( '\0' );  // PAD token
-                idx_to_char_.push_back( '\1' );  // UNK token
-
+                idx_to_char_.push_back( '\0' );  // PAD token placeholder byte
                 char_to_idx_['\0'] = pad_token_id_;
-                char_to_idx_['\1'] = unk_token_id_;
+                reserved_bytes.push_back( static_cast<unsigned char>('\0') );
             }
 
+            if ( st.use_unk )
+            {
+                unk_token_id_ = idx++;
+                idx_to_char_.push_back( '\1' );  // UNK token placeholder byte
+                char_to_idx_['\1'] = unk_token_id_;
+                reserved_bytes.push_back( static_cast<unsigned char>('\1') );
+            }
+
+            if ( st.use_bos )
+            {
+                idx_to_char_.push_back( '\2' );  // BOS placeholder byte
+                char_to_idx_['\2'] = idx++;
+                reserved_bytes.push_back( static_cast<unsigned char>('\2') );
+            }
+
+            if ( st.use_eos )
+            {
+                idx_to_char_.push_back( '\3' );  // EOS placeholder byte
+                char_to_idx_['\3'] = idx++;
+                reserved_bytes.push_back( static_cast<unsigned char>('\3') );
+            }
+
+            if ( st.use_mask )
+            {
+                idx_to_char_.push_back( '\4' );  // MASK placeholder byte
+                char_to_idx_['\4'] = idx++;
+                reserved_bytes.push_back( static_cast<unsigned char>('\4') );
+            }
+
+            // Append all sorted bytes that are not reserved by special tokens.
             for ( unsigned char ub : sorted_bytes )
             {
                 char c = static_cast<char>( ub );
 
-                if ( !special_tokens.enabled || ( c != '\0' && c != '\1' ) )
+                bool is_reserved = false;
+                for ( unsigned char rb : reserved_bytes )
+                {
+                    if ( rb == ub )
+                    {
+                        is_reserved = true;
+                        break;
+                    }
+                }
+
+                if ( !is_reserved )
                 {
                     idx_to_char_.push_back( c );
                     char_to_idx_[ c ] = idx++;
                 }
             }
 
+            // Final vocabulary size
+            // (leave a blank line before return per coding policy)
+            
             return idx_to_char_.size();
         }
 
@@ -194,6 +278,7 @@ namespace Mila::Data
         void save( const std::filesystem::path& path ) const override
         {
             std::ofstream file( path.string(), std::ios::binary );
+            
             if (!file)
             {
                 throw std::runtime_error( "Cannot open vocabulary file for writing: " + path.string() );
@@ -215,14 +300,7 @@ namespace Mila::Data
             {
                 file.write( &c, sizeof( char ) );
             }
-
-            if (!file)
-            {
-                throw std::runtime_error( "Error writing vocabulary file: " + path.string() );
-            }
         }
-
-        
 
         /**
          * @brief Returns vocabulary size.
@@ -297,10 +375,12 @@ namespace Mila::Data
         int charToIndex( char c ) const
         {
             auto it = char_to_idx_.find( c );
+            
             if ( it != char_to_idx_.end() )
             {
                 return it->second;
             }
+            
             return unk_token_id_ >= 0 ? unk_token_id_ : 0;
         }
 
@@ -311,11 +391,6 @@ namespace Mila::Data
                 return idx_to_char_[ static_cast<size_t>( idx ) ];
             }
             return '?';
-        }
-
-        size_t size() const
-        {
-            return getSize();
         }
 
         int padTokenId() const

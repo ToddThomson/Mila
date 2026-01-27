@@ -1,6 +1,6 @@
 /*!
- * \file
- * \brief Character-level tokenizer implementing the Tokenizer API.
+ * @file
+ * @brief Character-level tokenizer implementing the Tokenizer API.
  *
  * Provides a simple byte/char tokenizer that maps single-byte characters
  * to token ids via a TokenizerVocabulary.
