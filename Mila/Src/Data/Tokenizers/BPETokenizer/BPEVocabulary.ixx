@@ -169,8 +169,7 @@ namespace Mila::Data
 
         // Load pre-trained vocabularies from external sources
         static BpeVocabulary loadGpt2(
-            const std::filesystem::path& vocabPath,
-            const std::filesystem::path& mergesPath
+            const std::filesystem::path& tokenizerPath
         );
 
         static BpeVocabulary loadLlama(
@@ -489,6 +488,92 @@ namespace Mila::Data
             return std::nullopt;
         }
 
+        std::optional<size_t> getMergePriority( const std::string& left, const std::string& right ) const
+        {
+            // Linear search - can optimize with a map later
+            for ( size_t i = 0; i < merges_.size(); ++i ) {
+                if ( merges_[ i ].first == left && merges_[ i ].second == right ) {
+                    return i;  // Index is the priority
+                }
+            }
+            return std::nullopt;  // This pair doesn't have a merge rule
+        }
+
+        // TODO: Alternative implementation using a map for faster lookup
+
+        /*std::optional<size_t> getMergePriority( const std::string& left, const std::string& right ) const
+        {
+            auto it = merge_map_.find( { left, right } );
+            if ( it != merge_map_.end() ) {
+                return it->second;
+            }
+            return std::nullopt;
+        }*/
+
+        // Add this to BpeVocabulary or as a utility function
+        static const std::unordered_map<unsigned char, std::string>& getByteEncoder() {
+            static std::unordered_map<unsigned char, std::string> encoder = []() {
+                std::unordered_map<unsigned char, std::string> enc;
+
+                // Build the bytes-to-unicode mapping (matches GPT-2's bytes_to_unicode)
+                std::vector<int> bs;
+                for ( int i = int( '!' ); i <= int( '~' ); ++i ) bs.push_back( i );
+                for ( int i = 0xA1; i <= 0xAC; ++i ) bs.push_back( i );
+                for ( int i = 0xAE; i <= 0xFF; ++i ) bs.push_back( i );
+
+                std::vector<int> cs = bs;
+                int n = 0;
+                for ( int b = 0; b < 256; ++b ) {
+                    if ( std::find( bs.begin(), bs.end(), b ) == bs.end() ) {
+                        bs.push_back( b );
+                        cs.push_back( 256 + n );
+                        ++n;
+                    }
+                }
+
+                for ( size_t i = 0; i < bs.size(); ++i ) {
+                    char byte = static_cast<char>( bs[ i ] );
+                    char32_t unicode_point = static_cast<char32_t>( cs[ i ] );
+
+                    // Convert unicode point to UTF-8 string
+                    std::string utf8_str;
+                    if ( unicode_point < 0x80 ) {
+                        utf8_str += static_cast<char>( unicode_point );
+                    }
+                    else if ( unicode_point < 0x800 ) {
+                        utf8_str += static_cast<char>( 0xC0 | (unicode_point >> 6) );
+                        utf8_str += static_cast<char>( 0x80 | (unicode_point & 0x3F) );
+                    }
+                    else {
+                        utf8_str += static_cast<char>( 0xE0 | (unicode_point >> 12) );
+                        utf8_str += static_cast<char>( 0x80 | ((unicode_point >> 6) & 0x3F) );
+                        utf8_str += static_cast<char>( 0x80 | (unicode_point & 0x3F) );
+                    }
+
+                    enc[ static_cast<unsigned char>( byte ) ] = utf8_str;
+                }
+                return enc;
+                }();
+            return encoder;
+        }
+
+        // Add this alongside getByteEncoder()
+        static const std::unordered_map<std::string, unsigned char>& getByteDecoder() {
+            static std::unordered_map<std::string, unsigned char> decoder = []() {
+                std::unordered_map<std::string, unsigned char> dec;
+                const auto& encoder = getByteEncoder();
+                for ( const auto& [byte, utf8_str] : encoder ) {
+                    dec[ utf8_str ] = byte;
+                }
+                return dec;
+                }();
+            return decoder;
+        }
+
+        bool isByteLevel() const {
+            return byte_level_;
+        }
+
     private:
 
         /**
@@ -607,6 +692,8 @@ namespace Mila::Data
             special_token_ids_[ type_char ] = id;
         }
 
+        bool byte_level_ = false;
+
         std::unordered_map<std::string, uint32_t> token_to_id_;
         std::vector<std::string> id_to_token_;
         std::vector<std::pair<std::string, std::string>> merges_;
@@ -625,22 +712,139 @@ namespace Mila::Data
     // explaining the limitation.
     // ------------------------------------------------------------------------
 
-    BpeVocabulary BpeVocabulary::loadGpt2(
-        const std::filesystem::path& vocabPath,
-        const std::filesystem::path& mergesPath
-    )
+    BpeVocabulary BpeVocabulary::loadGpt2( const std::filesystem::path& tokenizerPath )
     {
-        // Prefer to load an existing binary vocabulary if provided.
-        try {
-            return load( vocabPath );
+        // Attempt to read a converter-produced binary produced by
+        // convert_gpt2_tokenizer.py (single output file).
+        std::ifstream file( tokenizerPath, std::ios::binary );
+
+        if ( !file ) {
+            throw std::runtime_error( "Cannot open GPT-2 tokenizer file: " + tokenizerPath.string() );
         }
-        catch ( const std::exception& e ) {
-            (void)e;
-            throw std::runtime_error(
-                "BpeVocabulary::loadGpt2 not implemented for non-binary vocab files. "
-                "Provide a binary vocabulary produced by BpeVocabulary::save(), or implement GPT-2 parsing."
-            );
+
+        auto read_u32 = [&]( uint32_t &out ) {
+            file.read( reinterpret_cast<char*>( &out ), sizeof( out ) );
+            if ( !file ) {
+                throw std::runtime_error( "Unexpected EOF or read error while parsing GPT-2 converter file: " + tokenizerPath.string() );
+            }
+        };
+
+        BpeVocabulary vocab;
+        vocab.token_to_id_.clear();
+        vocab.id_to_token_.clear();
+        vocab.merges_.clear();
+        vocab.special_token_ids_.clear();
+
+        // File format produced by convert_gpt2_tokenizer.py:
+        // [uint32] vocab_size
+        // [uint32] num_merges
+        // For each vocab entry:
+        //   [uint32] token_length
+        //   [bytes] token_bytes (utf-8)
+        //   [uint32] token_id
+        // For each merge:
+        //   [uint32] token1_length
+        //   [bytes] token1
+        //   [uint32] token2_length
+        //   [bytes] token2
+        // Special tokens flags:
+        //   [uint32] has_eos (0/1)
+        //   [uint32] eos_id (if has_eos)
+        //   [uint32] has_bos (0/1)
+        //   [uint32] bos_id (if has_bos)
+        //   [uint32] has_pad (0/1)
+        //   [uint32] pad_id (if has_pad)
+
+        uint32_t vocab_size = 0;
+        read_u32( vocab_size );
+
+        uint32_t num_merges = 0;
+        read_u32( num_merges );
+
+        // Read vocabulary entries (token + id)
+        vocab.id_to_token_.resize( vocab_size );
+        for ( uint32_t i = 0; i < vocab_size; ++i ) {
+            uint32_t len = 0;
+            read_u32( len );
+
+            std::string token;
+            if ( len > 0 ) {
+                token.resize( len );
+                file.read( token.data(), static_cast<std::streamsize>( len ) );
+                if ( !file ) {
+                    throw std::runtime_error( "Failed reading token bytes from GPT-2 converter file: " + tokenizerPath.string() );
+                }
+            }
+
+            uint32_t token_id = 0;
+            read_u32( token_id );
+
+            if ( token_id >= vocab_size ) {
+                throw std::runtime_error( "Invalid token id in GPT-2 converter file: " + std::to_string( token_id ) );
+            }
+
+            vocab.id_to_token_[ token_id ] = token;
+            vocab.token_to_id_[ token ] = token_id;
         }
+
+        // Read merges (ordered by rank)
+        vocab.merges_.reserve( num_merges );
+        for ( uint32_t i = 0; i < num_merges; ++i ) {
+            uint32_t llen = 0;
+            read_u32( llen );
+
+            std::string left;
+            if ( llen > 0 ) {
+                left.resize( llen );
+                file.read( left.data(), static_cast<std::streamsize>( llen ) );
+                if ( !file ) {
+                    throw std::runtime_error( "Failed reading merge left token from GPT-2 converter file: " + tokenizerPath.string() );
+                }
+            }
+
+            uint32_t rlen = 0;
+            read_u32( rlen );
+
+            std::string right;
+            if ( rlen > 0 ) {
+                right.resize( rlen );
+                file.read( right.data(), static_cast<std::streamsize>( rlen ) );
+                if ( !file ) {
+                    throw std::runtime_error( "Failed reading merge right token from GPT-2 converter file: " + tokenizerPath.string() );
+                }
+            }
+
+            vocab.merges_.emplace_back( std::move( left ), std::move( right ) );
+        }
+
+        // Read special token flags and IDs (if present)
+        uint32_t has_eos = 0;
+        read_u32( has_eos );
+        if ( has_eos ) {
+            uint32_t eos_id = 0;
+            read_u32( eos_id );
+            vocab.special_token_ids_[ 'e' ] = eos_id; // 'e' = eos
+        }
+
+        uint32_t has_bos = 0;
+        read_u32( has_bos );
+        if ( has_bos ) {
+            uint32_t bos_id = 0;
+            read_u32( bos_id );
+            vocab.special_token_ids_[ 'b' ] = bos_id; // 'b' = bos
+        }
+
+        uint32_t has_pad = 0;
+        read_u32( has_pad );
+        if ( has_pad ) {
+            uint32_t pad_id = 0;
+            read_u32( pad_id );
+            vocab.special_token_ids_[ 'p' ] = pad_id; // 'p' = pad
+        }
+
+        vocab.byte_level_ = true;  // GPT-2 is always byte-level!
+
+        return vocab;
     }
 
     BpeVocabulary BpeVocabulary::loadLlama( const std::filesystem::path& modelPath )

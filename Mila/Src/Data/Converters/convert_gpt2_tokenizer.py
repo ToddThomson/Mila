@@ -72,6 +72,21 @@ def convert_gpt2_tokenizer(model_name: str, output_path: str):
         # Write header
         f.write(struct.pack('I', vocab_size))
         f.write(struct.pack('I', num_merges))
+
+        # Before writing vocabulary, add diagnostics:
+        print("\nFirst 10 tokens:")
+        reverse_encoder = {v: k for k, v in encoder.items()}
+        for i in range(min(10, vocab_size)):
+            if i in reverse_encoder:
+                print(f"  ID {i}: {repr(reverse_encoder[i])}")
+
+        print("\nLooking for '!' token:")
+        if '!' in encoder:
+            print(f"  '!' -> ID {encoder['!']}")
+        if '\u0120!' in encoder:  # \u0120 is the space character in GPT-2 encoding
+            print(f"  '\\u0120!' -> ID {encoder['\u0120!']}")
+        if ' !' in encoder:
+            print(f"  ' !' -> ID {encoder[' !']}")
         
         # Write vocabulary
         print("Writing vocabulary...")

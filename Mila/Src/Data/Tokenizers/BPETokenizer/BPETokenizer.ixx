@@ -49,25 +49,21 @@ namespace Mila::Data
         explicit BpeTokenizer( BpeVocabulary vocab )
             : vocab_( std::move( vocab ) )
         {
-            // Build token -> id map and compute max token length.
-            /*if ( vocab_ )
+            size_t n = vocab_.getSize();
+            max_token_len_ = 0;
+
+            for ( size_t i = 0; i < n; ++i )
             {
-                size_t n = vocab_.getSize();
-                max_token_len_ = 0;
-                
-                for ( size_t i = 0; i < n; ++i )
+                auto tok = vocab_.idToToken( static_cast<TokenId>( i ) );
+                if ( tok && !tok->empty() )
                 {
-                    auto tok = vocab_.idToToken( static_cast<TokenId>( i ) );
-                    if ( tok && !tok->empty() )
+                    token_map_.emplace( *tok, static_cast<TokenId>( i ) );
+                    if ( tok->size() > max_token_len_ )
                     {
-                        token_map_.emplace( *tok, static_cast<TokenId>( i ) );
-                        if ( tok->size() > max_token_len_ )
-                        {
-                            max_token_len_ = tok->size();
-                        }
+                        max_token_len_ = tok->size();
                     }
                 }
-            }*/
+            }
         }
 
         // ========================================================================
@@ -80,11 +76,9 @@ namespace Mila::Data
         }
 
         // Load pre-trained models and create tokenizer in one step
-        static BpeTokenizer loadGpt2(
-            const std::filesystem::path& vocabPath,
-            const std::filesystem::path& mergesPath ) {
-            
-            return BpeTokenizer( BpeVocabulary::loadGpt2( vocabPath, mergesPath ) );
+        static BpeTokenizer loadGpt2( const std::filesystem::path& vocabPath )
+        {
+            return BpeTokenizer( BpeVocabulary::loadGpt2( vocabPath ) );
         }
 
         static BpeTokenizer loadLlama( const std::filesystem::path& modelPath ) {
@@ -103,12 +97,66 @@ namespace Mila::Data
 
         std::vector<TokenId> encode( const std::string& text ) override
         {
+            const auto& byte_encoder = vocab_.getByteEncoder();
+
+            // Step 1: Split into byte-level tokens using GPT-2's encoding
+            std::vector<std::string> tokens;
+
+            if ( vocab_.isByteLevel() ) {
+                // Byte-level: use unicode mapping
+                const auto& byte_encoder = vocab_.getByteEncoder();
+                for ( unsigned char byte : text ) {
+                    tokens.push_back( byte_encoder.at( byte ) );
+                }
+            }
+            else {
+                // Character-level: use plain characters
+                for ( char c : text ) {
+                    tokens.push_back( std::string( 1, c ) );
+                }
+            }
+
+            // Step 2: Apply BPE merges iteratively
+            while ( true ) {
+                // Find the highest-priority merge among adjacent token pairs
+                int best_merge_idx = -1;
+                int best_merge_priority = INT_MAX;
+
+                for ( size_t i = 0; i + 1 < tokens.size(); ++i ) {
+                    auto priority = vocab_.getMergePriority( tokens[ i ], tokens[ i + 1 ] );
+                    if ( priority && *priority < best_merge_priority ) {
+                        best_merge_priority = *priority;
+                        best_merge_idx = i;
+                    }
+                }
+
+                if ( best_merge_idx == -1 ) 
+                    break; // No more merges possible
+
+                // Apply the merge
+                tokens[ best_merge_idx ] += tokens[ best_merge_idx + 1 ];
+                tokens.erase( tokens.begin() + best_merge_idx + 1 );
+            }
+
+            // Step 3: Convert tokens to IDs
             std::vector<TokenId> out;
-            // REVIEW: Not needed?
-            /*if ( !vocab_ )
-            {
-                return out;
-            }*/
+            for ( const auto& token : tokens ) {
+                auto id = vocab_.tokenToId( token );
+                if ( id ) {
+                    out.push_back( *id );
+                }
+                else {
+                    // Handle unknown token
+                    out.push_back( 0 ); // or your UNK token
+                }
+            }
+
+            return out;
+        }
+
+        std::vector<TokenId> encode_old( const std::string& text )
+        {
+            std::vector<TokenId> out;
 
             const size_t text_len = text.size();
             out.reserve( std::max<size_t>( 16, text_len / 2 ) );
@@ -121,25 +169,18 @@ namespace Mila::Data
 
                 bool matched = false;
 
-                // Try longest-first greedy match
-                for ( size_t len = max_len; len >= 1; --len )
+                for ( size_t len = max_len; len > 0; --len )
                 {
-                    // Construct token candidate from substring
                     std::string_view sv( text.data() + i, len );
-                    std::string key( sv ); // map keys are std::string
-
+                    std::string key( sv );
                     auto it = token_map_.find( key );
+                    
                     if ( it != token_map_.end() )
                     {
                         out.push_back( it->second );
                         i += len;
                         matched = true;
                         break;
-                    }
-
-                    if ( len == 1 )
-                    {
-                        break; // avoid underflow of size_t
                     }
                 }
 
@@ -176,28 +217,50 @@ namespace Mila::Data
 
         std::string decode( std::span<const TokenId> tokens ) override
         {
-            std::string out;
-            /*if ( !vocab_ )
-            {
-                return out;
-            }*/
+            // TODO: Update for byte-level decoding setting
+            
+            const auto& byte_decoder = vocab_.getByteDecoder();
 
-            // Reserve some space to reduce reallocations
+            std::string out;
             out.reserve( tokens.size() * std::max<size_t>( 1, max_token_len_ ) );
 
-            for ( TokenId id : tokens )
-            {
+            for ( TokenId id : tokens ) {
                 auto tok_opt = vocab_.idToToken( id );
-                if ( tok_opt )
-                {
-                    out.append( *tok_opt );
+                if ( tok_opt ) {
+                    // Decode each UTF-8 character in the token back to its byte
+                    const std::string& token = *tok_opt;
+                    size_t i = 0;
+                    while ( i < token.size() ) {
+                        // Extract one UTF-8 character
+                        size_t char_len = 1;
+                        if ( (token[ i ] & 0x80) == 0 ) {
+                            char_len = 1;
+                        }
+                        else if ( (token[ i ] & 0xE0) == 0xC0 ) {
+                            char_len = 2;
+                        }
+                        else if ( (token[ i ] & 0xF0) == 0xE0 ) {
+                            char_len = 3;
+                        }
+                        else if ( (token[ i ] & 0xF8) == 0xF0 ) {
+                            char_len = 4;
+                        }
+
+                        std::string utf8_char = token.substr( i, char_len );
+                        auto it = byte_decoder.find( utf8_char );
+                        if ( it != byte_decoder.end() ) {
+                            out.push_back( static_cast<char>(it->second) );
+                        }
+                        else {
+                            out.push_back( '?' );  // Unknown character
+                        }
+                        i += char_len;
+                    }
                 }
-                else
-                {
+                else {
                     out.push_back( '?' );
                 }
             }
-
             return out;
         }
 

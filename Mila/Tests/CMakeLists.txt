@@ -28,6 +28,9 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
   set(CMAKE_CUDA_ARCHITECTURES native)
 endif()
 
+# Define the data directory path
+set(TEST_DATA_DIR "${CMAKE_SOURCE_DIR}/Data")
+
 add_executable( MilaTests
     "main.cpp"
 
@@ -197,7 +200,17 @@ add_executable( MilaTests
     #"Dnn/Serialization/ModelArchive.cpp" 
     "Dnn/Networks/Gpt.Presets.cpp"
     "Dnn/Networks/Gpt.cpp"
- "Dnn/Networks/Llama.cpp" "Dnn/Networks/Llama.Presets.cpp" "Dnn/Data/Gpt2Tokenizer.cpp" "Data/CharTokenizer/CharVocabulary.cpp" "Data/BpeTokenizer/BpeVocabulary.cpp")
+    "Dnn/Networks/Llama.cpp"
+    "Dnn/Networks/Llama.Presets.cpp"
+    "Dnn/Data/Gpt2Tokenizer.cpp"
+    "Data/CharTokenizer/CharVocabulary.cpp"
+    "Data/BpeTokenizer/BpeVocabulary.cpp"
+    "Data/BpeTokenizer/BpeTrainer.cpp"
+    "Data/CharTokenizer/CharTrainer.cpp"
+    "Data/BpeTokenizer/BpeTokenizer.cpp"
+ "Data/BpeTokenizer/BpeTokenizer.Gpt2.cpp")
+
+target_compile_definitions( MilaTests PRIVATE TEST_DATA_DIR="${TEST_DATA_DIR}" )
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 
@@ -211,4 +224,8 @@ endif()
 
 target_link_libraries( MilaTests PUBLIC Mila gtest CUDA::cudart )
 
-gtest_discover_tests(MilaTests)
+gtest_discover_tests(MilaTests
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"  # Set working directory to project root
+    PROPERTIES
+        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)

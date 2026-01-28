@@ -8,9 +8,8 @@ import Mila;
 #include <random>
 #include <algorithm>
 
-namespace Data::BpeTokenizer::Tests
+namespace Data::Tokenizers::BpeTokenizer_Tests
 {
-
     using namespace Mila::Data;
     namespace fs = std::filesystem;
 

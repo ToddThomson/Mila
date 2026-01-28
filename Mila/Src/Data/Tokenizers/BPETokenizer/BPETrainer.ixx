@@ -40,7 +40,7 @@ namespace Mila::Data
      * - train() runs the algorithm over the accumulated corpus.
      * - buildVocabulary() returns ownership of the trained TokenizerVocabulary.
      */
-    export class BpeTrainer { // }; : public TokenizerTrainer {
+    export class BpeTrainer {
     public:
         /**
          * @brief Construct with configuration.
