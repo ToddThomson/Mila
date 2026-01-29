@@ -383,6 +383,8 @@ static int encodeCommand( const Args& args )
     auto tokens = tokenizer->encode( text );
     std::cout << "  Encoded to " << tokens.size() << " tokens" << std::endl;
 
+    // TODO: General TokenizedFileHeader
+
     // Write tokens file: [size_t num_tokens][uint32_t token_ids...]
     std::ofstream output( args.output_file, std::ios::binary );
     if ( !output ) {

@@ -22,7 +22,7 @@ export module CharLM.Trainer;
 import Mila;
 import CharLM.Transformer;
 import CharLM.DataLoader;
-import CharLM.Vocabulary;
+//import CharLM.Vocabulary;
 import CharLM.Tokenizer;
 
 namespace CharLM
@@ -36,7 +36,7 @@ namespace CharLM
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Optimizers;
-    using namespace Mila::CharLM;
+    using namespace Mila::Data;
 
     /**
      * @brief Configuration for CharLM training CLI and trainer.
@@ -70,8 +70,6 @@ namespace CharLM
         size_t lr_decay_every_n_epochs = 0;
     };
 
-    namespace
-    {
         template<TensorDataType TDataType>
         void sequenceCrossEntropyGradient(
             const Tensor<TDataType, CpuMemoryResource>& logits,
@@ -292,7 +290,7 @@ namespace CharLM
             std::vector<int32_t> generated_tokens = prompt_tokens;
             std::mt19937 rng( static_cast<unsigned int>(epoch) );
 
-            size_t vocab_size = vocab.size();
+            size_t vocab_size = vocab.getSize();
 
             int64_t model_batch_size = config.batch_size;
             int64_t model_seq_length = config.seq_length;
@@ -354,21 +352,21 @@ namespace CharLM
 
             return generated_text;
         }
-    }
+
 
     /**
      * @brief Entrypoint that runs CharLM training loop.
      */
     export template<DeviceType TDeviceType, TensorDataType TDataType, typename THostMR>
         requires PrecisionSupportedOnDevice<TDataType, TDeviceType> &&
-    (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
-        void trainCharLM( const CharLMConfig& config )
+            (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
+    void trainCharLM( const CharLMConfig& config )
     {
         using DeviceMR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
 
         DeviceId device_id = Device::getDeviceId<TDeviceType>( 0 );
 
-        // Construct tokenizer from .vocab (preprocessing must have written the vocab)
+        // Construct character tokenizer from .vocab binary file
         std::string vocab_file = config.data_file + ".vocab";
         auto tokenizer = std::make_shared<CharLMTokenizer>( vocab_file );
 
@@ -386,8 +384,7 @@ namespace CharLM
         size_t actual_vocab_size = train_loader.vocabSize();
         std::cout << "Actual vocabulary size from data: " << actual_vocab_size << std::endl;
 
-        CharVocabulary vocab;
-        vocab.load( vocab_file );
+        CharVocabulary vocab = CharVocabulary::load( vocab_file );
         std::cout << "Loaded vocabulary from: " << vocab_file << std::endl;
 
         CharTransformerConfig model_config;

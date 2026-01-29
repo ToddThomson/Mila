@@ -1,7 +1,7 @@
 # CMake project for Mila Samples
 
 add_subdirectory( MNIST )
-#add_subdirectory( CharLM )
+add_subdirectory( CharLM )
 #add_subdirectory( Gpt2 )
 
 if(WIN32)

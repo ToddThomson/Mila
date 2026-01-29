@@ -381,7 +381,7 @@ PUBLIC
         "Src/Data/Tokenizers/CharTokenizer/CharTrainerConfig.ixx"
         "Src/Data/Tokenizers/CharTokenizer/CharTrainer.ixx"
         "Src/Data/Tokenizers/CharTokenizer/CharVocabulary.ixx"
- "Src/Data/Tokenizers/CharTokenizer/CharSpecialTokens.ixx")
+ "Src/Data/Tokenizers/CharTokenizer/CharSpecialTokens.ixx" "Src/Data/Core/TokenizerFileHeader.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

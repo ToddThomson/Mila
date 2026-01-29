@@ -37,9 +37,9 @@ Provide any plain text file for training. Example using Tiny Shakespeare:
 
 ```
 Data/
-??? DataSets/
-    ??? TinyShakespeare/
-        ??? input.txt
+   DataSets/
+      TinyShakespeare/
+         input.txt
 ```
 
 Download from: https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt

@@ -23,7 +23,6 @@ namespace CharLM
      *
      * Loads vocabulary from a binary .vocab file (header + length-prefixed token strings).
      */
-
     export class CharLMTokenizer : public Tokenizer
     {
     public:
@@ -154,7 +153,7 @@ namespace CharLM
         std::vector<TokenId> encodeWithSpecial(
             const std::string& text,
             bool addBos = true,
-            bool addEos = true ) override
+            bool addEos = true )
         {
             std::vector<TokenId> encoded;
             if ( addBos && bos_token_id_.has_value() )
