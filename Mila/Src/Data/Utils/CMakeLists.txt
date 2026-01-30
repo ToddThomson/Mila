@@ -1,9 +1,14 @@
-add_executable( Tokenize
+add_executable( tokenize
 	"Tokenize.cpp"
 )
 
-set_target_properties( Tokenize PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Tools"
+# Output directly to the Data/Tools directory where it's used
+set_target_properties( tokenize PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/Data/Tools/$<CONFIG>"
 )
 
-target_link_libraries( Tokenize PRIVATE Mila )
+target_link_libraries( tokenize PRIVATE Mila )
+
+install( TARGETS tokenize
+    RUNTIME DESTINATION bin
+)

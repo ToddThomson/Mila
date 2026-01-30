@@ -10,7 +10,7 @@ Overview
 - Uses `TokenizerFactory` to obtain trainers, vocabularies and tokenizers for supported types (`char`, `bpe`, ...).
 
 Usage
-- Build and run the `Tokenize` executable, then call:
+- Build and run the `tokenize` executable, then call:
   `Tokenize <command> [options]`
 - Typical commands:
   - `Tokenize train --input <file> --output <file> [--type <char|bpe>] [--vocab-size <n>] [--force]`
