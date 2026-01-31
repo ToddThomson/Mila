@@ -10,6 +10,7 @@
 
 module;
 #include <string>
+#include <string_view>
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
@@ -20,6 +21,8 @@ module;
 #include <algorithm>
 #include <stdexcept>
 #include <cstdint>
+#include <chrono>
+#include <iostream>
 
 export module Data.BpeVocabulary;
 
@@ -197,6 +200,9 @@ namespace Mila::Data
          */
         size_t buildFromText( const std::string& text, const BpeTrainerConfig& config )
         {
+            // Start timer to measure processing duration
+            const auto start_time = std::chrono::steady_clock::now();
+
             token_to_id_.clear();
             id_to_token_.clear();
             merges_.clear();
@@ -206,7 +212,7 @@ namespace Mila::Data
 
             const auto& special_tokens = config.getSpecialTokens();
             const size_t target_vocab_size = config.getVocabSize();
-            const size_t min_frequency = config.getMinFrequency();
+            const size_t min_frequency = 10; // DEBUG: 10 for profiling. FIXME: revert to config.getMinFrequency();
             const bool byte_level = config.isByteLevel();
             const size_t max_merges = config.getMaxMerges();
 
@@ -297,8 +303,10 @@ namespace Mila::Data
 
             // Step 5: BPE merge loop with frequency and max merge limits
             size_t merges_performed = 0;
+            auto pair_counts = countPairs( corpus_tokens );
+
             while ( current_id < static_cast<uint32_t>( target_vocab_size ) ) {
-                auto pair_counts = countPairs( corpus_tokens );
+                //auto pair_counts = countPairs( corpus_tokens );
 
                 if ( pair_counts.empty() ) {
                     break;  // No more pairs to merge
@@ -313,8 +321,14 @@ namespace Mila::Data
                     break;  // No pair meets the minimum frequency threshold
                 }
 
-                // Create merged token string
-                std::string merged = best_pair.first + best_pair.second;
+                std::string merged;
+                merged.reserve( best_pair.first.size() + best_pair.second.size() );
+                merged.append( best_pair.first );
+                merged.append( best_pair.second );
+
+                if ( token_to_id_.find( merged ) != token_to_id_.end() ) {
+                    break;
+                }
 
                 // Skip if token already exists
                 if ( token_to_id_.find( merged ) != token_to_id_.end() ) {
@@ -323,7 +337,9 @@ namespace Mila::Data
                 }
 
                 // Apply merge to corpus
-                applyMerge( corpus_tokens, best_pair.first, best_pair.second, merged );
+                applyMergeAndUpdateCounts( corpus_tokens, best_pair.first, best_pair.second, merged, pair_counts );
+
+                pair_counts.erase( best_pair );
 
                 // Add merged token to vocabulary and record the merge rule
                 id_to_token_.push_back( merged );
@@ -333,12 +349,31 @@ namespace Mila::Data
                 ++current_id;
                 ++merges_performed;
 
+                // Inside your main training loop
+                if ( merges_performed % 100 == 0 ) {
+                    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::steady_clock::now() - start_time
+                    ).count();
+
+                    float progress = (float)merges_performed / target_vocab_size * 100.0f;
+
+                    std::cout << "\r[" << elapsed << "s] "
+                        << merges_performed << "/" << target_vocab_size
+                        << " (" << std::fixed << std::setprecision( 1 ) << progress << "%)"
+                        << " | freq: " << best_count
+                        << "          " << std::flush;  // Spaces clear any leftover chars
+                }
+
                 if ( max_merges > 0 && merges_performed >= max_merges ) {
                     break;
                 }
             }
 
             // Final vocabulary size
+            const auto end_time = std::chrono::steady_clock::now();
+            const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+            std::cout << "BpeVocabulary::buildFromText completed in " << elapsed_ms << " ms"
+                << " (vocab size=" << id_to_token_.size() << ", merges=" << merges_performed << ")\n";
             
             return id_to_token_.size();
         }
@@ -499,18 +534,17 @@ namespace Mila::Data
             return std::nullopt;  // This pair doesn't have a merge rule
         }
 
-        // TODO: Alternative implementation using a map for faster lookup
-
-        /*std::optional<size_t> getMergePriority( const std::string& left, const std::string& right ) const
+        std::optional<size_t> getMergePriority_Opt( const std::string& left, const std::string& right ) const
         {
             auto it = merge_map_.find( { left, right } );
+            
             if ( it != merge_map_.end() ) {
                 return it->second;
             }
+            
             return std::nullopt;
-        }*/
+        }
 
-        // Add this to BpeVocabulary or as a utility function
         static const std::unordered_map<unsigned char, std::string>& getByteEncoder() {
             static std::unordered_map<unsigned char, std::string> encoder = []() {
                 std::unordered_map<unsigned char, std::string> enc;
@@ -581,10 +615,26 @@ namespace Mila::Data
          */
         struct PairHash {
             size_t operator()( const std::pair<std::string, std::string>& p ) const {
-                return std::hash<std::string>{}(p.first) ^
-                    (std::hash<std::string>{}(p.second) << 1);
+                return std::hash<std::string>{}(p.first) ^ (std::hash<std::string>{}(p.second) << 1);
             }
         };
+
+        struct PairViewHash {
+            std::size_t operator()( const std::pair<std::string_view, std::string_view>& p ) const {
+                std::size_t h1 = std::hash<std::string_view>{}(p.first);
+                std::size_t h2 = std::hash<std::string_view>{}(p.second);
+                return h1 ^ (h2 << 1);
+            }
+        };
+
+        // Build the map after training
+        void buildMergeMap() {
+            merge_map_.clear();
+            merge_map_.reserve( merges_.size() );
+            for ( size_t i = 0; i < merges_.size(); ++i ) {
+                merge_map_[ merges_[ i ] ] = i;
+            }
+        }
 
         /**
          * @brief Pre-tokenize text into words/units for BPE processing.
@@ -615,15 +665,25 @@ namespace Mila::Data
         /**
          * @brief Count all adjacent token pairs in the corpus.
          */
-        std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash>
-            countPairs( const std::vector<std::vector<std::string>>& corpus ) const
+        std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash> countPairs(
+            const std::vector<std::vector<std::string>>& corpus ) const
         {
-            std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash> counts;
+            // Use string_view for counting to avoid copies
+            std::unordered_map<std::pair<std::string_view, std::string_view>, size_t, PairViewHash> temp_counts;
 
             for ( const auto& tokens : corpus ) {
                 for ( size_t i = 0; i + 1 < tokens.size(); ++i ) {
-                    counts[ {tokens[ i ], tokens[ i + 1 ]} ]++;
+                    // No string copies - just views
+                    temp_counts[ {std::string_view{ tokens[ i ] }, std::string_view{ tokens[ i + 1 ] }} ]++;
                 }
+            }
+
+            // Convert back to string pairs for return
+            std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash> counts;
+            counts.reserve( temp_counts.size() );
+            
+            for ( const auto& [pair_view, count] : temp_counts ) {
+                counts[ {std::string{ pair_view.first }, std::string{ pair_view.second }} ] = count;
             }
 
             return counts;
@@ -632,9 +692,8 @@ namespace Mila::Data
         /**
          * @brief Find the most frequent pair in the counts map.
          */
-        std::pair<std::pair<std::string, std::string>, size_t>
-            getMostFrequentPair( const std::unordered_map<std::pair<std::string, std::string>,
-                size_t, PairHash>& counts ) const
+        std::pair<std::pair<std::string, std::string>, size_t> getMostFrequentPair(
+            const std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash>& counts ) const
         {
             if ( counts.empty() ) {
                 return std::make_pair( std::make_pair( std::string(), std::string() ), size_t( 0 ) );
@@ -657,25 +716,71 @@ namespace Mila::Data
             const std::string& right,
             const std::string& merged ) const
         {
-            for ( auto& tokens : corpus ) {
-                std::vector<std::string> new_tokens;
-                new_tokens.reserve( tokens.size() );
 
-                size_t i = 0;
-                while ( i < tokens.size() ) {
-                    if ( i + 1 < tokens.size() &&
-                        tokens[ i ] == left &&
-                        tokens[ i + 1 ] == right ) {
-                        new_tokens.push_back( merged );
-                        i += 2;
+            // Test optimization Create views once, reuse for all comparisons
+            std::string_view left_view{ left };
+            std::string_view right_view{ right };
+
+            for ( auto& word : corpus ) {
+                for ( size_t i = 0; i + 1 < word.size(); ) {
+                    // Compare using string_view - no string copies for comparison
+                    if ( std::string_view{ word[ i ] } == left_view &&
+                        std::string_view{ word[ i + 1 ] } == right_view ) {
+                        word[ i ] = merged;
+                        word.erase( word.begin() + i + 1 );
                     }
                     else {
-                        new_tokens.push_back( tokens[ i ] );
                         ++i;
                     }
                 }
+            }
+        }
 
-                tokens = std::move( new_tokens );
+        void applyMergeAndUpdateCounts(
+            std::vector<std::vector<std::string>>& corpus,
+            const std::string& left,
+            const std::string& right,
+            const std::string& merged,
+            std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash>& pair_counts ) const
+        {
+            std::string_view left_view{ left };
+            std::string_view right_view{ right };
+
+            for ( auto& word : corpus ) {
+                for ( size_t i = 0; i + 1 < word.size(); ) {
+                    if ( std::string_view{ word[ i ] } == left_view &&
+                        std::string_view{ word[ i + 1 ] } == right_view ) {
+
+                        // Decrement old pair counts that are affected
+                        if ( i > 0 ) {
+                            auto old_left_pair = std::make_pair( word[ i - 1 ], word[ i ] );
+                            if ( --pair_counts[ old_left_pair ] == 0 ) {
+                                pair_counts.erase( old_left_pair );
+                            }
+                        }
+                        if ( i + 2 < word.size() ) {
+                            auto old_right_pair = std::make_pair( word[ i + 1 ], word[ i + 2 ] );
+                            if ( --pair_counts[ old_right_pair ] == 0 ) {
+                                pair_counts.erase( old_right_pair );
+                            }
+                        }
+
+                        // Apply the merge
+                        word[ i ] = merged;
+                        word.erase( word.begin() + i + 1 );
+
+                        // Increment new pair counts
+                        if ( i > 0 ) {
+                            pair_counts[ {word[ i - 1 ], word[ i ]} ]++;
+                        }
+                        if ( i + 1 < word.size() ) {
+                            pair_counts[ {word[ i ], word[ i + 1 ]} ]++;
+                        }
+                    }
+                    else {
+                        ++i;
+                    }
+                }
             }
         }
 
@@ -697,6 +802,7 @@ namespace Mila::Data
         std::unordered_map<std::string, uint32_t> token_to_id_;
         std::vector<std::string> id_to_token_;
         std::vector<std::pair<std::string, std::string>> merges_;
+        std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash> merge_map_;
         std::unordered_map<char, uint32_t> special_token_ids_;  // type -> id
     };
 
