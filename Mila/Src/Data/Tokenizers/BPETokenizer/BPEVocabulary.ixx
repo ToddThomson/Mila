@@ -167,6 +167,8 @@ namespace Mila::Data
                 vocab.token_to_id_[ vocab.id_to_token_[ i ] ] = i;
             }
 
+            vocab.buildMergeMap();
+
             return vocab;
         }
 
@@ -212,7 +214,7 @@ namespace Mila::Data
 
             const auto& special_tokens = config.getSpecialTokens();
             const size_t target_vocab_size = config.getVocabSize();
-            const size_t min_frequency = 10; // DEBUG: 10 for profiling. FIXME: revert to config.getMinFrequency();
+            const size_t min_frequency = 5; // DEBUG: 5 for profiling. FIXME: revert to config.getMinFrequency();
             const bool byte_level = config.isByteLevel();
             const size_t max_merges = config.getMaxMerges();
 
@@ -306,8 +308,6 @@ namespace Mila::Data
             auto pair_counts = countPairs( corpus_tokens );
 
             while ( current_id < static_cast<uint32_t>( target_vocab_size ) ) {
-                //auto pair_counts = countPairs( corpus_tokens );
-
                 if ( pair_counts.empty() ) {
                     break;  // No more pairs to merge
                 }
@@ -317,8 +317,9 @@ namespace Mila::Data
                 const auto& best_pair = best.first;
                 size_t best_count = best.second;
 
+                // Stop criteria. No pair meets the minimum frequency threshold
                 if ( best_count < min_frequency ) {
-                    break;  // No pair meets the minimum frequency threshold
+                    break;
                 }
 
                 std::string merged;
@@ -369,12 +370,11 @@ namespace Mila::Data
                 }
             }
 
-            // Final vocabulary size
-            const auto end_time = std::chrono::steady_clock::now();
-            const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-            std::cout << "BpeVocabulary::buildFromText completed in " << elapsed_ms << " ms"
-                << " (vocab size=" << id_to_token_.size() << ", merges=" << merges_performed << ")\n";
-            
+            //std::cout << "\n Training completed in " << final_time << "s\n";
+            //std::cout << "Final vocabulary size: " << id_to_token_.size() << "\n";
+
+            buildMergeMap();
+
             return id_to_token_.size();
         }
 
@@ -523,7 +523,7 @@ namespace Mila::Data
             return std::nullopt;
         }
 
-        std::optional<size_t> getMergePriority( const std::string& left, const std::string& right ) const
+        std::optional<size_t> getMergePriority_Old( const std::string& left, const std::string& right ) const
         {
             // Linear search - can optimize with a map later
             for ( size_t i = 0; i < merges_.size(); ++i ) {
@@ -534,7 +534,7 @@ namespace Mila::Data
             return std::nullopt;  // This pair doesn't have a merge rule
         }
 
-        std::optional<size_t> getMergePriority_Opt( const std::string& left, const std::string& right ) const
+        std::optional<size_t> getMergePriority( const std::string& left, const std::string& right ) const
         {
             auto it = merge_map_.find( { left, right } );
             
@@ -545,7 +545,8 @@ namespace Mila::Data
             return std::nullopt;
         }
 
-        static const std::unordered_map<unsigned char, std::string>& getByteEncoder() {
+        static const std::unordered_map<unsigned char, std::string>& getByteEncoder()
+        {
             static std::unordered_map<unsigned char, std::string> encoder = []() {
                 std::unordered_map<unsigned char, std::string> enc;
 
@@ -631,6 +632,7 @@ namespace Mila::Data
         void buildMergeMap() {
             merge_map_.clear();
             merge_map_.reserve( merges_.size() );
+            
             for ( size_t i = 0; i < merges_.size(); ++i ) {
                 merge_map_[ merges_[ i ] ] = i;
             }

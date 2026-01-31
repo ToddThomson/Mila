@@ -16,6 +16,8 @@ module;
 #include <unordered_map>
 #include <algorithm>
 #include <filesystem>
+#include <chrono>
+#include <iostream>
 
 export module Data.BpeTokenizer;
 import Data.BpeVocabulary;
@@ -97,7 +99,7 @@ namespace Mila::Data
 
         std::vector<TokenId> encode( const std::string& text ) override
         {
-            const auto& byte_encoder = vocab_.getByteEncoder();
+            auto start_time = std::chrono::high_resolution_clock::now();
 
             // Step 1: Split into byte-level tokens using GPT-2's encoding
             std::vector<std::string> tokens;
@@ -116,104 +118,131 @@ namespace Mila::Data
                 }
             }
 
-            // Step 2: Apply BPE merges iteratively
-            while ( true ) {
-                // Find the highest-priority merge among adjacent token pairs
-                int best_merge_idx = -1;
-                int best_merge_priority = INT_MAX;
+            std::cout << "Tokenizing " << text.size() << " characters...\n";
+            size_t initial_tokens = tokens.size();
 
-                for ( size_t i = 0; i + 1 < tokens.size(); ++i ) {
-                    auto priority = vocab_.getMergePriority( tokens[ i ], tokens[ i + 1 ] );
-                    if ( priority && *priority < best_merge_priority ) {
-                        best_merge_priority = *priority;
-                        best_merge_idx = i;
-                    }
-                }
+            // Step 2: Apply merges efficiently - multiple passes
+            bool changed = true;
+            size_t pass = 0;
+            
+            while ( changed ) {
+                changed = false;
+                std::vector<std::string> new_tokens;
+                new_tokens.reserve( tokens.size() );
 
-                if ( best_merge_idx == -1 ) 
-                    break; // No more merges possible
-
-                // Apply the merge
-                tokens[ best_merge_idx ] += tokens[ best_merge_idx + 1 ];
-                tokens.erase( tokens.begin() + best_merge_idx + 1 );
-            }
-
-            // Step 3: Convert tokens to IDs
-            std::vector<TokenId> out;
-            for ( const auto& token : tokens ) {
-                auto id = vocab_.tokenToId( token );
-                if ( id ) {
-                    out.push_back( *id );
-                }
-                else {
-                    // Handle unknown token
-                    out.push_back( 0 ); // or your UNK token
-                }
-            }
-
-            return out;
-        }
-
-        std::vector<TokenId> encode_old( const std::string& text )
-        {
-            std::vector<TokenId> out;
-
-            const size_t text_len = text.size();
-            out.reserve( std::max<size_t>( 16, text_len / 2 ) );
-
-            size_t i = 0;
-            while ( i < text_len )
-            {
-                // Determine search upper bound
-                size_t max_len = std::min( max_token_len_, text_len - i );
-
-                bool matched = false;
-
-                for ( size_t len = max_len; len > 0; --len )
-                {
-                    std::string_view sv( text.data() + i, len );
-                    std::string key( sv );
-                    auto it = token_map_.find( key );
-                    
-                    if ( it != token_map_.end() )
-                    {
-                        out.push_back( it->second );
-                        i += len;
-                        matched = true;
-                        break;
-                    }
-                }
-
-                if ( !matched )
-                {
-                    // No token matched. Emit UNK if available, otherwise 0u.
-                    // tokenToId may return unk id if vocabulary implements it.
-                    auto unk_opt = vocab_.tokenToId( std::string( 1, '\1' ) ); // try explicit UNK marker
-                    if ( !unk_opt )
-                    {
-                        // Ask vocabulary for the single-byte character at this position
-                        std::string single( 1, text[ i ] );
-                        auto id_opt = vocab_.tokenToId( single );
-                        if ( id_opt )
-                        {
-                            out.push_back( *id_opt );
-                        }
-                        else
-                        {
-                            out.push_back( static_cast<TokenId>(0u) );
+                for ( size_t i = 0; i < tokens.size(); ) {
+                    // Try to merge with next token
+                    if ( i + 1 < tokens.size() ) {
+                        auto priority = vocab_.getMergePriority( tokens[ i ], tokens[ i + 1 ] );
+                        if ( priority ) {
+                            // Merge found
+                            std::string merged;
+                            merged.reserve( tokens[ i ].size() + tokens[ i + 1 ].size() );
+                            merged = tokens[ i ];
+                            merged += tokens[ i + 1 ];
+                            new_tokens.push_back( std::move( merged ) );
+                            i += 2;
+                            changed = true;
+                            continue;
                         }
                     }
-                    else
-                    {
-                        out.push_back( *unk_opt );
-                    }
-
+                    // No merge, keep token as-is
+                    new_tokens.push_back( std::move( tokens[ i ] ) );
                     ++i;
                 }
+
+                tokens = std::move( new_tokens );
+
+                ++pass;
+
+                // Progress update every 5 passes or when done
+                if ( pass % 5 == 0 || !changed ) {
+                    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - start_time
+                    ).count();
+
+                    std::cout << "\r[" << elapsed << "ms] Pass " << pass
+                        << " | Tokens: " << tokens.size()
+                        << "          " << std::flush;
+                }
             }
+
+            // Step 3: Convert to IDs
+            std::vector<TokenId> out;
+            out.reserve( tokens.size() );
+            for ( const auto& token : tokens ) {
+                auto id = vocab_.tokenToId( token );
+                out.push_back( id ? *id : 0 );
+            }
+
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+            std::cout << "\n Encoding completed in " << ms << "ms"
+                << " (" << initial_tokens << " -> " << tokens.size() << " tokens)\n";
 
             return out;
         }
+
+        //std::vector<TokenId> encode_old( const std::string& text )
+        //{
+        //    std::vector<TokenId> out;
+
+        //    const size_t text_len = text.size();
+        //    out.reserve( std::max<size_t>( 16, text_len / 2 ) );
+
+        //    size_t i = 0;
+        //    while ( i < text_len )
+        //    {
+        //        // Determine search upper bound
+        //        size_t max_len = std::min( max_token_len_, text_len - i );
+
+        //        bool matched = false;
+
+        //        for ( size_t len = max_len; len > 0; --len )
+        //        {
+        //            std::string_view sv( text.data() + i, len );
+        //            std::string key( sv );
+        //            auto it = token_map_.find( key );
+        //            
+        //            if ( it != token_map_.end() )
+        //            {
+        //                out.push_back( it->second );
+        //                i += len;
+        //                matched = true;
+        //                break;
+        //            }
+        //        }
+
+        //        if ( !matched )
+        //        {
+        //            // No token matched. Emit UNK if available, otherwise 0u.
+        //            // tokenToId may return unk id if vocabulary implements it.
+        //            auto unk_opt = vocab_.tokenToId( std::string( 1, '\1' ) ); // try explicit UNK marker
+        //            if ( !unk_opt )
+        //            {
+        //                // Ask vocabulary for the single-byte character at this position
+        //                std::string single( 1, text[ i ] );
+        //                auto id_opt = vocab_.tokenToId( single );
+        //                if ( id_opt )
+        //                {
+        //                    out.push_back( *id_opt );
+        //                }
+        //                else
+        //                {
+        //                    out.push_back( static_cast<TokenId>(0u) );
+        //                }
+        //            }
+        //            else
+        //            {
+        //                out.push_back( *unk_opt );
+        //            }
+
+        //            ++i;
+        //        }
+        //    }
+
+        //    return out;
+        //}
 
         std::string decode( std::span<const TokenId> tokens ) override
         {
