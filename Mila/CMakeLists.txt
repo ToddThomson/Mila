@@ -183,7 +183,7 @@ PUBLIC
         # Components - Activations
         "Src/Dnn/Components/Activations/ActivationType.ixx"
         "Src/Dnn/Components/Activations/Gelu.ixx"
-        "Src/Dnn/Components/Activations/GeluConfig.ixx"
+        "Src/Dnn/Components/Activations/Gelu.Config.ixx"
         "Src/Dnn/Components/Activations/Swiglu.ixx"
         "Src/Dnn/Components/Activations/Swiglu.Config.ixx"
         

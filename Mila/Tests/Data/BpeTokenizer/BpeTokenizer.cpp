@@ -107,6 +107,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
             .withSpecialTokens( BpeSpecialTokens::none() );
 
         BpeTrainer trainer( cfg );
+        
         // train on empty corpus -> base byte vocabulary
         BpeVocabulary vocab = trainer.train();
 

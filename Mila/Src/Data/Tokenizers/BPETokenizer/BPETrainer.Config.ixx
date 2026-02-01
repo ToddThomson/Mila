@@ -1,6 +1,7 @@
 module;
 #include <cstddef>
 #include <string>
+#include <stdexcept>
 
 export module Data.BpeTrainerConfig;
 
@@ -82,7 +83,7 @@ namespace Mila::Data
         /**
          * @brief Set whether to use byte-level BPE.
          *
-         * Byte-level BPE (as used in GPT-2/3/4) operates on UTF-8 bytes rather
+         * Byte-level BPE operates on UTF-8 bytes rather
          * than Unicode characters. This ensures any text can be represented
          * (no unknown tokens at the byte level) and provides better handling
          * of multilingual text.
@@ -146,23 +147,51 @@ namespace Mila::Data
         /**
          * @brief Validate configuration.
          *
-         * Checks that:
-         * - vocab_size is reasonable (> base size)
-         * - min_frequency is > 0
+         * Throws std::invalid_argument when validation fails.
          *
-         * @return true if valid, false otherwise.
+         * Validation checks:
+         * - vocab_size must be > 0
+         * - min_frequency must be > 0
+         * - vocab_size must be larger than the assumed base vocabulary size
+         *   (256 for byte-level, otherwise 128). If special tokens are enabled
+         *   an allowance is added for pad/unk/bos/eos.
+         *
+         * @throws std::invalid_argument If the configuration is invalid.
          */
-        bool isValid() const {
-            if ( vocab_size_ == 0 ) return false;
-            if ( min_frequency_ == 0 ) return false;
-
-            // vocab_size must be larger than base vocabulary
-            size_t base_size = byte_level_ ? 256 : 128;  // Approximate
-            if ( special_tokens_.enabled ) {
-                base_size += 4;  // pad, unk, bos, eos
+        void validate() const
+        {
+            if ( vocab_size_ == 0 ) {
+                throw std::invalid_argument( "BpeTrainerConfig: vocab_size must be > 0" );
             }
 
-            return vocab_size_ > base_size;
+            if ( min_frequency_ == 0 ) {
+                throw std::invalid_argument( "BpeTrainerConfig: min_frequency must be > 0" );
+            }
+
+            // For byte-level, validate minimum vocab size
+            if ( byte_level_ ) {
+                size_t min_base_size = 256 + special_tokens_.count();
+
+                if ( vocab_size_ < min_base_size ) {
+                    throw std::invalid_argument(
+                        "BpeTrainerConfig: vocab_size (" + std::to_string( vocab_size_ ) +
+                        ") must be > base vocabulary size (" + std::to_string( min_base_size ) +
+                        ") [256 bytes + " + std::to_string( special_tokens_.count() ) + " special tokens]"
+                    );
+                }
+            }
+
+            // Validate max_merges if set
+            if ( max_merges_ > 0 && max_merges_ >= vocab_size_ ) {
+                throw std::invalid_argument(
+                    "BpeTrainerConfig: max_merges must be < vocab_size (or 0 for unlimited)"
+                );
+            }
+
+            // Validate special tokens configuration
+            if ( special_tokens_.enabled ) {
+                special_tokens_.validate();
+            }
         }
 
         const BpeSpecialTokens& getSpecialTokens() const {
@@ -172,27 +201,33 @@ namespace Mila::Data
         size_t getVocabSize() const {
             return vocab_size_;
         }
+        
         size_t getMinFrequency() const {
             return min_frequency_;
         }
+        
         bool isByteLevel() const {
             return byte_level_;
         }
+        
         const std::string& getPreTokenizationPattern() const {
             return pre_tokenization_pattern_;
         }
+        
         size_t getMaxMerges() const {
             return max_merges_;
         }
+        
         bool isMergeCachingEnabled() const {
             return enable_merge_caching_;
         }
 
     private:
-        size_t vocab_size_ = 50000;
+        
+        size_t vocab_size_ = 32000;
         size_t min_frequency_ = 2;
         bool byte_level_ = true;
-        BpeSpecialTokens special_tokens_;
+        BpeSpecialTokens special_tokens_ = BpeSpecialTokens::standard();
         std::string pre_tokenization_pattern_ = "";  // Empty = simple whitespace
         size_t max_merges_ = 0;  // 0 = no limit
         bool enable_merge_caching_ = true;

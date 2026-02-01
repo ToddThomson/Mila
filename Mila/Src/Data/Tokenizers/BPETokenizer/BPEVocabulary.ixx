@@ -214,7 +214,7 @@ namespace Mila::Data
 
             const auto& special_tokens = config.getSpecialTokens();
             const size_t target_vocab_size = config.getVocabSize();
-            const size_t min_frequency = 5; // DEBUG: 5 for profiling. FIXME: revert to config.getMinFrequency();
+            const size_t min_frequency = config.getMinFrequency();
             const bool byte_level = config.isByteLevel();
             const size_t max_merges = config.getMaxMerges();
 

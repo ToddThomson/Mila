@@ -246,6 +246,24 @@ namespace Mila::Data
 
         std::string decode( std::span<const TokenId> tokens ) override
         {
+            std::string out;
+            out.reserve( tokens.size() * std::max<size_t>( 1, max_token_len_ ) );
+
+            for ( TokenId id : tokens ) {
+                auto tok_opt = vocab_.idToToken( id );
+                if ( tok_opt ) {
+                    decodeToken( *tok_opt, out );
+                }
+                else {
+                    out.push_back( '?' );
+                }
+            }
+
+            return out;
+        }
+
+        std::string decode_old( std::span<const TokenId> tokens )
+        {
             // TODO: Update for byte-level decoding setting
             
             const auto& byte_decoder = vocab_.getByteDecoder();
@@ -330,5 +348,35 @@ namespace Mila::Data
         BpeVocabulary vocab_;
         std::unordered_map<std::string, TokenId> token_map_;
         size_t max_token_len_{ 0 };
+
+        void decodeToken( const std::string& token, std::string& out )
+        {
+            if ( !vocab_.isByteLevel() ) {
+                // Character-level: direct concatenation
+                out.append( token );
+                return;
+            }
+
+            // Byte-level: decode escaped bytes
+            const auto& byte_decoder = vocab_.getByteDecoder();
+            size_t i = 0;
+            while ( i < token.size() ) {
+                size_t char_len = utf8CharLength( token[ i ] );
+                std::string utf8_char = token.substr( i, char_len );
+
+                auto it = byte_decoder.find( utf8_char );
+                out.push_back( it != byte_decoder.end() ?
+                    static_cast<char>( it->second ) : '?' );
+                i += char_len;
+            }
+        }
+
+        static size_t utf8CharLength( unsigned char first_byte ) {
+            if ( (first_byte & 0x80) == 0 ) return 1;
+            if ( (first_byte & 0xE0) == 0xC0 ) return 2;
+            if ( (first_byte & 0xF0) == 0xE0 ) return 3;
+            if ( (first_byte & 0xF8) == 0xF0 ) return 4;
+            return 1;
+        }
     };
 }

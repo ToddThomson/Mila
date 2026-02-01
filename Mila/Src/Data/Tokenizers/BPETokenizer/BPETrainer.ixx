@@ -51,9 +51,7 @@ namespace Mila::Data
         explicit BpeTrainer( const BpeTrainerConfig& config = BpeTrainerConfig{} )
             : config_( config )
         {
-            if ( !config_.isValid() ) {
-                throw std::invalid_argument( "Invalid BPE tokenizer configuration" );
-            }
+            config_.validate();
         }
 
         void addCorpusFromStream( std::istream& stream ) {
