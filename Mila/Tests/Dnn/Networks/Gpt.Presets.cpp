@@ -17,7 +17,7 @@ namespace CompositeComponents_Tests
         EXPECT_EQ( cfg.getNumHeads(), 12 );
 
         // Default max sequence length is present at network-level
-        EXPECT_EQ( cfg.getMaxSequenceLength(), static_cast<dim_t>(8192) );
+        EXPECT_EQ( cfg.getMaxSequenceLength(), static_cast<dim_t>(1024) );
 
         // Preset should validate without throwing.
         EXPECT_NO_THROW( cfg.validate() );

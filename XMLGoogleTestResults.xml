@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="1" failures="0" disabled="0" errors="0" time="7.033" timestamp="2026-02-03T10:37:02.049" name="AllTests">
+  <testsuite name="GptTests" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="7.032" timestamp="2026-02-03T10:37:02.050">
+    <testcase name="FromPretrained_LoadsIfWeightsPresent" file="C:\Users\ToddT\Src\Repos\Mila\Mila\Tests\Dnn\Networks\Gpt.cpp" line="124" status="run" result="completed" time="7.032" timestamp="2026-02-03T10:37:02.050" classname="GptTests" />
+  </testsuite>
+</testsuites>

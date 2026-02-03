@@ -320,18 +320,16 @@ namespace Mila::Dnn::Networks
         }
 
     private:
-        dim_t vocab_size_ = 0;
-        dim_t embedding_dim_ = 0;
-        dim_t num_layers_ = 0;
-        dim_t num_heads_ = 0;
-        dim_t num_kv_heads_ = 0;
-        dim_t max_seq_len_ = 8192;
-        dim_t hidden_dim_ = 0;
-
+        dim_t vocab_size_ = 128256;        // Llama 3/3.1 default (was 32000 for Llama 2)
+        dim_t embedding_dim_ = 4096;       // Llama 3 8B default
+        dim_t num_layers_ = 32;            // Llama 3 8B default
+        dim_t num_heads_ = 32;             // Llama 3 8B default
+        dim_t num_kv_heads_ = 8;           // Llama 3 8B default (GQA)
+        dim_t max_seq_len_ = 8192;         // Llama 3 8B default
+        dim_t hidden_dim_ = 14336;         // Llama 3 8B default (SwiGLU)
         float rope_theta_ = 500000.0f;
         float rope_scaling_factor_ = 1.0f;
         float rms_norm_eps_ = 1e-5f;
-
         bool use_bias_ = false;
     };
 }

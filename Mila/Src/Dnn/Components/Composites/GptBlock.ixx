@@ -325,7 +325,7 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "====================" << std::endl;
-            oss << "Transformer: " << this->getName() << std::endl;
+            oss << "GptBlock: " << this->getName() << std::endl;
 
             if ( !cached_input_shape_.empty() )
             {

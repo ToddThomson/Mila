@@ -41,8 +41,7 @@ namespace Mila::Dnn::Networks
         return GptConfig( 768, 12 )
             .withNumHeads( 12 )
             .withHiddenSize( 3072 )
-            .withBias( true )
-            .withDropout( 0.1f );
+            .withBias( true );
     }
 
     /**
@@ -57,8 +56,7 @@ namespace Mila::Dnn::Networks
         return GptConfig( 1024, 24 )
             .withNumHeads( 16 )
             .withHiddenSize( 4096 )
-            .withBias( true )
-            .withDropout( 0.1f );
+            .withBias( true );
     }
 
     /**
@@ -73,8 +71,7 @@ namespace Mila::Dnn::Networks
         return GptConfig( 1280, 36 )
             .withNumHeads( 20 )
             .withHiddenSize( 5120 )
-            .withBias( true )
-            .withDropout( 0.1f );
+            .withBias( true );
     }
 
     /**
@@ -89,7 +86,6 @@ namespace Mila::Dnn::Networks
         return GptConfig( 1600, 48 )
             .withNumHeads( 25 )
             .withHiddenSize( 6400 )
-            .withBias( true )
-            .withDropout( 0.1f );
+            .withBias( true );
     }
 }

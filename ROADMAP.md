@@ -1,7 +1,6 @@
 ﻿# Mila Deep Learning Framework - Beta Release Roadmap
 
 **Target:** v0.1.0-beta  
-**Timeline:** 10 weeks  
 **Estimated Completion:** Mid-February 2025
 
 ---

@@ -16,7 +16,7 @@ namespace Data::Tokenizers::BpeTokenizer_Gpt2_Tests
     // Helper: path to GPT-2 tokenizer under TEST_DATA_DIR (set via CMake target_compile_definitions)
     static fs::path gpt2_tokenizer_path()
     {
-        fs::path dataDir = TEST_DATA_DIR; // defined by Mila\Tests/CMakeLists.txt
+        fs::path dataDir = TEST_DATA_DIR;
         return dataDir / "models" / "gpt2" / "gpt2_tokenizer.bin";
     }
 

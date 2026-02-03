@@ -33,7 +33,6 @@ import Dnn.Components.Linear;
 import Dnn.Components.LayerNorm;
 import Dnn.Components.LearnedEncoder;
 import Dnn.Components.GptBlock;
-//import Dnn.Components.MLP;
 import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.ActivationType;
@@ -70,7 +69,6 @@ namespace Mila::Dnn::Networks
         using TransformerBlockType = GptBlock<TDeviceType, TPrecision>;
         using EncoderType = LearnedEncoder<TDeviceType, dtype_t::INT32, TPrecision>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
-        //using MLPType = MLP<TDeviceType, TPrecision>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
 
         /**
@@ -101,6 +99,35 @@ namespace Mila::Dnn::Networks
         }
 
         ~Gpt() override = default;
+
+        // --------------------------------------------------------------------
+        // Factory methods
+        // --------------------------------------------------------------------
+
+        static std::unique_ptr<Gpt<TDeviceType, TPrecision>> fromPretrained(
+            const std::filesystem::path& model_path,
+            std::size_t batch_size,      // User specifies runtime dimensions
+            std::size_t seq_length,      // Must be ? max_seq_length from weights
+            DeviceId device_id = DeviceId{ TDeviceType, 0 } )
+        {
+            ModelReader reader( model_path );
+            const auto& metadata = reader.getMetadata();
+
+            GptConfig config = createConfigFromMetadata( metadata );
+
+            std::unique_ptr<Gpt<TDeviceType, TPrecision>> gpt =
+                std::make_unique<Gpt<TDeviceType, TPrecision>>(
+                    metadata.model_name,
+                    config,
+                    device_id
+                );
+
+            // Build with max sequence length (position embeddings support full range)
+            shape_t build_shape = { 1, config.getMaxSequenceLength() };
+            gpt->build( build_shape );
+
+            return gpt;
+        }
 
         /**
          * @brief Load GptTransformer from archive.
@@ -232,6 +259,11 @@ namespace Mila::Dnn::Networks
 
             final_layernorm_->zeroGradients();
             lm_head_->zeroGradients();
+        }
+
+        const ComponentType getType() const override
+        {
+            return ComponentType::Gpt2;
         }
 
         std::string toString() const override
@@ -374,7 +406,7 @@ namespace Mila::Dnn::Networks
 
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
-                std::string block_name = this->getName() + ".tf.layer_" + std::to_string( i );
+                std::string block_name = this->getName() + ".tf_layer_" + std::to_string( i );
                 auto block = this->template getComponentAs<TransformerBlockType>( block_name );
                 block->build( embedding_shape_ );
                 transformer_blocks_.push_back( block );
@@ -423,8 +455,6 @@ namespace Mila::Dnn::Networks
 
         TensorType* normalized_ptr_{ nullptr };
         TensorType* logits_ptr_{ nullptr };
-
-        // -------------------------------------------------------------------
 
         void validateInputShape( const shape_t& input_shape ) const
         {
@@ -476,7 +506,7 @@ namespace Mila::Dnn::Networks
                 .withNormalizedShape( { config_.getEmbeddingSize() });
 
             auto final_layernorm = std::make_shared<LayerNormType>(
-                this->getName() + ".final_layernorm", ln_config, std::nullopt );
+                this->getName() + ".ln_final", ln_config, std::nullopt );
 
             this->addComponent( final_layernorm );
 
@@ -489,8 +519,23 @@ namespace Mila::Dnn::Networks
             this->addComponent( lm_head );
         }
 
-        static void loadComponentWeights( ModelArchive& /*archive*/,
-            Gpt* /*transformer*/ )
-        {}
+        /**
+         * @brief Create GptConfig from Mila metadata.
+         */
+        static auto createConfigFromMetadata( const ModelMetadata& metadata ) -> GptConfig
+        {
+            dim_t embedding_size = static_cast<dim_t>(metadata.embedding_dim);
+            dim_t num_layers = static_cast<dim_t>(metadata.num_layers);
+
+            GptConfig config = GptConfig( embedding_size, num_layers );
+
+            config.withVocabSize( static_cast<dim_t>( metadata.vocab_size ) )
+                .withMaxSequenceLength( static_cast<dim_t>( metadata.max_seq_length ) )
+                .withNumHeads( static_cast<dim_t>(metadata.num_heads) )
+                .withHiddenSize( static_cast<dim_t>(metadata.hidden_dim) )
+                .withBias( metadata.use_bias );
+
+            return config;
+        }
     };
 }

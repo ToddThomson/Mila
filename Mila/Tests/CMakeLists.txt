@@ -174,7 +174,8 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     # Network Tests
     # --------------------------------------------------------------
-    "Dnn/Network/Network.cpp"
+    "Dnn/Core/Network.cpp"
+    
     #"Dnn/Modeling/Network.Cpu.cpp"
     #"Dnn/Modeling/Network.Cuda.cpp"
 
@@ -208,7 +209,8 @@ add_executable( MilaTests
     "Data/BpeTokenizer/BpeTrainer.cpp"
     "Data/CharTokenizer/CharTrainer.cpp"
     "Data/BpeTokenizer/BpeTokenizer.cpp"
- "Data/BpeTokenizer/BpeTokenizer.Gpt2.cpp")
+    "Data/BpeTokenizer/BpeTokenizer.Gpt2.cpp"
+)
 
 target_compile_definitions( MilaTests PRIVATE TEST_DATA_DIR="${TEST_DATA_DIR}" )
 

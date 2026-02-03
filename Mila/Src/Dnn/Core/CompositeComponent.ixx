@@ -650,6 +650,7 @@ namespace Mila::Dnn
          */
         virtual void optimize()
         {
+            // REVIEW: Architecture-specific optimizations is currently a no-op.
         }
 
         /**

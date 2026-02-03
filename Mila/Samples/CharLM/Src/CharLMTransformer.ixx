@@ -571,6 +571,7 @@ namespace CharLM
                     .withActivation( ActivationType::Gelu )
                     .withResidualScale( 1.0f / sqrtf( static_cast<float>( config_.num_layers ) ) );
 
+                // REVIEW: Is the name here ".tf_layer_"
                 auto layer = std::make_shared<TransformerBlockType>(
                     this->getName() + ".tf.layer_" + std::to_string( i ), tf_cfg, std::nullopt );
 

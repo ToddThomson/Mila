@@ -25,12 +25,12 @@ namespace Data::CharTokenizer::Tests
         return dir / (stem + "_" + std::to_string( now ) + "_" + std::to_string( rand ) + ".bin");
     }
 
-    TEST( CharVocabularyTests, BuildFromText_BasicOrderingAndSize_WithCharTrainerConfig )
+    TEST( CharVocabularyTests, BuildFromText_BasicOrderingAndSize_WithCharVocabularyConfig )
     {
         // Arrange
         std::string corpus = "bca";
 
-        CharTrainerConfig cfg;
+        CharVocabularyConfig cfg;
         CharSpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
@@ -62,7 +62,7 @@ namespace Data::CharTokenizer::Tests
         // Arrange
         std::string corpus = "first\r\nsecond\r\n";
 
-        CharTrainerConfig cfg;
+        CharVocabularyConfig cfg;
         CharSpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
@@ -89,7 +89,7 @@ namespace Data::CharTokenizer::Tests
         // Arrange
         std::string corpus = "ab";
 
-        CharTrainerConfig cfg;
+        CharVocabularyConfig cfg;
         CharSpecialTokens st = {};
         st.use_pad = true;
         st.use_unk = true;
@@ -124,7 +124,7 @@ namespace Data::CharTokenizer::Tests
         // Arrange
         std::string corpus = "ab";
 
-        CharTrainerConfig cfg;
+        CharVocabularyConfig cfg;
         CharSpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
@@ -148,7 +148,7 @@ namespace Data::CharTokenizer::Tests
         // Arrange
         std::string corpus = "xyz\n";
 
-        CharTrainerConfig cfg;
+        CharVocabularyConfig cfg;
         CharSpecialTokens st = {};
         st.use_pad = true;
         st.use_unk = true;
@@ -206,7 +206,7 @@ namespace Data::CharTokenizer::Tests
         // Arrange
         std::string corpus = "ab";
 
-        CharTrainerConfig cfg;
+        CharVocabularyConfig cfg;
         CharSpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
@@ -229,7 +229,7 @@ namespace Data::CharTokenizer::Tests
         // Arrange
         std::string corpus = "a";
 
-        CharTrainerConfig cfg;
+        CharVocabularyConfig cfg;
         CharSpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;

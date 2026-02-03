@@ -22,13 +22,13 @@ import Data.TokenizerTrainer;
 import Data.TokenizerVocabulary;
 
 import Data.CharTrainer;
-import Data.CharTrainerConfig;
 import Data.CharVocabulary;
+import Data.CharVocabularyConfig;
 import Data.CharTokenizer;
 
 import Data.BpeTrainer;
-import Data.BpeTrainerConfig;
 import Data.BpeVocabulary;
+import Data.BpeVocabularyConfig;
 import Data.BpeTokenizer;
 
 namespace Mila::Data
@@ -77,7 +77,7 @@ namespace Mila::Data
             {
                 case TokenizerType::Char:
                 {
-                    if constexpr ( std::is_same_v<Config, CharTrainerConfig> ) {
+                    if constexpr ( std::is_same_v<Config, CharVocabularyConfig> ) {
                         CharTrainer trainer( config );
                         for ( const auto& file : corpusFiles ) {
                             trainer.addCorpusFromFile( file );
@@ -94,7 +94,7 @@ namespace Mila::Data
 
                 case TokenizerType::Bpe:
                 {
-                    if constexpr ( std::is_same_v<Config, BpeTrainerConfig> ) {
+                    if constexpr ( std::is_same_v<Config, BpeVocabularyConfig> ) {
                         BpeTrainer trainer( config );
                         for ( const auto& file : corpusFiles ) {
                             trainer.addCorpusFromFile( file );

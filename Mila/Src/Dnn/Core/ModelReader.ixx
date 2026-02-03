@@ -37,17 +37,19 @@ namespace Mila::Dnn
         std::string architecture;
         std::string model_name;
         uint32_t vocab_size;
-        uint32_t max_position_embeddings;
+        uint32_t max_seq_length;
         uint32_t embedding_dim;
         uint32_t num_layers;
         uint32_t num_heads;
         uint32_t num_kv_heads;
         uint32_t hidden_dim;
         bool use_bias;
+        
         std::string activation;
         std::string norm_type;
         std::string attention_type;
         std::string positional_encoding;
+        
         float rope_theta;
         float norm_epsilon;
 
@@ -326,7 +328,7 @@ namespace Mila::Dnn
             metadata_.architecture = extract_string( "architecture" );
             metadata_.model_name = extract_string( "model_name" );
             metadata_.vocab_size = extract_int( "vocab_size" );
-            metadata_.max_position_embeddings = extract_int( "max_position_embeddings" );
+            metadata_.max_seq_length = extract_int( "max_seq_length" );
             metadata_.embedding_dim = extract_int( "embedding_dim" );
             metadata_.num_layers = extract_int( "num_layers" );
             metadata_.num_heads = extract_int( "num_heads" );

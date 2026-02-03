@@ -9,11 +9,6 @@
 
 export module Dnn.Networks.Llama;
 
-/// @defgroup DnnNetworksLlama LLaMA Networks
-/// @brief Public network API and presets for LLaMA models.
-/// @{
-
 export import :Config;
 export import :Presets;
 
-/// @}

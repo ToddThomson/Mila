@@ -50,6 +50,11 @@ namespace Mila::Dnn
         // Top-level networks
         Network,
 
+        // REVIEW: Do we need Gpt2, Llama, etc.
+        Gpt2,       ///< GPT-2 style transformer network
+        Llama,      ///< LLaMA style transformer network
+        Mistral,    ///< Mistral style transformer network
+        Bert,       ///< BERT style transformer network
 
         // Reserve range for custom components (1000+)
         CustomComponentStart = 1000,

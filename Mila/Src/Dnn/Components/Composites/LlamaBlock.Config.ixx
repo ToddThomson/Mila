@@ -33,17 +33,17 @@ namespace Mila::Dnn
         {
             if ( embedding_dim <= 0 )
             {
-                throw std::invalid_argument( "LlamaTransformerBlockConfig: embedding_dim must be > 0" );
+                throw std::invalid_argument( "LlamaBlockConfig: embedding_dim must be > 0" );
             }
 
             if ( num_heads <= 0 )
             {
-                throw std::invalid_argument( "LlamaTransformerBlockConfig: num_heads must be > 0" );
+                throw std::invalid_argument( "LlamaBlockConfig: num_heads must be > 0" );
             }
 
             if ( embedding_dim % num_heads != 0 )
             {
-                throw std::invalid_argument( "LlamaTransformerBlockConfig: embedding_dim must be divisible by num_heads" );
+                throw std::invalid_argument( "LlamaBlockConfig: embedding_dim must be divisible by num_heads" );
             }
 
             // LLaMA defaults
@@ -102,7 +102,7 @@ namespace Mila::Dnn
         {
             if ( num_kv_heads > 0 && (self.num_heads_ % num_kv_heads != 0) )
             {
-                throw std::invalid_argument( "LlamaTransformerBlockConfig: num_heads must be divisible by num_kv_heads" );
+                throw std::invalid_argument( "LlamaBlockConfig: num_heads must be divisible by num_kv_heads" );
             }
 
             self.num_kv_heads_ = num_kv_heads;
@@ -204,29 +204,29 @@ namespace Mila::Dnn
         {
             if ( embedding_dim_ <= 0 )
             {
-                throw std::invalid_argument( "LlamaTransformerBlockConfig: embedding_dim must be greater than zero" );
+                throw std::invalid_argument( "LlamaBlockConfig: embedding_dim must be greater than zero" );
             }
 
             if ( num_heads_ == 0 )
             {
-                throw std::invalid_argument( "LlamaTransformerBlockConfig: num_heads must be greater than zero" );
+                throw std::invalid_argument( "LlamaBlockConfig: num_heads must be greater than zero" );
             }
 
             if ( embedding_dim_ % num_heads_ != 0 )
             {
-                throw std::invalid_argument( "LlamaTransformerBlockConfig: embedding_dim must be divisible by num_heads" );
+                throw std::invalid_argument( "LlamaBlockConfig: embedding_dim must be divisible by num_heads" );
             }
 
             if ( num_kv_heads_ > 0 )
             {
                 if ( num_heads_ % num_kv_heads_ != 0 )
                 {
-                    throw std::invalid_argument( "LlamaTransformerBlockConfig: num_heads must be divisible by num_kv_heads" );
+                    throw std::invalid_argument( "LlamaBlockConfig: num_heads must be divisible by num_kv_heads" );
                 }
 
                 if ( attention_type_ == AttentionType::Standard && num_kv_heads_ != num_heads_ )
                 {
-                    throw std::invalid_argument( "LlamaTransformerBlockConfig: standard attention requires num_kv_heads == num_heads" );
+                    throw std::invalid_argument( "LlamaBlockConfig: standard attention requires num_kv_heads == num_heads" );
                 }
             }
 
@@ -234,7 +234,7 @@ namespace Mila::Dnn
             {
                 if ( rope_theta_ <= 0.0f )
                 {
-                    throw std::invalid_argument( "LlamaTransformerBlockConfig: RoPE theta must be positive" );
+                    throw std::invalid_argument( "LlamaBlockConfig: RoPE theta must be positive" );
                 }
             }
         }
@@ -300,7 +300,7 @@ namespace Mila::Dnn
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << "LLaMA Transformer Block Configuration:\n";
+            oss << "LLaMA Block Configuration:\n";
             oss << "  Embedding Dim: " << embedding_dim_ << "\n";
             oss << "  Num Heads: " << num_heads_ << "\n";
             oss << "  Num KV Heads: " << getNumKVHeads() << "\n";

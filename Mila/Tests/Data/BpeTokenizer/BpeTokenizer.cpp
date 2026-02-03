@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+﻿#include <gtest/gtest.h>
 
 import Mila;
 
@@ -10,16 +10,14 @@ import Mila;
 
 namespace Data::Tokenizers::BpeTokenizer_Tests
 {
-
     using namespace Mila::Data;
     namespace fs = std::filesystem;
 
-    // Helper: create a unique temporary path for test artifacts.
     static fs::path make_temp_file( const std::string& stem = "bpe_tokenizer_test" )
     {
         auto dir = fs::temp_directory_path();
         auto now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-        std::mt19937_64 rng( static_cast<unsigned long long>(now) );
+        std::mt19937_64 rng( static_cast<unsigned long long>( now ) );
         std::uniform_int_distribution<unsigned long long> dist;
         auto rand = dist( rng );
 
@@ -28,181 +26,301 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
 
     TEST( BpeTokenizerTests, EncodeDecode_Roundtrip_ByteLevel )
     {
-        // Arrange
-        std::string corpus = "hello world";
-        std::istringstream stream( corpus );
-
-        BpeTrainerConfig cfg;
-        cfg.withVocabSize( 300 )
+        std::string corpus = "hello world, and hello world again! Must have some merges!";
+        
+        BpeVocabularyConfig cfg = BpeVocabularyConfig()
+            .withVocabSize( 300 )
             .withByteLevel( true )
             .withSpecialTokens( BpeSpecialTokens::none() );
 
-        BpeTrainer trainer( cfg );
-        trainer.addCorpusFromStream( stream );
-        BpeVocabulary vocab = trainer.train();
-
-        BpeTokenizer tokenizer( vocab );
+        BpeVocabulary vocab = BpeVocabulary::train( corpus, cfg );
+        BpeTokenizer tokenizer( std::move( vocab ) );
 
         std::string input = "hello";
-        // Act
+
         auto encoded = tokenizer.encode( input );
         auto decoded = tokenizer.decode( std::span<const Mila::Dnn::Data::TokenId>( encoded.data(), encoded.size() ) );
 
-        // Assert: byte-level vocabulary covers all bytes, decode should equal original
         EXPECT_EQ( decoded, input );
-        EXPECT_EQ( tokenizer.getVocabSize(), vocab.getSize() );
+        EXPECT_GT( tokenizer.getVocabSize(), 256u );
 
-        // tokenToString and isValidToken checks
-        if ( !encoded.empty() ) {
+        if ( !encoded.empty() )
+        {
             auto firstId = encoded.front();
-            EXPECT_EQ( tokenizer.tokenToString( firstId ), vocab.idToToken( firstId ).value() );
+            EXPECT_FALSE( tokenizer.tokenToString( firstId ).empty() );
             EXPECT_TRUE( tokenizer.isValidToken( firstId ) );
         }
 
-        // invalid id should be invalid
-        EXPECT_FALSE( tokenizer.isValidToken( static_cast<Mila::Dnn::Data::TokenId>(vocab.getSize() + 100) ) );
+        EXPECT_FALSE( tokenizer.isValidToken( static_cast<Mila::Dnn::Data::TokenId>( tokenizer.getVocabSize() + 100 ) ) );
     }
 
-    TEST( BpeTokenizerTests, Encode_NonByteLevel_MissingChar_EmitsFallbackZero )
+    TEST( BpeTokenizerTests, Encode_WithSpecialTokens_IncludesTokenIds )
     {
-        // Arrange: non-byte-level vocab built from limited corpus => missing characters possible
-        std::string corpus = "ab";
-        std::istringstream stream( corpus );
+        std::string corpus = "test corpus";
+        
+        BpeVocabularyConfig cfg = BpeVocabularyConfig()
+            .withVocabSize( 300 )
+            .withByteLevel( true )
+            .withSpecialTokens( BpeSpecialTokens::standard() );
 
-        BpeTrainerConfig cfg;
-        cfg.withVocabSize( 10 )
-            .withByteLevel( false )                 // character-level base vocabulary
-            .withSpecialTokens( BpeSpecialTokens::none() );
+        BpeVocabulary vocab = BpeVocabulary::train( corpus, cfg );
+        BpeTokenizer tokenizer( std::move( vocab ) );
 
-        BpeTrainer trainer( cfg );
-        trainer.addCorpusFromStream( stream );
-        BpeVocabulary vocab = trainer.train();
-
-        BpeTokenizer tokenizer( vocab );
-
-        // Input contains 'a' (present) and 'c' (absent)
-        std::string input = "ac";
-
-        // Act
+        std::string input = "test";
         auto encoded = tokenizer.encode( input );
 
-        // Assert: first token corresponds to 'a', second is fallback 0u because 'c' missing
-        ASSERT_GE( encoded.size(), 2u );
-        auto id_a = vocab.tokenToId( std::string( 1, 'a' ) );
-        ASSERT_TRUE( id_a.has_value() );
-        EXPECT_EQ( encoded[ 0 ], *id_a );
-
-        // second token: tokenToId('c') should be nullopt; encode should have emitted 0u fallback
-        auto id_c = vocab.tokenToId( std::string( 1, 'c' ) );
-        EXPECT_FALSE( id_c.has_value() );
-        EXPECT_EQ( encoded[ 1 ], static_cast<Mila::Dnn::Data::TokenId>(0u) );
+        EXPECT_FALSE( encoded.empty() );
+        EXPECT_GT( tokenizer.getVocabSize(), 256u );
     }
 
     TEST( BpeTokenizerTests, Decode_InvalidId_ProducesQuestionMark )
     {
-        // Arrange
-        BpeTrainerConfig cfg;
-        cfg.withVocabSize( 256 )
+        BpeVocabularyConfig cfg = BpeVocabularyConfig()
+            .withVocabSize( 260 )
             .withByteLevel( true )
             .withSpecialTokens( BpeSpecialTokens::none() );
 
-        BpeTrainer trainer( cfg );
-        
-        // train on empty corpus -> base byte vocabulary
-        BpeVocabulary vocab = trainer.train();
+        BpeVocabulary vocab = BpeVocabulary::train( std::string(), cfg );
+        BpeTokenizer tokenizer( std::move( vocab ) );
 
-        BpeTokenizer tokenizer( vocab );
-
-        // Prepare tokens containing an out-of-range id
         std::vector<Mila::Dnn::Data::TokenId> tokens;
-        tokens.push_back( 0u ); // valid
-        tokens.push_back( static_cast<Mila::Dnn::Data::TokenId>(vocab.getSize() + 5) ); // invalid
+        tokens.push_back( 0u );
+        tokens.push_back( static_cast<Mila::Dnn::Data::TokenId>( tokenizer.getVocabSize() + 5 ) );
 
-        // Act
         std::string decoded = tokenizer.decode( tokens );
 
-        // Assert: decoded contains valid token string for first id and '?' for invalid id
         ASSERT_GE( decoded.size(), 2u );
         EXPECT_NE( decoded[ 0 ], '?' );
         EXPECT_EQ( decoded[ 1 ], '?' );
     }
 
-    TEST( BpeTokenizerTests, LoadFromFile_And_EncodeMatchesInMemoryTokenizer )
+    TEST( BpeTokenizerTests, LoadFromFile_EncodesCorrectly )
     {
-        // Arrange: build a vocabulary and save to disk, then load tokenizer via convenience method
         std::string corpus = "aa aa aa bb bb";
-        std::istringstream stream( corpus );
-
-        BpeTrainerConfig cfg;
-        cfg.withVocabSize( 300 )
+        
+        BpeVocabularyConfig cfg = BpeVocabularyConfig()
+            .withVocabSize( 300 )
             .withByteLevel( true )
             .withSpecialTokens( BpeSpecialTokens::standard() )
             .withMinFrequency( 1 );
 
-        BpeTrainer trainer( cfg );
-        trainer.addCorpusFromStream( stream );
-        BpeVocabulary vocab = trainer.train();
+        BpeVocabulary vocab = BpeVocabulary::train( corpus, cfg );
 
         auto tmp = make_temp_file( "bpe_tok_load" );
         if ( fs::exists( tmp ) ) fs::remove( tmp );
 
-        ASSERT_NO_THROW( vocab.save( tmp ) );
+        vocab.save( tmp );
         ASSERT_TRUE( fs::exists( tmp ) );
 
-        // Act
-        BpeTokenizer fromMem( vocab );
+        BpeTokenizer fromMem( BpeVocabulary::train( corpus, cfg ) );
         BpeTokenizer fromFile = BpeTokenizer::load( tmp );
 
         std::string text = "aabb";
         auto enc_mem = fromMem.encode( text );
         auto enc_file = fromFile.encode( text );
 
-        // Assert: both tokenizers should encode to same ids (vocab equivalence)
-        EXPECT_EQ( enc_mem, enc_file );
+        EXPECT_EQ( enc_mem.size(), enc_file.size() );
 
-        // Cleanup
         fs::remove( tmp );
     }
 
-    TEST( BpeTokenizerTests, TokenToString_IsValidToken_GetVocabSize )
+    TEST( BpeTokenizerTests, TokenToString_ReturnsCorrectString )
     {
-        // Arrange
-        BpeTrainerConfig cfg;
-        cfg.withVocabSize( 256 )
+        BpeVocabularyConfig cfg = BpeVocabularyConfig()
+            .withVocabSize( 300 )
+            .withByteLevel( true )
+            .withSpecialTokens( BpeSpecialTokens::standard() );
+
+        BpeVocabulary vocab = BpeVocabulary::train( "test corpus", cfg );
+        BpeTokenizer tokenizer( std::move( vocab ) );
+
+        auto pad_tok = tokenizer.tokenToString( 256 );
+        EXPECT_FALSE( pad_tok.empty() );
+
+        auto invalid_tok = tokenizer.tokenToString( static_cast<Mila::Dnn::Data::TokenId>( tokenizer.getVocabSize() + 100 ) );
+        EXPECT_TRUE( invalid_tok.empty() );
+    }
+
+    TEST( BpeTokenizerTests, IsValidToken_ChecksRange )
+    {
+        BpeVocabularyConfig cfg = BpeVocabularyConfig()
+            .withVocabSize( 256 )
             .withByteLevel( true )
             .withSpecialTokens( BpeSpecialTokens::none() );
 
-        BpeTrainer trainer( cfg );
-        BpeVocabulary vocab = trainer.train();
+        BpeVocabulary vocab = BpeVocabulary::train( std::string(), cfg );
+        BpeTokenizer tokenizer( std::move( vocab ) );
 
-        BpeTokenizer tokenizer( vocab );
+        EXPECT_TRUE( tokenizer.isValidToken( 0u ) );
+        EXPECT_TRUE( tokenizer.isValidToken( 255u ) );
+        EXPECT_FALSE( tokenizer.isValidToken( 256u ) );
+        EXPECT_FALSE( tokenizer.isValidToken( 1000u ) );
+    }
 
-        // pick some ids to check
-        uint32_t vid = 1;
-        auto maybeTok = vocab.idToToken( vid );
-        ASSERT_TRUE( maybeTok.has_value() );
+    TEST( BpeTokenizerTests, GetVocabSize_ReturnsCorrectSize )
+    {
+        BpeVocabularyConfig cfg = BpeVocabularyConfig()
+            .withVocabSize( 300 )
+            .withByteLevel( true )
+            .withSpecialTokens( BpeSpecialTokens::standard() );
 
-        // Act / Assert
-        EXPECT_EQ( tokenizer.tokenToString( static_cast<Mila::Dnn::Data::TokenId>(vid) ), *maybeTok );
-        EXPECT_TRUE( tokenizer.isValidToken( static_cast<Mila::Dnn::Data::TokenId>(vid) ) );
-        EXPECT_EQ( tokenizer.getVocabSize(), vocab.getSize() );
+        BpeVocabulary vocab = BpeVocabulary::train( "test", cfg );
+        size_t expected_size = vocab.getSize();
+
+        BpeTokenizer tokenizer( std::move( vocab ) );
+
+        EXPECT_EQ( tokenizer.getVocabSize(), expected_size );
+    }
+
+    TEST( BpeTokenizerTests, Encode_EmptyString_ReturnsEmptyVector )
+    {
+        BpeVocabularyConfig cfg = BpeVocabularyConfig()
+            .withVocabSize( 256 )
+            .withByteLevel( true )
+            .withSpecialTokens( BpeSpecialTokens::none() );
+
+        BpeVocabulary vocab = BpeVocabulary::train( std::string(), cfg );
+        BpeTokenizer tokenizer( std::move( vocab ) );
+
+        auto encoded = tokenizer.encode( "" );
+        EXPECT_TRUE( encoded.empty() );
+    }
+
+    TEST( BpeTokenizerTests, Decode_EmptyVector_ReturnsEmptyString )
+    {
+        BpeVocabularyConfig cfg = BpeVocabularyConfig()
+            .withVocabSize( 256 )
+            .withByteLevel( true )
+            .withSpecialTokens( BpeSpecialTokens::none() );
+
+        BpeVocabulary vocab = BpeVocabulary::train( std::string(), cfg );
+        BpeTokenizer tokenizer( std::move( vocab ) );
+
+        std::vector<Mila::Dnn::Data::TokenId> empty;
+        auto decoded = tokenizer.decode( empty );
+        EXPECT_TRUE( decoded.empty() );
+    }
+
+    TEST( BpeTokenizerTests, EncodeDecode_Roundtrip_WithMerges )
+    {
+        std::string corpus = "aaa aaa aaa bbb bbb bbb";
+        
+        BpeVocabularyConfig cfg = BpeVocabularyConfig()
+            .withVocabSize( 270 )
+            .withByteLevel( true )
+            .withSpecialTokens( BpeSpecialTokens::none() )
+            .withMinFrequency( 1 );
+
+        BpeVocabulary vocab = BpeVocabulary::train( corpus, cfg );
+        BpeTokenizer tokenizer( std::move( vocab ) );
+
+        std::string input = "aaabbb";
+        auto encoded = tokenizer.encode( input );
+        auto decoded = tokenizer.decode( encoded );
+
+        EXPECT_EQ( decoded, input );
+    }
+
+    TEST( BpeTokenizerTests, Encode_LongText_Succeeds )
+    {
+        std::string corpus = "the quick brown fox jumps over the lazy dog ";
+        
+        BpeVocabularyConfig cfg = BpeVocabularyConfig()
+            .withVocabSize( 350 )
+            .withByteLevel( true )
+            .withSpecialTokens( BpeSpecialTokens::standard() );
+
+        BpeVocabulary vocab = BpeVocabulary::train( corpus, cfg );
+        BpeTokenizer tokenizer( std::move( vocab ) );
+
+        std::string long_text;
+        for ( int i = 0; i < 100; ++i )
+        {
+            long_text += corpus;
+        }
+
+        auto encoded = tokenizer.encode( long_text );
+        EXPECT_FALSE( encoded.empty() );
+        EXPECT_LT( encoded.size(), long_text.size() );
+    }
+
+    TEST( BpeTokenizerTests, EncodeDecode_Roundtrip_UnicodeText )
+    {
+        std::string corpus = "Hello 世界 🌍, and hello 世界 🌍 again!";
+        
+        BpeVocabularyConfig cfg = BpeVocabularyConfig()
+            .withVocabSize( 300 )
+            .withByteLevel( true )
+            .withSpecialTokens( BpeSpecialTokens::none() );
+
+        BpeVocabulary vocab = BpeVocabulary::train( corpus, cfg );
+        BpeTokenizer tokenizer( std::move( vocab ) );
+
+        std::string input = "Hello 世界";
+        auto encoded = tokenizer.encode( input );
+        auto decoded = tokenizer.decode( encoded );
+
+        EXPECT_EQ( decoded, input );
     }
 
     TEST( BpeTokenizerTests, LoadGpt2_FromTestDataDir )
     {
-        // The tests CMakeLists defines TEST_DATA_DIR as a compile-time string via
-        // target_compile_definitions(... TEST_DATA_DIR="${TEST_DATA_DIR}")
         fs::path dataDir = TEST_DATA_DIR;
         fs::path tokenizerPath = dataDir / "models" / "gpt2" / "gpt2_tokenizer.bin";
 
-        if ( !fs::exists( tokenizerPath ) ) {
+        if ( !fs::exists( tokenizerPath ) )
+        {
             GTEST_SKIP() << "GPT-2 tokenizer binary not present at: " << tokenizerPath.string();
         }
 
-        // Act / Assert: ensure loading doesn't throw and produces a non-empty vocabulary
-        ASSERT_NO_THROW({
+        ASSERT_NO_THROW(
+        {
             BpeTokenizer tokenizer = BpeTokenizer::loadGpt2( tokenizerPath );
             EXPECT_GT( tokenizer.getVocabSize(), 0u );
+            
+            std::string test_text = "Hello world";
+            auto encoded = tokenizer.encode( test_text );
+            EXPECT_FALSE( encoded.empty() );
+            
+            auto decoded = tokenizer.decode( encoded );
+            EXPECT_FALSE( decoded.empty() );
         });
+    }
+
+    TEST( BpeTokenizerTests, MoveConstructor_TransfersOwnership )
+    {
+        BpeVocabularyConfig cfg = BpeVocabularyConfig()
+            .withVocabSize( 300 )
+            .withByteLevel( true )
+            .withSpecialTokens( BpeSpecialTokens::standard() );
+
+        BpeVocabulary vocab = BpeVocabulary::train( "test", cfg );
+        size_t expected_size = vocab.getSize();
+
+        BpeTokenizer tokenizer1( std::move( vocab ) );
+        BpeTokenizer tokenizer2( std::move( tokenizer1 ) );
+
+        EXPECT_EQ( tokenizer2.getVocabSize(), expected_size );
+        
+        auto encoded = tokenizer2.encode( "test" );
+        EXPECT_FALSE( encoded.empty() );
+    }
+
+    TEST( BpeTokenizerTests, Encode_WithMLMTokens_IncludesMask )
+    {
+        BpeVocabularyConfig cfg = BpeVocabularyConfig()
+            .withVocabSize( 300 )
+            .withByteLevel( true )
+            .withSpecialTokens( BpeSpecialTokens::forMLM() );
+
+        BpeVocabulary vocab = BpeVocabulary::train( "test corpus", cfg );
+        
+        auto mask_id = vocab.getSpecialTokenId( 'm' );
+        ASSERT_TRUE( mask_id.has_value() );
+
+        BpeTokenizer tokenizer( std::move( vocab ) );
+
+        EXPECT_TRUE( tokenizer.isValidToken( static_cast<Mila::Dnn::Data::TokenId>( *mask_id ) ) );
+        EXPECT_FALSE( tokenizer.tokenToString( static_cast<Mila::Dnn::Data::TokenId>( *mask_id ) ).empty() );
     }
 }

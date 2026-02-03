@@ -11,7 +11,7 @@
 
 import Mila;
 
-namespace Dnn::Networks::Tests
+namespace Dnn::Core::Networks::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;

@@ -1,9 +1,8 @@
-/**
- * @file CharVocabulary.ixx
- * @brief Character vocabulary management for language modeling.
+/** @file CharVocabulary.ixx
+ * @brief Character vocabulary with factory-based construction.
  *
- * Provides character-to-index and index-to-character mappings with
- * serialization support for preprocessing pipelines.
+ * Vocabularies are immutable after construction and store their configuration
+ * for full provenance tracking. Use static factory methods to create instances.
  */
 
 module;
@@ -21,118 +20,270 @@ module;
 export module Data.CharVocabulary;
 
 import Data.TokenizerVocabulary;
-import Data.CharTrainerConfig;
+import Data.CharVocabularyConfig;
+import Data.FileHeader;
+import Serialization.Metadata;
 
 namespace Mila::Data
 {
     using Mila::Dnn::Data::TokenizerVocabulary;
+    using Mila::Dnn::Serialization::SerializationMetadata;
     namespace fs = std::filesystem;
 
     /**
      * @brief Character vocabulary for tokenization.
      *
-     * Implements the generic TokenizerVocabulary interface so the character
-     * vocabulary can be used anywhere a TokenizerVocabulary is required.
+     * Immutable vocabulary created via static factory methods. Stores configuration
+     * for full provenance tracking and serialization.
      *
-     * Notes:
-     * - Tokens are single bytes (char). Callers should document UTF-8 usage
-     *   if they expect multi-byte characters; this implementation operates on
-     *   raw bytes and normalizes CRLF to LF during buildFromText().
-     * - Special token ids (pad/unk) are optional; when present their ids are
-     *   returned by tokenToId() for unknown tokens if configured.
+     * Thread safety: Immutable after construction, safe for concurrent reads.
      */
     export class CharVocabulary : public TokenizerVocabulary
     {
     public:
 
+        // ====================================================================
+        // Factory Methods
+        // ====================================================================
+
         /**
-         * @brief Load vocabulary state from disk.
+         * @brief Build a character vocabulary from text corpus.
          *
-         * Replaces the in-memory state with the contents of the file.
-         * Throws std::runtime_error on I/O or format errors.
-         *
-         * @param path Filesystem path to read the vocabulary from.
-         * @return Number of tokens loaded.
+         * @param corpus Training text corpus.
+         * @param config Vocabulary configuration.
+         * @return Trained CharVocabulary instance.
+         * @throws std::invalid_argument if config is invalid.
          */
-        static CharVocabulary load( const std::filesystem::path& path )
+        static CharVocabulary train( const std::string& corpus, const CharVocabularyConfig& config )
         {
-            std::ifstream file( path.string(), std::ios::binary );
+            config.validate();
+
+            CharVocabulary vocab( config );
+            vocab.buildFromTextImpl( corpus );
+
+            return vocab;
+        }
+
+        /**
+         * @brief Build a character vocabulary from corpus file.
+         *
+         * @param corpus_path Path to training corpus text file.
+         * @param config Vocabulary configuration.
+         * @return Trained CharVocabulary instance.
+         * @throws std::runtime_error if file cannot be opened.
+         * @throws std::invalid_argument if config is invalid.
+         */
+        static CharVocabulary trainFromFile( const fs::path& corpus_path, const CharVocabularyConfig& config )
+        {
+            std::ifstream file( corpus_path, std::ios::binary );
+            if ( !file )
+            {
+                throw std::runtime_error( "Cannot open corpus file: " + corpus_path.string() );
+            }
+
+            std::string corpus( (std::istreambuf_iterator<char>( file )), std::istreambuf_iterator<char>() );
+
+            return train( corpus, config );
+        }
+
+        /**
+         * @brief Load vocabulary from Mila binary format.
+         *
+         * Reads vocabulary and configuration from file written by save().
+         *
+         * @param path Input file path.
+         * @return Loaded CharVocabulary instance.
+         * @throws std::runtime_error on I/O errors or format incompatibility.
+         */
+        static CharVocabulary load( const fs::path& path )
+        {
+            std::ifstream file( path, std::ios::binary );
 
             if ( !file )
             {
                 throw std::runtime_error( "Cannot open vocabulary file: " + path.string() );
             }
 
-            CharVocabulary vocab;
+            MilaFileHeader header = MilaFileHeader::read( file );
 
-            vocab.char_to_idx_.clear();
-            vocab.idx_to_char_.clear();
-
-            size_t vocab_size;
-            file.read( reinterpret_cast<char*>(&vocab_size), sizeof( vocab_size ) );
-
-            bool has_special;
-            file.read( reinterpret_cast<char*>(&has_special), sizeof( has_special ) );
-
-            if ( has_special )
+            if ( header.getFileType() != MilaFileType::CharVocabulary )
             {
-                file.read( reinterpret_cast<char*>(&vocab.pad_token_id_), sizeof( vocab.pad_token_id_ ) );
-                file.read( reinterpret_cast<char*>(&vocab.unk_token_id_), sizeof( vocab.unk_token_id_ ) );
-            }
-            else
-            {
-                vocab.pad_token_id_ = -1;
-                vocab.unk_token_id_ = -1;
+                throw std::runtime_error( "File is not a character vocabulary: " + path.string() );
             }
 
-            vocab.idx_to_char_.resize( vocab_size );
-            for ( size_t i = 0; i < vocab_size; ++i )
-            {
-                char c;
-                file.read( &c, sizeof( char ) );
-                vocab.idx_to_char_[ i ] = c;
-                vocab.char_to_idx_[ c ] = static_cast<int>( i );
-            }
+            CharVocabularyConfig config;
+            config.fromMetadata( header.getMetadata() );
+
+            CharVocabulary vocab( config );
+            vocab.loadContentImpl( file );
 
             return vocab;
         }
 
+        // Delete default constructor - force use of factories
+        CharVocabulary() = delete;
+
+        // ====================================================================
+        // Configuration Access
+        // ====================================================================
+
         /**
-         * @brief Builds vocabulary from text corpus.
+         * @brief Get the configuration used to create this vocabulary.
          *
-         * Extracts unique bytes and creates sorted, deterministic mappings.
-         * Respects the training configuration provided by `CharTrainerConfig`.
-         *
-         * Behavior details:
-         * - CRLF sequences ("\r\n") are normalized to a single '\n'.
-         * - If `config.isCaseSensitive()` is false input bytes are lower-cased
-         *   using `std::tolower` on each byte (this is byte-level lowercasing).
-         * - Special tokens are reserved in a deterministic order:
-         *     PAD -> '\0', UNK -> '\1', BOS -> '\2', EOS -> '\3', MASK -> '\4'
-         *   Only PAD and UNK are surfaced by this class via `padTokenId()` and
-         *   `unkTokenId()`. Other reserved entries are present in the index
-         *   table for deterministic ordering but do not have dedicated getters.
-         *
-         * @param text Source text for vocabulary extraction.
-         * @param config Trainer configuration that describes special token usage
-         *               and other flags (case sensitivity, byte-level, etc.)
-         * @return Number of tokens in vocabulary after build.
+         * @return const CharVocabularyConfig& Configuration reference.
          */
-        size_t buildFromText(
-            const std::string& text,
-            const CharTrainerConfig& config )
+        const CharVocabularyConfig& getConfig() const { return config_; }
+
+        // ====================================================================
+        // Serialization
+        // ====================================================================
+
+        /**
+         * @brief Serialize vocabulary to disk with configuration.
+         *
+         * File format includes MilaFileHeader with config metadata followed
+         * by binary vocabulary content.
+         *
+         * @param path Output file path. Parent directory must exist.
+         * @throws std::runtime_error on I/O errors.
+         */
+        void save( const fs::path& path ) const override
+        {
+            std::ofstream file( path, std::ios::binary );
+
+            if ( !file )
+            {
+                throw std::runtime_error( "Cannot open vocabulary file for writing: " + path.string() );
+            }
+
+            SerializationMetadata meta = config_.toMetadata();
+            meta.set( "format_version", static_cast<int64_t>( 1 ) )
+                .set( "actual_vocab_size", static_cast<int64_t>( idx_to_char_.size() ) )
+                .set( "has_special_tokens", pad_token_id_ >= 0 );
+
+            MilaFileHeader header( MilaFileType::CharVocabulary, std::move( meta ) );
+            header.write( file );
+
+            saveContentImpl( file );
+        }
+
+        // ====================================================================
+        // TokenizerVocabulary Interface
+        // ====================================================================
+
+        size_t getSize() const override
+        {
+            return idx_to_char_.size();
+        }
+
+        std::optional<uint32_t> tokenToId( const std::string& token ) const override
+        {
+            if ( token.empty() )
+            {
+                return std::nullopt;
+            }
+
+            unsigned char c = static_cast<unsigned char>( token[ 0 ] );
+            auto it = char_to_idx_.find( static_cast<char>( c ) );
+
+            if ( it != char_to_idx_.end() )
+            {
+                return static_cast<uint32_t>( it->second );
+            }
+
+            if ( unk_token_id_ >= 0 )
+            {
+                return static_cast<uint32_t>( unk_token_id_ );
+            }
+
+            return std::nullopt;
+        }
+
+        std::optional<std::string> idToToken( uint32_t id ) const override
+        {
+            if ( id < idx_to_char_.size() )
+            {
+                return std::string( 1, idx_to_char_[ static_cast<size_t>( id ) ] );
+            }
+            return std::nullopt;
+        }
+
+        // ====================================================================
+        // Character-Specific API
+        // ====================================================================
+
+        int charToIndex( char c ) const
+        {
+            auto it = char_to_idx_.find( c );
+
+            if ( it != char_to_idx_.end() )
+            {
+                return it->second;
+            }
+
+            return unk_token_id_ >= 0 ? unk_token_id_ : 0;
+        }
+
+        char indexToChar( int idx ) const
+        {
+            if ( idx >= 0 && idx < static_cast<int>( idx_to_char_.size() ) )
+            {
+                return idx_to_char_[ static_cast<size_t>( idx ) ];
+            }
+            return '?';
+        }
+
+        int padTokenId() const
+        {
+            return pad_token_id_;
+        }
+
+        int unkTokenId() const
+        {
+            return unk_token_id_;
+        }
+
+        bool hasSpecialTokens() const
+        {
+            return pad_token_id_ >= 0;
+        }
+
+    private:
+
+        // ====================================================================
+        // Private Constructor
+        // ====================================================================
+
+        explicit CharVocabulary( const CharVocabularyConfig& config )
+            : config_( config )
+            , pad_token_id_( -1 )
+            , unk_token_id_( -1 )
+        {
+        }
+
+        // ====================================================================
+        // Training Implementation
+        // ====================================================================
+
+        void buildFromTextImpl( const std::string& corpus )
         {
             char_to_idx_.clear();
             idx_to_char_.clear();
 
-            pad_token_id_ = -1;
-            unk_token_id_ = -1;
+            std::string normalized = normalizeText( corpus );
+            auto unique_bytes = extractUniqueBytes( normalized );
+            auto sorted_bytes = sortBytes( unique_bytes );
 
+            addSpecialTokensFromConfig();
+            addRegularTokens( sorted_bytes );
+        }
+
+        std::string normalizeText( const std::string& text ) const
+        {
             std::string norm;
             norm.reserve( text.size() );
 
-            // Normalize CRLF -> LF and optionally lowercase depending on config
-            if ( config.isCaseSensitive() )
+            if ( config_.isCaseSensitive() )
             {
                 for ( size_t i = 0; i < text.size(); ++i )
                 {
@@ -170,82 +321,103 @@ namespace Mila::Data
                     }
                     else
                     {
-                        // Lowercase the byte (byte-level lowercasing)
                         char lowered = static_cast<char>( std::tolower( cu ) );
                         norm.push_back( lowered );
                     }
                 }
             }
 
+            return norm;
+        }
+
+        std::unordered_map<unsigned char, bool> extractUniqueBytes( const std::string& text ) const
+        {
             std::unordered_map<unsigned char, bool> unique_bytes;
-            for ( char c : norm )
+
+            for ( char c : text )
             {
                 unique_bytes[ static_cast<unsigned char>( c ) ] = true;
             }
 
+            return unique_bytes;
+        }
+
+        std::vector<unsigned char> sortBytes( const std::unordered_map<unsigned char, bool>& unique_bytes ) const
+        {
             std::vector<unsigned char> sorted_bytes;
             sorted_bytes.reserve( unique_bytes.size() );
 
-            for ( const auto &kv : unique_bytes )
+            for ( const auto& kv : unique_bytes )
             {
                 sorted_bytes.push_back( kv.first );
             }
 
             std::sort( sorted_bytes.begin(), sorted_bytes.end() );
 
+            return sorted_bytes;
+        }
+
+        void addSpecialTokensFromConfig()
+        {
+            const CharSpecialTokens& st = config_.getSpecialTokens();
             int idx = 0;
-
-            // Reserve special tokens in deterministic order if requested by config.
-            // We map them to low-valued control bytes so they do not collide with
-            // printable characters when sorting the remainder.
-            std::vector<unsigned char> reserved_bytes;
-
-            const CharSpecialTokens& st = config.getSpecialTokens();
 
             if ( st.use_pad )
             {
-                pad_token_id_ = idx++;
-                idx_to_char_.push_back( '\0' );  // PAD token placeholder byte
-                char_to_idx_['\0'] = pad_token_id_;
-                reserved_bytes.push_back( static_cast<unsigned char>('\0') );
+                pad_token_id_ = idx;
+                idx_to_char_.push_back( '\0' );
+                char_to_idx_[ '\0' ] = idx++;
             }
 
             if ( st.use_unk )
             {
-                unk_token_id_ = idx++;
-                idx_to_char_.push_back( '\1' );  // UNK token placeholder byte
-                char_to_idx_['\1'] = unk_token_id_;
-                reserved_bytes.push_back( static_cast<unsigned char>('\1') );
+                unk_token_id_ = idx;
+                idx_to_char_.push_back( '\1' );
+                char_to_idx_[ '\1' ] = idx++;
             }
 
             if ( st.use_bos )
             {
-                idx_to_char_.push_back( '\2' );  // BOS placeholder byte
-                char_to_idx_['\2'] = idx++;
-                reserved_bytes.push_back( static_cast<unsigned char>('\2') );
+                idx_to_char_.push_back( '\2' );
+                char_to_idx_[ '\2' ] = idx++;
             }
 
             if ( st.use_eos )
             {
-                idx_to_char_.push_back( '\3' );  // EOS placeholder byte
-                char_to_idx_['\3'] = idx++;
-                reserved_bytes.push_back( static_cast<unsigned char>('\3') );
+                idx_to_char_.push_back( '\3' );
+                char_to_idx_[ '\3' ] = idx++;
             }
 
             if ( st.use_mask )
             {
-                idx_to_char_.push_back( '\4' );  // MASK placeholder byte
-                char_to_idx_['\4'] = idx++;
-                reserved_bytes.push_back( static_cast<unsigned char>('\4') );
+                idx_to_char_.push_back( '\4' );
+                char_to_idx_[ '\4' ] = idx++;
             }
 
-            // Append all sorted bytes that are not reserved by special tokens.
+            if ( st.use_sep )
+            {
+                idx_to_char_.push_back( '\5' );
+                char_to_idx_[ '\5' ] = idx++;
+            }
+
+            if ( st.use_cls )
+            {
+                idx_to_char_.push_back( '\6' );
+                char_to_idx_[ '\6' ] = idx++;
+            }
+        }
+
+        void addRegularTokens( const std::vector<unsigned char>& sorted_bytes )
+        {
+            int idx = static_cast<int>( idx_to_char_.size() );
+
+            std::vector<unsigned char> reserved = { '\0', '\1', '\2', '\3', '\4', '\5', '\6' };
+
             for ( unsigned char ub : sorted_bytes )
             {
-                char c = static_cast<char>( ub );
-
                 bool is_reserved = false;
-                for ( unsigned char rb : reserved_bytes )
+
+                for ( unsigned char rb : reserved )
                 {
                     if ( rb == ub )
                     {
@@ -256,169 +428,85 @@ namespace Mila::Data
 
                 if ( !is_reserved )
                 {
+                    char c = static_cast<char>( ub );
                     idx_to_char_.push_back( c );
                     char_to_idx_[ c ] = idx++;
                 }
             }
-
-            // Final vocabulary size
-            // (leave a blank line before return per coding policy)
-            
-            return idx_to_char_.size();
         }
 
-        /**
-         * @brief Serialize the vocabulary to disk.
-         *
-         * Produces the same binary format as the previous string-based save().
-         * Throws std::runtime_error on I/O errors.
-         *
-         * @param path Filesystem path to write the vocabulary to.
-         */
-        void save( const std::filesystem::path& path ) const override
-        {
-            std::ofstream file( path.string(), std::ios::binary );
-            
-            if (!file)
-            {
-                throw std::runtime_error( "Cannot open vocabulary file for writing: " + path.string() );
-            }
+        // ====================================================================
+        // Serialization Implementation
+        // ====================================================================
 
+        void saveContentImpl( std::ostream& file ) const
+        {
             size_t vocab_size = idx_to_char_.size();
-            file.write( reinterpret_cast<const char*>(&vocab_size), sizeof( vocab_size ) );
+            file.write( reinterpret_cast<const char*>( &vocab_size ), sizeof( vocab_size ) );
 
             bool has_special = (pad_token_id_ >= 0);
-            file.write( reinterpret_cast<const char*>(&has_special), sizeof( has_special ) );
+            file.write( reinterpret_cast<const char*>( &has_special ), sizeof( has_special ) );
 
-            if (has_special)
+            if ( has_special )
             {
-                file.write( reinterpret_cast<const char*>(&pad_token_id_), sizeof( pad_token_id_ ) );
-                file.write( reinterpret_cast<const char*>(&unk_token_id_), sizeof( unk_token_id_ ) );
+                file.write( reinterpret_cast<const char*>( &pad_token_id_ ), sizeof( pad_token_id_ ) );
+                file.write( reinterpret_cast<const char*>( &unk_token_id_ ), sizeof( unk_token_id_ ) );
             }
 
-            for (char c : idx_to_char_)
+            for ( char c : idx_to_char_ )
             {
                 file.write( &c, sizeof( char ) );
             }
-        }
 
-        /**
-         * @brief Returns vocabulary size.
-         *
-         * Implements TokenizerVocabulary::getSize().
-         *
-         * @return Number of tokens.
-         */
-        size_t getSize() const override
-        {
-            return idx_to_char_.size();
-        }
-
-        /**
-         * @brief Map a token string to its numeric id.
-         *
-         * For character vocabulary the token string is interpreted by its first
-         * byte. If the token is not present and an unknown token id is configured
-         * the unknown id is returned. If no unknown token exists, an empty optional
-         * is returned.
-         *
-         * @param token Token string to look up.
-         * @return optional id if available, or empty optional if not found and no UNK.
-         */
-        std::optional<uint32_t> tokenToId( const std::string& token ) const override
-        {
-            if ( token.empty() )
+            if ( !file )
             {
-                return std::nullopt;
+                throw std::runtime_error( "Error writing vocabulary content" );
+            }
+        }
+
+        void loadContentImpl( std::istream& file )
+        {
+            size_t vocab_size;
+            file.read( reinterpret_cast<char*>( &vocab_size ), sizeof( vocab_size ) );
+
+            bool has_special;
+            file.read( reinterpret_cast<char*>( &has_special ), sizeof( has_special ) );
+
+            if ( has_special )
+            {
+                file.read( reinterpret_cast<char*>( &pad_token_id_ ), sizeof( pad_token_id_ ) );
+                file.read( reinterpret_cast<char*>( &unk_token_id_ ), sizeof( unk_token_id_ ) );
+            }
+            else
+            {
+                pad_token_id_ = -1;
+                unk_token_id_ = -1;
             }
 
-            unsigned char c = static_cast<unsigned char>( token[0] );
-            auto it = char_to_idx_.find( static_cast<char>( c ) );
-
-            if ( it != char_to_idx_.end() )
+            idx_to_char_.resize( vocab_size );
+            for ( size_t i = 0; i < vocab_size; ++i )
             {
-                return static_cast<uint32_t>( it->second );
+                char c;
+                file.read( &c, sizeof( char ) );
+                idx_to_char_[ i ] = c;
+                char_to_idx_[ c ] = static_cast<int>( i );
             }
 
-            if ( unk_token_id_ >= 0 )
+            if ( !file )
             {
-                return static_cast<uint32_t>( unk_token_id_ );
+                throw std::runtime_error( "Error reading vocabulary content" );
             }
-
-            return std::nullopt;
         }
 
-        /**
-         * @brief Map a numeric id back to its token string.
-         *
-         * Returns empty optional if id is out of range.
-         *
-         * @param id Token id to convert.
-         * @return optional token string.
-         */
-        std::optional<std::string> idToToken( uint32_t id ) const override
-        {
-            if ( id < idx_to_char_.size() )
-            {
-                return std::string( 1, idx_to_char_[ static_cast<size_t>( id ) ] );
-            }
-            return std::nullopt;
-        }
+        // ====================================================================
+        // Member Variables
+        // ====================================================================
 
-        /**
-         * @name Backwards-compatible char-level API
-         *
-         * These helpers preserve the existing char-specific API used elsewhere
-         * in the codebase.
-         */
-        ///@{
-        int charToIndex( char c ) const
-        {
-            auto it = char_to_idx_.find( c );
-            
-            if ( it != char_to_idx_.end() )
-            {
-                return it->second;
-            }
-            
-            return unk_token_id_ >= 0 ? unk_token_id_ : 0;
-        }
-
-        char indexToChar( int idx ) const
-        {
-            if ( idx >= 0 && idx < static_cast<int>( idx_to_char_.size() ) )
-            {
-                return idx_to_char_[ static_cast<size_t>( idx ) ];
-            }
-            return '?';
-        }
-
-        int padTokenId() const
-        {
-            return pad_token_id_;
-        }
-
-        int unkTokenId() const
-        {
-            return unk_token_id_;
-        }
-
-        bool hasSpecialTokens() const
-        {
-            return pad_token_id_ >= 0;
-        }
-        ///@}
-
-    private:
-
-        friend class CharTrainer;
-        friend class CharTokenizer;
-
-        CharVocabulary() = default;
+        CharVocabularyConfig config_;
 
         std::unordered_map<char, int> char_to_idx_;
         std::vector<char> idx_to_char_;
-        int pad_token_id_{ -1 };
-        int unk_token_id_{ -1 };
+        int pad_token_id_;
+        int unk_token_id_;
     };
 }

@@ -367,21 +367,23 @@ PUBLIC
         "Src/Dnn/Data/TokenizerVocabulary.ixx"
         "Src/Dnn/Data/TokenizerType.ixx"
 
-        "Src/Data/Tokenizers/BPETokenizer/BpeSpecialTokens.ixx"
+        "Src/Data/Core/FileHeader.ixx"        
         "Src/Data/Core/TrainerConfig.ixx"        
         "Src/Data/Core/TokenizerTrainer.ixx"
         "Src/Data/Core/TrainerFactory.ixx"
 
+        "Src/Data/Tokenizers/BPETokenizer/BpeSpecialTokens.ixx"
         "Src/Data/Tokenizers/BPETokenizer/BPETokenizer.ixx"
         "Src/Data/Tokenizers/BpeTokenizer/BpeTrainer.ixx"
-        "Src/Data/Tokenizers/BpeTokenizer/BpeTrainer.Config.ixx"
         "Src/Data/Tokenizers/BPETokenizer/BPEVocabulary.ixx"
+        "Src/Data/Tokenizers/BpeTokenizer/BpeVocabularyConfig.ixx"
 
         "Src/Data/Tokenizers/CharTokenizer/CharTokenizer.ixx"
-        "Src/Data/Tokenizers/CharTokenizer/CharTrainerConfig.ixx"
+        "Src/Data/Tokenizers/CharTokenizer/CharVocabularyConfig.ixx"
         "Src/Data/Tokenizers/CharTokenizer/CharTrainer.ixx"
         "Src/Data/Tokenizers/CharTokenizer/CharVocabulary.ixx"
- "Src/Data/Tokenizers/CharTokenizer/CharSpecialTokens.ixx" "Src/Data/Core/TokenizerFileHeader.ixx")
+        "Src/Data/Tokenizers/CharTokenizer/CharSpecialTokens.ixx"
+)
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -711,7 +713,7 @@ endif()
 add_subdirectory( Docs )
 
 # Add data tokenization tools
-add_subdirectory( Src/Data/Utils )
+add_subdirectory( Src/Data/Tools )
 
 # Configure code coverage for MSVC
 if( MILA_ENABLE_COVERAGE AND MSVC)
