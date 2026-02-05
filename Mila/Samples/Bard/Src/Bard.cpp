@@ -3,19 +3,21 @@
 #include <filesystem>
 
 import Mila;
-import CharLM.Trainer;
+
+import Bard.Config;
+import Bard.Trainer;
 
 namespace fs = std::filesystem;
 
 using namespace Mila::Dnn;
 using namespace Mila::Dnn::Compute;
-using namespace CharLM;
+using namespace Bard;
 
 void printUsage()
 {
-    std::cout << "Usage: charlm [options]\n";
+    std::cout << "Usage: bard [options]\n";
     std::cout << "Options:\n";
-    std::cout << "  --data-file <path>       Path to text file (default: ./Data/DataSets/TinyShakespeare/input.txt)\n";
+    std::cout << "  --data-dir <path>        Root data directory containing dataset subfolders (default: ./Data/Shakespeare)\n";
     std::cout << "  --batch-size <int>       Batch size (default: 32)\n";
     std::cout << "  --seq-length <int>       Sequence length (default: 128)\n";
     std::cout << "  --epochs <int>           Number of epochs (default: 10)\n";
@@ -36,7 +38,7 @@ void printUsage()
     std::cout << "  --help                   Show this help message\n";
 }
 
-bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
+bool parseCommandLine( int argc, char** argv, BardConfig& config )
 {
     for ( int i = 1; i < argc; i++ )
     {
@@ -48,9 +50,9 @@ bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
             return false;
         }
 
-        if ( arg == "--data-file" && i + 1 < argc )
+        if ( arg == "--data-dir" && i + 1 < argc )
         {
-            config.data_file = argv[ ++i ];
+            config.data_dir = argv[ ++i ];
             continue;
         }
 
@@ -194,7 +196,7 @@ bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
     }
 
     std::cout << "Configuration:" << std::endl;
-    std::cout << "  Data file: " << config.data_file << std::endl;
+    std::cout << "  Data dir: " << config.data_dir << std::endl;
     std::cout << "  Batch size: " << config.batch_size << std::endl;
     std::cout << "  Sequence length: " << config.seq_length << std::endl;
     std::cout << "  Epochs: " << config.epochs << std::endl;
@@ -212,10 +214,11 @@ bool parseCommandLine( int argc, char** argv, CharLMConfig& config )
     std::cout << "  LR decay factor: " << config.lr_decay << std::endl;
     std::cout << "  LR decay every N epochs: " << config.lr_decay_every_n_epochs << std::endl;
 
-    if ( !fs::exists( config.data_file ) )
+    if ( !fs::exists( config.data_dir ) || !fs::is_directory( config.data_dir ) )
     {
-        std::cerr << "Data file not found: " << config.data_file << std::endl;
-        std::cerr << "Please provide a text file for character-level language modeling." << std::endl;
+        std::cerr << "Data directory not found: " << config.data_dir << std::endl;
+        std::cerr << "Please provide the root data directory containing dataset subfolders (e.g. encoded/, vocabularies/)." << std::endl;
+
         return false;
     }
 
@@ -226,12 +229,12 @@ int main( int argc, char** argv )
 {
     try
     {
-        std::cout << "Character Language Model Example using Mila" << std::endl;
-        std::cout << "===========================================" << std::endl;
+        std::cout << "Bard Language Model sample using Mila" << std::endl;
+        std::cout << "=====================================" << std::endl;
 
         Mila::initialize();
 
-        CharLMConfig config;
+        BardConfig config;
         if ( !parseCommandLine( argc, argv, config ) )
         {
             return 1;
@@ -239,27 +242,18 @@ int main( int argc, char** argv )
 
         if ( config.compute_device == DeviceType::Cuda )
         {
-            try
-            {
-                std::cout << "Using CUDA device" << std::endl;
-                trainCharLM<DeviceType::Cuda, TensorDataType::FP32, CudaPinnedMemoryResource>( config );
-            }
-            catch ( const std::exception& e )
-            {
-                std::cerr << "CUDA error: " << e.what() << std::endl;
-                throw;
-            }
+            std::cout << "Using CUDA device" << std::endl;
+            train<DeviceType::Cuda, TensorDataType::FP32, CudaPinnedMemoryResource>( config );
         }
-
-        if ( config.compute_device == DeviceType::Cpu )
+        else if ( config.compute_device == DeviceType::Cpu )
         {
             std::cout << "Using CPU device" << std::endl;
-            trainCharLM<DeviceType::Cpu, TensorDataType::FP32, CpuMemoryResource>( config );
+            train<DeviceType::Cpu, TensorDataType::FP32, CpuMemoryResource>( config );
         }
     }
     catch ( const std::exception& e )
     {
-        std::cerr << "Error: " << e.what() << std::endl;
+        std::cerr << "Bard training error: " << e.what() << std::endl;
         return 0;
     }
 

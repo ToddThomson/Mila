@@ -7,7 +7,7 @@ import Mila;
 #include <chrono>
 #include <random>
 
-namespace Data::CharTokenizer::Tests
+namespace Data::Tokenizers::CharTokenizer::Tests
 {
 
     using namespace Mila::Data;

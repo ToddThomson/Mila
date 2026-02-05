@@ -1,4 +1,4 @@
-export module Dnn.Networks.Gpt:Presets;
+export module Dnn.Networks.GptTransformer:Presets;
 
 import :Config;
 

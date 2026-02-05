@@ -230,10 +230,10 @@ export import Serialization.ModelSerializer;
 export import Serialization.ZipSerializer;
 
 // ============================================================================
-// Networks
+// Networks - Open Source Transformer Models
 // ============================================================================
-export import Dnn.Networks.Gpt;
-export import Dnn.Networks.Llama;
+export import Dnn.Networks.GptTransformer;
+export import Dnn.Networks.LlamaTransformer;
 
 // ============================================================================
 // Modeling
@@ -244,7 +244,6 @@ export import Dnn.ModelConfig;
 // ============================================================================
 // Data - Core
 // ============================================================================
-export import Data.SpecialTokens;
 
 // Data - Tokenizers
 export import Data.CharTokenizer;
@@ -259,6 +258,15 @@ export import Data.BpeTokenizer;
 export import Data.BpeTrainer;
 export import Data.BpeSpecialTokens;
 
+// ============================================================================
+// Data - Datasets
+// ============================================================================
+export import Data.DataLoader;
+export import Data.StreamingDataLoader;
+
+/**
+ * @brief Mila main API namespace.
+ */
 namespace Mila
 {
     namespace detail

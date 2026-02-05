@@ -1,6 +1,6 @@
 // LlamaNetwork-Presets.ixx
 
-export module Dnn.Networks.Llama:Presets;
+export module Dnn.Networks.LlamaTransformer:Presets;
 
 import :Config;
 

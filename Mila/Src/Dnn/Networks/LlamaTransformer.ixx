@@ -7,7 +7,7 @@
  * and `Presets` partitions used by network builders and tests.
  */
 
-export module Dnn.Networks.Llama;
+export module Dnn.Networks.LlamaTransformer;
 
 export import :Config;
 export import :Presets;

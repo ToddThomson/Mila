@@ -96,7 +96,7 @@ namespace Mila::Dnn
         ~Attention() override = default;
 
         // ====================================================================
-        // Compute operation dispatch (new API)
+        // Compute operation dispatch
         // ====================================================================
 
         /**

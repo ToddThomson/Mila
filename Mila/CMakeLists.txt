@@ -274,6 +274,8 @@ PUBLIC
         # Dnn / Data
         #----------------------------------------------------------------------
         "Src/Dnn/Data/DataLoader.ixx"
+        "Src/Dnn/Data/StreamingDataLoader.ixx"
+        "Src/Dnn/Data/StreamingDataLoader.Config.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Serialization
@@ -352,13 +354,13 @@ PUBLIC
         "Src/Dnn/Components/Normalization/NormType.ixx"
         "Src/Dnn/Components/Encoding/EncodingType.ixx"
         "Src/Dnn/Core/ModelReader.ixx"
-        "Src/Dnn/Networks/Gpt.ixx"
+        "Src/Dnn/Networks/GptTransformer.ixx"
         "Src/Dnn/Components/Composites/LlamaBlock.ixx"
         "Src/Dnn/Components/Composites/LlamaBlock.Config.ixx"
         "Src/Dnn/Networks/Gpt.Config.ixx"
-        "Src/Dnn/Networks/Llama.ixx"
+        "Src/Dnn/Networks/LlamaTransformer.ixx"
         "Src/Dnn/Networks/Llama.Config.ixx"
-        "Src/Dnn/Networks/TransformerConfig.ixx"
+        
         "Src/Dnn/Networks/Llama.Presets.ixx"
 
         "Src/Dnn/Data/Tokenizer.ixx"
@@ -368,7 +370,7 @@ PUBLIC
         "Src/Dnn/Data/TokenizerType.ixx"
 
         "Src/Data/Core/FileHeader.ixx"        
-        "Src/Data/Core/TrainerConfig.ixx"        
+        # Deprecated "Src/Data/Core/TrainerConfig.ixx"        
         "Src/Data/Core/TokenizerTrainer.ixx"
         "Src/Data/Core/TrainerFactory.ixx"
 
@@ -684,13 +686,13 @@ install(FILES
 
 # Guard the copy so CI / checkouts without a `data` directory do not fail the build.
 # REVIEW: These are sample datasets. Why is the target not in the samples subdirectory?
-if(EXISTS "${CMAKE_SOURCE_DIR}/data")
+if(EXISTS "${CMAKE_SOURCE_DIR}/Data")
     add_custom_target(MilaCopyData 
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/data"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/Data"
         COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different 
-            "${CMAKE_SOURCE_DIR}/data"
-            "${CMAKE_BINARY_DIR}/data"
-        COMMENT "Copying model data to build directory"
+            "${CMAKE_SOURCE_DIR}/Data/Datasets"
+            "${CMAKE_BINARY_DIR}/Data"
+        COMMENT "Copying Datasets to build directory"
         VERBATIM
     )
 

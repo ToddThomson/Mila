@@ -10,7 +10,7 @@ module;
 #include <string>
 #include <sstream>
 
-export module Dnn.Networks.Gpt:Config;
+export module Dnn.Networks.GptTransformer:Config;
 
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
@@ -33,7 +33,6 @@ namespace Mila::Dnn::Networks
             : embedding_size_( embedding_size ), num_layers_( num_layers )
         {}
 
-        // Fluent setters
         template <typename Self>
         decltype(auto) withVocabSize( this Self&& self, dim_t vocab_size )
         {
@@ -225,7 +224,7 @@ namespace Mila::Dnn::Networks
         dim_t hidden_size_ = 768;         // Should match embedding_size_
         dim_t vocab_size_ = 50257;        // GPT-2 BPE vocab size
         dim_t num_heads_ = 12;            // GPT-2 small default
-        dim_t max_seq_len_ = 1024;        // Already good
-        bool use_bias_ = true;            // Already good
+        dim_t max_seq_len_ = 1024;
+        bool use_bias_ = true;
     };
 }

@@ -3,9 +3,9 @@ module;
 #include <cstdint>
 #include <memory>
 
-export module Data.TrainerConfig;
+//export module Data.TrainerConfig;
 
-import Data.SpecialTokens;
+//import Data.SpecialTokens;
 
 namespace Mila::Data
 {

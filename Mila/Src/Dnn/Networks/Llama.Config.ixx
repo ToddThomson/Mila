@@ -10,7 +10,7 @@ module;
 #include <string>
 #include <sstream>
 
-export module Dnn.Networks.Llama:Config;
+export module Dnn.Networks.LlamaTransformer:Config;
 
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;

@@ -155,7 +155,7 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     # Data Tests
     # --------------------------------------------------------------
-    #"Dnn/Data/DataLoader.cpp"
+    "Dnn/Data/DataLoader.cpp"
     
     # Cuda Operations...
     #"Dnn/Compute/Operations/Cuda/CudaMatMulBiasOpTests.cpp"
@@ -210,6 +210,8 @@ add_executable( MilaTests
     "Data/CharTokenizer/CharTrainer.cpp"
     "Data/BpeTokenizer/BpeTokenizer.cpp"
     "Data/BpeTokenizer/BpeTokenizer.Gpt2.cpp"
+    "Data/CharTokenizer/CharTokenizer.cpp"
+    "Dnn/Data/StreamingDataLoader.cpp"
 )
 
 target_compile_definitions( MilaTests PRIVATE TEST_DATA_DIR="${TEST_DATA_DIR}" )

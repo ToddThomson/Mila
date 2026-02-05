@@ -6,7 +6,6 @@
 #include <gtest/gtest.h>
 
 import Mila;
-import Dnn.Networks.Gpt;
 
 #include <filesystem>
 #include <string>
@@ -16,7 +15,7 @@ using namespace Mila::Dnn::Compute;
 
 namespace Dnn::Networks::Tests
 {
-    using GptType = Mila::Dnn::Networks::Gpt<DeviceType::Cpu, TensorDataType::FP32>;
+    using GptType = Mila::Dnn::Networks::GptTransformer<DeviceType::Cpu, TensorDataType::FP32>;
     using GptConfig = Mila::Dnn::Networks::GptConfig;
     namespace fs = std::filesystem;
 

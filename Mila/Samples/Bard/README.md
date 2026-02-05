@@ -1,6 +1,6 @@
-# CharLM - Character-Level Language Model
+# Bard - Shakespeare Transformer Language Model
 
-A transformer-based character-level language model implementation using the Mila deep learning framework.
+A transformer-based language model implementation using the Mila deep learning framework.
 
 ## Working Status
 We are currently working towards the beta relase of the Mila framework. This sample is in active development and may change frequently.
@@ -9,7 +9,7 @@ Please see the Mnist sample for a stable reference implementation.
 
 ## Overview
 
-CharLM implements a GPT-style decoder-only transformer for character-level next-token prediction:
+Bard implements a GPT-style decoder-only transformer for character-level next-token prediction:
 
 ```
 Token Embedding -> Positional Encoding -> N × Transformer Blocks -> LayerNorm -> LM Head
@@ -50,7 +50,7 @@ Download from: https://raw.githubusercontent.com/karpathy/char-rnn/master/data/t
 # From repository root
 mkdir build && cd build
 cmake ..
-cmake --build . --target CharLM
+cmake --build . --target Bard
 cmake --build . --target PreprocessText  # Optional preprocessing tool
 ```
 
@@ -71,10 +71,10 @@ This creates:
 
 ```bash
 # Train with default settings
-./CharLM --data-file data/input.txt
+./Bard --data-file data/input.txt
 
 # Custom hyperparameters
-./CharLM --data-file data/input.txt \
+./Bard --data-file data/input.txt \
          --batch-size 32 \
          --seq-length 128 \
          --epochs 10 \

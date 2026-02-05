@@ -1,6 +1,6 @@
 ﻿# Datasets — recommended file organization
 
-This document describes the recommended on-disk layout for datasets used by Mila samples (example: the `tiny_shakespeare` dataset). Follow this structure so sample apps (for example the CharLM sample) can find the raw text, vocabulary, and optional tokenized binary datasets reliably.
+This document describes the recommended on-disk layout for datasets used by Mila samples (example: the `tiny_shakespeare` dataset). Follow this structure so sample apps (for example the Bard sample) can find the raw text, vocabulary, and optional tokenized binary datasets reliably.
 
 ## Recommended directory layout
 

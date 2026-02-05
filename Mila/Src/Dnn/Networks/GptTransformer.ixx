@@ -19,7 +19,7 @@ module;
 #include <optional>
 #include <cassert>
 
-export module Dnn.Networks.Gpt;
+export module Dnn.Networks.GptTransformer;
 export import :Config;
 export import :Presets;
 
@@ -58,7 +58,7 @@ namespace Mila::Dnn::Networks
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class Gpt : public Network<TDeviceType, TPrecision>
+    class GptTransformer : public Network<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
@@ -80,7 +80,7 @@ namespace Mila::Dnn::Networks
          *
          * @throws std::invalid_argument on invalid config or device mismatch
          */
-        explicit Gpt( const std::string& name, const GptConfig& config, DeviceId device_id )
+        explicit GptTransformer( const std::string& name, const GptConfig& config, DeviceId device_id )
             : NetworkBase( name ), owned_context_( createExecutionContext( device_id ) ), config_( config )
         {
             config_.validate();
@@ -98,13 +98,13 @@ namespace Mila::Dnn::Networks
             this->setExecutionContext( owned_context_.get() );
         }
 
-        ~Gpt() override = default;
+        ~GptTransformer() override = default;
 
         // --------------------------------------------------------------------
         // Factory methods
         // --------------------------------------------------------------------
 
-        static std::unique_ptr<Gpt<TDeviceType, TPrecision>> fromPretrained(
+        static std::unique_ptr<GptTransformer<TDeviceType, TPrecision>> fromPretrained(
             const std::filesystem::path& model_path,
             std::size_t batch_size,      // User specifies runtime dimensions
             std::size_t seq_length,      // Must be ? max_seq_length from weights
@@ -115,8 +115,8 @@ namespace Mila::Dnn::Networks
 
             GptConfig config = createConfigFromMetadata( metadata );
 
-            std::unique_ptr<Gpt<TDeviceType, TPrecision>> gpt =
-                std::make_unique<Gpt<TDeviceType, TPrecision>>(
+            std::unique_ptr<GptTransformer<TDeviceType, TPrecision>> gpt =
+                std::make_unique<GptTransformer<TDeviceType, TPrecision>>(
                     metadata.model_name,
                     config,
                     device_id

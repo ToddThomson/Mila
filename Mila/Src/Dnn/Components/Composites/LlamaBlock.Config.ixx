@@ -4,7 +4,7 @@ module;
 #include <sstream>
 #include <optional>
 
-export module Dnn.Components.LlamaBlock:Config;
+export module Dnn.Components.RopeBlock:Config;
 
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
