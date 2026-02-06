@@ -2,14 +2,14 @@ module;
 #include <cstddef>
 #include <cstdint>
 
-export module Data.StreamingDataLoader:Config;
+export module Data.TokenSequenceLoader:Config;
 
 namespace Mila::Dnn::Data
 {
     /**
      * @brief Configuration for StreamingSequenceLoader behavior.
      */
-    export struct StreamingDataLoaderConfig
+    export struct TokenSequenceLoaderConfig
     {
         /**
          * @brief Size of token window to load from disk (in tokens).

@@ -211,7 +211,7 @@ add_executable( MilaTests
     "Data/BpeTokenizer/BpeTokenizer.cpp"
     "Data/BpeTokenizer/BpeTokenizer.Gpt2.cpp"
     "Data/CharTokenizer/CharTokenizer.cpp"
-    "Dnn/Data/StreamingDataLoader.cpp"
+    "Dnn/Data/TokenSequenceLoader.cpp"
 )
 
 target_compile_definitions( MilaTests PRIVATE TEST_DATA_DIR="${TEST_DATA_DIR}" )

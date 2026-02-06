@@ -274,8 +274,8 @@ PUBLIC
         # Dnn / Data
         #----------------------------------------------------------------------
         "Src/Dnn/Data/DataLoader.ixx"
-        "Src/Dnn/Data/StreamingDataLoader.ixx"
-        "Src/Dnn/Data/StreamingDataLoader.Config.ixx"
+        "Src/Dnn/Data/TokenSequenceLoader.ixx"
+        "Src/Dnn/Data/TokenSequenceLoader.Config.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Serialization

@@ -13,8 +13,9 @@ namespace Mila::Dnn::Data
     // Factory function - loads any tokenizer type
     //std::unique_ptr<Tokenizer> loadTokenizer( const std::filesystem::path& vocabulary_path );
 
-    // Token ID type
-    export using TokenId = uint32_t;
+    // Semantically, Token Ids are unsigned. However, we use int* in my CUDA Encoder kenels
+    // For now we 'll use int32_t as the TokenId type
+    export using TokenId = int32_t;
 
     export class Tokenizer {
     public:

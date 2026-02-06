@@ -14,7 +14,7 @@ namespace Mila::Dnn::Data::Tests
 {
     using namespace Mila::Dnn::Compute;
 
-    class StreamingDataLoaderTest : public ::testing::Test
+    class TokenSequenceLoaderTest : public ::testing::Test
     {
     protected:
         std::filesystem::path temp_tokens_file_;
@@ -58,7 +58,7 @@ namespace Mila::Dnn::Data::Tests
             file.close();
         }
 
-        void verifySequentialTokens( const StreamingDataLoader<CpuMemoryResource>& loader )
+        void verifySequentialTokens( const TokenSequenceLoader<CpuMemoryResource>& loader )
         {
             const auto& inputs = loader.inputs();
             const auto& targets = loader.targets();
@@ -80,13 +80,13 @@ namespace Mila::Dnn::Data::Tests
         }
     };
 
-    TEST_F( StreamingDataLoaderTest, ConstructorValidation_InvalidSequenceLength )
+    TEST_F( TokenSequenceLoaderTest, ConstructorValidation_InvalidSequenceLength )
     {
         createTokensFile( num_test_tokens_ );
 
         EXPECT_THROW(
             {
-                StreamingDataLoader<CpuMemoryResource> loader(
+                TokenSequenceLoader<CpuMemoryResource> loader(
                     temp_tokens_file_,
                     4,
                     0,
@@ -97,7 +97,7 @@ namespace Mila::Dnn::Data::Tests
 
         EXPECT_THROW(
             {
-                StreamingDataLoader<CpuMemoryResource> loader(
+                TokenSequenceLoader<CpuMemoryResource> loader(
                     temp_tokens_file_,
                     4,
                     -10,
@@ -107,13 +107,13 @@ namespace Mila::Dnn::Data::Tests
             std::invalid_argument );
     }
 
-    TEST_F( StreamingDataLoaderTest, ConstructorValidation_MissingFile )
+    TEST_F( TokenSequenceLoaderTest, ConstructorValidation_MissingFile )
     {
         std::filesystem::path non_existent = std::filesystem::temp_directory_path() / "non_existent.tokens";
 
         EXPECT_THROW(
             {
-                StreamingDataLoader<CpuMemoryResource> loader(
+                TokenSequenceLoader<CpuMemoryResource> loader(
                     non_existent,
                     4,
                     128,
@@ -123,7 +123,7 @@ namespace Mila::Dnn::Data::Tests
             std::runtime_error );
     }
 
-    TEST_F( StreamingDataLoaderTest, ConstructorValidation_InvalidFileSize )
+    TEST_F( TokenSequenceLoaderTest, ConstructorValidation_InvalidFileSize )
     {
         std::ofstream file( temp_tokens_file_, std::ios::binary );
         const char invalid_data[] = { 1, 2, 3 };
@@ -132,7 +132,7 @@ namespace Mila::Dnn::Data::Tests
 
         EXPECT_THROW(
             {
-                StreamingDataLoader<CpuMemoryResource> loader(
+                TokenSequenceLoader<CpuMemoryResource> loader(
                     temp_tokens_file_,
                     4,
                     128,
@@ -142,13 +142,13 @@ namespace Mila::Dnn::Data::Tests
             std::runtime_error );
     }
 
-    TEST_F( StreamingDataLoaderTest, ConstructorValidation_InsufficientTokens )
+    TEST_F( TokenSequenceLoaderTest, ConstructorValidation_InsufficientTokens )
     {
         createTokensFile( 100 );
 
         EXPECT_THROW(
             {
-                StreamingDataLoader<CpuMemoryResource> loader(
+                TokenSequenceLoader<CpuMemoryResource> loader(
                     temp_tokens_file_,
                     4,
                     128,
@@ -158,13 +158,13 @@ namespace Mila::Dnn::Data::Tests
             std::runtime_error );
     }
 
-    TEST_F( StreamingDataLoaderTest, ConstructorValidation_DeviceTypeMismatch )
+    TEST_F( TokenSequenceLoaderTest, ConstructorValidation_DeviceTypeMismatch )
     {
         createTokensFile( num_test_tokens_ );
 
         EXPECT_THROW(
             {
-                StreamingDataLoader<CpuMemoryResource> loader(
+                TokenSequenceLoader<CpuMemoryResource> loader(
                     temp_tokens_file_,
                     4,
                     128,
@@ -174,14 +174,14 @@ namespace Mila::Dnn::Data::Tests
             std::runtime_error );
     }
 
-    TEST_F( StreamingDataLoaderTest, BasicFunctionality_CPUMemory )
+    TEST_F( TokenSequenceLoaderTest, BasicFunctionality_CPUMemory )
     {
         createTokensFile( num_test_tokens_ );
 
         const int64_t batch_size = 4;
         const int64_t seq_length = 128;
 
-        StreamingDataLoader<CpuMemoryResource> loader(
+        TokenSequenceLoader<CpuMemoryResource> loader(
             temp_tokens_file_,
             batch_size,
             seq_length,
@@ -204,14 +204,14 @@ namespace Mila::Dnn::Data::Tests
         EXPECT_EQ( targets.shape()[ 1 ], seq_length );
     }
 
-    TEST_F( StreamingDataLoaderTest, BatchIteration_NonTrainingMode )
+    TEST_F( TokenSequenceLoaderTest, BatchIteration_NonTrainingMode )
     {
         createTokensFile( num_test_tokens_ );
 
         const int64_t batch_size = 2;
         const int64_t seq_length = 64;
 
-        StreamingDataLoader<CpuMemoryResource> loader(
+        TokenSequenceLoader<CpuMemoryResource> loader(
             temp_tokens_file_,
             batch_size,
             seq_length,
@@ -235,14 +235,14 @@ namespace Mila::Dnn::Data::Tests
         EXPECT_FALSE( loader.hasNext() );
     }
 
-    TEST_F( StreamingDataLoaderTest, BatchIteration_TrainingMode )
+    TEST_F( TokenSequenceLoaderTest, BatchIteration_TrainingMode )
     {
         createTokensFile( num_test_tokens_ );
 
         const int64_t batch_size = 4;
         const int64_t seq_length = 128;
 
-        StreamingDataLoader<CpuMemoryResource> loader(
+        TokenSequenceLoader<CpuMemoryResource> loader(
             temp_tokens_file_,
             batch_size,
             seq_length,
@@ -276,14 +276,14 @@ namespace Mila::Dnn::Data::Tests
         }
     }
 
-    TEST_F( StreamingDataLoaderTest, Reset_Functionality )
+    TEST_F( TokenSequenceLoaderTest, Reset_Functionality )
     {
         createTokensFile( num_test_tokens_ );
 
         const int64_t batch_size = 2;
         const int64_t seq_length = 64;
 
-        StreamingDataLoader<CpuMemoryResource> loader(
+        TokenSequenceLoader<CpuMemoryResource> loader(
             temp_tokens_file_,
             batch_size,
             seq_length,
@@ -306,7 +306,7 @@ namespace Mila::Dnn::Data::Tests
         EXPECT_TRUE( loader.hasNext() );
     }
 
-    TEST_F( StreamingDataLoaderTest, DataCorrectness_TargetIsInputShifted )
+    TEST_F( TokenSequenceLoaderTest, DataCorrectness_TargetIsInputShifted )
     {
         std::vector<TokenId> pattern = { 100, 101, 102, 103, 104, 105, 106, 107, 108, 109 };
         createTokensFile( 5000, pattern );
@@ -314,7 +314,7 @@ namespace Mila::Dnn::Data::Tests
         const int64_t batch_size = 2;
         const int64_t seq_length = 8;
 
-        StreamingDataLoader<CpuMemoryResource> loader(
+        TokenSequenceLoader<CpuMemoryResource> loader(
             temp_tokens_file_,
             batch_size,
             seq_length,
@@ -327,14 +327,14 @@ namespace Mila::Dnn::Data::Tests
         verifySequentialTokens( loader );
     }
 
-    TEST_F( StreamingDataLoaderTest, TensorShapes_Validation )
+    TEST_F( TokenSequenceLoaderTest, TensorShapes_Validation )
     {
         createTokensFile( num_test_tokens_ );
 
         const int64_t batch_size = 8;
         const int64_t seq_length = 256;
 
-        StreamingDataLoader<CpuMemoryResource> loader(
+        TokenSequenceLoader<CpuMemoryResource> loader(
             temp_tokens_file_,
             batch_size,
             seq_length,
@@ -353,17 +353,17 @@ namespace Mila::Dnn::Data::Tests
         EXPECT_EQ( targets.size(), batch_size * seq_length );
     }
 
-    TEST_F( StreamingDataLoaderTest, CustomConfig_VerboseLogging )
+    TEST_F( TokenSequenceLoaderTest, CustomConfig_VerboseLogging )
     {
         createTokensFile( num_test_tokens_ );
 
-        StreamingDataLoaderConfig config;
+        TokenSequenceLoaderConfig config;
         config.verbose_logging = true;
         config.max_queue_size = 5;
 
         testing::internal::CaptureStdout();
 
-        StreamingDataLoader<CpuMemoryResource> loader(
+        TokenSequenceLoader<CpuMemoryResource> loader(
             temp_tokens_file_,
             4,
             128,
@@ -374,18 +374,18 @@ namespace Mila::Dnn::Data::Tests
         std::string output = testing::internal::GetCapturedStdout();
 
         EXPECT_FALSE( output.empty() );
-        EXPECT_NE( output.find( "StreamingDataLoader initialized" ), std::string::npos );
+        EXPECT_NE( output.find( "TokenSequenceLoader initialized" ), std::string::npos );
     }
 
-    TEST_F( StreamingDataLoaderTest, CustomConfig_TokenWindowSize )
+    TEST_F( TokenSequenceLoaderTest, CustomConfig_TokenWindowSize )
     {
         createTokensFile( 100000 );
 
-        StreamingDataLoaderConfig config;
+        TokenSequenceLoaderConfig config;
         config.token_window_size = 10000;
         config.verbose_logging = false;
 
-        StreamingDataLoader<CpuMemoryResource> loader(
+        TokenSequenceLoader<CpuMemoryResource> loader(
             temp_tokens_file_,
             4,
             128,
@@ -396,14 +396,14 @@ namespace Mila::Dnn::Data::Tests
         EXPECT_GT( loader.numBatches(), 0 );
     }
 
-    TEST_F( StreamingDataLoaderTest, MultipleEpochs_TrainingMode )
+    TEST_F( TokenSequenceLoaderTest, MultipleEpochs_TrainingMode )
     {
         createTokensFile( 5000 );
 
         const int64_t batch_size = 2;
         const int64_t seq_length = 32;
 
-        StreamingDataLoader<CpuMemoryResource> loader(
+        TokenSequenceLoader<CpuMemoryResource> loader(
             temp_tokens_file_,
             batch_size,
             seq_length,
@@ -427,14 +427,14 @@ namespace Mila::Dnn::Data::Tests
         }
     }
 
-    TEST_F( StreamingDataLoaderTest, SmallDataset_EdgeCase )
+    TEST_F( TokenSequenceLoaderTest, SmallDataset_EdgeCase )
     {
         createTokensFile( 1000 );
 
         const int64_t batch_size = 2;
         const int64_t seq_length = 16;
 
-        StreamingDataLoader<CpuMemoryResource> loader(
+        TokenSequenceLoader<CpuMemoryResource> loader(
             temp_tokens_file_,
             batch_size,
             seq_length,
@@ -448,14 +448,14 @@ namespace Mila::Dnn::Data::Tests
         std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
     }
 
-    TEST_F( StreamingDataLoaderTest, LargeSequenceLength )
+    TEST_F( TokenSequenceLoaderTest, LargeSequenceLength )
     {
         createTokensFile( 50000 );
 
         const int64_t batch_size = 1;
         const int64_t seq_length = 2048;
 
-        StreamingDataLoader<CpuMemoryResource> loader(
+        TokenSequenceLoader<CpuMemoryResource> loader(
             temp_tokens_file_,
             batch_size,
             seq_length,
@@ -471,14 +471,14 @@ namespace Mila::Dnn::Data::Tests
         EXPECT_EQ( inputs.shape()[ 1 ], seq_length );
     }
 
-    TEST_F( StreamingDataLoaderTest, Threading_StressTest )
+    TEST_F( TokenSequenceLoaderTest, Threading_StressTest )
     {
         createTokensFile( 20000 );
 
         const int64_t batch_size = 4;
         const int64_t seq_length = 128;
 
-        StreamingDataLoader<CpuMemoryResource> loader(
+        TokenSequenceLoader<CpuMemoryResource> loader(
             temp_tokens_file_,
             batch_size,
             seq_length,
@@ -497,7 +497,7 @@ namespace Mila::Dnn::Data::Tests
         }
     }
 
-    TEST_F( StreamingDataLoaderTest, DataIntegrity_AcrossBatches )
+    TEST_F( TokenSequenceLoaderTest, DataIntegrity_AcrossBatches )
     {
         std::vector<TokenId> pattern;
         for ( size_t i = 0; i < 1000; ++i )
@@ -509,7 +509,7 @@ namespace Mila::Dnn::Data::Tests
         const int64_t batch_size = 2;
         const int64_t seq_length = 64;
 
-        StreamingDataLoader<CpuMemoryResource> loader(
+        TokenSequenceLoader<CpuMemoryResource> loader(
             temp_tokens_file_,
             batch_size,
             seq_length,
@@ -526,14 +526,14 @@ namespace Mila::Dnn::Data::Tests
     }
 
 #ifdef MILA_CUDA_AVAILABLE
-    TEST_F( StreamingDataLoaderTest, CudaPinnedMemory_BasicFunctionality )
+    TEST_F( TokenSequenceLoaderTest, CudaPinnedMemory_BasicFunctionality )
     {
         createTokensFile( num_test_tokens_ );
 
         const int64_t batch_size = 4;
         const int64_t seq_length = 128;
 
-        StreamingDataLoader<CudaPinnedMemoryResource> loader(
+        TokenSequenceLoader<CudaPinnedMemoryResource> loader(
             temp_tokens_file_,
             batch_size,
             seq_length,
@@ -553,13 +553,13 @@ namespace Mila::Dnn::Data::Tests
         EXPECT_EQ( targets.shape()[ 1 ], seq_length );
     }
 
-    TEST_F( StreamingDataLoaderTest, CudaPinnedMemory_DeviceTypeMismatch )
+    TEST_F( TokenSequenceLoaderTest, CudaPinnedMemory_DeviceTypeMismatch )
     {
         createTokensFile( num_test_tokens_ );
 
         EXPECT_THROW(
             {
-                StreamingDataLoader<CudaPinnedMemoryResource> loader(
+                TokenSequenceLoader<CudaPinnedMemoryResource> loader(
                     temp_tokens_file_,
                     4,
                     128,

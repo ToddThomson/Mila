@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuites tests="1" failures="0" disabled="0" errors="0" time="0.317" timestamp="2026-02-05T12:24:50.366" name="AllTests">
-  <testsuite name="StreamingDataLoaderTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.317" timestamp="2026-02-05T12:24:50.366">
-    <testcase name="Threading_StressTest" file="C:\Users\ToddT\Src\Repos\Mila\Mila\Tests\Dnn\Data\StreamingDataLoader.cpp" line="474" status="run" result="completed" time="0.317" timestamp="2026-02-05T12:24:50.366" classname="StreamingDataLoaderTest" />
-  </testsuite>
-</testsuites>

@@ -262,7 +262,7 @@ export import Data.BpeSpecialTokens;
 // Data - Datasets
 // ============================================================================
 export import Data.DataLoader;
-export import Data.StreamingDataLoader;
+export import Data.TokenSequenceLoader;
 
 /**
  * @brief Mila main API namespace.

@@ -20,7 +20,7 @@ module;
 #include <type_traits>
 #include <exception>
 
-export module Data.StreamingDataLoader;
+export module Data.TokenSequenceLoader;
 export import :Config;
 
 import Data.DataLoader;
@@ -38,29 +38,26 @@ namespace Mila::Dnn::Data
 {
     using namespace Mila::Dnn::Compute;
 
+    // REVIEW: Semantically, Token Ids are unsigned. However, I want to use int* in my CUDA Encoder kenels
+    // For now we 'll use int32_t as the TokenId type
+
     /**
-     * @brief High-performance streaming data loader for autoregressive language models.
+     * @brief Token sequence loader for autoregressive language models.
      *
-     * Architecture:
-     * - Producer thread: Streams windows from disk and creates batched sequences
-     * - Consumer thread (main): Consumes batches via DataLoader interface
-     * - Double buffering: Eliminates data races between production and consumption
-     * - Window-based streaming: Memory-efficient processing of large datasets
+     * Loads tokenized text data for causal language modeling tasks such as GPT,
+     * LLaMA, and other transformer-based models. Reads from pre-tokenized binary
+     * .tokens files and produces batches of (input, target) sequence pairs where
+     * target[i] = input[i+1] (next-token prediction).
      *
-     * Thread Safety:
-     * - Producer fills back buffer while consumer reads front buffer
-     * - Atomic swap on batch boundaries with full memory ordering
-     * - Exception propagation from producer to consumer thread
+     * Implementation uses efficient disk streaming with double-buffered producer-consumer
+     * pattern for high-throughput training on large corpora.
      *
-     * Memory Layout:
-     * - Sequences are non-overlapping: [seq0][seq1][seq2]...
-     * - Target tokens are inputs shifted by 1: target[i] = input[i+1]
-     * - Windows wrap around file boundaries for continuous training
+     * @tparam TMemoryResource CpuMemoryResource or CudaPinnedMemoryResource
      */
     export template<typename TMemoryResource>
         requires (std::is_same_v<TMemoryResource, CudaPinnedMemoryResource> ||
-    std::is_same_v<TMemoryResource, CpuMemoryResource>)
-        class StreamingDataLoader : public DataLoader<TensorDataType::INT32, TensorDataType::INT32, TMemoryResource>
+            std::is_same_v<TMemoryResource, CpuMemoryResource>)
+    class TokenSequenceLoader : public DataLoader<TensorDataType::INT32, TensorDataType::INT32, TMemoryResource>
     {
     public:
         using BaseLoader = DataLoader<TensorDataType::INT32, TensorDataType::INT32, TMemoryResource>;
@@ -80,13 +77,13 @@ namespace Mila::Dnn::Data
          * @throws std::invalid_argument If batch_size or seq_length is zero
          * @throws std::runtime_error If file operations or initialization fails
          */
-        StreamingDataLoader(
+        TokenSequenceLoader(
             const std::filesystem::path& tokens_file,
             int64_t batch_size,
             int64_t seq_length,
             bool is_training,
             DeviceId device,
-            const StreamingDataLoaderConfig& config = StreamingDataLoaderConfig() )
+            const TokenSequenceLoaderConfig& config = TokenSequenceLoaderConfig() )
             : BaseLoader( batch_size ),
             seq_length_( seq_length ),
             is_training_( is_training ),
@@ -169,7 +166,7 @@ namespace Mila::Dnn::Data
 
             if ( config_.verbose_logging )
             {
-                std::cout << "StreamingDataLoader initialized:\n"
+                std::cout << "TokenSequenceLoader initialized:\n"
                     << "  File: " << tokens_file << "\n"
                     << "  Total tokens: " << num_tokens_ << "\n"
                     << "  Window size: " << window_size_tokens_ << " tokens\n"
@@ -184,7 +181,7 @@ namespace Mila::Dnn::Data
             }
         }
 
-        ~StreamingDataLoader() noexcept
+        ~TokenSequenceLoader() noexcept
         {
             stop_ = true;
             cv_producer_.notify_all();
@@ -197,10 +194,10 @@ namespace Mila::Dnn::Data
             cleanupBuffers();
         }
 
-        StreamingDataLoader( const StreamingDataLoader& ) = delete;
-        StreamingDataLoader& operator=( const StreamingDataLoader& ) = delete;
-        StreamingDataLoader( StreamingDataLoader&& ) = delete;
-        StreamingDataLoader& operator=( StreamingDataLoader&& ) = delete;
+        TokenSequenceLoader( const TokenSequenceLoader& ) = delete;
+        TokenSequenceLoader& operator=( const TokenSequenceLoader& ) = delete;
+        TokenSequenceLoader( TokenSequenceLoader&& ) = delete;
+        TokenSequenceLoader& operator=( TokenSequenceLoader&& ) = delete;
 
         int64_t numBatches() const override
         {
@@ -344,7 +341,7 @@ namespace Mila::Dnn::Data
         int64_t seq_length_;
         bool is_training_;
         DeviceId device_;
-        StreamingDataLoaderConfig config_;
+        TokenSequenceLoaderConfig config_;
 
         // File management
         std::filesystem::path tokens_file_path_;
@@ -729,9 +726,4 @@ namespace Mila::Dnn::Data
             }
         }
     };
-
-    // Provide backward-compatible alias
-    export template<typename TMemoryResource>
-        using TokenDataLoader = StreamingDataLoader<TMemoryResource>;
-
-} // namespace Mila::Dnn::Data
+}

@@ -15,6 +15,8 @@ module;
 
 export module Data.TokenizerVocabulary;
 
+import Data.Tokenizer;
+
 namespace Mila::Dnn::Data
 {
     /**
@@ -58,9 +60,9 @@ namespace Mila::Dnn::Data
          * id; callers should interpret an empty optional as "no mapping".
          *
          * @param token UTF-8 encoded token string to look up.
-         * @return std::optional<uint32_t> The token id if present, otherwise empty.
+         * @return std::optional<TokenId> The token id if present, otherwise empty.
          */
-        virtual std::optional<uint32_t> tokenToId( const std::string& token ) const = 0;
+        virtual std::optional<TokenId> tokenToId( const std::string& token ) const = 0;
 
         /**
          * @brief Map a numeric id back to its token string.
@@ -70,7 +72,7 @@ namespace Mila::Dnn::Data
          * @param id Token id to convert.
          * @return std::optional<std::string> The token string if present, otherwise empty.
          */
-        virtual std::optional<std::string> idToToken( uint32_t id ) const = 0;
+        virtual std::optional<std::string> idToToken( TokenId id ) const = 0;
 
         /**
          * @brief Serialize the vocabulary to disk at the given path.

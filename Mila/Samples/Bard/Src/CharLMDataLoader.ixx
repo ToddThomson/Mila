@@ -17,7 +17,7 @@ export module Bard.DataLoader;
 import Mila;
 //import Bard.Tokenizer; // need access to concrete BardTokenizer::loadTokensFromFile
 
-// Deprecated: moved to general libary StreamingDataLoader.ixx
+// Deprecated: moved to general libary TokenSequenceLoader.ixx
 // 
 //namespace Bard
 //{

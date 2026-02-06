@@ -360,14 +360,12 @@ namespace Bard
         //CharTokenizer tokenizer( std::move( vocab ) );
         auto tokenizer = std::make_shared<CharTokenizer>( vocab );
 
-        StreamingDataLoader<THostMR> train_loader(
+        TokenSequenceLoader<THostMR> train_loader(
             encoded_file,
             config.batch_size,
             config.seq_length,
             true,
             device_id
-            //tokenizer,
-            //config.seq_length / 2
         );
 
         // REVIEW: Does the constructor feel awkward?

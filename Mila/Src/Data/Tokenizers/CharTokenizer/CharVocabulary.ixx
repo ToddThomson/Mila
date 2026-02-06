@@ -23,10 +23,12 @@ import Data.TokenizerVocabulary;
 import Data.CharVocabularyConfig;
 import Data.FileHeader;
 import Serialization.Metadata;
+import Data.Tokenizer;
 
 namespace Mila::Data
 {
     using Mila::Dnn::Data::TokenizerVocabulary;
+    using Mila::Dnn::Data::TokenId;
     using Mila::Dnn::Serialization::SerializationMetadata;
     namespace fs = std::filesystem;
 
@@ -176,7 +178,7 @@ namespace Mila::Data
             return idx_to_char_.size();
         }
 
-        std::optional<uint32_t> tokenToId( const std::string& token ) const override
+        std::optional<TokenId> tokenToId( const std::string& token ) const override
         {
             if ( token.empty() )
             {
@@ -188,23 +190,24 @@ namespace Mila::Data
 
             if ( it != char_to_idx_.end() )
             {
-                return static_cast<uint32_t>( it->second );
+                return it->second;
             }
 
             if ( unk_token_id_ >= 0 )
             {
-                return static_cast<uint32_t>( unk_token_id_ );
+                return unk_token_id_;
             }
 
             return std::nullopt;
         }
 
-        std::optional<std::string> idToToken( uint32_t id ) const override
+        std::optional<std::string> idToToken( TokenId id ) const override
         {
-            if ( id < idx_to_char_.size() )
+            if ( id >= 0 && static_cast<size_t>( id ) < idx_to_char_.size() )
             {
                 return std::string( 1, idx_to_char_[ static_cast<size_t>( id ) ] );
             }
+
             return std::nullopt;
         }
 
@@ -212,7 +215,7 @@ namespace Mila::Data
         // Character-Specific API
         // ====================================================================
 
-        int charToIndex( char c ) const
+        TokenId charToIndex( char c ) const
         {
             auto it = char_to_idx_.find( c );
 
@@ -221,24 +224,25 @@ namespace Mila::Data
                 return it->second;
             }
 
-            return unk_token_id_ >= 0 ? unk_token_id_ : 0;
+            return unk_token_id_ >= 0 ? unk_token_id_ : static_cast<TokenId>(0);
         }
 
-        char indexToChar( int idx ) const
+        char indexToChar( TokenId idx ) const
         {
-            if ( idx >= 0 && idx < static_cast<int>( idx_to_char_.size() ) )
+            if ( idx >= 0 && static_cast<size_t>( idx ) < idx_to_char_.size() )
             {
                 return idx_to_char_[ static_cast<size_t>( idx ) ];
             }
+
             return '?';
         }
 
-        int padTokenId() const
+        TokenId padTokenId() const
         {
             return pad_token_id_;
         }
 
-        int unkTokenId() const
+        TokenId unkTokenId() const
         {
             return unk_token_id_;
         }
@@ -360,7 +364,7 @@ namespace Mila::Data
         void addSpecialTokensFromConfig()
         {
             const CharSpecialTokens& st = config_.getSpecialTokens();
-            int idx = 0;
+            TokenId idx = 0;
 
             if ( st.use_pad )
             {
@@ -409,7 +413,7 @@ namespace Mila::Data
 
         void addRegularTokens( const std::vector<unsigned char>& sorted_bytes )
         {
-            int idx = static_cast<int>( idx_to_char_.size() );
+            TokenId idx = static_cast<TokenId>( idx_to_char_.size() );
 
             std::vector<unsigned char> reserved = { '\0', '\1', '\2', '\3', '\4', '\5', '\6' };
 
@@ -479,8 +483,8 @@ namespace Mila::Data
             }
             else
             {
-                pad_token_id_ = -1;
-                unk_token_id_ = -1;
+                pad_token_id_ = static_cast<TokenId>( -1 );
+                unk_token_id_ = static_cast<TokenId>( -1 );
             }
 
             idx_to_char_.resize( vocab_size );
@@ -489,7 +493,7 @@ namespace Mila::Data
                 char c;
                 file.read( &c, sizeof( char ) );
                 idx_to_char_[ i ] = c;
-                char_to_idx_[ c ] = static_cast<int>( i );
+                char_to_idx_[ c ] = static_cast<TokenId>( i );
             }
 
             if ( !file )
@@ -504,9 +508,9 @@ namespace Mila::Data
 
         CharVocabularyConfig config_;
 
-        std::unordered_map<char, int> char_to_idx_;
+        std::unordered_map<char, TokenId> char_to_idx_;
         std::vector<char> idx_to_char_;
-        int pad_token_id_;
-        int unk_token_id_;
+        TokenId pad_token_id_;
+        TokenId unk_token_id_;
     };
 }

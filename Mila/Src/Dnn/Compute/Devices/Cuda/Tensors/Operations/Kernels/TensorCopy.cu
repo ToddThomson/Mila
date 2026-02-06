@@ -260,11 +260,18 @@ namespace Mila::Dnn::Compute::Cuda
     template void launch_convert_copy_kernel<__half, int32_t>( const __half*, int32_t*, size_t, cudaStream_t );
     template void launch_convert_copy_kernel<int32_t, __half>( const int32_t*, __half*, size_t, cudaStream_t );
 
+    // Unsigned Integer conversions
+    template void launch_convert_copy_kernel<float, uint32_t>( const float*, uint32_t*, size_t, cudaStream_t );
+    template void launch_convert_copy_kernel<uint32_t, float>( const uint32_t*, float*, size_t, cudaStream_t );
+    template void launch_convert_copy_kernel<__half, uint32_t>( const __half*, uint32_t*, size_t, cudaStream_t );
+    template void launch_convert_copy_kernel<uint32_t, __half>( const uint32_t*, __half*, size_t, cudaStream_t );
+
     // Fast copy kernels (same type)
     template void launch_fast_copy_kernel<float>( const float*, float*, size_t, cudaStream_t );
     template void launch_fast_copy_kernel<__half>( const __half*, __half*, size_t, cudaStream_t );
     template void launch_fast_copy_kernel<__nv_bfloat16>( const __nv_bfloat16*, __nv_bfloat16*, size_t, cudaStream_t );
     template void launch_fast_copy_kernel<int32_t>( const int32_t*, int32_t*, size_t, cudaStream_t );
+    template void launch_fast_copy_kernel<uint32_t>( const uint32_t*, uint32_t*, size_t, cudaStream_t );
     template void launch_fast_copy_kernel<int8_t>( const int8_t*, int8_t*, size_t, cudaStream_t );
     template void launch_fast_copy_kernel<uint8_t>( const uint8_t*, uint8_t*, size_t, cudaStream_t );
 }

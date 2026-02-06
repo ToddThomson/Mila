@@ -30,11 +30,13 @@ import Data.BpeVocabularyConfig;
 import Data.TokenizerVocabulary;
 import Data.FileHeader;
 import Serialization.Metadata;
+import Data.Tokenizer;
 
 namespace Mila::Data
 {
     namespace fs = std::filesystem;
     using Mila::Dnn::Data::TokenizerVocabulary;
+    using Mila::Dnn::Data::TokenId;
     using Mila::Dnn::Serialization::SerializationMetadata;
 
     /**
@@ -211,7 +213,7 @@ namespace Mila::Data
             return id_to_token_.size();
         }
 
-        std::optional<uint32_t> tokenToId( const std::string& token ) const override
+        std::optional<TokenId> tokenToId( const std::string& token ) const override
         {
             auto it = token_to_id_.find( token );
             if ( it != token_to_id_.end() )
@@ -228,11 +230,11 @@ namespace Mila::Data
             return std::nullopt;
         }
 
-        std::optional<std::string> idToToken( uint32_t id ) const override
+        std::optional<std::string> idToToken( TokenId id ) const override
         {
-            if ( id < id_to_token_.size() )
+            if ( id >= 0 && static_cast<size_t>( id ) < id_to_token_.size() )
             {
-                return id_to_token_[ id ];
+                return id_to_token_[ static_cast<size_t>( id ) ];
             }
             return std::nullopt;
         }
@@ -246,7 +248,7 @@ namespace Mila::Data
             return merges_;
         }
 
-        std::optional<uint32_t> getSpecialTokenId( char type ) const
+        std::optional<TokenId> getSpecialTokenId( char type ) const
         {
             auto it = special_token_ids_.find( type );
             if ( it != special_token_ids_.end() )
@@ -347,20 +349,20 @@ namespace Mila::Data
             const std::string& merged,
             std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash>& pair_counts );
             
-        void addSpecialToken( const std::string& token, uint32_t id, const std::string& type );
+        void addSpecialToken( const std::string& token, TokenId id, const std::string& type );
 
         // ====================================================================
         // Member Variables
         // ====================================================================
 
         BpeVocabularyConfig config_;
-        uint32_t current_id_;
+        TokenId current_id_;
 
-        std::unordered_map<std::string, uint32_t> token_to_id_;
+        std::unordered_map<std::string, TokenId> token_to_id_;
         std::vector<std::string> id_to_token_;
         std::vector<std::pair<std::string, std::string>> merges_;
         std::unordered_map<std::pair<std::string, std::string>, size_t, PairHash> merge_map_;
-        std::unordered_map<char, uint32_t> special_token_ids_;
+        std::unordered_map<char, TokenId> special_token_ids_;
     };
 
     // ========================================================================
@@ -381,7 +383,7 @@ namespace Mila::Data
         addSpecialTokensFromConfig();
 
         const size_t target_vocab_size = config_.getVocabSize();
-        if ( target_vocab_size == 0 || current_id_ >= static_cast<uint32_t>( target_vocab_size ) )
+        if ( target_vocab_size == 0 || static_cast<size_t>( current_id_ ) >= target_vocab_size )
         {
             buildMergeMap();
             return;
@@ -491,7 +493,7 @@ namespace Mila::Data
         size_t merges_performed = 0;
         auto pair_counts = countPairs( corpus_tokens );
 
-        while ( current_id_ < static_cast<uint32_t>( target_vocab_size ) )
+        while ( static_cast<size_t>( current_id_ ) < target_vocab_size )
         {
             if ( pair_counts.empty() )
             {
@@ -582,7 +584,7 @@ namespace Mila::Data
             uint32_t token_id = static_cast<uint32_t>( id );
             file.write( reinterpret_cast<const char*>( &token_id ), sizeof( token_id ) );
 
-            const std::string& token_str = id_to_token_[ id ];
+            const std::string& token_str = id_to_token_[ static_cast<size_t>( id ) ];
             uint32_t len = static_cast<uint32_t>( token_str.size() );
             file.write( reinterpret_cast<const char*>( &len ), sizeof( len ) );
             file.write( token_str.data(), len );
@@ -651,7 +653,7 @@ namespace Mila::Data
                 file.read( token_str.data(), len );
             }
 
-            special_token_ids_[ static_cast<char>( type_byte ) ] = token_id;
+            special_token_ids_[ static_cast<char>( type_byte ) ] = static_cast<TokenId>( token_id );
         }
 
         uint32_t num_merges = 0;
@@ -697,7 +699,7 @@ namespace Mila::Data
             }
 
             id_to_token_[ i ] = std::move( token );
-            token_to_id_[ id_to_token_[ i ] ] = i;
+            token_to_id_[ id_to_token_[ i ] ] = static_cast<TokenId>( i );
         }
 
         buildMergeMap();
@@ -835,7 +837,7 @@ namespace Mila::Data
         }
     }
 
-    void BpeVocabulary::addSpecialToken( const std::string& token, uint32_t id, const std::string& type )
+    void BpeVocabulary::addSpecialToken( const std::string& token, TokenId id, const std::string& type )
     {
         id_to_token_.push_back( token );
         token_to_id_[ token ] = id;
@@ -976,7 +978,7 @@ namespace Mila::Data
             }
 
             vocab.id_to_token_[ token_id ] = token;
-            vocab.token_to_id_[ token ] = token_id;
+            vocab.token_to_id_[ token ] = static_cast<TokenId>( token_id );
         }
 
         vocab.merges_.reserve( num_merges );
@@ -1019,7 +1021,7 @@ namespace Mila::Data
         {
             uint32_t eos_id = 0;
             read_u32( eos_id );
-            vocab.special_token_ids_[ 'e' ] = eos_id;
+            vocab.special_token_ids_[ 'e' ] = static_cast<TokenId>( eos_id );
         }
 
         uint32_t has_bos = 0;
@@ -1028,7 +1030,7 @@ namespace Mila::Data
         {
             uint32_t bos_id = 0;
             read_u32( bos_id );
-            vocab.special_token_ids_[ 'b' ] = bos_id;
+            vocab.special_token_ids_[ 'b' ] = static_cast<TokenId>( bos_id );
         }
 
         uint32_t has_pad = 0;
@@ -1037,7 +1039,7 @@ namespace Mila::Data
         {
             uint32_t pad_id = 0;
             read_u32( pad_id );
-            vocab.special_token_ids_[ 'p' ] = pad_id;
+            vocab.special_token_ids_[ 'p' ] = static_cast<TokenId>( pad_id );
         }
 
         vocab.buildMergeMap();
