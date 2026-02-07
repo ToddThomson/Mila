@@ -5,7 +5,6 @@ import Mila;
 namespace Networks_Tests
 {
     using namespace Mila::Dnn;
-    using namespace Mila::Dnn::Networks;
 
     TEST( LlamaPresets, Llama3_8B_Properties )
     {

@@ -19,7 +19,7 @@ module;
 #include <optional>
 #include <cassert>
 
-export module Dnn.Networks.GptTransformer;
+export module Dnn.Components.GptTransformer;
 export import :Config;
 export import :Presets;
 
@@ -44,7 +44,7 @@ import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
 
-namespace Mila::Dnn::Networks
+namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
@@ -430,6 +430,31 @@ namespace Mila::Dnn::Networks
             normalized_ptr_ = nullptr;
             logits_ptr_ = nullptr;
         }
+
+        //Tensor<TPrecision, MR>& forwardPrefill(
+        //    const Tensor<TensorDataType::INT32, MR>& tokens,
+        //    int64_t seq_len ) override
+        //{
+        //    // Standard GPT forward with full sequence
+        //    // Attention layers populate their KV caches
+        //    return this->forward( tokens );  // Existing forward()
+        //}
+
+        //Tensor<TPrecision, MR>& forwardDecode(
+        //    const Tensor<TensorDataType::INT32, MR>& token,
+        //    int64_t position ) override
+        //{
+        //    // Single token forward, using cached K,V
+        //    // Only compute new Q,K,V
+        //    return forwardSingleToken( token, position );
+        //}
+
+        //void initializeKVCache( int64_t max_len ) override {
+
+        //    for ( auto& block : transformer_blocks_ ) {
+        //        block->initializeKVCache( max_len );
+        //    }
+        //}
 
     private:
         std::unique_ptr<IExecutionContext> owned_context_{ nullptr };

@@ -509,6 +509,18 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         void setGradients( ITensor* /*unused1*/, ITensor* /*unused2*/ ) override
         {}
 
+        void initializeKVCache( int /*unused_batch_size*/, int /*unused_max_seq_length*/ )
+        {
+            //if ( !config_.use_kv_cache ) return;
+
+            //int64_t cache_shape[] = { B_, NH_, max_len, HS_ };
+
+            //kv_cache_k_ = std::make_shared<TensorType>( device_id_, cache_shape );
+            //kv_cache_v_ = std::make_shared<TensorType>( device_id_, cache_shape );
+
+            //cached_seq_len_ = 0;
+        }
+
         void build( const shape_t& input_shape ) override
         {
             // REVIEW: What happens when build fails partway through?

@@ -41,4 +41,14 @@ namespace Mila::Dnn::Data
         // Check if token ID is valid
         virtual bool isValidToken( TokenId tokenId ) const = 0;
     };
+
+    // REVIEW: We want to move to a factory-based design for tokenizers, where the base Tokenizer class
+    // is an abstract interface and concrete implementations (e.g., CharTokenizer, BpeTokenizer) are 
+    // loaded via factory functions. This allows us to support multiple tokenizer types without changing the public API.
+
+    // Factory function - loads any tokenizer type
+    //export std::unique_ptr<Tokenizer> loadTokenizer( const std::filesystem::path& vocabulary_path )
+    //{
+    //    return CharTokenizer::load( vocabulary_path.string() );
+    //}
 }

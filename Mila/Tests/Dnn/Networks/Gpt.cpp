@@ -4,19 +4,18 @@
 // test that attempts to load a converted GPT-2 .bin when present in the repo.
 
 #include <gtest/gtest.h>
-
-import Mila;
-
 #include <filesystem>
 #include <string>
 
-using namespace Mila::Dnn;
-using namespace Mila::Dnn::Compute;
+import Mila;
 
 namespace Dnn::Networks::Tests
 {
-    using GptType = Mila::Dnn::Networks::GptTransformer<DeviceType::Cpu, TensorDataType::FP32>;
-    using GptConfig = Mila::Dnn::Networks::GptConfig;
+    using namespace Mila::Dnn;
+    using namespace Mila::Dnn::Compute;
+
+    using GptType = GptTransformer<DeviceType::Cpu, TensorDataType::FP32>;
+    using GptConfig = Mila::Dnn::GptConfig;
     namespace fs = std::filesystem;
 
     // Helper: path to GPT-2 weights under TEST_DATA_DIR (set via CMake target_compile_definitions)

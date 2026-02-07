@@ -327,7 +327,7 @@ static int trainCommand( const Args& args )
         BpeVocabulary vocab = trainer.train();
         vocab.save( args.output_file );
 
-        std::cout << "Training complete!" << std::endl;
+        std::cout << "Training complete" << std::endl;
         std::cout << "  Vocabulary size: " << vocab.getSize() << std::endl;
         std::cout << "  Saved to: " << args.output_file << std::endl;
     }
@@ -341,7 +341,7 @@ static int trainCommand( const Args& args )
         CharVocabulary vocab = CharVocabulary::trainFromFile( args.input_file, config );
         vocab.save( args.output_file );
 
-        std::cout << "Training complete!" << std::endl;
+        std::cout << "Training complete" << std::endl;
         std::cout << "  Vocabulary size: " << vocab.getSize() << std::endl;
         std::cout << "  Saved to: " << args.output_file << std::endl;
     }

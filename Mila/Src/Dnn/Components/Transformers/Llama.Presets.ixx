@@ -1,10 +1,10 @@
 // LlamaNetwork-Presets.ixx
 
-export module Dnn.Networks.LlamaTransformer:Presets;
+export module Dnn.Components.LlamaTransformer:Presets;
 
 import :Config;
 
-namespace Mila::Dnn::Networks
+namespace Mila::Dnn
 {
     /**
      * Usage Examples:

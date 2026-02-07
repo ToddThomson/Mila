@@ -9,6 +9,7 @@ namespace Bard
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Data;
 
     /**
      * @brief Configuration for Bard training CLI and trainer.
@@ -18,7 +19,7 @@ namespace Bard
         // Root data directory containing the dataset subfolders (encoded, vocabularies, ...)
         // Defaults to the repository layout under Data/Shakespeare
         std::string data_dir = "./Data/Shakespeare";
-
+        TokenizerType tokenizer = TokenizerType::Char;
         int64_t batch_size = 32;
         int64_t seq_length = 128;
         size_t epochs = 200;

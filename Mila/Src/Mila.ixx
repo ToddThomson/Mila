@@ -202,6 +202,12 @@ export import Dnn.Components.GptBlock;
 export import Dnn.Components.LlamaBlock;
 
 // ============================================================================
+// Networks - Open Source Transformer Models
+// ============================================================================
+export import Dnn.Components.GptTransformer;
+export import Dnn.Components.LlamaTransformer;
+
+// ============================================================================
 // Dnn - Optimizers
 // ============================================================================
 export import Dnn.Optimizers.AdamW;
@@ -217,6 +223,7 @@ export import Dnn.Optimizers.AdamWConfig;
 // ============================================================================
 export import Data.DataLoader;
 export import Data.Tokenizer;
+export import Data.TokenizerType;
 export import Data.Gpt2Tokenizer;
 
 // ============================================================================
@@ -229,11 +236,6 @@ export import Serialization.ModelArchive;
 export import Serialization.ModelSerializer;
 export import Serialization.ZipSerializer;
 
-// ============================================================================
-// Networks - Open Source Transformer Models
-// ============================================================================
-export import Dnn.Networks.GptTransformer;
-export import Dnn.Networks.LlamaTransformer;
 
 // ============================================================================
 // Modeling

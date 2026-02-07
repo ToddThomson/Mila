@@ -5,7 +5,6 @@ import Mila;
 namespace CompositeComponents_Tests
 {
     using namespace Mila::Dnn;
-    using namespace Mila::Dnn::Networks;
 
     TEST( TransformerPresets, GPT2SmallProperties )
     {

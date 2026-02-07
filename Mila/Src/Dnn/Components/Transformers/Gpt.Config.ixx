@@ -10,13 +10,13 @@ module;
 #include <string>
 #include <sstream>
 
-export module Dnn.Networks.GptTransformer:Config;
+export module Dnn.Components.GptTransformer:Config;
 
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
 
-namespace Mila::Dnn::Networks
+namespace Mila::Dnn
 {
     using Serialization::SerializationMetadata;
 

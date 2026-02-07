@@ -349,19 +349,19 @@ PUBLIC
         "Src/Dnn/Core/LearningRateScheduler.ixx"
         
         "Src/Dnn/Components/Activations/ApproximationMethod.ixx"
-        "Src/Dnn/Networks/Gpt.Presets.ixx"
+        "Src/Dnn/Components/Transformers/Gpt.Presets.ixx"
         "Src/Dnn/Components/Attention/AttentionType.ixx"
         "Src/Dnn/Components/Normalization/NormType.ixx"
         "Src/Dnn/Components/Encoding/EncodingType.ixx"
         "Src/Dnn/Core/ModelReader.ixx"
-        "Src/Dnn/Networks/GptTransformer.ixx"
+        "Src/Dnn/Components/Transformers/GptTransformer.ixx"
         "Src/Dnn/Components/Composites/LlamaBlock.ixx"
         "Src/Dnn/Components/Composites/LlamaBlock.Config.ixx"
-        "Src/Dnn/Networks/Gpt.Config.ixx"
-        "Src/Dnn/Networks/LlamaTransformer.ixx"
-        "Src/Dnn/Networks/Llama.Config.ixx"
+        "Src/Dnn/Components/Transformers/Gpt.Config.ixx"
+        "Src/Dnn/Components/Transformers/LlamaTransformer.ixx"
+        "Src/Dnn/Components/Transformers/Llama.Config.ixx"
         
-        "Src/Dnn/Networks/Llama.Presets.ixx"
+        "Src/Dnn/Components/Transformers/Llama.Presets.ixx"
 
         "Src/Dnn/Data/Tokenizer.ixx"
         "Src/Dnn/Data/Gpt2Tokenizer.ixx"
@@ -385,7 +385,7 @@ PUBLIC
         "Src/Data/Tokenizers/CharTokenizer/CharTrainer.ixx"
         "Src/Data/Tokenizers/CharTokenizer/CharVocabulary.ixx"
         "Src/Data/Tokenizers/CharTokenizer/CharSpecialTokens.ixx"
-)
+ "Src/Dnn/Components/Transformers/Transformer.ixx" "Src/Dnn/Components/Transformers/GenerateParams.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

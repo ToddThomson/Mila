@@ -10,13 +10,13 @@ module;
 #include <string>
 #include <sstream>
 
-export module Dnn.Networks.LlamaTransformer:Config;
+export module Dnn.Components.LlamaTransformer:Config;
 
 import Dnn.TensorTypes;
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
 
-namespace Mila::Dnn::Networks
+namespace Mila::Dnn
 {
     using Serialization::SerializationMetadata;
 

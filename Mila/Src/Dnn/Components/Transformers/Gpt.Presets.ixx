@@ -1,8 +1,8 @@
-export module Dnn.Networks.GptTransformer:Presets;
+export module Dnn.Components.GptTransformer:Presets;
 
 import :Config;
 
-namespace Mila::Dnn::Networks
+namespace Mila::Dnn
 {
     /**
      * Usage Examples:

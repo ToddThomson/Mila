@@ -1,6 +1,6 @@
 # Data Directory
 
-This directory contains all datasets, models, scripts, and tools for the Mila project.
+This directory contains all datasets, models, scripts, and tools for the Mila projects.
 
 ## Structure
 

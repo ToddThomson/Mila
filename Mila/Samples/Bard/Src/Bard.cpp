@@ -6,11 +6,13 @@ import Mila;
 
 import Bard.Config;
 import Bard.Trainer;
+//import Data.TokenizerType;
 
 namespace fs = std::filesystem;
 
 using namespace Mila::Dnn;
 using namespace Mila::Dnn::Compute;
+using namespace Mila::Dnn::Data;
 using namespace Bard;
 
 void printUsage()
@@ -35,6 +37,7 @@ void printUsage()
     std::cout << "  --sample-every <int>     Generate sample every N epochs (default: 1, 0=disable)\n";
     std::cout << "  --lr-decay <float>       Multiplicative LR decay factor (e.g. 0.9). 1.0 means no decay.\n";
     std::cout << "  --lr-decay-every <int>   Apply LR decay every N epochs (0 = disable)\n";
+    std::cout << "  --tokenizer <bpe|char>   Tokenizer type to use for encoding/decoding (default: bpe)\n";
     std::cout << "  --help                   Show this help message\n";
 }
 
@@ -190,6 +193,27 @@ bool parseCommandLine( int argc, char** argv, BardConfig& config )
             continue;
         }
 
+        if ( arg == "--tokenizer" && i + 1 < argc )
+        {
+            std::string tokenizer_arg = argv[ ++i ];
+            auto tokenizer_type = stringToTokenizerType( tokenizer_arg );
+            
+            if ( tokenizer_type == TokenizerType::Unknown )
+            {
+                std::cerr << "Unknown tokenizer: " << tokenizer_arg << ". Using default: bpe" << std::endl;
+            }
+            else if ( tokenizer_type != TokenizerType::Bpe && tokenizer_type != TokenizerType::Char )
+            {
+                std::cerr << "Tokenizer \"" << tokenizer_arg << "\" is not supported by this sample. Using default: bpe" << std::endl;
+            }
+            else
+            {
+                config.tokenizer = tokenizer_type;
+            }
+            
+            continue;
+        }
+
         std::cerr << "Unknown option: " << arg << std::endl;
         printUsage();
         return false;
@@ -213,6 +237,7 @@ bool parseCommandLine( int argc, char** argv, BardConfig& config )
     std::cout << "  Sample every N epochs: " << config.sample_every_n_epochs << std::endl;
     std::cout << "  LR decay factor: " << config.lr_decay << std::endl;
     std::cout << "  LR decay every N epochs: " << config.lr_decay_every_n_epochs << std::endl;
+    std::cout << "  Tokenizer: " << tokenizerTypeToString( config.tokenizer ) << std::endl;
 
     if ( !fs::exists( config.data_dir ) || !fs::is_directory( config.data_dir ) )
     {

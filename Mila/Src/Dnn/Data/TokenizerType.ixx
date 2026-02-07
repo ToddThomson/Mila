@@ -18,7 +18,7 @@ namespace Mila::Dnn::Data
     };
 
     /** Convert TokenizerType to a stable string representation. */
-    export inline std::string_view to_string( TokenizerType t ) noexcept
+    export inline std::string_view tokenizerTypeToString( TokenizerType t ) noexcept
     {
         switch ( t ) {
             case TokenizerType::Char: return "char";
@@ -31,7 +31,7 @@ namespace Mila::Dnn::Data
     }
 
     /** Parse a string into TokenizerType. Comparison is case-insensitive for the ASCII range. */
-    export inline TokenizerType from_string( std::string_view s ) noexcept
+    export inline TokenizerType stringToTokenizerType( std::string_view s ) noexcept
     {
         if ( s.empty() ) return TokenizerType::Unknown;
 
@@ -51,6 +51,7 @@ namespace Mila::Dnn::Data
         if ( eq_icase( s, "sentencepiece" ) ) return TokenizerType::SentencePiece;
         if ( eq_icase( s, "word" ) ) return TokenizerType::Word;
         if ( eq_icase( s, "unigram" ) ) return TokenizerType::Unigram;
+        
         return TokenizerType::Unknown;
     }
 }

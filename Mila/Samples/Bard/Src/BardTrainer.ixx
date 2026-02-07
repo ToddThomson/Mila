@@ -16,6 +16,7 @@ module;
 #include <ios>
 #include <exception>
 #include <cmath>
+#include <span>
 
 export module Bard.Trainer;
 
@@ -30,7 +31,6 @@ namespace Bard
     using namespace Mila::Dnn::Data;
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Optimizers;
-    using namespace Mila::Dnn::Networks;
     using namespace Mila::Data;
 
     template<TensorDataType TDataType>
@@ -222,7 +222,7 @@ namespace Bard
             (std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
     std::string generateSample(
         GptTransformer<TDeviceType, TDataType>* model,
-        const CharVocabulary& vocab,
+        const std::shared_ptr<Tokenizer>& tokenizer,
         DeviceId device_id,
         const BardConfig& config,
         size_t epoch )
@@ -232,28 +232,13 @@ namespace Bard
         bool was_training = model->isTraining();
         model->setTraining( false );
 
-        std::vector<int32_t> prompt_tokens;
-        for ( char c : config.sample_prompt )
-        {
-            int idx = vocab.charToIndex( c );
-            if ( idx < 0 )
-            {
-                if ( vocab.hasSpecialTokens() )
-                {
-                    idx = vocab.unkTokenId();
-                }
-                else
-                {
-                    throw std::runtime_error( "Prompt contains out-of-vocab character and no UNK token is defined." );
-                }
-            }
-            prompt_tokens.push_back( idx );
-        }
+        // Encode prompt using tokenizer API (handles BPE/char differences)
+        std::vector<TokenId> prompt_tokens = tokenizer->encode( config.sample_prompt );
 
-        std::vector<int32_t> generated_tokens = prompt_tokens;
+        std::vector<TokenId> generated_tokens = prompt_tokens;
         std::mt19937 rng( static_cast<unsigned int>(epoch) );
 
-        size_t vocab_size = vocab.getSize();
+        size_t vocab_size = tokenizer->getVocabSize();
 
         int64_t model_batch_size = config.batch_size;
         int64_t model_seq_length = config.seq_length;
@@ -266,7 +251,9 @@ namespace Bard
         Tensor<TDataType, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
         Tensor<TensorDataType::INT32, CpuMemoryResource> context_cpu( Device::Cpu(), model_shape );
 
-        int32_t pad_value = vocab.hasSpecialTokens() ? vocab.padTokenId() : 0;
+        int32_t pad_value = 0;
+        auto pad_opt = tokenizer->getPadTokenId();
+        if ( pad_opt ) pad_value = static_cast<int32_t>( *pad_opt );
 
         for ( int64_t i = 0; i < config.sample_length; ++i )
         {
@@ -302,11 +289,9 @@ namespace Bard
             generated_tokens.push_back( next_token );
         }
 
-        std::string generated_text;
-        for ( int32_t token : generated_tokens )
-        {
-            generated_text += vocab.indexToChar( token );
-        }
+        // Decode generated token ids back to text using tokenizer (handles BPE merges correctly)
+        std::string generated_text = tokenizer->decode(
+            std::span<const TokenId>( generated_tokens.data(), generated_tokens.size() ) );
 
         if ( was_training )
         {
@@ -331,8 +316,20 @@ namespace Bard
 
         // Build dataset paths from the configured data directory.
         fs::path data_dir_path = fs::path( config.data_dir );
-        fs::path encoded_file = data_dir_path / "encoded" / "shakespeare.char.tokens";
-        fs::path vocab_file = data_dir_path / "vocabularies" / "shakespeare.char.mila";
+
+        fs::path encoded_file;
+        fs::path vocab_file;
+
+        if ( config.tokenizer == TokenizerType::Bpe )
+        {
+            encoded_file = data_dir_path / "encoded" / "shakespeare.bpe.tokens";
+            vocab_file = data_dir_path / "vocabularies" / "shakespeare.bpe.mila";
+        }
+        else
+        {
+            encoded_file = data_dir_path / "encoded" / "shakespeare.char.tokens";
+            vocab_file = data_dir_path / "vocabularies" / "shakespeare.char.mila";
+        }
 
         if ( !fs::exists( data_dir_path ) )
         {
@@ -349,16 +346,24 @@ namespace Bard
             throw std::runtime_error( "Vocabulary file not found: " + vocab_file.string() );
         }
 
-        CharVocabulary vocab = CharVocabulary::load( vocab_file.string() );
-        std::cout << "Loaded vocabulary from: " << vocab_file.string() << std::endl;
+        // Load vocabulary and construct tokenizer based on requested tokenizer type.
+        std::shared_ptr<Tokenizer> tokenizer;
 
-        // REVIEW:: getVocabSize()
-        size_t actual_vocab_size = vocab.getSize();
+        if ( config.tokenizer == TokenizerType::Bpe )
+        {
+            BpeVocabulary bpe_vocab = BpeVocabulary::load( vocab_file );
+            std::cout << "Loaded BPE vocabulary from: " << vocab_file.string() << std::endl;
+            tokenizer = std::make_shared<BpeTokenizer>( std::move( bpe_vocab ) );
+        }
+        else
+        {
+            CharVocabulary char_vocab = CharVocabulary::load( vocab_file );
+            std::cout << "Loaded char vocabulary from: " << vocab_file.string() << std::endl;
+            tokenizer = std::make_shared<CharTokenizer>( std::move( char_vocab ) );
+        }
+
+        size_t actual_vocab_size = tokenizer->getVocabSize();
         std::cout << "Actual vocabulary size from data: " << actual_vocab_size << std::endl;
-
-        // Construct character tokenizer from vocab binary file
-        //CharTokenizer tokenizer( std::move( vocab ) );
-        auto tokenizer = std::make_shared<CharTokenizer>( vocab );
 
         TokenSequenceLoader<THostMR> train_loader(
             encoded_file,
@@ -438,7 +443,9 @@ namespace Bard
                 copy( output, logits_cpu );
                 copy( target_batch, targets_cpu );
 
-                int pad_id = vocab.padTokenId();// train_loader.padTokenId();
+                int pad_id = 0;
+                auto pad_opt = tokenizer->getPadTokenId();
+                if ( pad_opt ) pad_id = static_cast<int>( *pad_opt );
 
                 float batch_loss = sequenceCrossEntropyLoss( logits_cpu, targets_cpu, pad_id );
                 float batch_perplexity = computePerplexity( batch_loss );
@@ -491,7 +498,7 @@ namespace Bard
                 {
                     std::string sample = generateSample<TDeviceType, TDataType, THostMR>(
                         model.get(),
-                        vocab,
+                        tokenizer,
                         device_id,
                         config,
                         epoch );
