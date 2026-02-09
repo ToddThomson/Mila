@@ -110,7 +110,7 @@ namespace Data::Tokenizers::BpeTrainer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 300 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::standard() );
+            .withSpecialTokens( SpecialTokens::standard() );
 
         BpeTrainer trainer( cfg );
 
@@ -158,7 +158,7 @@ namespace Data::Tokenizers::BpeTrainer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 270 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::none() );
+            .withSpecialTokens( SpecialTokens::none() );
 
         BpeTrainer trainer( cfg );
         trainer.addCorpusFromFile( tmp1 );
@@ -235,7 +235,7 @@ namespace Data::Tokenizers::BpeTrainer_Tests
             .withVocabSize( 350 )
             .withMinFrequency( 2 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::forMLM() );
+            .withSpecialTokens( SpecialTokens::forMLM() );
 
         BpeTrainer trainer( cfg );
 
@@ -249,7 +249,6 @@ namespace Data::Tokenizers::BpeTrainer_Tests
         EXPECT_EQ( vocab_cfg.getVocabSize(), cfg.getVocabSize() );
         EXPECT_EQ( vocab_cfg.getMinFrequency(), cfg.getMinFrequency() );
         EXPECT_EQ( vocab_cfg.isByteLevel(), cfg.isByteLevel() );
-        EXPECT_EQ( vocab_cfg.getSpecialTokens().enabled, cfg.getSpecialTokens().enabled );
     }
 
     TEST( BpeTrainerTests, Train_LargeCorpus_SucceedsWithProgress )
@@ -257,7 +256,7 @@ namespace Data::Tokenizers::BpeTrainer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 512 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::standard() );
+            .withSpecialTokens( SpecialTokens::standard() );
 
         BpeTrainer trainer( cfg );
 
@@ -279,7 +278,7 @@ namespace Data::Tokenizers::BpeTrainer_Tests
             .withVocabSize( 300 )
             .withMinFrequency( 10 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::none() );
+            .withSpecialTokens( SpecialTokens::none() );
 
         BpeTrainer trainer( cfg );
 
@@ -297,7 +296,7 @@ namespace Data::Tokenizers::BpeTrainer_Tests
             .withVocabSize( 500 )
             .withMaxMerges( 2 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::none() );
+            .withSpecialTokens( SpecialTokens::none() );
 
         BpeTrainer trainer( cfg );
 

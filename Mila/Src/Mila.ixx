@@ -252,7 +252,7 @@ export import Data.CharTokenizer;
 export import Data.CharTrainer;
 export import Data.CharVocabulary;
 export import Data.CharVocabularyConfig;
-export import Data.CharSpecialTokens;
+export import Data.SpecialTokens;
 
 export import Data.BpeVocabulary;
 export import Data.BpeVocabularyConfig;

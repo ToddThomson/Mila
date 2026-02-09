@@ -379,6 +379,48 @@ namespace Mila::Dnn
         virtual std::string toString() const = 0;
 
         /**
+         * @brief Set a named parameter (weight/bias) from loaded tensor data
+         *
+         * This is part of the public API for model loading and parameter manipulation.
+         *
+         * @param name Parameter name (typically "weight" or "bias")
+         * @param data Tensor data from model file
+         *
+         * @throws std::runtime_error if parameter name is unknown
+         */
+        virtual void setParameter( const std::string& name, const ITensor& data )
+        {
+            throw std::runtime_error(
+                std::format( "Component '{}' does not support parameter '{}'",
+                    getName(), name )
+            );
+        }
+
+        /**
+         * @brief Get a named parameter tensor (optional, for symmetry)
+         *
+         * @param name Parameter name
+         * @return Reference to the parameter tensor
+         *
+         * @throws std::runtime_error if parameter doesn't exist
+         */
+        virtual const ITensor& getParameter( const std::string& name ) const
+        {
+            throw std::runtime_error(
+                std::format( "Component '{}' does not have parameter '{}'",
+                    getName(), name )
+            );
+        }
+
+        /**
+         * @brief List all available parameter names for this component
+         */
+        virtual std::vector<std::string> getParameterNames() const
+        {
+            return {};
+        }
+
+        /**
          * @brief Return non-owning pointers to parameter tensors.
          *
          * The returned tensor pointers remain valid for the lifetime of the

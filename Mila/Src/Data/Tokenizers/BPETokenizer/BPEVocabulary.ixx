@@ -25,12 +25,12 @@ module;
 
 export module Data.BpeVocabulary;
 
-import Data.BpeSpecialTokens;
-import Data.BpeVocabularyConfig;
+import Data.SpecialTokens;
+import Data.Tokenizer;
 import Data.TokenizerVocabulary;
+import Data.BpeVocabularyConfig;
 import Data.FileHeader;
 import Serialization.Metadata;
-import Data.Tokenizer;
 
 namespace Mila::Data
 {
@@ -68,7 +68,7 @@ namespace Mila::Data
             config.validate();
             
             BpeVocabulary vocab( config );
-            vocab.buildFromTextImpl( corpus );
+            vocab.buildFromText( corpus );
             
             return vocab;
         }
@@ -124,7 +124,7 @@ namespace Mila::Data
             config.fromMetadata( header.getMetadata() );
 
             BpeVocabulary vocab( config );
-            vocab.loadContentImpl( file );
+            vocab.loadContent( file );
 
             return vocab;
         }
@@ -157,7 +157,6 @@ namespace Mila::Data
          */
         static BpeVocabulary loadMistral( const fs::path& vocab_path, const fs::path& merges_path );
 
-        // Delete default constructor - force use of factories
         BpeVocabulary() = delete;
 
         // ====================================================================
@@ -201,7 +200,7 @@ namespace Mila::Data
             MilaFileHeader header( MilaFileType::BpeVocabulary, std::move( meta ) );
             header.write( file );
 
-            saveContentImpl( file );
+            saveContent( file );
         }
 
         // ====================================================================
@@ -251,10 +250,12 @@ namespace Mila::Data
         std::optional<TokenId> getSpecialTokenId( char type ) const
         {
             auto it = special_token_ids_.find( type );
+            
             if ( it != special_token_ids_.end() )
             {
                 return it->second;
             }
+            
             return std::nullopt;
         }
 
@@ -286,8 +287,7 @@ namespace Mila::Data
         // ====================================================================
 
         explicit BpeVocabulary( const BpeVocabularyConfig& config )
-            : config_( config )
-            , current_id_( 0 )
+            : config_( config ), current_id_( 0 )
         {
         }
 
@@ -295,7 +295,7 @@ namespace Mila::Data
         // Training Implementation
         // ====================================================================
 
-        void buildFromTextImpl( const std::string& corpus );
+        void buildFromText( const std::string& corpus );
         
         void initializeBaseVocabulary();
         void addSpecialTokensFromConfig();
@@ -308,8 +308,8 @@ namespace Mila::Data
         // Serialization Implementation
         // ====================================================================
 
-        void saveContentImpl( std::ostream& file ) const;
-        void loadContentImpl( std::istream& file );
+        void saveContent( std::ostream& file ) const;
+        void loadContent( std::istream& file );
 
         // ====================================================================
         // Helper Methods
@@ -369,7 +369,7 @@ namespace Mila::Data
     // Training Implementation
     // ========================================================================
 
-    void BpeVocabulary::buildFromTextImpl( const std::string& corpus )
+    void BpeVocabulary::buildFromText( const std::string& corpus )
     {
         const auto start_time = std::chrono::steady_clock::now();
 
@@ -418,38 +418,38 @@ namespace Mila::Data
     void BpeVocabulary::addSpecialTokensFromConfig()
     {
         const auto& special_tokens = config_.getSpecialTokens();
-        if ( !special_tokens.enabled )
-        {
-            return;
-        }
 
-        special_tokens.validate();
-
-        if ( !special_tokens.pad_token.empty() )
+        if ( special_tokens.use_pad )
         {
             addSpecialToken( special_tokens.pad_token, current_id_++, "pad" );
         }
-        if ( !special_tokens.unk_token.empty() )
+
+        if ( special_tokens.use_unk )
         {
             addSpecialToken( special_tokens.unk_token, current_id_++, "unk" );
         }
-        if ( !special_tokens.bos_token.empty() )
+
+        if ( special_tokens.use_bos )
         {
             addSpecialToken( special_tokens.bos_token, current_id_++, "bos" );
         }
-        if ( !special_tokens.eos_token.empty() )
+
+        if ( special_tokens.use_eos )
         {
             addSpecialToken( special_tokens.eos_token, current_id_++, "eos" );
         }
-        if ( !special_tokens.mask_token.empty() )
+
+        if ( special_tokens.use_mask )
         {
             addSpecialToken( special_tokens.mask_token, current_id_++, "mask" );
         }
-        if ( !special_tokens.sep_token.empty() )
+
+        if ( special_tokens.use_sep )
         {
             addSpecialToken( special_tokens.sep_token, current_id_++, "sep" );
         }
-        if ( !special_tokens.cls_token.empty() )
+
+        if ( special_tokens.use_cls )
         {
             addSpecialToken( special_tokens.cls_token, current_id_++, "cls" );
         }
@@ -565,7 +565,7 @@ namespace Mila::Data
     // Serialization Implementation
     // ========================================================================
 
-    void BpeVocabulary::saveContentImpl( std::ostream& file ) const
+    void BpeVocabulary::saveContent( std::ostream& file ) const
     {
         uint32_t version = 1;
         file.write( reinterpret_cast<const char*>( &version ), sizeof( version ) );
@@ -620,7 +620,7 @@ namespace Mila::Data
         }
     }
 
-    void BpeVocabulary::loadContentImpl( std::istream& file )
+    void BpeVocabulary::loadContent( std::istream& file )
     {
         uint32_t version = 0;
         file.read( reinterpret_cast<char*>( &version ), sizeof( version ) );
@@ -948,7 +948,7 @@ namespace Mila::Data
         BpeVocabularyConfig config = BpeVocabularyConfig()
             .withVocabSize( vocab_size )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::gptStyle() );
+            .withSpecialTokens( SpecialTokens::gptStyle() );
 
         BpeVocabulary vocab( config );
         vocab.id_to_token_.resize( vocab_size );

@@ -374,7 +374,7 @@ PUBLIC
         "Src/Data/Core/TokenizerTrainer.ixx"
         "Src/Data/Core/TrainerFactory.ixx"
 
-        "Src/Data/Tokenizers/BPETokenizer/BpeSpecialTokens.ixx"
+        # DEPRECATED "Src/Data/Tokenizers/BPETokenizer/BpeSpecialTokens.ixx"
         "Src/Data/Tokenizers/BPETokenizer/BPETokenizer.ixx"
         "Src/Data/Tokenizers/BpeTokenizer/BpeTrainer.ixx"
         "Src/Data/Tokenizers/BPETokenizer/BPEVocabulary.ixx"
@@ -384,8 +384,11 @@ PUBLIC
         "Src/Data/Tokenizers/CharTokenizer/CharVocabularyConfig.ixx"
         "Src/Data/Tokenizers/CharTokenizer/CharTrainer.ixx"
         "Src/Data/Tokenizers/CharTokenizer/CharVocabulary.ixx"
-        "Src/Data/Tokenizers/CharTokenizer/CharSpecialTokens.ixx"
- "Src/Dnn/Components/Transformers/Transformer.ixx" "Src/Dnn/Components/Transformers/GenerateParams.ixx")
+        # DEPRECATED "Src/Data/Tokenizers/CharTokenizer/SpecialTokens.ixx"
+        "Src/Dnn/Components/Transformers/Transformer.ixx"
+        "Src/Dnn/Components/Transformers/GenerateParams.ixx"
+        "Src/Data/Tokenizers/SpecialTokens.ixx"
+)
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

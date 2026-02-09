@@ -26,11 +26,10 @@
 import Data.BpeTrainer;
 import Data.BpeVocabularyConfig;
 import Data.BpeVocabulary;
-import Data.BpeSpecialTokens;
+import Data.SpecialTokens;
 
 import Data.CharVocabularyConfig;
 import Data.CharVocabulary;
-import Data.CharSpecialTokens;
 
 import Data.Tokenizer;
 import Data.BpeTokenizer;
@@ -319,7 +318,7 @@ static int trainCommand( const Args& args )
             .withVocabSize( args.vocab_size )
             .withMinFrequency( args.min_frequency )
             .withByteLevel( args.byte_level )
-            .withSpecialTokens( BpeSpecialTokens::standard() );
+            .withSpecialTokens( SpecialTokens::standard() );
 
         BpeTrainer trainer( config );
         trainer.addCorpusFromFile( args.input_file );
@@ -336,7 +335,7 @@ static int trainCommand( const Args& args )
         CharVocabularyConfig config = CharVocabularyConfig()
             .withCaseSensitive( args.case_sensitive )
             .withByteLevel( args.byte_level )
-            .withSpecialTokens( CharSpecialTokens::standard() );
+            .withSpecialTokens( SpecialTokens::standard() );
 
         CharVocabulary vocab = CharVocabulary::trainFromFile( args.input_file, config );
         vocab.save( args.output_file );

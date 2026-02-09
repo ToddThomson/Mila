@@ -378,11 +378,9 @@ namespace Mila::Dnn
          */
         virtual void save_(ModelArchive& archive, SerializationMode mode) const = 0;
 
-    private:
-
         /**
-         * @brief Verify that imported model is compatible with network architecture
-         */
+ * @brief Verify that imported model is compatible with network architecture
+ */
         void verifyArchitectureCompatibility( const ModelMetadata& metadata )
         {
             // Example checks - customize based on your Network's config
@@ -395,75 +393,153 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Load a single tensor into the appropriate network component
+         * @brief Load a single tensor from ModelReader into the appropriate component
          *
-         * This method maps tensor names to your component structure.
-         * Customize the mapping based on your actual component hierarchy.
+         * Parses the tensor name to extract component path and parameter name,
+         * then loads the tensor into the target component.
+         *
+         * Examples:
+         *   "wte.weight" -> component "wte", parameter "weight"
+         *   "tf.layer_0.ln_1.weight" -> component "tf.layer_0.ln_1", parameter "weight"
+         *   "tf.layer_0.fc_qkv_proj.bias" -> component "tf.layer_0.fc_qkv_proj", parameter "bias"
+         *
+         * @param reader ModelReader with the opened model file
+         * @param tensor_name Fully qualified tensor name
+         *
+         * @throws std::runtime_error if component not found or tensor incompatible
          */
-        void loadTensorIntoComponent( ModelReader& reader, const std::string& name )
+        void loadTensorIntoComponent( ModelReader& reader, const std::string& tensor_name )
         {
-            // Split "component_path.param" (e.g. "tf.layer_0.mlp.fc_1.weight")
-            auto last_dot = name.rfind( '.' );
-            if ( last_dot == std::string::npos )
-                throw std::runtime_error( "Invalid tensor name (no parameter part): " + name );
+            // Parse tensor name: everything before last '.' is component path
+            // Last part is parameter name (typically "weight" or "bias")
+            auto last_dot = tensor_name.rfind( '.' );
 
-            std::string comp_path = name.substr( 0, last_dot );
-            std::string param_name = name.substr( last_dot + 1 );
+            if ( last_dot == std::string::npos ) {
+                throw std::runtime_error(
+                    "Invalid tensor name (no parameter): " + tensor_name
+                );
+            }
 
-            // Lookup child component (throws std::out_of_range if not found)
-            std::shared_ptr<Component<TDeviceType, TPrecision>> target;
-            try
+            std::string component_path = tensor_name.substr( 0, last_dot );
+            std::string param_name = tensor_name.substr( last_dot + 1 );
+
+            // Find the component (throws if not found)
+            ComponentPtr target = this->findComponent( component_path );
+
+            if ( !target ) {
+                throw std::runtime_error(
+                    "Component not found for tensor: " + tensor_name
+                );
+            }
+
+            // Load the tensor data from the reader
+            auto tensor = reader.readTensor( tensor_name );
+
+            if ( !tensor ) {
+                throw std::runtime_error(
+                    std::format( "Failed to read tensor: {}", tensor_name )
+                );
+            }
+
+            // Set the parameter in the component
+            target->setParameter( param_name, *tensor );
+        }
+
+    private:
+
+        /**
+         * @brief Generic weight loading from ModelReader
+         *
+         * Iterates through all tensors in the model file and loads them
+         * into the corresponding components.
+         *
+         * @param reader Opened ModelReader with model weights
+         * @param strict If true, throw on any loading error. If false, warn and continue.
+         */
+        void loadWeights( ModelReader& reader, bool strict = true )
+        {
+            const auto& metadata = reader.getMetadata();
+
+            std::cout << "Loading weights for: " << metadata.model_name << '\n';
+            std::cout << "  Architecture: " << metadata.architecture << '\n';
+            std::cout << "  Layers: " << metadata.num_layers << '\n';
+
+            verifyArchitectureCompatibility( metadata );
+
+            auto tensor_names = reader.getTensorNames();
+            std::size_t loaded_count = 0;
+            std::size_t skipped_count = 0;
+
+            for ( const auto& name : tensor_names )
             {
-                target = this->getComponent( comp_path );
-            }
-            catch ( const std::out_of_range& )
-            {
-                throw std::runtime_error( "No component named '" + comp_path + "' for tensor '" + name + "'" );
-            }
-
-            // Read host-backed tensor from ModelReader (host/CPU ITensor)
-            auto host_tensor = reader.readTensor( name );
-            if ( !host_tensor )
-                throw std::runtime_error( "ModelReader failed to produce host tensor for '" + name + "'" );
-
-            // Example: handle a Linear layer (replace/add other component types as needed)
-            try
-            {
-                // Use getComponentAs to get a typed pointer (validates the type)
-                //auto linear = this->getComponentAs<Linear<TDeviceType, TPrecision>>( comp_path );
-
-                // TODO:
-                // 1) Allocate a device tensor of type Tensor<TPrecision, MR> using this->getDeviceId()
-                // 2) Convert/copy data from host_tensor->rawData() into the device tensor
-                // 3) Call the concrete setter on the component:
-                //      if ( param_name == "weight" ) linear->setWeight( std::move(device_tensor) );
-                //      else if ( param_name == "bias" ) linear->setBias( std::move(device_tensor) );
-                //      else throw unknown param
-                //
-                // Concrete setter names/signatures vary by component; implement per-component logic here.
-
-                std::cout << "Installed parameter '" << param_name << "' into Linear '" << comp_path << "'" << std::endl;
-                return;
-            }
-            catch ( const std::exception& ) {
-                // Not a Linear (or cast failed) — fall through to generic/dynamic checks below
+                try
+                {
+                    loadTensorIntoComponent( reader, name );
+                    ++loaded_count;
+                }
+                catch ( const std::exception& e )
+                {
+                    if ( strict )
+                    {
+                        throw std::runtime_error(
+                            "Failed to load tensor '" + name + "': " + e.what()
+                        );
+                    }
+                    else
+                    {
+                        std::cerr << "Warning: Skipping tensor '" << name
+                            << "': " << e.what() << '\n';
+                        ++skipped_count;
+                    }
+                }
             }
 
-            // Generic dynamic-cast fallback for other component types:
-            if ( auto dyn = std::dynamic_pointer_cast<Component<TDeviceType, TPrecision>>(target) )
-            {
-                // TODO: inspect dyn's concrete runtime type and dispatch to appropriate setter.
-                // Example pattern:
-                //   if ( auto emb = std::dynamic_pointer_cast<EmbeddingType>(dyn) ) { ... }
-                //   else if ( auto norm = std::dynamic_pointer_cast<LayerNormType>(dyn) ) { ... }
-                //
-                // For now, report resolution and require concrete installation implementation.
-                std::cout << "Resolved tensor '" << name << "' -> component '" << comp_path
-                    << "' param '" << param_name << "'. Implement setter dispatch." << std::endl;
-                return;
+            std::cout << "Loaded " << loaded_count << " tensors";
+            if ( skipped_count > 0 ) {
+                std::cout << " (skipped " << skipped_count << ")";
+            }
+            std::cout << '\n';
+        }
+
+        /**
+         * @brief Parse tensor name into component path and parameter name
+         *
+         * Examples:
+         *   "wte.weight" -> ([], "wte.weight")
+         *   "tf.layer_0.ln_1.weight" -> (["tf", "layer_0", "ln_1"], "weight")
+         *   "tf.layer_0.fc_qkv_proj.bias" -> (["tf", "layer_0", "fc_qkv_proj"], "bias")
+         */
+        std::pair<std::vector<std::string>, std::string>
+            parseTensorName( const std::string& tensor_name )
+        {
+            std::vector<std::string> parts;
+            std::string current;
+
+            for ( char c : tensor_name ) {
+                if ( c == '.' ) {
+                    if ( !current.empty() ) {
+                        parts.push_back( current );
+                        current.clear();
+                    }
+                }
+                else {
+                    current += c;
+                }
+            }
+            if ( !current.empty() ) {
+                parts.push_back( current );
             }
 
-            throw std::runtime_error( "Unable to dispatch tensor '" + name + "' to component '" + comp_path + "'" );
+            // Last part is typically the parameter name ("weight" or "bias")
+            // Everything before is the component path
+            if ( parts.empty() ) {
+                throw std::runtime_error( "Invalid tensor name: " + tensor_name );
+            }
+
+            std::string param_name = parts.back();
+            parts.pop_back();
+
+            return { parts, param_name };
         }
 
         /**

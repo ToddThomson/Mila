@@ -19,6 +19,7 @@ module;
 
 export module Data.CharVocabulary;
 
+import Data.SpecialTokens;
 import Data.TokenizerVocabulary;
 import Data.CharVocabularyConfig;
 import Data.FileHeader;
@@ -61,7 +62,7 @@ namespace Mila::Data
             config.validate();
 
             CharVocabulary vocab( config );
-            vocab.buildFromTextImpl( corpus );
+            vocab.buildFromText( corpus );
 
             return vocab;
         }
@@ -117,12 +118,11 @@ namespace Mila::Data
             config.fromMetadata( header.getMetadata() );
 
             CharVocabulary vocab( config );
-            vocab.loadContentImpl( file );
+            vocab.loadContent( file );
 
             return vocab;
         }
 
-        // Delete default constructor - force use of factories
         CharVocabulary() = delete;
 
         // ====================================================================
@@ -166,7 +166,7 @@ namespace Mila::Data
             MilaFileHeader header( MilaFileType::CharVocabulary, std::move( meta ) );
             header.write( file );
 
-            saveContentImpl( file );
+            saveContent( file );
         }
 
         // ====================================================================
@@ -269,7 +269,7 @@ namespace Mila::Data
         // Training Implementation
         // ====================================================================
 
-        void buildFromTextImpl( const std::string& corpus )
+        void buildFromText( const std::string& corpus )
         {
             char_to_idx_.clear();
             idx_to_char_.clear();
@@ -363,7 +363,7 @@ namespace Mila::Data
 
         void addSpecialTokensFromConfig()
         {
-            const CharSpecialTokens& st = config_.getSpecialTokens();
+            const SpecialTokens& st = config_.getSpecialTokens();
             TokenId idx = 0;
 
             if ( st.use_pad )
@@ -443,7 +443,7 @@ namespace Mila::Data
         // Serialization Implementation
         // ====================================================================
 
-        void saveContentImpl( std::ostream& file ) const
+        void saveContent( std::ostream& file ) const
         {
             size_t vocab_size = idx_to_char_.size();
             file.write( reinterpret_cast<const char*>( &vocab_size ), sizeof( vocab_size ) );
@@ -468,7 +468,7 @@ namespace Mila::Data
             }
         }
 
-        void loadContentImpl( std::istream& file )
+        void loadContent( std::istream& file )
         {
             size_t vocab_size;
             file.read( reinterpret_cast<char*>( &vocab_size ), sizeof( vocab_size ) );

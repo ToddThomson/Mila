@@ -31,7 +31,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 300 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::none() );
+            .withSpecialTokens( SpecialTokens::none() );
 
         BpeVocabulary vocab = BpeVocabulary::train( corpus, cfg );
         BpeTokenizer tokenizer( std::move( vocab ) );
@@ -61,7 +61,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 300 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::standard() );
+            .withSpecialTokens( SpecialTokens::standard() );
 
         BpeVocabulary vocab = BpeVocabulary::train( corpus, cfg );
         BpeTokenizer tokenizer( std::move( vocab ) );
@@ -78,7 +78,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 260 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::none() );
+            .withSpecialTokens( SpecialTokens::none() );
 
         BpeVocabulary vocab = BpeVocabulary::train( std::string(), cfg );
         BpeTokenizer tokenizer( std::move( vocab ) );
@@ -101,7 +101,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 300 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::standard() )
+            .withSpecialTokens( SpecialTokens::standard() )
             .withMinFrequency( 1 );
 
         BpeVocabulary vocab = BpeVocabulary::train( corpus, cfg );
@@ -129,7 +129,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 300 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::standard() );
+            .withSpecialTokens( SpecialTokens::standard() );
 
         BpeVocabulary vocab = BpeVocabulary::train( "test corpus", cfg );
         BpeTokenizer tokenizer( std::move( vocab ) );
@@ -146,7 +146,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 256 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::none() );
+            .withSpecialTokens( SpecialTokens::none() );
 
         BpeVocabulary vocab = BpeVocabulary::train( std::string(), cfg );
         BpeTokenizer tokenizer( std::move( vocab ) );
@@ -162,7 +162,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 300 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::standard() );
+            .withSpecialTokens( SpecialTokens::standard() );
 
         BpeVocabulary vocab = BpeVocabulary::train( "test", cfg );
         size_t expected_size = vocab.getSize();
@@ -177,7 +177,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 256 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::none() );
+            .withSpecialTokens( SpecialTokens::none() );
 
         BpeVocabulary vocab = BpeVocabulary::train( std::string(), cfg );
         BpeTokenizer tokenizer( std::move( vocab ) );
@@ -191,7 +191,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 256 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::none() );
+            .withSpecialTokens( SpecialTokens::none() );
 
         BpeVocabulary vocab = BpeVocabulary::train( std::string(), cfg );
         BpeTokenizer tokenizer( std::move( vocab ) );
@@ -208,7 +208,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 270 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::none() )
+            .withSpecialTokens( SpecialTokens::none() )
             .withMinFrequency( 1 );
 
         BpeVocabulary vocab = BpeVocabulary::train( corpus, cfg );
@@ -228,7 +228,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 350 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::standard() );
+            .withSpecialTokens( SpecialTokens::standard() );
 
         BpeVocabulary vocab = BpeVocabulary::train( corpus, cfg );
         BpeTokenizer tokenizer( std::move( vocab ) );
@@ -251,7 +251,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 300 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::none() );
+            .withSpecialTokens( SpecialTokens::none() );
 
         BpeVocabulary vocab = BpeVocabulary::train( corpus, cfg );
         BpeTokenizer tokenizer( std::move( vocab ) );
@@ -292,7 +292,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 300 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::standard() );
+            .withSpecialTokens( SpecialTokens::standard() );
 
         BpeVocabulary vocab = BpeVocabulary::train( "test", cfg );
         size_t expected_size = vocab.getSize();
@@ -311,7 +311,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 300 )
             .withByteLevel( true )
-            .withSpecialTokens( BpeSpecialTokens::forMLM() );
+            .withSpecialTokens( SpecialTokens::forMLM() );
 
         BpeVocabulary vocab = BpeVocabulary::train( "test corpus", cfg );
         

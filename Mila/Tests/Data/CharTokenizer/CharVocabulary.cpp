@@ -31,7 +31,7 @@ namespace Data::Tokenizers::CharTokenizer::Tests
         std::string corpus = "bca";
 
         CharVocabularyConfig cfg;
-        CharSpecialTokens st = {};
+        SpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
         st.use_bos = false;
@@ -63,7 +63,7 @@ namespace Data::Tokenizers::CharTokenizer::Tests
         std::string corpus = "first\r\nsecond\r\n";
 
         CharVocabularyConfig cfg;
-        CharSpecialTokens st = {};
+        SpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
         st.use_bos = false;
@@ -84,13 +84,13 @@ namespace Data::Tokenizers::CharTokenizer::Tests
         EXPECT_EQ( vocab.indexToChar( idx_newline ), '\n' );
     }
 
-    TEST( CharVocabularyTests, BuildFromText_WithCharSpecialTokens_ReservesTokens )
+    TEST( CharVocabularyTests, BuildFromText_WithSpecialTokens_ReservesTokens )
     {
         // Arrange
         std::string corpus = "ab";
 
         CharVocabularyConfig cfg;
-        CharSpecialTokens st = {};
+        SpecialTokens st = {};
         st.use_pad = true;
         st.use_unk = true;
         st.use_bos = true;
@@ -125,7 +125,7 @@ namespace Data::Tokenizers::CharTokenizer::Tests
         std::string corpus = "ab";
 
         CharVocabularyConfig cfg;
-        CharSpecialTokens st = {};
+        SpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
         st.use_bos = false;
@@ -149,7 +149,7 @@ namespace Data::Tokenizers::CharTokenizer::Tests
         std::string corpus = "xyz\n";
 
         CharVocabularyConfig cfg;
-        CharSpecialTokens st = {};
+        SpecialTokens st = {};
         st.use_pad = true;
         st.use_unk = true;
         st.use_bos = true;
@@ -207,7 +207,7 @@ namespace Data::Tokenizers::CharTokenizer::Tests
         std::string corpus = "ab";
 
         CharVocabularyConfig cfg;
-        CharSpecialTokens st = {};
+        SpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
         st.use_bos = false;
@@ -230,7 +230,7 @@ namespace Data::Tokenizers::CharTokenizer::Tests
         std::string corpus = "a";
 
         CharVocabularyConfig cfg;
-        CharSpecialTokens st = {};
+        SpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
         st.use_bos = false;

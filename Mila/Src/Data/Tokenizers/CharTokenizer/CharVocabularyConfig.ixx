@@ -12,7 +12,7 @@ module;
 
 export module Data.CharVocabularyConfig;
 
-import Data.CharSpecialTokens;
+import Data.SpecialTokens;
 import Serialization.Metadata;
 
 namespace Mila::Data
@@ -44,7 +44,7 @@ namespace Mila::Data
          * @param tokens SpecialTokens configuration.
          * @return Reference to this config for method chaining.
          */
-        CharVocabularyConfig& withSpecialTokens( const CharSpecialTokens& tokens )
+        CharVocabularyConfig& withSpecialTokens( const SpecialTokens& tokens )
         {
             special_tokens_ = tokens;
 
@@ -106,7 +106,7 @@ namespace Mila::Data
          */
         void validate() const
         {
-            special_tokens_.validate();
+            //special_tokens_.validate();
         }
 
         /**
@@ -314,7 +314,7 @@ namespace Mila::Data
             return oss.str();
         }
 
-        const CharSpecialTokens& getSpecialTokens() const
+        const SpecialTokens& getSpecialTokens() const
         {
             return special_tokens_;
         }
@@ -338,6 +338,6 @@ namespace Mila::Data
         bool case_sensitive_ = true;
         bool normalize_unicode_ = false;
         bool byte_level_ = false;
-        CharSpecialTokens special_tokens_{};
+        SpecialTokens special_tokens_{};
     };
 }

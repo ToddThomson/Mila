@@ -108,7 +108,8 @@ namespace Mila::Dnn
             const std::filesystem::path& model_path,
             std::size_t batch_size,      // User specifies runtime dimensions
             std::size_t seq_length,      // Must be ? max_seq_length from weights
-            DeviceId device_id = DeviceId{ TDeviceType, 0 } )
+            DeviceId device_id = DeviceId{ TDeviceType, 0 },
+            bool strict = true )
         {
             ModelReader reader( model_path );
             const auto& metadata = reader.getMetadata();
@@ -125,6 +126,8 @@ namespace Mila::Dnn
             // Build with max sequence length (position embeddings support full range)
             shape_t build_shape = { 1, config.getMaxSequenceLength() };
             gpt->build( build_shape );
+
+            gpt->loadWeights( reader, strict );
 
             return gpt;
         }
@@ -480,6 +483,56 @@ namespace Mila::Dnn
 
         TensorType* normalized_ptr_{ nullptr };
         TensorType* logits_ptr_{ nullptr };
+
+        /**
+         * @brief Load weights from an already-opened ModelReader
+         *
+         * Separated from fromPretrained to allow flexibility in weight loading
+         */
+        void loadWeights( ModelReader& reader, bool strict )
+        {
+            const auto& metadata = reader.getMetadata();
+
+            std::cout << "Loading weights for: " << metadata.model_name << '\n';
+            std::cout << "  Architecture: " << metadata.architecture << '\n';
+            std::cout << "  Layers: " << metadata.num_layers << '\n';
+
+            this->verifyArchitectureCompatibility( metadata );
+
+            auto tensor_names = reader.getTensorNames();
+            std::size_t loaded_count = 0;
+            std::size_t skipped_count = 0;
+
+            for ( const auto& name : tensor_names )
+            {
+                try
+                {
+                    this->loadTensorIntoComponent( reader, name );
+                    ++loaded_count;
+                }
+                catch ( const std::exception& e )
+                {
+                    if ( strict )
+                    {
+                        throw std::runtime_error(
+                            "Failed to load tensor '" + name + "': " + e.what()
+                        );
+                    }
+                    else
+                    {
+                        std::cerr << "Warning: Skipping tensor '" << name
+                            << "': " << e.what() << '\n';
+                        ++skipped_count;
+                    }
+                }
+            }
+
+            std::cout << "Loaded " << loaded_count << " tensors";
+            if ( skipped_count > 0 ) {
+                std::cout << " (skipped " << skipped_count << ")";
+            }
+            std::cout << '\n';
+        }
 
         void validateInputShape( const shape_t& input_shape ) const
         {

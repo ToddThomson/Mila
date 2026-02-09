@@ -29,7 +29,7 @@ namespace Data::Tokenizers::Tests
         std::string corpus = "hello world";
 
         CharVocabularyConfig cfg;
-        CharSpecialTokens st = {};
+        SpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
         st.use_bos = false;
@@ -56,7 +56,7 @@ namespace Data::Tokenizers::Tests
         std::string corpus = "ab";
 
         CharVocabularyConfig cfg;
-        CharSpecialTokens st = {};
+        SpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
         st.use_bos = false;
@@ -87,7 +87,7 @@ namespace Data::Tokenizers::Tests
         std::string corpus = "aa aa aa bb bb";
 
         CharVocabularyConfig cfg;
-        CharSpecialTokens st = {};
+        SpecialTokens st = {};
         st.use_pad = true;
         st.use_unk = true;
         st.use_bos = false;
@@ -123,7 +123,7 @@ namespace Data::Tokenizers::Tests
         std::string corpus = "test";
 
         CharVocabularyConfig cfg;
-        CharSpecialTokens st = {};
+        SpecialTokens st = {};
         st.use_pad = true;
         st.use_unk = false;
         cfg.withSpecialTokens( st );
@@ -147,7 +147,7 @@ namespace Data::Tokenizers::Tests
         std::string corpus = "abc";
 
         CharVocabularyConfig cfg;
-        CharSpecialTokens st = {};
+        SpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
         cfg.withSpecialTokens( st );
@@ -167,7 +167,7 @@ namespace Data::Tokenizers::Tests
     TEST( CharTokenizerTests, Encode_EmptyString_ReturnsEmptyVector )
     {
         CharVocabularyConfig cfg;
-        CharSpecialTokens st = {};
+        SpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
         cfg.withSpecialTokens( st );
@@ -182,7 +182,7 @@ namespace Data::Tokenizers::Tests
     TEST( CharTokenizerTests, Decode_EmptyVector_ReturnsEmptyString )
     {
         CharVocabularyConfig cfg;
-        CharSpecialTokens st = {};
+        SpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
         cfg.withSpecialTokens( st );
@@ -202,7 +202,7 @@ namespace Data::Tokenizers::Tests
         std::string corpus = "ab";
 
         CharVocabularyConfig cfg;
-        CharSpecialTokens st = {};
+        SpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
         cfg.withSpecialTokens( st );

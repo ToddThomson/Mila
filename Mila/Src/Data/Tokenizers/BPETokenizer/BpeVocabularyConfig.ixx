@@ -14,7 +14,7 @@ module;
 
 export module Data.BpeVocabularyConfig;
 
-import Data.BpeSpecialTokens;
+import Data.SpecialTokens;
 import Serialization.Metadata;
 
 namespace Mila::Data
@@ -39,7 +39,7 @@ namespace Mila::Data
             return *this;
         }
 
-        BpeVocabularyConfig& withSpecialTokens( const BpeSpecialTokens& tokens )
+        BpeVocabularyConfig& withSpecialTokens( const SpecialTokens& tokens )
         {
             special_tokens_ = tokens;
             return *this;
@@ -105,11 +105,6 @@ namespace Mila::Data
                 throw std::invalid_argument(
                     "BpeVocabularyConfig: max_merges must be < vocab_size (or 0 for unlimited)" );
             }
-
-            if ( special_tokens_.enabled )
-            {
-                special_tokens_.validate();
-            }
         }
 
         SerializationMetadata toMetadata() const
@@ -122,28 +117,13 @@ namespace Mila::Data
                 .set( "pre_tokenization_pattern", pre_tokenization_pattern_ )
                 .set( "max_merges", static_cast<int64_t>( max_merges_ ) )
                 .set( "enable_merge_caching", enable_merge_caching_ )
-                .set( "special_tokens_enabled", special_tokens_.enabled );
-
-            if ( special_tokens_.enabled )
-            {
-                meta.set( "pad_token", special_tokens_.pad_token )
-                    .set( "unk_token", special_tokens_.unk_token )
-                    .set( "bos_token", special_tokens_.bos_token )
-                    .set( "eos_token", special_tokens_.eos_token );
-
-                if ( !special_tokens_.mask_token.empty() )
-                {
-                    meta.set( "mask_token", special_tokens_.mask_token );
-                }
-                if ( !special_tokens_.sep_token.empty() )
-                {
-                    meta.set( "sep_token", special_tokens_.sep_token );
-                }
-                if ( !special_tokens_.cls_token.empty() )
-                {
-                    meta.set( "cls_token", special_tokens_.cls_token );
-                }
-            }
+                .set( "use_pad", special_tokens_.use_pad )
+                .set( "use_unk", special_tokens_.use_unk )
+                .set( "use_bos", special_tokens_.use_bos )
+                .set( "use_eos", special_tokens_.use_eos )
+                .set( "use_mask", special_tokens_.use_mask )
+                .set( "use_sep", special_tokens_.use_sep )
+                .set( "use_cls", special_tokens_.use_cls );
 
             return meta;
         }
@@ -180,41 +160,39 @@ namespace Mila::Data
                 enable_merge_caching_ = *caching;
             }
 
-            if ( auto enabled = meta.tryGetBool( "special_tokens_enabled" ) )
+            if ( auto use_pad = meta.tryGetBool( "use_pad" ) )
             {
-                special_tokens_.enabled = *enabled;
+                special_tokens_.use_pad = *use_pad;
+            }
 
-                if ( special_tokens_.enabled )
-                {
-                    if ( auto pad = meta.tryGetString( "pad_token" ) )
-                    {
-                        special_tokens_.pad_token = *pad;
-                    }
-                    if ( auto unk = meta.tryGetString( "unk_token" ) )
-                    {
-                        special_tokens_.unk_token = *unk;
-                    }
-                    if ( auto bos = meta.tryGetString( "bos_token" ) )
-                    {
-                        special_tokens_.bos_token = *bos;
-                    }
-                    if ( auto eos = meta.tryGetString( "eos_token" ) )
-                    {
-                        special_tokens_.eos_token = *eos;
-                    }
-                    if ( auto mask = meta.tryGetString( "mask_token" ) )
-                    {
-                        special_tokens_.mask_token = *mask;
-                    }
-                    if ( auto sep = meta.tryGetString( "sep_token" ) )
-                    {
-                        special_tokens_.sep_token = *sep;
-                    }
-                    if ( auto cls = meta.tryGetString( "cls_token" ) )
-                    {
-                        special_tokens_.cls_token = *cls;
-                    }
-                }
+            if ( auto use_unk = meta.tryGetBool( "use_unk" ) )
+            {
+                special_tokens_.use_unk = *use_unk;
+            }
+
+            if ( auto use_bos = meta.tryGetBool( "use_bos" ) )
+            {
+                special_tokens_.use_bos = *use_bos;
+            }
+
+            if ( auto use_eos = meta.tryGetBool( "use_eos" ) )
+            {
+                special_tokens_.use_eos = *use_eos;
+            }
+
+            if ( auto use_mask = meta.tryGetBool( "use_mask" ) )
+            {
+                special_tokens_.use_mask = *use_mask;
+            }
+
+            if ( auto use_sep = meta.tryGetBool( "use_sep" ) )
+            {
+                special_tokens_.use_sep = *use_sep;
+            }
+
+            if ( auto use_cls = meta.tryGetBool( "use_cls" ) )
+            {
+                special_tokens_.use_cls = *use_cls;
             }
         }
 
@@ -226,13 +204,13 @@ namespace Mila::Data
             oss << "min_frequency=" << min_frequency_ << ", ";
             oss << "byte_level=" << (byte_level_ ? "true" : "false") << ", ";
             oss << "max_merges=" << max_merges_ << ", ";
-            oss << "special_tokens=" << (special_tokens_.enabled ? "enabled" : "disabled");
+            oss << "special_tokens=" << special_tokens_.count();
             oss << " }";
 
             return oss.str();
         }
 
-        const BpeSpecialTokens& getSpecialTokens() const { return special_tokens_; }
+        const SpecialTokens& getSpecialTokens() const { return special_tokens_; }
         size_t getVocabSize() const { return vocab_size_; }
         size_t getMinFrequency() const { return min_frequency_; }
         bool isByteLevel() const { return byte_level_; }
@@ -244,7 +222,7 @@ namespace Mila::Data
         size_t vocab_size_ = 32000;
         size_t min_frequency_ = 2;
         bool byte_level_ = true;
-        BpeSpecialTokens special_tokens_ = BpeSpecialTokens::standard();
+        SpecialTokens special_tokens_ = SpecialTokens::standard();
         std::string pre_tokenization_pattern_ = "";
         size_t max_merges_ = 0;
         bool enable_merge_caching_ = true;

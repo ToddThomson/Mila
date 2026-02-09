@@ -363,7 +363,7 @@ namespace Bard
         }
 
         size_t actual_vocab_size = tokenizer->getVocabSize();
-        std::cout << "Actual vocabulary size from data: " << actual_vocab_size << std::endl;
+        std::cout << "Vocabulary size: " << actual_vocab_size << std::endl;
 
         TokenSequenceLoader<THostMR> train_loader(
             encoded_file,
@@ -373,14 +373,11 @@ namespace Bard
             device_id
         );
 
-        // REVIEW: Does the constructor feel awkward?
-
+        // REVIEW: Does the GptConfig constructor feel awkward?
         GptConfig model_config( config.embedding_dim, config.num_layers );
         model_config.withVocabSize( actual_vocab_size )
             .withMaxSequenceLength( config.seq_length )
-            //.withEmbeddingDim( config.embedding_dim )
             .withNumHeads( config.num_heads )
-            //.withNumLayers( config.num_layers )
             .withHiddenSize( config.mlp_hidden_dim );
 
         auto model = std::make_unique<GptTransformer<TDeviceType, TDataType>>(
@@ -445,7 +442,9 @@ namespace Bard
 
                 int pad_id = 0;
                 auto pad_opt = tokenizer->getPadTokenId();
-                if ( pad_opt ) pad_id = static_cast<int>( *pad_opt );
+                
+                if ( pad_opt )
+                    pad_id = static_cast<int>( *pad_opt );
 
                 float batch_loss = sequenceCrossEntropyLoss( logits_cpu, targets_cpu, pad_id );
                 float batch_perplexity = computePerplexity( batch_loss );
