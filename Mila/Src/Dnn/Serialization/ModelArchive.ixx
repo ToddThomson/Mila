@@ -17,7 +17,7 @@ module;
 
 export module Serialization.ModelArchive;
 
-import Serialization.ModelSerializer;
+import Serialization.ArchiveSerializer;
 import Serialization.OpenMode;
 import Serialization.Metadata;
 import nlohmann.json;
@@ -59,7 +59,7 @@ namespace Mila::Dnn::Serialization
          * @throws std::invalid_argument if serializer is null
          * @throws std::runtime_error if serializer cannot be opened in the specified mode
          */
-        explicit ModelArchive( const std::string& filepath, std::unique_ptr<ModelSerializer> serializer, OpenMode mode )
+        explicit ModelArchive( const std::string& filepath, std::unique_ptr<ArchiveSerializer> serializer, OpenMode mode )
             : filepath_( filepath ), serializer_( std::move( serializer ) ), mode_( mode ), closed_( false )
         {
             if ( !serializer_ )
@@ -473,7 +473,7 @@ namespace Mila::Dnn::Serialization
         }
 
     private:
-        std::unique_ptr<ModelSerializer> serializer_;
+        std::unique_ptr<ArchiveSerializer> serializer_;
         std::string filepath_;
         OpenMode mode_;
         bool closed_{ false };

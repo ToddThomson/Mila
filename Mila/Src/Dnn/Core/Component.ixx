@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file Component.ixx
  * @brief Base component interface for Mila DNN components.
  *
@@ -29,6 +29,7 @@ import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
+import Serialization.Tensor;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 
@@ -379,36 +380,25 @@ namespace Mila::Dnn
         virtual std::string toString() const = 0;
 
         /**
-         * @brief Set a named parameter (weight/bias) from loaded tensor data
+         * @brief Load a parameter from serialized tensor data
          *
-         * This is part of the public API for model loading and parameter manipulation.
+         * Loads raw tensor bytes directly into an existing parameter tensor,
+         * handling precision conversion and device upload as needed.
          *
-         * @param name Parameter name (typically "weight" or "bias")
-         * @param data Tensor data from model file
+         * The component validates that the blob's shape matches the parameter's
+         * expected shape, then delegates to the backend to perform:
+         * - Precision conversion (blob dtype → parameter dtype)
+         * - Device upload (CPU bytes → target device)
          *
-         * @throws std::runtime_error if parameter name is unknown
+         * @param blob Serialized tensor metadata and raw bytes
+         *
+         * @throws std::runtime_error if component has no parameters to load
+         * @throws std::runtime_error if blob shape doesn't match parameter shape
          */
-        virtual void setParameter( const std::string& name, const ITensor& data )
+        virtual void loadParameter( const std::string& name, const Serialization::TensorBlob& blob )
         {
             throw std::runtime_error(
-                std::format( "Component '{}' does not support parameter '{}'",
-                    getName(), name )
-            );
-        }
-
-        /**
-         * @brief Get a named parameter tensor (optional, for symmetry)
-         *
-         * @param name Parameter name
-         * @return Reference to the parameter tensor
-         *
-         * @throws std::runtime_error if parameter doesn't exist
-         */
-        virtual const ITensor& getParameter( const std::string& name ) const
-        {
-            throw std::runtime_error(
-                std::format( "Component '{}' does not have parameter '{}'",
-                    getName(), name )
+                std::format( "Component '{}' does not support parameter loading", getName() )
             );
         }
 

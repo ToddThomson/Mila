@@ -1,5 +1,6 @@
 module;
 #include <vector>
+#include <string>
 #include <cstdint>
 
 export module Dnn.TensorTypes;
@@ -38,4 +39,42 @@ namespace Mila::Dnn
      * Must contain one index per tensor dimension. Valid indices satisfy: 0 <= index[i] < shape[i].
      */
     export using index_t = std::vector<dim_t>;
+
+    /**
+     * @brief Convert a vector of dim_t to string representation
+     *
+     * Generic helper used by shape/stride/index formatters
+     */
+    std::string vectorToString( const std::vector<dim_t>& vec )
+    {
+        if ( vec.empty() ) {
+            return "[]";
+        }
+
+        std::string result = "[";
+        
+        for ( size_t i = 0; i < vec.size(); ++i ) {
+            if ( i > 0 ) result += ", ";
+            result += std::to_string( vec[ i ] );
+        }
+        
+        result += "]";
+    
+        return result;
+    }
+
+    export std::string shapeToString( const shape_t& shape )
+    {
+        return vectorToString( shape );
+    }
+
+    export std::string strideToString( const stride_t& stride )
+    {
+        return vectorToString( stride );
+    }
+
+    export std::string indexToString( const index_t& index )
+    {
+        return vectorToString( index );
+    }
 }

@@ -26,6 +26,7 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
+import Dnn.TensorOps;
 import Compute.Precision;
 import Compute.Device;
 import Compute.DeviceId;
@@ -234,16 +235,14 @@ namespace Mila::Dnn
             if ( weight_ )
             {
                 TensorMetadata tmeta;
-                tmeta.dtype = weight_->getDataTypeName();
+                tmeta.dtype = weight_->getDataType(); // ->getDataTypeName();
                 tmeta.shape = weight_->shape();
-                tmeta.byte_size = static_cast<size_t>(weight_->size()) * weight_->elementSize();
-                tmeta.layout = "row_major";
-                tmeta.byte_order = "little";
+                tmeta.total_bytes = static_cast<size_t>(weight_->size()) * weight_->elementSize();
 
                 if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
                 {
                     const void* data_ptr = weight_->rawData();
-                    writeTensorBlob( archive, "tensors/weight", tmeta, data_ptr, tmeta.byte_size );
+                    writeTensorBlob( archive, "tensors/weight", tmeta, data_ptr, tmeta.total_bytes );
                 }
                 else
                 {
@@ -253,23 +252,21 @@ namespace Mila::Dnn
                     copy( *weight_, host_weight );
 
                     const void* host_ptr = host_weight.rawData();
-                    writeTensorBlob( archive, "tensors/weight", tmeta, host_ptr, tmeta.byte_size );
+                    writeTensorBlob( archive, "tensors/weight", tmeta, host_ptr, tmeta.total_bytes );
                 }
             }
 
             if ( config_.hasBias() && bias_ )
             {
                 TensorMetadata bmeta;
-                bmeta.dtype = bias_->getDataTypeName();
+                bmeta.dtype = bias_->getDataType();
                 bmeta.shape = bias_->shape();
-                bmeta.byte_size = static_cast<size_t>(bias_->size()) * bias_->elementSize();
-                bmeta.layout = "row_major";
-                bmeta.byte_order = "little";
-
+                bmeta.total_bytes = static_cast<size_t>(bias_->size()) * bias_->elementSize();
+                
                 if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
                 {
                     const void* data_ptr = bias_->rawData();
-                    writeTensorBlob( archive, "tensors/bias", bmeta, data_ptr, bmeta.byte_size );
+                    writeTensorBlob( archive, "tensors/bias", bmeta, data_ptr, bmeta.total_bytes );
                 }
                 else
                 {
@@ -279,7 +276,7 @@ namespace Mila::Dnn
                     copy( *bias_, host_bias );
 
                     const void* host_ptr = host_bias.rawData();
-                    writeTensorBlob( archive, "tensors/bias", bmeta, host_ptr, bmeta.byte_size );
+                    writeTensorBlob( archive, "tensors/bias", bmeta, host_ptr, bmeta.total_bytes );
                 }
             }
         }
@@ -397,6 +394,24 @@ namespace Mila::Dnn
             return grads;
         }
 
+        void loadParameter( const std::string& name, const TensorBlob& blob ) override
+        {
+            if ( name == "weight" ) {
+                setWeight( blob );
+            }
+            else if ( name == "bias" ) {
+                if ( !hasBias() ) {
+                    throw std::runtime_error(
+                        std::format( "Component '{}' was configured without bias", this->getName() )
+                    );
+                }
+                setBias( blob );
+            }
+            else {
+                this->loadParameter( name, blob ); // Fall back to base (throws)
+            }
+        }
+
     protected:
 
         /**
@@ -490,7 +505,6 @@ namespace Mila::Dnn
                 }
             }
         }
-
         
     private:
 
@@ -586,6 +600,83 @@ namespace Mila::Dnn
 
                 zero( *bias_ );
             }
+        }
+
+        void setWeight( const TensorBlob& data )
+        {
+            auto& meta = data.metadata;
+
+            if ( !weight_ )
+            {
+                throw std::runtime_error(
+                    std::format( "Linear: weight tensor not initialized for component '{}'",
+                        this->getName() )
+                );
+            }
+
+            const shape_t expected_shape{ config_.getOutputFeatures(), config_.getInputFeatures() };
+
+            if ( meta.dtype != TPrecision )
+            {
+                throw std::invalid_argument(
+                    std::format( "Linear: weight dtype mismatch. Expected {}, got {}",
+                        TensorDataTypeTraits<TPrecision>::type_name,
+                        tensorDataTypeToString( meta.dtype ) )
+                );
+            }
+
+            if ( meta.shape != expected_shape )
+            {
+                throw std::invalid_argument(
+                    std::format( "Linear: weight shape mismatch. Expected {}, got {}",
+                        shapeToString( expected_shape ),
+                        shapeToString( meta.shape ) )
+                );
+            }
+
+            // FIXME: copy_bytes( data, *weight_ );
+        }
+
+        void setBias( const TensorBlob& data )
+        {
+            auto& meta = data.metadata;
+
+            if ( !config_.hasBias() )
+            {
+                throw std::runtime_error(
+                    std::format( "Component '{}' was configured without bias", this->getName() )
+                );
+            }
+
+            if ( !bias_ )
+            {
+                throw std::runtime_error(
+                    std::format( "Linear: bias tensor not initialized for component '{}'",
+                        this->getName() )
+                );
+            }
+
+            const shape_t expected_shape{ config_.getOutputFeatures() };
+
+            if ( meta.dtype != TPrecision )
+            {
+                throw std::invalid_argument(
+                    std::format( "Linear: bias dtype mismatch. Expected {}, got {}",
+                        TensorDataTypeTraits<TPrecision>::type_name,
+                        tensorDataTypeToString( meta.dtype ) )
+                );
+            }
+
+            if ( meta.shape != expected_shape )
+            {
+                throw std::invalid_argument(
+                    std::format( "Linear: bias shape mismatch. Expected {}, got {}",
+                        shapeToString( expected_shape ),
+                        shapeToString( meta.shape ) )
+                );
+            }
+
+            // FIXME copy_blob( data, *bias_ );
         }
 
         /**

@@ -19,20 +19,35 @@ export module Serialization.Tensor;
 
 import Serialization.ModelArchive;
 import Serialization.Metadata;
+import Dnn.TensorDataType;
 import Dnn.TensorTypes;
 
 namespace Mila::Dnn::Serialization
 {
     /**
-     * @brief Lightweight metadata describing a serialized tensor.
+     * @brief Metadata describing a tensor in serialized form.
+     *
+     * Contains the minimum information required to interpret raw tensor bytes:
+     * precision format, dimensional shape, and total size for validation.
+     *
+     * Used by both checkpoint serialization and pretrained weight loading.
      */
     export struct TensorMetadata
     {
-        std::string dtype;
-        shape_t shape;
-        size_t byte_size{ 0 };
-        std::string layout{ "row_major" };
-        std::string byte_order{ "little" };
+        dtype_t dtype;      ///< Data type (e.g., "float32", "float16", "bfloat16")
+        shape_t shape;          ///< Tensor dimensions
+        size_t total_bytes{ 0 };  ///< Total size in bytes (for validation)
+    };
+
+    /**
+     * @brief A tensor represented as metadata + raw bytes.
+     *
+     * Used for cross-format weight loading where the source precision
+     * may differ from the target tensor precision.
+     */
+    export struct TensorBlob {
+        TensorMetadata metadata;
+        std::vector<uint8_t> data;
     };
 
     /**
@@ -64,11 +79,9 @@ namespace Mila::Dnn::Serialization
         const TensorMetadata& meta, const void* data, size_t size )
     {
         SerializationMetadata metadata;
-        metadata.set( "dtype", meta.dtype )
+        metadata.set( "dtype", tensorDataTypeToString( meta.dtype ) )
                 .set( "shape", meta.shape )
-                .set( "byte_size", static_cast<int64_t>( meta.byte_size ) )
-                .set( "layout", meta.layout )
-                .set( "byte_order", meta.byte_order );
+                .set( "total_bytes", static_cast<int64_t>(meta.total_bytes) );
 
         archive.writeMetadata( prefix + "/meta.json", metadata );
         archive.writeBlob( prefix + "/data.bin", data, size );
@@ -96,25 +109,13 @@ namespace Mila::Dnn::Serialization
         TensorMetadata meta;
         SerializationMetadata metadata = archive.readMetadata( prefix + "/meta.json" );
 
-        meta.dtype = metadata.getString( "dtype" );
+        meta.dtype = parseTensorDataType( metadata.getString( "dtype" ) );
         meta.shape = metadata.getShape( "shape" );
-        meta.byte_size = static_cast<size_t>( metadata.getInt( "byte_size" ) );
-
-        // Optional fields with defaults
-        auto layout_opt = metadata.tryGetString( "layout" );
-        if ( layout_opt.has_value() )
-        {
-            meta.layout = layout_opt.value();
-        }
-
-        auto byte_order_opt = metadata.tryGetString( "byte_order" );
-        if ( byte_order_opt.has_value() )
-        {
-            meta.byte_order = byte_order_opt.value();
-        }
+        meta.total_bytes = static_cast<size_t>( metadata.getInt( "byte_size" ) );
 
         std::vector<uint8_t> data = archive.readBlob( prefix + "/data.bin" );
-        if ( data.size() != meta.byte_size )
+        
+        if ( data.size() != meta.total_bytes )
         {
             throw std::runtime_error( "readTensorBlob size mismatch for prefix: " + prefix );
         }

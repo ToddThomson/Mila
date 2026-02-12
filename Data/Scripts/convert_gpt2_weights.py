@@ -23,25 +23,25 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
     Convert GPT-2 model to Mila component format.
     
     GPT-2 Architecture (Mila component mapping):
-    - transformer.wte.weight -> wte.weight
-    - transformer.wpe.weight -> wpe.weight
+    - transformer.wte.weight -> lenc.wte.weight
+    - transformer.wpe.weight -> lenc.wpe.weight
 
-    - transformer.h.{i}.ln_1.weight -> tf.layer_{i}.ln_1.weight
-    - transformer.h.{i}.ln_1.bias -> tf.layer_{i}.ln_1.bias
+    - transformer.h.{i}.ln_1.weight -> tf_layer_{i}.ln_1.weight
+    - transformer.h.{i}.ln_1.bias -> tf_layer_{i}.ln_1.bias
 
-    - transformer.h.{i}.attn.c_attn.weight -> tf.layer_{i}.fc_qkv_proj.weight
-    - transformer.h.{i}.attn.c_attn.bias -> tf.layer_{i}.fc_qkv_proj.bias
+    - transformer.h.{i}.attn.c_attn.weight -> tf_layer_{i}.fc_qkv_proj.weight
+    - transformer.h.{i}.attn.c_attn.bias -> tf_layer_{i}.fc_qkv_proj.bias
 
-    - transformer.h.{i}.attn.c_proj.weight -> tf.layer_{i}.fc_out_proj.weight
-    - transformer.h.{i}.attn.c_proj.bias -> tf.layer_{i}.fc_out_proj.bias
+    - transformer.h.{i}.attn.c_proj.weight -> tf_layer_{i}.fc_out_proj.weight
+    - transformer.h.{i}.attn.c_proj.bias -> tf_layer_{i}.fc_out_proj.bias
 
-    - transformer.h.{i}.ln_2.weight -> tf.layer_{i}.ln_2.weight
-    - transformer.h.{i}.ln_2.bias -> tf.layer_{i}.ln_2.bias
+    - transformer.h.{i}.ln_2.weight -> tf_layer_{i}.ln_2.weight
+    - transformer.h.{i}.ln_2.bias -> tf_layer_{i}.ln_2.bias
 
-    - transformer.h.{i}.mlp.c_fc.weight -> tf.layer_{i}.mlp.fc_1.weight
-    - transformer.h.{i}.mlp.c_fc.bias -> tf.layer_{i}.mlp.fc_1.bias
-    - transformer.h.{i}.mlp.c_proj.weight -> tf.layer_{i}.mlp.fc_2.weight
-    - transformer.h.{i}.mlp.c_proj.bias -> tf.layer_{i}.mlp.fc_2.bias
+    - transformer.h.{i}.mlp.c_fc.weight -> tf_layer_{i}.mlp.fc_1.weight
+    - transformer.h.{i}.mlp.c_fc.bias -> tf_layer_{i}.mlp.fc_1.bias
+    - transformer.h.{i}.mlp.c_proj.weight -> tf_layer_{i}.mlp.fc_2.weight
+    - transformer.h.{i}.mlp.c_proj.bias -> tf_layer_{i}.mlp.fc_2.bias
 
     - transformer.ln_f.weight -> ln_final.weight
     - transformer.ln_f.bias -> ln_final.bias
@@ -84,20 +84,20 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
     
     # Token embeddings (HuggingFace transformer.wte -> Mila wte)
     writer.add_tensor(
-        'wte.weight',
+        'lenc.wte.weight',
         convert_dtype(state_dict['transformer.wte.weight'].numpy(), dtype)
     )
     
     # Position embeddings (transformer.wpe -> wpe)
     writer.add_tensor(
-        'wpe.weight',
+        'lenc.wpe.weight',
         convert_dtype(state_dict['transformer.wpe.weight'].numpy(), dtype)
     )
     
-    # Transformer layers using the new mapping (tf.layer_{i}.*)
+    # Transformer layers using the new mapping (tf_layer_{i}.*)
     for i in range(config.n_layer):
         prefix_hf = f'transformer.h.{i}'
-        prefix_mila = f'tf.layer_{i}'
+        prefix_mila = f'tf_layer_{i}'
         
         # Layer Norm 1 (pre-attention)
         writer.add_tensor(

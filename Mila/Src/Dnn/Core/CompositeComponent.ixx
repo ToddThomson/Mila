@@ -273,47 +273,51 @@ namespace Mila::Dnn
         /**
          * @brief Resolve a dot-separated component path within this composite.
          *
-         * Throwing version of tryFindComponent(): throws std::out_of_range when not found
-         * and std::runtime_error when the path attempts to traverse a non-composite.
-         *
-         * @param path Dot-separated path (e.g. "layer_0.mlp.fc_1")
-         * @return Shared pointer to the component
-         *
-         * @throws std::out_of_range if a segment is not found
-         * @throws std::runtime_error if traversal encounters a non-composite before the end
+         * Supports both relative paths ("lenc.wte") and absolute paths ("gpt2.lenc.wte").
+         * If path starts with this component's name, strips it before searching.
          */
         ComponentPtr findComponent( const std::string& path ) const
         {
-            if ( path.empty() )
-            {
+            if ( path.empty() ) {
                 throw std::out_of_range( "Empty component path" );
             }
 
-            size_t next = path.find( '.' );
-            std::string first_segment = path.substr( 0, next );
+            // Strip our own name prefix if present
+            // "gpt2.lenc.wte" -> "lenc.wte" when called on "gpt2"
+            std::string search_path = path;
+            std::string my_name = this->getName();
 
-            auto it = child_component_map_.find( first_segment );
-            if ( it == child_component_map_.end() )
-            {
+            if ( search_path.starts_with( my_name + "." ) ) {
+                search_path = search_path.substr( my_name.length() + 1 );
+            }
+
+            // Now proceed with normal resolution
+            size_t next = search_path.find( '.' );
+            std::string first_segment = search_path.substr( 0, next );
+
+            // Look for child with full name (e.g., "gpt2.lenc")
+            std::string full_child_name = my_name + "." + first_segment;
+
+            auto it = child_component_map_.find( full_child_name );
+            if ( it == child_component_map_.end() ) {
                 throw std::out_of_range(
-                    std::format( "No component named '{}' found in path '{}'", first_segment, path )
+                    std::format( "No component named '{}' found in path '{}'",
+                        first_segment, path )
                 );
             }
 
             ComponentPtr current = it->second;
 
-            if ( next == std::string::npos )
-            {
+            if ( next == std::string::npos ) {
                 return current;
             }
 
-            std::string remaining = path.substr( next + 1 );
+            std::string remaining = search_path.substr( next + 1 );
 
-            while ( true )
-            {
-                auto composite = std::dynamic_pointer_cast<const CompositeComponent>( current );
-                if ( !composite )
-                {
+            // Recursively resolve remaining path
+            while ( true ) {
+                auto composite = std::dynamic_pointer_cast<const CompositeComponent>(current);
+                if ( !composite ) {
                     throw std::runtime_error(
                         std::format( "Component '{}' in path '{}' is not composite, cannot traverse to '{}'",
                             current->getName(), path, remaining )
@@ -323,18 +327,20 @@ namespace Mila::Dnn
                 next = remaining.find( '.' );
                 std::string segment = remaining.substr( 0, next );
 
-                auto childIt = composite->child_component_map_.find( segment );
-                if ( childIt == composite->child_component_map_.end() )
-                {
+                // Look for child with full name relative to current component
+                std::string full_name = current->getName() + "." + segment;
+
+                auto childIt = composite->child_component_map_.find( full_name );
+                if ( childIt == composite->child_component_map_.end() ) {
                     throw std::out_of_range(
-                        std::format( "No component named '{}' found in path '{}'", segment, path )
+                        std::format( "No component named '{}' found in path '{}'",
+                            segment, path )
                     );
                 }
 
                 current = childIt->second;
 
-                if ( next == std::string::npos )
-                {
+                if ( next == std::string::npos ) {
                     break;
                 }
 

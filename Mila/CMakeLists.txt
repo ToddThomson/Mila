@@ -283,7 +283,7 @@ PUBLIC
         "Src/Dnn/Serialization/SerializationMode.ixx"
         "Src/Dnn/Serialization/OpenMode.ixx"
         "Src/Dnn/Serialization/ModelArchive.ixx"
-        "Src/Dnn/Serialization/ModelSerializer.ixx"
+        "Src/Dnn/Serialization/ArchiveSerializer.ixx"
         "Src/Dnn/Serialization/ZipSerializer.ixx"
 
         #---------------------------------------------------------------
@@ -388,7 +388,7 @@ PUBLIC
         "Src/Dnn/Components/Transformers/Transformer.ixx"
         "Src/Dnn/Components/Transformers/GenerateParams.ixx"
         "Src/Data/Tokenizers/SpecialTokens.ixx"
-)
+ "Src/Dnn/Serialization/PretrainedReader.ixx" "Src/Dnn/Serialization/Serializer.ixx" )
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

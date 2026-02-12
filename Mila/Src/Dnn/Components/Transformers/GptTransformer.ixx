@@ -43,6 +43,7 @@ import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
+import Serialization.Tensor;
 
 namespace Mila::Dnn
 {
@@ -111,8 +112,8 @@ namespace Mila::Dnn
             DeviceId device_id = DeviceId{ TDeviceType, 0 },
             bool strict = true )
         {
-            ModelReader reader( model_path );
-            const auto& metadata = reader.getMetadata();
+            PretrainedModelReader reader( model_path );
+            const auto& metadata = reader.getPretrainedMetadata();
 
             GptConfig config = createConfigFromMetadata( metadata );
 
@@ -127,7 +128,7 @@ namespace Mila::Dnn
             shape_t build_shape = { 1, config.getMaxSequenceLength() };
             gpt->build( build_shape );
 
-            gpt->loadWeights( reader, strict );
+            gpt->loadParameters( reader, strict );
 
             return gpt;
         }
@@ -485,13 +486,43 @@ namespace Mila::Dnn
         TensorType* logits_ptr_{ nullptr };
 
         /**
-         * @brief Load weights from an already-opened ModelReader
+         * @brief Load pretrained parameter using the Mila component path naming convention.
+         *
+         * Parses flat name specific to GPT-2 format and routes to component.
+         *
+         * @param flat_name Flat tensor name (e.g., "tf_layer_0.ln_1.weight")
+         * @param meta Tensor metadata
+         * @param bytes Raw tensor bytes
+         */
+        void loadParameter(
+            const std::string& parameter_name,
+            const TensorBlob blob )
+        {
+            // Parse component naming convention
+            auto last_dot = parameter_name.rfind( '.' );
+
+            if ( last_dot == std::string::npos )
+            {
+                throw std::runtime_error(
+                    std::format( "Invalid GPT-2 tensor name: {}", parameter_name ) );
+            }
+
+            std::string component_path = parameter_name.substr( 0, last_dot );
+            std::string param_name = parameter_name.substr( last_dot + 1 );
+
+            auto target = this->findComponent( component_path );
+            
+            target->loadParameter( param_name, blob );
+        }
+
+        /**
+         * @brief Load parameters (weights and biases) from an already-opened PretrainedModelReader
          *
          * Separated from fromPretrained to allow flexibility in weight loading
          */
-        void loadWeights( ModelReader& reader, bool strict )
+        void loadParameters( PretrainedModelReader& reader, bool strict )
         {
-            const auto& metadata = reader.getMetadata();
+            const auto& metadata = reader.getPretrainedMetadata();
 
             std::cout << "Loading weights for: " << metadata.model_name << '\n';
             std::cout << "  Architecture: " << metadata.architecture << '\n';
@@ -507,7 +538,9 @@ namespace Mila::Dnn
             {
                 try
                 {
-                    this->loadTensorIntoComponent( reader, name );
+                    auto tensor_blob = reader.readTensorBlob( name );
+
+                    loadParameter( name, tensor_blob );
                     ++loaded_count;
                 }
                 catch ( const std::exception& e )
@@ -600,7 +633,7 @@ namespace Mila::Dnn
         /**
          * @brief Create GptConfig from Mila metadata.
          */
-        static auto createConfigFromMetadata( const ModelMetadata& metadata ) -> GptConfig
+        static auto createConfigFromMetadata( const PretrainedMetadata& metadata ) -> GptConfig
         {
             dim_t embedding_size = static_cast<dim_t>(metadata.embedding_dim);
             dim_t num_layers = static_cast<dim_t>(metadata.num_layers);

@@ -233,9 +233,8 @@ export import Serialization.Mode;
 export import Serialization.OpenMode;
 export import Serialization.Metadata;
 export import Serialization.ModelArchive;
-export import Serialization.ModelSerializer;
+export import Serialization.ArchiveSerializer;
 export import Serialization.ZipSerializer;
-
 
 // ============================================================================
 // Modeling

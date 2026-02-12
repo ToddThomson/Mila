@@ -19,7 +19,7 @@ module;
 
 export module Serialization.ZipSerializer;
 
-import Serialization.ModelSerializer;
+import Serialization.ArchiveSerializer;
 import Serialization.OpenMode;
 import Utils.Logger;
 
@@ -37,7 +37,7 @@ namespace Mila::Dnn::Serialization
      *  - Move-only type; copying is disabled to prevent resource conflicts.
      *  - Maintains explicit open/closed state for robustness.
      */
-    export class ZipSerializer : public ModelSerializer
+    export class ZipSerializer : public ArchiveSerializer
     {
     public:
         /**

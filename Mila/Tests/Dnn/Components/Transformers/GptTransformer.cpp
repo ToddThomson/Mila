@@ -9,7 +9,7 @@
 
 import Mila;
 
-namespace Dnn::Networks::Tests
+namespace Dnn::Components::Transformers::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -22,7 +22,7 @@ namespace Dnn::Networks::Tests
     static fs::path gpt2_weights_path()
     {
         fs::path dataDir = TEST_DATA_DIR;
-        return dataDir / "models" / "gpt2" / "gpt2_small.bin";
+        return dataDir / "models" / "gpt2" / "gpt2_small_fp32.bin";
     }
 
     // Helper to create a small, valid GptConfig for fast tests.
@@ -122,7 +122,7 @@ namespace Dnn::Networks::Tests
     TEST( GptTests, FromPretrained_LoadsIfWeightsPresent )
     {
         // Check repository-local Data/Models/GPT2 for the converted weights as requested.
-        std::filesystem::path model_path = std::filesystem::path( "." ) / "Data" / "Models" / "GPT2" / "gpt2_small.bin";
+        std::filesystem::path model_path = std::filesystem::path( "." ) / "Data" / "Models" / "GPT2" / "gpt2_small_fp32.bin";
 
         if ( !std::filesystem::exists( model_path ) )
         {
