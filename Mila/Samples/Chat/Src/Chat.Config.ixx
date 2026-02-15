@@ -1,3 +1,2 @@
-export module $safeitemname$;
+export module Chat.Config;
 
-export void MyFunc();

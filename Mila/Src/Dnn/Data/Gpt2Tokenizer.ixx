@@ -293,25 +293,55 @@ namespace Mila::Dnn::Data
          *  - Repeatedly find the lowest-rank adjacent merge and apply it.
          *  - After no merges apply, map pieces to token ids using encoder_.
          */
-        std::vector<TokenId> bpeEncode( const std::string& token ) const {
+        std::vector<TokenId> bpeEncode( const std::string& token ) const
+        {
+            // DEBUG: Start
+            bool debug = (token == " helpful");
+
             std::vector<std::string> word;
-            for ( char c : token ) {
+            for ( char c : token )
+            {
                 word.push_back( std::string( 1, c ) );
             }
 
-            while ( word.size() > 1 ) {
+            if ( debug )
+            {
+                std::cout << "\nDEBUG bpeEncode('" << token << "'):\n";
+                std::cout << "  Initial: [";
+                for ( auto& w : word ) std::cout << "'" << w << "' ";
+                std::cout << "]\n";
+            }
+
+            while ( word.size() > 1 )
+            {
                 auto [i, rank] = findBestMerge( word );
                 if ( i == -1 ) break;
+
+                if ( debug )
+                {
+                    std::cout << "  Merge '" << word[ i ] << "' + '" << word[ i + 1 ]
+                        << "' (rank=" << rank << ")\n";
+                }
 
                 word[ i ] = word[ i ] + word[ i + 1 ];
                 word.erase( word.begin() + i + 1 );
             }
 
+            if ( debug )
+            {
+                std::cout << "  Final: [";
+                for ( auto& w : word ) std::cout << "'" << w << "' ";
+                std::cout << "]\n";
+            }
+
             std::vector<TokenId> result;
-            for ( const auto& w : word ) {
+            for ( const auto& w : word )
+            {
                 auto it = encoder_.find( w );
-                if ( it != encoder_.end() ) {
+                if ( it != encoder_.end() )
+                {
                     result.push_back( it->second );
+                    if ( debug ) std::cout << "  Token '" << w << "' -> ID " << it->second << "\n";
                 }
             }
 

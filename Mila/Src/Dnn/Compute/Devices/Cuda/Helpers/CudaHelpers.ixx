@@ -43,7 +43,12 @@ namespace Mila::Dnn::Compute::Cuda
      */
     export inline void setCurrentDevice( int device_id ) 
     {
-        assert( device_id >= 0 && "Invalid CUDA device id" );
+        // DEBUG: Validate device_id is non-negative (device enumeration should catch invalid IDs)
+        if ( device_id < 0 ) {
+            throw std::invalid_argument( "Invalid CUDA device id: must be non-negative." );
+        }
+
+        //assert( device_id >= 0 && "Invalid CUDA device id" );
 
         static thread_local int current_device = -1;
         

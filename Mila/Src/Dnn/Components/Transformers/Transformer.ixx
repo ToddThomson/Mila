@@ -1,5 +1,9 @@
 module;
 #include <stdexcept>
+#include <algorithm>
+#include <vector>
+#include <cmath>
+#include <random>
 
 export module Dnn.Transformer;
 

@@ -32,6 +32,7 @@ import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
+import Serialization.Tensor;
 
 namespace Mila::Dnn::Compute::Cpu
 {
@@ -146,7 +147,7 @@ namespace Mila::Dnn::Compute::Cpu
          * @note This function is synchronous and does not use the execution context.
          */
         template<TensorDataType TSrcDataType, typename TSrcMemoryResource,
-            TensorDataType TDstDataType, typename TDstMemoryResource>
+                 TensorDataType TDstDataType, typename TDstMemoryResource>
             requires isValidTensor<TSrcDataType, TSrcMemoryResource>&& isValidTensor<TDstDataType, TDstMemoryResource>
         static void copy(
             const Tensor<TSrcDataType, TSrcMemoryResource>& src,
@@ -185,6 +186,29 @@ namespace Mila::Dnn::Compute::Cpu
             {
                 hostConvertImpl<TSrcDataType, TDstDataType>( src_data, dst_data, src.size() );
             }
+        }
+
+        template <TensorDataType TDstDataType, typename TDstMemoryResource>
+            requires isValidTensor<TDstDataType, TDstMemoryResource>
+        static void copyFromBlob(
+            const Serialization::TensorBlob& blob,
+            Tensor<TDstDataType, TDstMemoryResource>& dst,
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
+        {
+            if ( blob.metadata.shape != dst.shape() )
+            {
+                throw std::invalid_argument( "Blob and destination tensor shapes must match" );
+            }
+
+            const void* src_data = blob.data.data();
+            void* dst_data = dst.data();
+            
+            if (!src_data || !dst_data)
+            {
+                throw std::runtime_error( "Invalid data pointers for copyFromBlob" );
+            }
+            
+            hostCopyImpl<TDstDataType>( src_data, dst_data, dst.size() );
         }
 
     private:

@@ -15,6 +15,8 @@ module;
 #include <cstring>
 #include <format>
 #include <optional>
+#include <numeric>
+#include <algorithm>
 
 export module Dnn.Components.Linear;
 export import :Config;
@@ -46,7 +48,9 @@ import Serialization.Metadata;
 import nlohmann.json;
 
 // DEBUG:
+import Dnn.TensorOps;
 import Dnn.TensorHelpers;
+import Utils.Logger;
 
 namespace Mila::Dnn
 {
@@ -130,7 +134,118 @@ namespace Mila::Dnn
 
             validateInputShape( input.shape() );
 
+            // DEBUG:
+
+            // Check input range
+            auto host_input = toHost<TensorDataType::FP32>( input );
+            auto host_input_ptr = host_input.data();
+            const size_t n = host_input.size();
+            auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
+
+            // END DEBUG:
+
             operation_->forward( input, *owned_output_ );
+
+
+
+            // DEBUG: Start
+            auto component_name = this->getName();
+            
+            if ( component_name.find( "mlp.fc_1" ) != std::string::npos && component_name.find( "layer_0" ) != std::string::npos )
+            {
+                this->synchronize();
+
+                auto host_weight = toHost<TensorDataType::FP32>( *weight_ );
+                auto host_input = toHost<TensorDataType::FP32>( input );
+                auto host_output = toHost<TensorDataType::FP32>( *owned_output_ );
+
+                int in_feat = config_.getInputFeatures();
+                int out_feat = config_.getOutputFeatures();
+
+                const float* w_ptr = host_weight.data();
+                const float* in_ptr = host_input.data();
+                const float* out_ptr = host_output.data();
+
+                float manual_result = 0.0f;
+                for ( int i = 0; i < in_feat; i++ )
+                {
+                    manual_result += w_ptr[ i ] * in_ptr[ i ];
+                }
+
+                // Add bias if present
+                if ( bias_ )
+                {
+                    auto host_bias = toHost<TensorDataType::FP32>( *bias_ );
+                    const float* b_ptr = host_bias.data();
+                    manual_result += b_ptr[ 0 ];  // Add bias for output element 0
+                }
+
+                Utils::Logger::info( std::format( "FC_1 Weight shape: [{}x{}]", out_feat, in_feat ) );
+                Utils::Logger::info( std::format( "FC_1 Input first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
+                    in_ptr[ 0 ], in_ptr[ 1 ], in_ptr[ 2 ], in_ptr[ 3 ], in_ptr[ 4 ] ) );
+                Utils::Logger::info( std::format( "FC_1 Weight row 0 first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
+                    w_ptr[ 0 ], w_ptr[ 1 ], w_ptr[ 2 ], w_ptr[ 3 ], w_ptr[ 4 ] ) );
+                Utils::Logger::info( std::format( "FC_1 Manual output[0,0]: {:.6f}", manual_result ) );
+                Utils::Logger::info( std::format( "FC_1 cuBLASLt output[0,0]: {:.6f}", out_ptr[ 0 ] ) );
+            }
+            
+            if ( component_name.find( "mlp.fc_2" ) != std::string::npos && component_name.find( "layer_0" ) != std::string::npos )
+            {
+                this->synchronize();
+
+                // Get all data to host
+                auto host_weight = toHost<TensorDataType::FP32>( *weight_ );
+                auto host_input = toHost<TensorDataType::FP32>( input );
+                auto host_output = toHost<TensorDataType::FP32>( *owned_output_ );
+
+                int in_feat = config_.getInputFeatures();
+                int out_feat = config_.getOutputFeatures();
+
+                const float* w_ptr = host_weight.data();
+                const float* in_ptr = host_input.data();
+                const float* out_ptr = host_output.data();
+
+                // output[0,0] = dot(weight row 0, input row 0)
+                // Weight row 0: elements [0...in_feat-1]
+                // Input row 0: elements [0...in_feat-1]
+                float manual_result = 0.0f;
+                for ( int i = 0; i < in_feat; i++ )
+                {
+                    manual_result += w_ptr[ i ] * in_ptr[ i ];
+                }
+
+                // Add bias if present
+                if ( bias_ )
+                {
+                    auto host_bias = toHost<TensorDataType::FP32>( *bias_ );
+                    const float* b_ptr = host_bias.data();
+                    manual_result += b_ptr[ 0 ];  // Add bias for output element 0
+                }
+
+                Utils::Logger::info( std::format( "Weight shape: [{}x{}]", out_feat, in_feat ) );
+                Utils::Logger::info( std::format( "Input first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
+                    in_ptr[ 0 ], in_ptr[ 1 ], in_ptr[ 2 ], in_ptr[ 3 ], in_ptr[ 4 ] ) );
+                Utils::Logger::info( std::format( "Weight row 0 first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
+                    w_ptr[ 0 ], w_ptr[ 1 ], w_ptr[ 2 ], w_ptr[ 3 ], w_ptr[ 4 ] ) );
+                Utils::Logger::info( std::format( "Manual output[0,0]: {:.6f}", manual_result ) );
+                Utils::Logger::info( std::format( "cuBLASLt output[0,0]: {:.6f}", out_ptr[ 0 ] ) );
+                Utils::Logger::info( std::format( "Difference: {:.6f}", std::abs( manual_result - out_ptr[ 0 ] ) ) );
+            }
+            // DEBUG: End
+
+            // DEBUG:
+            // Check output range
+            this->synchronize();
+
+            auto host_output = toHost<TensorDataType::FP32>( *owned_output_ );
+            auto host_output_ptr = host_output.data();
+            const size_t output_n = host_output.size();
+            auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
+
+            Utils::Logger::debug( std::format( "LinearOp {} in:[{:.3f}, {:.3f}] out:[{:.3f}, {:.3f}]",
+                this->getName(), *min_in, *max_in, *min_out, *max_out ) );
+
+            // DEBUG END
 
             return *owned_output_;
         }
@@ -396,20 +511,98 @@ namespace Mila::Dnn
 
         void loadParameter( const std::string& name, const TensorBlob& blob ) override
         {
-            if ( name == "weight" ) {
-                setWeight( blob );
+            if ( name == "weight" )
+            {
+                const shape_t expected_shape{ config_.getOutputFeatures(), config_.getInputFeatures() };
+                this->loadParameterFromBlob( "weight", blob, *weight_, expected_shape );
             }
-            else if ( name == "bias" ) {
-                if ( !hasBias() ) {
-                    throw std::runtime_error(
+            else if ( name == "bias" )
+            {
+                if ( !hasBias() )
+                {
+                    // DEBUG: Revert after testing
+                    /*throw std::runtime_error(
                         std::format( "Component '{}' was configured without bias", this->getName() )
-                    );
+                    );*/
+
+                    return;
                 }
-                setBias( blob );
+                
+                const shape_t expected_shape{ config_.getOutputFeatures() };
+                this->loadParameterFromBlob( "bias", blob, *bias_, expected_shape );
             }
-            else {
-                this->loadParameter( name, blob ); // Fall back to base (throws)
+            else
+            {
+                this->loadParameter( name, blob ); // Throws
             }
+
+            // DEBUG: Diagnostics
+
+            if ( name == "weight" )
+            {
+                // DIAGNOSTIC: Check weight statistics
+                auto host_weights = toHost<TensorDataType::FP32>( *weight_ );
+
+                const float* ptr = host_weights.data();
+                const size_t n = host_weights.size();
+
+                if ( n > 0 )
+                {
+                    float min_w = *std::min_element( ptr, ptr + n );
+                    float max_w = *std::max_element( ptr, ptr + n );
+                    float mean_w = std::accumulate( ptr, ptr + n, 0.0f ) / static_cast<float>(n);
+
+                    Utils::Logger::info( std::format(
+                        "LinearOp [{}x{}] weight stats: min={:.6f} max={:.6f} mean={:.6f}",
+                        config_.getInputFeatures(), config_.getOutputFeatures(), min_w, max_w, mean_w ) );
+                }
+
+                // DEBUG: Print first 5x5 block for fc_2 layers
+                auto component_name = this->getName();
+                if ( component_name.find( "mlp.fc_2" ) != std::string::npos )
+                {
+                    auto host_data = host_weights.data();
+                    auto shape = weight_->shape();
+                    int num_cols = shape[ 1 ];
+                    
+                    Utils::Logger::info( std::format( "{} weight first 5x5 block:", component_name ) );
+                    for ( int row = 0; row < 5; ++row )
+                    {
+                        Utils::Logger::info( std::format( "  [{:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}]",
+                            host_data[ row * num_cols + 0 ],
+                            host_data[ row * num_cols + 1 ],
+                            host_data[ row * num_cols + 2 ],
+                            host_data[ row * num_cols + 3 ],
+                            host_data[ row * num_cols + 4 ] ) );
+                    }
+
+                    auto strides = weight_->strides();
+
+                    Utils::Logger::info( std::format( "Weight tensor info:" ) );
+                    Utils::Logger::info( std::format( "  Shape: [{}, {}]", shape[ 0 ], shape[ 1 ] ) );
+                    Utils::Logger::info( std::format( "  Size: {}", weight_->size() ) );
+                    Utils::Logger::info( std::format( "  Strides: [{}, {}]", strides[0], strides[1] ) );
+                }
+            }
+
+            if ( name == "bias" )
+            {
+                auto host_bias = toHost<TensorDataType::FP32>( *bias_ );
+                const float* ptr = host_bias.data();
+                const size_t n = host_bias.size();
+
+                if ( n > 0 )
+                {
+                    float min_b = *std::min_element( ptr, ptr + n );
+                    float max_b = *std::max_element( ptr, ptr + n );
+
+                    Utils::Logger::info( std::format(
+                        "  bias stats: min={:.6f} max={:.6f}",
+                        min_b, max_b ) );
+                }
+            }
+
+            // END DEBUG:
         }
 
     protected:
@@ -452,6 +645,7 @@ namespace Mila::Dnn
                 operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
             }
 
+            Utils::Logger::info( std::format( "Linear {} calling build()", this->getName() ) );
             operation_->build( input_shape );
 
             // Allocate and cache component-owned output and input-gradient tensors.
@@ -600,83 +794,6 @@ namespace Mila::Dnn
 
                 zero( *bias_ );
             }
-        }
-
-        void setWeight( const TensorBlob& data )
-        {
-            auto& meta = data.metadata;
-
-            if ( !weight_ )
-            {
-                throw std::runtime_error(
-                    std::format( "Linear: weight tensor not initialized for component '{}'",
-                        this->getName() )
-                );
-            }
-
-            const shape_t expected_shape{ config_.getOutputFeatures(), config_.getInputFeatures() };
-
-            if ( meta.dtype != TPrecision )
-            {
-                throw std::invalid_argument(
-                    std::format( "Linear: weight dtype mismatch. Expected {}, got {}",
-                        TensorDataTypeTraits<TPrecision>::type_name,
-                        tensorDataTypeToString( meta.dtype ) )
-                );
-            }
-
-            if ( meta.shape != expected_shape )
-            {
-                throw std::invalid_argument(
-                    std::format( "Linear: weight shape mismatch. Expected {}, got {}",
-                        shapeToString( expected_shape ),
-                        shapeToString( meta.shape ) )
-                );
-            }
-
-            // FIXME: copy_bytes( data, *weight_ );
-        }
-
-        void setBias( const TensorBlob& data )
-        {
-            auto& meta = data.metadata;
-
-            if ( !config_.hasBias() )
-            {
-                throw std::runtime_error(
-                    std::format( "Component '{}' was configured without bias", this->getName() )
-                );
-            }
-
-            if ( !bias_ )
-            {
-                throw std::runtime_error(
-                    std::format( "Linear: bias tensor not initialized for component '{}'",
-                        this->getName() )
-                );
-            }
-
-            const shape_t expected_shape{ config_.getOutputFeatures() };
-
-            if ( meta.dtype != TPrecision )
-            {
-                throw std::invalid_argument(
-                    std::format( "Linear: bias dtype mismatch. Expected {}, got {}",
-                        TensorDataTypeTraits<TPrecision>::type_name,
-                        tensorDataTypeToString( meta.dtype ) )
-                );
-            }
-
-            if ( meta.shape != expected_shape )
-            {
-                throw std::invalid_argument(
-                    std::format( "Linear: bias shape mismatch. Expected {}, got {}",
-                        shapeToString( expected_shape ),
-                        shapeToString( meta.shape ) )
-                );
-            }
-
-            // FIXME copy_blob( data, *bias_ );
         }
 
         /**

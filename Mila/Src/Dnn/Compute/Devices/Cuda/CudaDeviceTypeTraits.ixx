@@ -27,7 +27,7 @@ namespace Mila::Dnn::Compute
      * using MR = DeviceTypeTraits<DeviceType::Cuda>::memory_resource;
      * @endcode
      */
-    template <>
+    export template <>
     struct DeviceTypeTraits<DeviceType::Cuda> {
         using memory_resource = CudaDeviceMemoryResource;
     };

@@ -59,15 +59,15 @@ namespace Data::Tokenizers::BpeTokenizer_Gpt2_Tests
 
         // Act
         ASSERT_NO_THROW( {
-            BpeTokenizer tokenizer = BpeTokenizer::loadGpt2( p );
+            std::shared_ptr<BpeTokenizer> tokenizer = BpeTokenizer::loadGpt2( p );
 
         // Basic expectations for GPT-2 style vocabularies: very large (>50k)
-        size_t vsz = tokenizer.getVocabSize();
+        size_t vsz = tokenizer->getVocabSize();
         EXPECT_GT( vsz, 50000u );
 
         // A few token ids should be valid (beginning and end of range)
-        EXPECT_TRUE( tokenizer.isValidToken( static_cast<Mila::Dnn::Data::TokenId>(0u) ) );
-        EXPECT_TRUE( tokenizer.isValidToken( static_cast<Mila::Dnn::Data::TokenId>(vsz - 1) ) );
+        EXPECT_TRUE( tokenizer->isValidToken( static_cast<Mila::Dnn::Data::TokenId>(0u) ) );
+        EXPECT_TRUE( tokenizer->isValidToken( static_cast<Mila::Dnn::Data::TokenId>(vsz - 1) ) );
             } );
     }
 
@@ -78,18 +78,18 @@ namespace Data::Tokenizers::BpeTokenizer_Gpt2_Tests
             GTEST_SKIP() << "GPT-2 tokenizer binary not present at: " << p.string();
         }
 
-        BpeTokenizer tokenizer = BpeTokenizer::loadGpt2( p );
+        std::shared_ptr<BpeTokenizer> tokenizer = BpeTokenizer::loadGpt2( p );
 
         std::string piece = "!";
-        auto enc = tokenizer.encode( piece );
+        auto enc = tokenizer->encode( piece );
 
         // Expect at least one token produced; tokenToString of first id should match piece
         ASSERT_GE( enc.size(), 1u );
         auto firstId = enc.front();
-        EXPECT_EQ( tokenizer.tokenToString( firstId ), piece );
+        EXPECT_EQ( tokenizer->tokenToString( firstId ), piece );
 
         // Decode roundtrip should equal original for byte-level GPT-2 tokenizer
-        std::string decoded = tokenizer.decode( enc );
+        std::string decoded = tokenizer->decode( enc );
         EXPECT_EQ( decoded, piece );
     }
 
@@ -100,19 +100,19 @@ namespace Data::Tokenizers::BpeTokenizer_Gpt2_Tests
             GTEST_SKIP() << "GPT-2 tokenizer binary not present at: " << p.string();
         }
 
-        BpeTokenizer tokenizer = BpeTokenizer::loadGpt2( p );
+        std::shared_ptr<BpeTokenizer> tokenizer = BpeTokenizer::loadGpt2( p );
 
         std::string text = "Hello, world!";
-        auto enc = tokenizer.encode( text );
+        auto enc = tokenizer->encode( text );
 
         // Ensure encoding produced tokens and all token ids are valid
         ASSERT_FALSE( enc.empty() );
         for ( auto id : enc ) {
-            EXPECT_TRUE( tokenizer.isValidToken( id ) );
+            EXPECT_TRUE( tokenizer->isValidToken( id ) );
         }
 
         // Decode should reconstruct the original text for byte-level BPE
-        std::string decoded = tokenizer.decode( enc );
+        std::string decoded = tokenizer->decode( enc );
         EXPECT_EQ( decoded, text );
     }
 
@@ -130,19 +130,19 @@ namespace Data::Tokenizers::BpeTokenizer_Gpt2_Tests
             GTEST_SKIP() << "GPT-2 tokenizer binary not present at: " << p.string();
         }
 
-        BpeTokenizer tokenizer = BpeTokenizer::loadGpt2( p );
+        std::shared_ptr<BpeTokenizer> tokenizer = BpeTokenizer::loadGpt2( p );
 
         std::string text = "Hello, world!";
 
-        auto enc = tokenizer.encode( text );
+        auto enc = tokenizer->encode( text );
 
         ASSERT_FALSE( enc.empty() );
 
         for ( auto id : enc ) {
-            EXPECT_TRUE( tokenizer.isValidToken( id ) );
+            EXPECT_TRUE( tokenizer->isValidToken( id ) );
         }
 
-        std::string decoded = tokenizer.decode( enc );
+        std::string decoded = tokenizer->decode( enc );
 
         if ( decoded != text ) {
             std::ostringstream msg;
@@ -161,7 +161,7 @@ namespace Data::Tokenizers::BpeTokenizer_Gpt2_Tests
             msg << "  tokens:\n";
             for ( size_t i = 0; i < enc.size(); ++i ) {
                 auto id = enc[i];
-                auto tokstr = tokenizer.tokenToString( id );
+                auto tokstr = tokenizer->tokenToString( id );
                 msg << "    [" << i << "] id=" << id << " raw=\"" << tokstr
                     << "\" esc=\"" << escape_for_debug( tokstr ) << "\"\n";
             }

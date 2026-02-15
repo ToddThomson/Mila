@@ -14,6 +14,7 @@ module;
 
 export module Data.BpeVocabularyConfig;
 
+import Data.PreTokenizationMode;
 import Data.SpecialTokens;
 import Serialization.Metadata;
 
@@ -54,6 +55,12 @@ namespace Mila::Data
         BpeVocabularyConfig& withByteLevel( bool byte_level )
         {
             byte_level_ = byte_level;
+            return *this;
+        }
+
+        BpeVocabularyConfig& withPreTokenization( PreTokenizationMode mode )
+        {
+            pre_tokenization_mode_ = mode;
             return *this;
         }
 
@@ -214,6 +221,7 @@ namespace Mila::Data
         size_t getVocabSize() const { return vocab_size_; }
         size_t getMinFrequency() const { return min_frequency_; }
         bool isByteLevel() const { return byte_level_; }
+        PreTokenizationMode getPreTokenizationMode() const { return pre_tokenization_mode_; }
         const std::string& getPreTokenizationPattern() const { return pre_tokenization_pattern_; }
         size_t getMaxMerges() const { return max_merges_; }
         bool isMergeCachingEnabled() const { return enable_merge_caching_; }
@@ -223,6 +231,7 @@ namespace Mila::Data
         size_t min_frequency_ = 2;
         bool byte_level_ = true;
         SpecialTokens special_tokens_ = SpecialTokens::standard();
+        PreTokenizationMode pre_tokenization_mode_ = PreTokenizationMode::None;
         std::string pre_tokenization_pattern_ = "";
         size_t max_merges_ = 0;
         bool enable_merge_caching_ = true;

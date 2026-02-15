@@ -40,7 +40,7 @@ import Compute.CpuMemoryResource;
 
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
-import Compute.CudaDeviceResources;
+// DEPRECATED: import Compute.CudaDeviceResources;
 import Compute.OperationType;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;

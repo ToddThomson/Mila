@@ -15,6 +15,11 @@ import Compute.Device;
 import Compute.DeviceId;
 import Compute.CpuMemoryResource;
 
+// DEPRECATED: This is an older version of the ModelReader that reads the original Mila binary format.
+// The PretrainedModelReader is the newer version
+
+// REMOVE: after testing completed
+
 //namespace Mila::Dnn
 //{
 //    /**

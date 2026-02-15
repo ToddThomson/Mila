@@ -29,7 +29,7 @@ import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextTemplate;
-import Compute.CudaDeviceResources;
+// DEPRECATED: import Compute.CudaDeviceResources;
 import Compute.OperationType;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;

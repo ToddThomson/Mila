@@ -32,6 +32,8 @@ import Compute.IExecutionContext;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 
+import Serialization.Tensor;
+
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
@@ -163,5 +165,30 @@ namespace Mila::Dnn
         copy( src, dst, exec_context );
         
         return dst;
+    }
+
+    export template<TensorDataType TDstDataType, typename TDstMemoryResource>
+        requires isValidTensor<TDstDataType, TDstMemoryResource>
+    void copyFromBlob(
+        const Serialization::TensorBlob& blob,
+        Tensor<TDstDataType, TDstMemoryResource>& dst,
+        IExecutionContext* exec_context = nullptr )
+    {
+        // Validate shapes match
+        if ( blob.metadata.shape != dst.shape() )
+        {
+            throw std::invalid_argument( "Blob and destination tensor shapes must match" );
+        }
+
+        // FIXME: Validate total bytes
+        //size_t expected_bytes = computeTotalBytes( blob.metadata.dtype, blob.metadata.shape );
+        //if ( blob.data.size() != expected_bytes )
+        //{
+        //    throw std::invalid_argument( "Blob size mismatch" );
+        //}
+
+        // Dispatch based on destination device
+        constexpr DeviceType device = TDstMemoryResource::device_type;
+        TensorOps<device>::copyFromBlob( blob, dst, exec_context );
     }
 }

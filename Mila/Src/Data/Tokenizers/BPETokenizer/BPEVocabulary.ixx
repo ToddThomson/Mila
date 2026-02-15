@@ -948,6 +948,8 @@ namespace Mila::Data
         BpeVocabularyConfig config = BpeVocabularyConfig()
             .withVocabSize( vocab_size )
             .withByteLevel( true )
+            .withPreTokenization( PreTokenizationMode::Gpt2Regex )
+            .withPreTokenizationPattern( GPT2_PRETOKENIZATION_PATTERN )
             .withSpecialTokens( SpecialTokens::gptStyle() );
 
         BpeVocabulary vocab( config );

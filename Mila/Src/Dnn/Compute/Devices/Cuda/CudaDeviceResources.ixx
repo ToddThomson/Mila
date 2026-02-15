@@ -11,7 +11,7 @@ module;
 #include <string>
 #include <compare>
 
-export module Compute.CudaDeviceResources;
+export module Compute.CudaDeviceResources_deprecated;
 
 import Compute.DeviceId;
 import Cuda.Helpers;

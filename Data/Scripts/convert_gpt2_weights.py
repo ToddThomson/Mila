@@ -23,8 +23,8 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
     Convert GPT-2 model to Mila component format.
     
     GPT-2 Architecture (Mila component mapping):
-    - transformer.wte.weight -> lenc.wte.weight
-    - transformer.wpe.weight -> lenc.wpe.weight
+    - transformer.wte.weight -> lenc.wte
+    - transformer.wpe.weight -> lenc.wpe
 
     - transformer.h.{i}.ln_1.weight -> tf_layer_{i}.ln_1.weight
     - transformer.h.{i}.ln_1.bias -> tf_layer_{i}.ln_1.bias
@@ -66,6 +66,7 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
     writer.set_metadata({
         'architecture': 'gpt2',
         'model_name': model_name,
+        'dtype': dtype,
         'vocab_size': config.vocab_size,
         'max_seq_length': config.n_positions,
         'embedding_dim': config.n_embd,
@@ -81,16 +82,22 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
     
     # Convert weights
     state_dict = model.state_dict()
+
+    print("Layer 0 shapes:")
+    print(f"  c_attn (QKV):  {state_dict['transformer.h.0.attn.c_attn.weight'].shape}")
+    print(f"  c_proj (out):  {state_dict['transformer.h.0.attn.c_proj.weight'].shape}")
+    print(f"  c_fc   (fc_1): {state_dict['transformer.h.0.mlp.c_fc.weight'].shape}")
+    print(f"  c_proj (fc_2): {state_dict['transformer.h.0.mlp.c_proj.weight'].shape}")
     
     # Token embeddings (HuggingFace transformer.wte -> Mila wte)
     writer.add_tensor(
-        'lenc.wte.weight',
+        'lenc.wte',
         convert_dtype(state_dict['transformer.wte.weight'].numpy(), dtype)
     )
     
     # Position embeddings (transformer.wpe -> wpe)
     writer.add_tensor(
-        'lenc.wpe.weight',
+        'lenc.wpe',
         convert_dtype(state_dict['transformer.wpe.weight'].numpy(), dtype)
     )
     
@@ -110,9 +117,10 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
         )
         
         # Attention (c_attn is fused QKV projection -> fc_qkv_proj)
+        # Note: Transpose weights for fc_qkv_proj to match Mila's expected layout (out_features, in_features)
         writer.add_tensor(
             f'{prefix_mila}.fc_qkv_proj.weight',
-            convert_dtype(state_dict[f'{prefix_hf}.attn.c_attn.weight'].numpy(), dtype)
+            convert_dtype(state_dict[f'{prefix_hf}.attn.c_attn.weight'].numpy().T, dtype)
         )
         writer.add_tensor(
             f'{prefix_mila}.fc_qkv_proj.bias',
@@ -120,9 +128,10 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
         )
         
         # Attention output projection -> fc_out_proj
+        # Note: Transpose weights for fc_out_proj to match Mila's expected layout (out_features, in_features)
         writer.add_tensor(
             f'{prefix_mila}.fc_out_proj.weight',
-            convert_dtype(state_dict[f'{prefix_hf}.attn.c_proj.weight'].numpy(), dtype)
+            convert_dtype(state_dict[f'{prefix_hf}.attn.c_proj.weight'].numpy().T, dtype)
         )
         writer.add_tensor(
             f'{prefix_mila}.fc_out_proj.bias',
@@ -140,18 +149,44 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
         )
         
         # MLP (c_fc -> mlp.fc_1, c_proj -> mlp.fc_2)
+        # Note: Transpose weights to match Mila's expected layout (out_features, in_features)
         writer.add_tensor(
             f'{prefix_mila}.mlp.fc_1.weight',
-            convert_dtype(state_dict[f'{prefix_hf}.mlp.c_fc.weight'].numpy(), dtype)
+            convert_dtype(state_dict[f'{prefix_hf}.mlp.c_fc.weight'].numpy().T, dtype)
         )
         writer.add_tensor(
             f'{prefix_mila}.mlp.fc_1.bias',
             convert_dtype(state_dict[f'{prefix_hf}.mlp.c_fc.bias'].numpy(), dtype)
         )
+
+        weight = model.state_dict()['transformer.h.0.mlp.c_proj.weight']
+
+        print(f"\nLayer 0 fc_2 (c_proj) stats:")
+        print(f"  Shape: {weight.shape}")
+        print(f"  Min: {weight.min():.6f}")
+        print(f"  Max: {weight.max():.6f}")  
+        print(f"  Mean: {weight.mean():.6f}")
+
+        weight_T = weight.T
+        print(f"\nAfter .T stats:")
+        print(f"  Shape: {weight_T.shape}")
+        print(f"  Min: {weight_T.min():.6f}")
+        print(f"  Max: {weight_T.max():.6f}")
+        print(f"  Mean: {weight_T.mean():.6f}")
+        
+        print(f"First 5x5 block:\n{weight[:5, :5]}")
+        print(f"After .T first 5x5 block:\n{weight.T[:5, :5]}")
+
         writer.add_tensor(
             f'{prefix_mila}.mlp.fc_2.weight',
-            convert_dtype(state_dict[f'{prefix_hf}.mlp.c_proj.weight'].numpy(), dtype)
+            convert_dtype(state_dict[f'{prefix_hf}.mlp.c_proj.weight'].numpy().T, dtype)
         )
+        # Now check what you wrote to file
+        import numpy as np
+        converted = weight.numpy().T
+        print(f"\nConverted shape: {converted.shape}")
+        print(f"Converted first 5x5:\n{converted[:5, :5]}")
+
         writer.add_tensor(
             f'{prefix_mila}.mlp.fc_2.bias',
             convert_dtype(state_dict[f'{prefix_hf}.mlp.c_proj.bias'].numpy(), dtype)
@@ -168,6 +203,7 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
     )
     
     # LM head (output projection to vocabulary)
+    # Note: GPT-2's lm_head has no bias term by design (Weight tying with wte)
     writer.add_tensor(
         'lm_head.weight',
         convert_dtype(state_dict['lm_head.weight'].numpy(), dtype)

@@ -115,6 +115,8 @@ namespace Mila::Dnn
             PretrainedModelReader reader( model_path );
             const auto& metadata = reader.getPretrainedMetadata();
 
+            // REVIEW: this->verifyArchitectureCompatibility( metadata );
+
             GptConfig config = createConfigFromMetadata( metadata );
 
             std::unique_ptr<GptTransformer<TDeviceType, TPrecision>> gpt =
@@ -485,34 +487,20 @@ namespace Mila::Dnn
         TensorType* normalized_ptr_{ nullptr };
         TensorType* logits_ptr_{ nullptr };
 
-        /**
-         * @brief Load pretrained parameter using the Mila component path naming convention.
-         *
-         * Parses flat name specific to GPT-2 format and routes to component.
-         *
-         * @param flat_name Flat tensor name (e.g., "tf_layer_0.ln_1.weight")
-         * @param meta Tensor metadata
-         * @param bytes Raw tensor bytes
-         */
-        void loadParameter(
-            const std::string& parameter_name,
-            const TensorBlob blob )
+        std::pair<std::string, std::string> parseParameterPath( const std::string& full_name ) const
         {
-            // Parse component naming convention
-            auto last_dot = parameter_name.rfind( '.' );
-
+            auto last_dot = full_name.rfind( '.' );
+            
             if ( last_dot == std::string::npos )
             {
                 throw std::runtime_error(
-                    std::format( "Invalid GPT-2 tensor name: {}", parameter_name ) );
+                    std::format( "Invalid parameter path: {}", full_name ) );
             }
-
-            std::string component_path = parameter_name.substr( 0, last_dot );
-            std::string param_name = parameter_name.substr( last_dot + 1 );
-
-            auto target = this->findComponent( component_path );
             
-            target->loadParameter( param_name, blob );
+            std::string component_path = full_name.substr( 0, last_dot );
+            std::string param_name = full_name.substr( last_dot + 1 );
+            
+            return { component_path, param_name };
         }
 
         /**
@@ -522,49 +510,24 @@ namespace Mila::Dnn
          */
         void loadParameters( PretrainedModelReader& reader, bool strict )
         {
-            const auto& metadata = reader.getPretrainedMetadata();
-
-            std::cout << "Loading weights for: " << metadata.model_name << '\n';
-            std::cout << "  Architecture: " << metadata.architecture << '\n';
-            std::cout << "  Layers: " << metadata.num_layers << '\n';
-
-            this->verifyArchitectureCompatibility( metadata );
-
-            auto tensor_names = reader.getTensorNames();
-            std::size_t loaded_count = 0;
-            std::size_t skipped_count = 0;
-
-            for ( const auto& name : tensor_names )
+            for ( const auto& full_name : reader.getTensorNames() )
             {
-                try
-                {
-                    auto tensor_blob = reader.readTensorBlob( name );
+                auto [component_path, param_name] = parseParameterPath( full_name );
 
-                    loadParameter( name, tensor_blob );
-                    ++loaded_count;
-                }
-                catch ( const std::exception& e )
+                auto target = this->findComponent( component_path );
+                
+                if ( !target )
                 {
-                    if ( strict )
-                    {
-                        throw std::runtime_error(
-                            "Failed to load tensor '" + name + "': " + e.what()
-                        );
-                    }
-                    else
-                    {
-                        std::cerr << "Warning: Skipping tensor '" << name
-                            << "': " << e.what() << '\n';
-                        ++skipped_count;
-                    }
+                    if ( strict ) 
+                        throw std::runtime_error( "Component not found: " + component_path );
+                    
+                    continue;
                 }
-            }
 
-            std::cout << "Loaded " << loaded_count << " tensors";
-            if ( skipped_count > 0 ) {
-                std::cout << " (skipped " << skipped_count << ")";
+                auto blob = reader.readTensorBlob( full_name );
+
+                target->loadParameter( param_name, blob );
             }
-            std::cout << '\n';
         }
 
         void validateInputShape( const shape_t& input_shape ) const
@@ -599,11 +562,12 @@ namespace Mila::Dnn
 
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
-                GptBlockConfig block_cfg( static_cast<dim_t>( config_.getEmbeddingSize() ),
+                GptBlockConfig block_cfg( 
+                    static_cast<dim_t>( config_.getEmbeddingSize() ),
                     static_cast<dim_t>( config_.getNumHeads() ));
 
                 block_cfg.withHiddenSize( static_cast<dim_t>( config_.getHiddenSize() ))
-                    .withBias( false )
+                    .withBias( config_.getUseBias() )
                     .withActivation( ActivationType::Gelu )
                     .withResidualScale( 1.0f / sqrtf( static_cast<float>( config_.getNumLayers() ) ) );
 

@@ -388,7 +388,7 @@ PUBLIC
         "Src/Dnn/Components/Transformers/Transformer.ixx"
         "Src/Dnn/Components/Transformers/GenerateParams.ixx"
         "Src/Data/Tokenizers/SpecialTokens.ixx"
- "Src/Dnn/Serialization/PretrainedReader.ixx" "Src/Dnn/Serialization/Serializer.ixx" )
+ "Src/Dnn/Serialization/PretrainedReader.ixx" "Src/Dnn/Serialization/Serializer.ixx"  "Src/Data/Tokenizers/BPETokenizer/BpePreTokenization.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -441,7 +441,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTypeTraits.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaError.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaHelpers.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
+                # DEPRECATED "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaBadAlloc.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CublasLtError.ixx"
                 

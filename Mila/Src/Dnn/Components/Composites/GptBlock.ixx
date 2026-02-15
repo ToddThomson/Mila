@@ -503,7 +503,7 @@ namespace Mila::Dnn
             auto qkv_component = std::make_shared<LinearType>( this->getName() + ".fc_qkv_proj", qkv_cfg, std::nullopt );
             this->addComponent( qkv_component );
 
-            // BUG: Missing output_proj layer
+            // BUG: Was missing output_proj layer. Now added
             auto out_proj_cfg = LinearConfig( static_cast<dim_t>(config_.getEmbeddingSize()), static_cast<dim_t>(config_.getEmbeddingSize()) );
             out_proj_cfg.withBias( config_.useBias() );
             auto out_proj_component = std::make_shared<LinearType>( this->getName() + ".fc_out_proj", out_proj_cfg, std::nullopt );

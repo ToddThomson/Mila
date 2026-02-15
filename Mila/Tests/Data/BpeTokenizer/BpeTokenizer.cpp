@@ -275,14 +275,14 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
 
         ASSERT_NO_THROW(
         {
-            BpeTokenizer tokenizer = BpeTokenizer::loadGpt2( tokenizerPath );
-            EXPECT_GT( tokenizer.getVocabSize(), 0u );
+            std::shared_ptr<BpeTokenizer> tokenizer = BpeTokenizer::loadGpt2( tokenizerPath );
+            EXPECT_GT( tokenizer->getVocabSize(), 0u );
             
             std::string test_text = "Hello world";
-            auto encoded = tokenizer.encode( test_text );
+            auto encoded = tokenizer->encode( test_text );
             EXPECT_FALSE( encoded.empty() );
             
-            auto decoded = tokenizer.decode( encoded );
+            auto decoded = tokenizer->decode( encoded );
             EXPECT_FALSE( decoded.empty() );
         });
     }

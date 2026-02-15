@@ -474,7 +474,15 @@ namespace Mila::Dnn
             }
 
             addActivation( "gelu" );
-            addLinear( "fc_2", config_.getHiddenSize(), config_.getInputFeatures() );
+
+            // DEBUG: TEST: Changing with bias to false from config_.hasBias() 
+            auto cfg = LinearConfig( config_.getHiddenSize(), config_.getInputFeatures() )
+                .withBias( config_.hasBias() );
+
+            auto component = std::make_shared<LinearType>( this->getName() + ".fc_2", cfg, std::nullopt );
+
+            this->addComponent( component );
+            // addLinear( "fc_2", config_.getHiddenSize(), config_.getInputFeatures() );
         }
 
         /**

@@ -17,7 +17,7 @@ export module Compute.CudaDevice;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
-import Compute.CudaDeviceResources;
+// DEPRECATED import Compute.CudaDeviceResources;
 import Compute.CudaDeviceProps;
 import Compute.DeviceRegistry;
 import Cuda.Error;

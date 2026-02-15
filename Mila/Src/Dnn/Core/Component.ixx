@@ -609,6 +609,59 @@ namespace Mila::Dnn
         {
         }
 
+        /**
+         * @brief Load a tensor blob into a parameter tensor with validation
+         *
+         * Validates dtype and shape match, then copies blob data into the tensor.
+         *
+         * @param param_name Parameter name (for error messages)
+         * @param blob Source tensor blob
+         * @param target Destination tensor (must be initialized)
+         * @param expected_shape Expected tensor shape
+         *
+         * @throws std::runtime_error if tensor not initialized
+         * @throws std::invalid_argument if dtype or shape mismatch
+         */
+        template<TensorDataType TPrecision, typename TMemoryResource>
+        void loadParameterFromBlob(
+            const std::string& param_name,
+            const Serialization::TensorBlob& blob,
+            Tensor<TPrecision, TMemoryResource>& target,
+            const shape_t& expected_shape )
+        {
+            // REVIEW: Needed?
+            /*if ( !target.data() )
+            {
+                throw std::runtime_error(
+                    std::format( "Parameter '{}' tensor not initialized for component '{}'",
+                        param_name, getName() )
+                );
+            }*/
+
+            if ( blob.metadata.dtype != TPrecision )
+            {
+                throw std::invalid_argument(
+                    std::format( "Parameter '{}' dtype mismatch. Expected {}, got {}",
+                        param_name,
+                        tensorDataTypeToString( TPrecision ),
+                        tensorDataTypeToString( blob.metadata.dtype ) )
+                );
+            }
+
+            if ( blob.metadata.shape != expected_shape )
+            {
+                throw std::invalid_argument(
+                    std::format( "Linear {} Parameter '{}' shape mismatch. Expected {}, got {}",
+                        this->getName(),
+                        param_name,
+                        shapeToString( expected_shape ),
+                        shapeToString( blob.metadata.shape ) )
+                );
+            }
+
+            copyFromBlob( blob, target );
+        }
+
     private:
 
         std::string name_;

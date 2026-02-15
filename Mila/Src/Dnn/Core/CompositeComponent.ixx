@@ -278,7 +278,8 @@ namespace Mila::Dnn
          */
         ComponentPtr findComponent( const std::string& path ) const
         {
-            if ( path.empty() ) {
+            if ( path.empty() )
+            {
                 throw std::out_of_range( "Empty component path" );
             }
 
@@ -287,7 +288,8 @@ namespace Mila::Dnn
             std::string search_path = path;
             std::string my_name = this->getName();
 
-            if ( search_path.starts_with( my_name + "." ) ) {
+            if ( search_path.starts_with( my_name + "." ) )
+            {
                 search_path = search_path.substr( my_name.length() + 1 );
             }
 
@@ -299,7 +301,8 @@ namespace Mila::Dnn
             std::string full_child_name = my_name + "." + first_segment;
 
             auto it = child_component_map_.find( full_child_name );
-            if ( it == child_component_map_.end() ) {
+            if ( it == child_component_map_.end() )
+            {
                 throw std::out_of_range(
                     std::format( "No component named '{}' found in path '{}'",
                         first_segment, path )
@@ -308,16 +311,20 @@ namespace Mila::Dnn
 
             ComponentPtr current = it->second;
 
-            if ( next == std::string::npos ) {
+            if ( next == std::string::npos )
+            {
                 return current;
             }
 
             std::string remaining = search_path.substr( next + 1 );
 
             // Recursively resolve remaining path
-            while ( true ) {
+            while ( true )
+            {
                 auto composite = std::dynamic_pointer_cast<const CompositeComponent>(current);
-                if ( !composite ) {
+
+                if ( !composite )
+                {
                     throw std::runtime_error(
                         std::format( "Component '{}' in path '{}' is not composite, cannot traverse to '{}'",
                             current->getName(), path, remaining )
@@ -331,7 +338,8 @@ namespace Mila::Dnn
                 std::string full_name = current->getName() + "." + segment;
 
                 auto childIt = composite->child_component_map_.find( full_name );
-                if ( childIt == composite->child_component_map_.end() ) {
+                if ( childIt == composite->child_component_map_.end() )
+                {
                     throw std::out_of_range(
                         std::format( "No component named '{}' found in path '{}'",
                             segment, path )
@@ -340,7 +348,8 @@ namespace Mila::Dnn
 
                 current = childIt->second;
 
-                if ( next == std::string::npos ) {
+                if ( next == std::string::npos )
+                {
                     break;
                 }
 

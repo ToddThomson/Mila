@@ -4,6 +4,9 @@
 #include <iostream>
 #include <filesystem>
 #include <sstream>
+#include <memory>
+#include <stdexcept>
+#include <random>
 
 export module Chat;
 
@@ -14,13 +17,25 @@ namespace Mila::ChatApp
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Data;
+    using namespace Mila::Data;
+
+    using GptType = GptTransformer<DeviceType::Cuda, TensorDataType::FP32>;
+
+    // Helper: path to GPT-2 tokenizer under TEST_DATA_DIR (set via CMake target_compile_definitions)
+    static std::filesystem::path gpt2_tokenizer_path()
+    {
+        std::filesystem::path models_path = MODELS_DIR;
+        return models_path / "gpt2" / "gpt2_tokenizer.bin";
+    }
 
     export class Chat 
     {
     public:
         
-        Chat( const std::string& modelPath )
-            : modelPath_( modelPath ) {
+        Chat( const std::filesystem::path model_path )
+            : model_path_( model_path )
+        {
+            initializeTokenizer();
             loadModel();
         }
 
@@ -57,10 +72,8 @@ namespace Mila::ChatApp
                 // Add user input to history
                 conversationHistory.push_back( "User: " + userInput );
 
-                // Generate response
                 std::string response = generateResponse( conversationHistory );
 
-                // Add assistant response to history
                 conversationHistory.push_back( "Mila: " + response );
 
                 std::cout << "\nMila: " << response << "\n";
@@ -68,32 +81,54 @@ namespace Mila::ChatApp
         }
 
     private:
+        
+        void initializeTokenizer() {
+            try {
+                std::cout << "Loading tokenizer from: " << gpt2_tokenizer_path() << "\n";
+                tokenizer_ = BpeTokenizer::loadGpt2( gpt2_tokenizer_path() );
+
+                std::cout << "Tokenizer loaded successfully!\n";
+
+                // DEBUG: Verify vocab loaded correctly
+                std::cout << "Vocab size: " << tokenizer_->getVocabSize() << "\n";
+            }
+            catch ( const std::exception& e ) {
+                std::cerr << "Error loading tokenizer: " << e.what() << "\n";
+                throw;
+            }
+        }
 
         void loadModel() {
             try {
-                std::cout << "Loading model from: " << modelPath_ << "\n";
+                std::cout << "Loading model from: " << model_path_ << "\n";
 
-                // Use the GPT-2 Small preset (preferred over manual config)
-                GptConfig config = GPT2_Small();
-
-                // Construct a device/precision specific transformer instance
-                transformer_ = std::make_unique<GptTransformer<DeviceType::Cuda, TensorDataType::FP32>>(
-                    "gpt2_small",
-                    config,
-                    DeviceId{ DeviceType::Cuda, 0 }
+                // Create transformer from pretrained archive.
+                // Use batch_size=1 and device CUDA:0 by default.
+                transformer_ = GptType::fromPretrained(
+                    model_path_,
+                    /*batch_size=*/1,
+                    /*seq_length=*/128,
+                    DeviceId{ DeviceType::Cuda, 0 },
+                    /*strict=*/true
                 );
 
-                // Build transformer with batch size 1 and preset max sequence length
-                // FIXME: transformer_->build( shape_t{ 1, static_cast<size_t>(config.getMaxSequenceLength()) } );
+                // Ensure network is in inference mode (no gradients).
+                if ( transformer_ ) {
+                    transformer_->setTraining( false );
 
-                // Load pre-trained weights
-                // FIXME: transformer_->load( modelPath_ );
-
-                // Set to inference mode
-                // FIXME: transformer_->eval();
+                    // Optional: print parameter count if available
+                    try {
+                        std::cout << "Parameters: " << transformer_->parameterCount() << "\n";
+                    }
+                    catch ( const std::exception& ) {
+                        // Ignore if parameterCount is not available or throws
+                    }
+                }
+                else {
+                    std::cerr << "Warning: transformer creation returned null.\n";
+                }
 
                 std::cout << "Model loaded successfully!\n";
-                // FIXME:: std::cout << "Parameters: " << transformer_->num_parameters() << "\n";
             }
             catch ( const std::exception& e ) {
                 std::cerr << "Error loading model: " << e.what() << "\n";
@@ -101,34 +136,181 @@ namespace Mila::ChatApp
             }
         }
 
-        std::string generateResponse( const std::vector<std::string>& history ) {
-            try {
+        std::string generateResponse( const std::vector<std::string>& history )
+        {
+            try
+            {
                 // Prepare the prompt from conversation history
                 std::string prompt = preparePrompt( history );
 
-                // Tokenize the input
-                //auto tokens = tokenizer_.encode( prompt );
+                // DEBUG Simplify for testing
+                //prompt = "You are a helpful AI Assistant. Your name is Mila";
+                prompt = "Once upon a time";
 
-                // Generate response tokens
-                /*Mila::GenerationConfig genConfig{
-                    .max_new_tokens = 256,
-                    .temperature = 0.8f,
-                    .top_k = 40,
-                    .top_p = 0.95f,
-                    .do_sample = true
-                };*/
+                // If transformer is not loaded, return fallback text
+                if ( !transformer_ )
+                {
+                    return "Model not loaded.";
+                }
 
-                //auto outputTokens = transformer_->generate( tokens, genConfig );
+                if ( !tokenizer_ )
+                {
+                    return "Tokenizer not loaded.";
+                }
 
-                // Decode tokens to text
-                //std::string response = tokenizer_.decode( outputTokens );
+                // Encode prompt
+                std::vector<TokenId> prompt_tokens = tokenizer_->encode( prompt );
 
-                // Extract just the assistant's response (remove the prompt)
-                // response = extractResponse( response, prompt );
+                // DEBUG: Print token IDs
+                Utils::Logger::info( std::format( "Input prompt: '{}'", prompt ) );
+                Utils::Logger::info( std::format( "Token count: {}", prompt_tokens.size() ) );
+                Utils::Logger::info( "Token IDs:" );
+                for ( size_t i = 0; i < prompt_tokens.size(); ++i )
+                {
+                    Utils::Logger::info( std::format( "  [{}]: {}", i, prompt_tokens[ i ] ) );
+                }
 
-                return "this is all there is!";// response;
+                // Check if any tokens are out of range
+                size_t vocab_size = tokenizer_->getVocabSize();
+                Utils::Logger::info( std::format( "Vocab size: {}", vocab_size ) );
+                for ( auto id : prompt_tokens )
+                {
+                    if ( id >= vocab_size )
+                    {
+                        Utils::Logger::error( std::format( "ERROR: Token ID {} is out of range (vocab_size={})",
+                            id, vocab_size ) );
+                    }
+                }
+
+                // Generation params (adjustable)
+                const int64_t model_batch_size = 1;
+                const int64_t model_seq_length = 128; // safe default window (must be <= model max seq length)
+                const size_t max_new_tokens = 64;
+                const float temperature = 0.8f;
+
+                // RNG for sampling
+                std::mt19937 rng( static_cast<unsigned int>( std::chrono::high_resolution_clock::now().time_since_epoch().count() ) );
+
+                // Vocab size from tokenizer
+                //size_t vocab_size = tokenizer_->getVocabSize();
+
+                // Working buffers (device + cpu)
+                using DeviceMR = typename DeviceTypeTraits<DeviceType::Cuda>::memory_resource;
+
+                shape_t model_shape = { model_batch_size, model_seq_length };
+                shape_t logits_shape = { model_batch_size, model_seq_length, static_cast<int64_t>(vocab_size) };
+
+                Tensor<TensorDataType::INT32, DeviceMR> context_device( DeviceId{ DeviceType::Cuda, 0 }, model_shape );
+                Tensor<TensorDataType::FP32, DeviceMR> logits_device( DeviceId{ DeviceType::Cuda, 0 }, logits_shape );
+                Tensor<TensorDataType::FP32, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
+                Tensor<TensorDataType::INT32, CpuMemoryResource> context_cpu( Device::Cpu(), model_shape );
+
+                // Pad value if tokenizer provides one
+                int32_t pad_value = 0;
+                auto pad_opt = tokenizer_->getPadTokenId();
+                if ( pad_opt ) pad_value = static_cast<int32_t>( *pad_opt );
+
+                // Start generation with prompt tokens
+                std::vector<TokenId> generated_tokens = prompt_tokens;
+
+                // Helper: sample from logits with temperature
+                auto sampleFromLogits = [&]( const float* logits_ptr, size_t vsize, float temp ) -> int32_t {
+                    // Numerically stable softmax sampling
+                    float max_logit = -std::numeric_limits<float>::infinity();
+                    for ( size_t v = 0; v < vsize; ++v )
+                        max_logit = std::max( max_logit, logits_ptr[v] );
+
+                    std::vector<float> probs(vsize);
+                    double sum = 0.0;
+                    for ( size_t v = 0; v < vsize; ++v ) {
+                        float scaled = (logits_ptr[v] - max_logit) / temp;
+                        float e = std::exp( scaled );
+                        probs[v] = e;
+                        sum += e;
+                    }
+
+                    if ( sum <= 0.0 ) {
+                        // fallback to argmax
+                        size_t best = 0;
+                        for ( size_t v = 1; v < vsize; ++v )
+                            if ( logits_ptr[v] > logits_ptr[best] ) best = v;
+                        return static_cast<int32_t>( best );
+                    }
+
+                    for ( size_t v = 0; v < vsize; ++v ) probs[v] = static_cast<float>( probs[v] / sum );
+
+                    std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
+                    float r = dist( rng );
+                    float cumsum = 0.0f;
+                    for ( size_t v = 0; v < vsize; ++v ) {
+                        cumsum += probs[v];
+                        if ( r < cumsum ) return static_cast<int32_t>( v );
+                    }
+
+                    return static_cast<int32_t>( vsize - 1 );
+                };
+
+                // Temporarily ensure model is in inference mode
+                bool was_training = transformer_->isTraining();
+                transformer_->setTraining( false );
+
+                for ( size_t step = 0; step < max_new_tokens; ++step )
+                {
+                    int64_t context_start = std::max<int64_t>( 0, static_cast<int64_t>( generated_tokens.size() ) - model_seq_length );
+                    int64_t actual_context_len = static_cast<int64_t>( generated_tokens.size() ) - context_start;
+
+                    // Fill CPU context with pad
+                    std::fill_n( context_cpu.data(), static_cast<size_t>( model_batch_size * model_seq_length ), pad_value );
+
+                    // Copy last tokens into context_cpu (batch 0)
+                    for ( int64_t j = 0; j < actual_context_len; ++j )
+                    {
+                        context_cpu.data()[ static_cast<size_t>( j ) ] = static_cast<int32_t>( generated_tokens[ static_cast<size_t>( context_start + j ) ] );
+                    }
+
+                    // Transfer to device
+                    copy( context_cpu, context_device );
+
+                    // Forward pass
+                    auto& logits_ref = transformer_->forward( context_device );
+                    transformer_->synchronize();
+
+                    // Copy logits back to CPU
+                    copy( logits_ref, logits_cpu );
+
+                    // Determine last real position in sequence
+                    int64_t last_real_pos = ( actual_context_len > 0 ) ? ( actual_context_len - 1 ) : ( model_seq_length - 1 );
+                    if ( last_real_pos < 0 ) last_real_pos = 0;
+
+                    size_t batch_0_last_token_offset = static_cast<size_t>( last_real_pos ) * vocab_size;
+
+                    // Sample next token
+                    const float* logits_ptr = logits_cpu.data() + batch_0_last_token_offset;
+                    int32_t next_token = sampleFromLogits( logits_ptr, vocab_size, temperature );
+
+                    generated_tokens.push_back( static_cast<TokenId>( next_token ) );
+
+                    // Stop if EOS token encountered (if tokenizer exposes it)
+                    auto eos_opt = tokenizer_->getEosTokenId();
+                    if ( eos_opt && static_cast<int32_t>( next_token ) == static_cast<int32_t>( *eos_opt ) )
+                    {
+                        break;
+                    }
+                }
+
+                // Restore training state
+                transformer_->setTraining( was_training );
+
+                // Decode generated token ids back to text using tokenizer
+                std::string full_text = tokenizer_->decode( std::span<const TokenId>( generated_tokens.data(), generated_tokens.size() ) );
+
+                // Extract assistant response portion (remove prompt)
+                std::string response = extractResponse( full_text, prompt );
+
+                return response;
             }
-            catch ( const std::exception& e ) {
+            catch ( const std::exception& e )
+            {
                 return "Error generating response: " + std::string( e.what() );
             }
         }
@@ -196,8 +378,8 @@ namespace Mila::ChatApp
                 )" << "\n";
         }
 
-        std::string modelPath_;
-        std::unique_ptr<GptTransformer<DeviceType::Cuda, TensorDataType::FP32>> transformer_;
-        //GptTokenizer tokenizer_;
+        std::filesystem::path model_path_;
+        std::shared_ptr<GptType> transformer_{ nullptr };
+        std::shared_ptr<BpeTokenizer> tokenizer_{ nullptr };
     };
 }

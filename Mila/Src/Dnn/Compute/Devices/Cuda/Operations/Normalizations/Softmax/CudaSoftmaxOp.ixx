@@ -27,7 +27,7 @@ import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
-import Compute.CudaDeviceResources;
+// DEPRECATED: import Compute.CudaDeviceResources;
 import Compute.OperationType;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
@@ -74,6 +74,7 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
                 int N, int axis, cudaStream_t stream )
             {
                 // FIXME: cuda_softmax_backward<float>( dX, dY, Y, N, axis, stream );
+                throw std::runtime_error( "cuda_softmax_backwards<float>() needs review" );
             }
         };
 
@@ -100,6 +101,7 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
                 int N, int axis, cudaStream_t stream )
             {
                 // FIXME: cuda_softmax_backward<half>( dX, dY, Y, N, axis, stream );
+                throw std::runtime_error( "cuda_softmax_backwards<half>() needs review" );
             }
         };
     }

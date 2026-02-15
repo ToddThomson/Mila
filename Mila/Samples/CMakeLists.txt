@@ -2,7 +2,7 @@
 
 add_subdirectory( MNIST )
 add_subdirectory( Bard )
-#add_subdirectory( Chat )
+add_subdirectory( Chat )
 
 if(WIN32)
   #add_subdirectory(Viz)

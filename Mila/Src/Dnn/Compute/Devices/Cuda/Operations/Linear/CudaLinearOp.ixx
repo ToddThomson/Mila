@@ -10,12 +10,14 @@ module;
 #include <vector>
 #include <memory>
 #include <string>
+#include <format>
 #include <stdexcept>
 #include <exception>
 #include <cstdint>
 #include <type_traits>
 #include <sstream>
 #include <cassert>
+#include <algorithm>
 #include "Kernels/Linear.cuh"
 
 export module Compute.CudaLinearOp;
@@ -42,6 +44,11 @@ import Compute.CudaDevice;
 import Compute.CudaTensorDataType;
 import CublasLt.Error;
 import Utils.Logger;
+
+// DEBUG:
+import Dnn.TensorOps;
+import Dnn.TensorHelpers;
+
 
 namespace Mila::Dnn::Compute::Cuda::Linear
 {
@@ -138,11 +145,6 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         /**
          * @brief Build cuBLASLt plan for forward pass.
-         *
-         * Matches the exact layout from working CublasLtMatMulBias.ixx:
-         * - Weight: [in_features × out_features] with ld=in_features, transposed
-         * - Input: [in_features × batch_size] with ld=in_features
-         * - Output: [out_features × batch_size] with ld=out_features
          */
         template <typename TNative>
         CublasLtMatMulPlan<TNative> build_forward_plan(
@@ -184,6 +186,12 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 cublasLtCheckStatus( cublasLtMatmulDescSetAttribute(
                     plan.matmul_desc, CUBLASLT_MATMUL_DESC_EPILOGUE,
                     &epilogue, sizeof( epilogue ) ) );
+
+                // DEBUG: ADD THIS: Set the bias data type
+                // Test result: no change
+                cublasLtCheckStatus( cublasLtMatmulDescSetAttribute(
+                    plan.matmul_desc, CUBLASLT_MATMUL_DESC_BIAS_DATA_TYPE,
+                    &cuda_data_type, sizeof( cuda_data_type ) ) );
             }
 
             cublasLtCheckStatus( cublasLtMatmulPreferenceCreate( &plan.preference ) );
@@ -207,6 +215,16 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 plan.algorithm = {};
                 plan.has_algorithm = false;
             }
+
+            // DEBUG: Start
+            Utils::Logger::debug( std::format(
+                "build_forward_plan: in={}, out={}, batch={}, has_bias={}, "
+                "weight_layout dims=[{},{}] LD={}, "
+                "TRANSA={}",
+                in_features, out_features, batch_size, has_bias,
+                in_features, out_features, in_features,
+                "CUBLAS_OP_T" ) );
+            // DEBUG: End
 
             return plan;
         }
@@ -948,7 +966,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
                 // 2. Compute weight gradient: dW += X * dY^T
 				// ACCUMULATE into weight gradient (beta=1)
-                const float beta_params = 0.0f; // FIXME was 1.0f;
+                const float beta_params = 0.0f; // REVIEW: This is likely an old FIXME: was 1.0f;
                 
                 Detail::execute_cublaslt_plan(
                     cached_cublaslt_handle_,

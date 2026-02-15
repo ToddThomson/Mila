@@ -200,7 +200,7 @@ add_executable( MilaTests
 
     #"Dnn/Serialization/ModelArchive.cpp" 
     "Dnn/Components/Transformers/Gpt.Presets.cpp"
-    "Dnn/Components/Transformers/GptTransformer.cpp"
+    "Dnn/Components/Transformers/GptTransformer.Cpu.cpp"
     "Dnn/Components/Transformers/LlamaTransformer.cpp"
     "Dnn/Components/Transformers/Llama.Presets.cpp"
     "Dnn/Data/Gpt2Tokenizer.cpp"
@@ -212,7 +212,7 @@ add_executable( MilaTests
     "Data/BpeTokenizer/BpeTokenizer.Gpt2.cpp"
     "Data/CharTokenizer/CharTokenizer.cpp"
     "Dnn/Data/TokenSequenceLoader.cpp"
-)
+ "Dnn/Components/Transformers/GptTransformer.Cuda.cpp")
 
 target_compile_definitions( MilaTests PRIVATE TEST_DATA_DIR="${TEST_DATA_DIR}" )
 

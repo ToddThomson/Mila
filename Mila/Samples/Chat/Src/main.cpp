@@ -3,29 +3,44 @@
 #include <iostream>
 #include <filesystem>
 
+import Mila;
 import Chat;
+
+// Helper: path to GPT-2 weights under MODELS_DIR (set via CMake target_compile_definitions)
+static std::filesystem::path gpt2_weights_path()
+{
+    std::filesystem::path models_dir = MODELS_DIR;
+    return models_dir / "gpt2" / "gpt2_small_fp32.bin";
+}
 
 int main( int argc, char* argv[] )
 {
-    try {
-        std::string modelPath = "models/gpt2.bin";
+    Mila::initialize();
 
-        if ( argc > 1 ) {
-            modelPath = argv[ 1 ];
+    try
+    {
+        auto model_path = gpt2_weights_path();
+
+        if ( argc > 1 )
+        {
+            model_path = argv[ 1 ];
         }
 
-        if ( !std::filesystem::exists( modelPath ) ) {
-            std::cerr << "Error: Model file not found: " << modelPath << "\n";
+        if ( !std::filesystem::exists( model_path ) )
+        {
+            std::cerr << "Error: Model file not found: " << model_path << "\n";
             std::cerr << "Usage: " << argv[ 0 ] << " [model_path]\n";
+
             return 1;
         }
 
-        Mila::ChatApp::Chat chat(modelPath);
+        Mila::ChatApp::Chat chat( model_path );
         chat.run();
 
         return 0;
     }
-    catch ( const std::exception& e ) {
+    catch ( const std::exception& e )
+    {
         std::cerr << "Fatal error: " << e.what() << "\n";
         return 1;
     }

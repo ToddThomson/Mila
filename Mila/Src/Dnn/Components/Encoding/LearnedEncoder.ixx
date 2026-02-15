@@ -16,6 +16,7 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <optional>
+#include <numeric>
 
 export module Dnn.Components.LearnedEncoder;
 export import :Config;
@@ -41,6 +42,11 @@ import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
 import Serialization.Mode;
+
+// DEBUG:
+import Dnn.TensorOps;
+import Dnn.TensorHelpers;
+import Utils.Logger;
 
 namespace Mila::Dnn
 {
@@ -249,6 +255,66 @@ namespace Mila::Dnn
                 params.push_back( wpe_.get() );
 
             return params;
+        }
+
+        void loadParameter( const std::string& name, const TensorBlob& blob ) override
+        {
+            if ( name == "wte" )
+            {
+                this->loadParameterFromBlob( "wte", blob, *wte_, wte_->shape() );
+            }
+            else if ( name == "wpe" )
+            {
+                this->loadParameterFromBlob( "wpe", blob, *wpe_, wpe_->shape() );
+            }
+            else
+            {
+                // Throw by default for unknown parameter names
+                this->loadParameter( name, blob ); 
+            }
+
+            // DEBUG: Diagnostics
+
+            if ( name == "wte" )
+            {
+                // DIAGNOSTIC: Check weight statistics
+                auto host_wte = toHost<TensorDataType::FP32>( *wte_ );
+
+                const float* ptr = host_wte.data();
+                const size_t n = host_wte.size();
+
+                if ( n > 0 )
+                {
+                    float min_w = *std::min_element( ptr, ptr + n );
+                    float max_w = *std::max_element( ptr, ptr + n );
+                    float mean_w = std::accumulate( ptr, ptr + n, 0.0f ) / static_cast<float>(n);
+
+                    Utils::Logger::info( std::format(
+                        "LearnedEncoder wte stats: min={:.6f} max={:.6f} mean={:.6f}",
+                        min_w, max_w, mean_w ) );
+                }
+
+            }
+
+            if ( name == "wpe" )
+            {
+                auto host_wpe = toHost<TensorDataType::FP32>( *wpe_ );
+                const float* ptr = host_wpe.data();
+                const size_t n = host_wpe.size();
+
+                if ( n > 0 )
+                {
+                    float min_b = *std::min_element( ptr, ptr + n );
+                    float max_b = *std::max_element( ptr, ptr + n );
+                    float mean_w = std::accumulate( ptr, ptr + n, 0.0f ) / static_cast<float>(n);
+
+                    Utils::Logger::info( std::format(
+                        "LearnedEncoder wpe stats: min={:.6f} max={:.6f} mean={:.6f}",
+                        min_b, max_b, mean_w ) );
+                }
+            }
+
+            // END DEBUG:
         }
 
         std::vector<ITensor*> getGradients() const override

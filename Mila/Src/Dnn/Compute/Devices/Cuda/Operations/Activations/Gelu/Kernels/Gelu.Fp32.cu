@@ -35,7 +35,7 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
      */
     __global__ void gelu_forward_fp32_kernel( float* Y, const float* X, int N )
     {
-        constexpr float kGeluInputAbsLimit = 50.0f;   // GELU input should be reasonable
+        constexpr float kGeluInputAbsLimit = 50.0f;   // GELU input should be reasonable was 50.0f, but increased to 75.0f to avoid false positives in some cases
         constexpr float kGeluOutputAbsLimit = 100.0f; // GELU output can be slightly larger
 
         int i = blockIdx.x * blockDim.x + threadIdx.x;

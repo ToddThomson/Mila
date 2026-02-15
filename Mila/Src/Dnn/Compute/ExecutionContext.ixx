@@ -112,6 +112,7 @@ namespace Mila::Dnn::Compute
 
         if ( context->getDeviceId().type != TDeviceType ) {
             throw std::invalid_argument( "{} requires {} execution context, got {}" );
+            // FIXME: 
             //    std::format( "{} requires {} execution context, got {}",
             //        op_name,
             //        deviceTypeToString( TDeviceType ),
