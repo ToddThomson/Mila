@@ -17,6 +17,7 @@ module;
 #include <cstdint>
 #include <optional>
 #include <numeric>
+#include <algorithm>
 
 export module Dnn.Components.LearnedEncoder;
 export import :Config;
@@ -134,21 +135,48 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Encoder module must be built before calling forward." );
             }
 
-            validateInputShape( input );
+            // Get dimensions from input
+            auto actual_shape = input.shape();
+            int64_t B = actual_shape[ 0 ];
+            int64_t T = actual_shape[ 1 ];
 
-            if ( !operation_ )
+            // REVIEW: Validation() only in backend operation?
+            // Validate actual dimensions fit within max
+            if ( B > max_batch_size_ || T > max_seq_len_ )
             {
-                throw std::runtime_error( "Encoder: operation backend not initialized" );
+                throw std::runtime_error( std::format(
+                    "LearnedEncoder: input shape [{}, {}] exceeds built max [{}, {}]",
+                    B, T, max_batch_size_, max_seq_len_ ) );
             }
 
-            if ( !owned_output_ )
-            {
-                throw std::runtime_error( "Encoder: owned output buffer not allocated" );
-            }
+            // DEBUG: Check input range
+            auto host_input = toHost<TensorDataType::FP32>( input );
+            auto host_input_ptr = host_input.data();
+            const size_t n = host_input.size();
+            auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
+            Utils::Logger::debug( std::format( "LearnedEncoder {} in:[{:.3f}, {:.3f}] with shape:{}",
+                this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
+            // END DEBUG:
 
-            operation_->forward( input, *owned_output_ );
+            operation_->forward( input, *output_ );
 
-            return *owned_output_;
+            // Return view with actual output shape
+            shape_t actual_out_shape = { B, T, static_cast<dim_t>( config_.getChannels() ) };
+            current_output_view_ = std::make_unique<EmbeddingsTensorType>( output_->view( actual_out_shape ) );
+
+            // DEBUG: Check output range
+            this->synchronize();
+
+            auto host_output = toHost<TensorDataType::FP32>( *current_output_view_ );
+            auto host_output_ptr = host_output.data();
+            const size_t output_n = host_output.size();
+            auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
+
+            Utils::Logger::debug( std::format( "LearnedEncoder {} out:[{:.3f}, {:.3f}] with shape:{}",
+                this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );
+            // DEBUG END
+
+            return *current_output_view_;
         }
 
         /**
@@ -187,7 +215,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Encoder: operation backend not initialized" );
             }
 
-            if ( !owned_input_grad_ )
+            if ( !input_grad_ )
             {
                 throw std::runtime_error( "Encoder: owned input-grad buffer not allocated" );
             }
@@ -196,11 +224,11 @@ namespace Mila::Dnn
             // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed buffers
             // to prevent gradient buildup across calls. Without this, gradients grow linearly
             // with each call -> explosion.
-            zero( *owned_input_grad_ /*, this->getExecutionContext() */);
+            zero( *input_grad_ /*, this->getExecutionContext() */);
 
-            operation_->backward( input, output_grad, *owned_input_grad_ );
+            operation_->backward( input, output_grad, *input_grad_ );
 
-            return *owned_input_grad_;
+            return *input_grad_;
         }
 
         void zeroGradients() override
@@ -415,6 +443,11 @@ namespace Mila::Dnn
         {
             validateInputShape( input_shape );
 
+            // Store MAX dimensions for dynamic input validation in forward/backward 
+            // (batch size can vary, but sequence length must be <= max)
+            max_batch_size_ = input_shape[ 0 ];
+            max_seq_len_ = input_shape[ 1 ];
+
             operation_->setParameters( wte_.get(), wpe_.get() );
 
             if ( this->isTraining() )
@@ -427,16 +460,13 @@ namespace Mila::Dnn
 
             // Allocate and cache component-owned output and input-grad tensors.
             auto device = this->getExecutionContext()->getDeviceId();
+            shape_t max_out_shape = { max_batch_size_, max_seq_len_, static_cast<dim_t>( config_.getChannels() ) };
 
-            shape_t out_shape = input_shape;
-            out_shape.push_back( config_.getChannels() );
-            out_shape[ 2 ] = config_.getChannels();
+            output_ = std::make_unique<EmbeddingsTensorType>( device, max_out_shape );
+            output_->setName( this->getName() + ".output" );
 
-            owned_output_ = std::make_unique<EmbeddingsTensorType>( device, out_shape );
-            owned_output_->setName( this->getName() + ".output" );
-
-            owned_input_grad_ = std::make_unique<TokenIndexType>( device, input_shape );
-            owned_input_grad_->setName( this->getName() + ".input.grad" );
+            input_grad_ = std::make_unique<TokenIndexType>( device, input_shape );
+            input_grad_->setName( this->getName() + ".input.grad" );
         }
 
         void onTrainingChanging( bool is_training ) override
@@ -466,14 +496,18 @@ namespace Mila::Dnn
     private:
         LearnedEncoderConfig config_;
 
+        int64_t max_batch_size_{ 0 };
+        int64_t max_seq_len_{ 0 };
+
         std::unique_ptr<EmbeddingsTensorType> wte_{ nullptr };  // Token embeddings (V, C)
         std::unique_ptr<EmbeddingsTensorType> wpe_{ nullptr };  // Position embeddings (maxT, C)
 
         std::unique_ptr<EmbeddingsTensorType> wte_grad_{ nullptr };
         std::unique_ptr<EmbeddingsTensorType> wpe_grad_{ nullptr };
 
-        std::unique_ptr<TokenIndexType> owned_input_grad_{ nullptr };
-        std::unique_ptr<EmbeddingsTensorType> owned_output_{ nullptr };
+        std::unique_ptr<TokenIndexType> input_grad_{ nullptr };
+        std::unique_ptr<EmbeddingsTensorType> output_{ nullptr };
+        std::unique_ptr<EmbeddingsTensorType> current_output_view_{ nullptr };
 
         std::shared_ptr<UnaryOperation<TDeviceType, TIndex, TPrecision>> operation_{ nullptr };
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };

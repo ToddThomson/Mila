@@ -19,6 +19,65 @@
 
 namespace Mila::Dnn::Compute::Cuda::Attention
 {
+    // DEBUG: FP32 Softmax with Causal Masking and Scaling, with Padding Support
+    __global__ void softmax_padded_forward_fp32_kernel(
+        float* att, float scale, const float* preatt,
+        int B_NH, int T, int actual_T )  // Add actual_T parameter
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        int total_rows = B_NH * T;
+        if ( idx < total_rows )
+        {
+            int b_nh = idx / T;
+            int t = idx % T;
+
+            // Only process rows for real tokens
+            if ( t >= actual_T )
+            {
+                // This is a padding position - zero out attention
+                float* att_row = att + b_nh * (T * T) + t * T;
+                for ( int t2 = 0; t2 < T; ++t2 )
+                {
+                    att_row[ t2 ] = 0.0f;
+                }
+                return;
+            }
+
+            const float* preatt_matrix = preatt + b_nh * (T * T);
+            float* att_matrix = att + b_nh * (T * T);
+            const float* preatt_row = preatt_matrix + t * T;
+            float* att_row = att_matrix + t * T;
+
+            float max_val = -INFINITY;
+            // Only attend to real tokens (up to actual_T) and causal positions
+            int max_t2 = min( t, actual_T - 1 );
+            for ( int t2 = 0; t2 <= max_t2; ++t2 )
+            {
+                max_val = fmaxf( max_val, preatt_row[ t2 ] );
+            }
+
+            float sum = 0.0f;
+            for ( int t2 = 0; t2 <= max_t2; ++t2 )
+            {
+                float val = expf( (preatt_row[ t2 ] - max_val) * scale );
+                sum += val;
+                att_row[ t2 ] = val;
+            }
+
+            float inv_sum = 1.0f / sum;
+            for ( int t2 = 0; t2 <= max_t2; ++t2 )
+            {
+                att_row[ t2 ] *= inv_sum;
+            }
+
+            // Zero out everything after real tokens
+            for ( int t2 = max_t2 + 1; t2 < T; ++t2 )
+            {
+                att_row[ t2 ] = 0.0f;
+            }
+        }
+    }
+
     // ========================================================================
     // FP32 Softmax with Causal Masking and Scaling
     // ========================================================================

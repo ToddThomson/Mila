@@ -18,6 +18,8 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <optional>
+#include <format>
+#include <algorithm>
 
 export module Dnn.Components.Residual;
 export import :Config;
@@ -46,6 +48,7 @@ import Serialization.ModelArchive;
 import Serialization.Mode;
 
 import Dnn.Components.Linear;
+import Utils.Logger;
 
 namespace Mila::Dnn
 {
@@ -152,7 +155,43 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Residual::forward: owned output buffer not allocated" );
             }
 
+            // DEBUG: Check input range
+            auto host_input = toHost<TensorDataType::FP32>( input_a );
+            auto host_input_ptr = host_input.data();
+            size_t n = host_input.size();
+            auto [min_in_a, max_in_a] = std::minmax_element( host_input_ptr, host_input_ptr + n );
+            Utils::Logger::debug( std::format( "Residual {} in_a:[{:.3f}, {:.3f}] with shape:{}",
+                this->getName(), *min_in_a, *max_in_a, shapeToString( host_input.shape() ) ) );
+
+            auto host_input_b = toHost<TensorDataType::FP32>( input_b );
+            auto host_input_b_ptr = host_input_b.data();
+            n = host_input_b.size();
+            auto [min_in_b, max_in_b] = std::minmax_element( host_input_b_ptr, host_input_b_ptr + n );
+            
+            Utils::Logger::debug( std::format( "Residual {} in_b:[{:.3f}, {:.3f}] with shape:{}",
+                this->getName(), *min_in_b, *max_in_b, shapeToString( host_input_b.shape() ) ) );
+            // END DEBUG:
+
             operation_->forward( input_a, input_b, *owned_output_ );
+
+            // DEBUG: Check output range
+            this->synchronize();
+
+            auto host_output = toHost<TensorDataType::FP32>( *owned_output_ );
+            auto host_output_ptr = host_output.data();
+            const size_t output_n = host_output.size();
+            auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
+
+            Utils::Logger::debug( std::format( "Residual {} out:[{:.3f}, {:.3f}] with shape:{}",
+                this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );
+
+            Utils::Logger::debug( std::format( "Residual {} output at positions:", this->getName() ) );
+            for ( int i = 0; i < 4; ++i )
+            {  // First 4 tokens
+                auto feature_value = host_output_ptr[ i * 768 ];  // Assuming last dimension is 768
+                Utils::Logger::debug( std::format( "  Token {}: {:.3f}", i, feature_value ) );  // First feature of each token
+            }
+            // DEBUG END
 
             return *owned_output_;
         }

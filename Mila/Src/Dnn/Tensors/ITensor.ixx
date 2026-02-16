@@ -54,6 +54,12 @@ namespace Mila::Dnn
         virtual ~ITensor() = default;
 
         /**
+         * @brief Check if this tensor is a view of another tensor's data
+         * @return true if this is a view, false if it owns its data
+         */
+        virtual bool isView() const = 0;
+
+        /**
 		 * @brief Check if the tensor is a scalar (rank 0)
          */
 		virtual bool isScalar() const noexcept = 0;

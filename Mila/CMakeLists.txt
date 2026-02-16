@@ -9,9 +9,9 @@ add_library( Mila STATIC
     #--------------------------------------------------------------------------
     # Cuda Operations Kernels
     #--------------------------------------------------------------------------
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Gpt2Encoder/Kernels/Gpt2Encoder.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Gpt2Encoder/Kernels/gpt2Encoder.Fp16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Gpt2Encoder/Kernels/Gpt2Encoder.cuh"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp16.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.cuh"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Fp32.cu"
     #"Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Fp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.cuh"
@@ -466,7 +466,7 @@ if(MILA_HAS_CUDA)
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/CudaAttentionOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Gpt2Encoder/CudaGpt2EncoderOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/CudaLearnedEncoderOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CublasLtMatMulBias.ixx"

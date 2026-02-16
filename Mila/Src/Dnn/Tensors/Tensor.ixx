@@ -443,22 +443,39 @@ namespace Mila::Dnn
          *
          * Only available for host-accessible memory resources.
          */
-        [[nodiscard]] constexpr auto* data() noexcept requires TMemoryResource::is_host_accessible {
+        [[nodiscard]] constexpr auto* data() noexcept requires TMemoryResource::is_host_accessible
+        {
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
-            return static_cast<HostType*>(buffer_ ? buffer_->data() : nullptr);
+            return buffer_ ? static_cast<HostType*>(buffer_->data()) + view_offset_ : nullptr;
         }
 
         /**
          * @brief Returns type-safe immutable pointer to tensor data with concrete host type
          */
-        [[nodiscard]] constexpr const auto* data() const noexcept requires TMemoryResource::is_host_accessible {
+        [[nodiscard]] constexpr const auto* data() const noexcept requires TMemoryResource::is_host_accessible
+        {
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
-            return static_cast<const HostType*>(buffer_ ? buffer_->data() : nullptr);
+            return buffer_ ? static_cast<const HostType*>(buffer_->data()) + view_offset_ : nullptr;
         }
 
         // ====================================================================
         // Shape Transformation Operations
         // ====================================================================
+
+        Tensor view( const shape_t& new_shape, size_t offset = 0 )
+        {
+            size_t view_size = computeSize( new_shape );
+            if ( view_offset_ + offset + view_size > buffer_->size() )
+            {
+                throw std::invalid_argument( "View size exceeds tensor size" );
+            }
+            return Tensor( *this, new_shape, offset );
+        }
+
+        bool isView() const override
+        {
+            return is_view_;
+        }
 
         /**
          * @brief Modifies tensor shape while preserving total element count
@@ -575,16 +592,27 @@ namespace Mila::Dnn
         /**
          * @brief Returns raw pointer to tensor data (implements ITensor protected API)
          */
-        void* rawData() override {
-			// TJT: Review: can buffer_ be null here?
-            return buffer_ ? buffer_->data() : nullptr;
+        void* rawData() override
+        {
+            if ( !buffer_ )
+                return nullptr;
+            
+            auto* base = static_cast<char*>(buffer_->data());
+            
+            return static_cast<void*>(base + view_offset_ * elementSize());
         }
 
         /**
          * @brief Returns raw pointer to tensor data (const version)
          */
-        const void* rawData() const override {
-            return buffer_ ? buffer_->data() : nullptr;
+        const void* rawData() const override
+        {
+            if ( !buffer_ )
+                return nullptr;
+            
+            const auto* base = static_cast<const char*>(buffer_->data());
+            
+            return static_cast<const void*>(base + view_offset_ * elementSize());
         }
 
         /**
@@ -604,6 +632,27 @@ namespace Mila::Dnn
         std::vector<int64_t> shape_{};                                              ///< Dimensional sizes for each tensor dimension
         std::vector<int64_t> strides_{};                                            ///< Memory stride values for multi-dimensional indexing
         std::shared_ptr<TensorBuffer<TDataType, TMemoryResource>> buffer_{ nullptr }; ///< Managed buffer containing tensor data
+
+        bool is_view_{ false };
+        size_t view_offset_{ 0 };  // Offset into the buffer for views
+
+        // View constructor - shares buffer with parent
+        Tensor( const Tensor& parent, const shape_t& shape, size_t offset )
+            : device_id_( parent.device_id_ )
+            , uid_( setUId() )
+            , name_( parent.name_ + ".view" )
+            , size_( computeSize( shape ) )
+            , shape_( shape )
+            , strides_( computeStrides( shape ) )
+            , buffer_( parent.buffer_ )  // Share the same buffer!
+            , is_view_( true )
+            , view_offset_( parent.view_offset_ + offset )  // Accumulate offsets
+        {
+            if ( view_offset_ + size_ > parent.buffer_->size() )
+            {
+                throw std::invalid_argument( "View exceeds buffer bounds" );
+            }
+        }
 
         // ====================================================================
         // Private Helper Methods

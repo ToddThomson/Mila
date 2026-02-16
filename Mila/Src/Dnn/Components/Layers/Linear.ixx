@@ -129,7 +129,7 @@ namespace Mila::Dnn
         {
             if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "Linear Component must be built before calling forward." );
+                throw std::runtime_error( "Linear must be built before calling forward." );
             }
 
             validateInputShape( input.shape() );
@@ -146,98 +146,107 @@ namespace Mila::Dnn
 
             operation_->forward( input, *owned_output_ );
 
+            auto input_shape = input.shape();
 
+            if ( input_shape == max_input_shape_ )
+            {
+                return *owned_output_;
+            }
+
+            auto output_shape = input_shape;
+            output_shape.back() = config_.getOutputFeatures();
+            output_view_ = std::make_unique<TensorType>( owned_output_->view( output_shape ) );
 
             // DEBUG: Start
-            auto component_name = this->getName();
-            
-            if ( component_name.find( "mlp.fc_1" ) != std::string::npos && component_name.find( "layer_0" ) != std::string::npos )
-            {
-                this->synchronize();
-
-                auto host_weight = toHost<TensorDataType::FP32>( *weight_ );
-                auto host_input = toHost<TensorDataType::FP32>( input );
-                auto host_output = toHost<TensorDataType::FP32>( *owned_output_ );
-
-                int in_feat = config_.getInputFeatures();
-                int out_feat = config_.getOutputFeatures();
-
-                const float* w_ptr = host_weight.data();
-                const float* in_ptr = host_input.data();
-                const float* out_ptr = host_output.data();
-
-                float manual_result = 0.0f;
-                for ( int i = 0; i < in_feat; i++ )
-                {
-                    manual_result += w_ptr[ i ] * in_ptr[ i ];
-                }
-
-                // Add bias if present
-                if ( bias_ )
-                {
-                    auto host_bias = toHost<TensorDataType::FP32>( *bias_ );
-                    const float* b_ptr = host_bias.data();
-                    manual_result += b_ptr[ 0 ];  // Add bias for output element 0
-                }
-
-                Utils::Logger::info( std::format( "FC_1 Weight shape: [{}x{}]", out_feat, in_feat ) );
-                Utils::Logger::info( std::format( "FC_1 Input first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
-                    in_ptr[ 0 ], in_ptr[ 1 ], in_ptr[ 2 ], in_ptr[ 3 ], in_ptr[ 4 ] ) );
-                Utils::Logger::info( std::format( "FC_1 Weight row 0 first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
-                    w_ptr[ 0 ], w_ptr[ 1 ], w_ptr[ 2 ], w_ptr[ 3 ], w_ptr[ 4 ] ) );
-                Utils::Logger::info( std::format( "FC_1 Manual output[0,0]: {:.6f}", manual_result ) );
-                Utils::Logger::info( std::format( "FC_1 cuBLASLt output[0,0]: {:.6f}", out_ptr[ 0 ] ) );
-            }
-            
-            if ( component_name.find( "mlp.fc_2" ) != std::string::npos && component_name.find( "layer_0" ) != std::string::npos )
-            {
-                this->synchronize();
-
-                // Get all data to host
-                auto host_weight = toHost<TensorDataType::FP32>( *weight_ );
-                auto host_input = toHost<TensorDataType::FP32>( input );
-                auto host_output = toHost<TensorDataType::FP32>( *owned_output_ );
-
-                int in_feat = config_.getInputFeatures();
-                int out_feat = config_.getOutputFeatures();
-
-                const float* w_ptr = host_weight.data();
-                const float* in_ptr = host_input.data();
-                const float* out_ptr = host_output.data();
-
-                // output[0,0] = dot(weight row 0, input row 0)
-                // Weight row 0: elements [0...in_feat-1]
-                // Input row 0: elements [0...in_feat-1]
-                float manual_result = 0.0f;
-                for ( int i = 0; i < in_feat; i++ )
-                {
-                    manual_result += w_ptr[ i ] * in_ptr[ i ];
-                }
-
-                // Add bias if present
-                if ( bias_ )
-                {
-                    auto host_bias = toHost<TensorDataType::FP32>( *bias_ );
-                    const float* b_ptr = host_bias.data();
-                    manual_result += b_ptr[ 0 ];  // Add bias for output element 0
-                }
-
-                Utils::Logger::info( std::format( "Weight shape: [{}x{}]", out_feat, in_feat ) );
-                Utils::Logger::info( std::format( "Input first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
-                    in_ptr[ 0 ], in_ptr[ 1 ], in_ptr[ 2 ], in_ptr[ 3 ], in_ptr[ 4 ] ) );
-                Utils::Logger::info( std::format( "Weight row 0 first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
-                    w_ptr[ 0 ], w_ptr[ 1 ], w_ptr[ 2 ], w_ptr[ 3 ], w_ptr[ 4 ] ) );
-                Utils::Logger::info( std::format( "Manual output[0,0]: {:.6f}", manual_result ) );
-                Utils::Logger::info( std::format( "cuBLASLt output[0,0]: {:.6f}", out_ptr[ 0 ] ) );
-                Utils::Logger::info( std::format( "Difference: {:.6f}", std::abs( manual_result - out_ptr[ 0 ] ) ) );
-            }
-            // DEBUG: End
+            //auto component_name = this->getName();
+            //
+            //if ( component_name.find( "mlp.fc_1" ) != std::string::npos && component_name.find( "layer_0" ) != std::string::npos )
+            //{
+            //    this->synchronize();
+            //
+            //    auto host_weight = toHost<TensorDataType::FP32>( *weight_ );
+            //    auto host_input = toHost<TensorDataType::FP32>( input );
+            //    auto host_output = toHost<TensorDataType::FP32>( *owned_output_ );
+            //
+            //    int in_feat = config_.getInputFeatures();
+            //    int out_feat = config_.getOutputFeatures();
+            //
+            //    const float* w_ptr = host_weight.data();
+            //    const float* in_ptr = host_input.data();
+            //    const float* out_ptr = host_output.data();
+            //
+            //    float manual_result = 0.0f;
+            //    for ( int i = 0; i < in_feat; i++ )
+            //    {
+            //        manual_result += w_ptr[ i ] * in_ptr[ i ];
+            //    }
+            //
+            //    // Add bias if present
+            //    if ( bias_ )
+            //    {
+            //        auto host_bias = toHost<TensorDataType::FP32>( *bias_ );
+            //        const float* b_ptr = host_bias.data();
+            //        manual_result += b_ptr[ 0 ];  // Add bias for output element 0
+            //    }
+            //
+            //    Utils::Logger::info( std::format( "FC_1 Weight shape: [{}x{}]", out_feat, in_feat ) );
+            //    Utils::Logger::info( std::format( "FC_1 Input first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
+            //        in_ptr[ 0 ], in_ptr[ 1 ], in_ptr[ 2 ], in_ptr[ 3 ], in_ptr[ 4 ] ) );
+            //    Utils::Logger::info( std::format( "FC_1 Weight row 0 first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
+            //        w_ptr[ 0 ], w_ptr[ 1 ], w_ptr[ 2 ], w_ptr[ 3 ], w_ptr[ 4 ] ) );
+            //    Utils::Logger::info( std::format( "FC_1 Manual output[0,0]: {:.6f}", manual_result ) );
+            //    Utils::Logger::info( std::format( "FC_1 cuBLASLt output[0,0]: {:.6f}", out_ptr[ 0 ] ) );
+            //}
+            //
+            //if ( component_name.find( "mlp.fc_2" ) != std::string::npos && component_name.find( "layer_0" ) != std::string::npos )
+            //{
+            //    this->synchronize();
+            //
+            //    // Get all data to host
+            //    auto host_weight = toHost<TensorDataType::FP32>( *weight_ );
+            //    auto host_input = toHost<TensorDataType::FP32>( input );
+            //    auto host_output = toHost<TensorDataType::FP32>( *owned_output_ );
+            //
+            //    int in_feat = config_.getInputFeatures();
+            //    int out_feat = config_.getOutputFeatures();
+            //
+            //    const float* w_ptr = host_weight.data();
+            //    const float* in_ptr = host_input.data();
+            //    const float* out_ptr = host_output.data();
+            //
+            //    // output[0,0] = dot(weight row 0, input row 0)
+            //    // Weight row 0: elements [0...in_feat-1]
+            //    // Input row 0: elements [0...in_feat-1]
+            //    float manual_result = 0.0f;
+            //    for ( int i = 0; i < in_feat; i++ )
+            //    {
+            //        manual_result += w_ptr[ i ] * in_ptr[ i ];
+            //    }
+            //
+            //    // Add bias if present
+            //    if ( bias_ )
+            //    {
+            //        auto host_bias = toHost<TensorDataType::FP32>( *bias_ );
+            //        const float* b_ptr = host_bias.data();
+            //        manual_result += b_ptr[ 0 ];  // Add bias for output element 0
+            //    }
+            //
+            //    Utils::Logger::info( std::format( "Weight shape: [{}x{}]", out_feat, in_feat ) );
+            //    Utils::Logger::info( std::format( "Input first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
+            //        in_ptr[ 0 ], in_ptr[ 1 ], in_ptr[ 2 ], in_ptr[ 3 ], in_ptr[ 4 ] ) );
+            //    Utils::Logger::info( std::format( "Weight row 0 first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
+            //        w_ptr[ 0 ], w_ptr[ 1 ], w_ptr[ 2 ], w_ptr[ 3 ], w_ptr[ 4 ] ) );
+            //    Utils::Logger::info( std::format( "Manual output[0,0]: {:.6f}", manual_result ) );
+            //    Utils::Logger::info( std::format( "cuBLASLt output[0,0]: {:.6f}", out_ptr[ 0 ] ) );
+            //    Utils::Logger::info( std::format( "Difference: {:.6f}", std::abs( manual_result - out_ptr[ 0 ] ) ) );
+            //}
+            //// DEBUG: End
 
             // DEBUG:
             // Check output range
             this->synchronize();
 
-            auto host_output = toHost<TensorDataType::FP32>( *owned_output_ );
+            auto host_output = toHost<TensorDataType::FP32>( *output_view_ );
             auto host_output_ptr = host_output.data();
             const size_t output_n = host_output.size();
             auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
@@ -247,7 +256,7 @@ namespace Mila::Dnn
 
             // DEBUG END
 
-            return *owned_output_;
+            return *output_view_;
         }
 
         /**
@@ -635,6 +644,8 @@ namespace Mila::Dnn
         {
             validateInputShape( input_shape );
 
+            max_input_shape_ = input_shape;
+
             operation_->setParameters( weight_.get(), bias_.get() );
             operation_->setTraining( this->isTraining() );
 
@@ -652,10 +663,7 @@ namespace Mila::Dnn
             auto device_id = this->getExecutionContext()->getDeviceId();
 
             shape_t output_shape = input_shape;
-            if ( !output_shape.empty() )
-            {
-                output_shape.back() = config_.getOutputFeatures();
-            }
+            output_shape.back() = config_.getOutputFeatures();
 
             owned_output_ = std::make_unique<TensorType>( device_id, output_shape );
             owned_output_->setName( this->getName() + ".output" );
@@ -703,6 +711,8 @@ namespace Mila::Dnn
     private:
 
         LinearConfig config_;
+        shape_t max_input_shape_;
+
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
         std::shared_ptr<TensorType> weight_{ nullptr };
@@ -715,6 +725,7 @@ namespace Mila::Dnn
 
         // Component-owned forward output and input-gradient tensors (exclusive ownership)
         std::unique_ptr<TensorType> owned_output_{ nullptr };
+        std::unique_ptr<TensorType> output_view_{ nullptr };
         std::unique_ptr<TensorType> owned_input_grad_{ nullptr };
 
         /**

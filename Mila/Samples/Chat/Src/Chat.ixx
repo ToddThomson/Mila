@@ -107,7 +107,7 @@ namespace Mila::ChatApp
                 transformer_ = GptType::fromPretrained(
                     model_path_,
                     /*batch_size=*/1,
-                    /*seq_length=*/128,
+                    /*seq_length=*/1024,
                     DeviceId{ DeviceType::Cuda, 0 },
                     /*strict=*/true
                 );
@@ -137,6 +137,42 @@ namespace Mila::ChatApp
         }
 
         std::string generateResponse( const std::vector<std::string>& history )
+        {
+            try
+            {
+                std::string prompt = "Once upon a time";
+
+                if ( !transformer_ || !tokenizer_ )
+                {
+                    return "Model not loaded.";
+                }
+
+                // Encode prompt
+                std::vector<TokenId> prompt_tokens = tokenizer_->encode( prompt );
+
+                Utils::Logger::info( std::format( "Generating from {} tokens...", prompt_tokens.size() ) );
+
+                // Simple generation call with dynamic sequence lengths!
+                std::vector<int32_t> generated = transformer_->generate(
+                    std::vector<int32_t>( prompt_tokens.begin(), prompt_tokens.end() ),
+                    64,    // max_new_tokens
+                    0.8f,  // temperature
+                    40     // top_k
+                );
+
+                // Decode
+                std::vector<TokenId> token_ids( generated.begin(), generated.end() );
+                std::string full_text = tokenizer_->decode( token_ids );
+
+                return full_text;
+            }
+            catch ( const std::exception& e )
+            {
+                return "Error: " + std::string( e.what() );
+            }
+        }
+
+        std::string generateResponse_old( const std::vector<std::string>& history )
         {
             try
             {
@@ -184,7 +220,7 @@ namespace Mila::ChatApp
 
                 // Generation params (adjustable)
                 const int64_t model_batch_size = 1;
-                const int64_t model_seq_length = 128; // safe default window (must be <= model max seq length)
+                const int64_t model_seq_length = 1024; // safe default window (must be <= model max seq length)
                 const size_t max_new_tokens = 64;
                 const float temperature = 0.8f;
 
@@ -205,10 +241,10 @@ namespace Mila::ChatApp
                 Tensor<TensorDataType::FP32, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
                 Tensor<TensorDataType::INT32, CpuMemoryResource> context_cpu( Device::Cpu(), model_shape );
 
-                // Pad value if tokenizer provides one
-                int32_t pad_value = 0;
-                auto pad_opt = tokenizer_->getPadTokenId();
-                if ( pad_opt ) pad_value = static_cast<int32_t>( *pad_opt );
+                int32_t pad_value = 50256;  // GPT-2's <|endoftext|> token
+                auto eos_opt = tokenizer_->getEosTokenId();
+                if ( eos_opt )
+                    pad_value = static_cast<int32_t>(*eos_opt);
 
                 // Start generation with prompt tokens
                 std::vector<TokenId> generated_tokens = prompt_tokens;

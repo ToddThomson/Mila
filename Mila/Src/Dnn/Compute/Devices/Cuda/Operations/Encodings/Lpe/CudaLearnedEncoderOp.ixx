@@ -14,7 +14,8 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <type_traits>
-#include "Kernels/Gpt2Encoder.cuh"
+#include <format>
+#include "Kernels/Lpe.cuh"
 
 export module Compute.CudaGpt2EncoderOp;
 
@@ -151,12 +152,12 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
          */
         void setParameters( ITensor* wte, ITensor* wpe ) override
         {
-            if (!wte || !wpe)
+            if ( !wte || !wpe )
             {
                 throw std::invalid_argument( "CudaEncoderOp::setParameters - both wte and wpe parameters are required" );
             }
 
-            if (wte->getDeviceType() != DeviceType::Cuda || wpe->getDeviceType() != DeviceType::Cuda)
+            if ( wte->getDeviceType() != DeviceType::Cuda || wpe->getDeviceType() != DeviceType::Cuda )
             {
                 throw std::invalid_argument( "CudaEncoderOp::setParameters - parameters must be CUDA tensors" );
             }
@@ -168,18 +169,18 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
             const auto& wte_shape = wte->shape();
             const auto& wpe_shape = wpe->shape();
 
-            if (wte_shape.size() != 2 || wpe_shape.size() != 2)
+            if ( wte_shape.size() != 2 || wpe_shape.size() != 2 )
             {
                 throw std::invalid_argument( "CudaEncoderOp::setParameters - wte and wpe must be 2D tensors" );
             }
 
-            wte_vocab_size_ = static_cast<int>(wte_shape[0]);
-            wte_embedding_dim_ = static_cast<int>(wte_shape[1]);
+            wte_vocab_size_ = static_cast<int>(wte_shape[ 0 ]);
+            wte_embedding_dim_ = static_cast<int>(wte_shape[ 1 ]);
 
-            wpe_max_seq_len_ = static_cast<int>(wpe_shape[0]);
-            wpe_embedding_dim_ = static_cast<int>(wpe_shape[1]);
+            wpe_max_seq_len_ = static_cast<int>(wpe_shape[ 0 ]);
+            wpe_embedding_dim_ = static_cast<int>(wpe_shape[ 1 ]);
 
-            if (wte_embedding_dim_ != wpe_embedding_dim_)
+            if ( wte_embedding_dim_ != wpe_embedding_dim_ )
             {
                 throw std::invalid_argument( "CudaEncoderOp::setParameters - wte and wpe must have same embedding dimension" );
             }
@@ -193,12 +194,12 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
          */
         void setGradients( ITensor* wte_grad, ITensor* wpe_grad ) override
         {
-            if (!wte_grad || !wpe_grad)
+            if ( !wte_grad || !wpe_grad )
             {
                 throw std::invalid_argument( "CudaEncoderOp::setParameterGradients - both gradients are required" );
             }
 
-            if (wte_grad->getDeviceType() != DeviceType::Cuda || wpe_grad->getDeviceType() != DeviceType::Cuda)
+            if ( wte_grad->getDeviceType() != DeviceType::Cuda || wpe_grad->getDeviceType() != DeviceType::Cuda )
             {
                 throw std::invalid_argument( "CudaEncoderOp::setParameterGradients - gradients must be CUDA tensors" );
             }
@@ -227,26 +228,26 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
          */
         void build( const shape_t& input_shape ) override
         {
-            if (wte_ == nullptr || wpe_ == nullptr)
+            if ( wte_ == nullptr || wpe_ == nullptr )
             {
                 throw std::runtime_error( "CudaEncoderOp::build requires parameters bound via setParameters() before build()." );
             }
 
             validateInputShape( input_shape );
 
-            cached_batch_size_ = static_cast<int>(input_shape[0]);
-            cached_seq_length_ = static_cast<int>(input_shape[1]);
-            cached_embedding_dim_ = wte_embedding_dim_;
+            batch_size_ = static_cast<int>(input_shape[ 0 ]);
+            seq_length_ = static_cast<int>(input_shape[ 1 ]);
+            embedding_dim_ = wte_embedding_dim_;
 
             // Validate sequence length against configured maximum
-            if (cached_seq_length_ > wpe_max_seq_len_)
+            if ( seq_length_ > wpe_max_seq_len_ )
             {
                 throw std::invalid_argument(
                     "CudaEncoderOp::build - sequence length exceeds positional embedding capacity" );
             }
 
             // Validate embedding dimensions match configuration
-            if (cached_embedding_dim_ != config_.getChannels())
+            if ( embedding_dim_ != config_.getChannels() )
             {
                 throw std::invalid_argument(
                     "CudaEncoderOp::build - parameter embedding dimension doesn't match configuration" );
@@ -273,6 +274,19 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
          */
         void forward( const ITensor& input, ITensor& output ) const override
         {
+            // Extract dimensions from input
+            const auto& input_shape = input.shape();
+            int B = static_cast<int>(input_shape[ 0 ]);
+            int T = static_cast<int>(input_shape[ 1 ]);
+
+            // Validate dimensions
+            if ( B > batch_size_ || T > seq_length_ )
+            {
+                throw std::runtime_error(
+                    std::format( "CudaEncoderOp: input shape [{}, {}] exceeds built max [{}, {}]",
+                        B, T, batch_size_, seq_length_ ) );
+            }
+
             // Input is INT32 token indices, output is NativeType embeddings
             const int32_t* X = static_cast<const int32_t*>(input.rawData());
             NativeType* Y = static_cast<NativeType*>(output.rawData());
@@ -282,9 +296,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
             Detail::cuda_encoder_impl<NativeType>::forward(
                 Y, X,
                 wte_, wpe_,
-                cached_batch_size_,
-                cached_seq_length_,
-                cached_embedding_dim_,
+                B, T, embedding_dim_,
                 stream
             );
         }
@@ -297,7 +309,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
          * @brief Backward pass - HOT PATH, pure dispatch to CUDA kernel.
          *
          * Similar to forward(), this method does minimal work and dispatches
-         * directly to the backward kernel using cached dimensions from build(). 
+         * directly to the backward kernel using cached dimensions from build().
          *
          * Accumulates gradients into wte and wpe embedding tables.
          * Token indices are discrete (non-differentiable), so no input gradient.
@@ -307,6 +319,19 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
             const ITensor& output_grad,
             ITensor& input_grad ) const override
         {
+            // Extract dimensions from input
+            const auto& input_shape = input.shape();
+            int B = static_cast<int>(input_shape[ 0 ]);
+            int T = static_cast<int>(input_shape[ 1 ]);
+
+            // Validate dimensions
+            if ( B > batch_size_ || T > seq_length_ )
+            {
+                throw std::runtime_error(
+                    std::format( "CudaEncoderOp: input shape [{}, {}] exceeds built max [{}, {}]",
+                        B, T, batch_size_, seq_length_ ) );
+            }
+
             const int32_t* X = static_cast<const int32_t*>(input.rawData());
             const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
 
@@ -318,9 +343,9 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
             Detail::cuda_encoder_impl<NativeType>::backward(
                 dwte, dwpe,
                 X, dY,
-                cached_batch_size_,
-                cached_seq_length_,
-                cached_embedding_dim_,
+                B,
+                T,
+                embedding_dim_,
                 stream
             );
 
@@ -355,6 +380,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
         NativeType* wte_grad_{ nullptr };
         NativeType* wpe_grad_{ nullptr };
 
+        // REVIEW: Duplication here?
         // Parameter dimensions for validation
         int wte_vocab_size_{ 0 };
         int wte_embedding_dim_{ 0 };
@@ -362,19 +388,19 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
         int wpe_embedding_dim_{ 0 };
 
         // Cached dimension values computed once in build() for hot-path dispatch
-        int cached_batch_size_{ 0 };
-        int cached_seq_length_{ 0 };
-        int cached_embedding_dim_{ 0 };
+        int batch_size_{ 0 };
+        int seq_length_{ 0 };
+        int embedding_dim_{ 0 };
 
         void validateInputShape( const shape_t& input_shape ) const
         {
-            if (input_shape.size() != 2)
+            if ( input_shape.size() != 2 )
             {
                 throw std::invalid_argument(
                     "CudaEncoderOp: input must have rank 2 (batch_size, sequence_length)" );
             }
 
-            if (input_shape[1] > config_.getMaxSequenceLength())
+            if ( input_shape[ 1 ] > config_.getMaxSequenceLength() )
             {
                 throw std::invalid_argument(
                     "CudaEncoderOp: sequence length exceeds configured maximum" );

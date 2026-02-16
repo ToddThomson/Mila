@@ -182,7 +182,16 @@ namespace Mila::Dnn
 
             operation_->forward( input, *output_ );
 
-            return *output_;
+            auto input_shape = input.shape();
+
+            if ( input_shape == max_input_shape_ )
+            {
+                return *output_;
+            }
+
+            output_view_ = std::make_unique<TensorType>( output_->view( input_shape ) );
+
+            return *output_view_;
         }
 
         /**
@@ -486,15 +495,15 @@ namespace Mila::Dnn
             }
 
             operation_->build( input_shape );
-            input_shape_ = input_shape;
+            max_input_shape_ = input_shape;
 
             // Allocate owned output and input-gradient tensors with device binding.
             // Buffers are owned by this component and reused across calls.
             DeviceId dev_id = this->getExecutionContext()->getDeviceId();
 
-            output_ = std::make_unique<TensorType>( dev_id, input_shape_ );
+            output_ = std::make_unique<TensorType>( dev_id, max_input_shape_ );
 
-            input_grad_ = std::make_unique<TensorType>( dev_id, input_shape_ );
+            input_grad_ = std::make_unique<TensorType>( dev_id, max_input_shape_ );
             zero( *input_grad_ );
         }
 
@@ -524,12 +533,13 @@ namespace Mila::Dnn
     private:
 
         GeluConfig config_;
-        shape_t input_shape_;
+        shape_t max_input_shape_;
        
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
 
         std::unique_ptr<TensorType> output_{ nullptr };
+        std::unique_ptr<TensorType> output_view_{ nullptr };
         std::unique_ptr<TensorType> input_grad_{ nullptr };
 
         /**

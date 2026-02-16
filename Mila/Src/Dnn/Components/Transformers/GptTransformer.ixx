@@ -13,11 +13,16 @@ module;
 #include <type_traits>
 #include <stdexcept>
 #include <cstdint>
+#include <cstring>
 #include <ostream>
 #include <iostream>
 #include <format>
 #include <optional>
 #include <cassert>
+#include <random>
+#include <chrono>
+#include <algorithm>
+#include <numeric>
 
 export module Dnn.Components.GptTransformer;
 export import :Config;
@@ -37,13 +42,16 @@ import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.ActivationType;
 import Compute.Precision;
+import Compute.Device;
 import Compute.DeviceType;
 import Compute.DeviceId;
 import Compute.DeviceTypeTraits;
+import Compute.CpuMemoryResource;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
 import Serialization.Tensor;
+import Utils.Logger;
 
 namespace Mila::Dnn
 {
@@ -247,6 +255,110 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
 
             return input_grad_ptr;
+        }
+
+        /**
+         * @brief Autoregressive text generation from prompt tokens.
+         *
+         * @param prompt_tokens Initial token IDs to condition generation
+         * @param max_new_tokens Maximum number of tokens to generate
+         * @param temperature Sampling temperature (lower = more deterministic, higher = more random)
+         * @param top_k If > 0, only sample from top k most probable tokens
+         * @return Vector of all token IDs (prompt + generated)
+         *
+         * @note Uses dynamic sequence lengths for efficiency. Each forward pass processes
+         *       only the actual number of tokens, avoiding padding overhead.
+         */
+        std::vector<int32_t> generate(
+            const std::vector<int32_t>& prompt_tokens,
+            size_t max_new_tokens = 64,
+            float temperature = 1.0f,
+            int top_k = 0 )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "GptTransformer must be built before calling generate()" );
+            }
+
+            // Ensure we're in inference mode
+            bool was_training = this->isTraining();
+            this->setTraining( false );
+
+            std::vector<int32_t> tokens = prompt_tokens;
+            std::mt19937 rng( std::chrono::high_resolution_clock::now().time_since_epoch().count() );
+
+            try
+            {
+                for ( size_t step = 0; step < max_new_tokens; ++step )
+                {
+                    // Create input tensor with actual sequence length (no padding!)
+                    int64_t seq_len = static_cast<int64_t>( tokens.size() );
+
+                    if ( seq_len > config_.getMaxSequenceLength() )
+                    {
+                        Utils::Logger::warning( std::format(
+                            "Sequence length {} exceeds max {}, truncating from start",
+                            seq_len, config_.getMaxSequenceLength() ) );
+
+                        // Keep only the last max_seq_length tokens
+                        int64_t excess = seq_len - config_.getMaxSequenceLength();
+                        tokens.erase( tokens.begin(), tokens.begin() + excess );
+                        seq_len = config_.getMaxSequenceLength();
+                    }
+
+                    shape_t input_shape = { 1, seq_len };
+
+                    // Create tensors for this iteration (use explicit CPU memory resource for host access)
+                    TokenIndexType input_device( this->getDeviceId(), input_shape );
+                    Tensor<dtype_t::INT32, CpuMemoryResource> input_cpu( Device::Cpu(), input_shape );
+
+                    // Copy tokens to CPU tensor
+                    std::memcpy( input_cpu.data(), tokens.data(), tokens.size() * sizeof(int32_t) );
+
+                    // Transfer to device
+                    copy( input_cpu, input_device );
+
+                    // Forward pass - returns [1, seq_len, vocab_size]
+                    auto& logits = this->forward( input_device );
+                    this->getExecutionContext()->synchronize();
+
+                    // Copy logits for last position to CPU
+                    shape_t logits_shape = { 1, seq_len, config_.getVocabSize() };
+                    Tensor<TPrecision, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
+                    copy( logits, logits_cpu );
+
+                    // Get logits for last token position
+                    size_t last_pos_offset = static_cast<size_t>(seq_len - 1) * config_.getVocabSize();
+                    const float* last_logits = logits_cpu.data() + last_pos_offset;
+
+                    // Sample next token
+                    int32_t next_token = sampleToken(
+                        last_logits,
+                        static_cast<size_t>(config_.getVocabSize()),
+                        temperature,
+                        top_k,
+                        rng );
+
+                    tokens.push_back( next_token );
+
+                    // Check for EOS token (50256 for GPT-2)
+                    if ( next_token == 50256 )
+                    {  // GPT-2's <|endoftext|> token
+                        break;
+                    }
+                }
+            }
+            catch ( ... )
+            {
+                // Restore training state before re-throwing
+                this->setTraining( was_training );
+                throw;
+            }
+
+            // Restore training state
+            this->setTraining( was_training );
+
+            return tokens;
         }
 
         void zeroGradients() override
@@ -487,6 +599,80 @@ namespace Mila::Dnn
         TensorType* normalized_ptr_{ nullptr };
         TensorType* logits_ptr_{ nullptr };
 
+        /**
+ * @brief Sample a token from logits using temperature and optional top-k filtering.
+ */
+        static int32_t sampleToken(
+            const float* logits,
+            size_t vocab_size,
+            float temperature,
+            int top_k,
+            std::mt19937& rng )
+        {
+            // Find max logit for numerical stability
+            float max_logit = *std::max_element( logits, logits + vocab_size );
+
+            // Apply temperature and compute exp
+            std::vector<float> probs( vocab_size );
+            double sum = 0.0;
+
+            for ( size_t i = 0; i < vocab_size; ++i )
+            {
+                float scaled = (logits[ i ] - max_logit) / temperature;
+                float exp_val = std::exp( scaled );
+                probs[ i ] = exp_val;
+                sum += exp_val;
+            }
+
+            // Normalize to probabilities
+            for ( size_t i = 0; i < vocab_size; ++i )
+            {
+                probs[ i ] /= sum;
+            }
+
+            // Apply top-k filtering if requested
+            if ( top_k > 0 && top_k < static_cast<int>( vocab_size ) )
+            {
+                // Create indices and sort by probability (descending)
+                std::vector<size_t> indices( vocab_size );
+                std::iota( indices.begin(), indices.end(), 0 );
+                std::partial_sort( indices.begin(), indices.begin() + top_k, indices.end(),
+                    [&]( size_t a, size_t b ) { return probs[ a ] > probs[ b ]; } );
+
+                // Zero out probabilities outside top-k
+                std::vector<float> top_k_probs( vocab_size, 0.0f );
+                double top_k_sum = 0.0;
+                for ( int i = 0; i < top_k; ++i )
+                {
+                    top_k_probs[ indices[ i ] ] = probs[ indices[ i ] ];
+                    top_k_sum += probs[ indices[ i ] ];
+                }
+
+                // Renormalize
+                for ( size_t i = 0; i < vocab_size; ++i )
+                {
+                    probs[ i ] = top_k_probs[ i ] / top_k_sum;
+                }
+            }
+
+            // Sample from the distribution
+            std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
+            float r = dist( rng );
+            float cumsum = 0.0f;
+
+            for ( size_t i = 0; i < vocab_size; ++i )
+            {
+                cumsum += probs[ i ];
+                if ( r < cumsum )
+                {
+                    return static_cast<int32_t>( i );
+                }
+            }
+
+            // Fallback (should rarely happen)
+            return static_cast<int32_t>( vocab_size - 1 );
+        }
+
         std::pair<std::string, std::string> parseParameterPath( const std::string& full_name ) const
         {
             auto last_dot = full_name.rfind( '.' );
@@ -569,7 +755,7 @@ namespace Mila::Dnn
                 block_cfg.withHiddenSize( static_cast<dim_t>( config_.getHiddenSize() ))
                     .withBias( config_.getUseBias() )
                     .withActivation( ActivationType::Gelu )
-                    .withResidualScale( 1.0f / sqrtf( static_cast<float>( config_.getNumLayers() ) ) );
+                    .withResidualScale( 1.0f ); // FIXME: Was 1.of / sqrtf( static_cast<float>( config_.getNumLayers() ) ) );
 
                 auto layer = std::make_shared<TransformerBlockType>(
                     this->getName() + ".tf_layer_" + std::to_string( i ), block_cfg, std::nullopt );

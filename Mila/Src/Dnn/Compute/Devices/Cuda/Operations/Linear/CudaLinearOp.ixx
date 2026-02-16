@@ -869,6 +869,18 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         void forward( const ITensor& input, ITensor& output ) const override
         {
+            const auto& input_shape = input.shape();
+
+            // Compute leading dim size (all dims except last)
+            int64_t batch_size = 1;
+            for ( size_t i = 0; i < input_shape.size() - 1; ++i )
+            {
+                batch_size *= input_shape[ i ];
+            }
+
+            // Last dimension should match in_features (already validated at build)
+            // int64_t actual_in_features = input_shape.back();  // Should equal cached_in_features_
+
             const NativeType* input_ptr = static_cast<const NativeType*>(input.rawData());
             NativeType* output_ptr = static_cast<NativeType*>(output.rawData());
 

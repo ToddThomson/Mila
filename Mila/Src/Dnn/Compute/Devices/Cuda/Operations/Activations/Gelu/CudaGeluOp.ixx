@@ -166,7 +166,7 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
         */
         void forward( const ITensor& input, ITensor& output ) const override
         {
-            // TJT: This boilerplate code is fine for now but all ops should share a common helper for this.
+            // REVIEW: This boilerplate code is fine for now but all ops should share a common helper for this.
 
 			// ITensors must be of the same device type as the operation
             if ( input.getDeviceType() != DeviceType::Cuda || output.getDeviceType() != DeviceType::Cuda ) {

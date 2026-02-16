@@ -161,31 +161,36 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
 
         weight = model.state_dict()['transformer.h.0.mlp.c_proj.weight']
 
-        print(f"\nLayer 0 fc_2 (c_proj) stats:")
-        print(f"  Shape: {weight.shape}")
-        print(f"  Min: {weight.min():.6f}")
-        print(f"  Max: {weight.max():.6f}")  
-        print(f"  Mean: {weight.mean():.6f}")
+        #print(f"\nLayer 0 fc_2 (c_proj) stats:")
+        #print(f"  Shape: {weight.shape}")
+        #print(f"  Min: {weight.min():.6f}")
+        #print(f"  Max: {weight.max():.6f}")  
+        #print(f"  Mean: {weight.mean():.6f}")
 
-        weight_T = weight.T
-        print(f"\nAfter .T stats:")
-        print(f"  Shape: {weight_T.shape}")
-        print(f"  Min: {weight_T.min():.6f}")
-        print(f"  Max: {weight_T.max():.6f}")
-        print(f"  Mean: {weight_T.mean():.6f}")
+        #weight_T = weight.T
+        #print(f"\nAfter .T stats:")
+        #print(f"  Shape: {weight_T.shape}")
+        #print(f"  Min: {weight_T.min():.6f}")
+        #print(f"  Max: {weight_T.max():.6f}")
+        #print(f"  Mean: {weight_T.mean():.6f}")
         
-        print(f"First 5x5 block:\n{weight[:5, :5]}")
-        print(f"After .T first 5x5 block:\n{weight.T[:5, :5]}")
+        #print(f"First 5x5 block:\n{weight[:5, :5]}")
+        #print(f"After .T first 5x5 block:\n{weight.T[:5, :5]}")
 
         writer.add_tensor(
             f'{prefix_mila}.mlp.fc_2.weight',
             convert_dtype(state_dict[f'{prefix_hf}.mlp.c_proj.weight'].numpy().T, dtype)
         )
+        
+        w = model.state_dict()[f'{prefix_hf}.mlp.c_proj.weight']
+        print(f"Layer {i} fc_2 weight shape: {w.shape}")
+        print(f"Min: {w.min():.6f}, Max: {w.max():.6f}, Mean: {w.mean():.6f}")
+
         # Now check what you wrote to file
         import numpy as np
         converted = weight.numpy().T
-        print(f"\nConverted shape: {converted.shape}")
-        print(f"Converted first 5x5:\n{converted[:5, :5]}")
+        #print(f"\nConverted shape: {converted.shape}")
+        #print(f"Converted first 5x5:\n{converted[:5, :5]}")
 
         writer.add_tensor(
             f'{prefix_mila}.mlp.fc_2.bias',

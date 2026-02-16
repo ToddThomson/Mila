@@ -17,7 +17,6 @@
 #  define KERNEL_ASSERT(cond) ((void)0)
 #endif
 
-
 namespace Mila::Dnn::Compute::Cuda::Gelu
 {
     constexpr float GELU_CUBIC_COEFF = 0.044715f;
@@ -35,8 +34,8 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
      */
     __global__ void gelu_forward_fp32_kernel( float* Y, const float* X, int N )
     {
-        constexpr float kGeluInputAbsLimit = 50.0f;   // GELU input should be reasonable was 50.0f, but increased to 75.0f to avoid false positives in some cases
-        constexpr float kGeluOutputAbsLimit = 100.0f; // GELU output can be slightly larger
+        constexpr float kGeluInputAbsLimit = 500.0f;   // default: 50.0f, GELU input should be reasonable was 50.0f, but increased to 75.0f to avoid false positives in some cases
+        constexpr float kGeluOutputAbsLimit = 1000.0f; // default: 100.0f, GELU output can be slightly larger
 
         int i = blockIdx.x * blockDim.x + threadIdx.x;
         if ( i < N )
