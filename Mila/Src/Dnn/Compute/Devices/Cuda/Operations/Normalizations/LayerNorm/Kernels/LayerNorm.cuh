@@ -83,6 +83,15 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         float epsilon,
         cudaStream_t stream );
 
+    void cuda_layernorm_forward_fp32_contig(
+        float* Y,
+        float* mean, float* rstd,
+        const float* X,
+        const float* weight, const float* bias,
+        int num_slices, int norm_dim,
+        float epsilon,
+        cudaStream_t stream );
+
     /**
      * @brief FP32 layer normalization backward pass.
      *
@@ -109,6 +118,16 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         int outer_size, int inner_size, int norm_dim,
         cudaStream_t stream );
 
+    void cuda_layernorm_backward_fp32_contig(
+        float* dX,
+        float* dweight, float* dbias,
+        const float* dY,
+        const float* X,
+        const float* weight,
+        const float* mean, const float* rstd,
+        int num_slices, int norm_dim,
+        cudaStream_t stream );
+
     /**
      * @brief FP16 layer normalization forward pass.
      *
@@ -132,6 +151,15 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         const half* X,
         const half* weight, const half* bias,
         int outer_size, int inner_size, int norm_dim,
+        float epsilon,
+        cudaStream_t stream );
+
+    void cuda_layernorm_forward_fp16_contig(
+        half* Y,
+        half* mean, half* rstd,
+        const half* X,
+        const half* weight, const half* bias,
+        int num_slices, int norm_dim,
         float epsilon,
         cudaStream_t stream );
 
@@ -161,5 +189,15 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         const half* weight,
         const half* mean, const half* rstd,
         int outer_size, int inner_size, int norm_dim,
+        cudaStream_t stream );
+
+    void cuda_layernorm_backward_fp16_contig(
+        half* dX,
+        half* dweight, half* dbias,
+        const half* dY,
+        const half* X,
+        const half* weight,
+        const half* mean, const half* rstd,
+        int num_slices, int norm_dim,
         cudaStream_t stream );
 }

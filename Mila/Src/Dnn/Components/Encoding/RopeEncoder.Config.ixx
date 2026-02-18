@@ -77,7 +77,7 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
-        size_t getChannels() const noexcept {
+        size_t getEmbeddingDim() const noexcept {
             return channels_;
         }
 

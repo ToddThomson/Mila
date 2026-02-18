@@ -228,12 +228,12 @@ namespace Mila::Dnn::Compute
                     "CpuAttentionOp: input must have rank 3 (batch_size, seq_length, 3*embedding_dim)" );
             }
 
-            const int64_t expected_qkv_dim = 3 * config_.getEmbeddingSize();
+            const int64_t expected_qkv_dim = 3 * config_.getModelDim();
 
             if ( input_shape[ 2 ] != expected_qkv_dim )
             {
                 throw std::invalid_argument(
-                    "CpuAttentionOp: input last dimension must be 3*embedding_dim (Q, K, V concatenated)" );
+                    "CpuAttentionOp: input last dimension must be 3 * model_dim (Q, K, V concatenated)" );
             }
         }
 

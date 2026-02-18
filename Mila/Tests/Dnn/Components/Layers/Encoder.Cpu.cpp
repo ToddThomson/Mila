@@ -47,7 +47,7 @@ namespace Components::Layers::Tests
             d.vocab_len = vocab_len;
             d.is_training = is_training;
 
-            d.config.withChannels( static_cast<size_t>(channels) )
+            d.config.withEmbeddingDim( static_cast<size_t>(channels) )
                 .withMaxSequenceLength( static_cast<size_t>(max_seq_len) )
                 .withVocabularyLength( static_cast<size_t>(vocab_len) );
 
@@ -141,7 +141,7 @@ namespace Components::Layers::Tests
     {
         auto s = d.module->toString();
         EXPECT_NE( s.find( d.module->getName() ), std::string::npos );
-        EXPECT_EQ( d.module->getChannels(), static_cast<int64_t>(d.channels) );
+        EXPECT_EQ( d.module->getEmbeddingDim(), static_cast<int64_t>(d.channels) );
         EXPECT_EQ( d.module->getVocabularyLength(), static_cast<int64_t>(d.vocab_len) );
         EXPECT_EQ( d.module->getMaxSequenceLength(), static_cast<int64_t>(d.max_seq_len) );
     }
@@ -235,7 +235,9 @@ namespace Components::Layers::Tests
     {
         // Construct in shared mode (no device id) — build should fail because no execution context set
         LearnedEncoderConfig config;
-        config.withChannels( 16 ).withMaxSequenceLength( 8 ).withVocabularyLength( 100 );
+        config.withEmbeddingDim( 16 )
+            .withMaxSequenceLength( 8 )
+            .withVocabularyLength( 100 );
 
         auto component = std::make_shared<LearnedEncoder<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>>(
             "deferred_ctx_encoder",
@@ -248,7 +250,7 @@ namespace Components::Layers::Tests
     {
         // Passing a wrong device type for a CPU-instantiated encoder should throw
         LearnedEncoderConfig config;
-        config.withChannels( 16 )
+        config.withEmbeddingDim( 16 )
             .withMaxSequenceLength( 8 )
             .withVocabularyLength( 100 );
 

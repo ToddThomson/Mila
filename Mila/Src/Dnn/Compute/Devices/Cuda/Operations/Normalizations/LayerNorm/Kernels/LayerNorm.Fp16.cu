@@ -365,4 +365,40 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
 
         cudaCheck( cudaGetLastError() );
     }
+
+    void cuda_layernorm_forward_fp16_contig(
+        half* Y, half* mean, half* rstd,
+        const half* X, const half* weight, const half* bias,
+        int num_slices, int norm_dim,
+        float epsilon,
+        cudaStream_t stream )
+    {
+        const int block_size = 512;
+        const int grid_size = ceil_div( num_slices * WARP_SIZE, block_size );
+
+        layernorm_forward_fp16_kernel << <grid_size, block_size, 0, stream >> > (
+            Y, reinterpret_cast<float*>(mean), reinterpret_cast<float*>(rstd),
+            X, weight, bias, num_slices, norm_dim);
+
+        cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_layernorm_backward_fp16_contig(
+        half* dX, half* dweight, half* dbias,
+        const half* dY, const half* X, const half* weight,
+        const half* mean, const half* rstd,
+        int num_slices, int norm_dim,
+        cudaStream_t stream )
+    {
+        const int block_size = 512;
+        const int grid_size = ceil_div( num_slices * WARP_SIZE, block_size );
+
+        layernorm_backward_fp16_kernel << <grid_size, block_size, 0, stream >> > (
+            dX, reinterpret_cast<float*>(dweight), reinterpret_cast<float*>(dbias),
+            dY, X, weight,
+            reinterpret_cast<const float*>(mean), reinterpret_cast<const float*>(rstd),
+            num_slices, norm_dim);
+
+        cudaCheck( cudaGetLastError() );
+    }
 }

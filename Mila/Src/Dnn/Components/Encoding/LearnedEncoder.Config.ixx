@@ -27,9 +27,9 @@ namespace Mila::Dnn
     using Serialization::SerializationMetadata;
 
     /**
-     * @brief Configuration class for Encoder module.
+     * @brief Configuration class for the Learned Positional Encoder.
      *
-     * Provides a type-safe fluent interface for configuring Encoder modules.
+     * Provides a type-safe fluent interface for configuring Encoder.
      */
     export class LearnedEncoderConfig : public ComponentConfig {
     public:
@@ -38,9 +38,9 @@ namespace Mila::Dnn
          * @brief C++23-style fluent setter for embedding dimension.
          */
         template <typename Self>
-        decltype(auto) withChannels( this Self&& self, size_t channels )
+        decltype(auto) withEmbeddingDim( this Self&& self, size_t embedding_dim )
         {
-            self.channels_ = channels;
+            self.embedding_dim_ = embedding_dim;
             return std::forward<Self>( self );
         }
 
@@ -69,7 +69,7 @@ namespace Mila::Dnn
          *
          * @return size_t The embedding dimension
          */
-        size_t getChannels() const { return channels_; }
+        size_t getEmbeddingDim() const { return embedding_dim_; }
 
         /**
          * @brief Get the configured maximum sequence length.
@@ -92,7 +92,7 @@ namespace Mila::Dnn
          */
         void validate() const override {
 
-            if ( channels_ == 0 ) {
+            if ( embedding_dim_ == 0 ) {
                 throw std::invalid_argument( "EncoderConfig: channels must be > 0" );
             }
 
@@ -115,7 +115,7 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
             meta.set( "precision", static_cast<int64_t>( precision_ ) )
-                .set( "channels", static_cast<int64_t>( channels_ ) )
+                .set( "channels", static_cast<int64_t>( embedding_dim_ ) )
                 .set( "max_sequence_length", static_cast<int64_t>( max_seq_len_ ) )
                 .set( "vocabulary_length", static_cast<int64_t>( vocab_len_ ) );
 
@@ -137,7 +137,7 @@ namespace Mila::Dnn
 
             if ( auto ch = meta.tryGetInt( "channels" ) )
             {
-                channels_ = static_cast<size_t>( *ch );
+                embedding_dim_ = static_cast<size_t>( *ch );
             }
 
             if ( auto ms = meta.tryGetInt( "max_sequence_length" ) )
@@ -159,7 +159,7 @@ namespace Mila::Dnn
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << "channels=" << channels_
+            oss << "channels=" << embedding_dim_
                 << ", max_sequence_length=" << max_seq_len_
                 << ", vocabulary_length=" << vocab_len_;
 
@@ -167,7 +167,7 @@ namespace Mila::Dnn
         }
 
     private:
-        size_t channels_ = 0;         ///< The embedding dimension size
+        size_t embedding_dim_ = 0;      ///< The embedding dimension size
         size_t max_seq_len_ = 512;      ///< The maximum sequence length
         size_t vocab_len_ = 50000;      ///< The vocabulary size
     };

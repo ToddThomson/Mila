@@ -13,7 +13,7 @@ namespace CompositeComponents_Tests
         // embedding_dim = 64, num_heads = 8
         GptBlockConfig cfg( /*embedding_dim=*/64, /*num_heads=*/8 );
 
-        EXPECT_EQ( cfg.getEmbeddingSize(), 64 );
+        EXPECT_EQ( cfg.getModelDim(), 64 );
         EXPECT_EQ( cfg.getNumHeads(), 8 );
         EXPECT_EQ( cfg.getHiddenSize(), 0 ); // not set -> 0
         EXPECT_FALSE( cfg.useBias() );

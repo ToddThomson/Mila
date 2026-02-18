@@ -17,6 +17,8 @@ module;
 #include "Kernels/CudaAttention.cuh"
 
 export module Compute.CudaAttentionOp;
+import :Plans;
+import :Dispatch;
 
 import Dnn.Components.Attention;
 import Dnn.Tensor;
@@ -40,6 +42,7 @@ import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
+import Compute.KVCacheable;
 import CublasLt.Error;
 import CublasLtHelpers;
 import Utils.Logger;
@@ -48,416 +51,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers;
-
-    namespace Detail
-    {
-        /**
-         * @brief cuBLASLt matmul execution plan for attention operations.
-         */
-        template <typename TNative>
-        using CublasLtMatMulPlan = CublasLtMatMulPlan<TNative>;
-
-        /**
-         * @brief Build cuBLASLt plan for Q·K^T attention score computation (row-major).
-         *
-         * Row-major storage: Q[K] and K[K] are stored as [T, HS] (rows = sequence length, cols = head size).
-         * Mathematical operation: preatt[T, T] = Q[T, HS] @ K^T[HS, T]
-         */
-        template <typename TNative>
-        CublasLtMatMulPlan<TNative> build_qk_score_plan(
-            cublasLtHandle_t handle,
-            int batch_size,
-            int num_heads,
-            int seq_length,
-            int head_size,
-            cudaDataType_t cuda_data_type,
-            cublasComputeType_t compute_type,
-            cudaDataType_t scale_type )
-        {
-            const int batch_count = batch_size * num_heads;
-
-            // Row-major element stride (elements per head per batch): rows * cols = T * HS
-            const long long strideA = static_cast<long long>(seq_length) * static_cast<long long>(head_size);
-            const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(head_size);
-            const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(seq_length);
-
-            // Row-major interpretation:
-            // - A (Q): rows = T, cols = HS, ldA = HS
-            // - B (K): rows = T, cols = HS, ldB = HS (we will use K^T via opB = CUBLAS_OP_T)
-            // - C (preatt): rows = T, cols = T, ldC = T
-            auto plan = build_strided_plan<TNative>(
-                handle,
-                /*A_rows=*/ seq_length, /*A_cols=*/ head_size, /*ldA=*/ head_size, /*strideA=*/ strideA,
-                /*B_rows=*/ seq_length, /*B_cols=*/ head_size, /*ldB=*/ head_size, /*strideB=*/ strideB,
-                /*C_rows=*/ seq_length, /*C_cols=*/ seq_length, /*ldC=*/ seq_length, /*strideC=*/ strideC,
-                /*opA=*/ CUBLAS_OP_N, /*opB=*/ CUBLAS_OP_T,   // Q @ K^T
-                batch_count,
-                false,
-                compute_type,
-                cuda_data_type,
-                scale_type );
-
-            if ( !plan.isValid() || !plan.has_algorithm )
-            {
-                Utils::Logger::warning( "cuBLASLt QK score plan built without algorithm (will use default)" );
-            }
-
-            return plan;
-        }
-
-        template <typename TNative>
-        CublasLtMatMulPlan<TNative> build_att_value_plan(
-            cublasLtHandle_t handle,
-            int batch_size,
-            int num_heads,
-            int seq_length,
-            int head_size,
-            cudaDataType_t cuda_data_type,
-            cublasComputeType_t compute_type,
-            cudaDataType_t scale_type )
-        {
-            const int batch_count = batch_size * num_heads;
-
-            //
-            // Row-major interpretation:
-            // - A (att): rows = T, cols = T, ldA = T, strideA = T * T
-            // - B (V)  : rows = T, cols = HS, ldB = HS, strideB = T * HS
-            // - C (v_out): rows = T, cols = HS, ldC = HS, strideC = T * HS
-            //
-            // Mathematical operation: v_out[T, HS] = att[T, T] @ V[T, HS]
-            //
-
-            const long long strideA = static_cast<long long>(seq_length) * static_cast<long long>(seq_length); // T * T
-            const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
-            const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
-
-            auto plan = build_strided_plan<TNative>(
-                handle,
-                /*A_rows=*/ seq_length, /*A_cols=*/ seq_length, /*ldA=*/ seq_length, /*strideA=*/ strideA, // att: [T, T]
-                /*B_rows=*/ seq_length, /*B_cols=*/ head_size,  /*ldB=*/ head_size,  /*strideB=*/ strideB, // V:   [T, HS]
-                /*C_rows=*/ seq_length, /*C_cols=*/ head_size,  /*ldC=*/ head_size,  /*strideC=*/ strideC, // v_out:[T, HS]
-                /*opA=*/ CUBLAS_OP_N, /*opB=*/ CUBLAS_OP_N, // v_out = A @ B
-                batch_count,
-                false,
-                compute_type,
-                cuda_data_type,
-                scale_type );
-
-            if ( !plan.isValid() || !plan.has_algorithm )
-            {
-                Utils::Logger::warning( "cuBLASLt Att-Value plan built without algorithm (will use default)" );
-            }
-
-            return plan;
-        }
-
-        template <typename TNative>
-        CublasLtMatMulPlan<TNative> build_backward_v_plan(
-            cublasLtHandle_t handle,
-            int batch_size,
-            int num_heads,
-            int seq_length,
-            int head_size,
-            cudaDataType_t cuda_data_type,
-            cublasComputeType_t compute_type,
-            cudaDataType_t scale_type )
-        {
-            const int batch_count = batch_size * num_heads;
-
-            //
-            // Row-major interpretation (refactored):
-            // - A (att):   rows = T, cols = T,  ldA = T,  strideA = T * T
-            // - B (dVout): rows = T, cols = HS, ldB = HS, strideB = T * HS
-            // - C (dV):    rows = T, cols = HS, ldC = HS, strideC = T * HS
-            //
-            // Mathematical operation (row-major): dV[T,HS] = Att^T[T,T] @ dVout[T,HS]
-            // Map to cuBLAS op flags: opA = CUBLAS_OP_T, opB = CUBLAS_OP_N
-            //
-
-            const long long strideA = static_cast<long long>(seq_length) * static_cast<long long>(seq_length); // T * T
-            const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
-            const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
-
-            auto plan = build_strided_plan<TNative>(
-                handle,
-                /*A_rows=*/ seq_length, /*A_cols=*/ seq_length, /*ldA=*/ seq_length, /*strideA=*/ strideA, // att: [T, T]
-                /*B_rows=*/ seq_length, /*B_cols=*/ head_size,  /*ldB=*/ head_size,  /*strideB=*/ strideB, // dVout: [T, HS]
-                /*C_rows=*/ seq_length, /*C_cols=*/ head_size,  /*ldC=*/ head_size,  /*strideC=*/ strideC, // dV: [T, HS]
-                /*opA=*/ CUBLAS_OP_T, /*opB=*/ CUBLAS_OP_N, // dV = Att^T @ dVout
-                batch_count,
-                false,
-                compute_type,
-                cuda_data_type,
-                scale_type );
-
-            if ( !plan.isValid() || !plan.has_algorithm )
-            {
-                Utils::Logger::warning( "cuBLASLt backward dV plan built without algorithm (will use default)" );
-            }
-
-            return plan;
-        }
-
-        template <typename TNative>
-        CublasLtMatMulPlan<TNative> build_backward_att_plan(
-            cublasLtHandle_t handle,
-            int batch_size,
-            int num_heads,
-            int seq_length,
-            int head_size,
-            cudaDataType_t cuda_data_type,
-            cublasComputeType_t compute_type,
-            cudaDataType_t scale_type )
-        {
-            const int batch_count = batch_size * num_heads;
-
-            //
-            // Row-major interpretation (refactored):
-            // - A (dVout): rows = T, cols = HS, ldA = HS, strideA = T * HS
-            // - B (V)    : rows = T, cols = HS, ldB = HS, strideB = T * HS
-            // - C (dAtt) : rows = T, cols = T,  ldC = T,  strideC = T * T
-            //
-            // Mathematical operation: dAtt[T, T] = dVout[T, HS] @ V[T, HS]^T
-            // cuBLAS mapping: opA = CUBLAS_OP_N, opB = CUBLAS_OP_T
-            //
-
-            const long long strideA = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
-            const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
-            const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(seq_length); // T * T
-
-            auto plan = build_strided_plan<TNative>(
-                handle,
-                /*A_rows=*/ seq_length, /*A_cols=*/ head_size, /*ldA=*/ head_size, /*strideA=*/ strideA, // dVout: [T, HS]
-                /*B_rows=*/ seq_length, /*B_cols=*/ head_size, /*ldB=*/ head_size, /*strideB=*/ strideB, // V:     [T, HS]
-                /*C_rows=*/ seq_length, /*C_cols=*/ seq_length, /*ldC=*/ seq_length, /*strideC=*/ strideC, // dAtt:  [T, T]
-                /*opA=*/ CUBLAS_OP_N, /*opB=*/ CUBLAS_OP_T, // dAtt = A @ B^T
-                batch_count,
-                false,
-                compute_type,
-                cuda_data_type,
-                scale_type );
-
-            if ( !plan.isValid() || !plan.has_algorithm )
-            {
-                Utils::Logger::warning( "cuBLASLt backward dAtt plan built without algorithm (will use default)" );
-            }
-
-            return plan;
-        }
-
-        template <typename TNative>
-        CublasLtMatMulPlan<TNative> build_backward_q_plan(
-            cublasLtHandle_t handle,
-            int batch_size,
-            int num_heads,
-            int seq_length,
-            int head_size,
-            cudaDataType_t cuda_data_type,
-            cublasComputeType_t compute_type,
-            cudaDataType_t scale_type )
-        {
-            const int batch_count = batch_size * num_heads;
-
-            // Row-major interpretation:
-            // - A (dPreatt): rows = T, cols = T, ldA = T, strideA = T * T
-            // - B (K):       rows = T, cols = HS, ldB = HS, strideB = T * HS
-            // - C (dQ):      rows = T, cols = HS, ldC = HS, strideC = T * HS
-            //
-            // Mathematical operation (row-major): dQ[T,HS] = dPreatt[T,T] @ K[T,HS]
-            // cuBLAS mapping: opA = CUBLAS_OP_N, opB = CUBLAS_OP_N
-
-            const long long strideA = static_cast<long long>(seq_length) * static_cast<long long>(seq_length); // T * T
-            const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(head_size);  // T * HS
-            const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(head_size);  // T * HS
-
-            auto plan = build_strided_plan<TNative>(
-                handle,
-                /*A_rows=*/ seq_length, /*A_cols=*/ seq_length, /*ldA=*/ seq_length, /*strideA=*/ strideA, // dPreatt: [T, T]
-                /*B_rows=*/ seq_length, /*B_cols=*/ head_size,  /*ldB=*/ head_size,  /*strideB=*/ strideB, // K/q: [T, HS]
-                /*C_rows=*/ seq_length, /*C_cols=*/ head_size,  /*ldC=*/ head_size,  /*strideC=*/ strideC, // dQ: [T, HS]
-                /*opA=*/ CUBLAS_OP_N, /*opB=*/ CUBLAS_OP_N, // C = A @ B
-                batch_count,
-                false,
-                compute_type,
-                cuda_data_type,
-                scale_type );
-
-            if ( !plan.isValid() || !plan.has_algorithm )
-            {
-                Utils::Logger::warning( "cuBLASLt backward dQ plan built without algorithm (will use default)" );
-            }
-
-            return plan;
-        }
-
-        template <typename TNative>
-        CublasLtMatMulPlan<TNative> build_backward_k_plan(
-            cublasLtHandle_t handle,
-            int batch_size,
-            int num_heads,
-            int seq_length,
-            int head_size,
-            cudaDataType_t cuda_data_type,
-            cublasComputeType_t compute_type,
-            cudaDataType_t scale_type )
-        {
-            const int batch_count = batch_size * num_heads;
-
-            //
-            // Row-major interpretation (refactored):
-            // - A (dPreatt): rows = T, cols = T, ldA = T, strideA = T * T
-            // - B (Q)      : rows = T, cols = HS, ldB = HS, strideB = T * HS
-            // - C (dK)     : rows = T, cols = HS, ldC = HS, strideC = T * HS
-            //
-            // Mathematical operation: dK[T, HS] = dPreatt^T[T, T] @ Q[T, HS]
-            // cuBLAS mapping: opA = CUBLAS_OP_T, opB = CUBLAS_OP_N
-            //
-
-            const long long strideA = static_cast<long long>(seq_length) * static_cast<long long>(seq_length); // T * T
-            const long long strideB = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
-            const long long strideC = static_cast<long long>(seq_length) * static_cast<long long>(head_size); // T * HS
-
-            auto plan = build_strided_plan<TNative>(
-                handle,
-                /*A_rows=*/ seq_length, /*A_cols=*/ seq_length, /*ldA=*/ seq_length, /*strideA=*/ strideA, // dPreatt: [T, T]
-                /*B_rows=*/ seq_length, /*B_cols=*/ head_size,  /*ldB=*/ head_size,  /*strideB=*/ strideB, // Q:      [T, HS]
-                /*C_rows=*/ seq_length, /*C_cols=*/ head_size,  /*ldC=*/ head_size,  /*strideC=*/ strideC, // dK:     [T, HS]
-                /*opA=*/ CUBLAS_OP_T, /*opB=*/ CUBLAS_OP_N, // dK = A^T @ B
-                batch_count,
-                false,
-                compute_type,
-                cuda_data_type,
-                scale_type );
-
-            if ( !plan.isValid() || !plan.has_algorithm )
-            {
-                Utils::Logger::warning( "cuBLASLt backward dK plan built without algorithm (will use default)" );
-            }
-
-            return plan;
-        }
-
-        /**
-         * @brief CUDA kernel dispatcher for attention non-matmul operations.
-         */
-        template <typename TNative>
-            requires std::is_same_v<TNative, float> || std::is_same_v<TNative, half>
-        struct cuda_mha_kernels;
-
-        template <>
-        struct cuda_mha_kernels<float>
-        {
-            cuda_mha_kernels() = default;
-
-            static inline void permute_qkv(
-                float* q, float* k, float* v,
-                const float* inp,
-                int B, int T, int NH, int HS,
-                cudaStream_t stream )
-            {
-                cuda_permute_qkv_fp32( q, k, v, inp, B, T, NH, HS, stream );
-            }
-
-            static inline void unpermute_output(
-                const float* vaccum, float* out,
-                int B, int T, int NH, int HS,
-                cudaStream_t stream )
-            {
-                cuda_unpermute_output_fp32( vaccum, out, B, T, NH, HS, stream );
-            }
-
-            static inline void softmax_forward(
-                float* att, float scale, const float* preatt,
-                int B, int NH, int T,
-                cudaStream_t stream )
-            {
-                cuda_softmax_forward_fp32( att, scale, preatt, B, NH, T, stream );
-            }
-
-            static inline void softmax_backward(
-                float* dpreatt, const float* datt, const float* att,
-                float scale,
-                int B, int NH, int T,
-                cudaStream_t stream )
-            {
-                cuda_softmax_backward_fp32( dpreatt, datt, att, scale, B, NH, T, stream );
-            }
-
-            static inline void permute_backward(
-                float* dinp,
-                const float* dq, const float* dk, const float* dv,
-                int B, int T, int NH, int HS,
-                cudaStream_t stream )
-            {
-                cuda_permute_backward_fp32( dinp, dq, dk, dv, B, T, NH, HS, stream );
-            }
-
-            static inline void unpermute_backward(
-                float* dvaccum, const float* dout,
-                int B, int T, int NH, int HS,
-                cudaStream_t stream )
-            {
-                cuda_unpermute_backward_fp32( dvaccum, dout, B, T, NH, HS, stream );
-            }
-        };
-
-        template <>
-        struct cuda_mha_kernels<half>
-        {
-            cuda_mha_kernels() = default;
-
-            static inline void permute_qkv(
-                half* q, half* k, half* v,
-                const half* inp,
-                int B, int T, int NH, int HS,
-                cudaStream_t stream )
-            {
-                cuda_permute_qkv_fp16( q, k, v, inp, B, T, NH, HS, stream );
-            }
-
-            static inline void unpermute_output(
-                const half* vaccum, half* out,
-                int B, int T, int NH, int HS,
-                cudaStream_t stream )
-            {
-                cuda_unpermute_output_fp16( vaccum, out, B, T, NH, HS, stream );
-            }
-
-            static inline void softmax_forward(
-                half* att, float scale, const half* preatt,
-                int B, int NH, int T,
-                cudaStream_t stream )
-            {
-                cuda_softmax_forward_fp16( att, scale, preatt, B, NH, T, stream );
-            }
-
-            static inline void softmax_backward(
-                half* dpreatt, const half* datt, const half* att,
-                float scale,
-                int B, int NH, int T,
-                cudaStream_t stream )
-            {
-                cuda_softmax_backward_fp16( dpreatt, datt, att, scale, B, NH, T, stream );
-            }
-
-            static inline void permute_backward(
-                half* dinp,
-                const half* dq, const half* dk, const half* dv,
-                int B, int T, int NH, int HS,
-                cudaStream_t stream )
-            {
-                cuda_permute_backward_fp16( dinp, dq, dk, dv, B, T, NH, HS, stream );
-            }
-
-            static inline void unpermute_backward(
-                half* dvaccum, const half* dout,
-                int B, int T, int NH, int HS,
-                cudaStream_t stream )
-            {
-                cuda_unpermute_backward_fp16( dvaccum, dout, B, T, NH, HS, stream );
-            }
-        };
-    }
 
     /**
      * @brief CUDA implementation of Multi-Head Attention using column-major cuBLASLt optimization.
@@ -487,7 +80,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention
      */
     export template<TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaAttentionOp : public UnaryOperation<DeviceType::Cuda, TPrecision>
+    class CudaAttentionOp : public UnaryOperation<DeviceType::Cuda, TPrecision>, public IKVCacheable
     {
     public:
         using MR = CudaDeviceMemoryResource;
@@ -509,21 +102,161 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         void setGradients( ITensor* /*unused1*/, ITensor* /*unused2*/ ) override
         {}
 
-        void initializeKVCache( int /*unused_batch_size*/, int /*unused_max_seq_length*/ )
+        void initializeKVCache( int batch_size, int max_seq_length )
         {
-            //if ( !config_.use_kv_cache ) return;
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "CudaAttentionOp::initializeKVCache requires build() to be called first" );
+            }
 
-            //int64_t cache_shape[] = { B_, NH_, max_len, HS_ };
+            if ( batch_size != B_ )
+            {
+                throw std::invalid_argument( "CudaAttentionOp::initializeKVCache batch size mismatch" );
+            }
 
-            //kv_cache_k_ = std::make_shared<TensorType>( device_id_, cache_shape );
-            //kv_cache_v_ = std::make_shared<TensorType>( device_id_, cache_shape );
+            if ( max_seq_length <= 0 || max_seq_length > T_ )
+            {
+                throw std::invalid_argument( "CudaAttentionOp::initializeKVCache max_seq_length out of range" );
+            }
 
-            //cached_seq_len_ = 0;
+            active_max_seq_len_ = max_seq_length;
+            cached_seq_len_ = 0;
+            kv_cache_enabled_ = true;
+        }
+
+        void resetKVCache()
+        {
+            cached_seq_len_ = 0;
+        }
+
+        void forwardPrefill( const ITensor& input, ITensor& output )
+        {
+            const auto& input_shape = input.shape();
+
+            ensureKVCacheEnabled();
+
+            validatePrefillInputShape( input_shape );
+
+            int actual_seq_len = static_cast<int>(input_shape[ 1 ]);
+
+            const NativeType* X = static_cast<const NativeType*>(input.rawData());
+            NativeType* Y = static_cast<NativeType*>(output.rawData());
+
+            cudaStream_t stream = context_->getStream();
+
+            const float alpha = 1.0f;
+            const float beta = 0.0f;
+            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
+
+            Detail::cuda_mha_kernels<NativeType>::permute_qkv_padded(
+                q_, k_, v_,
+                X,
+                B_, actual_seq_len, T_, NH_, HS_,
+                stream );
+
+            execute_plan<NativeType>(
+                cublaslt_handle_,
+                qk_score_plan_,
+                &scale,
+                q_, k_,
+                &beta,
+                preatt_,
+                nullptr,
+                stream );
+
+            Detail::cuda_mha_kernels<NativeType>::softmax_padded_forward(
+                att_, 1.0f, preatt_,
+                B_, NH_, T_, actual_seq_len,
+                stream );
+
+            execute_plan<NativeType>(
+                cublaslt_handle_,
+                att_value_plan_,
+                &alpha,
+                att_, v_,
+                &beta,
+                v_out_,
+                nullptr,
+                stream );
+
+            Detail::cuda_mha_kernels<NativeType>::unpermute_output(
+                v_out_, Y,
+                B_, T_, NH_, HS_,
+                stream );
+
+            cached_seq_len_ = actual_seq_len;
+        }
+
+        void forwardDecode( const ITensor& input, ITensor& output, int position )
+        {
+            const auto& input_shape = input.shape();
+
+            ensureKVCacheEnabled();
+
+            validateDecodeInputShape( input_shape );
+
+            if ( position < 0 || position >= active_max_seq_len_ )
+            {
+                throw std::invalid_argument( "CudaAttentionOp::forwardDecode position out of range" );
+            }
+
+            int actual_len = position + 1;
+
+            const NativeType* X = static_cast<const NativeType*>( input.rawData() );
+            NativeType* Y = static_cast<NativeType*>( output.rawData() );
+
+            cudaStream_t stream = context_->getStream();
+
+            const float alpha = 1.0f;
+            const float beta = 0.0f;
+            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
+
+            Detail::cuda_mha_kernels<NativeType>::permute_qkv_decode(
+                q_, k_, v_,
+                X,
+                B_, position, T_, NH_, HS_,
+                stream );
+
+            const NativeType* q_decode = q_ + static_cast<int64_t>(position) * HS_;
+
+            execute_plan<NativeType>(
+                cublaslt_handle_,
+                qk_decode_plan_,
+                &scale,
+                q_decode, k_,
+                &beta,
+                preatt_decode_,
+                nullptr,
+                stream );
+
+            Detail::cuda_mha_kernels<NativeType>::softmax_decode_forward(
+                att_decode_, 1.0f, preatt_decode_,
+                B_, NH_, T_, actual_len,
+                stream );
+
+            execute_plan<NativeType>(
+                cublaslt_handle_,
+                att_value_decode_plan_,
+                &alpha,
+                att_decode_, v_,
+                &beta,
+                v_out_decode_,
+                nullptr,
+                stream );
+
+            Detail::cuda_mha_kernels<NativeType>::unpermute_output(
+                v_out_decode_, Y,
+                B_, 1, NH_, HS_,
+                stream );
+
+            if ( actual_len > cached_seq_len_ )
+            {
+                cached_seq_len_ = actual_len;
+            }
         }
 
         void build( const shape_t& input_shape ) override
         {
-            // REVIEW: What happens when build fails partway through?
             validateInputShape( input_shape );
 
             B_ = static_cast<int>(input_shape[ 0 ]);
@@ -540,6 +273,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                     "CudaAttentionOp: embedding_dim must be divisible by num_heads" );
             }
 
+            active_max_seq_len_ = T_;
+            cached_seq_len_ = 0;
+            kv_cache_enabled_ = false;
+
             allocateStateTensors();
 
             cublaslt_handle_ = context_->getCublasLtHandle();
@@ -551,10 +288,8 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                     "Ensure CUDA 10.1 or newer is installed." );
             }
 
-            // REVIEW: Never used. PrecisionPolicy used in mixed-precision plan building in future?
             precision_policy_ = config_.getPrecisionPolicy();
 
-            // REVIEW: Can definitely throw. What is the user experience here?
             buildCublasLtPlans();
 
             UnaryOperationBase::build( input_shape );
@@ -771,11 +506,17 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         int NH_{ 0 };
         int HS_{ 0 };
 
+        int active_max_seq_len_{ 0 };
+        int cached_seq_len_{ 0 };
+        bool kv_cache_enabled_{ false };
+
         cublasLtHandle_t cublaslt_handle_{ nullptr };
         ComputePrecision::Policy precision_policy_;
 
         Detail::CublasLtMatMulPlan<NativeType> qk_score_plan_;
         Detail::CublasLtMatMulPlan<NativeType> att_value_plan_;
+        Detail::CublasLtMatMulPlan<NativeType> qk_decode_plan_;
+        Detail::CublasLtMatMulPlan<NativeType> att_value_decode_plan_;
         Detail::CublasLtMatMulPlan<NativeType> backward_v_plan_;
         Detail::CublasLtMatMulPlan<NativeType> backward_att_plan_;
         Detail::CublasLtMatMulPlan<NativeType> backward_q_plan_;
@@ -787,6 +528,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         std::shared_ptr<TensorType> preatt_tensor_;
         std::shared_ptr<TensorType> att_tensor_;
         std::shared_ptr<TensorType> v_out_tensor_;
+
+        std::shared_ptr<TensorType> preatt_decode_tensor_;
+        std::shared_ptr<TensorType> att_decode_tensor_;
+        std::shared_ptr<TensorType> v_out_decode_tensor_;
 
         std::shared_ptr<TensorType> dq_tensor_;
         std::shared_ptr<TensorType> dk_tensor_;
@@ -802,12 +547,44 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         NativeType* att_{ nullptr };
         NativeType* v_out_{ nullptr };
 
+        NativeType* preatt_decode_{ nullptr };
+        NativeType* att_decode_{ nullptr };
+        NativeType* v_out_decode_{ nullptr };
+
         NativeType* dq_{ nullptr };
         NativeType* dk_{ nullptr };
         NativeType* dV_{ nullptr };
         NativeType* dpreatt_{ nullptr };
         NativeType* datt_{ nullptr };
         NativeType* dVout_{ nullptr };
+
+        void validatePrefillInputShape( const shape_t& input_shape ) const
+        {
+            validateInputShape( input_shape );
+
+            if ( input_shape[ 1 ] <= 0 || input_shape[ 1 ] > T_ )
+            {
+                throw std::invalid_argument( "CudaAttentionOp: prefill sequence length out of range" );
+            }
+        }
+
+        void validateDecodeInputShape( const shape_t& input_shape ) const
+        {
+            validateInputShape( input_shape );
+
+            if ( input_shape[ 1 ] != 1 )
+            {
+                throw std::invalid_argument( "CudaAttentionOp: decode input must have sequence length 1" );
+            }
+        }
+
+        void ensureKVCacheEnabled() const
+        {
+            if ( !kv_cache_enabled_ )
+            {
+                throw std::runtime_error( "CudaAttentionOp: KV cache must be initialized before prefill or decode" );
+            }
+        }
 
         void validateInputShape( const shape_t& input_shape ) const
         {
@@ -816,10 +593,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             if ( input_shape.size() != 3 )
             {
                 throw std::invalid_argument(
-                    "CudaAttentionOp: input must have rank 3 (batch_size, seq_length, 3*embedding_dim)" );
+                    "CudaAttentionOp: input must have rank 3 (batch_size, seq_length, 3 * model_dim)" );
             }
 
-            const int64_t expected_qkv_dim = 3 * config_.getEmbeddingSize();
+            const int64_t expected_qkv_dim = 3 * config_.getModelDim();
 
             if ( input_shape[ 2 ] != expected_qkv_dim )
             {
@@ -832,7 +609,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         {
             auto device = context_->getDeviceId();
 
-            // Each of Q, K, V shape: [B, NH, T, HS]
             shape_t qkv_shape = { B_, NH_, T_, HS_ };
 
             q_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
@@ -847,7 +623,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             v_tensor_->setName( "v_" );
             v_ = static_cast<NativeType*>(v_tensor_->rawData());
 
-            // attention scores shape: [B, NH, T, T]
             shape_t att_shape = { B_, NH_, T_, T_ };
 
             preatt_tensor_ = std::make_shared<TensorType>( device, att_shape );
@@ -858,12 +633,26 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             att_tensor_->setName( "att_" );
             att_ = static_cast<NativeType*>(att_tensor_->rawData());
 
-            // v_out_ shape: [B, NH, T, HS]
             shape_t v_out_shape = { B_, NH_, T_, HS_ };
 
             v_out_tensor_ = std::make_shared<TensorType>( device, v_out_shape );
             v_out_tensor_->setName( "v_out_" );
             v_out_ = static_cast<NativeType*>(v_out_tensor_->rawData());
+
+            shape_t decode_att_shape = { B_, NH_, 1, T_ };
+            shape_t decode_v_out_shape = { B_, NH_, 1, HS_ };
+
+            preatt_decode_tensor_ = std::make_shared<TensorType>( device, decode_att_shape );
+            preatt_decode_tensor_->setName( "preatt_decode_" );
+            preatt_decode_ = static_cast<NativeType*>(preatt_decode_tensor_->rawData());
+
+            att_decode_tensor_ = std::make_shared<TensorType>( device, decode_att_shape );
+            att_decode_tensor_->setName( "att_decode_" );
+            att_decode_ = static_cast<NativeType*>(att_decode_tensor_->rawData());
+
+            v_out_decode_tensor_ = std::make_shared<TensorType>( device, decode_v_out_shape );
+            v_out_decode_tensor_->setName( "v_out_decode_" );
+            v_out_decode_ = static_cast<NativeType*>(v_out_decode_tensor_->rawData());
 
             dq_tensor_ = std::make_shared<TensorType>( device, qkv_shape );
             dq_tensor_->setName( "dq_" );
@@ -892,8 +681,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention
 
         void buildCublasLtPlans()
         {
-            // REVIEW: This is poor code. Must be based on NativeType and likely done in build_XXX_plan<NativeType>() functions.
-            
             cudaDataType_t cuda_data_type = getCudaDataType();
             cublasComputeType_t compute_type;
             cudaDataType_t scale_type;
@@ -908,6 +695,20 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 scale_type );
 
             att_value_plan_ = Detail::build_att_value_plan<NativeType>(
+                cublaslt_handle_,
+                B_, NH_, T_, HS_,
+                cuda_data_type,
+                compute_type,
+                scale_type );
+
+            qk_decode_plan_ = Detail::build_qk_decode_plan<NativeType>(
+                cublaslt_handle_,
+                B_, NH_, T_, HS_,
+                cuda_data_type,
+                compute_type,
+                scale_type );
+
+            att_value_decode_plan_ = Detail::build_att_value_decode_plan<NativeType>(
                 cublaslt_handle_,
                 B_, NH_, T_, HS_,
                 cuda_data_type,

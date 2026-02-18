@@ -232,6 +232,200 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         }
     }
 
+    __global__ void layernorm_forward_fp32_contig_kernel(
+        float* __restrict__ out,
+        float* __restrict__ mean,
+        float* __restrict__ rstd,
+        const float* __restrict__ inp,
+        const float* __restrict__ weight,
+        const float* __restrict__ bias,
+        int num_slices, int norm_dim, float epsilon )
+    {
+        int lane_id = threadIdx.x % WARP_SIZE;
+        int warp_id = threadIdx.x / WARP_SIZE;
+        int num_warps = blockDim.x / WARP_SIZE;
+        int idx = blockIdx.x * num_warps + warp_id;
+
+        if ( idx >= num_slices )
+        {
+            return;
+        }
+
+        const float* x = inp + static_cast<size_t>(idx) * static_cast<size_t>(norm_dim);
+        float* o = out + static_cast<size_t>(idx) * static_cast<size_t>(norm_dim);
+
+        float m = 0.0f;
+        float m2 = 0.0f;
+        int count = 0;
+
+        for ( int i = lane_id; i < norm_dim; i += WARP_SIZE )
+        {
+            float val = x[ i ];
+            count++;
+            float delta = val - m;
+            m += delta / count;
+            float delta2 = val - m;
+            m2 += delta * delta2;
+        }
+
+        for ( int offset = WARP_SIZE / 2; offset > 0; offset /= 2 )
+        {
+            float other_m = __shfl_down_sync( 0xffffffff, m, offset );
+            float other_m2 = __shfl_down_sync( 0xffffffff, m2, offset );
+            int other_count = __shfl_down_sync( 0xffffffff, count, offset );
+
+            if ( lane_id < offset )
+            {
+                int total = count + other_count;
+
+                if ( total != 0 )
+                {
+                    float delta = other_m - m;
+                    m = (count * m + other_count * other_m) / total;
+                    m2 = m2 + other_m2 + delta * delta * (static_cast<float>( count ) * static_cast<float>( other_count )) / static_cast<float>( total );
+                    count = total;
+                }
+            }
+        }
+
+        m = __shfl_sync( 0xffffffff, m, 0 );
+        m2 = __shfl_sync( 0xffffffff, m2, 0 );
+
+        float s = rsqrtf( m2 / static_cast<float>(norm_dim) + epsilon );
+
+        if ( lane_id == 0 )
+        {
+            if ( mean != nullptr )
+            {
+                mean[ idx ] = m;
+            }
+
+            if ( rstd != nullptr )
+            {
+                rstd[ idx ] = s;
+            }
+        }
+
+        for ( int i = lane_id; i < norm_dim; i += WARP_SIZE )
+        {
+            float val = x[ i ];
+            float w = weight ? weight[ i ] : 1.0f;
+            float b = bias ? bias[ i ] : 0.0f;
+            float res = s * (val - m) * w + b;
+            o[ i ] = res;
+        }
+    }
+
+    __global__ void layernorm_backward_fp32_contig_kernel(
+        float* __restrict__ dinp,
+        float* __restrict__ dweight,
+        float* __restrict__ dbias,
+        const float* __restrict__ dout,
+        const float* __restrict__ inp,
+        const float* __restrict__ weight,
+        const float* __restrict__ mean,
+        const float* __restrict__ rstd,
+        int num_slices, int norm_dim )
+    {
+        int lane_id = threadIdx.x % WARP_SIZE;
+        int warp_id = threadIdx.x / WARP_SIZE;
+        int num_warps = blockDim.x / WARP_SIZE;
+        int idx = blockIdx.x * num_warps + warp_id;
+
+        if ( idx >= num_slices )
+        {
+            return;
+        }
+
+        const float* x = inp + static_cast<size_t>(idx) * static_cast<size_t>(norm_dim);
+        const float* dy = dout + static_cast<size_t>(idx) * static_cast<size_t>(norm_dim);
+        float* dx = dinp + static_cast<size_t>(idx) * static_cast<size_t>(norm_dim);
+
+        float m = mean[ idx ];
+        float s = rstd[ idx ];
+
+        float sum_dy_w = 0.0f;
+        float sum_dy_w_xhat = 0.0f;
+
+        for ( int i = lane_id; i < norm_dim; i += WARP_SIZE )
+        {
+            float x_val = x[ i ];
+            float dy_val = dy[ i ];
+            float w_val = weight ? weight[ i ] : 1.0f;
+
+            float xhat = (x_val - m) * s;
+            sum_dy_w += dy_val * w_val;
+            sum_dy_w_xhat += dy_val * w_val * xhat;
+
+            if ( dweight )
+            {
+                atomicAdd( &dweight[ i ], dy_val * xhat );
+            }
+
+            if ( dbias )
+            {
+                atomicAdd( &dbias[ i ], dy_val );
+            }
+        }
+
+        for ( int offset = WARP_SIZE / 2; offset > 0; offset /= 2 )
+        {
+            sum_dy_w += __shfl_down_sync( 0xffffffff, sum_dy_w, offset );
+            sum_dy_w_xhat += __shfl_down_sync( 0xffffffff, sum_dy_w_xhat, offset );
+        }
+
+        sum_dy_w = __shfl_sync( 0xffffffff, sum_dy_w, 0 );
+        sum_dy_w_xhat = __shfl_sync( 0xffffffff, sum_dy_w_xhat, 0 );
+
+        float norm_factor = 1.0f / static_cast<float>(norm_dim);
+
+        for ( int i = lane_id; i < norm_dim; i += WARP_SIZE )
+        {
+            float x_val = x[ i ];
+            float dy_val = dy[ i ];
+            float w_val = weight ? weight[ i ] : 1.0f;
+
+            float xhat = (x_val - m) * s;
+            float dxhat = dy_val * w_val;
+
+            float out_dx = (dxhat - norm_factor * sum_dy_w - norm_factor * xhat * sum_dy_w_xhat) * s;
+
+            atomicAdd( &dx[ i ], out_dx );
+        }
+    }
+
+    void cuda_layernorm_forward_fp32_contig(
+        float* Y, float* mean, float* rstd,
+        const float* X, const float* weight, const float* bias,
+        int num_slices, int norm_dim,
+        float epsilon,
+        cudaStream_t stream )
+    {
+        const int block_size = 512;
+        const int grid_size = ceil_div( num_slices * WARP_SIZE, block_size );
+
+        layernorm_forward_fp32_contig_kernel << <grid_size, block_size, 0, stream >> > (
+            Y, mean, rstd, X, weight, bias, num_slices, norm_dim, epsilon);
+
+        cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_layernorm_backward_fp32_contig(
+        float* dX, float* dweight, float* dbias,
+        const float* dY, const float* X, const float* weight,
+        const float* mean, const float* rstd,
+        int num_slices, int norm_dim,
+        cudaStream_t stream )
+    {
+        const int block_size = 512;
+        const int grid_size = ceil_div( num_slices * WARP_SIZE, block_size );
+
+        layernorm_backward_fp32_contig_kernel << <grid_size, block_size, 0, stream >> > (
+            dX, dweight, dbias, dY, X, weight, mean, rstd, num_slices, norm_dim);
+
+        cudaCheck( cudaGetLastError() );
+    }
+
     // ========================================================================
     // Host launchers
     // ========================================================================

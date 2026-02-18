@@ -141,6 +141,8 @@ namespace Mila::Dnn
             auto host_input_ptr = host_input.data();
             const size_t n = host_input.size();
             auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
+            Utils::Logger::debug( std::format( "LinearOp {} in:[{:.3f}, {:.3f}] with shape {}",
+                this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
 
             // END DEBUG:
 

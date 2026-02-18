@@ -50,7 +50,7 @@ namespace Components::Layers::Tests
             d.vocab_len = vocab_len;
             d.is_training = is_training;
 
-            d.config.withChannels( static_cast<size_t>(channels) )
+            d.config.withEmbeddingDim( static_cast<size_t>(channels) )
                 .withMaxSequenceLength( static_cast<size_t>(max_seq_len) )
                 .withVocabularyLength( static_cast<size_t>(vocab_len) );
 
@@ -280,7 +280,7 @@ namespace Components::Layers::Tests
         if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
         LearnedEncoderConfig cfg;
-        cfg.withChannels( 16 ).withMaxSequenceLength( 8 ).withVocabularyLength( 100 );
+        cfg.withEmbeddingDim( 16 ).withMaxSequenceLength( 8 ).withVocabularyLength( 100 );
 
         auto component = std::make_shared<LearnedEncoder<DeviceType::Cuda, TensorDataType::INT32, TensorDataType::FP32>>(
             "deferred_cuda_encoder",
@@ -294,7 +294,7 @@ namespace Components::Layers::Tests
         if ( !cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
         LearnedEncoderConfig cfg;
-        cfg.withChannels( 16 )
+        cfg.withEmbeddingDim( 16 )
             .withMaxSequenceLength( 8 )
             .withVocabularyLength( 100 );
 

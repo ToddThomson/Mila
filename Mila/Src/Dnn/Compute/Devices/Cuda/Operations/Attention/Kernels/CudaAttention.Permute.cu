@@ -416,6 +416,207 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             dinp[ dinp_v_idx ] = dv[ in_idx ];
         }
     }
+    __global__ void permute_qkv_padded_fp32_kernel(
+        float* Q, float* K, float* V,
+        const float* X,
+        int B, int input_T, int output_T, int NH, int HS )
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+        if ( idx < B * NH * output_T * HS )
+        {
+            int b = idx / (NH * output_T * HS);
+            int rest = idx % (NH * output_T * HS);
+            int nh = rest / (output_T * HS);
+            rest = rest % (output_T * HS);
+            int t = rest / HS;
+            int hs = rest % HS;
+
+            int out_idx = b * (NH * output_T * HS) + nh * (output_T * HS) + t * HS + hs;
+
+            if ( t >= input_T )
+            {
+                Q[ out_idx ] = 0.0f;
+                K[ out_idx ] = 0.0f;
+                V[ out_idx ] = 0.0f;
+
+                return;
+            }
+
+            int C = NH * HS;
+            int base_idx = b * input_T * 3 * C + t * 3 * C;
+            int head_offset = nh * HS + hs;
+
+            int q_idx = base_idx + head_offset;
+            int k_idx = base_idx + C + head_offset;
+            int v_idx = base_idx + 2 * C + head_offset;
+
+            Q[ out_idx ] = __ldcs( &X[ q_idx ] );
+            K[ out_idx ] = __ldcs( &X[ k_idx ] );
+            V[ out_idx ] = __ldcs( &X[ v_idx ] );
+        }
+    }
+
+    __global__ void permute_qkv_padded_fp16_kernel(
+        half* Q, half* K, half* V,
+        const half* X,
+        int B, int input_T, int output_T, int NH, int HS )
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+        if ( idx < B * NH * output_T * HS )
+        {
+            int b = idx / (NH * output_T * HS);
+            int rest = idx % (NH * output_T * HS);
+            int nh = rest / (output_T * HS);
+            rest = rest % (output_T * HS);
+            int t = rest / HS;
+            int hs = rest % HS;
+
+            int out_idx = b * (NH * output_T * HS) + nh * (output_T * HS) + t * HS + hs;
+
+            if ( t >= input_T )
+            {
+                Q[ out_idx ] = __float2half( 0.0f );
+                K[ out_idx ] = __float2half( 0.0f );
+                V[ out_idx ] = __float2half( 0.0f );
+
+                return;
+            }
+
+            int C = NH * HS;
+            int base_idx = b * input_T * 3 * C + t * 3 * C;
+            int head_offset = nh * HS + hs;
+
+            int q_idx = base_idx + head_offset;
+            int k_idx = base_idx + C + head_offset;
+            int v_idx = base_idx + 2 * C + head_offset;
+
+            Q[ out_idx ] = __ldcs( &X[ q_idx ] );
+            K[ out_idx ] = __ldcs( &X[ k_idx ] );
+            V[ out_idx ] = __ldcs( &X[ v_idx ] );
+        }
+    }
+
+    __global__ void permute_qkv_decode_fp32_kernel(
+        float* Q, float* K, float* V,
+        const float* X,
+        int B, int position, int cache_T, int NH, int HS )
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+        if ( idx < B * NH * HS )
+        {
+            int b = idx / (NH * HS);
+            int rest = idx % (NH * HS);
+            int nh = rest / HS;
+            int hs = rest % HS;
+
+            int C = NH * HS;
+            int base_idx = b * 3 * C;
+            int head_offset = nh * HS + hs;
+
+            int q_idx = base_idx + head_offset;
+            int k_idx = base_idx + C + head_offset;
+            int v_idx = base_idx + 2 * C + head_offset;
+
+            int out_idx = b * (NH * cache_T * HS) + nh * (cache_T * HS) + position * HS + hs;
+
+            Q[ out_idx ] = __ldcs( &X[ q_idx ] );
+            K[ out_idx ] = __ldcs( &X[ k_idx ] );
+            V[ out_idx ] = __ldcs( &X[ v_idx ] );
+        }
+    }
+
+    __global__ void permute_qkv_decode_fp16_kernel(
+        half* Q, half* K, half* V,
+        const half* X,
+        int B, int position, int cache_T, int NH, int HS )
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+        if ( idx < B * NH * HS )
+        {
+            int b = idx / (NH * HS);
+            int rest = idx % (NH * HS);
+            int nh = rest / HS;
+            int hs = rest % HS;
+
+            int C = NH * HS;
+            int base_idx = b * 3 * C;
+            int head_offset = nh * HS + hs;
+
+            int q_idx = base_idx + head_offset;
+            int k_idx = base_idx + C + head_offset;
+            int v_idx = base_idx + 2 * C + head_offset;
+
+            int out_idx = b * (NH * cache_T * HS) + nh * (cache_T * HS) + position * HS + hs;
+
+            Q[ out_idx ] = __ldcs( &X[ q_idx ] );
+            K[ out_idx ] = __ldcs( &X[ k_idx ] );
+            V[ out_idx ] = __ldcs( &X[ v_idx ] );
+        }
+    }
+
+    void cuda_permute_qkv_padded_fp32(
+        float* Q, float* K, float* V,
+        const float* X,
+        int B, int input_T, int output_T, int NH, int HS,
+        cudaStream_t stream )
+    {
+        const int block_size = 256;
+        int total_threads = B * NH * output_T * HS;
+        int num_blocks = ceil_div( total_threads, block_size );
+
+        permute_qkv_padded_fp32_kernel << <num_blocks, block_size, 0, stream >> > (Q, K, V, X, B, input_T, output_T, NH, HS);
+
+        cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_permute_qkv_decode_fp32(
+        float* Q, float* K, float* V,
+        const float* X,
+        int B, int position, int cache_T, int NH, int HS,
+        cudaStream_t stream )
+    {
+        const int block_size = 256;
+        int total_threads = B * NH * HS;
+        int num_blocks = ceil_div( total_threads, block_size );
+
+        permute_qkv_decode_fp32_kernel << <num_blocks, block_size, 0, stream >> > (Q, K, V, X, B, position, cache_T, NH, HS);
+
+        cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_permute_qkv_padded_fp16(
+        half* Q, half* K, half* V,
+        const half* X,
+        int B, int input_T, int output_T, int NH, int HS,
+        cudaStream_t stream )
+    {
+        const int block_size = 256;
+        int total_threads = B * NH * output_T * HS;
+        int num_blocks = ceil_div( total_threads, block_size );
+
+        permute_qkv_padded_fp16_kernel << <num_blocks, block_size, 0, stream >> > (Q, K, V, X, B, input_T, output_T, NH, HS);
+
+        cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_permute_qkv_decode_fp16(
+        half* Q, half* K, half* V,
+        const half* X,
+        int B, int position, int cache_T, int NH, int HS,
+        cudaStream_t stream )
+    {
+        const int block_size = 256;
+        int total_threads = B * NH * HS;
+        int num_blocks = ceil_div( total_threads, block_size );
+
+        permute_qkv_decode_fp16_kernel << <num_blocks, block_size, 0, stream >> > (Q, K, V, X, B, position, cache_T, NH, HS);
+
+        cudaCheck( cudaGetLastError() );
+    }
 
     // ========================================================================
     // Host Functions - FP32

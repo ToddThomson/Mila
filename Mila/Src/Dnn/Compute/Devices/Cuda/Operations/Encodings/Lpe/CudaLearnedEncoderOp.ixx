@@ -247,7 +247,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
             }
 
             // Validate embedding dimensions match configuration
-            if ( embedding_dim_ != config_.getChannels() )
+            if ( embedding_dim_ != config_.getEmbeddingDim() )
             {
                 throw std::invalid_argument(
                     "CudaEncoderOp::build - parameter embedding dimension doesn't match configuration" );

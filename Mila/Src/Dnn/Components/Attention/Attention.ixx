@@ -40,6 +40,7 @@ import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
+import Compute.KVCacheable;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 
@@ -121,7 +122,18 @@ namespace Mila::Dnn
 
             operation_->forward( input, *owned_output_ );
 
-            return *owned_output_;
+            auto input_shape = input.shape();
+
+            if ( input_shape == max_input_shape_ )
+            {
+                return *owned_output_;
+            }
+
+            auto output_shape = input_shape;
+            output_shape.back() = config_.getModelDim();
+            output_view_ = std::make_unique<TensorType>( owned_output_->view( output_shape ) );
+
+            return *output_view_;
         }
 
         /**
@@ -158,6 +170,80 @@ namespace Mila::Dnn
             operation_->backward( input, output_grad, *owned_input_grad_ );
 
             return *owned_input_grad_;
+        }
+
+        // ====================================================================
+        // KV Caching
+        // ====================================================================
+        void initializeKVCache( int64_t max_seq_len )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "Attention must be built before initializeKVCache()." );
+            }
+
+            auto* kv_cacheable = dynamic_cast<IKVCacheable*>(operation_.get());
+
+            if ( !kv_cacheable )
+            {
+                throw std::runtime_error( "Attention: KV cache is not supported by this backend." );
+            }
+
+            kv_cacheable->initializeKVCache( static_cast<int>(max_input_shape_[ 0 ]), static_cast<int>(max_seq_len) );
+        }
+
+        void resetKVCache()
+        {
+            auto* kv_cacheable = dynamic_cast<IKVCacheable*>(operation_.get());
+
+            if ( !kv_cacheable )
+            {
+                throw std::runtime_error( "Attention: KV cache is not supported by this backend." );
+            }
+
+            kv_cacheable->resetKVCache();
+        }
+
+        TensorType& forwardPrefill( const TensorType& input )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "Attention module must be built before calling forwardPrefill()." );
+            }
+
+            validateConcatenatedQKVShape( input.shape() );
+
+            auto* kv_cacheable = dynamic_cast<IKVCacheable*>(operation_.get());
+
+            if ( !kv_cacheable )
+            {
+                throw std::runtime_error( "Attention: KV cache is not supported by this backend." );
+            }
+
+            kv_cacheable->forwardPrefill( input, *owned_output_ );
+
+            return *owned_output_;
+        }
+
+        TensorType& forwardDecode( const TensorType& input, int position )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "Attention module must be built before calling forwardDecode()." );
+            }
+
+            validateConcatenatedQKVShape( input.shape() );
+
+            auto* kv_cacheable = dynamic_cast<IKVCacheable*>(operation_.get());
+
+            if ( !kv_cacheable )
+            {
+                throw std::runtime_error( "Attention: KV cache is not supported by this backend." );
+            }
+
+            kv_cacheable->forwardDecode( input, *owned_decode_output_, position );
+
+            return *owned_decode_output_;
         }
 
         // ====================================================================
@@ -214,17 +300,17 @@ namespace Mila::Dnn
             oss << "--------------------" << std::endl;
             oss << "Attention: " << this->getName() << std::endl;
             oss << "Device Id: " << this->getExecutionContext()->getDeviceId().toString() << std::endl;
-            oss << "Embedding dimension: " << config_.getEmbeddingSize() << std::endl;
+            oss << "Model dimension: " << config_.getModelDim() << std::endl;
             oss << "Number of heads: " << config_.getNumHeads() << std::endl;
-            oss << "Head size: " << (config_.getEmbeddingSize() / config_.getNumHeads()) << std::endl;
+            oss << "Head size: " << (config_.getModelDim() / config_.getNumHeads()) << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
 
             return oss.str();
         }
 
-        int64_t getEmbeddingSize() const noexcept
+        int64_t getModelDim() const noexcept
         {
-            return config_.getEmbeddingSize();
+            return config_.getModelDim();
         }
 
         int64_t getNumHeads() const noexcept
@@ -253,24 +339,25 @@ namespace Mila::Dnn
             validateConcatenatedQKVShape( input_shape );
 
             operation_->setTraining( this->isTraining() );
-
             operation_->setParameters( nullptr, nullptr );
-
             operation_->build( input_shape );
 
-            input_shape_ = input_shape;
+            max_input_shape_ = input_shape;
 
-            // Allocate component-owned forward output and input-grad tensors.
             auto device = this->getExecutionContext()->getDeviceId();
 
-            shape_t out_shape = input_shape_;
-            out_shape.back() = config_.getEmbeddingSize();
+            shape_t out_shape = max_input_shape_;
+            out_shape.back() = config_.getModelDim();
 
             owned_output_ = std::make_unique<TensorType>( device, out_shape );
             owned_output_->setName( this->getName() + ".output" );
 
-            owned_input_grad_ = std::make_unique<TensorType>( device, input_shape_ );
+            owned_input_grad_ = std::make_unique<TensorType>( device, max_input_shape_ );
             owned_input_grad_->setName( this->getName() + ".input.grad" );
+
+            shape_t decode_output_shape = { max_input_shape_[ 0 ], 1, config_.getModelDim() };
+            owned_decode_output_ = std::make_unique<TensorType>( device, decode_output_shape );
+            owned_decode_output_->setName( this->getName() + ".output.decode" );
         }
 
         void onTrainingChanging( bool is_training ) override
@@ -283,14 +370,15 @@ namespace Mila::Dnn
 
     private:
         AttentionConfig config_;
-        shape_t input_shape_;
+        shape_t max_input_shape_;
 
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
-        // Component-owned buffers (new API): forward output and input gradient
         std::unique_ptr<TensorType> owned_output_{ nullptr };
+        std::unique_ptr<TensorType> output_view_{ nullptr };
         std::unique_ptr<TensorType> owned_input_grad_{ nullptr };
+        std::unique_ptr<TensorType> owned_decode_output_{ nullptr };
 
         void validateConcatenatedQKVShape( const shape_t& shape ) const
         {
@@ -300,7 +388,7 @@ namespace Mila::Dnn
             }
 
             const int64_t trailing = shape.back();
-            const int64_t expected = config_.getEmbeddingSize() * 3;
+            const int64_t expected = config_.getModelDim() * 3;
 
             if ( trailing != expected )
             {

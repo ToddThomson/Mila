@@ -353,6 +353,89 @@ namespace Mila::Dnn
             return *d_input_;
         }
 
+        void initializeKVCache( int64_t max_seq_len )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "GptBlock must be built before initializeKVCache()." );
+            }
+
+            attn_->initializeKVCache( max_seq_len );
+        }
+
+        void resetKVCache()
+        {
+            attn_->resetKVCache();
+        }
+
+        TensorType& forwardPrefill( const TensorType& input )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "GptBlock must be built before forwardPrefill()." );
+            }
+
+            auto& ln1_out = ln1_->forward( input );
+            this->getExecutionContext()->synchronize();
+
+            auto& qkv_out = qkv_proj_->forward( ln1_out );
+            this->getExecutionContext()->synchronize();
+
+            auto& attn_out = attn_->forwardPrefill( qkv_out );
+            this->getExecutionContext()->synchronize();
+
+            auto& out_proj = out_proj_->forward( attn_out );
+            this->getExecutionContext()->synchronize();
+
+            auto& res1_out = res1_->forward( input, out_proj );
+            this->getExecutionContext()->synchronize();
+
+            auto& ln2_out = ln2_->forward( res1_out );
+            this->getExecutionContext()->synchronize();
+
+            auto& ffn_out = ffn_->forward( ln2_out );
+            this->getExecutionContext()->synchronize();
+
+            auto& res2_out = res2_->forward( res1_out, ffn_out );
+            this->getExecutionContext()->synchronize();
+
+            return res2_out;
+        }
+
+        TensorType& forwardDecode( const TensorType& input, int position )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "GptBlock must be built before forwardDecode()." );
+            }
+
+            auto& ln1_out = ln1_->forward( input );
+            this->getExecutionContext()->synchronize();
+
+            auto& qkv_out = qkv_proj_->forward( ln1_out );
+            this->getExecutionContext()->synchronize();
+
+            auto& attn_out = attn_->forwardDecode( qkv_out, position );
+            this->getExecutionContext()->synchronize();
+
+            auto& out_proj = out_proj_->forward( attn_out );
+            this->getExecutionContext()->synchronize();
+
+            auto& res1_out = res1_->forward( input, out_proj );
+            this->getExecutionContext()->synchronize();
+
+            auto& ln2_out = ln2_->forward( res1_out );
+            this->getExecutionContext()->synchronize();
+
+            auto& ffn_out = ffn_->forward( ln2_out );
+            this->getExecutionContext()->synchronize();
+
+            auto& res2_out = res2_->forward( res1_out, ffn_out );
+            this->getExecutionContext()->synchronize();
+
+            return res2_out;
+        }
+
         void zeroGradients() override
         {
             if ( d_res1_accum_ )
@@ -474,7 +557,7 @@ namespace Mila::Dnn
             out_proj_->build( input_shape );
 
             shape_t qkv_shape = input_shape;
-            qkv_shape.back() = static_cast<int64_t>(config_.getEmbeddingSize() * 3);
+            qkv_shape.back() = static_cast<int64_t>(config_.getModelDim() * 3);
 
             attn_ = this->template getComponentAs<AttentionType>( this->getName() + ".attn" );
             attn_->build( qkv_shape );
@@ -568,7 +651,7 @@ namespace Mila::Dnn
         TensorType* last_ln1_out_{ nullptr };
         TensorType* last_qkv_out_{ nullptr };
         TensorType* last_attn_out_{ nullptr };
-        TensorType* last_out_proj_out_{ nullptr };  // BUG FIX: Added for output projection layer
+        TensorType* last_out_proj_out_{ nullptr };
         TensorType* last_res1_out_{ nullptr };
         TensorType* last_ln2_out_{ nullptr };
         TensorType* last_ffn_out_{ nullptr };
@@ -576,26 +659,25 @@ namespace Mila::Dnn
 
         void createGraph()
         {
-            auto attn_cfg = AttentionConfig( config_.getEmbeddingSize(), config_.getNumHeads() );
+            auto attn_cfg = AttentionConfig( config_.getModelDim(), config_.getNumHeads() );
 
             auto attn_component = std::make_shared<AttentionType>( this->getName() + ".attn", attn_cfg, std::nullopt );
             this->addComponent( attn_component );
 
-            auto ln1_cfg = LayerNormConfig().withNormalizedShape( shape_t{ static_cast<int64_t>(config_.getEmbeddingSize()) } );
+            auto ln1_cfg = LayerNormConfig().withNormalizedShape( shape_t{ static_cast<int64_t>(config_.getModelDim()) } );
             auto ln1_component = std::make_shared<LayerNormType>( this->getName() + ".ln_1", ln1_cfg, std::nullopt );
             this->addComponent( ln1_component );
 
-            auto ln2_cfg = LayerNormConfig().withNormalizedShape( shape_t{ static_cast<int64_t>(config_.getEmbeddingSize()) } );
+            auto ln2_cfg = LayerNormConfig().withNormalizedShape( shape_t{ static_cast<int64_t>(config_.getModelDim()) } );
             auto ln2_component = std::make_shared<LayerNormType>( this->getName() + ".ln_2", ln2_cfg, std::nullopt );
             this->addComponent( ln2_component );
 
-            auto qkv_cfg = LinearConfig( static_cast<dim_t>(config_.getEmbeddingSize()), static_cast<dim_t>(config_.getEmbeddingSize() * 3) );
+            auto qkv_cfg = LinearConfig( static_cast<dim_t>(config_.getModelDim()), static_cast<dim_t>(config_.getModelDim() * 3) );
             qkv_cfg.withBias( config_.useBias() );
             auto qkv_component = std::make_shared<LinearType>( this->getName() + ".fc_qkv_proj", qkv_cfg, std::nullopt );
             this->addComponent( qkv_component );
 
-            // BUG: Was missing output_proj layer. Now added
-            auto out_proj_cfg = LinearConfig( static_cast<dim_t>(config_.getEmbeddingSize()), static_cast<dim_t>(config_.getEmbeddingSize()) );
+            auto out_proj_cfg = LinearConfig( static_cast<dim_t>(config_.getModelDim()), static_cast<dim_t>(config_.getModelDim()) );
             out_proj_cfg.withBias( config_.useBias() );
             auto out_proj_component = std::make_shared<LinearType>( this->getName() + ".fc_out_proj", out_proj_cfg, std::nullopt );
             this->addComponent( out_proj_component );
@@ -613,10 +695,10 @@ namespace Mila::Dnn
             dim_t hidden_dim = static_cast<dim_t>(config_.getHiddenSize());
             if ( hidden_dim == 0 )
             {
-                hidden_dim = static_cast<dim_t>(config_.getEmbeddingSize() * 4);
+                hidden_dim = static_cast<dim_t>(config_.getModelDim() * 4);
             }
 
-            auto mlp_cfg = MLPConfig( static_cast<dim_t>(config_.getEmbeddingSize()), static_cast<dim_t>(hidden_dim) );
+            auto mlp_cfg = MLPConfig( static_cast<dim_t>(config_.getModelDim()), static_cast<dim_t>(hidden_dim) );
             mlp_cfg.withBias( config_.useBias() )
                    .withActivation( config_.getActivationType() );
 
@@ -632,11 +714,11 @@ namespace Mila::Dnn
             }
 
             int64_t trailing = input_shape.back();
-            if ( trailing != static_cast<int64_t>(config_.getEmbeddingSize()) )
+            if ( trailing != static_cast<int64_t>(config_.getModelDim()) )
             {
                 std::ostringstream oss;
-                oss << "GptBlock: embedding dimension mismatch. Config says "
-                    << config_.getEmbeddingSize() << " got " << trailing;
+                oss << "GptBlock: model dimension mismatch. Config says "
+                    << config_.getModelDim() << " got " << trailing;
                 throw std::invalid_argument( oss.str() );
             }
         }

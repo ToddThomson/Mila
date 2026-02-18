@@ -554,7 +554,7 @@ import Cuda.Error; // Debugging
 //            LearnedEncoderConfig enc_cfg;
 //            enc_cfg.withVocabularyLength( static_cast<size_t>(config_.vocab_size) )
 //                .withMaxSequenceLength( static_cast<size_t>(config_.max_seq_length) )
-//                .withChannels( static_cast<size_t>(config_.embedding_dim) );
+//                .withEmbeddingDim( static_cast<size_t>(config_.embedding_dim) );
 //
 //            enc_cfg.validate();
 //

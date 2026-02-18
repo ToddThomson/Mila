@@ -254,8 +254,11 @@ namespace Mila::Dnn
         // Parameters and Gradients
         // ====================================================================
 
+        // REVIEW: Most components do not have parameters,
+        // so consider making this an optional overrides
+
         /**
-         * @brief Return number of scalar trainable parameters owned by this module.
+         * @brief Return number of trainable parameters.
          */
         virtual size_t parameterCount() const = 0;
 

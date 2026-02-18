@@ -269,7 +269,7 @@ namespace Mila::Dnn
          * @note Uses dynamic sequence lengths for efficiency. Each forward pass processes
          *       only the actual number of tokens, avoiding padding overhead.
          */
-        std::vector<int32_t> generate(
+        std::vector<int32_t> generate_naive(
             const std::vector<int32_t>& prompt_tokens,
             size_t max_new_tokens = 64,
             float temperature = 1.0f,
@@ -360,6 +360,230 @@ namespace Mila::Dnn
 
             return tokens;
         }
+
+        // ====================================================================
+        // KV Caching
+        // ====================================================================
+
+        void initializeKVCache( int64_t max_seq_len )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "GptTransformer must be built before initializeKVCache()." );
+            }
+
+            for ( auto& block : transformer_blocks_ )
+            {
+                block->initializeKVCache( max_seq_len );
+            }
+        }
+
+        void resetKVCache()
+        {
+            for ( auto& block : transformer_blocks_ )
+            {
+                block->resetKVCache();
+            }
+        }
+
+        // ====================================================================
+        // Decoding
+        // ====================================================================
+
+        TensorType& forwardPrefill( const TokenIndexType& input )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "GptTransformer must be built before calling forwardPrefill()." );
+            }
+
+            encoder_out_ptr_ = &encoder_->forward( input );
+            this->getExecutionContext()->synchronize();
+
+            block_input_ptrs_[ 0 ] = encoder_out_ptr_;
+
+            for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
+            {
+                auto& block_out = transformer_blocks_[ i ]->forwardPrefill( *block_input_ptrs_[ i ] );
+                this->getExecutionContext()->synchronize();
+
+                block_output_ptrs_[ i ] = &block_out;
+
+                if ( i + 1 < transformer_blocks_.size() )
+                {
+                    block_input_ptrs_[ i + 1 ] = &block_out;
+                }
+            }
+
+            normalized_ptr_ = &final_layernorm_->forward( *block_output_ptrs_.back() );
+            this->getExecutionContext()->synchronize();
+
+            logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
+            this->getExecutionContext()->synchronize();
+
+            copy( *dynamic_cast<const TensorType*>(logits_ptr_), *owned_output_ );
+            this->getExecutionContext()->synchronize();
+
+            return *owned_output_;
+        }
+
+        TensorType& forwardDecode( const TokenIndexType& input, int position )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "GptTransformer must be built before calling forwardDecode()." );
+            }
+
+            encoder_out_ptr_ = &encoder_->forward( input );
+            this->getExecutionContext()->synchronize();
+
+            block_input_ptrs_[ 0 ] = encoder_out_ptr_;
+
+            for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
+            {
+                auto& block_out = transformer_blocks_[ i ]->forwardDecode( *block_input_ptrs_[ i ], position );
+                this->getExecutionContext()->synchronize();
+
+                block_output_ptrs_[ i ] = &block_out;
+
+                if ( i + 1 < transformer_blocks_.size() )
+                {
+                    block_input_ptrs_[ i + 1 ] = &block_out;
+                }
+            }
+
+            normalized_ptr_ = &final_layernorm_->forward( *block_output_ptrs_.back() );
+            this->getExecutionContext()->synchronize();
+
+            logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
+            this->getExecutionContext()->synchronize();
+
+            copy( *dynamic_cast<const TensorType*>(logits_ptr_), *owned_output_ );
+            this->getExecutionContext()->synchronize();
+
+            return *owned_output_;
+        }
+
+        std::vector<int32_t> generate(
+            const std::vector<int32_t>& prompt_tokens,
+            size_t max_new_tokens = 64,
+            float temperature = 1.0f,
+            int top_k = 0 )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "GptTransformer must be built before calling generate()" );
+            }
+
+            bool was_training = this->isTraining();
+            this->setTraining( false );
+
+            std::vector<int32_t> tokens = prompt_tokens;
+            std::mt19937 rng( std::chrono::high_resolution_clock::now().time_since_epoch().count() );
+
+            try
+            {
+                initializeKVCache( config_.getMaxSequenceLength() );
+
+                for ( size_t step = 0; step < max_new_tokens; ++step )
+                {
+                    int64_t seq_len = static_cast<int64_t>( tokens.size() );
+
+                    if ( seq_len > config_.getMaxSequenceLength() )
+                    {
+                        Utils::Logger::warning( std::format(
+                            "Sequence length {} exceeds max {}, truncating from start",
+                            seq_len, config_.getMaxSequenceLength() ) );
+
+                        int64_t excess = seq_len - config_.getMaxSequenceLength();
+                        tokens.erase( tokens.begin(), tokens.begin() + excess );
+                        seq_len = config_.getMaxSequenceLength();
+                    }
+
+                    if ( step == 0 )
+                    {
+                        shape_t input_shape = { 1, seq_len };
+
+                        TokenIndexType input_device( this->getDeviceId(), input_shape );
+                        Tensor<dtype_t::INT32, CpuMemoryResource> input_cpu( Device::Cpu(), input_shape );
+
+                        std::memcpy( input_cpu.data(), tokens.data(), tokens.size() * sizeof( int32_t ) );
+                        copy( input_cpu, input_device );
+
+                        auto& logits = forwardPrefill( input_device );
+                        this->getExecutionContext()->synchronize();
+
+                        shape_t logits_shape = { 1, seq_len, config_.getVocabSize() };
+                        Tensor<TPrecision, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
+                        copy( logits, logits_cpu );
+
+                        size_t last_pos_offset = static_cast<size_t>(seq_len - 1) * config_.getVocabSize();
+                        const float* last_logits = logits_cpu.data() + last_pos_offset;
+
+                        int32_t next_token = sampleToken(
+                            last_logits,
+                            static_cast<size_t>(config_.getVocabSize()),
+                            temperature,
+                            top_k,
+                            rng );
+
+                        tokens.push_back( next_token );
+
+                        if ( next_token == 50256 )
+                        {
+                            break;
+                        }
+
+                        continue;
+                    }
+
+                    shape_t input_shape = { 1, 1 };
+
+                    TokenIndexType input_device( this->getDeviceId(), input_shape );
+                    Tensor<dtype_t::INT32, CpuMemoryResource> input_cpu( Device::Cpu(), input_shape );
+
+                    input_cpu.data()[ 0 ] = tokens.back();
+                    copy( input_cpu, input_device );
+
+                    auto& logits = forwardDecode( input_device, static_cast<int>(seq_len - 1) );
+                    this->getExecutionContext()->synchronize();
+
+                    shape_t logits_shape = { 1, 1, config_.getVocabSize() };
+                    Tensor<TPrecision, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
+                    copy( logits, logits_cpu );
+
+                    const float* last_logits = logits_cpu.data();
+
+                    int32_t next_token = sampleToken(
+                        last_logits,
+                        static_cast<size_t>(config_.getVocabSize()),
+                        temperature,
+                        top_k,
+                        rng );
+
+                    tokens.push_back( next_token );
+
+                    if ( next_token == 50256 )
+                    {
+                        break;
+                    }
+                }
+            }
+            catch ( ... )
+            {
+                this->setTraining( was_training );
+                resetKVCache();
+                throw;
+            }
+
+            resetKVCache();
+            this->setTraining( was_training );
+
+            return tokens;
+        }
+
+        // ====================================================================
+
 
         void zeroGradients() override
         {
@@ -737,7 +961,7 @@ namespace Mila::Dnn
             LearnedEncoderConfig enc_cfg;
             enc_cfg.withVocabularyLength( static_cast<size_t>(config_.getVocabSize() ))
                 .withMaxSequenceLength( static_cast<size_t>(config_.getMaxSequenceLength() ))
-                .withChannels( static_cast<size_t>(config_.getEmbeddingSize()));
+                .withEmbeddingDim( static_cast<size_t>(config_.getEmbeddingSize()));
 
             enc_cfg.validate();
 

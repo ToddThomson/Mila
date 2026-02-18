@@ -17,6 +17,7 @@ module;
 #include <iostream> // DEBUG
 
 export module Compute.CudaLayerNormOp;
+import :Dispatch;
 
 import Dnn.Components.LayerNorm;
 import Dnn.Tensor;
@@ -51,72 +52,6 @@ import Utils.Logger;
 
 namespace Mila::Dnn::Compute::Cuda::LayerNorm
 {
-    namespace Detail
-    {
-        /**
-         * @brief CUDA kernel dispatcher for LayerNorm operations.
-         *
-         * Specialized for float (FP32) and half (FP16) native CUDA types.
-         */
-        template <typename TNative>
-            requires std::is_same_v<TNative, float> || std::is_same_v<TNative, half>
-        struct cuda_layernorm_impl;
-
-        template <>
-        struct cuda_layernorm_impl<float>
-        {
-            cuda_layernorm_impl() = default;
-
-            static inline void forward(
-                float* Y, const float* X,
-                const float* weight, const float* bias,
-                float* mean, float* rstd,
-                int outer_size, int inner_size, int norm_dim,
-                float epsilon,
-                cudaStream_t stream )
-            {
-                cuda_layernorm_forward_fp32( Y, mean, rstd, X, weight, bias, outer_size, inner_size, norm_dim, epsilon, stream );
-            }
-
-            static inline void backward(
-                float* dX, float* dweight, float* dbias,
-                const float* dY, const float* X, const float* weight,
-                const float* mean, const float* rstd,
-                int outer_size, int inner_size, int norm_dim,
-                cudaStream_t stream )
-            {
-                cuda_layernorm_backward_fp32( dX, dweight, dbias, dY, X, weight, mean, rstd, outer_size, inner_size, norm_dim, stream );
-            }
-        };
-
-        template <>
-        struct cuda_layernorm_impl<half>
-        {
-            cuda_layernorm_impl() = default;
-
-            static inline void forward(
-                half* Y, const half* X,
-                const half* weight, const half* bias,
-                half* mean, half* rstd,
-                int outer_size, int inner_size, int norm_dim,
-                float epsilon,
-                cudaStream_t stream )
-            {
-                cuda_layernorm_forward_fp16( Y, mean, rstd, X, weight, bias, outer_size, inner_size, norm_dim, epsilon, stream );
-            }
-
-            static inline void backward(
-                half* dX, half* dweight, half* dbias,
-                const half* dY, const half* X, const half* weight,
-                const half* mean, const half* rstd,
-                int outer_size, int inner_size, int norm_dim,
-                cudaStream_t stream )
-            {
-                cuda_layernorm_backward_fp16( dX, dweight, dbias, dY, X, weight, mean, rstd, outer_size, inner_size, norm_dim, stream );
-            }
-        };
-    }
-
     using namespace Mila::Dnn;
 
     /**
@@ -179,6 +114,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             }
 
             weight_ = static_cast<NativeType*>( weight->rawData() );
+            weight_size_ = weight->size();
 
             if ( config_.hasBias() )
             {
@@ -289,82 +225,37 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
                 throw std::runtime_error( "CudaLayerNormOp::build - bias expected by config but not bound via setParameters()" );
             }
 
-            if ( !config_.getNormalizedShape().empty() )
-            {
-                if ( input_shape.size() < config_.getNormalizedShape().size() )
-                {
-                    throw std::invalid_argument( "CudaLayerNormOp::build - input rank is less than normalized_shape rank" );
-                }
+            validateNormalizedShape_( input_shape );
 
-                size_t offset = input_shape.size() - config_.getNormalizedShape().size();
+            int outer_size = 0;
+            int inner_size = 0;
+            int norm_dim = 0;
+            int64_t num_slices = 0;
+            int64_t normalized_features = 0;
+            int64_t norm_axis = -1;
 
-                for ( size_t i = 0; i < config_.getNormalizedShape().size(); ++i )
-                {
-                    if ( input_shape[ offset + i ] != config_.getNormalizedShape()[ i ] )
-                    {
-                        throw std::invalid_argument( "CudaLayerNormOp::build - input trailing dimensions don't match normalized_shape" );
-                    }
-                }
-            }
-            else if ( !config_.getAxis().has_value() )
+            computeRuntimePartition_( input_shape, norm_axis, outer_size, inner_size, norm_dim, num_slices, normalized_features );
+
+            if ( weight_size_ != 0 && normalized_features != weight_size_ )
             {
-                throw std::invalid_argument( "CudaLayerNormOp::build - configuration must specify normalized_shape or axis before build()" );
+                throw std::invalid_argument( "CudaLayerNormOp::build - weight size does not match normalized features" );
             }
 
-            const auto& shape = input_shape;
-            const int64_t ndim = static_cast<int64_t>( shape.size() );
-
-            int64_t axis = -1;
-
-            if ( config_.getAxis().has_value() )
-            {
-                axis = config_.getAxis().value();
-            }
-            else
-            {
-                axis = static_cast<int64_t>( shape.size() ) - static_cast<int64_t>( config_.getNormalizedShape().size() );
-            }
-
-            if ( axis < 0 )
-            {
-                axis += ndim;
-            }
-
-            if ( axis < 0 || axis >= ndim )
-            {
-                throw std::invalid_argument( "CudaLayerNormOp::build - computed axis out of range" );
-            }
-
-            norm_axis_ = axis;
-
-            int64_t outer = 1;
-            for ( int64_t i = 0; i < axis; ++i )
-            {
-                outer *= static_cast<int64_t>( shape[ i ] );
-            }
-
-            int64_t inner = 1;
-            for ( int64_t i = axis + 1; i < ndim; ++i )
-            {
-                inner *= static_cast<int64_t>( shape[ i ] );
-            }
-
-            const int64_t dim = static_cast<int64_t>( shape[ axis ] );
-            const int64_t num_slices = outer * inner;
-
-            outer_size_ = static_cast<int>( outer );
-            inner_size_ = static_cast<int>( inner );
-            norm_dim_ = static_cast<int>( dim );
+            max_input_shape_ = input_shape;
+            max_outer_size_ = outer_size;
+            max_inner_size_ = inner_size;
+            max_norm_dim_ = norm_dim;
+            max_num_slices_ = num_slices;
 
             auto device = context_->getDeviceId();
 
-            mean_tensor_ = std::make_shared<TensorType>( device, shape_t{ num_slices } );
+            mean_tensor_ = std::make_shared<TensorType>( device, shape_t{ max_num_slices_ } );
             mean_tensor_->setName( "mean" );
-            mean_ = static_cast<NativeType*>( mean_tensor_->rawData() );
+            mean_ = static_cast<NativeType*>(mean_tensor_->rawData());
 
-            rstd_tensor_ = std::make_shared<TensorType>( device, shape_t{ num_slices } );
+            rstd_tensor_ = std::make_shared<TensorType>( device, shape_t{ max_num_slices_ } );
             rstd_tensor_->setName( "rstd" );
-            rstd_ = static_cast<NativeType*>( rstd_tensor_->rawData() );
+            rstd_ = static_cast<NativeType*>(rstd_tensor_->rawData());
 
             UnaryOperationBase::build( input_shape );
         }
@@ -380,18 +271,54 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
          */
         void forward( const ITensor& input, ITensor& output ) const override
         {
-            const NativeType* X = static_cast<const NativeType*>( input.rawData() );
-            NativeType* Y = static_cast<NativeType*>( output.rawData() );
+            const auto& input_shape = input.shape();
+
+            validateRuntimeShape_( input_shape );
+
+            int outer_size = 0;
+            int inner_size = 0;
+            int norm_dim = 0;
+            int64_t num_slices = 0;
+            int64_t normalized_features = 0;
+            int64_t norm_axis = -1;
+
+            computeRuntimePartition_( input_shape, norm_axis, outer_size, inner_size, norm_dim, num_slices, normalized_features );
+
+            if ( num_slices > max_num_slices_ )
+            {
+                throw std::runtime_error( "CudaLayerNormOp::forward - runtime slices exceed built max" );
+            }
+
+            if ( weight_size_ != 0 && normalized_features != weight_size_ )
+            {
+                throw std::runtime_error( "CudaLayerNormOp::forward - normalized features mismatch weight size" );
+            }
+
+            const NativeType* X = static_cast<const NativeType*>(input.rawData());
+            NativeType* Y = static_cast<NativeType*>(output.rawData());
 
             cudaStream_t stream = context_->getStream();
 
-            Detail::cuda_layernorm_impl<NativeType>::forward(
-                Y, X,
-                weight_, bias_,
-                mean_, rstd_,
-                outer_size_, inner_size_, norm_dim_,
-                config_.getEpsilon(),
-                stream );
+            if ( norm_axis == static_cast<int64_t>(input_shape.size() - 1) && inner_size == 1 )
+            {
+                Detail::cuda_layernorm_impl<NativeType>::forward_fast(
+                    Y, X,
+                    weight_, bias_,
+                    mean_, rstd_,
+                    static_cast<int>(num_slices), norm_dim,
+                    config_.getEpsilon(),
+                    stream );
+            }
+            else
+            {
+                Detail::cuda_layernorm_impl<NativeType>::forward(
+                    Y, X,
+                    weight_, bias_,
+                    mean_, rstd_,
+                    outer_size, inner_size, norm_dim,
+                    config_.getEpsilon(),
+                    stream );
+            }
 
             context_->synchronize();
 
@@ -401,16 +328,16 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             //{
             //    // Ensure device work is visible to host
             //    context_->synchronize();
-
+            //
             //    Tensor<TensorDataType::FP32, CpuMemoryResource> host_out( Device::Cpu(), output.shape() );
             //    host_out.setName( this->getName() + ".forward_output.host_copy" );
-
+            //
             //    // perform ordered copy D2H using the component's execution context
             //    copy( static_cast<const TensorType&>(output), host_out /* this->getExecutionContext() */);
-
+            //
             //    const auto* ptr = host_out.data();
             //    size_t n = host_out.size();
-
+            //
             //    double sum_abs = 0.0;
             //    double max_abs = 0.0;
             //    size_t nan_ct = 0;
@@ -422,16 +349,16 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             //        sum_abs += av;
             //        if ( av > max_abs ) max_abs = av;
             //    }
-
+            //
             //    double mean_abs = n ? (sum_abs / static_cast<double>(n)) : 0.0;
-
+            //
             //    constexpr double kLnForwardLimit = 100.0; // debug threshold
             //    if ( nan_ct != 0 || max_abs > kLnForwardLimit || !std::isfinite( mean_abs ) )
             //    {
             //        std::clog << this->getName() << " [DEBUG] LayerNorm forward anomaly: mean_abs="
             //            << std::scientific << mean_abs << " max_abs=" << max_abs
             //            << " nan_count=" << nan_ct << " total=" << n << std::defaultfloat << std::endl;
-
+            //
             //        // print small sample (first channel slice b=0,t=0..min(16,channels))
             //        size_t channels = host_out.shape().back();
             //        size_t base = 0;
@@ -441,7 +368,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             //            std::clog << std::scientific << static_cast<double>( ptr[ base + i ] ) << " ";
             //        }
             //        std::clog << std::defaultfloat << std::endl;
-
+            //
             //        // Suggest calling the heavier diagnostic from caller (Transformer) or throw to abort here:
             //        // throw std::runtime_error( "LayerNorm forward produced suspicious values - diagnostics logged" );
             //    }
@@ -455,7 +382,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             //context_->synchronize();
             //{
             //    using HostTensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-
+            //
             //    HostTensorType host_output( Device::Cpu(), output.shape() );
             //    host_output.setName( this->getName() + ".dbg.output" );
             //    copy( static_cast<const TensorType&>(output), host_output );
@@ -478,18 +405,53 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             const ITensor& output_grad,
             ITensor& input_grad ) const override
         {
-            const NativeType* X = static_cast<const NativeType*>( input.rawData() );
-            const NativeType* dY = static_cast<const NativeType*>( output_grad.rawData() );
-            NativeType* dX = static_cast<NativeType*>( input_grad.rawData() );
+            const auto& input_shape = input.shape();
+
+            validateRuntimeShape_( input_shape );
+
+            int outer_size = 0;
+            int inner_size = 0;
+            int norm_dim = 0;
+            int64_t num_slices = 0;
+            int64_t normalized_features = 0;
+            int64_t norm_axis = -1;
+
+            computeRuntimePartition_( input_shape, norm_axis, outer_size, inner_size, norm_dim, num_slices, normalized_features );
+
+            if ( num_slices > max_num_slices_ )
+            {
+                throw std::runtime_error( "CudaLayerNormOp::backward - runtime slices exceed built max" );
+            }
+
+            if ( weight_size_ != 0 && normalized_features != weight_size_ )
+            {
+                throw std::runtime_error( "CudaLayerNormOp::backward - normalized features mismatch weight size" );
+            }
+
+            const NativeType* X = static_cast<const NativeType*>(input.rawData());
+            const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
+            NativeType* dX = static_cast<NativeType*>(input_grad.rawData());
 
             cudaStream_t stream = context_->getStream();
 
-            Detail::cuda_layernorm_impl<NativeType>::backward(
-                dX, weight_grad_, bias_grad_,
-                dY, X, weight_,
-                mean_, rstd_,
-                outer_size_, inner_size_, norm_dim_,
-                stream );
+            if ( norm_axis == static_cast<int64_t>(input_shape.size() - 1) && inner_size == 1 )
+            {
+                Detail::cuda_layernorm_impl<NativeType>::backward_fast(
+                    dX, weight_grad_, bias_grad_,
+                    dY, X, weight_,
+                    mean_, rstd_,
+                    static_cast<int>(num_slices), norm_dim,
+                    stream );
+            }
+            else
+            {
+                Detail::cuda_layernorm_impl<NativeType>::backward(
+                    dX, weight_grad_, bias_grad_,
+                    dY, X, weight_,
+                    mean_, rstd_,
+                    outer_size, inner_size, norm_dim,
+                    stream );
+            }
         }
 
         OperationType getOperationType() const override
@@ -516,6 +478,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         NativeType* bias_{ nullptr };
         NativeType* weight_grad_{ nullptr };
         NativeType* bias_grad_{ nullptr };
+        int64_t weight_size_{ 0 };
 
         std::shared_ptr<TensorType> mean_tensor_;
         std::shared_ptr<TensorType> rstd_tensor_;
@@ -523,9 +486,120 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         NativeType* rstd_{ nullptr };
 
         int64_t norm_axis_{ -1 };
-        int outer_size_{ 0 };
-        int inner_size_{ 0 };
-        int norm_dim_{ 0 };
+        shape_t max_input_shape_;
+        int max_outer_size_{ 0 };
+        int max_inner_size_{ 0 };
+        int max_norm_dim_{ 0 };
+        dim_t max_num_slices_{ 0 };
+
+        void validateNormalizedShape_( const shape_t& input_shape ) const
+        {
+            if ( !config_.getNormalizedShape().empty() )
+            {
+                if ( input_shape.size() < config_.getNormalizedShape().size() )
+                {
+                    throw std::invalid_argument( "CudaLayerNormOp - input rank is less than normalized_shape rank" );
+                }
+
+                size_t offset = input_shape.size() - config_.getNormalizedShape().size();
+
+                for ( size_t i = 0; i < config_.getNormalizedShape().size(); ++i )
+                {
+                    if ( input_shape[ offset + i ] != config_.getNormalizedShape()[ i ] )
+                    {
+                        throw std::invalid_argument( "CudaLayerNormOp - input trailing dimensions don't match normalized_shape" );
+                    }
+                }
+            }
+            else if ( !config_.getAxis().has_value() )
+            {
+                throw std::invalid_argument( "CudaLayerNormOp - configuration must specify normalized_shape or axis" );
+            }
+        }
+
+        void validateRuntimeShape_( const shape_t& input_shape ) const
+        {
+            validateNormalizedShape_( input_shape );
+
+            if ( input_shape.size() != max_input_shape_.size() )
+            {
+                throw std::invalid_argument( "CudaLayerNormOp - runtime rank does not match built rank" );
+            }
+
+            for ( size_t i = 0; i < input_shape.size(); ++i )
+            {
+                if ( input_shape[ i ] > max_input_shape_[ i ] )
+                {
+                    throw std::invalid_argument( "CudaLayerNormOp - runtime dimension exceeds built max" );
+                }
+            }
+        }
+
+        void computeRuntimePartition_(
+            const shape_t& input_shape,
+            int64_t& norm_axis,
+            int& outer_size,
+            int& inner_size,
+            int& norm_dim,
+            int64_t& num_slices,
+            int64_t& normalized_features ) const
+        {
+            const int64_t ndim = static_cast<int64_t>(input_shape.size());
+
+            int64_t axis = -1;
+
+            if ( config_.getAxis().has_value() )
+            {
+                axis = config_.getAxis().value();
+            }
+            else
+            {
+                axis = static_cast<int64_t>(input_shape.size()) -
+                    static_cast<int64_t>(config_.getNormalizedShape().size());
+            }
+
+            if ( axis < 0 )
+            {
+                axis += ndim;
+            }
+
+            if ( axis < 0 || axis >= ndim )
+            {
+                throw std::invalid_argument( "CudaLayerNormOp - computed axis out of range" );
+            }
+
+            int64_t outer = 1;
+
+            for ( int64_t i = 0; i < axis; ++i )
+            {
+                outer *= static_cast<int64_t>( input_shape[ i ] );
+            }
+
+            int64_t inner = 1;
+
+            for ( int64_t i = axis + 1; i < ndim; ++i )
+            {
+                inner *= static_cast<int64_t>( input_shape[ i ] );
+            }
+
+            const int64_t dim = static_cast<int64_t>( input_shape[ axis ] );
+
+            norm_axis = axis;
+            outer_size = static_cast<int>( outer );
+            inner_size = static_cast<int>( inner );
+            norm_dim = static_cast<int>( dim );
+            num_slices = outer * inner;
+
+            if ( config_.getNormalizedShape().empty() )
+            {
+                normalized_features = dim;
+            }
+            else
+            {
+                normalized_features = dim * inner;
+            }
+        }
+
     };
 
     export class CudaLayerNormOpRegistrar

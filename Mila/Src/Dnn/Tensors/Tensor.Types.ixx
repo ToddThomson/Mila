@@ -7,6 +7,36 @@ export module Dnn.TensorTypes;
 
 namespace Mila::Dnn
 {
+    // REVIEW: Consider strong spacial dimension typing
+
+    //template <typename Tag>
+    //struct Dim
+    //{
+    //    dim_t value;
+    //};
+    //
+    //struct EmbeddingTag;
+    //struct ModelTag;
+    //struct VocabTag;
+    //
+    //using EmbeddingDim = Dim<EmbeddingTag>;
+    //using ModelDim = Dim<ModelTag>;
+    //using VocabularySize = Dim<VocabTag>;
+
+    // REVIEW: Consider adding a compile-time dimension type for model dimension to enable static checks and optimizations.
+    // This would require defining a template parameter for dimension types and enforcing that they are positive integers. For example:
+    // 
+    //template<typename T>
+    //concept PositiveDim = std::integral<T>;
+
+    //template <PositiveDim D>
+    //auto withModelDimension( D d )
+    //{
+    //    assert( d > 0 );
+    //    model_dim_ = static_cast<dim_t>(d);
+    //    return *this;
+    //}
+
     /**
      * @brief Integer type used for tensor dimensions and indices.
      *

@@ -161,7 +161,7 @@ namespace Mila::Dnn
             operation_->forward( input, *output_ );
 
             // Return view with actual output shape
-            shape_t actual_out_shape = { B, T, static_cast<dim_t>( config_.getChannels() ) };
+            shape_t actual_out_shape = { B, T, static_cast<dim_t>( config_.getEmbeddingDim() ) };
             current_output_view_ = std::make_unique<EmbeddingsTensorType>( output_->view( actual_out_shape ) );
 
             // DEBUG: Check output range
@@ -399,7 +399,7 @@ namespace Mila::Dnn
             oss << "Encoder: " << this->getName() << std::endl;
             oss << "Vocabulary: " << config_.getVocabularyLength() << " tokens" << std::endl;
             oss << "Max sequence length: " << config_.getMaxSequenceLength() << std::endl;
-            oss << "Embedding dimension: " << config_.getChannels() << std::endl;
+            oss << "Embedding dimension: " << config_.getEmbeddingDim() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
 
@@ -416,9 +416,9 @@ namespace Mila::Dnn
             return config_.getMaxSequenceLength();
         }
 
-        int64_t getChannels() const noexcept
+        int64_t getEmbeddingDim() const noexcept
         {
-            return config_.getChannels();
+            return config_.getEmbeddingDim();
         }
 
     protected:
@@ -460,7 +460,7 @@ namespace Mila::Dnn
 
             // Allocate and cache component-owned output and input-grad tensors.
             auto device = this->getExecutionContext()->getDeviceId();
-            shape_t max_out_shape = { max_batch_size_, max_seq_len_, static_cast<dim_t>( config_.getChannels() ) };
+            shape_t max_out_shape = { max_batch_size_, max_seq_len_, static_cast<dim_t>( config_.getEmbeddingDim() ) };
 
             output_ = std::make_unique<EmbeddingsTensorType>( device, max_out_shape );
             output_->setName( this->getName() + ".output" );
@@ -559,7 +559,7 @@ namespace Mila::Dnn
         {
             int64_t vocab_size = config_.getVocabularyLength();
             int64_t max_seq_len = config_.getMaxSequenceLength();
-            int64_t embedding_dim = config_.getChannels();
+            int64_t embedding_dim = config_.getEmbeddingDim();
 
             // Standard deviation = 1/sqrt(embedding_dim)
             float std_dev = 1.0f / std::sqrt( static_cast<float>(embedding_dim) );

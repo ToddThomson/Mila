@@ -27,7 +27,7 @@ namespace Mila::Dnn
     /**
      * @brief Configuration class for GPT transformer blocks.
      *
-     * Holds the embedding dimension, attention head count, MLP/attention options,
+     * Holds the model dimension, attention head count, MLP/attention options,
      * and basic activation/residual settings. LLaMA-specific settings (RoPE,
      * KV-head sharing, RMSNorm selection/epsilon, etc.) are intentionally
      * omitted from this block-level GPT config.
@@ -38,15 +38,15 @@ namespace Mila::Dnn
         /**
          * @brief Construct a GPT block configuration.
          *
-         * @param embedding_dim Model embedding dimension. Must be > 0.
-         * @param num_heads Number of query attention heads. Must be > 0 and must divide embedding_dim evenly.
+         * @param model_dim Model dimension. Must be > 0.
+         * @param num_heads Number of query attention heads. Must be > 0 and must divide model_dim evenly.
          */
-        GptBlockConfig( dim_t embedding_dim, dim_t num_heads )
-            : embedding_dim_( embedding_dim ), num_heads_( num_heads )
+        GptBlockConfig( dim_t model_dim, dim_t num_heads )
+            : model_dim_( model_dim ), num_heads_( num_heads )
         {
-            if ( embedding_dim <= 0 )
+            if ( model_dim <= 0 )
             {
-                throw std::invalid_argument( "GptBlockConfig: embedding_dim must be > 0" );
+                throw std::invalid_argument( "GptBlockConfig: model_dim must be > 0" );
             }
 
             if ( num_heads <= 0 )
@@ -54,9 +54,9 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "GptBlockConfig: num_heads must be > 0" );
             }
 
-            if ( embedding_dim % num_heads != 0 )
+            if ( model_dim % num_heads != 0 )
             {
-                throw std::invalid_argument( "GptBlockConfig: embedding_dim must be divisible by num_heads" );
+                throw std::invalid_argument( "GptBlockConfig: model_dim must be divisible by num_heads" );
             }
         }
 
@@ -109,7 +109,7 @@ namespace Mila::Dnn
 
         // Getters
 
-        dim_t getEmbeddingSize() const noexcept { return embedding_dim_; }
+        dim_t getModelDim() const noexcept { return model_dim_; }
         dim_t getNumHeads() const noexcept { return num_heads_; }
         dim_t getHiddenSize() const noexcept { return hidden_dim_; }
         bool useBias() const noexcept { return use_bias_; }
@@ -119,18 +119,18 @@ namespace Mila::Dnn
         /**
          * @brief Get effective hidden dimension with default fallback.
          *
-         * @return Hidden dimension, defaulting to 4x embedding_dim if not set.
+         * @return Hidden dimension, defaulting to 4x model_dim if not set.
          */
         dim_t getEffectiveHiddenDimension() const noexcept
         {
-            return hidden_dim_ > 0 ? hidden_dim_ : (embedding_dim_ * 4);
+            return hidden_dim_ > 0 ? hidden_dim_ : (model_dim_ * 4);
         }
 
         void validate() const override
         {
-            if ( embedding_dim_ <= 0 )
+            if ( model_dim_ <= 0 )
             {
-                throw std::invalid_argument( "Embedding dimension must be greater than zero" );
+                throw std::invalid_argument( "Model dimension must be greater than zero" );
             }
 
             if ( num_heads_ == 0 )
@@ -138,9 +138,9 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "Number of attention heads must be greater than zero" );
             }
 
-            if ( embedding_dim_ % num_heads_ != 0 )
+            if ( model_dim_ % num_heads_ != 0 )
             {
-                throw std::invalid_argument( "Embedding dimension must be divisible by number of heads" );
+                throw std::invalid_argument( "Model dimension must be divisible by number of heads" );
             }
         }
 
@@ -148,7 +148,7 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
             meta.set( "precision", static_cast<int64_t>(precision_) )
-                .set( "embedding_dim", static_cast<int64_t>(embedding_dim_) )
+                .set( "model_dim", static_cast<int64_t>(model_dim_) )
                 .set( "num_heads", static_cast<int64_t>(num_heads_) )
                 .set( "hidden_dim", static_cast<int64_t>(hidden_dim_) )
                 .set( "use_bias", use_bias_ )
@@ -163,8 +163,8 @@ namespace Mila::Dnn
         {
             if ( auto p = meta.tryGetInt( "precision" ) )
                 precision_ = static_cast<decltype(precision_)>(*p);
-            if ( auto ed = meta.tryGetInt( "embedding_dim" ) )
-                embedding_dim_ = static_cast<dim_t>(*ed);
+            if ( auto md = meta.tryGetInt( "model_dim" ) )
+                model_dim_ = static_cast<dim_t>(*md);
             if ( auto nh = meta.tryGetInt( "num_heads" ) )
                 num_heads_ = static_cast<dim_t>(*nh);
             if ( auto hd = meta.tryGetInt( "hidden_dim" ) )
@@ -183,7 +183,7 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "GptBlock Configuration:\n";
-            oss << "  Embedding Dim: " << embedding_dim_ << "\n";
+            oss << "  Model Dim: " << model_dim_ << "\n";
             oss << "  Num Heads: " << num_heads_ << "\n";
             oss << "  Hidden Dim: " << getEffectiveHiddenDimension() << "\n";
             oss << "  Use Bias: " << (use_bias_ ? "Yes" : "No") << "\n";
@@ -195,7 +195,7 @@ namespace Mila::Dnn
         }
 
     private:
-        dim_t embedding_dim_;
+        dim_t model_dim_;
         dim_t num_heads_;
         dim_t hidden_dim_ = 0;
         bool use_bias_ = false;

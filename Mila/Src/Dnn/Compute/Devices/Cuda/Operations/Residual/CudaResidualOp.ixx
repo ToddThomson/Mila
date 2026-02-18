@@ -18,6 +18,7 @@ module;
 #include <string>
 
 export module Compute.CudaResidualOp;
+import :Dispatch;
 
 import Dnn.Components.Residual;
 import Dnn.ITensor;
@@ -35,47 +36,6 @@ import Compute.OperationRegistrarHelpers;
 
 namespace Mila::Dnn::Compute::Cuda::Residual
 {
-    //using namespace Mila::Dnn;
-
-    /**
-     * @brief CUDA residual kernel dispatch implementations.
-     *
-     * Specializations provided for float and half native types.
-     */
-    namespace Detail
-    {
-        template<typename TElementType>
-        struct cuda_residual_impl;
-
-        template<>
-        struct cuda_residual_impl<float>
-        {
-            static inline void forward( float* Y, const float* X1, const float* X2, float scale, int N, cudaStream_t stream )
-            {
-                cuda_residual_forward_fp32( Y, X1, X2, scale, N, stream );
-            }
-
-            static inline void backward( float* dX1, float* dX2, const float* dY, size_t N, cudaStream_t stream )
-            {
-                cuda_residual_backward_fp32( dX1, dX2, dY, N, stream );
-            }
-        };
-
-        template<>
-        struct cuda_residual_impl<half>
-        {
-            static inline void forward( half* Y, const half* X1, const half* X2, float scale, int N, cudaStream_t stream )
-            {
-                cuda_residual_forward_fp16( Y, X1, X2, scale, N, stream );
-            }
-            
-            static inline void backward( half* dX1, half* dX2, const half* dY, size_t N, cudaStream_t stream )
-            {
-                cuda_residual_backward_fp16( dX1, dX2, dY, N, stream );
-			}
-        };
-    };
-
     /**
      * @brief CUDA Residual operation implementing the BinaryOperation interface.
      *
@@ -129,9 +89,22 @@ namespace Mila::Dnn::Compute::Cuda::Residual
                 throw std::runtime_error( "CudaResidualOp::forward - null tensor data pointer" );
             }
 
+            const int64_t actual_size = input_A.size();
+
+            if ( input_B.size() != actual_size )
+            {
+                throw std::runtime_error( "CudaResidualOp::forward - input/output size mismatch" );
+            }
+
+            if ( actual_size > max_size_ )
+            {
+                throw std::runtime_error( "CudaResidualOp::forward - input size exceeds built max" );
+            }
+
             cudaStream_t stream = context_->getStream();
 
-            Detail::cuda_residual_impl<NativeType>::forward( Y, A, B, scale_, N_, stream );
+            Detail::cuda_residual_impl<NativeType>::forward(
+                Y, A, B, scale_, static_cast<int>(actual_size), stream );
         }
 
         /**
@@ -148,23 +121,36 @@ namespace Mila::Dnn::Compute::Cuda::Residual
             NativeType* dA = static_cast<NativeType*>(A_grad.rawData());
             NativeType* dB = static_cast<NativeType*>(B_grad.rawData());
 
-            if (!dY || !dA || !dB)
+            if ( !dY || !dA || !dB )
             {
                 throw std::runtime_error( "CudaResidualOp::backward - null gradient tensor data pointer" );
             }
 
+            const int64_t actual_size = output_grad.size();
+
+            if ( A_grad.size() != actual_size || B_grad.size() != actual_size )
+            {
+                throw std::runtime_error( "CudaResidualOp::backward - gradient size mismatch" );
+            }
+
+            if ( actual_size > max_size_ )
+            {
+                throw std::runtime_error( "CudaResidualOp::backward - gradient size exceeds built max" );
+            }
+
             cudaStream_t stream = context_->getStream();
 
-            Detail::cuda_residual_impl<NativeType>::backward( dA, dB, dY, N_, stream );
+            Detail::cuda_residual_impl<NativeType>::backward(
+                dA, dB, dY, static_cast<int>(actual_size), stream );
         }
 
         void build( const shape_t& input_shape )
         {
-            N_ = 1;
+            max_size_ = 1;
 
             for ( const auto& dim : input_shape )
             {
-                N_ *= dim;
+                max_size_ *= dim;
             }
         }
 
@@ -182,7 +168,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         
         CudaExecutionContext* context_{ nullptr };
         ResidualConfig config_;
-        int N_{ 0 };
+        int64_t max_size_{ 0 };
         float scale_{ 1.0f };
     };
 

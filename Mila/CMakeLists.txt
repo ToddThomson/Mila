@@ -388,7 +388,12 @@ PUBLIC
         "Src/Dnn/Components/Transformers/Transformer.ixx"
         "Src/Dnn/Components/Transformers/GenerateParams.ixx"
         "Src/Data/Tokenizers/SpecialTokens.ixx"
- "Src/Dnn/Serialization/PretrainedReader.ixx" "Src/Dnn/Serialization/Serializer.ixx"  "Src/Data/Tokenizers/BPETokenizer/BpePreTokenization.ixx")
+        "Src/Dnn/Serialization/PretrainedReader.ixx"
+        "Src/Dnn/Serialization/Serializer.ixx"
+        "Src/Data/Tokenizers/BPETokenizer/BpePreTokenization.ixx"
+        "Src/Dnn/Compute/KVCacheable.ixx"
+        
+ "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Plans.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -466,6 +471,9 @@ if(MILA_HAS_CUDA)
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/CudaAttentionOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/CudaAttentionOp.Plans.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/CudaAttentionOp.Dispatch.ixx"
+                
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/CudaLearnedEncoderOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx"
@@ -473,6 +481,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/LayerNormOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/LayerNormOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/CudaSoftmaxOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.ixx"
                 

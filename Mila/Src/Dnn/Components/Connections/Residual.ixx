@@ -115,16 +115,6 @@ namespace Mila::Dnn
         ~Residual() override = default;
 
         /**
-         * @brief Return the total number of scalar parameters in this component.
-         *
-         * This includes gating/scaling parameters and any projection parameters.
-         */
-        size_t parameterCount() const override
-        {
-            return 0;
-        }
-
-        /**
          * @brief Execute the forward pass and return component-owned output tensor.
          *
          * The returned pointer is owned by the component and is valid until the
@@ -145,16 +135,6 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Residual::forward: component must be built before forward pass" );
             }
 
-            if ( !operation_ )
-            {
-                throw std::runtime_error( "Residual::forward: operation backend not initialized" );
-            }
-
-            if ( !owned_output_ )
-            {
-                throw std::runtime_error( "Residual::forward: owned output buffer not allocated" );
-            }
-
             // DEBUG: Check input range
             auto host_input = toHost<TensorDataType::FP32>( input_a );
             auto host_input_ptr = host_input.data();
@@ -172,12 +152,24 @@ namespace Mila::Dnn
                 this->getName(), *min_in_b, *max_in_b, shapeToString( host_input_b.shape() ) ) );
             // END DEBUG:
 
-            operation_->forward( input_a, input_b, *owned_output_ );
+            operation_->forward( input_a, input_b, *output_ );
 
             // DEBUG: Check output range
             this->synchronize();
 
-            auto host_output = toHost<TensorDataType::FP32>( *owned_output_ );
+            auto input_shape = input_a.shape();
+
+            if ( input_shape == max_input_shape_ )
+            {
+                return *output_;
+            }
+
+            output_view_ = std::make_unique<TensorType>( output_->view( input_shape ) );
+
+            return *output_view_;
+
+
+            auto host_output = toHost<TensorDataType::FP32>( *output_ );
             auto host_output_ptr = host_output.data();
             const size_t output_n = host_output.size();
             auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
@@ -193,7 +185,7 @@ namespace Mila::Dnn
             }
             // DEBUG END
 
-            return *owned_output_;
+            return *output_;
         }
 
         /**
@@ -227,17 +219,17 @@ namespace Mila::Dnn
             // Zero BOTH owned input gradient buffers before backward pass.
             // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed
             // buffers to prevent gradient buildup across calls.
-            zero( *owned_input_a_grad_ /*, this->getExecutionContext() */);
-            zero( *owned_input_b_grad_ /*, this->getExecutionContext() */);
+            zero( *input_a_grad_ /*, this->getExecutionContext() */);
+            zero( *input_b_grad_ /*, this->getExecutionContext() */);
 
             operation_->backward(
                 input_a,
                 input_b,
                 output_grad,
-                *owned_input_a_grad_,
-                *owned_input_b_grad_ );
+                *input_a_grad_,
+                *input_b_grad_ );
 
-            return { *owned_input_a_grad_, *owned_input_b_grad_ };
+            return { *input_a_grad_, *input_b_grad_ };
         }
 
         /**
@@ -295,6 +287,18 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Number of trainable parameters.
+         *
+         * Residual has no trainable parameters.
+         *
+         * @return 0
+         */
+        size_t parameterCount() const override
+        {
+            return 0;
+        }
+
+        /**
          * @brief Return non-owning pointers to parameter tensors.
          *
          * Residual has no trainable parameter tensors by default; return empty list.
@@ -344,23 +348,23 @@ namespace Mila::Dnn
 
             operation_->build( input_shape );
 
-            input_shape_ = input_shape;
+            max_input_shape_ = input_shape;
 
             // Allocate component-owned forward output and input-gradient tensors.
             auto device = this->getExecutionContext()->getDeviceId();
 
-            // Output shape is same as input_a/input_b output (assume reduction of features handled in op)
-            owned_output_ = std::make_shared<TensorType>( device, input_shape_ );
-            owned_output_->setName( this->getName() + ".output" );
+            // Output shape is same as input_a/input_b output
+            output_ = std::make_unique<TensorType>( device, max_input_shape_ );
+            output_->setName( this->getName() + ".output" );
 
             // Allocate gradients for both inputs (same shape as respective inputs)
-            owned_input_a_grad_ = std::make_shared<TensorType>( device, input_shape_ );
-            owned_input_a_grad_->setName( this->getName() + ".input_a.grad" );
-            zero( *owned_input_a_grad_ );
+            input_a_grad_ = std::make_unique<TensorType>( device, max_input_shape_ );
+            input_a_grad_->setName( this->getName() + ".input_a.grad" );
+            zero( *input_a_grad_ );
 
-            owned_input_b_grad_ = std::make_shared<TensorType>( device, input_shape_ );
-            owned_input_b_grad_->setName( this->getName() + ".input_b.grad" );
-            zero( *owned_input_b_grad_ );
+            input_b_grad_ = std::make_unique<TensorType>( device, max_input_shape_ );
+            input_b_grad_->setName( this->getName() + ".input_b.grad" );
+            zero( *input_b_grad_ );
         }
 
         /**
@@ -385,16 +389,15 @@ namespace Mila::Dnn
     private:
 
         ResidualConfig config_;
-        shape_t input_shape_;
+        shape_t max_input_shape_;
 
         std::shared_ptr<BinaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
-        // REVIEW: should be unique_ptr for owned buffers
-        // Component-owned buffers
-        std::shared_ptr<TensorType> owned_output_{ nullptr };
-        std::shared_ptr<TensorType> owned_input_a_grad_{ nullptr };
-        std::shared_ptr<TensorType> owned_input_b_grad_{ nullptr };
+        std::unique_ptr<TensorType> output_{ nullptr };
+        std::unique_ptr<TensorType> output_view_{ nullptr };
+        std::unique_ptr<TensorType> input_a_grad_{ nullptr };
+        std::unique_ptr<TensorType> input_b_grad_{ nullptr };
 
         /**
          * @brief Create backend BinaryOperation from OperationRegistry.

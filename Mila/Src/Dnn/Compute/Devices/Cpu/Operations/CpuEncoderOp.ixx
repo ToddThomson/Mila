@@ -128,7 +128,7 @@ namespace Mila::Dnn::Compute
 
             batch_size_ = input_shape[ 0 ];
             seq_length_ = input_shape[ 1 ];
-            embedding_dim_ = config_.getChannels();
+            embedding_dim_ = config_.getEmbeddingDim();
 
             is_built_ = true;
         }
@@ -173,7 +173,7 @@ namespace Mila::Dnn::Compute
             const auto& wte_shape = wte->shape();
             if ( wte_shape.size() != 2 ||
                 wte_shape[ 0 ] != config_.getVocabularyLength() ||
-                wte_shape[ 1 ] != config_.getChannels() )
+                wte_shape[ 1 ] != config_.getEmbeddingDim() )
             {
                 throw std::invalid_argument( "CpuEncoderOp::setParameters - wte shape mismatch" );
             }
@@ -181,7 +181,7 @@ namespace Mila::Dnn::Compute
             const auto& wpe_shape = wpe->shape();
             if ( wpe_shape.size() != 2 ||
                 wpe_shape[ 0 ] != config_.getMaxSequenceLength() ||
-                wpe_shape[ 1 ] != config_.getChannels() )
+                wpe_shape[ 1 ] != config_.getEmbeddingDim() )
             {
                 throw std::invalid_argument( "CpuEncoderOp::setParameters - wpe shape mismatch" );
             }
@@ -220,7 +220,7 @@ namespace Mila::Dnn::Compute
             const auto& wte_g_shape = wte_grad->shape();
             if ( wte_g_shape.size() != 2 ||
                 wte_g_shape[ 0 ] != config_.getVocabularyLength() ||
-                wte_g_shape[ 1 ] != config_.getChannels() )
+                wte_g_shape[ 1 ] != config_.getEmbeddingDim() )
             {
                 throw std::invalid_argument( "CpuEncoderOp::setParameterGradients - wte_grad shape mismatch" );
             }
@@ -228,7 +228,7 @@ namespace Mila::Dnn::Compute
             const auto& wpe_g_shape = wpe_grad->shape();
             if ( wpe_g_shape.size() != 2 ||
                 wpe_g_shape[ 0 ] != config_.getMaxSequenceLength() ||
-                wpe_g_shape[ 1 ] != config_.getChannels() )
+                wpe_g_shape[ 1 ] != config_.getEmbeddingDim() )
             {
                 throw std::invalid_argument( "CpuEncoderOp::setParameterGradients - wpe_grad shape mismatch" );
             }

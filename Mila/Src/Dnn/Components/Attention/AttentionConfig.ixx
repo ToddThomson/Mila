@@ -36,22 +36,24 @@ namespace Mila::Dnn
         /**
          * @brief Constructor with required parameters.
          *
-         * @param embedding_dim The embedding dimension size
+         * @param model_dim The model dimension size
          * @param num_heads The number of attention heads
          */
-        AttentionConfig( dim_t embedding_dim, dim_t num_heads )
-            : embedding_dim_( embedding_dim ), num_heads_( num_heads )
+        AttentionConfig( dim_t model_dim, dim_t num_heads )
+            : model_dim_( model_dim ), num_heads_( num_heads )
         {}
 
         /**
-         * @brief C++23-style fluent setter for embedding dimension.
+         * @brief C++23-style fluent setter for model dimension.
          */
         template <typename Self>
-        decltype(auto) withEmbeddingDim( this Self&& self, dim_t embedding_dim )
+        decltype(auto) withModelDim( this Self&& self, dim_t model_dim )
         {
-            self.embedding_dim_ = embedding_dim;
+            self.model_dim_ = model_dim;
+
             return std::forward<Self>( self );
         }
+
 
         /**
          * @brief C++23-style fluent setter for number of heads.
@@ -64,11 +66,11 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Get the embedding dimension.
+         * @brief Get the model dimension.
          */
-        dim_t getEmbeddingSize() const noexcept
+        dim_t getModelDim() const noexcept
         {
-            return embedding_dim_;
+            return model_dim_;
         }
 
         /**
@@ -86,9 +88,9 @@ namespace Mila::Dnn
          */
         void validate() const override
         {
-            if ( embedding_dim_ <= 0 )
+            if ( model_dim_ <= 0 )
             {
-                throw std::invalid_argument( "AttentionConfig: embedding_dim must be > 0" );
+                throw std::invalid_argument( "AttentionConfig: model_dim must be > 0" );
             }
 
             if ( num_heads_ <= 0 )
@@ -96,11 +98,12 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "AttentionConfig: num_heads must be > 0" );
             }
 
-            if ( embedding_dim_ % num_heads_ != 0 )
+            if ( model_dim_ % num_heads_ != 0 )
             {
-                throw std::invalid_argument( "AttentionConfig: embedding_dim must be divisible by num_heads" );
+                throw std::invalid_argument( "AttentionConfig: model_dim must be divisible by num_heads" );
             }
         }
+
 
         /**
          * @brief Convert configuration to serialization metadata.
@@ -112,7 +115,7 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
             meta.set( "precision", static_cast<int64_t>(precision_) )
-                .set( "embedding_dim", static_cast<int64_t>(embedding_dim_) )
+                .set( "model_dim", static_cast<int64_t>(model_dim_) )
                 .set( "num_heads", static_cast<int64_t>(num_heads_) );
 
             return meta;
@@ -131,9 +134,9 @@ namespace Mila::Dnn
                 precision_ = static_cast<decltype(precision_)>(*prec);
             }
 
-            if ( auto ed = meta.tryGetInt( "embedding_dim" ) )
+            if ( auto md = meta.tryGetInt( "model_dim" ) )
             {
-                embedding_dim_ = static_cast<dim_t>(*ed);
+                model_dim_ = static_cast<dim_t>(*md);
             }
 
             if ( auto nh = meta.tryGetInt( "num_heads" ) )
@@ -152,7 +155,7 @@ namespace Mila::Dnn
             std::ostringstream oss;
             oss << "AttentionConfig: { ";
             oss << "precision=" << static_cast<int>(precision_) << ", ";
-            oss << "embedding_dim=" << embedding_dim_ << ", ";
+            oss << "model_dim=" << model_dim_ << ", ";
             oss << "num_heads=" << num_heads_ << " }";
 
             return oss.str();
@@ -160,7 +163,7 @@ namespace Mila::Dnn
 
     private:
 
-        dim_t embedding_dim_;
+        dim_t model_dim_;
         dim_t num_heads_;
     };
 }

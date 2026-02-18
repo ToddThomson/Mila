@@ -11,6 +11,12 @@ import Dnn.TensorTypes;
 
 namespace Mila::Dnn
 {
+    // REVIEW:
+    // Keep AxisPartition and computeAxisPartition here (general shape utility).
+    // Move MultiAxisPartition + computeNormalizedShapePartition into a Normalization - scoped module( e.g., Dnn.NormalizationPartitioning ).
+    // Keep computeNumElements and validateTensorSize in a separate small tensor utils module.
+    // This reduces coupling between tensor utilities and normalization - specific logic.
+
     /**
      * @brief Information about axis partitioning of a tensor.
      */

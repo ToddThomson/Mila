@@ -25,7 +25,7 @@ namespace Components::Layers::Tests
 
         AttentionConfig cfg( embedding_dim, num_heads );
 
-        EXPECT_EQ( cfg.getEmbeddingSize(), embedding_dim );
+        EXPECT_EQ( cfg.getModelDim(), embedding_dim );
         EXPECT_EQ( cfg.getNumHeads(), num_heads );
     }
 
@@ -34,10 +34,10 @@ namespace Components::Layers::Tests
         AttentionConfig cfg( 128, 8 );
 
         // New fluent setters in the updated interface
-        cfg.withEmbeddingDim( 256 )
+        cfg.withModelDim( 256 )
             .withNumHeads( 16 );
 
-        EXPECT_EQ( cfg.getEmbeddingSize(), 256 );
+        EXPECT_EQ( cfg.getModelDim(), 256 );
         EXPECT_EQ( cfg.getNumHeads(), 16 );
     }
 
@@ -84,7 +84,7 @@ namespace Components::Layers::Tests
 
         AttentionConfig copy = cfg;
 
-        EXPECT_EQ( copy.getEmbeddingSize(), cfg.getEmbeddingSize() );
+        EXPECT_EQ( copy.getModelDim(), cfg.getModelDim() );
         EXPECT_EQ( copy.getNumHeads(), cfg.getNumHeads() );
     }
 
@@ -108,7 +108,7 @@ namespace Components::Layers::Tests
         AttentionConfig cfg2( 1, 1 );
         cfg2.fromMetadata( meta );
 
-        EXPECT_EQ( cfg2.getEmbeddingSize(), 512 );
+        EXPECT_EQ( cfg2.getModelDim(), 512 );
         EXPECT_EQ( cfg2.getNumHeads(), 8 );
     }
 
@@ -127,7 +127,7 @@ namespace Components::Layers::Tests
         AttentionConfig cfg( 1, 1 );
 
         EXPECT_NO_THROW( cfg.validate() );
-        EXPECT_EQ( cfg.getEmbeddingSize(), 1 );
+        EXPECT_EQ( cfg.getModelDim(), 1 );
         EXPECT_EQ( cfg.getNumHeads(), 1 );
     }
 
@@ -136,7 +136,7 @@ namespace Components::Layers::Tests
         AttentionConfig cfg( 4096, 16 );
 
         EXPECT_NO_THROW( cfg.validate() );
-        EXPECT_EQ( cfg.getEmbeddingSize(), 4096 );
+        EXPECT_EQ( cfg.getModelDim(), 4096 );
         EXPECT_EQ( cfg.getNumHeads(), 16 );
     }
 }
