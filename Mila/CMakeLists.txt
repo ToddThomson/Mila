@@ -342,7 +342,7 @@ PUBLIC
         "Src/Dnn/Core/FusedComponent.ixx"
         "Src/Dnn/Compute/Operations/OperationRegistrarHelpers.ixx"
         
-        "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtHelpers.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlan.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Zero.ixx"
 
         "Src/Dnn/Core/ComponentBuildConfig.ixx"
@@ -393,7 +393,7 @@ PUBLIC
         "Src/Data/Tokenizers/BPETokenizer/BpePreTokenization.ixx"
         "Src/Dnn/Compute/KVCacheable.ixx"
         
- "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Plans.ixx")
+ "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Plans.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlanCache.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -488,7 +488,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/CudaSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Zero.ixx"
-    )
+     "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaDebug.ixx")
 
     target_link_libraries( Mila PUBLIC 
         CUDA::cudart

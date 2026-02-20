@@ -9,6 +9,7 @@ module;
 #include <vector>
 #include <memory>
 #include <string>
+#include <format>
 #include <stdexcept>
 #include <cstdint>
 #include <type_traits>
@@ -43,14 +44,17 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
 import Compute.KVCacheable;
+import Compute.CublasLtPlan;
 import CublasLt.Error;
-import CublasLtHelpers;
 import Utils.Logger;
+
+// DEBUG:
+import Cuda.Debug;
 
 namespace Mila::Dnn::Compute::Cuda::Attention
 {
     using namespace Mila::Dnn;
-    using namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers;
+    using namespace Mila::Dnn::Compute::Cuda;
 
     /**
      * @brief CUDA implementation of Multi-Head Attention using column-major cuBLASLt optimization.
@@ -119,6 +123,13 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 throw std::invalid_argument( "CudaAttentionOp::initializeKVCache max_seq_length out of range" );
             }
 
+            // DEBUG: start
+            // Dump batch_size and max_seq_length
+            Utils::Logger::debug( std::format(
+                "initializeKVCache(): B={} max_seq_length={}",
+                batch_size, max_seq_length ) );
+            // DEBUG: end
+
             active_max_seq_len_ = max_seq_length;
             cached_seq_len_ = 0;
             kv_cache_enabled_ = true;
@@ -147,6 +158,13 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             const float alpha = 1.0f;
             const float beta = 0.0f;
             const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
+
+            // DEBUG: start
+            // Dump permute_qkv_padded args
+            Utils::Logger::debug( std::format(
+                "permute_qkv_padded: B={} input_T={} output_T={} NH={} HS={}",
+                B_, actual_seq_len, T_, NH_, HS_ ) );
+            // DEBUG: end
 
             Detail::cuda_mha_kernels<NativeType>::permute_qkv_padded(
                 q_, k_, v_,
@@ -178,10 +196,12 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 v_out_,
                 nullptr,
                 stream );
-
+            
+            // BUG: Should we unpermute the entire sequence or just the valid part? Unpermuting the entire sequence will write out invalid data for positions beyond actual_seq_len.
+            // FIX: Unpermute only the valid part of the sequence to avoid writing out invalid data.
             Detail::cuda_mha_kernels<NativeType>::unpermute_output(
                 v_out_, Y,
-                B_, T_, NH_, HS_,
+                B_, actual_seq_len, NH_, HS_, // Use actual_seq_len here to unpermute only the valid part of the sequence. Was T_ before, which is incorrect.
                 stream );
 
             cached_seq_len_ = actual_seq_len;
@@ -202,6 +222,8 @@ namespace Mila::Dnn::Compute::Cuda::Attention
 
             int actual_len = position + 1;
 
+            Utils::Logger::debug( std::format( "CudaAttentionOp position: {}, actual_len: {}", position, actual_len ) );
+
             const NativeType* X = static_cast<const NativeType*>( input.rawData() );
             NativeType* Y = static_cast<NativeType*>( output.rawData() );
 
@@ -217,6 +239,30 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 B_, position, T_, NH_, HS_,
                 stream );
 
+            context_->synchronize();
+            {
+                // V head 0, position 4 specifically
+                shape_t v4_shape = { 1, 1, 1, HS_ };
+                std::string dump = dump_tensor<NativeType>(
+                    v_ + static_cast<int64_t>(0) * T_ * HS_  // head 0
+                    + static_cast<int64_t>(position) * HS_, // position 4
+                    v4_shape,
+                    this->getName() + ".dbg.v_pos4_head0", 8, stream );
+                Utils::Logger::info( this->getName() + ": V head0 pos4:\n" + dump );
+            }
+
+            // DEBUG: Start
+            // Dump the first 5 elements of v_ for debugging
+            context_->synchronize();
+            {
+                // WAS: shape_t v_shape = { B_, NH_, actual_len, HS_ };
+                shape_t v_shape = { 1, 1, 5, 64 };
+                std::string v_dump = dump_tensor<NativeType>(
+                    v_ + 1 * T_ * HS_, v_shape, this->getName() + ".dbg.v_", 8, stream );
+    
+                Utils::Logger::info( this->getName() + ": dbg.v_ (device dump):\n" + v_dump );
+            }
+
             const NativeType* q_decode = q_ + static_cast<int64_t>(position) * HS_;
 
             execute_plan<NativeType>(
@@ -229,10 +275,30 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 nullptr,
                 stream );
 
+            // DEBUG: Start
+            // Dump the first 5 elements of preatt_decode_ for debugging
+            context_->synchronize();
+            {
+                shape_t preatt_decode_shape = { B_, NH_, 1, T_ };
+                std::string preatt_decode_dump = dump_tensor<NativeType>(
+                    preatt_decode_, preatt_decode_shape, this->getName() + ".dbg.preatt_decode", 16, stream );
+    
+                Utils::Logger::info( this->getName() + ": dbg.preatt_decode (device dump):\n" + preatt_decode_dump );
+            }
+            // DEBUG: End
+
             Detail::cuda_mha_kernels<NativeType>::softmax_decode_forward(
                 att_decode_, 1.0f, preatt_decode_,
                 B_, NH_, T_, actual_len,
                 stream );
+
+            context_->synchronize();
+            {
+                shape_t att_decode_shape = { B_, NH_, 1, T_ };
+                std::string att_decode_dump = dump_tensor<NativeType>(
+                    att_decode_, att_decode_shape, this->getName() + ".dbg.att_decode", 16, stream );
+                Utils::Logger::info( this->getName() + ": dbg.att_decode (device dump):\n" + att_decode_dump );
+            }
 
             execute_plan<NativeType>(
                 cublaslt_handle_,
@@ -243,6 +309,68 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 v_out_decode_,
                 nullptr,
                 stream );
+
+            // Dump the first 5 elements of v_out_decode_ for debugging
+            context_->synchronize();
+            {
+                shape_t v_out_decode_shape = { B_, NH_, 1, HS_ };
+                std::string v_out_decode_dump = dump_tensor<NativeType>(
+                    v_out_decode_, v_out_decode_shape, this->getName() + ".dbg.v_out_decode", 16, stream );
+    
+                Utils::Logger::info( this->getName() + ": dbg.v_out_decode (device dump):\n" + v_out_decode_dump );
+            }
+
+            // DEBUG: start
+            context_->synchronize();
+            {
+                std::vector<float> att_h( actual_len );
+                cudaMemcpy( att_h.data(), att_decode_, actual_len * sizeof( float ),
+                    cudaMemcpyDeviceToHost );
+
+                std::vector<float> v_h( actual_len * HS_ );
+                cudaMemcpy( v_h.data(), v_, actual_len * HS_ * sizeof( float ),
+                    cudaMemcpyDeviceToHost );
+
+                // Print att weights
+                std::string att_str = std::format( "att_h[0..{}]: [", actual_len - 1 );
+                for ( int i = 0; i < actual_len; i++ )
+                    att_str += std::format( " {:.6f}", att_h[ i ] );
+                att_str += " ]";
+                Utils::Logger::info( this->getName() + ": " + att_str );
+
+                // Print V elem 0 for each position
+                std::string v_str = std::format( "v_h elem0 for pos 0..{}: [", actual_len - 1 );
+                for ( int i = 0; i < actual_len; i++ )
+                    v_str += std::format( " {:.6f}", v_h[ i * HS_ ] );
+                v_str += " ]";
+                Utils::Logger::info( this->getName() + ": " + v_str );
+
+                // Manual dot product
+                float manual_elem0 = 0.0f;
+                for ( int i = 0; i < actual_len; i++ )
+                {
+                    float contrib = att_h[ i ] * v_h[ i * HS_ ];
+                    Utils::Logger::info( std::format(
+                        "  pos {}: att={:.6f} * v={:.6f} = {:.6f}",
+                        i, att_h[ i ], v_h[ i * HS_ ], contrib ) );
+                    manual_elem0 += contrib;
+                }
+
+                Utils::Logger::info( std::format(
+                    "{}: CPU manual v_out[head0,elem0] = {:.6f}",
+                    this->getName(), manual_elem0 ) );
+
+                // Read actual cuBLAS output for head 0 elem 0
+                float cublas_elem0 = 0.0f;
+                cudaMemcpy( &cublas_elem0, v_out_decode_, sizeof( float ),
+                    cudaMemcpyDeviceToHost );
+
+                Utils::Logger::info( std::format(
+                    "{}: CPU manual={:.6f}  cuBLAS={:.6f}  diff={:.6f}",
+                    this->getName(), manual_elem0, cublas_elem0,
+                    manual_elem0 - cublas_elem0 ) );
+            }
+            // DEBUG: end
 
             Detail::cuda_mha_kernels<NativeType>::unpermute_output(
                 v_out_decode_, Y,
@@ -273,6 +401,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                     "CudaAttentionOp: embedding_dim must be divisible by num_heads" );
             }
 
+            // REVIEW: Why is active_max_seq_len_ initialized to T_ here?
             active_max_seq_len_ = T_;
             cached_seq_len_ = 0;
             kv_cache_enabled_ = false;

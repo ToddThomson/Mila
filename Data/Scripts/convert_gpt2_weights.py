@@ -159,8 +159,7 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
             convert_dtype(state_dict[f'{prefix_hf}.mlp.c_fc.bias'].numpy(), dtype)
         )
 
-        weight = model.state_dict()['transformer.h.0.mlp.c_proj.weight']
-
+        #weight = model.state_dict()['transformer.h.0.mlp.c_proj.weight']
         #print(f"\nLayer 0 fc_2 (c_proj) stats:")
         #print(f"  Shape: {weight.shape}")
         #print(f"  Min: {weight.min():.6f}")
@@ -182,15 +181,9 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
             convert_dtype(state_dict[f'{prefix_hf}.mlp.c_proj.weight'].numpy().T, dtype)
         )
         
-        w = model.state_dict()[f'{prefix_hf}.mlp.c_proj.weight']
-        print(f"Layer {i} fc_2 weight shape: {w.shape}")
-        print(f"Min: {w.min():.6f}, Max: {w.max():.6f}, Mean: {w.mean():.6f}")
-
-        # Now check what you wrote to file
-        import numpy as np
-        converted = weight.numpy().T
-        #print(f"\nConverted shape: {converted.shape}")
-        #print(f"Converted first 5x5:\n{converted[:5, :5]}")
+        #w = model.state_dict()[f'{prefix_hf}.mlp.c_proj.weight']
+        #print(f"Layer {i} fc_2 weight shape: {w.shape}")
+        #print(f"Min: {w.min():.6f}, Max: {w.max():.6f}, Mean: {w.mean():.6f}")
 
         writer.add_tensor(
             f'{prefix_mila}.mlp.fc_2.bias',

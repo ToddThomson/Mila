@@ -333,7 +333,7 @@ namespace Components_Layers_Attention_Tests
         std::string output = fixture.component->toString();
 
         EXPECT_NE( output.find( "Attention" ), std::string::npos );
-        EXPECT_NE( output.find( "Embedding dimension" ), std::string::npos );
+        EXPECT_NE( output.find( "Model dimension" ), std::string::npos );
         EXPECT_NE( output.find( "Number of heads" ), std::string::npos );
     }
 

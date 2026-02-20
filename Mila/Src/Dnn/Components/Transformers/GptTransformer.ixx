@@ -197,10 +197,7 @@ namespace Mila::Dnn
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
             this->getExecutionContext()->synchronize();
 
-            copy( *dynamic_cast<const TensorType*>(logits_ptr_), *owned_output_ );
-            this->getExecutionContext()->synchronize();
-
-            return *owned_output_;
+            return *logits_ptr_;
         }
 
         TokenIndexType& backward( const TokenIndexType& input, const TensorType& output_grad )
@@ -418,13 +415,16 @@ namespace Mila::Dnn
             normalized_ptr_ = &final_layernorm_->forward( *block_output_ptrs_.back() );
             this->getExecutionContext()->synchronize();
 
+            auto host = toHost<TensorDataType::FP32>( *normalized_ptr_ );
+            Utils::Logger::info( std::format( "ln_final out pos 0 elem 0: {:.4f}",
+                host.data()[ 0 ] ) );
+            Utils::Logger::info( std::format( "ln_final out pos 3 elem 0: {:.4f}",
+                host.data()[ 3 * 768 ] ) );
+
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
             this->getExecutionContext()->synchronize();
 
-            copy( *dynamic_cast<const TensorType*>(logits_ptr_), *owned_output_ );
-            this->getExecutionContext()->synchronize();
-
-            return *owned_output_;
+            return *logits_ptr_;
         }
 
         TensorType& forwardDecode( const TokenIndexType& input, int position )
@@ -433,6 +433,12 @@ namespace Mila::Dnn
             {
                 throw std::runtime_error( "GptTransformer must be built before calling forwardDecode()." );
             }
+
+            // DEBUG
+            auto input_cpu = toHost<dtype_t::INT32>( input );
+            Utils::Logger::info( std::format( "forwardDecode: input token id = {}",
+                input_cpu.data()[ 0 ] ) );
+            // END DEBUG
 
             encoder_out_ptr_ = &encoder_->forward( input );
             this->getExecutionContext()->synchronize();
@@ -458,10 +464,7 @@ namespace Mila::Dnn
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
             this->getExecutionContext()->synchronize();
 
-            copy( *dynamic_cast<const TensorType*>(logits_ptr_), *owned_output_ );
-            this->getExecutionContext()->synchronize();
-
-            return *owned_output_;
+            return *logits_ptr_;
         }
 
         std::vector<int32_t> generate(
@@ -517,8 +520,35 @@ namespace Mila::Dnn
                         Tensor<TPrecision, CpuMemoryResource> logits_cpu( Device::Cpu(), logits_shape );
                         copy( logits, logits_cpu );
 
+                        // DEBUG: Add here
                         size_t last_pos_offset = static_cast<size_t>(seq_len - 1) * config_.getVocabSize();
+
+                        Utils::Logger::info( std::format( "logit token 11 (',') at pos 0: {:.4f}",
+                            logits_cpu.data()[ 11 ] ) );
+                        Utils::Logger::info( std::format( "logit token 11 (',') at pos 3: {:.4f}",
+                            logits_cpu.data()[ last_pos_offset + 11 ] ) );
+                        Utils::Logger::info( std::format( "logit token 284 (' to') at pos 0: {:.4f}",
+                            logits_cpu.data()[ 284 ] ) );
+                        Utils::Logger::info( std::format( "logit token 284 (' to') at pos 3: {:.4f}",
+                            logits_cpu.data()[ last_pos_offset + 284 ] ) );
+                        // END DEBUG
+
+                        // DEBUG: start
+                        Utils::Logger::info( std::format( "prefill logits shape: [1, {}, {}]",
+                            seq_len, config_.getVocabSize() ) );
+                        Utils::Logger::info( std::format( "last_pos_offset: {} (= {} * {})",
+                            (seq_len - 1) * config_.getVocabSize(),
+                            seq_len - 1,
+                            config_.getVocabSize() ) );
+
+                        // Also log the logit value at token 11 (',') at last position
+                        last_pos_offset = static_cast<size_t>(seq_len - 1) * config_.getVocabSize();
                         const float* last_logits = logits_cpu.data() + last_pos_offset;
+                        Utils::Logger::info( std::format( "logit for token 11 (',') at last pos: {:.4f}",
+                            last_logits[ 11 ] ) );
+                        Utils::Logger::info( std::format( "logit for token 284 (' to') at last pos: {:.4f}",
+                            last_logits[ 284 ] ) );
+                        // END DEBUG
 
                         int32_t next_token = sampleToken(
                             last_logits,
@@ -553,6 +583,15 @@ namespace Mila::Dnn
                     copy( logits, logits_cpu );
 
                     const float* last_logits = logits_cpu.data();
+
+                    std::vector<std::pair<float, int>> top5_logits;
+                    for ( int i = 0; i < (int)config_.getVocabSize(); i++ )
+                        top5_logits.push_back( { last_logits[ i ], i } );
+                    std::partial_sort( top5_logits.begin(), top5_logits.begin() + 5, top5_logits.end(),
+                        []( auto& a, auto& b ) { return a.first > b.first; } );
+                    for ( int i = 0; i < 5; i++ )
+                        Utils::Logger::info( std::format( "  top{}: token={} logit={:.4f}",
+                            i, top5_logits[ i ].second, top5_logits[ i ].first ) );
 
                     int32_t next_token = sampleToken(
                         last_logits,
@@ -760,10 +799,10 @@ namespace Mila::Dnn
             lm_head_ = this->template getComponentAs<LinearType>( this->getName() + ".lm_head" );
             lm_head_->build( embedding_shape_ );
 
-            auto device_id = this->getDeviceId();
+            //auto device_id = this->getDeviceId();
 
-            owned_output_ = std::make_shared<TensorType>( device_id, output_shape_ );
-            owned_output_->setName( this->getName() + ".output" );
+            //owned_output_ = std::make_shared<TensorType>( device_id, output_shape_ );
+            //owned_output_->setName( this->getName() + ".output" );
 
             block_input_ptrs_.assign( transformer_blocks_.size(), nullptr );
             block_output_ptrs_.assign( transformer_blocks_.size(), nullptr );
@@ -814,7 +853,8 @@ namespace Mila::Dnn
         std::shared_ptr<LayerNormType> final_layernorm_{ nullptr };
         std::shared_ptr<LinearType> lm_head_{ nullptr };
 
-        std::shared_ptr<TensorType> owned_output_{ nullptr };
+        //std::shared_ptr<TensorType> owned_output_{ nullptr };
+        //std::unique_ptr<TensorType> output_view_{ nullptr };
 
         TensorType* encoder_out_ptr_{ nullptr };
         std::vector<TensorType*> block_input_ptrs_;
@@ -824,8 +864,8 @@ namespace Mila::Dnn
         TensorType* logits_ptr_{ nullptr };
 
         /**
- * @brief Sample a token from logits using temperature and optional top-k filtering.
- */
+         * @brief Sample a token from logits using temperature and optional top-k filtering.
+         */
         static int32_t sampleToken(
             const float* logits,
             size_t vocab_size,
@@ -996,7 +1036,8 @@ namespace Mila::Dnn
             this->addComponent( final_layernorm );
 
             auto lm_head_config = LinearConfig( config_.getEmbeddingSize(), config_.getVocabSize() )
-                .withBias( false );
+                .withBias( false )
+                .withRowMajor( true );
 
             auto lm_head = std::make_shared<LinearType>(
                 this->getName() + ".lm_head", lm_head_config, std::nullopt );

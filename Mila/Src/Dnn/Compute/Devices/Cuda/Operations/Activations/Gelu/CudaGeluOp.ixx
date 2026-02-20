@@ -99,16 +99,18 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
         {
             // REVIEW: This boilerplate code is fine for now but all ops should share a common helper for this.
 
-			// ITensors must be of the same device type as the operation
-            if ( input.getDeviceType() != DeviceType::Cuda || output.getDeviceType() != DeviceType::Cuda ) {
+            // ITensors must be of the same device type as the operation
+            if ( input.getDeviceType() != DeviceType::Cuda || output.getDeviceType() != DeviceType::Cuda )
+            {
                 throw std::invalid_argument( "CudaGeluOp: Input and output tensors must be on CUDA device." );
-			}
-			
-            if ( input.size() != output.size() ) {
-                throw std::invalid_argument( "CudaGeluOp: Input and output tensors must have the same size." );
-			}
+            }
 
-			// TODO: Validate tensor data types match TPrecision
+            if ( output.size() < input.size() )
+            {
+                throw std::invalid_argument( "CudaGeluOp: output tensors must be greater or equal to the input size." );
+            }
+
+            // TODO: Validate tensor data types match TPrecision
 
             cudaStream_t stream = context_->getStream();
 

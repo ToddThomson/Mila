@@ -138,7 +138,7 @@ namespace Components::Layers::Tests
 
         auto s = module->toString();
         EXPECT_NE( s.find( "Attention" ), std::string::npos );
-        EXPECT_NE( s.find( "Embedding dimension" ), std::string::npos );
+        EXPECT_NE( s.find( "Model dimension" ), std::string::npos );
         EXPECT_NE( s.find( "Number of heads" ), std::string::npos );
     }
 

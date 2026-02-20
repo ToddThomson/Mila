@@ -20,6 +20,7 @@ module;
 #include <utility>
 #include <optional>
 #include <numeric>
+#include <algorithm>
 
 export module Dnn.Components.LayerNorm;
 export import :Config;
@@ -133,35 +134,52 @@ namespace Mila::Dnn
                 throw std::runtime_error( "LayerNorm module must be built before calling forward." );
             }
 
-            // validateInputShape( input.shape() );
+            // DEBUG:
 
-            /*if ( !operation_ )
-            {
-                throw std::runtime_error( "LayerNorm: operation backend not initialized" );
-            }
+            // Check input range
+            auto host_input = toHost<TensorDataType::FP32>( input );
+            auto host_input_ptr = host_input.data();
+            const size_t n = host_input.size();
+            auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
+            Utils::Logger::debug( std::format( "LayerNorm {} in:[{:.3f}, {:.3f}] with shape {}",
+                this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
 
-            if ( !owned_output_ )
-            {
-                throw std::runtime_error( "LayerNorm: owned output buffer not allocated" );
-            }*/
+            // END DEBUG:
 
             operation_->forward( input, *owned_output_ );
 
-            // Get actual input shape
+            // Resolve the output: return the full buffer if the shape matches,
+            // otherwise produce a view trimmed to the actual input shape.
             auto input_shape = input.shape();
 
-            // Optimization: skip view if shape matches
+            TensorType* result = nullptr;
+
             if ( input_shape == max_input_shape_ )
             {
-                return *owned_output_;
+                result = owned_output_.get();
+            }
+            else
+            {
+                current_output_view_ = std::make_unique<TensorType>(
+                    owned_output_->view( input_shape )
+                );
+                result = current_output_view_.get();
             }
 
-            // Return view with same shape as input
-            current_output_view_ = std::make_unique<TensorType>(
-                owned_output_->view( input_shape )
-            );
+            // DEBUG:
 
-            return *current_output_view_;
+            // Check output range on the resolved view to avoid reading stale
+            // elements beyond the current input extent in the pre-allocated buffer.
+            auto host_output = toHost<TensorDataType::FP32>( *result );
+            auto host_output_ptr = host_output.data();
+            const size_t m = host_output.size();
+            auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + m );
+            Utils::Logger::debug( std::format( "LayerNorm {} out:[{:.3f}, {:.3f}] with shape {}",
+                this->getName(), *min_out, *max_out, shapeToString( result->shape() ) ) );
+
+            // END DEBUG:
+
+            return *result;
         }
 
         /**

@@ -13,13 +13,13 @@ module;
 
 export module Compute.CudaAttentionOp:Plans;
 
-import CublasLtHelpers;
+import Compute.CublasLtPlan;
 import Utils.Logger;
 
 namespace Mila::Dnn::Compute::Cuda::Attention
 {
     using namespace Mila::Dnn;
-    using namespace Mila::Dnn::Compute::Cuda::Common::CublasLtHelpers;
+    using namespace Mila::Dnn::Compute::Cuda;
 
     namespace Detail
     {

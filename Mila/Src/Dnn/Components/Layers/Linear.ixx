@@ -253,8 +253,8 @@ namespace Mila::Dnn
             const size_t output_n = host_output.size();
             auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
 
-            Utils::Logger::debug( std::format( "LinearOp {} in:[{:.3f}, {:.3f}] out:[{:.3f}, {:.3f}]",
-                this->getName(), *min_in, *max_in, *min_out, *max_out ) );
+            Utils::Logger::debug( std::format( "LinearOp {} out:[{:.3f}, {:.3f}], shape {}",
+                this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );
 
             // DEBUG END
 

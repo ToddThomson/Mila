@@ -95,7 +95,7 @@ namespace Components::Layers::Tests
         auto meta = cfg.toMetadata();
 
         // Ensure metadata contains expected integer fields
-        auto ed = meta.tryGetInt( "embedding_dim" );
+        auto ed = meta.tryGetInt( "model_dim" );
         auto nh = meta.tryGetInt( "num_heads" );
 
         ASSERT_TRUE( ed.has_value() );
@@ -118,7 +118,7 @@ namespace Components::Layers::Tests
 
         std::string s = cfg.toString();
 
-        EXPECT_NE( s.find( "embedding_dim=768" ), std::string::npos );
+        EXPECT_NE( s.find( "model_dim=768" ), std::string::npos );
         EXPECT_NE( s.find( "num_heads=12" ), std::string::npos );
     }
 

@@ -165,11 +165,10 @@ namespace Mila::Dnn
             }
 
             output_view_ = std::make_unique<TensorType>( output_->view( input_shape ) );
+            Utils::Logger::debug( std::format( "Residual {} output view size:{}, output size: {}",
+                this->getName(), output_view_->size(), output_->size() ) );
 
-            return *output_view_;
-
-
-            auto host_output = toHost<TensorDataType::FP32>( *output_ );
+            auto host_output = toHost<TensorDataType::FP32>( *output_view_ );
             auto host_output_ptr = host_output.data();
             const size_t output_n = host_output.size();
             auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
@@ -177,15 +176,15 @@ namespace Mila::Dnn
             Utils::Logger::debug( std::format( "Residual {} out:[{:.3f}, {:.3f}] with shape:{}",
                 this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );
 
-            Utils::Logger::debug( std::format( "Residual {} output at positions:", this->getName() ) );
-            for ( int i = 0; i < 4; ++i )
-            {  // First 4 tokens
-                auto feature_value = host_output_ptr[ i * 768 ];  // Assuming last dimension is 768
-                Utils::Logger::debug( std::format( "  Token {}: {:.3f}", i, feature_value ) );  // First feature of each token
-            }
+            //Utils::Logger::debug( std::format( "Residual {} output at positions:", this->getName() ) );
+            //for ( int i = 0; i < 4; ++i )
+            //{  // First 4 tokens
+            //    auto feature_value = host_output_ptr[ i * 768 ];  // Assuming last dimension is 768
+            //    Utils::Logger::debug( std::format( "  Token {}: {:.3f}", i, feature_value ) );  // First feature of each token
+            //}
             // DEBUG END
 
-            return *output_;
+            return *output_view_;
         }
 
         /**

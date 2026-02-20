@@ -222,7 +222,18 @@ namespace Mila::Dnn
 
             kv_cacheable->forwardPrefill( input, *owned_output_ );
 
-            return *owned_output_;
+            auto input_shape = input.shape();
+
+            if ( input_shape == max_input_shape_ )
+            {
+                return *owned_output_;
+            }
+
+            auto output_shape = input_shape;
+            output_shape.back() = config_.getModelDim();
+            output_view_ = std::make_unique<TensorType>( owned_output_->view( output_shape ) );
+
+            return *output_view_;
         }
 
         TensorType& forwardDecode( const TensorType& input, int position )

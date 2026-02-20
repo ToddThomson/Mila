@@ -15,6 +15,8 @@ module;
 #include <memory>
 #include <cuda_fp16.h>
 #include <stdexcept>
+#include <cstdint>
+#include <cassert>
 #include <string>
 
 export module Compute.CudaResidualOp;
@@ -102,6 +104,8 @@ namespace Mila::Dnn::Compute::Cuda::Residual
             }
 
             cudaStream_t stream = context_->getStream();
+
+            assert( scale_ == 1.0f && "Current implementation only supports scale=1.0f" );
 
             Detail::cuda_residual_impl<NativeType>::forward(
                 Y, A, B, scale_, static_cast<int>(actual_size), stream );

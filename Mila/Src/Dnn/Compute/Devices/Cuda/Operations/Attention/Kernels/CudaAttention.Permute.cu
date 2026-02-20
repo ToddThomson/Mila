@@ -416,6 +416,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention
             dinp[ dinp_v_idx ] = dv[ in_idx ];
         }
     }
+
     __global__ void permute_qkv_padded_fp32_kernel(
         float* Q, float* K, float* V,
         const float* X,

@@ -44,6 +44,8 @@ import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaDevice;
 import Compute.CudaTensorDataType;
+import Compute.CublasLtPlan;
+import Compute.CublasLtPlanCache;
 import CublasLt.Error;
 import Utils.Logger;
 
@@ -54,6 +56,7 @@ import Dnn.TensorHelpers;
 namespace Mila::Dnn::Compute::Cuda::Linear
 {
     using namespace Mila::Dnn;
+    using namespace Mila::Dnn::Compute::Cuda;
 
     /**
      * @brief CUDA implementation of Linear operation using two-phase cuBLASLt optimization.
@@ -255,9 +258,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 const float alpha = 1.0f;
                 const float beta = 0.0f;
 
-                Detail::execute_cublaslt_plan(
+                execute_plan<NativeType>(
                     cached_cublaslt_handle_,
-                    forward_plan_,
+                    forward_plan_cache_.get( static_cast<int>(batch_size) ),
                     &alpha,
                     weight_, input_ptr,
                     &beta,
@@ -268,10 +271,14 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 return;
             }
 
+            // REVIEW: Requires testing. Focus is currently on CublasLt plan caching and implementation.
+            // We need to revisit this code block
+
+            // Fallback to custom non-cublasLt kernel
             Detail::cuda_matmul_impl<NativeType>::forward(
                 output_ptr, input_ptr,
                 weight_, bias_,
-                cached_batch_size_,
+                static_cast<int>(batch_size),
                 cached_in_features_, cached_out_features_,
                 stream );
         }
@@ -281,87 +288,58 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             const ITensor& output_grad,
             ITensor& input_grad ) const override
         {
-            // Validate backward pass preconditions
-            assert( this->isBuilt() && "CudaLinearOp must be built before calling backward()" );
-            assert( weight_ != nullptr && "Weight pointer must be set before backward pass" );
-            assert( weight_grad_ != nullptr && "Weight gradient pointer must be set before backward pass" );
-
-            // Bias gradient is optional (only required if bias exists)
-            assert( (!config_.hasBias() || bias_grad_ != nullptr) &&
-                "Bias gradient pointer must be set when bias is enabled" );
-
             if ( !this->isTraining() )
             {
                 throw std::runtime_error( "CudaLinearOp::backward called in inference mode" );
 			}
 
+            const auto& grad_shape = output_grad.shape();
+            int64_t batch_size = 1;
+            for ( size_t i = 0; i + 1 < grad_shape.size(); ++i )
+                batch_size *= grad_shape[ i ];
+
             const NativeType* input_ptr = static_cast<const NativeType*>(input.rawData());
             const NativeType* output_grad_ptr = static_cast<const NativeType*>(output_grad.rawData());
             NativeType* input_grad_ptr = static_cast<NativeType*>(input_grad.rawData());
-
-            // Validate tensor pointers
-            assert( input_ptr != nullptr && "Input tensor data must not be null" );
-            assert( output_grad_ptr != nullptr && "Output gradient tensor data must not be null" );
-            assert( input_grad_ptr != nullptr && "Input gradient tensor data must not be null" );
-
-            // Verify tensor shapes match expected dimensions
-            assert( input.shape().size() >= 2 && "Input must have at least 2 dimensions" );
-            assert( output_grad.shape().size() >= 2 && "Output grad must have at least 2 dimensions" );
-
-            // Verify last dimension matches
-            assert( input.shape().back() == cached_in_features_ &&
-                "Input last dimension must match in_features" );
-            assert( output_grad.shape().back() == cached_out_features_ &&
-                "Output grad last dimension must match out_features" );
 
             cudaStream_t stream = context_->getStream();
 
             if (use_cublaslt_)
             {
-                assert( cached_cublaslt_handle_ != nullptr && "cuBLASLt handle must be valid" );
-                assert( forward_plan_.isValid() && "Forward plan must be valid" );
-                assert( backward_input_plan_.isValid() && "Backward input plan must be valid" );
-                assert( backward_weight_plan_.isValid() && "Backward weight plan must be valid" );
-
                 const float alpha = 1.0f;
+                const float beta = 0.0f;
+                const float beta_accum = 1.0f; // Accumulate into weight grad
 
-                // 1. Compute input gradient: dX = W * dY
-                // OVERWRITE input gradient (beta=0), not accumulate
-				const float beta_input = 0.0f;
-
-                Detail::execute_cublaslt_plan(
+                // dX[batch, in] = dY[batch, out] @ weight[out, in]
+                execute_plan<NativeType>(
                     cached_cublaslt_handle_,
-                    backward_input_plan_,
+                    backward_input_plan_cache_.get( static_cast<int>(batch_size) ),
                     &alpha,
-                    weight_,
-                    output_grad_ptr,
-                    &beta_input,
+                    output_grad_ptr, weight_,
+                    &beta,
                     input_grad_ptr,
-					static_cast<const NativeType*>(nullptr),
+                    nullptr,
                     stream );
 
-                // 2. Compute weight gradient: dW += X * dY^T
-				// ACCUMULATE into weight gradient (beta=1)
-                const float beta_params = 0.0f; // REVIEW: This is likely an old FIXME: was 1.0f;
-                
-                Detail::execute_cublaslt_plan(
+                // dW[out, in] = dY^T @ X  (always full batch)
+                // NOTE: This plan is not cached as batch size does not change during training.
+                execute_plan<NativeType>(
                     cached_cublaslt_handle_,
                     backward_weight_plan_,
                     &alpha,
-                    input_ptr,        // A matrix (input)
-                    output_grad_ptr,  // B matrix (output_grad, will be transposed)
-                    &beta_params,
-                    weight_grad_,     // C matrix (output)
-					static_cast<const NativeType*>(nullptr), // no bias
+                    output_grad_ptr, input_ptr,
+                    &beta_accum,
+                    weight_grad_,
+                    nullptr,
                     stream );
 
-                // 3. Compute bias gradient: dB = sum(dY) (if bias exists)
-                if (bias_grad_ != nullptr)
+                // dB[out] = sum(dY, dim=0)
+                if ( bias_grad_ != nullptr )
                 {
                     Detail::compute_bias_gradient(
                         bias_grad_,
                         output_grad_ptr,
-                        cached_batch_size_,
+                        static_cast<int>(batch_size),
                         cached_out_features_,
                         stream );
                 }
@@ -416,9 +394,17 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         bool use_cublaslt_{ false };
         ComputePrecision::Policy cached_precision_policy_;
 
-        Detail::CublasLtMatMulPlan<NativeType> forward_plan_;
-        Detail::CublasLtMatMulPlan<NativeType> backward_input_plan_;
-        Detail::CublasLtMatMulPlan<NativeType> backward_weight_plan_;
+        CublasLtPlanCache<CublasLtMatMulPlan<NativeType>> forward_plan_cache_;
+        CublasLtPlanCache<CublasLtMatMulPlan<NativeType>> backward_input_plan_cache_;
+        CublasLtMatMulPlan<NativeType> backward_weight_plan_;
+
+        cudaDataType_t cuda_data_type_{};
+        cublasComputeType_t compute_type_{};
+        cudaDataType_t scale_type_{};
+
+        //Detail::CublasLtMatMulPlan<NativeType> forward_plan_;
+        //Detail::CublasLtMatMulPlan<NativeType> backward_input_plan_;
+        //Detail::CublasLtMatMulPlan<NativeType> backward_weight_plan_;
 
         constexpr bool supportsCuBLASLt() const
         {
@@ -435,33 +421,48 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             getComputeTypes( compute_type, scale_type );
 
-            forward_plan_ = Detail::build_forward_plan<NativeType>(
-                cached_cublaslt_handle_,
-                cached_batch_size_,
-                cached_in_features_,
-                cached_out_features_,
-                config_.hasBias(),
-                cuda_data_type,
-                compute_type,
-                scale_type );
+            // Store for use by cache builders
+            cuda_data_type_ = cuda_data_type;
+            compute_type_ = compute_type;
+            scale_type_ = scale_type;
 
-            backward_input_plan_ = Detail::build_backward_input_plan<NativeType>(
-                cached_cublaslt_handle_,
+            forward_plan_cache_ = CublasLtPlanCache<CublasLtMatMulPlan<NativeType>>(
                 cached_batch_size_,
-                cached_in_features_,
-                cached_out_features_,
-                cuda_data_type,
-                compute_type,
-                scale_type );
+                [&]( int bucket )
+                {
+                    return Detail::build_forward_plan<NativeType>(
+                        cached_cublaslt_handle_,
+                        bucket,
+                        cached_in_features_,
+                        cached_out_features_,
+                        config_.hasBias(),
+                        cuda_data_type_,
+                        compute_type_,
+                        scale_type_ );
+                } );
+
+            backward_input_plan_cache_ = CublasLtPlanCache<CublasLtMatMulPlan<NativeType>>(
+                cached_batch_size_,
+                [&]( int bucket )
+                {
+                    return Detail::build_backward_input_plan<NativeType>(
+                        cached_cublaslt_handle_,
+                        bucket,
+                        cached_in_features_,
+                        cached_out_features_,
+                        cuda_data_type_,
+                        compute_type_,
+                        scale_type_ );
+                } );
 
             backward_weight_plan_ = Detail::build_backward_weight_plan<NativeType>(
                 cached_cublaslt_handle_,
                 cached_batch_size_,
                 cached_in_features_,
                 cached_out_features_,
-                cuda_data_type,
-                compute_type,
-                scale_type );
+                cuda_data_type_,
+                compute_type_,
+                scale_type_ );
         }
 
         cudaDataType_t getCudaDataType() const

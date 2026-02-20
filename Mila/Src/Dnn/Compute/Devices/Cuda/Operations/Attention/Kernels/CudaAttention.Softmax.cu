@@ -19,7 +19,6 @@
 
 namespace Mila::Dnn::Compute::Cuda::Attention
 {
-    // DEBUG: FP32 Softmax with Causal Masking and Scaling, with Padding Support
     __global__ void softmax_padded_forward_fp32_kernel(
         float* att, float scale, const float* preatt,
         int B_NH, int T, int actual_T )  // Add actual_T parameter
