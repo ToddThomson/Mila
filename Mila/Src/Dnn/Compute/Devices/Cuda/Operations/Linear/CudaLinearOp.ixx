@@ -262,11 +262,14 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     cached_cublaslt_handle_,
                     forward_plan_cache_.get( static_cast<int>(batch_size) ),
                     &alpha,
-                    weight_, input_ptr,
+                    input_ptr, weight_,
                     &beta,
                     output_ptr,
                     bias_,
                     stream );
+
+                // DEBUG: To imediately catch CUDA errors
+                this->context_->synchronize();
 
                 return;
             }

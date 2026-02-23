@@ -202,10 +202,15 @@ export import Dnn.Components.GptBlock;
 export import Dnn.Components.LlamaBlock;
 
 // ============================================================================
-// Networks - Open Source Transformer Models
+// Networks - Open Source Transformer Networks
 // ============================================================================
 export import Dnn.Components.GptTransformer;
 export import Dnn.Components.LlamaTransformer;
+
+// ============================================================================
+// Models - Open Source Models
+// ============================================================================
+export import Dnn.Models.GptModel;
 
 // ============================================================================
 // Dnn - Optimizers
@@ -238,9 +243,10 @@ export import Serialization.ZipSerializer;
 
 // ============================================================================
 // Modeling
+// NOTE: Moved to Dev/Training
 // ============================================================================
-export import Dnn.Model;
-export import Dnn.ModelConfig;
+//export import Dnn.Model;
+//export import Dnn.ModelConfig;
 
 // ============================================================================
 // Data - Core
@@ -257,7 +263,7 @@ export import Data.BpeVocabulary;
 export import Data.BpeVocabularyConfig;
 export import Data.BpeTokenizer;
 export import Data.BpeTrainer;
-export import Data.BpeSpecialTokens;
+// FIXME: export import Data.BpeSpecialTokens;
 
 // ============================================================================
 // Data - Datasets

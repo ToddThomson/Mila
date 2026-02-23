@@ -200,7 +200,7 @@ PUBLIC
 
         # Components - Layers
         "Src/Dnn/Components/Attention/Attention.ixx"
-        "Src/Dnn/Components/Attention/AttentionConfig.ixx"
+        "Src/Dnn/Components/Attention/Attention.Config.ixx"
         "Src/Dnn/Components/Layers/Linear.ixx"
         "Src/Dnn/Components/Layers/LinearConfig.ixx"
 
@@ -312,16 +312,18 @@ PUBLIC
         "Src/Dnn/Core/NetworkFactory.ixx"
 
         #----------------------------------------------------------------------
-        # Dnn / Modeling
+        # Dnn / Modeling 
+        # NOTE: Modeling has been changed to Training. A Training loop abstraction
+        # will be a future addition to Mila. Moved to Dev/Training for now.
         #----------------------------------------------------------------------
-        "Src/Dnn/Modeling/Model.ixx"
-        "Src/Dnn/Modeling/ModelConfig.ixx"
-        "Src/Dnn/Modeling/ModelMetadata.ixx"
-
-        "Src/Dnn/Modeling/Checkpoints/CheckpointManager.ixx"
-        "Src/Dnn/Modeling/Checkpoints/CheckpointMetaData.ixx"
+        #"Src/Dnn/Modeling/Model.ixx"
+        #"Src/Dnn/Modeling/ModelConfig.ixx"
+        #"Src/Dnn/Modeling/ModelMetadata.ixx"
+        #
+        #"Src/Dnn/Modeling/Checkpoints/CheckpointManager.ixx"
+        #"Src/Dnn/Modeling/Checkpoints/CheckpointMetaData.ixx"
         
-        "Src/Dnn/Modeling/TrainingHistory.ixx"
+        #"Src/Dnn/Modeling/TrainingHistory.ixx"
         #"Src/Dnn/Modeling/ModelExporter.ixx"
 
         #----------------------------------------------------------------------
@@ -392,8 +394,16 @@ PUBLIC
         "Src/Dnn/Serialization/Serializer.ixx"
         "Src/Data/Tokenizers/BPETokenizer/BpePreTokenization.ixx"
         "Src/Dnn/Compute/KVCacheable.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.Dispatch.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.Dispatch.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Dispatch.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Plans.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlanCache.ixx"
+        "Src/Dnn/Components/Attention/Attention.ForwardContext.ixx"
         
- "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Plans.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlanCache.ixx")
+        "Src/Dnn/Models/GptModel.ixx"
+
+)
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

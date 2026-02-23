@@ -4,7 +4,7 @@
 #include <filesystem>
 
 import Mila;
-import Chat;
+import Mila.Chat;
 
 // Helper: path to GPT-2 weights under MODELS_DIR (set via CMake target_compile_definitions)
 static std::filesystem::path gpt2_weights_path()

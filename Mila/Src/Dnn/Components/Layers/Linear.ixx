@@ -149,15 +149,24 @@ namespace Mila::Dnn
             operation_->forward( input, *owned_output_ );
 
             auto input_shape = input.shape();
-
+            
+            TensorType* result = nullptr;
             if ( input_shape == max_input_shape_ )
             {
-                return *owned_output_;
+                result = owned_output_.get();
+            }
+            else
+            {
+                auto output_shape = input_shape;
+                output_shape.back() = config_.getOutputFeatures();
+                output_view_ = std::make_unique<TensorType>( owned_output_->view( output_shape ) );
+                
+                result = output_view_.get();
             }
 
-            auto output_shape = input_shape;
+            /*auto output_shape = input_shape;
             output_shape.back() = config_.getOutputFeatures();
-            output_view_ = std::make_unique<TensorType>( owned_output_->view( output_shape ) );
+            output_view_ = std::make_unique<TensorType>( owned_output_->view( output_shape ) );*/
 
             // DEBUG: Start
             //auto component_name = this->getName();
@@ -248,17 +257,16 @@ namespace Mila::Dnn
             // Check output range
             this->synchronize();
 
-            auto host_output = toHost<TensorDataType::FP32>( *output_view_ );
+            auto host_output = toHost<TensorDataType::FP32>( *result );
             auto host_output_ptr = host_output.data();
             const size_t output_n = host_output.size();
             auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
 
             Utils::Logger::debug( std::format( "LinearOp {} out:[{:.3f}, {:.3f}], shape {}",
                 this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );
-
             // DEBUG END
 
-            return *output_view_;
+            return *result;
         }
 
         /**

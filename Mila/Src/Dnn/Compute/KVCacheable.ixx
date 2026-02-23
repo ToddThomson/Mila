@@ -12,9 +12,9 @@ import Dnn.ITensor;
 namespace Mila::Dnn::Compute
 {
     /**
-     * @brief Optional interface for KV-cache-capable operations.
+     * @brief Optional interface for KV-cache-capable Attention operations.
      *
-     * Operations that support cached decoding should implement this interface
+     * Attention Operations that support cached decoding should implement this interface
      * and be accessed via dynamic_cast at call sites.
      */
     export struct IKVCacheable

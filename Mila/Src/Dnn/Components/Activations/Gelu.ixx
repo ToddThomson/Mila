@@ -183,7 +183,6 @@ namespace Mila::Dnn
             }
 
             // DEBUG:
-
             // Check input range
             auto host_input = toHost<TensorDataType::FP32>( input );
             auto host_input_ptr = host_input.data();
@@ -191,7 +190,6 @@ namespace Mila::Dnn
             auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
             Utils::Logger::debug( std::format( "Gelu {} in:[{:.3f}, {:.3f}] with shape {}",
                 this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
-
             // END DEBUG:
 
             operation_->forward( input, *output_ );

@@ -4,22 +4,27 @@
  *
  * Module delegates compute to a device-specific UnaryOperation implementation
  * that expects a concatenated QKV input.
+ *
+ * KV-cache inference is an optional backend capability surfaced via
+ * supportsKVCache(). When supported, forward() dispatches to the appropriate
+ * IKVCacheable path based on the AttentionForwardContext passed by the owning
+ * transformer's generate() method. External callers use the default context
+ * (Mode::Standard) and are unaffected by the KV cache machinery.
  */
 
 module;
 #include <memory>
 #include <vector>
 #include <string>
-#include <iostream>
 #include <sstream>
 #include <type_traits>
-#include <cmath>
 #include <stdexcept>
 #include <cstdint>
 #include <optional>
 
 export module Dnn.Components.Attention;
 export import :Config;
+export import :ForwardContext;
 
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -57,8 +62,25 @@ namespace Mila::Dnn
      *   input shape == [B, T, 3 * embedding_dim]
      *
      * The backend compute implementation (registered as "AttentionOp") must
-     * accept the concatenated QKV input and produce an output of shape
+     * accept the concatenated QKV input and produce an output of shape:
      *   output shape == [B, T, embedding_dim]
+     *
+     * KV-cache inference is an optional backend capability. After build(),
+     * supportsKVCache() indicates whether the underlying operation implements
+     * IKVCacheable. The cached pointer is resolved once at build time.
+     *
+     * The KV cache lifecycle (initializeKVCache / resetKVCache) is intended
+     * to be driven exclusively by the owning transformer's generate() method.
+     * The ForwardContext-based dispatch in forward() is the sole entry point
+     * for prefill and decode paths; forwardPrefill / forwardDecode do not
+     * exist as public methods.
+     *
+     * REVIEW: initializeKVCache() and resetKVCache() are currently public.
+     * When TransformerBase<> is introduced as the common base for GptTransformer,
+     * LlamaTransformer, MistralTransformer etc., revisit whether these should
+     * become private with 'friend class TransformerBase<TDeviceType, TPrecision>'
+     * to enforce that only the generate() orchestration path may manage the
+     * KV cache lifecycle.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -72,9 +94,9 @@ namespace Mila::Dnn
         /**
          * @brief Construct Attention component.
          *
-         * @param name Component name identifier (mandatory)
-         * @param config Attention configuration
-         * @param device_id Optional DeviceId to create owned ExecutionContext (standalone mode)
+         * @param name      Component name identifier (mandatory).
+         * @param config    Attention configuration.
+         * @param device_id Optional DeviceId to create owned ExecutionContext (standalone mode).
          */
         explicit Attention( const std::string& name, const AttentionConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), config_( config )
@@ -88,69 +110,73 @@ namespace Mila::Dnn
                     throw std::invalid_argument( "Attention: device type mismatch" );
                 }
 
-                owned_exec_context_ = createExecutionContext( device_id.value() );
-
-                this->setExecutionContext( owned_exec_context_.get() );
+                context_ = createExecutionContext( device_id.value() );
+                this->setExecutionContext( context_.get() );
             }
         }
 
         ~Attention() override = default;
 
         // ====================================================================
-        // Compute operation dispatch
+        // Forward / Backward
         // ====================================================================
 
         /**
-         * @brief Run forward pass and return component-owned output tensor.
+         * @brief Standard forward pass.
          *
-         * Allocates and reuses an output tensor owned by the component (allocated
-         * in onBuilding()). Delegates to backend `operation_->forward`.
+         * Always available regardless of backend. When the backend supports
+         * KV caching, the first forward() call initializes and populates the
+         * cache (prefill). When called again after decode() steps, it
+         * automatically resets the cache and begins a new prefill session —
+         * no explicit session management required by callers.
          *
-         * @param input Concatenated QKV input tensor.
-         * @return Reference to component-owned TensorType containing the forward result.
-         *
-         * @throws std::runtime_error if component not built or backend not initialized.
+         * @param input Concatenated QKV input [B, T, 3 * embedding_dim].
+         * @return Reference to component-owned output tensor.
          */
         TensorType& forward( const TensorType& input )
         {
             if ( !this->isBuilt() )
-            {
-                throw std::runtime_error( "Attention module must be built before calling forward." );
-            }
+                throw std::runtime_error(
+                    "Attention must be built before calling forward()." );
 
             validateConcatenatedQKVShape( input.shape() );
 
-            operation_->forward( input, *owned_output_ );
-
-            auto input_shape = input.shape();
-
-            if ( input_shape == max_input_shape_ )
+            if ( kv_cacheable_ )
             {
-                return *owned_output_;
+                // Called after decode steps — reset for new session
+                if ( decode_active_ )
+                {
+                    kv_cacheable_->resetKVCache();
+                    cache_initialized_ = false;
+                    decode_active_ = false;
+                }
+
+                // Initialize cache on first forward() if not yet done
+                if ( !cache_initialized_ )
+                {
+                    kv_cacheable_->initializeKVCache(
+                        static_cast<int>(max_input_shape_[ 0 ]),
+                        static_cast<int>(max_input_shape_[ 1 ]) );
+                    cache_initialized_ = true;
+                }
+
+                // Prefill — populates cache as side effect
+                kv_cacheable_->forwardPrefill( input, *owned_output_ );
+                return resolveOutputView( input.shape() );
             }
 
-            auto output_shape = input_shape;
-            output_shape.back() = config_.getModelDim();
-            output_view_ = std::make_unique<TensorType>( owned_output_->view( output_shape ) );
-
-            return *output_view_;
+            operation_->forward( input, *owned_output_ );
+            return resolveOutputView( input.shape() );
         }
 
         /**
          * @brief Run backward pass and return component-owned input-gradient tensor.
          *
-         * Uses an input-gradient tensor owned by the component (allocated in onBuilding())
-         * and delegates to backend `operation_->backward`.
-         *
-         * @param input Concatenated QKV input tensor used by forward.
+         * @param input       Concatenated QKV input tensor used in forward.
          * @param output_grad Gradient w.r.t. the module output.
          * @return Reference to component-owned TensorType containing the input gradient.
-         *
-         * @throws std::runtime_error if component not built, not in training mode, or backend not initialized.
          */
-        TensorType& backward(
-            const TensorType& input,
-            const TensorType& output_grad )
+        TensorType& backward( const TensorType& input, const TensorType& output_grad )
         {
             if ( !this->isBuilt() )
             {
@@ -164,17 +190,82 @@ namespace Mila::Dnn
 
             validateConcatenatedQKVShape( input.shape() );
 
-            // Zero input gradient buffer before backward pass. No exceptions.
-            zero( *owned_input_grad_ /*, this->getExecutionContext() */ );
-
+            zero( *owned_input_grad_ );
             operation_->backward( input, output_grad, *owned_input_grad_ );
 
             return *owned_input_grad_;
         }
 
         // ====================================================================
-        // KV Caching
+        // Decode path/KV Cache
         // ====================================================================
+
+        /**
+         * @brief Inference-only single-token decode pass.
+         *
+         * When the backend implements IKVCacheable and the cache has been
+         * populated by a prior forward() call, uses the fast O(n) KV cache
+         * path. When the backend does not support KV caching (CpuAttentionOp),
+         * falls back to forward(). The caller never needs to know which path
+         * was taken.
+         *
+         * Any future component with an optimized inference-only path follows
+         * this same pattern — expose decode(), decide path internally.
+         *
+         * Precondition: forward() must have been called at least once to
+         * populate the KV cache before decode() is called.
+         *
+         * @param input    Single-token QKV input [B, 1, 3 * embedding_dim].
+         * @param position Current sequence position (0-based).
+         * @return Reference to component-owned single-token output tensor.
+         */
+        TensorType& decode( const TensorType& input, int position )
+        {
+            if ( !this->isBuilt() )
+                throw std::runtime_error(
+                    "Attention must be built before calling decode()." );
+
+            validateConcatenatedQKVShape( input.shape() );
+
+            if ( kv_cacheable_ && cache_initialized_ )
+            {
+                // Fast path — O(n) attention using cached KV state
+                kv_cacheable_->forwardDecode( input, *owned_decode_output_, position );
+                
+                decode_active_ = true;
+                return *owned_decode_output_;
+            }
+
+            // Fallback — CpuAttentionOp or cache not yet initialized.
+            // Correct but not optimized — acceptable for CPU inference.
+            operation_->forward( input, *owned_output_ );
+            
+            return resolveOutputView( input.shape() );
+        }
+
+        /**
+         * @brief Returns true when the underlying operation implements IKVCacheable.
+         *
+         * Resolved once at build time. CPU backends return false; CUDA backends
+         * return true when CudaAttentionOp is in use. Safe to query before
+         * calling generate() to determine which forward path is available.
+         */
+        bool supportsKVCache() const noexcept
+        {
+            return kv_cacheable_ != nullptr;
+        }
+
+        /**
+         * @brief Allocate KV cache buffers for inference.
+         *
+         * Intended to be called exclusively by the owning transformer's generate()
+         * during session setup. Throws if the backend does not support KV caching.
+         *
+         * @param max_seq_len Maximum sequence length the cache must accommodate.
+         *
+         * REVIEW: Consider making private with friend TransformerBase<> once
+         * that base class is introduced. See class-level REVIEW note.
+         */
         void initializeKVCache( int64_t max_seq_len )
         {
             if ( !this->isBuilt() )
@@ -182,79 +273,34 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Attention must be built before initializeKVCache()." );
             }
 
-            auto* kv_cacheable = dynamic_cast<IKVCacheable*>(operation_.get());
-
-            if ( !kv_cacheable )
+            if ( !kv_cacheable_ )
             {
                 throw std::runtime_error( "Attention: KV cache is not supported by this backend." );
             }
 
-            kv_cacheable->initializeKVCache( static_cast<int>(max_input_shape_[ 0 ]), static_cast<int>(max_seq_len) );
+            kv_cacheable_->initializeKVCache(
+                static_cast<int>(max_input_shape_[ 0 ]),
+                static_cast<int>(max_seq_len) );
         }
 
+        /**
+         * @brief Reset KV cache state between generation sessions.
+         *
+         * Intended to be called exclusively by the owning transformer's generate()
+         * between independent generation requests. Throws if the backend does not
+         * support KV caching.
+         *
+         * REVIEW: Consider making private with friend TransformerBase<> once
+         * that base class is introduced. See class-level REVIEW note.
+         */
         void resetKVCache()
         {
-            auto* kv_cacheable = dynamic_cast<IKVCacheable*>(operation_.get());
-
-            if ( !kv_cacheable )
+            if ( !kv_cacheable_ )
             {
                 throw std::runtime_error( "Attention: KV cache is not supported by this backend." );
             }
 
-            kv_cacheable->resetKVCache();
-        }
-
-        TensorType& forwardPrefill( const TensorType& input )
-        {
-            if ( !this->isBuilt() )
-            {
-                throw std::runtime_error( "Attention module must be built before calling forwardPrefill()." );
-            }
-
-            validateConcatenatedQKVShape( input.shape() );
-
-            auto* kv_cacheable = dynamic_cast<IKVCacheable*>(operation_.get());
-
-            if ( !kv_cacheable )
-            {
-                throw std::runtime_error( "Attention: KV cache is not supported by this backend." );
-            }
-
-            kv_cacheable->forwardPrefill( input, *owned_output_ );
-
-            auto input_shape = input.shape();
-
-            if ( input_shape == max_input_shape_ )
-            {
-                return *owned_output_;
-            }
-
-            auto output_shape = input_shape;
-            output_shape.back() = config_.getModelDim();
-            output_view_ = std::make_unique<TensorType>( owned_output_->view( output_shape ) );
-
-            return *output_view_;
-        }
-
-        TensorType& forwardDecode( const TensorType& input, int position )
-        {
-            if ( !this->isBuilt() )
-            {
-                throw std::runtime_error( "Attention module must be built before calling forwardDecode()." );
-            }
-
-            validateConcatenatedQKVShape( input.shape() );
-
-            auto* kv_cacheable = dynamic_cast<IKVCacheable*>(operation_.get());
-
-            if ( !kv_cacheable )
-            {
-                throw std::runtime_error( "Attention: KV cache is not supported by this backend." );
-            }
-
-            kv_cacheable->forwardDecode( input, *owned_decode_output_, position );
-
-            return *owned_decode_output_;
+            kv_cacheable_->resetKVCache();
         }
 
         // ====================================================================
@@ -275,7 +321,6 @@ namespace Mila::Dnn
         {
             return {};
         }
-
         std::vector<ITensor*> getGradients() const override
         {
             return {};
@@ -308,37 +353,31 @@ namespace Mila::Dnn
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << "--------------------" << std::endl;
-            oss << "Attention: " << this->getName() << std::endl;
-            oss << "Device Id: " << this->getExecutionContext()->getDeviceId().toString() << std::endl;
-            oss << "Model dimension: " << config_.getModelDim() << std::endl;
-            oss << "Number of heads: " << config_.getNumHeads() << std::endl;
-            oss << "Head size: " << (config_.getModelDim() / config_.getNumHeads()) << std::endl;
-            oss << "Parameter count: " << parameterCount() << std::endl;
-
+            oss << "--------------------\n";
+            oss << "Attention: " << this->getName() << "\n";
+            oss << "Device Id: " << this->getExecutionContext()->getDeviceId().toString() << "\n";
+            oss << "Model dimension: " << config_.getModelDim() << "\n";
+            oss << "Number of heads: " << config_.getNumHeads() << "\n";
+            oss << "Head size: " << (config_.getModelDim() / config_.getNumHeads()) << "\n";
+            oss << "Decode path: " << (kv_cacheable_ ? "KV cache (fast)" : "fallback (forward)") << "\n";
+            oss << "Parameter count: " << parameterCount() << "\n";
             return oss.str();
         }
 
-        int64_t getModelDim() const noexcept
+        int64_t getModelDim()  const noexcept
         {
             return config_.getModelDim();
         }
-
-        int64_t getNumHeads() const noexcept
+        int64_t getNumHeads()  const noexcept
         {
             return config_.getNumHeads();
         }
-
         const AttentionConfig& getConfig() const noexcept
         {
             return config_;
         }
 
     protected:
-
-        // ====================================================================
-        // Lifecycle hooks aligned with Component base
-        // ====================================================================
 
         void onExecutionContextSet() override
         {
@@ -353,6 +392,9 @@ namespace Mila::Dnn
             operation_->setParameters( nullptr, nullptr );
             operation_->build( input_shape );
 
+            // Resolve IKVCacheable once at build time. Null for CPU backends.
+            kv_cacheable_ = dynamic_cast<IKVCacheable*>(operation_.get());
+
             max_input_shape_ = input_shape;
 
             auto device = this->getExecutionContext()->getDeviceId();
@@ -366,6 +408,7 @@ namespace Mila::Dnn
             owned_input_grad_ = std::make_unique<TensorType>( device, max_input_shape_ );
             owned_input_grad_->setName( this->getName() + ".input.grad" );
 
+            // Decode output is a single-token slice: [B, 1, model_dim]
             shape_t decode_output_shape = { max_input_shape_[ 0 ], 1, config_.getModelDim() };
             owned_decode_output_ = std::make_unique<TensorType>( device, decode_output_shape );
             owned_decode_output_->setName( this->getName() + ".output.decode" );
@@ -374,8 +417,14 @@ namespace Mila::Dnn
         void onTrainingChanging( bool is_training ) override
         {
             if ( operation_ )
-            {
                 operation_->setTraining( is_training );
+
+            // Entering training mode resets any active decode session
+            if ( is_training && kv_cacheable_ && cache_initialized_ )
+            {
+                kv_cacheable_->resetKVCache();
+                cache_initialized_ = false;
+                decode_active_ = false;
             }
         }
 
@@ -384,12 +433,40 @@ namespace Mila::Dnn
         shape_t max_input_shape_;
 
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
-        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
+        std::unique_ptr<IExecutionContext> context_{ nullptr };
+
+        // Non-owning; lifetime tied to operation_. Null for when compute backend does not
+        // implement IKVCacheable (e.g. CPU). Resolved once in onBuilding(). decode() uses this to select fast path.
+        IKVCacheable* kv_cacheable_{ nullptr };
+
+        // KV cache session state
+        bool cache_initialized_{ false };
+        bool decode_active_{ false };
 
         std::unique_ptr<TensorType> owned_output_{ nullptr };
         std::unique_ptr<TensorType> output_view_{ nullptr };
         std::unique_ptr<TensorType> owned_input_grad_{ nullptr };
         std::unique_ptr<TensorType> owned_decode_output_{ nullptr };
+
+        /**
+         * @brief Return a view of owned_output_ trimmed to the actual input shape.
+         *
+         * When the input is smaller than max_input_shape_ (e.g. final batch),
+         * we return a view with the correct leading dimensions rather than the
+         * full pre-allocated buffer.
+         */
+        TensorType& resolveOutputView( const shape_t& input_shape )
+        {
+            if ( input_shape == max_input_shape_ )
+            {
+                return *owned_output_;
+            }
+
+            auto output_shape = input_shape;
+            output_shape.back() = config_.getModelDim();
+            output_view_ = std::make_unique<TensorType>( owned_output_->view( output_shape ) );
+            return *output_view_;
+        }
 
         void validateConcatenatedQKVShape( const shape_t& shape ) const
         {

@@ -1,14 +1,23 @@
-﻿module;
+﻿/**
+ * @file Chat.ixx
+ * @brief Mila chat application.
+ *
+ * Uses GptModel — the inference-only wrapper around a loaded GptTransformer —
+ * rather than GptTransformer directly. GptModel owns fromPretrained() and
+ * generate(), keeping inference concerns out of the Network layer.
+ */
+
+module;
+#include <iostream>
 #include <string>
 #include <vector>
-#include <iostream>
-#include <filesystem>
 #include <sstream>
+#include <filesystem>
+#include <format>
 #include <memory>
 #include <stdexcept>
-#include <random>
 
-export module Chat;
+export module Mila.Chat;
 
 import Mila;
 
@@ -19,118 +28,106 @@ namespace Mila::ChatApp
     using namespace Mila::Dnn::Data;
     using namespace Mila::Data;
 
-    using GptType = GptTransformer<DeviceType::Cuda, TensorDataType::FP32>;
+    // GptModel — inference-only, owns fromPretrained() and generate()
+    using GptModelType = GptModel<DeviceType::Cuda, TensorDataType::FP32>;
 
-    // Helper: path to GPT-2 tokenizer under TEST_DATA_DIR (set via CMake target_compile_definitions)
     static std::filesystem::path gpt2_tokenizer_path()
     {
         std::filesystem::path models_path = MODELS_DIR;
         return models_path / "gpt2" / "gpt2_tokenizer.bin";
     }
 
-    export class Chat 
+    export class Chat
     {
     public:
-        
-        Chat( const std::filesystem::path model_path )
+
+        explicit Chat( const std::filesystem::path& model_path )
             : model_path_( model_path )
         {
             initializeTokenizer();
             loadModel();
         }
 
-        void run() {
+        void run()
+        {
             printWelcome();
 
-            std::string userInput;
-            std::vector<std::string> conversationHistory;
+            std::string user_input;
+            std::vector<std::string> conversation_history;
 
-            while ( true ) {
+            while ( true )
+            {
                 std::cout << "\nYou: ";
-                getline( std::cin, userInput );
+                std::getline( std::cin, user_input );
 
-                if ( userInput.empty() ) {
+                if ( user_input.empty() )
                     continue;
-                }
 
-                if ( userInput == "exit" || userInput == "quit" ) {
+                if ( user_input == "exit" || user_input == "quit" )
+                {
                     std::cout << "Goodbye!\n";
                     break;
                 }
 
-                if ( userInput == "clear" ) {
-                    conversationHistory.clear();
+                if ( user_input == "clear" )
+                {
+                    conversation_history.clear();
                     std::cout << "Conversation history cleared.\n";
                     continue;
                 }
 
-                if ( userInput == "help" ) {
+                if ( user_input == "help" )
+                {
                     printHelp();
                     continue;
                 }
 
-                // Add user input to history
-                conversationHistory.push_back( "User: " + userInput );
+                conversation_history.push_back( "User: " + user_input );
 
-                std::string response = generateResponse( conversationHistory );
+                std::string response = generateResponse( conversation_history );
 
-                conversationHistory.push_back( "Mila: " + response );
+                conversation_history.push_back( "Mila: " + response );
 
                 std::cout << "\nMila: " << response << "\n";
             }
         }
 
     private:
-        
-        void initializeTokenizer() {
-            try {
+
+        void initializeTokenizer()
+        {
+            try
+            {
                 std::cout << "Loading tokenizer from: " << gpt2_tokenizer_path() << "\n";
                 tokenizer_ = BpeTokenizer::loadGpt2( gpt2_tokenizer_path() );
-
-                std::cout << "Tokenizer loaded successfully!\n";
-
-                // DEBUG: Verify vocab loaded correctly
-                std::cout << "Vocab size: " << tokenizer_->getVocabSize() << "\n";
+                std::cout << "Tokenizer loaded. Vocab size: "
+                    << tokenizer_->getVocabSize() << "\n";
             }
-            catch ( const std::exception& e ) {
+            catch ( const std::exception& e )
+            {
                 std::cerr << "Error loading tokenizer: " << e.what() << "\n";
                 throw;
             }
         }
 
-        void loadModel() {
-            try {
+        void loadModel()
+        {
+            try
+            {
                 std::cout << "Loading model from: " << model_path_ << "\n";
 
-                // Create transformer from pretrained archive.
-                // Use batch_size=1 and device CUDA:0 by default.
-                transformer_ = GptType::fromPretrained(
+                // GptModel::fromPretrained() — clean signature, no batch_size or seq_length.
+                // Inference mode is enforced internally by GptModel.
+                model_ = GptModelType::fromPretrained(
                     model_path_,
-                    /*batch_size=*/1,
-                    /*seq_length=*/1024,
                     DeviceId{ DeviceType::Cuda, 0 },
-                    /*strict=*/true
-                );
+                    /*strict=*/true );
 
-                // Ensure network is in inference mode (no gradients).
-                if ( transformer_ ) {
-                    transformer_->setTraining( false );
-
-                    // Optional: print parameter count if available
-                    try {
-                        std::cout << "Parameters: " << transformer_->parameterCount() << "\n";
-                    }
-                    catch ( const std::exception& ) {
-                        // Ignore if parameterCount is not available or throws
-                    }
-                }
-                else {
-                    std::cerr << "Warning: transformer creation returned null.\n";
-                }
-
+                std::cout << model_->toString();
                 std::cout << "Model loaded successfully!\n";
             }
-            catch ( const std::exception& e ) {
+            catch ( const std::exception& e )
+            {
                 std::cerr << "Error loading model: " << e.what() << "\n";
                 throw;
             }
@@ -140,31 +137,28 @@ namespace Mila::ChatApp
         {
             try
             {
-                std::string prompt = "Once upon a time";
-
-                if ( !transformer_ || !tokenizer_ )
-                {
+                if ( !model_ || !tokenizer_ )
                     return "Model not loaded.";
-                }
 
-                // Encode prompt
+                std::string prompt = preparePrompt( history );
+
                 std::vector<TokenId> prompt_tokens = tokenizer_->encode( prompt );
 
-                Utils::Logger::info( std::format( "Generating from {} tokens...", prompt_tokens.size() ) );
+                Utils::Logger::info( std::format(
+                    "Generating from {} tokens...", prompt_tokens.size() ) );
 
-                // Simple generation call with dynamic sequence lengths!
-                std::vector<int32_t> generated = transformer_->generate(
+                // generate() — two-phase prefill + decode pipeline.
+                // GptModel handles KV cache path internally — no concern here.
+                std::vector<int32_t> generated = model_->generate(
                     std::vector<int32_t>( prompt_tokens.begin(), prompt_tokens.end() ),
-                    64,    // max_new_tokens
-                    0.8f,  // temperature
-                    40     // top_k
-                );
+                    /*max_new_tokens=*/64,
+                    /*temperature=*/0.8f,
+                    /*top_k=*/40 );
 
-                // Decode
-                std::vector<TokenId> token_ids( generated.begin(), generated.end() );
-                std::string full_text = tokenizer_->decode( token_ids );
+                std::string full_text = tokenizer_->decode(
+                    std::vector<TokenId>( generated.begin(), generated.end() ) );
 
-                return full_text;
+                return extractResponse( full_text, prompt );
             }
             catch ( const std::exception& e )
             {
@@ -172,71 +166,69 @@ namespace Mila::ChatApp
             }
         }
 
-        std::string preparePrompt( const std::vector<std::string>& history ) const {
-            std::stringstream ss;
-
-            // System prompt
+        std::string preparePrompt( const std::vector<std::string>& history ) const
+        {
+            std::ostringstream ss;
             ss << "You are a helpful AI assistant.\n\n";
 
-            // Add recent history (keep last 10 exchanges to manage context length)
+            // Keep last 10 exchanges to manage context length
             size_t start = history.size() > 10 ? history.size() - 10 : 0;
-            for ( size_t i = start; i < history.size(); ++i ) {
+            for ( size_t i = start; i < history.size(); ++i )
                 ss << history[ i ] << "\n";
-            }
 
             ss << "Assistant:";
-
             return ss.str();
         }
 
-        std::string extractResponse( const std::string& fullOutput, const std::string& prompt ) const {
-            // Remove the prompt from the generated output
-            if ( fullOutput.size() > prompt.size() ) {
-                std::string response = fullOutput.substr( prompt.size() );
+        std::string extractResponse(
+            const std::string& full_output,
+            const std::string& prompt ) const
+        {
+            if ( full_output.size() <= prompt.size() )
+                return full_output;
 
-                // Trim whitespace
-                auto start = response.find_first_not_of( " \t\n\r" );
-                if ( start != std::string::npos ) {
-                    response = response.substr( start );
-                }
+            std::string response = full_output.substr( prompt.size() );
 
-                // Stop at double newline or special tokens
-                auto end = response.find( "\n\n" );
-                if ( end != std::string::npos ) {
-                    response = response.substr( 0, end );
-                }
+            // Trim leading whitespace
+            auto start = response.find_first_not_of( " \t\n\r" );
+            if ( start != std::string::npos )
+                response = response.substr( start );
 
-                return response;
-            }
+            // Stop at double newline
+            auto end = response.find( "\n\n" );
+            if ( end != std::string::npos )
+                response = response.substr( 0, end );
 
-            return fullOutput;
+            return response;
         }
 
-        void printWelcome() const {
+        void printWelcome() const
+        {
             std::cout << R"(
-                ╔══════════════════════════════════════╗
-                ║         Mila Chat CLI v1.0          ║
-                ║   Powered by Mila DNN Library       ║
-                ╚══════════════════════════════════════╝
+╔══════════════════════════════════════╗
+║         Mila Chat CLI v1.0          ║
+║   Powered by Mila DNN Library       ║
+╚══════════════════════════════════════╝
 
-                Type 'help' for commands, 'exit' to quit.
-                )" << "\n";
+Type 'help' for commands, 'exit' to quit.
+)" << "\n";
         }
 
-        void printHelp() const {
+        void printHelp() const
+        {
             std::cout << R"(
-                Available Commands:
-                  help   - Show this help message
-                  clear  - Clear conversation history
-                  exit   - Exit the application
-                  quit   - Exit the application
+Available Commands:
+  help   - Show this help message
+  clear  - Clear conversation history
+  exit   - Exit the application
+  quit   - Exit the application
 
-                Just type your message to chat with Mila AI.
-                )" << "\n";
+Just type your message to chat with Mila AI.
+)" << "\n";
         }
 
         std::filesystem::path model_path_;
-        std::shared_ptr<GptType> transformer_{ nullptr };
+        std::unique_ptr<GptModelType> model_{ nullptr };
         std::shared_ptr<BpeTokenizer> tokenizer_{ nullptr };
     };
 }

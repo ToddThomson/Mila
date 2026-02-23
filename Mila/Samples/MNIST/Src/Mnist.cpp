@@ -435,240 +435,240 @@ void trainMnist( const MnistConfig& config )
     }
 }
 
-template<DeviceType TDeviceType, TensorDataType TPrecision, typename THostMR>
-    requires PrecisionSupportedOnDevice<TPrecision, TDeviceType> &&
-(std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
-void trainUsingModel( const MnistConfig& config )
-{
-	// ========================================================================
-	// WIP: Using Model abstraction for training
-    // ========================================================================
-
-	// REVIEW: Get canonical device memory resource type for device
-    using DeviceMR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-
-    // ============================================================
-    // Model setup
-    // ============================================================
-
-    DeviceId device_id;
-    if constexpr (TDeviceType == DeviceType::Cuda)
-    {
-        device_id = Device::Cuda( 0 );
-    }
-    else
-    {
-        device_id = Device::Cpu();
-    }
-
-    auto net = std::make_unique<MnistClassifier<TDeviceType, TPrecision>>(
-        device_id,
-        "MnistClassifier",
-        config.batch_size );
-
-    //mnist_net->setTraining( true );
-
-    // Get device from model's execution context
-    auto device_id = net->getDeviceId();
-
-    MnistDataLoader<TensorDataType::FP32, THostMR> train_loader( config.data_directory, config.batch_size, true, device_id );
-    MnistDataLoader<TensorDataType::FP32, THostMR> test_loader( config.data_directory, config.batch_size, false, device_id );
-
-    // Build the model with the input shape from the data loader
-    shape_t input_shape = { train_loader.batchSize(), MNIST_IMAGE_SIZE };
-    net->build( input_shape );
-
-    std::cout << "Mnist Network built successfully!" << std::endl;
-    std::cout << net->toString() << std::endl;
-
-    // ============================================================
-    // AdamW optimizer setup
-    // ============================================================
-
-    // Create AdamW optimizer configuration
-    auto adamw_config = AdamWConfig()
-        .withLearningRate( config.learning_rate )
-        .withBeta1( config.beta1 )
-        .withBeta2( config.beta2 )
-        .withEpsilon( config.epsilon )
-        .withWeightDecay( config.weight_decay )
-        .withName( "AdamW" );
-
-    auto optimizer = std::make_unique<AdamWOptimizer<TDeviceType, TPrecision>>(
-        net->getExecutionContext(), adamw_config );
-
-    // Register all model parameters and gradients with the optimizer
-	
-    // TJT: BUG: If the model parameters or gradients change after this point,
-	// the optimizer will have invalid references.
-
-	// TJT: This should be done via a model method to avoid exposing internal details.
-    auto params = net->getParameters();
-    auto param_grads = net->getGradients();
-
-    if (params.size() != param_grads.size())
-    {
-        throw std::runtime_error( "Parameter count mismatch between parameters and gradients" );
-    }
-
-    for (size_t i = 0; i < params.size(); ++i)
-    {
-        optimizer->addParameter( params[i], param_grads[i] );
-    }
-
-    std::cout << "Optimizer initialized with " << optimizer->getParameterCount()
-        << " parameter groups" << std::endl;
-
-	// TJT: TODO: Loss function abstraction
-    //std::unique_ptr<Loss<TDeviceType, TPrecision>> loss_fn{ nullptr };
-
-    // Convert MnistConfig into the library ModelConfig required by Model ctor.
-    ModelConfig model_config;
-    model_config
-        .epochs( static_cast<std::size_t>( config.epochs ) )
-        .batchSize( static_cast<std::size_t>( config.batch_size ) )
-        .learningRate( static_cast<double>( config.learning_rate ) );
-
-    Model<TDeviceType, TPrecision> model(
-        std::move( net ),
-        std::move( optimizer ),
-        model_config
-    );
-
-    // Allocate tensors for training
-    Tensor<TPrecision, DeviceMR> input_batch( device_id, input_shape );
-    Tensor<TPrecision, CpuMemoryResource> target_batch( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
-
-    Tensor<TPrecision, CpuMemoryResource> logits( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
-    Tensor<TPrecision, DeviceMR> output( device_id, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
-
-    // Allocate gradient tensors for backward pass
-    Tensor<TPrecision, CpuMemoryResource> output_grad_cpu( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
-    Tensor<TPrecision, DeviceMR> output_grad( device_id, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
-    Tensor<TPrecision, DeviceMR> input_grad( device_id, input_shape );
-
-	//model.train( train_loader, test_loader );
-
-
-	// Review: General training loop is now in Model::train()
-
-    //std::cout << "Starting training for " << config.epochs << " epochs..." << std::endl;
-
-    //for (size_t epoch = 0; epoch < config.epochs; ++epoch)
-    //{
-    //    train_loader.reset();
-
-    //    float epoch_loss = 0.0f;
-    //    float epoch_acc = 0.0f;
-    //    size_t batches = 0;
-
-    //    auto start_time = std::chrono::high_resolution_clock::now();
-
-    //    while (train_loader.hasNext())
-    //    {
-    //        train_loader.nextBatch();
-
-    //        // Copy batch data
-    //        copy( train_loader.inputs(), input_batch );
-    //        copy( train_loader.targets(), target_batch );
-
-    //        // Forward pass
-    //        mnist_net->forward( input_batch, output );
-    //        exec_context->synchronize();
-
-    //        // Copy output to CPU for loss computation
-    //        // REVIEW: Without passing the exec_context, we are implicitly synchronizing here
-    //        copy( output, logits );
-    //        
-    //        // Compute loss and accuracy
-    //        float batch_loss = softmaxCrossEntropyLoss( logits, target_batch );
-    //        float batch_acc = computeAccuracy( logits, target_batch );
-
-    //        // ============================================================
-    //        // Backward pass and optimization step
-    //        // ============================================================
-
-    //        // 1. Compute loss gradient on CPU
-    //        // TJT: TODO: To be done on TDevice
-    //        zeros( output_grad_cpu );
-    //        softmaxCrossEntropyGradient( logits, target_batch, output_grad_cpu );
-
-    //        // 2. Copy gradient to device
-    //        copy( output_grad_cpu, output_grad );
-
-    //        // 3. Zero gradients before backward pass
-    //        optimizer->zeroGrad();
-    //        zeros( input_grad );
-
-    //        // 4. Backward pass through model to compute gradients
-    //        mnist_net->backward( input_batch, output_grad, input_grad );
-
-    //        // 5. Update parameters using computed gradients
-    //        optimizer->step();
-
-    //        // ============================================================
-
-    //        epoch_loss += batch_loss;
-    //        epoch_acc += batch_acc;
-    //        batches++;
-
-    //        if (batches % 100 == 0 || batches == train_loader.numBatches())
-    //        {
-    //            std::cout << "Epoch " << (epoch + 1) << " [" << batches << "/"
-    //                << train_loader.numBatches() << "] - Loss: " << std::fixed
-    //                << std::setprecision( 4 ) << batch_loss << " - Accuracy: "
-    //                << std::setprecision( 2 ) << (batch_acc * 100.0f) << "%" << std::endl;
-    //        }
-    //    }
-
-    //    epoch_loss /= batches;
-    //    epoch_acc /= batches;
-
-    //    auto end_time = std::chrono::high_resolution_clock::now();
-    //    auto epoch_duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-    //    double epoch_time_sec = epoch_duration.count() / 1000.0;
-
-    //    // Evaluation on test set
-    //    mnist_net->setTraining( false );
-
-    //    test_loader.reset();
-    //    float test_loss = 0.0f;
-    //    float test_acc = 0.0f;
-    //    size_t test_batches = 0;
-
-    //    while (test_loader.hasNext())
-    //    {
-    //        test_loader.nextBatch();
-
-    //        copy( test_loader.inputs(), input_batch );
-    //        copy( test_loader.targets(), target_batch );
-
-    //        mnist_net->forward( input_batch, output );
-
-    //        copy( output, logits, exec_context.get() );
-
-    //        test_loss += softmaxCrossEntropyLoss( logits, target_batch );
-    //        test_acc += computeAccuracy( logits, target_batch );
-
-    //        test_batches++;
-    //    }
-
-    //    test_loss /= test_batches;
-    //    test_acc /= test_batches;
-
-    //    std::cout << "Epoch " << (epoch + 1) << "/" << config.epochs
-    //        << " - Time: " << std::fixed << std::setprecision( 2 ) << epoch_time_sec << "s"
-    //        << " - Loss: " << std::fixed << std::setprecision( 4 ) << epoch_loss
-    //        << " - Accuracy: " << std::setprecision( 2 ) << (epoch_acc * 100.0f) << "%"
-    //        << " - Test Loss: " << std::setprecision( 4 ) << test_loss
-    //        << " - Test Accuracy: " << std::setprecision( 2 ) << test_acc * 100.0f << "%"
-    //        << " - LR: " << std::scientific << std::setprecision( 3 ) << optimizer->getLearningRate()
-    //        << std::endl;
-
-    //    // Back to training mode
-    //    mnist_net->setTraining( true );
-    //}
-}
+//template<DeviceType TDeviceType, TensorDataType TPrecision, typename THostMR>
+//    requires PrecisionSupportedOnDevice<TPrecision, TDeviceType> &&
+//(std::is_same_v<THostMR, CudaPinnedMemoryResource> || std::is_same_v<THostMR, CpuMemoryResource>)
+//void trainUsingModel( const MnistConfig& config )
+//{
+//	// ========================================================================
+//	// WIP: Using Model abstraction for training
+//    // ========================================================================
+//
+//	// REVIEW: Get canonical device memory resource type for device
+//    using DeviceMR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+//
+//    // ============================================================
+//    // Model setup
+//    // ============================================================
+//
+//    DeviceId device_id;
+//    if constexpr (TDeviceType == DeviceType::Cuda)
+//    {
+//        device_id = Device::Cuda( 0 );
+//    }
+//    else
+//    {
+//        device_id = Device::Cpu();
+//    }
+//
+//    auto net = std::make_unique<MnistClassifier<TDeviceType, TPrecision>>(
+//        device_id,
+//        "MnistClassifier",
+//        config.batch_size );
+//
+//    //mnist_net->setTraining( true );
+//
+//    // Get device from model's execution context
+//    auto device_id = net->getDeviceId();
+//
+//    MnistDataLoader<TensorDataType::FP32, THostMR> train_loader( config.data_directory, config.batch_size, true, device_id );
+//    MnistDataLoader<TensorDataType::FP32, THostMR> test_loader( config.data_directory, config.batch_size, false, device_id );
+//
+//    // Build the model with the input shape from the data loader
+//    shape_t input_shape = { train_loader.batchSize(), MNIST_IMAGE_SIZE };
+//    net->build( input_shape );
+//
+//    std::cout << "Mnist Network built successfully!" << std::endl;
+//    std::cout << net->toString() << std::endl;
+//
+//    // ============================================================
+//    // AdamW optimizer setup
+//    // ============================================================
+//
+//    // Create AdamW optimizer configuration
+//    auto adamw_config = AdamWConfig()
+//        .withLearningRate( config.learning_rate )
+//        .withBeta1( config.beta1 )
+//        .withBeta2( config.beta2 )
+//        .withEpsilon( config.epsilon )
+//        .withWeightDecay( config.weight_decay )
+//        .withName( "AdamW" );
+//
+//    auto optimizer = std::make_unique<AdamWOptimizer<TDeviceType, TPrecision>>(
+//        net->getExecutionContext(), adamw_config );
+//
+//    // Register all model parameters and gradients with the optimizer
+//	
+//    // TJT: BUG: If the model parameters or gradients change after this point,
+//	// the optimizer will have invalid references.
+//
+//	// TJT: This should be done via a model method to avoid exposing internal details.
+//    auto params = net->getParameters();
+//    auto param_grads = net->getGradients();
+//
+//    if (params.size() != param_grads.size())
+//    {
+//        throw std::runtime_error( "Parameter count mismatch between parameters and gradients" );
+//    }
+//
+//    for (size_t i = 0; i < params.size(); ++i)
+//    {
+//        optimizer->addParameter( params[i], param_grads[i] );
+//    }
+//
+//    std::cout << "Optimizer initialized with " << optimizer->getParameterCount()
+//        << " parameter groups" << std::endl;
+//
+//	// TJT: TODO: Loss function abstraction
+//    //std::unique_ptr<Loss<TDeviceType, TPrecision>> loss_fn{ nullptr };
+//
+//    // Convert MnistConfig into the library ModelConfig required by Model ctor.
+//    ModelConfig model_config;
+//    model_config
+//        .epochs( static_cast<std::size_t>( config.epochs ) )
+//        .batchSize( static_cast<std::size_t>( config.batch_size ) )
+//        .learningRate( static_cast<double>( config.learning_rate ) );
+//
+//    Model<TDeviceType, TPrecision> model(
+//        std::move( net ),
+//        std::move( optimizer ),
+//        model_config
+//    );
+//
+//    // Allocate tensors for training
+//    Tensor<TPrecision, DeviceMR> input_batch( device_id, input_shape );
+//    Tensor<TPrecision, CpuMemoryResource> target_batch( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
+//
+//    Tensor<TPrecision, CpuMemoryResource> logits( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
+//    Tensor<TPrecision, DeviceMR> output( device_id, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
+//
+//    // Allocate gradient tensors for backward pass
+//    Tensor<TPrecision, CpuMemoryResource> output_grad_cpu( Device::Cpu(), { train_loader.batchSize(), MNIST_NUM_CLASSES } );
+//    Tensor<TPrecision, DeviceMR> output_grad( device_id, { train_loader.batchSize(), MNIST_NUM_CLASSES } );
+//    Tensor<TPrecision, DeviceMR> input_grad( device_id, input_shape );
+//
+//	//model.train( train_loader, test_loader );
+//
+//
+//	// Review: General training loop is now in Model::train()
+//
+//    //std::cout << "Starting training for " << config.epochs << " epochs..." << std::endl;
+//
+//    //for (size_t epoch = 0; epoch < config.epochs; ++epoch)
+//    //{
+//    //    train_loader.reset();
+//
+//    //    float epoch_loss = 0.0f;
+//    //    float epoch_acc = 0.0f;
+//    //    size_t batches = 0;
+//
+//    //    auto start_time = std::chrono::high_resolution_clock::now();
+//
+//    //    while (train_loader.hasNext())
+//    //    {
+//    //        train_loader.nextBatch();
+//
+//    //        // Copy batch data
+//    //        copy( train_loader.inputs(), input_batch );
+//    //        copy( train_loader.targets(), target_batch );
+//
+//    //        // Forward pass
+//    //        mnist_net->forward( input_batch, output );
+//    //        exec_context->synchronize();
+//
+//    //        // Copy output to CPU for loss computation
+//    //        // REVIEW: Without passing the exec_context, we are implicitly synchronizing here
+//    //        copy( output, logits );
+//    //        
+//    //        // Compute loss and accuracy
+//    //        float batch_loss = softmaxCrossEntropyLoss( logits, target_batch );
+//    //        float batch_acc = computeAccuracy( logits, target_batch );
+//
+//    //        // ============================================================
+//    //        // Backward pass and optimization step
+//    //        // ============================================================
+//
+//    //        // 1. Compute loss gradient on CPU
+//    //        // TJT: TODO: To be done on TDevice
+//    //        zeros( output_grad_cpu );
+//    //        softmaxCrossEntropyGradient( logits, target_batch, output_grad_cpu );
+//
+//    //        // 2. Copy gradient to device
+//    //        copy( output_grad_cpu, output_grad );
+//
+//    //        // 3. Zero gradients before backward pass
+//    //        optimizer->zeroGrad();
+//    //        zeros( input_grad );
+//
+//    //        // 4. Backward pass through model to compute gradients
+//    //        mnist_net->backward( input_batch, output_grad, input_grad );
+//
+//    //        // 5. Update parameters using computed gradients
+//    //        optimizer->step();
+//
+//    //        // ============================================================
+//
+//    //        epoch_loss += batch_loss;
+//    //        epoch_acc += batch_acc;
+//    //        batches++;
+//
+//    //        if (batches % 100 == 0 || batches == train_loader.numBatches())
+//    //        {
+//    //            std::cout << "Epoch " << (epoch + 1) << " [" << batches << "/"
+//    //                << train_loader.numBatches() << "] - Loss: " << std::fixed
+//    //                << std::setprecision( 4 ) << batch_loss << " - Accuracy: "
+//    //                << std::setprecision( 2 ) << (batch_acc * 100.0f) << "%" << std::endl;
+//    //        }
+//    //    }
+//
+//    //    epoch_loss /= batches;
+//    //    epoch_acc /= batches;
+//
+//    //    auto end_time = std::chrono::high_resolution_clock::now();
+//    //    auto epoch_duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+//    //    double epoch_time_sec = epoch_duration.count() / 1000.0;
+//
+//    //    // Evaluation on test set
+//    //    mnist_net->setTraining( false );
+//
+//    //    test_loader.reset();
+//    //    float test_loss = 0.0f;
+//    //    float test_acc = 0.0f;
+//    //    size_t test_batches = 0;
+//
+//    //    while (test_loader.hasNext())
+//    //    {
+//    //        test_loader.nextBatch();
+//
+//    //        copy( test_loader.inputs(), input_batch );
+//    //        copy( test_loader.targets(), target_batch );
+//
+//    //        mnist_net->forward( input_batch, output );
+//
+//    //        copy( output, logits, exec_context.get() );
+//
+//    //        test_loss += softmaxCrossEntropyLoss( logits, target_batch );
+//    //        test_acc += computeAccuracy( logits, target_batch );
+//
+//    //        test_batches++;
+//    //    }
+//
+//    //    test_loss /= test_batches;
+//    //    test_acc /= test_batches;
+//
+//    //    std::cout << "Epoch " << (epoch + 1) << "/" << config.epochs
+//    //        << " - Time: " << std::fixed << std::setprecision( 2 ) << epoch_time_sec << "s"
+//    //        << " - Loss: " << std::fixed << std::setprecision( 4 ) << epoch_loss
+//    //        << " - Accuracy: " << std::setprecision( 2 ) << (epoch_acc * 100.0f) << "%"
+//    //        << " - Test Loss: " << std::setprecision( 4 ) << test_loss
+//    //        << " - Test Accuracy: " << std::setprecision( 2 ) << test_acc * 100.0f << "%"
+//    //        << " - LR: " << std::scientific << std::setprecision( 3 ) << optimizer->getLearningRate()
+//    //        << std::endl;
+//
+//    //    // Back to training mode
+//    //    mnist_net->setTraining( true );
+//    //}
+//}
 
 int main( int argc, char** argv )
 {
