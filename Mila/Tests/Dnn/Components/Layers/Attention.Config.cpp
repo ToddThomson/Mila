@@ -11,27 +11,27 @@ namespace Components::Layers::Tests
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    class AttentionConfigTests : public ::testing::Test
+    class MultiHeadAttentionConfigTests : public ::testing::Test
     {
     protected:
         void SetUp() override
         {}
     };
 
-    TEST_F( AttentionConfigTests, ConstructorSetsValues )
+    TEST_F( MultiHeadAttentionConfigTests, ConstructorSetsValues )
     {
         int64_t embedding_dim = 64;
         int64_t num_heads = 8;
 
-        AttentionConfig cfg( embedding_dim, num_heads );
+        MultiHeadAttentionConfig cfg( embedding_dim, num_heads );
 
         EXPECT_EQ( cfg.getModelDim(), embedding_dim );
         EXPECT_EQ( cfg.getNumHeads(), num_heads );
     }
 
-    TEST_F( AttentionConfigTests, FluentBaseSettersWork )
+    TEST_F( MultiHeadAttentionConfigTests, FluentBaseSettersWork )
     {
-        AttentionConfig cfg( 128, 8 );
+        MultiHeadAttentionConfig cfg( 128, 8 );
 
         // New fluent setters in the updated interface
         cfg.withModelDim( 256 )
@@ -41,30 +41,30 @@ namespace Components::Layers::Tests
         EXPECT_EQ( cfg.getNumHeads(), 16 );
     }
 
-    TEST_F( AttentionConfigTests, ValidationSuccess )
+    TEST_F( MultiHeadAttentionConfigTests, ValidationSuccess )
     {
-        AttentionConfig cfg( 768, 12 );
+        MultiHeadAttentionConfig cfg( 768, 12 );
 
         EXPECT_NO_THROW( cfg.validate() );
     }
 
-    TEST_F( AttentionConfigTests, ValidationFailure_ZeroEmbeddingDim )
+    TEST_F( MultiHeadAttentionConfigTests, ValidationFailure_ZeroEmbeddingDim )
     {
-        AttentionConfig cfg( 0, 8 );
+        MultiHeadAttentionConfig cfg( 0, 8 );
 
         EXPECT_THROW( cfg.validate(), std::invalid_argument );
     }
 
-    TEST_F( AttentionConfigTests, ValidationFailure_ZeroNumHeads )
+    TEST_F( MultiHeadAttentionConfigTests, ValidationFailure_ZeroNumHeads )
     {
-        AttentionConfig cfg( 64, 0 );
+        MultiHeadAttentionConfig cfg( 64, 0 );
 
         EXPECT_THROW( cfg.validate(), std::invalid_argument );
     }
 
-    TEST_F( AttentionConfigTests, ValidationFailure_NotDivisible )
+    TEST_F( MultiHeadAttentionConfigTests, ValidationFailure_NotDivisible )
     {
-        AttentionConfig cfg( 65, 8 );
+        MultiHeadAttentionConfig cfg( 65, 8 );
 
         try
         {
@@ -78,19 +78,19 @@ namespace Components::Layers::Tests
         }
     }
 
-    TEST_F( AttentionConfigTests, CopyPreservesValues )
+    TEST_F( MultiHeadAttentionConfigTests, CopyPreservesValues )
     {
-        AttentionConfig cfg( 256, 8 );
+        MultiHeadAttentionConfig cfg( 256, 8 );
 
-        AttentionConfig copy = cfg;
+        MultiHeadAttentionConfig copy = cfg;
 
         EXPECT_EQ( copy.getModelDim(), cfg.getModelDim() );
         EXPECT_EQ( copy.getNumHeads(), cfg.getNumHeads() );
     }
 
-    TEST_F( AttentionConfigTests, MetadataRoundTrip )
+    TEST_F( MultiHeadAttentionConfigTests, MetadataRoundTrip )
     {
-        AttentionConfig cfg( 512, 8 );
+        MultiHeadAttentionConfig cfg( 512, 8 );
 
         auto meta = cfg.toMetadata();
 
@@ -105,16 +105,16 @@ namespace Components::Layers::Tests
         EXPECT_EQ( static_cast<int64_t>(*nh), 8 );
 
         // Verify we can populate another config from the metadata
-        AttentionConfig cfg2( 1, 1 );
+        MultiHeadAttentionConfig cfg2( 1, 1 );
         cfg2.fromMetadata( meta );
 
         EXPECT_EQ( cfg2.getModelDim(), 512 );
         EXPECT_EQ( cfg2.getNumHeads(), 8 );
     }
 
-    TEST_F( AttentionConfigTests, ToStringContainsFields )
+    TEST_F( MultiHeadAttentionConfigTests, ToStringContainsFields )
     {
-        AttentionConfig cfg( 768, 12 );
+        MultiHeadAttentionConfig cfg( 768, 12 );
 
         std::string s = cfg.toString();
 
@@ -122,18 +122,18 @@ namespace Components::Layers::Tests
         EXPECT_NE( s.find( "num_heads=12" ), std::string::npos );
     }
 
-    TEST_F( AttentionConfigTests, EdgeCases_MinimalValid )
+    TEST_F( MultiHeadAttentionConfigTests, EdgeCases_MinimalValid )
     {
-        AttentionConfig cfg( 1, 1 );
+        MultiHeadAttentionConfig cfg( 1, 1 );
 
         EXPECT_NO_THROW( cfg.validate() );
         EXPECT_EQ( cfg.getModelDim(), 1 );
         EXPECT_EQ( cfg.getNumHeads(), 1 );
     }
 
-    TEST_F( AttentionConfigTests, EdgeCases_LargeValues )
+    TEST_F( MultiHeadAttentionConfigTests, EdgeCases_LargeValues )
     {
-        AttentionConfig cfg( 4096, 16 );
+        MultiHeadAttentionConfig cfg( 4096, 16 );
 
         EXPECT_NO_THROW( cfg.validate() );
         EXPECT_EQ( cfg.getModelDim(), 4096 );

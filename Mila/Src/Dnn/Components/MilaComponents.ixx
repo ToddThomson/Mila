@@ -19,9 +19,9 @@ export import Dnn.Components.LlamaBlock;
 export import Dnn.Components.Residual;
 
 // Layers
-export import Dnn.Components.Attention;
-export import Dnn.Components.LearnedEncoder;
-export import Dnn.Components.RopeEncoder;
+export import Dnn.Components.MultiHeadAttention;
+export import Dnn.Components.Lpe;
+export import Dnn.Components.Rope;
 export import Dnn.Components.Linear;
 
 //Losses

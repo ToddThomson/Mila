@@ -25,10 +25,10 @@ namespace Components::Layers::Tests
 
     TEST_F( AttentionCpuTests, BuildWithoutExecutionContext_Throws )
     {
-        AttentionConfig cfg( 64, 8 );
+        MultiHeadAttentionConfig cfg( 64, 8 );
 
         // Construct in deferred/shared mode (no DeviceId) and attempt to build
-        auto module = std::make_shared<Attention<DeviceType::Cpu, TensorDataType::FP32>>( "attn_null", cfg );
+        auto module = std::make_shared<MultiHeadAttention<DeviceType::Cpu, TensorDataType::FP32>>( "attn_null", cfg );
 
         // Building without an execution context must fail per Component contract
         shape_t input_shape = { 1, 1, static_cast<int64_t>(3 * 64) };
@@ -37,11 +37,11 @@ namespace Components::Layers::Tests
 
     TEST_F( AttentionCpuTests, ParameterCount_IsZero )
     {
-        AttentionConfig cfg( 64, 8 );
+        MultiHeadAttentionConfig cfg( 64, 8 );
 
         // Provide DeviceId to construct standalone component that creates its own ExecutionContext
         DeviceId dev{ DeviceType::Cpu, 0 };
-        auto module = std::make_shared<Attention<DeviceType::Cpu, TensorDataType::FP32>>( "attn_params", cfg, dev );
+        auto module = std::make_shared<MultiHeadAttention<DeviceType::Cpu, TensorDataType::FP32>>( "attn_params", cfg, dev );
 
         EXPECT_EQ( module->parameterCount(), 0u );
     }
@@ -53,10 +53,10 @@ namespace Components::Layers::Tests
         const int64_t C = 64; // embedding dim
         const int64_t heads = 8;
 
-        AttentionConfig cfg( C, heads );
+        MultiHeadAttentionConfig cfg( C, heads );
 
         DeviceId dev{ DeviceType::Cpu, 0 };
-        auto module = std::make_shared<Attention<DeviceType::Cpu, TensorDataType::FP32>>( "attn_forward", cfg, dev );
+        auto module = std::make_shared<MultiHeadAttention<DeviceType::Cpu, TensorDataType::FP32>>( "attn_forward", cfg, dev );
 
         // Model-layout shapes: input is concatenated Q||K||V -> [B, T, 3 * C], output -> [B, T, C]
         shape_t input_shape = { B, T, static_cast<int64_t>(3 * C) };
@@ -90,10 +90,10 @@ namespace Components::Layers::Tests
         const int64_t C = 32; // embedding dim
         const int64_t heads = 4;
 
-        AttentionConfig cfg( C, heads );
+        MultiHeadAttentionConfig cfg( C, heads );
 
         DeviceId dev{ DeviceType::Cpu, 0 };
-        auto module = std::make_shared<Attention<DeviceType::Cpu, TensorDataType::FP32>>( "attn_bwd", cfg, dev );
+        auto module = std::make_shared<MultiHeadAttention<DeviceType::Cpu, TensorDataType::FP32>>( "attn_bwd", cfg, dev );
 
         shape_t input_shape = { B, T, static_cast<int64_t>(3 * C) };
         shape_t output_shape = { B, T, static_cast<int64_t>(C) };
@@ -128,10 +128,10 @@ namespace Components::Layers::Tests
 
     TEST_F( AttentionCpuTests, ToStringContainsInfo )
     {
-        AttentionConfig cfg( 32, 4 );
+        MultiHeadAttentionConfig cfg( 32, 4 );
 
         DeviceId dev{ DeviceType::Cpu, 0 };
-        auto module = std::make_shared<Attention<DeviceType::Cpu, TensorDataType::FP32>>( "attn_info", cfg, dev );
+        auto module = std::make_shared<MultiHeadAttention<DeviceType::Cpu, TensorDataType::FP32>>( "attn_info", cfg, dev );
 
         // Build with model-layout shape: input last-dim = 3 * embedding_dim (3*32 = 96)
         module->build( shape_t{ 1, 1, 96 } );
@@ -144,10 +144,10 @@ namespace Components::Layers::Tests
 
     TEST_F( AttentionCpuTests, TrainingModeToggle )
     {
-        AttentionConfig cfg( 64, 8 );
+        MultiHeadAttentionConfig cfg( 64, 8 );
 
         DeviceId dev{ DeviceType::Cpu, 0 };
-        auto module = std::make_shared<Attention<DeviceType::Cpu, TensorDataType::FP32>>( "attn_train_toggle", cfg, dev );
+        auto module = std::make_shared<MultiHeadAttention<DeviceType::Cpu, TensorDataType::FP32>>( "attn_train_toggle", cfg, dev );
         module->build( shape_t{ 1, 1, 192 } );
 
         EXPECT_FALSE( module->isTraining() );

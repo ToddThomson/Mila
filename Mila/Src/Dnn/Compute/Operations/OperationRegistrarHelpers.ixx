@@ -87,7 +87,7 @@ namespace Mila::Dnn::Compute
      * IExecutionContext* + concrete config to the operation constructor via makeOpInstance.
      */
     export template<DeviceType TDataType, typename OpType, Dnn::TensorDataType TInput, Dnn::TensorDataType TPrecision = TInput>
-    void registerUnaryOpType( const std::string& opName )
+    void registerUnaryOpType( std::string_view op_name )
     {
         using ConfigType = typename OpType::ConfigType;
 
@@ -105,7 +105,7 @@ namespace Mila::Dnn::Compute
             "OpType must be constructible with (IExecutionContext*, ConfigType) or (ExecutionContext<DT>*, ConfigType) or (shared_ptr<ExecutionContext<DT>>, ConfigType)" );
 
         OperationRegistry::instance().registerUnaryOperation<TDataType, TInput, TPrecision>(
-            opName,
+            op_name,
             [/*capture nothing*/]( IExecutionContext* ctx, const ComponentConfig& cfg )
                 -> std::shared_ptr<UnaryOperation<TDataType, TInput, TPrecision>>
             {

@@ -148,6 +148,30 @@ namespace Mila::Dnn::Compute
             return cublas_handle_;
         }
 
+        /**
+         * @brief Gets the cuBLASLt workspace buffer.
+         *
+         * Shared scratch memory for cuBLASLt algorithm execution.
+         * Allocated once at context creation, valid for the lifetime of this context.
+         * Size is kCublasLtWorkspaceSize bytes.
+         *
+         * @return void* Pointer to device workspace buffer.
+         */
+        [[nodiscard]] void* getCublasLtWorkspace() const noexcept
+        {
+            return cublaslt_workspace_;
+        }
+
+        /**
+         * @brief Gets the cuBLASLt workspace buffer size in bytes.
+         *
+         * @return size_t Workspace size in bytes.
+         */
+        [[nodiscard]] size_t getCublasLtWorkspaceSize() const noexcept
+        {
+            return cublaslt_workspace_size_;
+        }
+
 #ifdef USE_CUDNN
         /**
          * @brief Get a cuDNN handle bound to this context's stream.
@@ -189,6 +213,10 @@ namespace Mila::Dnn::Compute
     private:
 
         DeviceId device_id_;
+
+        mutable void* cublaslt_workspace_{ nullptr };
+        mutable size_t cublaslt_workspace_size_{ 0 };
+        static constexpr size_t kCublasLtWorkspaceSize = 4ull * 1024 * 1024; // 4MB
 
         cudaStream_t stream_{ nullptr };
         bool stream_created_{ false };
@@ -254,6 +282,20 @@ namespace Mila::Dnn::Compute
             }
 
             stream_created_ = true;
+
+            // Allocate workspace for cuBLASLt if needed
+            cudaError_t ws_error = cudaMalloc( &cublaslt_workspace_, kCublasLtWorkspaceSize );
+            if ( ws_error != cudaSuccess )
+            {
+                cublaslt_workspace_ = nullptr;
+
+                throw std::runtime_error(
+                    std::format( "Failed to allocate cuBLASLt workspace: {}",
+                        cudaGetErrorString( ws_error ) ) );
+            }
+            
+            cublaslt_workspace_size_ = kCublasLtWorkspaceSize;
+
         }
 
         /**
@@ -277,6 +319,13 @@ namespace Mila::Dnn::Compute
             {
                 cublasLtDestroy( cublas_handle_ );
                 cublas_handle_ = nullptr;
+            }
+
+            if ( cublaslt_workspace_ )
+            {
+                cudaFree( cublaslt_workspace_ );
+                cublaslt_workspace_ = nullptr;
+                cublaslt_workspace_size_ = 0;
             }
 
             // Destroy stream last

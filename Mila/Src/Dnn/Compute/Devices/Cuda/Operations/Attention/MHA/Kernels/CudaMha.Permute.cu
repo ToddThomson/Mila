@@ -21,7 +21,7 @@
 #include "device_launch_parameters.h"
 #include "CudaUtils.h"
 
-namespace Mila::Dnn::Compute::Cuda::Attention
+namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 {
     // ========================================================================
     // Forward Pass Kernels

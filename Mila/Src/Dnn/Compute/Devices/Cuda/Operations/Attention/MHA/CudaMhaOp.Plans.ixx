@@ -9,14 +9,14 @@ module;
 #include <type_traits>
 #include <sstream>
 #include <cassert>
-#include "Kernels/CudaAttention.cuh"
+#include "Kernels/CudaMha.cuh"
 
-export module Compute.CudaAttentionOp:Plans;
+export module Compute.CudaMultiHeadAttentionOp:Plans;
 
 import Compute.CublasLtPlan;
 import Utils.Logger;
 
-namespace Mila::Dnn::Compute::Cuda::Attention
+namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute::Cuda;

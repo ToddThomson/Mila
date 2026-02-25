@@ -6,6 +6,15 @@
 
 namespace Mila::Dnn::Compute::Cuda::Linear
 {
+    void cuda_matvec_decode_fp32(
+        float* y,
+        const float* x,
+        const float* weight,
+        const float* bias,
+        int C,
+        int OC,
+        cudaStream_t stream );
+
     // Reduction kernels
     void cuda_reduce_sum_batch_fp32(
         float* dBias,

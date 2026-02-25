@@ -29,31 +29,25 @@ export namespace Mila::Dnn::Compute::Cuda
     using namespace Mila::Dnn;
 
     /**
-     * @brief RAII wrapper owning cuBLASLt descriptors and the selected heuristic algorithm.
-     *
-     * Owns:
-     *  - matmul_desc: operation descriptor (transpose flags, epilogue, bias pointer)
-     *  - layoutA, layoutB, layoutC: matrix memory layouts
-     *  - preference: algorithm preference used during heuristic search
-     *  - algorithm: selected algorithm (present when has_algorithm is true)
-     *
-     * layoutA and layoutC are mutable to allow callers to narrow the row count
-     * at execution time (e.g. when the actual sequence length is less than the
-     * bucket size the plan was built for). The leading dimension and all other
-     * attributes remain fixed. This mutation is only safe when a single CUDA
-     * stream owns the plan exclusively.
-     *
-     * Non-copyable; move-only.
-     */
+ * @brief RAII wrapper owning cuBLASLt descriptors and the selected heuristic algorithm.
+ *
+ * Owns:
+ *  - matmul_desc: operation descriptor (transpose flags, epilogue, bias pointer)
+ *  - layoutA, layoutB, layoutC: matrix memory layouts
+ *  - preference: algorithm preference used during heuristic search
+ *  - algorithm: selected algorithm (present when has_algorithm is true)
+ *
+ * Non-copyable; move-only.
+ */
     template <typename TNative>
     struct CublasLtMatMulPlan
     {
-        mutable cublasLtMatmulDesc_t   matmul_desc{ nullptr };
-        mutable cublasLtMatrixLayout_t layoutA{ nullptr };
-                cublasLtMatrixLayout_t layoutB{ nullptr };
-        mutable cublasLtMatrixLayout_t layoutC{ nullptr };
-        cublasLtMatmulPreference_t     preference{ nullptr };
-        cublasLtMatmulAlgo_t           algorithm{};
+        cublasLtMatmulDesc_t   matmul_desc{ nullptr };
+        cublasLtMatrixLayout_t layoutA{ nullptr };
+        cublasLtMatrixLayout_t layoutB{ nullptr };
+        cublasLtMatrixLayout_t layoutC{ nullptr };
+        cublasLtMatmulPreference_t preference{ nullptr };
+        cublasLtMatmulAlgo_t       algorithm{};
         bool has_algorithm{ false };
         bool has_bias_epilogue{ false };
 
@@ -82,11 +76,11 @@ export namespace Mila::Dnn::Compute::Cuda
             , has_bias_epilogue( other.has_bias_epilogue )
         {
             other.matmul_desc = nullptr;
-            other.layoutA     = nullptr;
-            other.layoutB     = nullptr;
-            other.layoutC     = nullptr;
-            other.preference  = nullptr;
-            other.has_algorithm     = false;
+            other.layoutA = nullptr;
+            other.layoutB = nullptr;
+            other.layoutC = nullptr;
+            other.preference = nullptr;
+            other.has_algorithm = false;
             other.has_bias_epilogue = false;
         }
 
@@ -101,20 +95,20 @@ export namespace Mila::Dnn::Compute::Cuda
                 if ( preference )  cublasLtMatmulPreferenceDestroy( preference );
 
                 matmul_desc = other.matmul_desc;
-                layoutA     = other.layoutA;
-                layoutB     = other.layoutB;
-                layoutC     = other.layoutC;
-                preference  = other.preference;
-                algorithm   = other.algorithm;
-                has_algorithm     = other.has_algorithm;
+                layoutA = other.layoutA;
+                layoutB = other.layoutB;
+                layoutC = other.layoutC;
+                preference = other.preference;
+                algorithm = other.algorithm;
+                has_algorithm = other.has_algorithm;
                 has_bias_epilogue = other.has_bias_epilogue;
 
                 other.matmul_desc = nullptr;
-                other.layoutA     = nullptr;
-                other.layoutB     = nullptr;
-                other.layoutC     = nullptr;
-                other.preference  = nullptr;
-                other.has_algorithm     = false;
+                other.layoutA = nullptr;
+                other.layoutB = nullptr;
+                other.layoutC = nullptr;
+                other.preference = nullptr;
+                other.has_algorithm = false;
                 other.has_bias_epilogue = false;
             }
 
@@ -315,6 +309,14 @@ export namespace Mila::Dnn::Compute::Cuda
 
         cublasLtCheckStatus( cublasLtMatmulPreferenceCreate( &plan.preference ) );
 
+        // Hint the available workspace so the heuristic considers algorithms that require
+        // scratch memory. Required for bias epilogue on row-major layouts with small M.
+        constexpr size_t kWorkspaceHint = 4ull * 1024 * 1024;
+        cublasLtCheckStatus( cublasLtMatmulPreferenceSetAttribute(
+            plan.preference,
+            CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
+            &kWorkspaceHint, sizeof( kWorkspaceHint ) ) );
+
         cublasLtMatmulHeuristicResult_t heuristic_result{};
         int returned_algo_count = 0;
 
@@ -344,18 +346,15 @@ export namespace Mila::Dnn::Compute::Cuda
     }
 
     /**
-     * @brief Execute a previously-built cuBLASLt plan.
-     *
-     * Computes: C = alpha * op(A) * op(B) + beta * C, with optional bias epilogue.
-     *
-     * When actual_rows > 0, the row count embedded in layoutA and layoutC is updated
-     * before dispatch. This supports bucket-cached plans where the plan was built for
-     * a ceiling row count but the actual input is smaller (e.g. variable-length prefill).
-     * The leading dimension and selected algorithm are unaffected. Callers must ensure
-     * the plan is owned exclusively by a single CUDA stream when using this override.
-     *
-     * @param actual_rows  Actual row count for A and C. Pass 0 to use the plan's built-in count.
-     */
+ * @brief Execute a previously-built cuBLASLt plan.
+ *
+ * Computes: C = alpha * op(A) * op(B) + beta * C, with optional bias epilogue.
+ *
+ * @param bias         Device pointer to bias vector. Applied only when plan.has_bias_epilogue is true.
+ * @param workspace    Optional device workspace buffer. Must be non-null when the selected
+ *                     algorithm requires scratch memory (workspaceSize > 0 in heuristic result).
+ * @param workspaceSize Size of the workspace buffer in bytes.
+ */
     template <typename TNative>
     void execute_plan(
         cublasLtHandle_t handle,
@@ -367,22 +366,12 @@ export namespace Mila::Dnn::Compute::Cuda
         TNative* C,
         const TNative* bias,
         cudaStream_t stream,
-        int actual_rows = 0,
         void* workspace = nullptr,
         size_t workspaceSize = 0 )
     {
         if ( !plan.isValid() )
         {
             throw std::invalid_argument( "execute_plan - provided cuBLASLt plan is not valid" );
-        }
-
-        if ( actual_rows > 0 )
-        {
-            const uint64_t rows = static_cast<uint64_t>( actual_rows );
-            cublasLtCheckStatus( cublasLtMatrixLayoutSetAttribute(
-                plan.layoutA, CUBLASLT_MATRIX_LAYOUT_ROWS, &rows, sizeof( rows ) ) );
-            cublasLtCheckStatus( cublasLtMatrixLayoutSetAttribute(
-                plan.layoutC, CUBLASLT_MATRIX_LAYOUT_ROWS, &rows, sizeof( rows ) ) );
         }
 
         if ( plan.has_bias_epilogue && bias != nullptr )

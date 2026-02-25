@@ -236,6 +236,11 @@ namespace Mila::Dnn
         dim_t hidden_size_{ 0 };
         bool has_bias_{ true };
         ActivationType activation_type_{ ActivationType::Gelu };
+
+        // REVIEW: The use of layer normalization in an MLP block is non-standard;
+        // it was a speculative addition that doesn't seem to be needed.
+        // Removing it simplifies the component graph and would allow fused decode path.
+        // TODO: Remove
         bool use_layer_norm_{ false };
     };
 }

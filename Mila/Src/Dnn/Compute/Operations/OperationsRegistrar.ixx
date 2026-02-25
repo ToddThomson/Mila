@@ -59,11 +59,11 @@ namespace Mila::Dnn::Compute
 			CpuResidualOpRegistrar::registerOperations();
 			CpuSoftmaxOpRegistrar::registerOperations();
 
-			Cuda::Encoder::CudaEncoderOpRegistrar::registerOperations();
+			Cuda::Lpe::CudaLpeOpRegistrar::registerOperations();
 			Cuda::Gelu::CudaGeluOpRegistrar::registerOperations();
 			Cuda::LayerNorm::CudaLayerNormOpRegistrar::registerOperations();
 			Cuda::Linear::CudaLinearOpRegistrar::registerOperations();
-			Cuda::Attention::CudaAttentionOpRegistrar::registerOperations();
+			Cuda::MultiHeadAttention::CudaMultiHeadAttentionOpRegistrar::registerOperations();
 			Cuda::Residual::CudaResidualOpRegistrar::registerOperations();
 			Cuda::Softmax::CudaSoftmaxOpRegistrar::registerOperations();
 			//CudaMatMulBiasGeluOpRegistrar::registerOperations();

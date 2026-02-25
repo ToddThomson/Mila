@@ -41,6 +41,7 @@ import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
+import Compute.IDecode;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Tensor;
@@ -108,10 +109,6 @@ namespace Mila::Dnn
         }
 
         ~Linear() override = default;
-
-        // ====================================================================
-        // Compute operation dispatch
-        // ====================================================================
 
         /**
          * @brief Perform forward pass.
@@ -314,6 +311,36 @@ namespace Mila::Dnn
             operation_->backward( input, output_grad, *owned_input_grad_ );
 
             return *owned_input_grad_;
+        }
+
+        TensorType& decode( const TensorType& input )
+        {
+            if ( !this->isBuilt() )
+                throw std::runtime_error( "Linear must be built before calling decode()." );
+
+            validateDecodeShape( input.shape() );
+
+            if ( decode_path_ )
+            {
+                decode_path_->decode( input, *owned_output_ );
+            }
+            else
+            {
+                // Fallback for backends without a specialized decode path (e.g. CPU). 
+                // Uses the standard forward() method.
+                operation_->forward( input, *owned_output_ );
+            }
+
+            if ( input.shape() == max_input_shape_ )
+            {
+                return *owned_output_;
+            }
+
+            auto output_shape = input.shape();
+            output_shape.back() = config_.getOutputFeatures();
+            output_view_ = std::make_unique<TensorType>( owned_output_->view( output_shape ) );
+
+            return *output_view_;
         }
 
         void zeroGradients() override
@@ -659,6 +686,9 @@ namespace Mila::Dnn
             operation_->setParameters( weight_.get(), bias_.get() );
             operation_->setTraining( this->isTraining() );
 
+            // Resolve IDecode once at build time. May be nullptr for some backends (CPU)
+            decode_path_ = dynamic_cast<IDecode*>(operation_.get());
+
             // REVIEW: training is never set before build in current Component API.
             if ( this->isTraining() )
             {
@@ -725,6 +755,10 @@ namespace Mila::Dnn
 
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
+        // Non-owning; lifetime tied to operation_. Null for when compute backend does not
+        // implement IDecode (e.g. CPU). Resolved once in onBuilding(). decode() uses this to select fast path.
+        IDecode* decode_path_{ nullptr };
+
         std::shared_ptr<TensorType> weight_{ nullptr };
         std::shared_ptr<TensorType> bias_{ nullptr };
 
@@ -760,6 +794,38 @@ namespace Mila::Dnn
                 throw std::invalid_argument(
                     std::format( "Linear: input feature dimension mismatch. Expected {}, got {}",
                         config_.getInputFeatures(), input_features )
+                );
+            }
+        }
+
+        /**
+         * @brief Validate that an input shape satisfies the decode() contract.
+         *
+         * Combines the feature-dimension check from validateInputShape() with an
+         * outer-size check: the product of all dimensions except the last must be
+         * exactly 1.  This matches the cuda_matvec_impl assumption and ensures the
+         * CPU fallback path behaves consistently.
+         *
+         * @param input_shape Shape to validate.
+         * @throws std::invalid_argument if the rank, feature dim, or outer size is wrong.
+         */
+        void validateDecodeShape( const shape_t& input_shape ) const
+        {
+            validateInputShape( input_shape );
+
+            int64_t outer_size = 1;
+            for ( size_t i = 0; i + 1 < input_shape.size(); ++i )
+            {
+                outer_size *= input_shape[ i ];
+            }
+
+            if ( outer_size != 1 )
+            {
+                throw std::invalid_argument(
+                    std::format(
+                        "Linear::decode requires a single-token input (outer size must be 1, got {}). "
+                        "Use forward() for multi-token inputs.",
+                        outer_size )
                 );
             }
         }

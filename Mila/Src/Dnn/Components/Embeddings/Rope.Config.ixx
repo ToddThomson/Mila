@@ -11,7 +11,7 @@
 #include <sstream>
 #include <utility>
 
-export module Dnn.Components.RopeEncoder:Config;
+export module Dnn.Components.Rope:Config;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;

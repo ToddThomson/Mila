@@ -1,5 +1,5 @@
 /**
- * @file CudaEncoderOp.ixx
+ * @file CudaLpeOp.ixx
  * @brief CUDA implementation of Encoder operation for token and positional embeddings (TensorDataType-based).
  *
  * Implements forward and backward passes for combining token embeddings (wte)
@@ -17,9 +17,9 @@ module;
 #include <format>
 #include "Kernels/Lpe.cuh"
 
-export module Compute.CudaGpt2EncoderOp;
+export module Compute.CudaLpeOp;
 
-import Dnn.Components.LearnedEncoder;
+import Dnn.Components.Lpe;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -34,7 +34,7 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.OperationRegistrarHelpers;
 
-namespace Mila::Dnn::Compute::Cuda::Encoder
+namespace Mila::Dnn::Compute::Cuda::Lpe
 {
     namespace Detail
     {
@@ -120,7 +120,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
      */
     export template<TensorDataType TInput, TensorDataType TPrecision = TInput>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaEncoderOp : public UnaryOperation<DeviceType::Cuda, TInput, TPrecision>
+    class CudaLpeOp : public UnaryOperation<DeviceType::Cuda, TInput, TPrecision>
     {
     public:
         using MR = CudaDeviceMemoryResource;
@@ -130,10 +130,10 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
         // Expose ConfigType so registrar helpers can statically cast ComponentConfig
-        using ConfigType = LearnedEncoderConfig;
+        using ConfigType = LpeConfig;
 
-        CudaEncoderOp( IExecutionContext* context, const LearnedEncoderConfig& config )
-            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaEncoderOp" ) ), config_( config ), impl_()
+        CudaLpeOp( IExecutionContext* context, const LpeConfig& config )
+            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaLpeOp" ) ), config_( config ), impl_()
         {
             config_.validate();
         }
@@ -154,12 +154,12 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
         {
             if ( !wte || !wpe )
             {
-                throw std::invalid_argument( "CudaEncoderOp::setParameters - both wte and wpe parameters are required" );
+                throw std::invalid_argument( "CudaLpeOp::setParameters - both wte and wpe parameters are required" );
             }
 
             if ( wte->getDeviceType() != DeviceType::Cuda || wpe->getDeviceType() != DeviceType::Cuda )
             {
-                throw std::invalid_argument( "CudaEncoderOp::setParameters - parameters must be CUDA tensors" );
+                throw std::invalid_argument( "CudaLpeOp::setParameters - parameters must be CUDA tensors" );
             }
 
             wte_ = static_cast<NativeType*>(wte->rawData());
@@ -171,7 +171,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
 
             if ( wte_shape.size() != 2 || wpe_shape.size() != 2 )
             {
-                throw std::invalid_argument( "CudaEncoderOp::setParameters - wte and wpe must be 2D tensors" );
+                throw std::invalid_argument( "CudaLpeOp::setParameters - wte and wpe must be 2D tensors" );
             }
 
             wte_vocab_size_ = static_cast<int>(wte_shape[ 0 ]);
@@ -182,7 +182,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
 
             if ( wte_embedding_dim_ != wpe_embedding_dim_ )
             {
-                throw std::invalid_argument( "CudaEncoderOp::setParameters - wte and wpe must have same embedding dimension" );
+                throw std::invalid_argument( "CudaLpeOp::setParameters - wte and wpe must have same embedding dimension" );
             }
         }
 
@@ -196,12 +196,12 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
         {
             if ( !wte_grad || !wpe_grad )
             {
-                throw std::invalid_argument( "CudaEncoderOp::setParameterGradients - both gradients are required" );
+                throw std::invalid_argument( "CudaLpeOp::setParameterGradients - both gradients are required" );
             }
 
             if ( wte_grad->getDeviceType() != DeviceType::Cuda || wpe_grad->getDeviceType() != DeviceType::Cuda )
             {
-                throw std::invalid_argument( "CudaEncoderOp::setParameterGradients - gradients must be CUDA tensors" );
+                throw std::invalid_argument( "CudaLpeOp::setParameterGradients - gradients must be CUDA tensors" );
             }
 
             wte_grad_ = static_cast<NativeType*>(wte_grad->rawData());
@@ -230,7 +230,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
         {
             if ( wte_ == nullptr || wpe_ == nullptr )
             {
-                throw std::runtime_error( "CudaEncoderOp::build requires parameters bound via setParameters() before build()." );
+                throw std::runtime_error( "CudaLpeOp::build requires parameters bound via setParameters() before build()." );
             }
 
             validateInputShape( input_shape );
@@ -243,14 +243,14 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
             if ( seq_length_ > wpe_max_seq_len_ )
             {
                 throw std::invalid_argument(
-                    "CudaEncoderOp::build - sequence length exceeds positional embedding capacity" );
+                    "CudaLpeOp::build - sequence length exceeds positional embedding capacity" );
             }
 
             // Validate embedding dimensions match configuration
             if ( embedding_dim_ != config_.getEmbeddingDim() )
             {
                 throw std::invalid_argument(
-                    "CudaEncoderOp::build - parameter embedding dimension doesn't match configuration" );
+                    "CudaLpeOp::build - parameter embedding dimension doesn't match configuration" );
             }
 
             UnaryOperationBase::build( input_shape );
@@ -283,7 +283,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
             if ( B > batch_size_ || T > seq_length_ )
             {
                 throw std::runtime_error(
-                    std::format( "CudaEncoderOp: input shape [{}, {}] exceeds built max [{}, {}]",
+                    std::format( "CudaLpeOp: input shape [{}, {}] exceeds built max [{}, {}]",
                         B, T, batch_size_, seq_length_ ) );
             }
 
@@ -328,7 +328,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
             if ( B > batch_size_ || T > seq_length_ )
             {
                 throw std::runtime_error(
-                    std::format( "CudaEncoderOp: input shape [{}, {}] exceeds built max [{}, {}]",
+                    std::format( "CudaLpeOp: input shape [{}, {}] exceeds built max [{}, {}]",
                         B, T, batch_size_, seq_length_ ) );
             }
 
@@ -354,12 +354,12 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
 
         OperationType getOperationType() const override
         {
-            return OperationType::EncoderOp;
+            return OperationType::LpeOp;
         }
 
         std::string getName() const override
         {
-            return "Cuda::EncoderOp";
+            return "Cuda::LpeOp";
         }
 
         /*const EncoderConfig& getConfig() const
@@ -368,7 +368,7 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
         }*/
 
     private:
-        LearnedEncoderConfig config_;
+        LpeConfig config_;
         CudaExecutionContext* context_;
         Detail::cuda_encoder_impl<NativeType> impl_;
 
@@ -397,18 +397,18 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
             if ( input_shape.size() != 2 )
             {
                 throw std::invalid_argument(
-                    "CudaEncoderOp: input must have rank 2 (batch_size, sequence_length)" );
+                    "CudaLpeOp: input must have rank 2 (batch_size, sequence_length)" );
             }
 
             if ( input_shape[ 1 ] > config_.getMaxSequenceLength() )
             {
                 throw std::invalid_argument(
-                    "CudaEncoderOp: sequence length exceeds configured maximum" );
+                    "CudaLpeOp: sequence length exceeds configured maximum" );
             }
         }
     };
 
-    export class CudaEncoderOpRegistrar
+    export class CudaLpeOpRegistrar
     {
     public:
         static void registerOperations()
@@ -416,11 +416,11 @@ namespace Mila::Dnn::Compute::Cuda::Encoder
             const std::string opName = "EncoderOp";
 
             registerUnaryOpType<DeviceType::Cuda,
-                CudaEncoderOp<TensorDataType::INT32, TensorDataType::FP32>,
+                CudaLpeOp<TensorDataType::INT32, TensorDataType::FP32>,
                 TensorDataType::INT32, TensorDataType::FP32>( opName );
 
             registerUnaryOpType<DeviceType::Cuda,
-                CudaEncoderOp<TensorDataType::INT32, TensorDataType::FP16>,
+                CudaLpeOp<TensorDataType::INT32, TensorDataType::FP16>,
                 TensorDataType::INT32, TensorDataType::FP16>( opName );
         }
     };

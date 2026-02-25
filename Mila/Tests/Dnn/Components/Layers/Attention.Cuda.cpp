@@ -124,8 +124,8 @@ namespace Components_Layers_Attention_Tests
         {}
 
         TestShape test_shape;
-        AttentionConfig config;
-        std::shared_ptr<Attention<DeviceType::Cuda, TPrecision>> component;
+        MultiHeadAttentionConfig config;
+        std::shared_ptr<MultiHeadAttention<DeviceType::Cuda, TPrecision>> component;
         bool is_training{ false };
 
         static AttentionTestFixture Create( TestShape shape, bool is_training = false )
@@ -134,11 +134,11 @@ namespace Components_Layers_Attention_Tests
             fixture.test_shape = shape;
             fixture.is_training = is_training;
 
-            fixture.config = AttentionConfig( shape.embedding_dim, shape.num_heads );
+            fixture.config = MultiHeadAttentionConfig( shape.embedding_dim, shape.num_heads );
 
             std::string name = "attention_cuda_" + shape.name + "_" + PrecisionTraits<TPrecision>::name;
 
-            fixture.component = std::make_shared<Attention<DeviceType::Cuda, TPrecision>>(
+            fixture.component = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TPrecision>>(
                 name,
                 fixture.config,
                 Device::Cuda( 0 )
@@ -198,12 +198,12 @@ namespace Components_Layers_Attention_Tests
 
         constexpr TensorDataType TPrecision = TypeParam::value;
 
-        AttentionConfig cfg( 64, 8 );
+        MultiHeadAttentionConfig cfg( 64, 8 );
 
-        std::shared_ptr<Attention<DeviceType::Cuda, TPrecision>> component{ nullptr };
+        std::shared_ptr<MultiHeadAttention<DeviceType::Cuda, TPrecision>> component{ nullptr };
 
         ASSERT_NO_THROW(
-            (component = std::make_shared<Attention<DeviceType::Cuda, TPrecision>>(
+            (component = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TPrecision>>(
                 "ctor_device_cuda",
                 cfg,
                 Device::Cuda( 0 )
@@ -220,12 +220,12 @@ namespace Components_Layers_Attention_Tests
 
         constexpr TensorDataType TPrecision = TypeParam::value;
 
-        AttentionConfig cfg( 64, 8 );
+        MultiHeadAttentionConfig cfg( 64, 8 );
 
-        std::shared_ptr<Attention<DeviceType::Cuda, TPrecision>> component;
+        std::shared_ptr<MultiHeadAttention<DeviceType::Cuda, TPrecision>> component;
 
         ASSERT_NO_THROW(
-            (component = std::make_shared<Attention<DeviceType::Cuda, TPrecision>>(
+            (component = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TPrecision>>(
                 "ctor_shared_cuda",
                 cfg
             ))
@@ -240,10 +240,10 @@ namespace Components_Layers_Attention_Tests
 
         constexpr TensorDataType TPrecision = TypeParam::value;
 
-        AttentionConfig cfg( 64, 8 );
+        MultiHeadAttentionConfig cfg( 64, 8 );
 
         EXPECT_THROW(
-            ((void)std::make_shared<Attention<DeviceType::Cuda, TPrecision>>(
+            ((void)std::make_shared<MultiHeadAttention<DeviceType::Cuda, TPrecision>>(
                 "invalid_ctor",
                 cfg,
                 Device::Cpu()
@@ -529,13 +529,13 @@ namespace Components_Layers_Attention_Tests
         try
         {
             auto shape = TestShape::Small();
-            AttentionConfig cfg( shape.embedding_dim, shape.num_heads );
+            MultiHeadAttentionConfig cfg( shape.embedding_dim, shape.num_heads );
 
-            auto cpu_comp = std::make_shared<Attention<DeviceType::Cpu, TensorDataType::FP32>>(
+            auto cpu_comp = std::make_shared<MultiHeadAttention<DeviceType::Cpu, TensorDataType::FP32>>(
                 "attention_cpu_equiv", cfg, Device::Cpu()
             );
 
-            auto cuda_comp = std::make_shared<Attention<DeviceType::Cuda, TensorDataType::FP32>>(
+            auto cuda_comp = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TensorDataType::FP32>>(
                 "attention_cuda_equiv", cfg, Device::Cuda( 0 )
             );
 
@@ -588,13 +588,13 @@ namespace Components_Layers_Attention_Tests
         try
         {
             auto shape = TestShape::Small();
-            AttentionConfig cfg( shape.embedding_dim, shape.num_heads );
+            MultiHeadAttentionConfig cfg( shape.embedding_dim, shape.num_heads );
             
-            auto cpu_comp = std::make_shared<Attention<DeviceType::Cpu, TensorDataType::FP32>>(
+            auto cpu_comp = std::make_shared<MultiHeadAttention<DeviceType::Cpu, TensorDataType::FP32>>(
                 "attention_cpu_equiv_bwd", cfg, Device::Cpu()
             );
 
-            auto cuda_comp = std::make_shared<Attention<DeviceType::Cuda, TensorDataType::FP32>>(
+            auto cuda_comp = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TensorDataType::FP32>>(
                 "attention_cuda_equiv_bwd", cfg, Device::Cuda( 0 )
             );
 
@@ -671,9 +671,9 @@ namespace Components_Layers_Attention_Tests
         {
             // Use minimal shape for simple verification
             auto shape = TestShape::Minimal();
-            AttentionConfig cfg( shape.embedding_dim, shape.num_heads );
+            MultiHeadAttentionConfig cfg( shape.embedding_dim, shape.num_heads );
 
-            auto cuda_comp = std::make_shared<Attention<DeviceType::Cuda, TensorDataType::FP32>>(
+            auto cuda_comp = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TensorDataType::FP32>>(
                 "attention_ones_input", cfg, Device::Cuda( 0 )
             );
 
@@ -727,9 +727,9 @@ namespace Components_Layers_Attention_Tests
         try
         {
             auto shape = TestShape::Minimal();
-            AttentionConfig cfg( shape.embedding_dim, shape.num_heads );
+            MultiHeadAttentionConfig cfg( shape.embedding_dim, shape.num_heads );
 
-            auto cuda_comp = std::make_shared<Attention<DeviceType::Cuda, TensorDataType::FP32>>(
+            auto cuda_comp = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TensorDataType::FP32>>(
                 "attention_zeros_input", cfg, Device::Cuda( 0 )
             );
 
@@ -776,9 +776,9 @@ namespace Components_Layers_Attention_Tests
         try
         {
             auto shape = TestShape::Minimal();
-            AttentionConfig cfg( shape.embedding_dim, shape.num_heads );
+            MultiHeadAttentionConfig cfg( shape.embedding_dim, shape.num_heads );
 
-            auto cuda_comp = std::make_shared<Attention<DeviceType::Cuda, TensorDataType::FP32>>(
+            auto cuda_comp = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TensorDataType::FP32>>(
                 "attention_reproducible", cfg, Device::Cuda( 0 )
             );
 
@@ -837,9 +837,9 @@ namespace Components_Layers_Attention_Tests
         try
         {
             auto shape = TestShape::Minimal();
-            AttentionConfig cfg( shape.embedding_dim, shape.num_heads );
+            MultiHeadAttentionConfig cfg( shape.embedding_dim, shape.num_heads );
 
-            auto cuda_comp = std::make_shared<Attention<DeviceType::Cuda, TensorDataType::FP32>>(
+            auto cuda_comp = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TensorDataType::FP32>>(
                 "attention_ones_grad", cfg, Device::Cuda( 0 )
             );
 
@@ -899,9 +899,9 @@ namespace Components_Layers_Attention_Tests
         try
         {
             auto shape = TestShape::Minimal();
-            AttentionConfig cfg( shape.embedding_dim, shape.num_heads );
+            MultiHeadAttentionConfig cfg( shape.embedding_dim, shape.num_heads );
 
-            auto cuda_comp = std::make_shared<Attention<DeviceType::Cuda, TensorDataType::FP32>>(
+            auto cuda_comp = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TensorDataType::FP32>>(
                 "attention_reproducible_bwd", cfg, Device::Cuda( 0 )
             );
 
@@ -977,8 +977,8 @@ namespace Components_Layers_Attention_Tests
             constexpr int head_dim = embedding_dim / num_heads;
             constexpr int qkv_dim = 3 * embedding_dim;
 
-            AttentionConfig cfg( embedding_dim, num_heads );
-            auto cuda_comp = std::make_shared<Attention<DeviceType::Cuda, TensorDataType::FP32>>(
+            MultiHeadAttentionConfig cfg( embedding_dim, num_heads );
+            auto cuda_comp = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TensorDataType::FP32>>(
                 "attention_minimal_trace", cfg, Device::Cuda( 0 )
             );
 

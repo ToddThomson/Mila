@@ -16,9 +16,9 @@ namespace Mila::Dnn
      */
     export enum class AttentionType
     {
-        Standard,       ///< Standard multi-head attention (MHA)
-        GroupedQuery,   ///< Grouped Query Attention (GQA)
-        MultiQuery      ///< Multi-Query Attention (MQA)
+        MultiHead,      ///< Multi-Head Attention (MHA): independent Q, K, V per head
+        GroupedQuery,   ///< Grouped Query Attention (GQA): Q heads grouped over shared K/V heads
+        MultiQuery      ///< Multi-Query Attention (MQA): all Q heads share a single K/V head
     };
 
     /**
@@ -28,7 +28,7 @@ namespace Mila::Dnn
     {
         switch ( t )
         {
-            case AttentionType::Standard:     return "Standard";
+            case AttentionType::MultiHead:    return "MultiHead";
             case AttentionType::GroupedQuery: return "GroupedQuery";
             case AttentionType::MultiQuery:   return "MultiQuery";
             default:                          return "Unknown";
@@ -42,7 +42,7 @@ namespace Mila::Dnn
      */
     export inline AttentionType stringToAttentionType( const std::string& v )
     {
-        if ( v == "Standard" )       return AttentionType::Standard;
+        if ( v == "MultiHead" )       return AttentionType::MultiHead;
         if ( v == "GroupedQuery" )   return AttentionType::GroupedQuery;
         if ( v == "MultiQuery" )     return AttentionType::MultiQuery;
 

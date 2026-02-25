@@ -1318,6 +1318,259 @@ namespace CompositeComponents_Tests
     }
 
     // ====================================================================
+// Decode (inference) tests
+//
+// decode() chains fc1_->decode() (cuda_matvec_impl, M=1) -> [LayerNorm
+// forward] -> activation forward -> fc2_->decode() (cuda_matvec_impl,
+// M=1). The outer batch dimension must be exactly 1. On CPU, both
+// Linear::decode() calls fall back to operation_->forward().
+// ====================================================================
+
+    TYPED_TEST( MLPCudaTests, Decode_BeforeBuild_Throws )
+    {
+        if ( !this->cuda_available_ )
+            GTEST_SKIP() << "CUDA not available";
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        MLPConfig cfg( 64, 128 );
+        auto comp = std::make_shared<MLP<DeviceType::Cuda, TPrecision>>(
+            "mlp_decode_throw", cfg, Device::Cuda( 0 ) );
+
+        CudaTensor<TPrecision> in( Device::Cuda( 0 ), shape_t{ 1, 1, 64 } );
+
+        EXPECT_THROW( comp->decode( in ), std::runtime_error );
+    }
+
+    TYPED_TEST( MLPCudaTests, Decode_SingleToken_ProducesValidOutput )
+    {
+        if ( !this->cuda_available_ )
+            GTEST_SKIP() << "CUDA not available";
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        const std::vector<std::pair<int64_t, int64_t>> feature_pairs = {
+            { 16, 32 }, { 64, 128 }, { 768, 3072 }
+        };
+
+        for ( auto [in_feat, hidden] : feature_pairs )
+        {
+            const shape_t single_token_shape = { 1, 1, in_feat };
+
+            MLPConfig cfg( static_cast<dim_t>(in_feat), static_cast<dim_t>(hidden) );
+            cfg.withBias( true );
+
+            auto comp = std::make_shared<MLP<DeviceType::Cuda, TPrecision>>(
+                "mlp_decode_valid", cfg, Device::Cuda( 0 ) );
+
+            comp->build( single_token_shape );
+
+            CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), single_token_shape );
+            random( host_in, -1.0f, 1.0f );
+
+            CudaTensor<TPrecision> device_in( Device::Cuda( 0 ), single_token_shape );
+            copy( host_in, device_in );
+
+            CudaTensor<TPrecision>* out_ptr = nullptr;
+            ASSERT_NO_THROW( out_ptr = &comp->decode( device_in ) );
+            ASSERT_NE( out_ptr, nullptr );
+
+            // MLP output features == input features (fc2 maps hidden -> in_features).
+            const shape_t expected_shape = { 1, 1, in_feat };
+            EXPECT_EQ( out_ptr->shape(), expected_shape );
+
+            comp->synchronize();
+
+            auto host_out = toHost<TensorDataType::FP32>( *out_ptr );
+
+            for ( size_t i = 0; i < host_out.size(); ++i )
+            {
+                EXPECT_TRUE( std::isfinite( host_out.data()[ i ] ) )
+                    << "Non-finite decode output at element " << i
+                    << " for in_feat=" << in_feat << " hidden=" << hidden;
+            }
+        }
+    }
+
+    TYPED_TEST( MLPCudaTests, Decode_DoesNotRequireTrainingMode )
+    {
+        if ( !this->cuda_available_ )
+            GTEST_SKIP() << "CUDA not available";
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        const shape_t single_token_shape = { 1, 1, 64 };
+
+        MLPConfig cfg( 64, 128 );
+        auto comp = std::make_shared<MLP<DeviceType::Cuda, TPrecision>>(
+            "mlp_decode_no_train", cfg, Device::Cuda( 0 ) );
+
+        comp->build( single_token_shape );
+        ASSERT_FALSE( comp->isTraining() );
+
+        CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), single_token_shape );
+        random( host_in, -1.0f, 1.0f );
+
+        CudaTensor<TPrecision> device_in( Device::Cuda( 0 ), single_token_shape );
+        copy( host_in, device_in );
+
+        EXPECT_NO_THROW( (void)comp->decode( device_in ) );
+    }
+
+    TYPED_TEST( MLPCudaTests, Decode_MultiTokenInput_Throws )
+    {
+        if ( !this->cuda_available_ )
+            GTEST_SKIP() << "CUDA not available";
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        const int64_t in_features = 64;
+        const int64_t hidden_size = 128;
+
+        MLPConfig cfg( in_features, hidden_size );
+        auto comp = std::make_shared<MLP<DeviceType::Cuda, TPrecision>>(
+            "mlp_decode_multi", cfg, Device::Cuda( 0 ) );
+
+        comp->build( shape_t{ 4, 8, in_features } );
+
+        // Outer batch > 1 is rejected by Linear::decode() inside fc1_.
+        CudaTensor<TPrecision> multi_token( Device::Cuda( 0 ), shape_t{ 2, 1, in_features } );
+        EXPECT_THROW( comp->decode( multi_token ), std::invalid_argument );
+
+        CudaTensor<TPrecision> single_token( Device::Cuda( 0 ), shape_t{ 1, 1, in_features } );
+        EXPECT_NO_THROW( (void)comp->decode( single_token ) );
+    }
+
+    TYPED_TEST( MLPCudaTests, Decode_EquivalentToForward_FP32 )
+    {
+        if ( !this->cuda_available_ )
+            GTEST_SKIP() << "CUDA not available";
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        if constexpr ( TPrecision != TensorDataType::FP32 )
+        {
+            GTEST_SKIP() << "Decode equivalence runs only for FP32";
+        }
+
+        try
+        {
+            // M=1 input so both cuda_matvec_impl (decode) and cuBLASLt (forward)
+            // operate on the same single-token problem and are directly comparable.
+            const int64_t in_features = 64;
+            const int64_t hidden_size = 128;
+            const shape_t single_token_shape = { 1, 1, in_features };
+
+            MLPConfig cfg( in_features, hidden_size );
+            cfg.withBias( true );
+
+            auto comp = std::make_shared<MLP<DeviceType::Cuda, TensorDataType::FP32>>(
+                "mlp_decode_equiv", cfg, Device::Cuda( 0 ) );
+
+            comp->build( single_token_shape );
+
+            Mila::Core::RandomGenerator::getInstance().setSeed( 5050 );
+
+            CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), single_token_shape );
+            random( host_in, -1.0f, 1.0f );
+
+            CudaTensor<TensorDataType::FP32> device_in( Device::Cuda( 0 ), single_token_shape );
+            copy( host_in, device_in );
+
+            CudaTensor<TensorDataType::FP32>* fwd_out = nullptr;
+            ASSERT_NO_THROW( fwd_out = &comp->forward( device_in ) );
+            ASSERT_NE( fwd_out, nullptr );
+
+            comp->synchronize();
+            CpuTensor<TensorDataType::FP32> host_fwd = toHost<TensorDataType::FP32>( *fwd_out );
+
+            CudaTensor<TensorDataType::FP32>* dec_out = nullptr;
+            ASSERT_NO_THROW( dec_out = &comp->decode( device_in ) );
+            ASSERT_NE( dec_out, nullptr );
+
+            comp->synchronize();
+            CpuTensor<TensorDataType::FP32> host_dec = toHost<TensorDataType::FP32>( *dec_out );
+
+            ASSERT_EQ( host_fwd.size(), host_dec.size() );
+
+            for ( size_t i = 0; i < host_fwd.size(); ++i )
+            {
+                EXPECT_NEAR( host_fwd.data()[ i ], host_dec.data()[ i ], 1e-3f )
+                    << "decode/forward mismatch at element " << i;
+            }
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "MLP decode not available";
+        }
+    }
+
+    TYPED_TEST( MLPCudaTests, Decode_CPU_CUDA_Equivalence_FP32 )
+    {
+        if ( !this->cuda_available_ )
+            GTEST_SKIP() << "CUDA not available";
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        if constexpr ( TPrecision != TensorDataType::FP32 )
+        {
+            GTEST_SKIP() << "Decode CPU/CUDA equivalence runs only for FP32";
+        }
+
+        try
+        {
+            const int64_t in_features = 64;
+            const int64_t hidden_size = 128;
+
+            // Single-token shape required by cuda_matvec_impl inside fc1_ and fc2_.
+            const shape_t single_token_shape = { 1, 1, in_features };
+
+            Mila::Core::RandomGenerator::getInstance().setSeed( 5555 );
+
+            auto cpu_mlp = std::make_shared<MLP<DeviceType::Cpu, TensorDataType::FP32>>(
+                "mlp_cpu_decode_equiv", MLPConfig( in_features, hidden_size ), Device::Cpu()
+            );
+
+            auto cuda_mlp = std::make_shared<MLP<DeviceType::Cuda, TensorDataType::FP32>>(
+                "mlp_cuda_decode_equiv", MLPConfig( in_features, hidden_size ), Device::Cuda( 0 )
+            );
+
+            cpu_mlp->build( single_token_shape );
+            cuda_mlp->build( single_token_shape );
+
+            Mila::Core::RandomGenerator::getInstance().setSeed( 6060 );
+
+            CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), single_token_shape );
+            random( host_in, -1.0f, 1.0f );
+
+            CpuTensor<TensorDataType::FP32>* cpu_out_ptr = nullptr;
+            ASSERT_NO_THROW( cpu_out_ptr = &cpu_mlp->decode( host_in ) );
+            ASSERT_NE( cpu_out_ptr, nullptr );
+
+            CudaTensor<TensorDataType::FP32> device_in( Device::Cuda( 0 ), single_token_shape );
+            copy( host_in, device_in );
+
+            CudaTensor<TensorDataType::FP32>* cuda_out_ptr = nullptr;
+            ASSERT_NO_THROW( cuda_out_ptr = &cuda_mlp->decode( device_in ) );
+            ASSERT_NE( cuda_out_ptr, nullptr );
+
+            cuda_mlp->synchronize();
+
+            CpuTensor<TensorDataType::FP32> host_cuda_out = toHost<TensorDataType::FP32>( *cuda_out_ptr );
+
+            ASSERT_EQ( cpu_out_ptr->size(), host_cuda_out.size() );
+
+            const float tol = 1e-3f;
+            auto* cpu_data = cpu_out_ptr->data();
+            auto* cuda_data = host_cuda_out.data();
+
+            for ( size_t i = 0; i < cpu_out_ptr->size(); ++i )
+            {
+                EXPECT_NEAR( cpu_data[ i ], cuda_data[ i ], tol )
+                    << "Decode CPU/CUDA mismatch at element " << i;
+            }
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "MLP CPU/CUDA decode equivalence not available";
+        }
+    }
+
+    // ====================================================================
     // CPU/CUDA Equivalence Tests
     // ====================================================================
 

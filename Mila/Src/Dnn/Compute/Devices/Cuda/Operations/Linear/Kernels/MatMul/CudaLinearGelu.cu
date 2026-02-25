@@ -7,7 +7,6 @@
 
 namespace Mila::Dnn::Compute::Cuda::Linear
 {
-
     template <typename T>
     struct CudaTraits;
 

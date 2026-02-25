@@ -3,7 +3,7 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 
-namespace Mila::Dnn::Compute::Cuda::Encoder
+namespace Mila::Dnn::Compute::Cuda::Lpe
 {
     void cuda_encoder_forward_fp32(
         float* Y, const int* X,

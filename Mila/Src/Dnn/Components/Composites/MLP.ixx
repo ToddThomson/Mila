@@ -238,6 +238,31 @@ namespace Mila::Dnn
             }
         }
 
+        TensorType& decode( const TensorType& input ) const
+        {
+            if ( !this->isBuilt() )
+                throw std::runtime_error( "MLP must be built before decode()." );
+
+            auto& fc1_out = fc1_->decode( input );
+            this->getExecutionContext()->synchronize();
+
+            TensorType* act_input = &fc1_out;
+
+            if ( config_.useLayerNorm() )
+            {
+                act_input = &norm_->forward( fc1_out );
+                this->getExecutionContext()->synchronize();
+            }
+
+            auto& act_out = activation_->forward( *act_input );
+            this->getExecutionContext()->synchronize();
+
+            auto& fc2_out = fc2_->decode( act_out );
+            this->getExecutionContext()->synchronize();
+
+            return fc2_out;
+        }
+
         /**
          * @brief Zero gradients for all child components.
          *

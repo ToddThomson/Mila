@@ -15,13 +15,13 @@ module;
 #include <type_traits>
 #include <sstream>
 #include <cassert>
-#include "Kernels/CudaAttention.cuh"
+#include "Kernels/CudaMha.cuh"
 
-export module Compute.CudaAttentionOp;
+export module Compute.CudaMultiHeadAttentionOp;
 import :Plans;
 import :Dispatch;
 
-import Dnn.Components.Attention;
+import Dnn.Components.MultiHeadAttention;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -51,7 +51,7 @@ import Utils.Logger;
 // DEBUG:
 import Cuda.Debug;
 
-namespace Mila::Dnn::Compute::Cuda::Attention
+namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute::Cuda;
@@ -84,7 +84,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention
      */
     export template<TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaAttentionOp : public UnaryOperation<DeviceType::Cuda, TPrecision>, public IKVCacheable
+    class CudaMultiHeadAttentionOp : public UnaryOperation<DeviceType::Cuda, TPrecision>, public IKVCacheable
     {
     public:
         using MR = CudaDeviceMemoryResource;
@@ -92,9 +92,9 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
-        using ConfigType = AttentionConfig;
+        using ConfigType = MultiHeadAttentionConfig;
 
-        CudaAttentionOp( IExecutionContext* context, const AttentionConfig& config )
+        CudaMultiHeadAttentionOp( IExecutionContext* context, const MultiHeadAttentionConfig& config )
             : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaAttentionOp" ) ), config_( config )
         {
             config_.validate();
@@ -179,8 +179,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 q_, k_,
                 &beta,
                 preatt_,
-                nullptr,
-                stream );
+                /* bias */ nullptr,
+                stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
 
             Detail::cuda_mha_kernels<NativeType>::softmax_padded_forward(
                 att_, 1.0f, preatt_,
@@ -194,8 +196,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 att_, v_,
                 &beta,
                 v_out_,
-                nullptr,
-                stream );
+                /* bias */ nullptr,
+                stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
             
             // BUG: Should we unpermute the entire sequence or just the valid part? Unpermuting the entire sequence will write out invalid data for positions beyond actual_seq_len.
             // FIX: Unpermute only the valid part of the sequence to avoid writing out invalid data.
@@ -272,8 +276,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 q_decode, k_,
                 &beta,
                 preatt_decode_,
-                nullptr,
-                stream );
+                /* bias */ nullptr,
+                stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
 
             // DEBUG: Start
             // Dump the first 5 elements of preatt_decode_ for debugging
@@ -307,8 +313,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 att_decode_, v_,
                 &beta,
                 v_out_decode_,
-                nullptr,
-                stream );
+                /* bias */nullptr,
+                stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
 
             // Dump the first 5 elements of v_out_decode_ for debugging
             context_->synchronize();
@@ -470,8 +478,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 q_, k_,
                 &beta,
                 preatt_,
-                nullptr,
-                stream );
+                /* bias */ nullptr,
+                stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
 
             /*context_->synchronize();
             {
@@ -505,8 +515,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 att_, v_,
                 &beta,
                 v_out_,
-                nullptr,
-                stream );
+                /* bias */ nullptr,
+                stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
 
             /*context_->synchronize();
             {
@@ -557,8 +569,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 att_, dVout_,
                 &beta,
                 dV_,
-                nullptr,
-                stream );
+                /* bias */ nullptr,
+                stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
 
             // Compute dAtt = dVout^T @ V
             execute_plan<NativeType>(
@@ -568,8 +582,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 dVout_, v_,
                 &beta,
                 datt_,
-                nullptr,
-                stream );
+                /* bias */ nullptr,
+                stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
 
             Detail::cuda_mha_kernels<NativeType>::softmax_backward(
                 dpreatt_, datt_, att_,
@@ -586,8 +602,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 dpreatt_, k_,
                 &beta,
                 dq_,
-                nullptr,
-                stream );
+                /* bias */ nullptr,
+                stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
 
             // Compute dK = dPreatt^T @ Q^T
             // Note: scale is applied here to match forward scaling
@@ -598,8 +616,10 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 dpreatt_, q_,
                 &beta,
                 dk_,
-                nullptr,
-                stream );
+                /* bias */ nullptr,
+                stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
 
             // Permute gradients back to concatenated QKV format
             Detail::cuda_mha_kernels<NativeType>::permute_backward(
@@ -611,21 +631,21 @@ namespace Mila::Dnn::Compute::Cuda::Attention
 
         OperationType getOperationType() const override
         {
-            return OperationType::AttentionOp;
+            return OperationType::MultiHeadAttentionOp;
         }
 
         std::string getName() const override
         {
-            return "Cuda::AttentionOp";
+            return "Cuda::MultiHeadAttentionOp";
         }
 
-        const AttentionConfig& getConfig() const
+        const MultiHeadAttentionConfig& getConfig() const
         {
             return config_;
         }
 
     private:
-        AttentionConfig config_;
+        MultiHeadAttentionConfig config_;
         CudaExecutionContext* context_;
 
         int B_{ 0 };
@@ -919,20 +939,20 @@ namespace Mila::Dnn::Compute::Cuda::Attention
         }
     };
 
-    export class CudaAttentionOpRegistrar
+    export class CudaMultiHeadAttentionOpRegistrar
     {
     public:
         static void registerOperations()
         {
-            const std::string opName = "AttentionOp";
+            const std::string_view opName =  Compute::OperationNames::MultiHeadAttention;
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
                 opName,
                 []( IExecutionContext* context,
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
                 {
-                    const auto& attentionConfig = static_cast<const AttentionConfig&>(config);
-                    return std::make_shared<CudaAttentionOp<TensorDataType::FP32>>( context, attentionConfig );
+                    const auto& attentionConfig = static_cast<const MultiHeadAttentionConfig&>(config);
+                    return std::make_shared<CudaMultiHeadAttentionOp<TensorDataType::FP32>>( context, attentionConfig );
                 }
             );
 
@@ -941,8 +961,8 @@ namespace Mila::Dnn::Compute::Cuda::Attention
                 []( IExecutionContext* context,
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
                 {
-                    const auto& attentionConfig = static_cast<const AttentionConfig&>(config);
-                    return std::make_shared<CudaAttentionOp<TensorDataType::FP16>>( context, attentionConfig );
+                    const auto& attentionConfig = static_cast<const MultiHeadAttentionConfig&>(config);
+                    return std::make_shared<CudaMultiHeadAttentionOp<TensorDataType::FP16>>( context, attentionConfig );
                 }
             );
         }

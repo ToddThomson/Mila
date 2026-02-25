@@ -19,7 +19,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, FluentSettersAndAccessors )
     {
-        LearnedEncoderConfig config;
+        LpeConfig config;
         auto& result = config
             .withEmbeddingDim( 256 )
             .withMaxSequenceLength( 1024 )
@@ -33,7 +33,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, ValidationSuccess )
     {
-        LearnedEncoderConfig config;
+        LpeConfig config;
         config.withEmbeddingDim( 128 )
             .withMaxSequenceLength( 512 )
             .withVocabularyLength( 10000 );
@@ -43,7 +43,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, ValidationFailure_ZeroChannels )
     {
-        LearnedEncoderConfig config;
+        LpeConfig config;
         config.withEmbeddingDim( 0 )
             .withMaxSequenceLength( 512 )
             .withVocabularyLength( 10000 );
@@ -53,7 +53,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, ValidationFailure_ZeroMaxSequenceLength )
     {
-        LearnedEncoderConfig config;
+        LpeConfig config;
         config.withEmbeddingDim( 128 )
             .withMaxSequenceLength( 0 )
             .withVocabularyLength( 10000 );
@@ -63,7 +63,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, ValidationFailure_ZeroVocabularyLength )
     {
-        LearnedEncoderConfig config;
+        LpeConfig config;
         config.withEmbeddingDim( 128 )
             .withMaxSequenceLength( 512 )
             .withVocabularyLength( 0 );
@@ -73,7 +73,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, ValidationErrorMessage_Channels )
     {
-        LearnedEncoderConfig config;
+        LpeConfig config;
         config.withEmbeddingDim( 0 )
             .withMaxSequenceLength( 16 )
             .withVocabularyLength( 100 );
@@ -92,12 +92,12 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, ConfigurationPersistence_Copy )
     {
-        LearnedEncoderConfig config;
+        LpeConfig config;
         config.withEmbeddingDim( 64 )
             .withMaxSequenceLength( 256 )
             .withVocabularyLength( 20000 );
 
-        LearnedEncoderConfig copy = config;
+        LpeConfig copy = config;
 
         EXPECT_EQ( copy.getEmbeddingDim(), 64u );
         EXPECT_EQ( copy.getMaxSequenceLength(), 256u );
@@ -106,7 +106,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, ConfigurationPersistence_Metadata_RoundTrip )
     {
-        LearnedEncoderConfig config;
+        LpeConfig config;
         config.withEmbeddingDim( 512 )
             .withMaxSequenceLength( 2048 )
             .withVocabularyLength( 30000 )
@@ -114,7 +114,7 @@ namespace Components::Layers::Tests
 
         auto meta = config.toMetadata();
 
-        LearnedEncoderConfig restored;
+        LpeConfig restored;
         restored.fromMetadata( meta );
 
         EXPECT_EQ( restored.getEmbeddingDim(), 512u );
@@ -125,7 +125,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, EdgeCases_LargeDimensions )
     {
-        LearnedEncoderConfig config;
+        LpeConfig config;
         config.withEmbeddingDim( 4096 )
             .withMaxSequenceLength( 16384 )
             .withVocabularyLength( 1000000 );
@@ -138,7 +138,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, EdgeCases_MinimalDimensions )
     {
-        LearnedEncoderConfig config;
+        LpeConfig config;
         config.withEmbeddingDim( 1 )
             .withMaxSequenceLength( 1 )
             .withVocabularyLength( 1 );
@@ -151,7 +151,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, DefaultValuesBehavior )
     {
-        LearnedEncoderConfig config; // defaults: channels=0, max_seq_len=512, vocab_len=50000
+        LpeConfig config; // defaults: channels=0, max_seq_len=512, vocab_len=50000
 
         EXPECT_EQ( config.getEmbeddingDim(), 0u );
         EXPECT_EQ( config.getMaxSequenceLength(), 512u );
@@ -163,7 +163,7 @@ namespace Components::Layers::Tests
 
     TEST_F( EncoderConfigTests, MethodChainPreservation )
     {
-        LearnedEncoderConfig config;
+        LpeConfig config;
         config.withEmbeddingDim( 128 )
             .withMaxSequenceLength( 256 )
             .withVocabularyLength( 1000 );

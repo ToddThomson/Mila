@@ -9,11 +9,11 @@ module;
 #include <type_traits>
 #include <sstream>
 #include <cassert>
-#include "Kernels/CudaAttention.cuh"
+#include "Kernels/CudaMha.cuh"
 
-export module Compute.CudaAttentionOp:Dispatch;
+export module Compute.CudaMultiHeadAttentionOp:Dispatch;
 
-namespace Mila::Dnn::Compute::Cuda::Attention
+namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 {
     namespace Detail
     {

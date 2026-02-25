@@ -1,5 +1,5 @@
 /**
- * @file AttentionConfig.ixx
+ * @file MultiHeadAttentionConfig.ixx
  * @brief Configuration interface for the Attention module.
  */
 
@@ -9,7 +9,7 @@ module;
 #include <utility>
 #include <sstream>
 
-export module Dnn.Components.Attention:Config;
+export module Dnn.Components.MultiHeadAttention:Config;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;
@@ -30,7 +30,7 @@ namespace Mila::Dnn
      * - No dropout (to be added in future versions)
      * - Unified Q/K/V input (separate projections to be added in future versions)
      */
-    export class AttentionConfig : public ComponentConfig
+    export class MultiHeadAttentionConfig : public ComponentConfig
     {
     public:
         /**
@@ -39,7 +39,7 @@ namespace Mila::Dnn
          * @param model_dim The model dimension size
          * @param num_heads The number of attention heads
          */
-        AttentionConfig( dim_t model_dim, dim_t num_heads )
+        MultiHeadAttentionConfig( dim_t model_dim, dim_t num_heads )
             : model_dim_( model_dim ), num_heads_( num_heads )
         {}
 
@@ -53,7 +53,6 @@ namespace Mila::Dnn
 
             return std::forward<Self>( self );
         }
-
 
         /**
          * @brief C++23-style fluent setter for number of heads.
@@ -90,17 +89,17 @@ namespace Mila::Dnn
         {
             if ( model_dim_ <= 0 )
             {
-                throw std::invalid_argument( "AttentionConfig: model_dim must be > 0" );
+                throw std::invalid_argument( "MultiHeadAttentionConfig: model_dim must be > 0" );
             }
 
-            if ( num_heads_ <= 0 )
+            if ( num_heads_ < 2 )
             {
-                throw std::invalid_argument( "AttentionConfig: num_heads must be > 0" );
+                throw std::invalid_argument( "MultiHeadAttentionConfig: num_heads must be >= 2" );
             }
 
             if ( model_dim_ % num_heads_ != 0 )
             {
-                throw std::invalid_argument( "AttentionConfig: model_dim must be divisible by num_heads" );
+                throw std::invalid_argument( "MultiHeadAttentionConfig: model_dim must be divisible by num_heads" );
             }
         }
 
@@ -153,7 +152,7 @@ namespace Mila::Dnn
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << "AttentionConfig: { ";
+            oss << "MultiHeadAttentionConfig: { ";
             oss << "precision=" << static_cast<int>(precision_) << ", ";
             oss << "model_dim=" << model_dim_ << ", ";
             oss << "num_heads=" << num_heads_ << " }";

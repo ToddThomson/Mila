@@ -224,7 +224,7 @@ namespace Mila::Dnn
                     throw std::invalid_argument( "LlamaBlockConfig: num_heads must be divisible by num_kv_heads" );
                 }
 
-                if ( attention_type_ == AttentionType::Standard && num_kv_heads_ != num_heads_ )
+                if ( attention_type_ == AttentionType::MultiHead && num_kv_heads_ != num_heads_ )
                 {
                     throw std::invalid_argument( "LlamaBlockConfig: standard attention requires num_kv_heads == num_heads" );
                 }
@@ -311,7 +311,7 @@ namespace Mila::Dnn
             oss << "  Attention Type: ";
             switch ( attention_type_ )
             {
-                case AttentionType::Standard: oss << "Standard MHA\n"; break;
+                case AttentionType::MultiHead: oss << "Standard MHA\n"; break;
                 case AttentionType::GroupedQuery: oss << "Grouped Query (GQA)\n"; break;
                 case AttentionType::MultiQuery: oss << "Multi Query (MQA)\n"; break;
             }

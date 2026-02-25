@@ -36,7 +36,7 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.Network;
 import Dnn.Components.Linear;
 import Dnn.Components.LayerNorm;
-import Dnn.Components.LearnedEncoder;
+import Dnn.Components.Lpe;
 import Dnn.Components.GptBlock;
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -76,7 +76,7 @@ namespace Mila::Dnn
         using LinearType = Linear<TDeviceType, TPrecision>;
         using LayerNormType = LayerNorm<TDeviceType, TPrecision>;
         using TransformerBlockType = GptBlock<TDeviceType, TPrecision>;
-        using EncoderType = LearnedEncoder<TDeviceType, dtype_t::INT32, TPrecision>;
+        using EncoderType = Lpe<TDeviceType, dtype_t::INT32, TPrecision>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
 
@@ -660,7 +660,7 @@ namespace Mila::Dnn
 
         void createGraph()
         {
-            LearnedEncoderConfig enc_cfg;
+            LpeConfig enc_cfg;
             enc_cfg.withVocabularyLength( static_cast<size_t>(config_.getVocabSize() ))
                 .withMaxSequenceLength( static_cast<size_t>(config_.getMaxSequenceLength() ))
                 .withEmbeddingDim( static_cast<size_t>(config_.getEmbeddingSize()));

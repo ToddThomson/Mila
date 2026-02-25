@@ -51,9 +51,115 @@ import Dnn.TensorHelpers;
 
 namespace Mila::Dnn::Compute::Cuda::Linear
 {
-
     namespace Detail
     {
+        /**
+         * @brief CUDA kernel dispatcher for matrix-vector multiply (M=1 decode path).
+         *
+         * Specialized for float, half, bfloat16, and FP8 native CUDA types.
+         * Used exclusively for the decode path where batch_size=1.
+         */
+        template <typename TNative>
+            requires std::is_same_v<TNative, float> ||
+                std::is_same_v<TNative, half> ||
+                std::is_same_v<TNative, nv_bfloat16> ||
+                std::is_same_v<TNative, __nv_fp8_e4m3> ||
+                std::is_same_v<TNative, __nv_fp8_e5m2>
+        struct cuda_matvec_impl;
+
+        template <>
+        struct cuda_matvec_impl<float>
+        {
+            /**
+             * @brief Dispatches M=1 matrix-vector decode pass.
+             *
+             * Computes y[OC] = weight[OC, C] @ x[C] + bias[OC]
+             *
+             * @param y       Output vector [OC]
+             * @param x       Input vector [C]
+             * @param weight  Weight matrix [OC, C] row-major
+             * @param bias    Optional bias vector [OC], may be nullptr
+             * @param C       Input features
+             * @param OC      Output features
+             * @param stream  CUDA stream
+             */
+            static void decode(
+                float* y,
+                const float* x,
+                const float* weight,
+                const float* bias,
+                int C,
+                int OC,
+                cudaStream_t stream )
+            {
+                cuda_matvec_decode_fp32( y, x, weight, bias, C, OC, stream );
+            }
+        };
+
+        template <>
+        struct cuda_matvec_impl<half>
+        {
+            static void decode(
+                half* y,
+                const half* x,
+                const half* weight,
+                const half* bias,
+                int C,
+                int OC,
+                cudaStream_t stream )
+            {
+                throw std::logic_error( "cuda_matvec_impl<half>::decode not yet implemented" );
+            }
+        };
+
+        template <>
+        struct cuda_matvec_impl<nv_bfloat16>
+        {
+            static void decode(
+                nv_bfloat16* y,
+                const nv_bfloat16* x,
+                const nv_bfloat16* weight,
+                const nv_bfloat16* bias,
+                int C,
+                int OC,
+                cudaStream_t stream )
+            {
+                throw std::logic_error( "cuda_matvec_impl<nv_bfloat16>::decode not yet implemented" );
+            }
+        };
+
+        template <>
+        struct cuda_matvec_impl<__nv_fp8_e4m3>
+        {
+            static void decode(
+                __nv_fp8_e4m3* y,
+                const __nv_fp8_e4m3* x,
+                const __nv_fp8_e4m3* weight,
+                const __nv_fp8_e4m3* bias,
+                int C,
+                int OC,
+                cudaStream_t stream )
+            {
+                throw std::logic_error( "cuda_matvec_impl<fp8_e4m3>::decode not yet implemented" );
+            }
+        };
+
+        template <>
+        struct cuda_matvec_impl<__nv_fp8_e5m2>
+        {
+            static void decode(
+                __nv_fp8_e5m2* y,
+                const __nv_fp8_e5m2* x,
+                const __nv_fp8_e5m2* weight,
+                const __nv_fp8_e5m2* bias,
+                int C,
+                int OC,
+                cudaStream_t stream )
+            {
+                throw std::logic_error( "cuda_matvec_impl<fp8_e5m2>::decode not yet implemented" );
+            }
+        };
+
         /**
          * @brief CUDA kernel dispatcher for Linear operations.
          *
@@ -61,11 +167,11 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          */
         template <typename TNative>
             requires std::is_same_v<TNative, float> ||
-        std::is_same_v<TNative, half> ||
-            std::is_same_v<TNative, nv_bfloat16> ||
-            std::is_same_v<TNative, __nv_fp8_e4m3> ||
-            std::is_same_v<TNative, __nv_fp8_e5m2>
-            struct cuda_matmul_impl;
+                std::is_same_v<TNative, half> ||
+                std::is_same_v<TNative, nv_bfloat16> ||
+                std::is_same_v<TNative, __nv_fp8_e4m3> ||
+                std::is_same_v<TNative, __nv_fp8_e5m2>
+        struct cuda_matmul_impl;
 
         template <>
         struct cuda_matmul_impl<float>

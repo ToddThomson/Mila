@@ -20,7 +20,7 @@ module;
 #include <stdexcept>
 #include <cstdint>
 
-export module Compute.CudaRopeEncoderOp;
+export module Compute.CudaRopeOp;
 
 import Dnn.ITensor;
 import Dnn.Tensor;
@@ -162,13 +162,12 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
         OperationType getOperationType() const override
         {
-            // RoPE is part of encoding/attention pipeline; map to EncoderOp for classification.
-            return OperationType::EncoderOp;
+            return OperationType::RopeOp;
         }
 
         std::string getName() const override
         {
-            return "Cuda::RopeEncoderOp";
+            return std::string( "Cuda::" ) + std::string( operationTypeToString( getOperationType() ) );
         }
 
     private:
@@ -184,7 +183,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
     public:
         static void registerOperations()
         {
-            const std::string opName = "RopeEncoderOp";
+            const std::string_view opName = Compute::OperationNames::Rope;
 
             registerUnaryOpType<DeviceType::Cuda,
                 CudaRopeEncoderOp<TensorDataType::FP32>,

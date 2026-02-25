@@ -101,7 +101,7 @@ namespace Mila::Dnn::Compute
          */
         template<DeviceType TDeviceType, TensorDataType TInputType, TensorDataType TComputePrecision = TInputType>
         void registerUnaryOperation(
-            const std::string& operation_name,
+            std::string_view operation_name,
             std::function<std::shared_ptr<UnaryOperation<TDeviceType, TInputType, TComputePrecision>>(
                 IExecutionContext*,
                 const ComponentConfig& )> creator )
@@ -120,7 +120,7 @@ namespace Mila::Dnn::Compute
                     return creator( ctx, config );
                 };
 
-            registry_[type_id][operation_name] = std::move( genericCreator );
+            registry_[type_id][std::string( operation_name )] = std::move( genericCreator );
         }
 
         /**

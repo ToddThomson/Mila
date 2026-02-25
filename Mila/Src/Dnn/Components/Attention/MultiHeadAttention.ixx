@@ -1,13 +1,13 @@
 /**
- * @file Attention.ixx
- * @brief Multi-Head Attention module (concatenated QKV input).
+ * @file MultiHeadAttention.ixx
+ * @brief Multi-Head MultiHeadAttention module (concatenated QKV input).
  *
  * Module delegates compute to a device-specific UnaryOperation implementation
  * that expects a concatenated QKV input.
  *
  * KV-cache inference is an optional backend capability surfaced via
  * supportsKVCache(). When supported, forward() dispatches to the appropriate
- * IKVCacheable path based on the AttentionForwardContext passed by the owning
+ * IKVCacheable path based on the MultiHeadAttentionForwardContext passed by the owning
  * transformer's generate() method. External callers use the default context
  * (Mode::Standard) and are unaffected by the KV cache machinery.
  */
@@ -22,9 +22,8 @@ module;
 #include <cstdint>
 #include <optional>
 
-export module Dnn.Components.Attention;
+export module Dnn.Components.MultiHeadAttention;
 export import :Config;
-export import :ForwardContext;
 
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -55,13 +54,13 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Multi-Head Attention module that accepts concatenated QKV input.
+     * @brief Multi-Head MultiHeadAttention module that accepts concatenated QKV input.
      *
      * The module requires a single input tensor in model-layout containing
      * concatenated Q, K and V along the feature axis:
      *   input shape == [B, T, 3 * embedding_dim]
      *
-     * The backend compute implementation (registered as "AttentionOp") must
+     * The backend compute implementation (registered as "MultiHeadAttentionOp") must
      * accept the concatenated QKV input and produce an output of shape:
      *   output shape == [B, T, embedding_dim]
      *
@@ -84,7 +83,7 @@ namespace Mila::Dnn
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class Attention : public Component<TDeviceType, TPrecision>
+    class MultiHeadAttention : public Component<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
@@ -92,13 +91,13 @@ namespace Mila::Dnn
         using ComponentBase = Component<TDeviceType, TPrecision>;
 
         /**
-         * @brief Construct Attention component.
+         * @brief Construct MultiHeadAttention component.
          *
          * @param name      Component name identifier (mandatory).
-         * @param config    Attention configuration.
+         * @param config    MultiHeadAttention configuration.
          * @param device_id Optional DeviceId to create owned ExecutionContext (standalone mode).
          */
-        explicit Attention( const std::string& name, const AttentionConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+        explicit MultiHeadAttention( const std::string& name, const MultiHeadAttentionConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), config_( config )
         {
             config_.validate();
@@ -107,7 +106,7 @@ namespace Mila::Dnn
             {
                 if ( device_id->type != TDeviceType )
                 {
-                    throw std::invalid_argument( "Attention: device type mismatch" );
+                    throw std::invalid_argument( "MultiHeadAttention: device type mismatch" );
                 }
 
                 context_ = createExecutionContext( device_id.value() );
@@ -115,10 +114,10 @@ namespace Mila::Dnn
             }
         }
 
-        ~Attention() override = default;
+        ~MultiHeadAttention() override = default;
 
         // ====================================================================
-        // Forward / Backward
+        // Forward / Backward / Decode
         // ====================================================================
 
         /**
@@ -137,7 +136,7 @@ namespace Mila::Dnn
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error(
-                    "Attention must be built before calling forward()." );
+                    "MultiHeadAttention must be built before calling forward()." );
 
             validateConcatenatedQKVShape( input.shape() );
 
@@ -180,12 +179,12 @@ namespace Mila::Dnn
         {
             if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "Attention must be built before calling backward." );
+                throw std::runtime_error( "MultiHeadAttention must be built before calling backward." );
             }
 
             if ( !this->isTraining() )
             {
-                throw std::runtime_error( "Attention must be in training mode to call backward. Call setTraining(true) first." );
+                throw std::runtime_error( "MultiHeadAttention must be in training mode to call backward. Call setTraining(true) first." );
             }
 
             validateConcatenatedQKVShape( input.shape() );
@@ -205,7 +204,7 @@ namespace Mila::Dnn
          *
          * When the backend implements IKVCacheable and the cache has been
          * populated by a prior forward() call, uses the fast O(n) KV cache
-         * path. When the backend does not support KV caching (CpuAttentionOp),
+         * path. When the backend does not support KV caching (CpuMultiHeadAttentionOp),
          * falls back to forward(). The caller never needs to know which path
          * was taken.
          *
@@ -223,20 +222,20 @@ namespace Mila::Dnn
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error(
-                    "Attention must be built before calling decode()." );
+                    "MultiHeadAttention must be built before calling decode()." );
 
             validateConcatenatedQKVShape( input.shape() );
 
             if ( kv_cacheable_ && cache_initialized_ )
             {
-                // Fast path — O(n) attention using cached KV state
+                // Fast path — O(n) MultiHeadAttention using cached KV state
                 kv_cacheable_->forwardDecode( input, *owned_decode_output_, position );
                 
                 decode_active_ = true;
                 return *owned_decode_output_;
             }
 
-            // Fallback — CpuAttentionOp or cache not yet initialized.
+            // Fallback — CpuMultiHeadAttentionOp or cache not yet initialized.
             // Correct but not optimized — acceptable for CPU inference.
             operation_->forward( input, *owned_output_ );
             
@@ -247,7 +246,7 @@ namespace Mila::Dnn
          * @brief Returns true when the underlying operation implements IKVCacheable.
          *
          * Resolved once at build time. CPU backends return false; CUDA backends
-         * return true when CudaAttentionOp is in use. Safe to query before
+         * return true when CudaMultiHeadAttentionOp is in use. Safe to query before
          * calling generate() to determine which forward path is available.
          */
         bool supportsKVCache() const noexcept
@@ -270,12 +269,12 @@ namespace Mila::Dnn
         {
             if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "Attention must be built before initializeKVCache()." );
+                throw std::runtime_error( "MultiHeadAttention must be built before initializeKVCache()." );
             }
 
             if ( !kv_cacheable_ )
             {
-                throw std::runtime_error( "Attention: KV cache is not supported by this backend." );
+                throw std::runtime_error( "MultiHeadAttention: KV cache is not supported by this backend." );
             }
 
             kv_cacheable_->initializeKVCache(
@@ -297,7 +296,7 @@ namespace Mila::Dnn
         {
             if ( !kv_cacheable_ )
             {
-                throw std::runtime_error( "Attention: KV cache is not supported by this backend." );
+                throw std::runtime_error( "MultiHeadAttention: KV cache is not supported by this backend." );
             }
 
             kv_cacheable_->resetKVCache();
@@ -332,7 +331,7 @@ namespace Mila::Dnn
 
         const ComponentType getType() const override
         {
-            return ComponentType::Attention;
+            return ComponentType::MultiHeadAttention;
         }
 
         DeviceId getDeviceId() const override
@@ -354,7 +353,7 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "--------------------\n";
-            oss << "Attention: " << this->getName() << "\n";
+            oss << "MultiHeadAttention: " << this->getName() << "\n";
             oss << "Device Id: " << this->getExecutionContext()->getDeviceId().toString() << "\n";
             oss << "Model dimension: " << config_.getModelDim() << "\n";
             oss << "Number of heads: " << config_.getNumHeads() << "\n";
@@ -372,7 +371,7 @@ namespace Mila::Dnn
         {
             return config_.getNumHeads();
         }
-        const AttentionConfig& getConfig() const noexcept
+        const MultiHeadAttentionConfig& getConfig() const noexcept
         {
             return config_;
         }
@@ -429,7 +428,7 @@ namespace Mila::Dnn
         }
 
     private:
-        AttentionConfig config_;
+        MultiHeadAttentionConfig config_;
         shape_t max_input_shape_;
 
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
@@ -472,7 +471,7 @@ namespace Mila::Dnn
         {
             if ( shape.size() != 3 )
             {
-                throw std::invalid_argument( "Attention: expected 3D model-layout shape" );
+                throw std::invalid_argument( "MultiHeadAttention: expected 3D model-layout shape" );
             }
 
             const int64_t trailing = shape.back();
@@ -481,7 +480,7 @@ namespace Mila::Dnn
             if ( trailing != expected )
             {
                 std::ostringstream oss;
-                oss << "Attention: expected concatenated QKV trailing dimension " << expected
+                oss << "MultiHeadAttention: expected concatenated QKV trailing dimension " << expected
                     << " (3 * embedding_dim), got " << trailing;
                 throw std::invalid_argument( oss.str() );
             }
@@ -491,13 +490,13 @@ namespace Mila::Dnn
         {
             operation_ = OperationRegistry::instance()
                 .createUnaryOperation<TDeviceType, TPrecision>(
-                    "AttentionOp",
+                    "MultiHeadAttentionOp",
                     this->getExecutionContext(),
                     config_ );
 
             if ( !operation_ )
             {
-                throw std::runtime_error( "Failed to create Attention compute backend operation." );
+                throw std::runtime_error( "Failed to create MultiHeadAttention compute backend operation." );
             }
         }
     };

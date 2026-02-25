@@ -21,7 +21,7 @@ module;
 
 export module Compute.CpuAttention;
 
-import Dnn.Components.Attention;
+import Dnn.Components.MultiHeadAttention;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -75,7 +75,7 @@ namespace Mila::Dnn::Compute
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
         using TensorType = Tensor<TensorDataType::FP32, MR>;
 
-        explicit CpuAttentionOp( IExecutionContext* context, const AttentionConfig& config )
+        explicit CpuAttentionOp( IExecutionContext* context, const MultiHeadAttentionConfig& config )
             : context_( context ), config_( config )
         {
             if ( !context_ )
@@ -172,7 +172,7 @@ namespace Mila::Dnn::Compute
 
         OperationType getOperationType() const override
         {
-            return OperationType::AttentionOp;
+            return OperationType::MultiHeadAttentionOp;
         }
 
         std::string getName() const override
@@ -182,7 +182,7 @@ namespace Mila::Dnn::Compute
 
     private:
         IExecutionContext* context_;
-        AttentionConfig config_;
+        MultiHeadAttentionConfig config_;
         bool is_built_{ false };
 
         int B_{ 0 };
@@ -664,13 +664,13 @@ namespace Mila::Dnn::Compute
     public:
         static void registerOperations()
         {
-            const std::string opName = "AttentionOp";
+            const std::string_view opName = Compute::OperationNames::MultiHeadAttention;
 
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 opName,
                 []( IExecutionContext* context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
-                    const auto& attention_config = dynamic_cast<const AttentionConfig&>(config);
+                    const auto& attention_config = dynamic_cast<const MultiHeadAttentionConfig&>(config);
 
                     return std::make_shared<CpuAttentionOp>( context, attention_config );
                 }

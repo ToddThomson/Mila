@@ -46,6 +46,7 @@ import Compute.CudaDevice;
 import Compute.CudaTensorDataType;
 import Compute.CublasLtPlan;
 import Compute.CublasLtPlanCache;
+import Compute.IDecode;
 import CublasLt.Error;
 import Utils.Logger;
 
@@ -76,7 +77,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
      */
     export template<TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaLinearOp : public UnaryOperation<DeviceType::Cuda, TPrecision>
+    class CudaLinearOp : public UnaryOperation<DeviceType::Cuda, TPrecision>, public IDecode
     {
     public:
         using MR = CudaDeviceMemoryResource;
@@ -227,6 +228,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 {
                     Utils::Logger::warning(
                         std::string( "Failed to build cuBLASLt plans, falling back to custom kernels: " ) + e.what() );
+                    
                     use_cublaslt_ = false;
                 }
             }
@@ -266,7 +268,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     &beta,
                     output_ptr,
                     bias_,
-                    stream );
+                    stream,
+                    context_->getCublasLtWorkspace(),
+                    context_->getCublasLtWorkspaceSize() );
 
                 // DEBUG: To imediately catch CUDA errors
                 this->context_->synchronize();
@@ -321,8 +325,10 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     output_grad_ptr, weight_,
                     &beta,
                     input_grad_ptr,
-                    nullptr,
-                    stream );
+                    /* bias */ nullptr,
+                    stream,
+                    context_->getCublasLtWorkspace(),
+                    context_->getCublasLtWorkspaceSize() );
 
                 // dW[out, in] = dY^T @ X  (always full batch)
                 // NOTE: This plan is not cached as batch size does not change during training.
@@ -333,8 +339,10 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     output_grad_ptr, input_ptr,
                     &beta_accum,
                     weight_grad_,
-                    nullptr,
-                    stream );
+                    /* bias */ nullptr,
+                    stream,
+                    context_->getCublasLtWorkspace(),
+                    context_->getCublasLtWorkspaceSize() );
 
                 // dB[out] = sum(dY, dim=0)
                 if ( bias_grad_ != nullptr )
@@ -356,6 +364,22 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 output_grad_ptr, input_ptr, weight_,
                 cached_batch_size_,
                 cached_in_features_, cached_out_features_,
+                stream );
+        }
+
+        void decode( const ITensor& input, ITensor& output ) const override
+        {
+            const NativeType* input_ptr = static_cast<const NativeType*>(input.rawData());
+            NativeType* output_ptr = static_cast<NativeType*>(output.rawData());
+            cudaStream_t stream = context_->getStream();
+
+            Detail::cuda_matvec_impl<NativeType>::decode(
+                output_ptr,
+                input_ptr,
+                weight_,
+                bias_,
+                cached_in_features_,
+                cached_out_features_,
                 stream );
         }
 

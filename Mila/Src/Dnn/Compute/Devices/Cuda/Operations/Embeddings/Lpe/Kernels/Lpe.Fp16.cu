@@ -6,7 +6,7 @@
 #include "device_launch_parameters.h"
 #include "CudaUtils.h"
 
-namespace Mila::Dnn::Compute::Cuda::Encoder
+namespace Mila::Dnn::Compute::Cuda::Lpe
 {
     /**
      * @brief Adds two half2 vectors element-wise

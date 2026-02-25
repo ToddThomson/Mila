@@ -15,7 +15,7 @@ module;
 #include <utility>
 #include <sstream>
 
-export module Dnn.Components.LearnedEncoder:Config;
+export module Dnn.Components.Lpe:Config;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;
@@ -31,7 +31,7 @@ namespace Mila::Dnn
      *
      * Provides a type-safe fluent interface for configuring Encoder.
      */
-    export class LearnedEncoderConfig : public ComponentConfig {
+    export class LpeConfig : public ComponentConfig {
     public:
         
         /**

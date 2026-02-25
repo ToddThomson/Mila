@@ -8,9 +8,9 @@
  */
 export module Compute.CudaOperations;
 
-export import Compute.CudaAttentionOp;
-export import Compute.CudaGpt2EncoderOp;
-export import Compute.CudaRopeEncoderOp;
+export import Compute.CudaMultiHeadAttentionOp;
+export import Compute.CudaLpeOp;
+export import Compute.CudaRopeOp;
 export import Compute.CudaSwigluOp;
 export import Compute.CudaGeluOp;
 export import Compute.CudaLayerNormOp;

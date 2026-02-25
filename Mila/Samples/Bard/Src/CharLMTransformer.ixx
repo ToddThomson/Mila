@@ -79,7 +79,7 @@ import Cuda.Error; // Debugging
 //        using LinearType = Linear<TDeviceType, TPrecision>;
 //        using LayerNormType = LayerNorm<TDeviceType, TPrecision>;
 //        using TransformerBlockType = GptBlock<TDeviceType, TPrecision>;
-//        using EncoderType = LearnedEncoder<TDeviceType, dtype_t::INT32, TPrecision>;
+//        using EncoderType = Lpe<TDeviceType, dtype_t::INT32, TPrecision>;
 //        using TokenIndexType = Tensor<dtype_t::INT32, MR>;
 //        using ComponentPtr = typename NetworkBase::ComponentPtr;
 //
@@ -551,7 +551,7 @@ import Cuda.Error; // Debugging
 //         */
 //        void createGraph()
 //        {
-//            LearnedEncoderConfig enc_cfg;
+//            LpeConfig enc_cfg;
 //            enc_cfg.withVocabularyLength( static_cast<size_t>(config_.vocab_size) )
 //                .withMaxSequenceLength( static_cast<size_t>(config_.max_seq_length) )
 //                .withEmbeddingDim( static_cast<size_t>(config_.embedding_dim) );

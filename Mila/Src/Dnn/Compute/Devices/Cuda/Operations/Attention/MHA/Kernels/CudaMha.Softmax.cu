@@ -17,7 +17,7 @@
 #include "device_launch_parameters.h"
 #include "CudaUtils.h"
 
-namespace Mila::Dnn::Compute::Cuda::Attention
+namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 {
     __global__ void softmax_padded_forward_fp32_kernel(
         float* att, float scale, const float* preatt,

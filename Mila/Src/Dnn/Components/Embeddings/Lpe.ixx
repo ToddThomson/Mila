@@ -19,7 +19,7 @@ module;
 #include <numeric>
 #include <algorithm>
 
-export module Dnn.Components.LearnedEncoder;
+export module Dnn.Components.Lpe;
 export import :Config;
 
 import Dnn.Component;
@@ -77,7 +77,7 @@ namespace Mila::Dnn
      */
     export template<DeviceType TDeviceType, TensorDataType TIndex = dtype_t::INT32, TensorDataType TPrecision = dtype_t::FP32>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class LearnedEncoder : public Component<TDeviceType, TPrecision>
+    class Lpe : public Component<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
@@ -96,7 +96,7 @@ namespace Mila::Dnn
          * @param config Encoder configuration
          * @param device_id Optional DeviceId to create owned ExecutionContext (standalone mode)
          */
-        explicit LearnedEncoder( const std::string& name, const LearnedEncoderConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+        explicit Lpe( const std::string& name, const LpeConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), config_( config )
         {
             config_.validate();
@@ -114,7 +114,7 @@ namespace Mila::Dnn
             }
         }
 
-        ~LearnedEncoder() override = default;
+        ~Lpe() override = default;
 
         // ====================================================================
         // Compute operation dispatch (new API)
@@ -145,7 +145,7 @@ namespace Mila::Dnn
             if ( B > max_batch_size_ || T > max_seq_len_ )
             {
                 throw std::runtime_error( std::format(
-                    "LearnedEncoder: input shape [{}, {}] exceeds built max [{}, {}]",
+                    "Lpe: input shape [{}, {}] exceeds built max [{}, {}]",
                     B, T, max_batch_size_, max_seq_len_ ) );
             }
 
@@ -154,7 +154,7 @@ namespace Mila::Dnn
             auto host_input_ptr = host_input.data();
             const size_t n = host_input.size();
             auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
-            Utils::Logger::debug( std::format( "LearnedEncoder {} in:[{:.3f}, {:.3f}] with shape:{}",
+            Utils::Logger::debug( std::format( "Lpe {} in:[{:.3f}, {:.3f}] with shape:{}",
                 this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
             // END DEBUG:
 
@@ -172,7 +172,7 @@ namespace Mila::Dnn
             const size_t output_n = host_output.size();
             auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
 
-            Utils::Logger::debug( std::format( "LearnedEncoder {} out:[{:.3f}, {:.3f}] with shape:{}",
+            Utils::Logger::debug( std::format( "Lpe {} out:[{:.3f}, {:.3f}] with shape:{}",
                 this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );
             // DEBUG END
 
@@ -318,7 +318,7 @@ namespace Mila::Dnn
                     float mean_w = std::accumulate( ptr, ptr + n, 0.0f ) / static_cast<float>(n);
 
                     Utils::Logger::info( std::format(
-                        "LearnedEncoder wte stats: min={:.6f} max={:.6f} mean={:.6f}",
+                        "Lpe wte stats: min={:.6f} max={:.6f} mean={:.6f}",
                         min_w, max_w, mean_w ) );
                 }
 
@@ -337,7 +337,7 @@ namespace Mila::Dnn
                     float mean_w = std::accumulate( ptr, ptr + n, 0.0f ) / static_cast<float>(n);
 
                     Utils::Logger::info( std::format(
-                        "LearnedEncoder wpe stats: min={:.6f} max={:.6f} mean={:.6f}",
+                        "Lpe wpe stats: min={:.6f} max={:.6f} mean={:.6f}",
                         min_b, max_b, mean_w ) );
                 }
             }
@@ -379,7 +379,7 @@ namespace Mila::Dnn
 
         const ComponentType getType() const override
         {
-            return ComponentType::LearnedEncoder;
+            return ComponentType::Lpe;
         }
 
         DeviceId getDeviceId() const override
@@ -494,7 +494,7 @@ namespace Mila::Dnn
         }
 
     private:
-        LearnedEncoderConfig config_;
+        LpeConfig config_;
 
         int64_t max_batch_size_{ 0 };
         int64_t max_seq_len_{ 0 };

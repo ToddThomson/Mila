@@ -8,7 +8,7 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 
-namespace Mila::Dnn::Compute::Cuda::Attention
+namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 {
     // ========================================================================
     // FP32 Kernel Functions

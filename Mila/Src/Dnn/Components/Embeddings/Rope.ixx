@@ -1,5 +1,5 @@
 /**
- * @file RopeEncoder.ixx
+ * @file Rope.ixx
  * @brief Rotary positional embedding (RoPE) component.
  *
  * Applies rotary position embeddings to input embeddings. Delegates compute
@@ -17,7 +17,7 @@ module;
 #include <cstdint>
 #include <optional>
 
-export module Dnn.Components.RopeEncoder;
+export module Dnn.Components.Rope;
 export import :Config;
 
 import Dnn.Component;
@@ -56,14 +56,14 @@ namespace Mila::Dnn
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class RopeEncoder : public Component<TDeviceType, TPrecision>
+    class Rope : public Component<TDeviceType, TPrecision>
     {
     public:
         using ComponentBase = Component<TDeviceType, TPrecision>;
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TPrecision, MR>;
 
-        explicit RopeEncoder( const std::string& name, const RopeConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+        explicit Rope( const std::string& name, const RopeConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), config_( config )
         {
             config_.validate();
@@ -80,7 +80,7 @@ namespace Mila::Dnn
             }
         }
 
-        ~RopeEncoder() override = default;
+        ~Rope() override = default;
 
         /**
          * @brief Forward: applies rotary position embedding to `input`.
@@ -183,7 +183,7 @@ namespace Mila::Dnn
 
         const ComponentType getType() const override
         {
-            return ComponentType::RopeEncoder;
+            return ComponentType::Rope;
         }
 
         DeviceId getDeviceId() const override

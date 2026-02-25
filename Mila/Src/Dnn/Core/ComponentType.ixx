@@ -38,10 +38,11 @@ namespace Mila::Dnn
         LayerNorm,
         RmsNorm,
         Softmax,
-        Attention,
+        MultiHeadAttention,
+        GroupedQueryAttention,
         Residual,
-        LearnedEncoder,
-        RopeEncoder,
+        Lpe,
+        Rope,
 
         // Composite components
         Mlp,
@@ -88,18 +89,18 @@ namespace Mila::Dnn
                 return "RmsNorm";
             case ComponentType::Softmax:
                 return "Softmax";
-            case ComponentType::Attention:
-                return "Attention";
+            case ComponentType::MultiHeadAttention:
+                return "MultiHeadAttention";
             case ComponentType::Residual:
                 return "Residual";
             case ComponentType::Mlp:
                 return "MLP";
             case ComponentType::Transformer:
                 return "Transformer";
-            case ComponentType::LearnedEncoder:
-                return "LearnedEncoder";
-            case ComponentType::RopeEncoder:
-                return "RopeEncoder";
+            case ComponentType::Lpe:
+                return "Lpe";
+            case ComponentType::Rope:
+                return "Rope";
             
             case ComponentType::Network:
                 return "Network";
@@ -137,17 +138,17 @@ namespace Mila::Dnn
         if ( low == "softmax" )
             return ComponentType::Softmax;
         if ( low == "attention" )
-            return ComponentType::Attention;
+            return ComponentType::MultiHeadAttention;
         if ( low == "residual" )
             return ComponentType::Residual;
         if ( low == "mlp" )
             return ComponentType::Mlp;
         if ( low == "transformer" )
             return ComponentType::Transformer;
-        if ( low == "learnedencoder" )
-            return ComponentType::LearnedEncoder;
-        if ( low == "ropeencoder" )
-            return ComponentType::RopeEncoder;
+        if ( low == "lpe" )
+            return ComponentType::Lpe;
+        if ( low == "rope" )
+            return ComponentType::Rope;
         if ( low == "network" )
             return ComponentType::Network;
 
@@ -180,17 +181,17 @@ namespace Mila::Dnn
                 return "rmsn";
             case ComponentType::Softmax:
                 return "smax";
-            case ComponentType::Attention:
-                return "attn";
+            case ComponentType::MultiHeadAttention:
+                return "mha";
             case ComponentType::Residual:
                 return "res";
             case ComponentType::Mlp:
                 return "mlp";
             case ComponentType::Transformer:
                 return "tf";
-            case ComponentType::LearnedEncoder:
-                return "lenc";
-            case ComponentType::RopeEncoder:
+            case ComponentType::Lpe:
+                return "lpe";
+            case ComponentType::Rope:
                 return "rope";
             case ComponentType::Network:
                 return "net";
@@ -224,18 +225,18 @@ namespace Mila::Dnn
             return ComponentType::RmsNorm;
         if ( s == "smax" )
             return ComponentType::Softmax;
-        if ( s == "attn" )
-            return ComponentType::Attention;
+        if ( s == "mha" )
+            return ComponentType::MultiHeadAttention;
         if ( s == "res" )
             return ComponentType::Residual;
         if ( s == "mlp" )
             return ComponentType::Mlp;
         if ( s == "tf" )
             return ComponentType::Transformer;
-        if ( s == "lenc" )
-            return ComponentType::LearnedEncoder;
+        if ( s == "lpe" )
+            return ComponentType::Lpe;
         if ( s == "rope" )
-            return ComponentType::RopeEncoder;
+            return ComponentType::Rope;
         if ( s == "net" )
             return ComponentType::Network;
         

@@ -47,7 +47,7 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
 import Dnn.Components.LayerNorm;
-import Dnn.Components.Attention;
+import Dnn.Components.MultiHeadAttention;
 import Dnn.Components.Residual;
 import Dnn.Components.Linear;
 import Dnn.Components.MLP;
@@ -96,7 +96,7 @@ namespace Mila::Dnn
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
         using LayerNormType = LayerNorm<TDeviceType, TPrecision>;
-        using AttentionType = Attention<TDeviceType, TPrecision>;
+        using AttentionType = MultiHeadAttention<TDeviceType, TPrecision>;
         using ResidualType = Residual<TDeviceType, TPrecision>;
         using LinearType = Linear<TDeviceType, TPrecision>;
         using MLPType = MLP<TDeviceType, TPrecision>;
@@ -351,14 +351,14 @@ namespace Mila::Dnn
             auto& ln1_out = ln1_->forward( input );
             this->getExecutionContext()->synchronize();
 
-            auto& qkv_out = qkv_proj_->forward( ln1_out );
+            auto& qkv_out = qkv_proj_->decode( ln1_out );
             this->getExecutionContext()->synchronize();
 
             // Attention decides: fast KV cache path or fallback to forward()
             auto& attn_out = attn_->decode( qkv_out, position );
             this->getExecutionContext()->synchronize();
 
-            auto& out_proj = out_proj_->forward( attn_out );
+            auto& out_proj = out_proj_->decode( attn_out );
             this->getExecutionContext()->synchronize();
 
             auto& res1_out = res1_->forward( input, out_proj );
@@ -367,7 +367,7 @@ namespace Mila::Dnn
             auto& ln2_out = ln2_->forward( res1_out );
             this->getExecutionContext()->synchronize();
 
-            auto& ffn_out = ffn_->forward( ln2_out );
+            auto& ffn_out = ffn_->decode( ln2_out );
             this->getExecutionContext()->synchronize();
 
             auto& res2_out = res2_->forward( res1_out, ffn_out );
@@ -597,7 +597,7 @@ namespace Mila::Dnn
 
         void createGraph()
         {
-            auto attn_cfg = AttentionConfig( config_.getModelDim(), config_.getNumHeads() );
+            auto attn_cfg = MultiHeadAttentionConfig( config_.getModelDim(), config_.getNumHeads() );
             this->addComponent( std::make_shared<AttentionType>( this->getName() + ".attn", attn_cfg, std::nullopt ) );
 
             auto ln1_cfg = LayerNormConfig().withNormalizedShape( shape_t{ static_cast<int64_t>(config_.getModelDim()) } );
