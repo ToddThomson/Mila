@@ -64,6 +64,14 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 cuda_unpermute_output_fp32( vaccum, out, B, T, NH, HS, stream );
             }
 
+            static inline void unpermute_output_padded(
+                const float* vaccum, float* out,
+                int B, int actual_T, int T, int NH, int HS,
+                cudaStream_t stream )
+            {
+                cuda_unpermute_output_padded_fp32( vaccum, out, B, actual_T, T, NH, HS, stream );
+            }
+
             static inline void softmax_forward(
                 float* att, float scale, const float* preatt,
                 int B, int NH, int T,
@@ -153,6 +161,15 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 cudaStream_t stream )
             {
                 cuda_unpermute_output_fp16( vaccum, out, B, T, NH, HS, stream );
+            }
+
+            static inline void unpermute_output_padded(
+                const half* vaccum, half* out,
+                int B, int actual_T, int T, int NH, int HS,
+                cudaStream_t stream )
+            {
+                // FIXME: Not yet supported. 
+                // cuda_unpermute_output_padded_fp32( vaccum, out, B, actual_T, T, NH, HS, stream );
             }
 
             static inline void softmax_forward(

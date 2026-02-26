@@ -140,6 +140,48 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
     // ========================================================================
 
     /**
+     * @brief Reorder per-head vaccum (padded) into compact concatenated output (FP32).
+     *
+     * Reads vaccum organized as [B, NH, padded_T, HS] and writes the first
+     * actual_T positions as [B, actual_T, C] where C = NH * HS.
+     *
+     * Preconditions:
+     * - vaccum size >= B * NH * padded_T * HS
+     * - out size >= B * actual_T * C
+     *
+     * Side-effects:
+     * - Writes to device buffer out.
+     *
+     * @param vaccum Input buffer [B, NH, padded_T, HS].
+     * @param out Output buffer [B, actual_T, C].
+     * @param B Batch size.
+     * @param actual_T Valid sequence length to write.
+     * @param padded_T Padded sequence length (inter-head stride in vaccum).
+     * @param NH Number of heads.
+     * @param HS Head size.
+     */
+    __global__ void unpermute_output_padded_fp32_kernel(
+        const float* vaccum, float* out,
+        int B, int actual_T, int padded_T, int NH, int HS )
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        const int C = NH * HS;
+
+        if ( idx < B * actual_T * C )
+        {
+            const int b = idx / (actual_T * C);
+            int rest = idx % (actual_T * C);
+            const int t = rest / C;
+            const int c = rest % C;
+            const int nh = c / HS;
+            const int hs = c % HS;
+
+            const int vaccum_idx = b * (NH * padded_T * HS) + nh * (padded_T * HS) + t * HS + hs;
+
+            out[ idx ] = vaccum[ vaccum_idx ];
+        }
+    }
+    /**
      * @brief Reorder per-head vaccum into concatenated output (FP32).
      *
      * Reads vaccum organized as [B, NH, T, HS] and writes out as [B, T, C] where C = NH * HS.
@@ -433,7 +475,10 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             int t = rest / HS;
             int hs = rest % HS;
 
-            int out_idx = b * (NH * output_T * HS) + nh * (output_T * HS) + t * HS + hs;
+            int out_idx = b * (NH * output_T * HS) 
+                + nh * (output_T * HS) 
+                + t * HS 
+                + hs;
 
             if ( t >= input_T )
             {
@@ -653,6 +698,21 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         int num_blocks = ceil_div( total_threads, block_size );
 
         permute_qkv_fp32_kernel << <num_blocks, block_size, 0, stream >> > (Q, K, V, X, B, T, NH, HS);
+
+        cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_unpermute_output_padded_fp32(
+        const float* vaccum, float* out,
+        int B, int actual_T, int padded_T, int NH, int HS,
+        cudaStream_t stream )
+    {
+        const int block_size = 256;
+        int total_threads = B * actual_T * NH * HS;
+        int num_blocks = ceil_div( total_threads, block_size );
+
+        unpermute_output_padded_fp32_kernel << <num_blocks, block_size, 0, stream >> > (
+            vaccum, out, B, actual_T, padded_T, NH, HS);
 
         cudaCheck( cudaGetLastError() );
     }

@@ -28,9 +28,7 @@ namespace Mila::Dnn
      * @brief Configuration class for GPT transformer blocks.
      *
      * Holds the model dimension, attention head count, MLP/attention options,
-     * and basic activation/residual settings. LLaMA-specific settings (RoPE,
-     * KV-head sharing, RMSNorm selection/epsilon, etc.) are intentionally
-     * omitted from this block-level GPT config.
+     * and basic activation/residual settings.
      */
     export class GptBlockConfig : public ComponentConfig
     {

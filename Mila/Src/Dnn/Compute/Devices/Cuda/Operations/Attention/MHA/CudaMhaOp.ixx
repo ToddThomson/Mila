@@ -200,13 +200,30 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 stream,
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
+
+            context_->synchronize();
+            {
+                // Dump v_out_ before unpermute — shape [B, NH, actual_T, HS]
+                shape_t v_out_shape = { B_, NH_, T_, HS_ };
+                std::string v_out_dump = dump_tensor<NativeType>(
+                    v_out_, v_out_shape, this->getName() + ".dbg.v_out_", 16, stream );
+                Utils::Logger::info( this->getName() + ": dbg.v_out_ (before unpermute):\n" + v_out_dump );
+            }
             
-            // BUG: Should we unpermute the entire sequence or just the valid part? Unpermuting the entire sequence will write out invalid data for positions beyond actual_seq_len.
-            // FIX: Unpermute only the valid part of the sequence to avoid writing out invalid data.
-            Detail::cuda_mha_kernels<NativeType>::unpermute_output(
+            Detail::cuda_mha_kernels<NativeType>::unpermute_output_padded(
                 v_out_, Y,
-                B_, actual_seq_len, NH_, HS_, // Use actual_seq_len here to unpermute only the valid part of the sequence. Was T_ before, which is incorrect.
+                B_, actual_seq_len, T_, NH_, HS_,
                 stream );
+
+            // Dump the first 5 elements of v_out_ for debugging
+            context_->synchronize();
+            {
+                shape_t v_out_shape = { B_, NH_, actual_seq_len, HS_ };
+                std::string v_out_dump = dump_tensor<NativeType>(
+                    v_out_, v_out_shape, this->getName() + ".dbg.v_out_", 16, stream );
+
+                Utils::Logger::info( this->getName() + ": dbg.v_out_ (device dump):\n" + v_out_dump );
+            }
 
             cached_seq_len_ = actual_seq_len;
         }
@@ -244,28 +261,28 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 stream );
 
             context_->synchronize();
-            {
-                // V head 0, position 4 specifically
-                shape_t v4_shape = { 1, 1, 1, HS_ };
-                std::string dump = dump_tensor<NativeType>(
-                    v_ + static_cast<int64_t>(0) * T_ * HS_  // head 0
-                    + static_cast<int64_t>(position) * HS_, // position 4
-                    v4_shape,
-                    this->getName() + ".dbg.v_pos4_head0", 8, stream );
-                Utils::Logger::info( this->getName() + ": V head0 pos4:\n" + dump );
-            }
+            //{
+            //    // V head 0, position 4 specifically
+            //    shape_t v4_shape = { 1, 1, 1, HS_ };
+            //    std::string dump = dump_tensor<NativeType>(
+            //        v_ + static_cast<int64_t>(0) * T_ * HS_  // head 0
+            //        + static_cast<int64_t>(position) * HS_, // position 4
+            //        v4_shape,
+            //        this->getName() + ".dbg.v_pos4_head0", 8, stream );
+            //    Utils::Logger::info( this->getName() + ": V head0 pos4:\n" + dump );
+            //}
 
             // DEBUG: Start
             // Dump the first 5 elements of v_ for debugging
-            context_->synchronize();
-            {
-                // WAS: shape_t v_shape = { B_, NH_, actual_len, HS_ };
-                shape_t v_shape = { 1, 1, 5, 64 };
-                std::string v_dump = dump_tensor<NativeType>(
-                    v_ + 1 * T_ * HS_, v_shape, this->getName() + ".dbg.v_", 8, stream );
+            //context_->synchronize();
+            //{
+            //    // WAS: shape_t v_shape = { B_, NH_, actual_len, HS_ };
+            //    shape_t v_shape = { 1, 1, 5, 64 };
+            //    std::string v_dump = dump_tensor<NativeType>(
+            //        v_ + 1 * T_ * HS_, v_shape, this->getName() + ".dbg.v_", 8, stream );
     
-                Utils::Logger::info( this->getName() + ": dbg.v_ (device dump):\n" + v_dump );
-            }
+            //    Utils::Logger::info( this->getName() + ": dbg.v_ (device dump):\n" + v_dump );
+            //}
 
             const NativeType* q_decode = q_ + static_cast<int64_t>(position) * HS_;
 
@@ -281,17 +298,17 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
 
-            // DEBUG: Start
-            // Dump the first 5 elements of preatt_decode_ for debugging
-            context_->synchronize();
-            {
-                shape_t preatt_decode_shape = { B_, NH_, 1, T_ };
-                std::string preatt_decode_dump = dump_tensor<NativeType>(
-                    preatt_decode_, preatt_decode_shape, this->getName() + ".dbg.preatt_decode", 16, stream );
+            //// DEBUG: Start
+            //// Dump the first 5 elements of preatt_decode_ for debugging
+            //context_->synchronize();
+            //{
+            //    shape_t preatt_decode_shape = { B_, NH_, 1, T_ };
+            //    std::string preatt_decode_dump = dump_tensor<NativeType>(
+            //        preatt_decode_, preatt_decode_shape, this->getName() + ".dbg.preatt_decode", 16, stream );
     
-                Utils::Logger::info( this->getName() + ": dbg.preatt_decode (device dump):\n" + preatt_decode_dump );
-            }
-            // DEBUG: End
+            //    Utils::Logger::info( this->getName() + ": dbg.preatt_decode (device dump):\n" + preatt_decode_dump );
+            //}
+            //// DEBUG: End
 
             Detail::cuda_mha_kernels<NativeType>::softmax_decode_forward(
                 att_decode_, 1.0f, preatt_decode_,
@@ -299,12 +316,12 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 stream );
 
             context_->synchronize();
-            {
-                shape_t att_decode_shape = { B_, NH_, 1, T_ };
-                std::string att_decode_dump = dump_tensor<NativeType>(
-                    att_decode_, att_decode_shape, this->getName() + ".dbg.att_decode", 16, stream );
-                Utils::Logger::info( this->getName() + ": dbg.att_decode (device dump):\n" + att_decode_dump );
-            }
+            //{
+            //    shape_t att_decode_shape = { B_, NH_, 1, T_ };
+            //    std::string att_decode_dump = dump_tensor<NativeType>(
+            //        att_decode_, att_decode_shape, this->getName() + ".dbg.att_decode", 16, stream );
+            //    Utils::Logger::info( this->getName() + ": dbg.att_decode (device dump):\n" + att_decode_dump );
+            //}
 
             execute_plan<NativeType>(
                 cublaslt_handle_,
@@ -318,67 +335,67 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
 
-            // Dump the first 5 elements of v_out_decode_ for debugging
-            context_->synchronize();
-            {
-                shape_t v_out_decode_shape = { B_, NH_, 1, HS_ };
-                std::string v_out_decode_dump = dump_tensor<NativeType>(
-                    v_out_decode_, v_out_decode_shape, this->getName() + ".dbg.v_out_decode", 16, stream );
-    
-                Utils::Logger::info( this->getName() + ": dbg.v_out_decode (device dump):\n" + v_out_decode_dump );
-            }
+            //// Dump the first 5 elements of v_out_decode_ for debugging
+            //context_->synchronize();
+            //{
+            //    shape_t v_out_decode_shape = { B_, NH_, 1, HS_ };
+            //    std::string v_out_decode_dump = dump_tensor<NativeType>(
+            //        v_out_decode_, v_out_decode_shape, this->getName() + ".dbg.v_out_decode", 16, stream );
+            //
+            //    Utils::Logger::info( this->getName() + ": dbg.v_out_decode (device dump):\n" + v_out_decode_dump );
+            //}
 
-            // DEBUG: start
-            context_->synchronize();
-            {
-                std::vector<float> att_h( actual_len );
-                cudaMemcpy( att_h.data(), att_decode_, actual_len * sizeof( float ),
-                    cudaMemcpyDeviceToHost );
+            //// DEBUG: start
+            //context_->synchronize();
+            //{
+            //    std::vector<float> att_h( actual_len );
+            //    cudaMemcpy( att_h.data(), att_decode_, actual_len * sizeof( float ),
+            //        cudaMemcpyDeviceToHost );
 
-                std::vector<float> v_h( actual_len * HS_ );
-                cudaMemcpy( v_h.data(), v_, actual_len * HS_ * sizeof( float ),
-                    cudaMemcpyDeviceToHost );
+            //    std::vector<float> v_h( actual_len * HS_ );
+            //    cudaMemcpy( v_h.data(), v_, actual_len * HS_ * sizeof( float ),
+            //        cudaMemcpyDeviceToHost );
 
-                // Print att weights
-                std::string att_str = std::format( "att_h[0..{}]: [", actual_len - 1 );
-                for ( int i = 0; i < actual_len; i++ )
-                    att_str += std::format( " {:.6f}", att_h[ i ] );
-                att_str += " ]";
-                Utils::Logger::info( this->getName() + ": " + att_str );
+            //    // Print att weights
+            //    std::string att_str = std::format( "att_h[0..{}]: [", actual_len - 1 );
+            //    for ( int i = 0; i < actual_len; i++ )
+            //        att_str += std::format( " {:.6f}", att_h[ i ] );
+            //    att_str += " ]";
+            //    Utils::Logger::info( this->getName() + ": " + att_str );
 
-                // Print V elem 0 for each position
-                std::string v_str = std::format( "v_h elem0 for pos 0..{}: [", actual_len - 1 );
-                for ( int i = 0; i < actual_len; i++ )
-                    v_str += std::format( " {:.6f}", v_h[ i * HS_ ] );
-                v_str += " ]";
-                Utils::Logger::info( this->getName() + ": " + v_str );
+            //    // Print V elem 0 for each position
+            //    std::string v_str = std::format( "v_h elem0 for pos 0..{}: [", actual_len - 1 );
+            //    for ( int i = 0; i < actual_len; i++ )
+            //        v_str += std::format( " {:.6f}", v_h[ i * HS_ ] );
+            //    v_str += " ]";
+            //    Utils::Logger::info( this->getName() + ": " + v_str );
 
-                // Manual dot product
-                float manual_elem0 = 0.0f;
-                for ( int i = 0; i < actual_len; i++ )
-                {
-                    float contrib = att_h[ i ] * v_h[ i * HS_ ];
-                    Utils::Logger::info( std::format(
-                        "  pos {}: att={:.6f} * v={:.6f} = {:.6f}",
-                        i, att_h[ i ], v_h[ i * HS_ ], contrib ) );
-                    manual_elem0 += contrib;
-                }
+            //    // Manual dot product
+            //    float manual_elem0 = 0.0f;
+            //    for ( int i = 0; i < actual_len; i++ )
+            //    {
+            //        float contrib = att_h[ i ] * v_h[ i * HS_ ];
+            //        Utils::Logger::info( std::format(
+            //            "  pos {}: att={:.6f} * v={:.6f} = {:.6f}",
+            //            i, att_h[ i ], v_h[ i * HS_ ], contrib ) );
+            //        manual_elem0 += contrib;
+            //    }
 
-                Utils::Logger::info( std::format(
-                    "{}: CPU manual v_out[head0,elem0] = {:.6f}",
-                    this->getName(), manual_elem0 ) );
+            //    Utils::Logger::info( std::format(
+            //        "{}: CPU manual v_out[head0,elem0] = {:.6f}",
+            //        this->getName(), manual_elem0 ) );
 
-                // Read actual cuBLAS output for head 0 elem 0
-                float cublas_elem0 = 0.0f;
-                cudaMemcpy( &cublas_elem0, v_out_decode_, sizeof( float ),
-                    cudaMemcpyDeviceToHost );
+            //    // Read actual cuBLAS output for head 0 elem 0
+            //    float cublas_elem0 = 0.0f;
+            //    cudaMemcpy( &cublas_elem0, v_out_decode_, sizeof( float ),
+            //        cudaMemcpyDeviceToHost );
 
-                Utils::Logger::info( std::format(
-                    "{}: CPU manual={:.6f}  cuBLAS={:.6f}  diff={:.6f}",
-                    this->getName(), manual_elem0, cublas_elem0,
-                    manual_elem0 - cublas_elem0 ) );
-            }
-            // DEBUG: end
+            //    Utils::Logger::info( std::format(
+            //        "{}: CPU manual={:.6f}  cuBLAS={:.6f}  diff={:.6f}",
+            //        this->getName(), manual_elem0, cublas_elem0,
+            //        manual_elem0 - cublas_elem0 ) );
+            //}
+            //// DEBUG: end
 
             Detail::cuda_mha_kernels<NativeType>::unpermute_output(
                 v_out_decode_, Y,

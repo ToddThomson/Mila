@@ -37,6 +37,11 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         int B, int T, int NH, int HS,
         cudaStream_t stream );
 
+    void cuda_unpermute_output_padded_fp32(
+        const float* vaccum, float* out,
+        int B, int actual_T, int T, int NH, int HS,
+        cudaStream_t stream );
+
     void cuda_softmax_forward_fp32(
         float* att, float scale, const float* preatt,
         int B, int NH, int T,

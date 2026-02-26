@@ -34,7 +34,7 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
      */
     __global__ void gelu_forward_fp32_kernel( float* Y, const float* X, int N )
     {
-        constexpr float kGeluInputAbsLimit = 500.0f;   // default: 50.0f, GELU input should be reasonable was 50.0f, but increased to 75.0f to avoid false positives in some cases
+        constexpr float kGeluInputAbsLimit = 100.0f;   // default: 50.0f, GELU input should be reasonable was 50.0f, but increased to 75.0f to avoid false positives in some cases
         constexpr float kGeluOutputAbsLimit = 1000.0f; // default: 100.0f, GELU output can be slightly larger
 
         int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -93,6 +93,7 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
             float cube = GELU_CUBIC_COEFF * x * x * x;
             float tanh_arg = GELU_SCALING_FACTOR * (x + cube);
 
+            // REVIEW: This should be the numerically stable implementation
             // TODO: Alternative implementation using sech^2
             //float tanh_out = tanhf( tanh_arg );
             //float sech_squared = 1.0f - tanh_out * tanh_out;
