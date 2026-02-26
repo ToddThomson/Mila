@@ -421,7 +421,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             if ( cublaslt_handle_ == nullptr )
             {
                 throw std::runtime_error(
-                    "CudaAttentionOp requires cuBLASLt support. "
+                    "CudaMultiHeadAttentionOp requires cuBLASLt support. "
                     "Ensure CUDA 10.1 or newer is installed." );
             }
 

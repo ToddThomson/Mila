@@ -11,6 +11,12 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
         int B, int T, int C,
         cudaStream_t stream );
 
+    void cuda_encoder_decode_fp32(
+        float* Y, const int* X,
+        const float* wte, const float* wpe,
+        int B, int position, int C,
+        cudaStream_t stream );
+
     void cuda_encoder_backward_fp32(
         float* wte_grad, float* wpe_grad,
         const float* dY,

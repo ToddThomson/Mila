@@ -1,6 +1,6 @@
 /**
  * @file CudaMatVecBiasFp32.cu
- * 
+ *
  */
 
 #include <cuda_runtime.h>
@@ -25,6 +25,10 @@ namespace Mila::Dnn::Compute::Cuda::Linear
      *
      * Each output element is a dot product of x[C] with weight row[C].
      * Uses warp shuffle reduction for the final sum.
+     *
+     * OC need not be a multiple of kMatvecBlockOC — the grid uses ceiling division
+     * and threads whose oc >= OC exit early. Vocabulary sizes such as GPT-2's 50257
+     * (prime) are handled correctly.
      *
      * Requirements:
      *   - C must be divisible by 4 (float4 loads)
@@ -53,7 +57,6 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         const int c_start = threadIdx.x * 4;
         const int c_step = kMatvecThreadsPerOC * 4;
 
-        // Vectorized float4 loads for coalesced memory access
         for ( int c = c_start; c < C; c += c_step )
         {
             float4 x_vec = ld_vec( x + c );
@@ -64,14 +67,12 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             acc += x_vec.w * w_vec.w;
         }
 
-        // Warp shuffle reduction across kMatvecThreadsPerOC threads
     #pragma unroll
         for ( int offset = kMatvecThreadsPerOC / 2; offset > 0; offset >>= 1 )
         {
             acc += __shfl_down_sync( 0xffffffff, acc, offset );
         }
 
-        // Thread 0 of each output channel writes result
         if ( threadIdx.x == 0 )
         {
             y[ oc ] = acc + (bias != nullptr ? bias[ oc ] : 0.0f);
@@ -88,11 +89,10 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         cudaStream_t stream )
     {
         assert( C % 4 == 0 && "cuda_matvec_decode_fp32: C must be divisible by 4 for float4 loads" );
-        assert( OC % kMatvecBlockOC == 0 && "cuda_matvec_decode_fp32: OC must be divisible by kMatvecBlockOC" );
 
         const dim3 block( kMatvecThreadsPerOC, kMatvecBlockOC );
         const dim3 grid( (OC + kMatvecBlockOC - 1) / kMatvecBlockOC );
 
-        matvec_decode_fp32_kernel<<<grid, block, 0, stream>>>(y, x, weight, bias, C, OC);
+        matvec_decode_fp32_kernel << <grid, block, 0, stream >> > (y, x, weight, bias, C, OC);
     }
 }

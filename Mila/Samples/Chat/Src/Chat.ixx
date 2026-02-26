@@ -140,6 +140,40 @@ namespace Mila::ChatApp
                 if ( !model_ || !tokenizer_ )
                     return "Model not loaded.";
 
+                // For validation: use raw user input directly, no chat template
+                // GPT-2 is a completion model — preparePrompt() adds instruction-following
+                // format that base GPT-2 was never trained on
+                const std::string& prompt = history.back().substr( 6 );  // strip "User: " prefix
+
+                std::vector<TokenId> prompt_tokens = tokenizer_->encode( prompt );
+
+                Utils::Logger::info( std::format(
+                    "Prompt: '{}' → {} tokens", prompt, prompt_tokens.size() ) );
+
+                std::vector<int32_t> generated = model_->generate(
+                    std::vector<int32_t>( prompt_tokens.begin(), prompt_tokens.end() ),
+                    /*max_new_tokens=*/64,
+                    /*temperature=*/1.0f,
+                    /*top_k=*/1 );
+
+                std::string full_text = tokenizer_->decode(
+                    std::vector<TokenId>( generated.begin(), generated.end() ) );
+
+                return extractResponse( full_text, prompt );
+            }
+            catch ( const std::exception& e )
+            {
+                return "Error: " + std::string( e.what() );
+            }
+        }
+
+        std::string generateResponse_v2( const std::vector<std::string>& history )
+        {
+            try
+            {
+                if ( !model_ || !tokenizer_ )
+                    return "Model not loaded.";
+
                 std::string prompt = preparePrompt( history );
 
                 std::vector<TokenId> prompt_tokens = tokenizer_->encode( prompt );

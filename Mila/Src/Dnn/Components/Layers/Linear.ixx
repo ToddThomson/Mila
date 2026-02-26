@@ -132,6 +132,13 @@ namespace Mila::Dnn
             validateInputShape( input.shape() );
 
             // DEBUG:
+            auto input_shape_d = input.shape();
+            Utils::Logger::info( std::format(
+                "lm_head forward: input_shape={} max_input_shape={} shapes_equal={}",
+                shapeToString( input_shape_d ),
+                shapeToString( max_input_shape_ ),
+                input_shape_d == max_input_shape_ ) );
+
 
             // Check input range
             auto host_input = toHost<TensorDataType::FP32>( input );

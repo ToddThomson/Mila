@@ -41,6 +41,7 @@ import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
+import Compute.IPositionalDecode;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 
@@ -229,6 +230,41 @@ namespace Mila::Dnn
             operation_->backward( input, output_grad, *input_grad_ );
 
             return *input_grad_;
+        }
+
+        /**
+         * @brief Decode pass - single token embedding at a specific sequence position.
+         *
+         * Unlike forward() which processes a full sequence [B, T] and uses positions
+         * 0..T-1, decode() processes a single token and uses the caller-supplied
+         * position for the positional embedding lookup. This is critical for
+         * correctness in KV cache autoregressive generation — without the correct
+         * position, wpe[0] would be used for every generated token, corrupting
+         * all subsequent attention computations.
+         *
+         * @param input   Single token index tensor [1, 1]
+         * @param position Actual sequence position (prefill_len + decode_step)
+         * @return Reference to component-owned embedding tensor [1, 1, C]
+         *
+         * @throws std::runtime_error if component is not built.
+         */
+        EmbeddingsTensorType& decode( const TokenIndexType& input, int position )
+        {
+            if ( !this->isBuilt() )
+                throw std::runtime_error( "Lpe must be built before calling decode()." );
+
+            // Resolve IDecode once — same pattern as Linear
+            if ( !decode_path_ )
+                throw std::runtime_error( "Lpe: backend operation does not support decode() — IDecode not implemented" );
+
+            decode_path_->decode( input, *output_, position );
+
+            // Single token output shape [1, 1, C]
+            shape_t decode_out_shape = { 1, 1, static_cast<dim_t>(config_.getEmbeddingDim()) };
+            current_output_view_ = std::make_unique<EmbeddingsTensorType>(
+                output_->view( decode_out_shape ) );
+
+            return *current_output_view_;
         }
 
         void zeroGradients() override
@@ -443,6 +479,9 @@ namespace Mila::Dnn
         {
             validateInputShape( input_shape );
 
+            // Resolve IPositionalDecode once at build time. May be nullptr for some backends (CPU)
+            decode_path_ = dynamic_cast<IPositionalDecode*>(operation_.get());
+
             // Store MAX dimensions for dynamic input validation in forward/backward 
             // (batch size can vary, but sequence length must be <= max)
             max_batch_size_ = input_shape[ 0 ];
@@ -510,6 +549,8 @@ namespace Mila::Dnn
         std::unique_ptr<EmbeddingsTensorType> current_output_view_{ nullptr };
 
         std::shared_ptr<UnaryOperation<TDeviceType, TIndex, TPrecision>> operation_{ nullptr };
+        IPositionalDecode* decode_path_{ nullptr };  // non-owning, resolved at build time. nullptr for CPU backends.
+        
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
         void validateInputShape( const TokenIndexType& input ) const

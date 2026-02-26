@@ -403,7 +403,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlanCache.ixx"
         
         "Src/Dnn/Models/GptModel.ixx"
-        "Src/Dnn/Compute/IDecode.ixx")
+        "Src/Dnn/Compute/IDecode.ixx" "Src/Dnn/Compute/IPositionalDecode.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -485,6 +485,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/CudaMhaOp.Dispatch.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Lpe/CudaLpeOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Lpe/CudaLpeOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Rope/CudaRopeOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CublasLtMatMulBias.ixx"
@@ -499,6 +500,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Zero.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaDebug.ixx"
+                
     )
 
     target_link_libraries( Mila PUBLIC 
