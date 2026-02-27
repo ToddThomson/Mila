@@ -181,29 +181,30 @@ namespace Mila::Dnn
             auto& logits = network_->forward( prefill_input );
             network_->getExecutionContext()->synchronize();
 
-            // In GptModel::generate() after prefill forward():
-            auto logits_cpu = toHost<TensorDataType::FP32>( logits );
-            //auto logits_cpu = toHost( logits );
-            int vocab_size = 50257;
+            // FIXME: Remove
+            //// In GptModel::generate() after prefill forward():
+            //auto logits_cpu = toHost<TensorDataType::FP32>( logits );
+            ////auto logits_cpu = toHost( logits );
+            //int vocab_size = 50257;
 
-            // What is Mila's top token at pos 3?
-            float max_val = -1e9f;
-            int   max_tok = 0;
-            for ( int v = 0; v < vocab_size; ++v )
-            {
-                float val = logits_cpu.data()[ 3 * vocab_size + v ];
-                if ( val > max_val )
-                {
-                    max_val = val; max_tok = v;
-                }
-            }
-            Utils::Logger::info( std::format(
-                "Prefill top token at pos 3: token={} logit={:.4f}", max_tok, max_val ) );
+            //// What is Mila's top token at pos 3?
+            //float max_val = -1e9f;
+            //int   max_tok = 0;
+            //for ( int v = 0; v < vocab_size; ++v )
+            //{
+            //    float val = logits_cpu.data()[ 3 * vocab_size + v ];
+            //    if ( val > max_val )
+            //    {
+            //        max_val = val; max_tok = v;
+            //    }
+            //}
+            //Utils::Logger::info( std::format(
+            //    "Prefill top token at pos 3: token={} logit={:.4f}", max_tok, max_val ) );
 
-            // What is token 11's logit at pos 3?
-            Utils::Logger::info( std::format(
-                "Prefill token 11 (',') at pos 3: {:.4f}",
-                logits_cpu.data()[ 3 * vocab_size + 11 ] ) );
+            //// What is token 11's logit at pos 3?
+            //Utils::Logger::info( std::format(
+            //    "Prefill token 11 (',') at pos 3: {:.4f}",
+            //    logits_cpu.data()[ 3 * vocab_size + 11 ] ) );
 
 
             // Sample first token from last position of prefill
@@ -227,51 +228,6 @@ namespace Mila::Dnn
                     decode_logits, 0, temperature, top_k, rng );  // pos 0 — single token output
                 tokens.push_back( next_token );
                 ++position;
-
-                if ( next_token == eos_token_ )
-                    break;
-            }
-
-            return tokens;
-        }
-
-
-        /**
-         * @brief Autoregressive text generation from prompt tokens.
-         *
-         * Generates up to max_new_tokens tokens. Stops early on EOS.
-         * Currently uses naive full-sequence re-evaluation each step.
-         *
-         * @param prompt_tokens  Input token IDs.
-         * @param max_new_tokens Maximum tokens to generate.
-         * @param temperature    Sampling temperature. 0 = greedy.
-         * @param top_k          If > 0, restrict to top-k tokens.
-         * @return               All token IDs (prompt + generated).
-         */
-        std::vector<int32_t> generate_no_decode(
-            const std::vector<int32_t>& prompt_tokens,
-            size_t max_new_tokens = 64,
-            float temperature = 1.0f,
-            int top_k = 0 )
-        {
-            std::vector<int32_t> tokens = prompt_tokens;
-            std::mt19937 rng( std::chrono::high_resolution_clock::now()
-                .time_since_epoch().count() );
-
-            for ( size_t step = 0; step < max_new_tokens; ++step )
-            {
-                truncateIfNeeded( tokens );
-
-                int64_t seq_len = static_cast<int64_t>( tokens.size() );
-                auto input = makeTokenTensor( tokens );
-
-                auto& logits = network_->forward( input );
-                network_->getExecutionContext()->synchronize();
-
-                int32_t next_token = sampleFromLogits(
-                    logits, seq_len - 1, temperature, top_k, rng );
-
-                tokens.push_back( next_token );
 
                 if ( next_token == eos_token_ )
                     break;

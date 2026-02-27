@@ -116,8 +116,6 @@ namespace Mila::ChatApp
             {
                 std::cout << "Loading model from: " << model_path_ << "\n";
 
-                // GptModel::fromPretrained() — clean signature, no batch_size or seq_length.
-                // Inference mode is enforced internally by GptModel.
                 model_ = GptModelType::fromPretrained(
                     model_path_,
                     DeviceId{ DeviceType::Cuda, 0 },
@@ -147,47 +145,11 @@ namespace Mila::ChatApp
 
                 std::vector<TokenId> prompt_tokens = tokenizer_->encode( prompt );
 
-                Utils::Logger::info( std::format(
-                    "Prompt: '{}' → {} tokens", prompt, prompt_tokens.size() ) );
-
-                std::vector<int32_t> generated = model_->generate(
-                    std::vector<int32_t>( prompt_tokens.begin(), prompt_tokens.end() ),
-                    /*max_new_tokens=*/64,
-                    /*temperature=*/1.0f,
-                    /*top_k=*/1 );
-
-                std::string full_text = tokenizer_->decode(
-                    std::vector<TokenId>( generated.begin(), generated.end() ) );
-
-                return extractResponse( full_text, prompt );
-            }
-            catch ( const std::exception& e )
-            {
-                return "Error: " + std::string( e.what() );
-            }
-        }
-
-        std::string generateResponse_v2( const std::vector<std::string>& history )
-        {
-            try
-            {
-                if ( !model_ || !tokenizer_ )
-                    return "Model not loaded.";
-
-                std::string prompt = preparePrompt( history );
-
-                std::vector<TokenId> prompt_tokens = tokenizer_->encode( prompt );
-
-                Utils::Logger::info( std::format(
-                    "Generating from {} tokens...", prompt_tokens.size() ) );
-
-                // generate() — two-phase prefill + decode pipeline.
-                // GptModel handles KV cache path internally — no concern here.
                 std::vector<int32_t> generated = model_->generate(
                     std::vector<int32_t>( prompt_tokens.begin(), prompt_tokens.end() ),
                     /*max_new_tokens=*/64,
                     /*temperature=*/0.8f,
-                    /*top_k=*/40 );
+                    /*top_k=*/ 40 );
 
                 std::string full_text = tokenizer_->decode(
                     std::vector<TokenId>( generated.begin(), generated.end() ) );
