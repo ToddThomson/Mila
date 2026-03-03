@@ -131,24 +131,24 @@ namespace Mila::Dnn
 
             validateInputShape( input.shape() );
 
-            // DEBUG:
-            auto input_shape_d = input.shape();
-            Utils::Logger::info( std::format(
-                "lm_head forward: input_shape={} max_input_shape={} shapes_equal={}",
-                shapeToString( input_shape_d ),
-                shapeToString( max_input_shape_ ),
-                input_shape_d == max_input_shape_ ) );
+            //// DEBUG:
+            //auto input_shape_d = input.shape();
+            //Utils::Logger::info( std::format(
+            //    "lm_head forward: input_shape={} max_input_shape={} shapes_equal={}",
+            //    shapeToString( input_shape_d ),
+            //    shapeToString( max_input_shape_ ),
+            //    input_shape_d == max_input_shape_ ) );
 
 
-            // Check input range
-            auto host_input = toHost<TensorDataType::FP32>( input );
-            auto host_input_ptr = host_input.data();
-            const size_t n = host_input.size();
-            auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
-            Utils::Logger::debug( std::format( "LinearOp {} in:[{:.3f}, {:.3f}] with shape {}",
-                this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
+            //// Check input range
+            //auto host_input = toHost<TensorDataType::FP32>( input );
+            //auto host_input_ptr = host_input.data();
+            //const size_t n = host_input.size();
+            //auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
+            //Utils::Logger::debug( std::format( "LinearOp {} in:[{:.3f}, {:.3f}] with shape {}",
+            //    this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
 
-            // END DEBUG:
+            //// END DEBUG:
 
             operation_->forward( input, *owned_output_ );
 
@@ -257,18 +257,18 @@ namespace Mila::Dnn
             //}
             //// DEBUG: End
 
-            // DEBUG:
-            // Check output range
-            this->synchronize();
+            //// DEBUG:
+            //// Check output range
+            //this->synchronize();
 
-            auto host_output = toHost<TensorDataType::FP32>( *result );
-            auto host_output_ptr = host_output.data();
-            const size_t output_n = host_output.size();
-            auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
+            //auto host_output = toHost<TensorDataType::FP32>( *result );
+            //auto host_output_ptr = host_output.data();
+            //const size_t output_n = host_output.size();
+            //auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
 
-            Utils::Logger::debug( std::format( "LinearOp {} out:[{:.3f}, {:.3f}], shape {}",
-                this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );
-            // DEBUG END
+            //Utils::Logger::debug( std::format( "LinearOp {} out:[{:.3f}, {:.3f}], shape {}",
+            //    this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );
+            //// DEBUG END
 
             return *result;
         }

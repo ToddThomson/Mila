@@ -147,7 +147,7 @@ namespace Mila::ChatApp
 
                 std::vector<int32_t> generated = model_->generate(
                     std::vector<int32_t>( prompt_tokens.begin(), prompt_tokens.end() ),
-                    /*max_new_tokens=*/64,
+                    /*max_new_tokens=*/512,
                     /*temperature=*/0.8f,
                     /*top_k=*/ 40 );
 
@@ -201,10 +201,10 @@ namespace Mila::ChatApp
         void printWelcome() const
         {
             std::cout << R"(
-╔══════════════════════════════════════╗
-║         Mila Chat CLI v1.0          ║
-║   Powered by Mila DNN Library       ║
-╚══════════════════════════════════════╝
++--------------------------------------+
+|         Mila Chat CLI v1.0           |
+|      Powered by Mila DNN Library     |
++--------------------------------------+
 
 Type 'help' for commands, 'exit' to quit.
 )" << "\n";

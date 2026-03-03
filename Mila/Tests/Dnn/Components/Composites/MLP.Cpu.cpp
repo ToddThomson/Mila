@@ -52,7 +52,6 @@ namespace CompositeComponents_Tests
             data.config = MLPConfig( input_features, hidden_size );
             data.config.withBias( has_bias )
                 .withActivation( activation )
-                .withLayerNorm( use_layer_norm )
                 .withPrecisionPolicy( precision );
 
             // Construct MLP in standalone mode (owns its ExecutionContext)

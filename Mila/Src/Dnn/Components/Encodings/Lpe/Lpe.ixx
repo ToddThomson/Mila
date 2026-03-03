@@ -150,14 +150,14 @@ namespace Mila::Dnn
                     B, T, max_batch_size_, max_seq_len_ ) );
             }
 
-            // DEBUG: Check input range
-            auto host_input = toHost<TensorDataType::FP32>( input );
-            auto host_input_ptr = host_input.data();
-            const size_t n = host_input.size();
-            auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
-            Utils::Logger::debug( std::format( "Lpe {} in:[{:.3f}, {:.3f}] with shape:{}",
-                this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
-            // END DEBUG:
+            //// DEBUG: Check input range
+            //auto host_input = toHost<TensorDataType::FP32>( input );
+            //auto host_input_ptr = host_input.data();
+            //const size_t n = host_input.size();
+            //auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
+            //Utils::Logger::debug( std::format( "Lpe {} in:[{:.3f}, {:.3f}] with shape:{}",
+            //    this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
+            //// END DEBUG:
 
             operation_->forward( input, *output_ );
 
@@ -165,17 +165,17 @@ namespace Mila::Dnn
             shape_t actual_out_shape = { B, T, static_cast<dim_t>( config_.getEmbeddingDim() ) };
             current_output_view_ = std::make_unique<EmbeddingsTensorType>( output_->view( actual_out_shape ) );
 
-            // DEBUG: Check output range
-            this->synchronize();
+            //// DEBUG: Check output range
+            //this->synchronize();
 
-            auto host_output = toHost<TensorDataType::FP32>( *current_output_view_ );
-            auto host_output_ptr = host_output.data();
-            const size_t output_n = host_output.size();
-            auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
+            //auto host_output = toHost<TensorDataType::FP32>( *current_output_view_ );
+            //auto host_output_ptr = host_output.data();
+            //const size_t output_n = host_output.size();
+            //auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
 
-            Utils::Logger::debug( std::format( "Lpe {} out:[{:.3f}, {:.3f}] with shape:{}",
-                this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );
-            // DEBUG END
+            //Utils::Logger::debug( std::format( "Lpe {} out:[{:.3f}, {:.3f}] with shape:{}",
+            //    this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );
+            //// DEBUG END
 
             return *current_output_view_;
         }

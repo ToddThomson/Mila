@@ -123,12 +123,12 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 throw std::invalid_argument( "CudaAttentionOp::initializeKVCache max_seq_length out of range" );
             }
 
-            // DEBUG: start
-            // Dump batch_size and max_seq_length
-            Utils::Logger::debug( std::format(
-                "initializeKVCache(): B={} max_seq_length={}",
-                batch_size, max_seq_length ) );
-            // DEBUG: end
+            //// DEBUG: start
+            //// Dump batch_size and max_seq_length
+            //Utils::Logger::debug( std::format(
+            //    "initializeKVCache(): B={} max_seq_length={}",
+            //    batch_size, max_seq_length ) );
+            //// DEBUG: end
 
             active_max_seq_len_ = max_seq_length;
             cached_seq_len_ = 0;
@@ -159,12 +159,12 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             const float beta = 0.0f;
             const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
 
-            // DEBUG: start
-            // Dump permute_qkv_padded args
-            Utils::Logger::debug( std::format(
-                "permute_qkv_padded: B={} input_T={} output_T={} NH={} HS={}",
-                B_, actual_seq_len, T_, NH_, HS_ ) );
-            // DEBUG: end
+            //// DEBUG: start
+            //// Dump permute_qkv_padded args
+            //Utils::Logger::debug( std::format(
+            //    "permute_qkv_padded: B={} input_T={} output_T={} NH={} HS={}",
+            //    B_, actual_seq_len, T_, NH_, HS_ ) );
+            //// DEBUG: end
 
             Detail::cuda_mha_kernels<NativeType>::permute_qkv_padded(
                 q_, k_, v_,
@@ -202,13 +202,13 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 context_->getCublasLtWorkspaceSize() );
 
             context_->synchronize();
-            {
-                // Dump v_out_ before unpermute — shape [B, NH, actual_T, HS]
-                shape_t v_out_shape = { B_, NH_, T_, HS_ };
-                std::string v_out_dump = dump_tensor<NativeType>(
-                    v_out_, v_out_shape, this->getName() + ".dbg.v_out_", 16, stream );
-                Utils::Logger::info( this->getName() + ": dbg.v_out_ (before unpermute):\n" + v_out_dump );
-            }
+            //{
+            //    // Dump v_out_ before unpermute — shape [B, NH, actual_T, HS]
+            //    shape_t v_out_shape = { B_, NH_, T_, HS_ };
+            //    std::string v_out_dump = dump_tensor<NativeType>(
+            //        v_out_, v_out_shape, this->getName() + ".dbg.v_out_", 16, stream );
+            //    Utils::Logger::info( this->getName() + ": dbg.v_out_ (before unpermute):\n" + v_out_dump );
+            //}
             
             Detail::cuda_mha_kernels<NativeType>::unpermute_output_padded(
                 v_out_, Y,
@@ -217,13 +217,13 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             // Dump the first 5 elements of v_out_ for debugging
             context_->synchronize();
-            {
+ /*           {
                 shape_t v_out_shape = { B_, NH_, actual_seq_len, HS_ };
                 std::string v_out_dump = dump_tensor<NativeType>(
                     v_out_, v_out_shape, this->getName() + ".dbg.v_out_", 16, stream );
 
                 Utils::Logger::info( this->getName() + ": dbg.v_out_ (device dump):\n" + v_out_dump );
-            }
+            }*/
 
             cached_seq_len_ = actual_seq_len;
         }
@@ -243,7 +243,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             int actual_len = position + 1;
 
-            Utils::Logger::debug( std::format( "CudaAttentionOp position: {}, actual_len: {}", position, actual_len ) );
+            //Utils::Logger::debug( std::format( "CudaAttentionOp position: {}, actual_len: {}", position, actual_len ) );
 
             const NativeType* X = static_cast<const NativeType*>( input.rawData() );
             NativeType* Y = static_cast<NativeType*>( output.rawData() );

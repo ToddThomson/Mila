@@ -146,6 +146,19 @@ CPMAddPackage(
         "JSON_MultipleHeaders OFF"
 )
 
+# SentencePiece - Llama-compatible BPE tokenizer
+# Built without protobuf and shared libs to keep the dependency footprint minimal.
+CPMAddPackage(
+    NAME sentencepiece
+    GITHUB_REPOSITORY google/sentencepiece
+    GIT_TAG v0.2.1
+    OPTIONS
+        "SPM_ENABLE_SHARED OFF"
+        "SPM_ENABLE_TCMALLOC OFF"
+        "SPM_USE_BUILTIN_PROTOBUF ON"
+        "SPM_BUILD_TEST OFF"
+)
+
 find_package(CUDAToolkit REQUIRED)  
 find_package(miniz REQUIRED)
 find_package(nlohmann_json REQUIRED)

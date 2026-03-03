@@ -134,17 +134,17 @@ namespace Mila::Dnn
                 throw std::runtime_error( "LayerNorm module must be built before calling forward." );
             }
 
-            // DEBUG:
+            //// DEBUG:
 
-            // Check input range
-            auto host_input = toHost<TensorDataType::FP32>( input );
-            auto host_input_ptr = host_input.data();
-            const size_t n = host_input.size();
-            auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
-            Utils::Logger::debug( std::format( "LayerNorm {} in:[{:.3f}, {:.3f}] with shape {}",
-                this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
+            //// Check input range
+            //auto host_input = toHost<TensorDataType::FP32>( input );
+            //auto host_input_ptr = host_input.data();
+            //const size_t n = host_input.size();
+            //auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
+            //Utils::Logger::debug( std::format( "LayerNorm {} in:[{:.3f}, {:.3f}] with shape {}",
+            //    this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
 
-            // END DEBUG:
+            //// END DEBUG:
 
             operation_->forward( input, *owned_output_ );
 
@@ -166,18 +166,18 @@ namespace Mila::Dnn
                 result = current_output_view_.get();
             }
 
-            // DEBUG:
+            //// DEBUG:
 
-            // Check output range on the resolved view to avoid reading stale
-            // elements beyond the current input extent in the pre-allocated buffer.
-            auto host_output = toHost<TensorDataType::FP32>( *result );
-            auto host_output_ptr = host_output.data();
-            const size_t m = host_output.size();
-            auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + m );
-            Utils::Logger::debug( std::format( "LayerNorm {} out:[{:.3f}, {:.3f}] with shape {}",
-                this->getName(), *min_out, *max_out, shapeToString( result->shape() ) ) );
+            //// Check output range on the resolved view to avoid reading stale
+            //// elements beyond the current input extent in the pre-allocated buffer.
+            //auto host_output = toHost<TensorDataType::FP32>( *result );
+            //auto host_output_ptr = host_output.data();
+            //const size_t m = host_output.size();
+            //auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + m );
+            //Utils::Logger::debug( std::format( "LayerNorm {} out:[{:.3f}, {:.3f}] with shape {}",
+            //    this->getName(), *min_out, *max_out, shapeToString( result->shape() ) ) );
 
-            // END DEBUG:
+            //// END DEBUG:
 
             return *result;
         }

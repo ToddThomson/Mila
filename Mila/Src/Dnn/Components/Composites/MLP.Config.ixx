@@ -72,16 +72,6 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Configure whether to use layer normalization after the first linear (C++23 fluent style).
-         */
-        template <typename Self>
-        decltype(auto) withLayerNorm( this Self&& self, bool use_layer_norm )
-        {
-            self.use_layer_norm_ = use_layer_norm;
-            return std::forward<Self>( self );
-        }
-
-        /**
          * @brief Get the configured number of input (and output) features.
          *
          * @return Number of input features.
@@ -122,16 +112,6 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Query whether layer normalization is enabled.
-         *
-         * @return True if layer normalization is enabled.
-         */
-        bool useLayerNorm() const noexcept
-        {
-            return use_layer_norm_;
-        }
-
-        /**
          * @brief Validate configuration parameters.
          *
          * @throws std::invalid_argument If validation fails (e.g. zero-sized dimensions).
@@ -158,19 +138,17 @@ namespace Mila::Dnn
          * - "hidden_size" : integer
          * - "has_bias" : boolean
          * - "activation" : integer (ActivationType)
-         * - "use_layer_norm" : boolean
          *
          * @return SerializationMetadata Metadata representing this configuration.
          */
         SerializationMetadata toMetadata() const override
         {
             SerializationMetadata meta;
-            meta.set( "precision", static_cast<int64_t>( precision_ ) )
-                .set( "input_features", static_cast<int64_t>( input_features_ ) )
-                .set( "hidden_size", static_cast<int64_t>( hidden_size_ ) )
+            meta.set( "precision", static_cast<int64_t>(precision_) )
+                .set( "input_features", static_cast<int64_t>(input_features_) )
+                .set( "hidden_size", static_cast<int64_t>(hidden_size_) )
                 .set( "has_bias", has_bias_ )
-                .set( "activation", static_cast<int64_t>( activation_type_ ) )
-                .set( "use_layer_norm", use_layer_norm_ );
+                .set( "activation", static_cast<int64_t>(activation_type_) );
 
             return meta;
         }
@@ -209,24 +187,18 @@ namespace Mila::Dnn
             {
                 activation_type_ = static_cast<ActivationType>( *act );
             }
-
-            if ( auto ln = meta.tryGetBool( "use_layer_norm" ) )
-            {
-                use_layer_norm_ = *ln;
-            }
         }
 
         std::string toString() const override
         {
             std::ostringstream oss;
 
-            oss << "MLPConfig(";
+            oss << "MLPConfig( ";
             oss << "input_features=" << input_features_ << ", ";
             oss << "hidden_size=" << hidden_size_ << ", ";
             oss << "has_bias=" << (has_bias_ ? "true" : "false") << ", ";
-            oss << "activation=" << static_cast<int>(activation_type_) << ", ";
-            oss << "use_layer_norm=" << (use_layer_norm_ ? "true" : "false");
-            oss << ")";
+            oss << "activation=" << static_cast<int>(activation_type_);
+            oss << " )";
 
             return oss.str();
         }
@@ -236,11 +208,5 @@ namespace Mila::Dnn
         dim_t hidden_size_{ 0 };
         bool has_bias_{ true };
         ActivationType activation_type_{ ActivationType::Gelu };
-
-        // REVIEW: The use of layer normalization in an MLP block is non-standard;
-        // it was a speculative addition that doesn't seem to be needed.
-        // Removing it simplifies the component graph and would allow fused decode path.
-        // TODO: Remove
-        bool use_layer_norm_{ false };
     };
 }

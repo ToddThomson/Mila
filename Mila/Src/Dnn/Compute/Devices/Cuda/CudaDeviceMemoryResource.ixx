@@ -94,7 +94,7 @@ namespace Mila::Dnn::Compute
             void* ptr = nullptr;
 
 			// TJT: WARNING cudaMalloc() on windows 11 with WDDM driver will use shared memory
-			// and so it is possible allocate more memory than is physically present on the GPU.
+			// and so it is possible to allocate more memory than is physically present on the GPU.
             cudaError_t result = cudaMalloc( &ptr, bytes );
 
             if (result != cudaSuccess) {

@@ -9,16 +9,23 @@ add_library( Mila STATIC
     #--------------------------------------------------------------------------
     # Cuda Operations Kernels
     #--------------------------------------------------------------------------
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Lpe/Kernels/Lpe.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Lpe/Kernels/Lpe.Fp16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Lpe/Kernels/Lpe.cuh"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Rope/Kernels/Rope.Fp32.cu"
-    #"Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Rope/Kernels/Rope.Fp16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Rope/Kernels/Rope.cuh"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp16.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.cuh"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Fp32.cu"
+    #"Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Fp16.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.cuh"
+
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.cuh"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Unpermute.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Softmax.cu"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/Kernels/CudaMha.cuh"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/Kernels/CudaMha.Permute.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/Kernels/CudaMha.Softmax.cu"
+
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/CudaGqa.cuh"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/CudaGqa.Permute.cu"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp16.cu"
@@ -83,7 +90,10 @@ target_compile_features( Mila PUBLIC cxx_std_23 )
 #find_package(miniz REQUIRED)  
 #find_package(nlohmann_json REQUIRED)
 
-target_include_directories( Mila PRIVATE ${miniz_SOURCE_DIR})
+target_include_directories( Mila 
+    PRIVATE 
+        ${miniz_SOURCE_DIR}
+        ${sentencepiece_SOURCE_DIR}/src )
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   target_compile_options(Mila PRIVATE 
@@ -194,17 +204,21 @@ PUBLIC
         "Src/Dnn/Components/Connections/ResidualConfig.ixx"
 
         # Components - Embeddings
-        "Src/Dnn/Components/Embeddings/Lpe.ixx"
-        "Src/Dnn/Components/Embeddings/Lpe.Config.ixx"
-        "Src/Dnn/Components/Embeddings/Rope.ixx"
-        "Src/Dnn/Components/Embeddings/Rope.Config.ixx"
+        "Src/Dnn/Components/Embeddings/TokenEmbedding.ixx"
+        "Src/Dnn/Components/Embeddings/TokenEmbedding.Config.ixx"
+
+        # Components - Positional Encodings
+        "Src/Dnn/Components/Encodings/Lpe/Lpe.ixx"
+        "Src/Dnn/Components/Encodings/Lpe/Lpe.Config.ixx"
+        "Src/Dnn/Components/Encodings/Rope/Rope.ixx"
+        "Src/Dnn/Components/Encodings/Rope/Rope.Config.ixx"
 
         # Components - Attention
-        "Src/Dnn/Components/Attention/MultiHeadAttention.ixx"
-        "Src/Dnn/Components/Attention/MultiHeadAttention.Config.ixx"
+        "Src/Dnn/Components/Attention/MHA/MultiHeadAttention.ixx"
+        "Src/Dnn/Components/Attention/MHA/MultiHeadAttention.Config.ixx"
         
-        "Src/Dnn/Components/Layers/Linear.ixx"
-        "Src/Dnn/Components/Layers/LinearConfig.ixx"
+        "Src/Dnn/Components/Linear/Linear.ixx"
+        "Src/Dnn/Components/Linear/LinearConfig.ixx"
 
         # Components - Normalization / Losses / Regularization / Composites
         "Src/Dnn/Components/Normalization/LayerNorm.ixx"
@@ -353,19 +367,19 @@ PUBLIC
         "Src/Dnn/Core/LearningRateScheduler.ixx"
         
         "Src/Dnn/Components/Activations/ApproximationMethod.ixx"
-        "Src/Dnn/Components/Transformers/Gpt.Presets.ixx"
+        "Src/Dnn/Components/Transformers/Gpt/Gpt.Presets.ixx"
         "Src/Dnn/Components/Attention/AttentionType.ixx"
         "Src/Dnn/Components/Normalization/NormType.ixx"
-        "Src/Dnn/Components/Embeddings/EmbeddingType.ixx"
+        "Src/Dnn/Components/Encodings/EncodingType.ixx"
         "Src/Dnn/Core/ModelReader.ixx"
-        "Src/Dnn/Components/Transformers/GptTransformer.ixx"
-        "Src/Dnn/Components/Composites/LlamaBlock.ixx"
-        "Src/Dnn/Components/Composites/LlamaBlock.Config.ixx"
-        "Src/Dnn/Components/Transformers/Gpt.Config.ixx"
-        "Src/Dnn/Components/Transformers/LlamaTransformer.ixx"
-        "Src/Dnn/Components/Transformers/Llama.Config.ixx"
+        "Src/Dnn/Components/Transformers/Gpt/GptTransformer.ixx"
         
-        "Src/Dnn/Components/Transformers/Llama.Presets.ixx"
+        
+        "Src/Dnn/Components/Transformers/Gpt/Gpt.Config.ixx"
+        "Src/Dnn/Components/Transformers/LlaMa/Llama.ixx"
+        "Src/Dnn/Components/Transformers/LlaMa/Llama.Config.ixx"
+        
+        "Src/Dnn/Components/Transformers/LlaMa/Llama.Presets.ixx"
 
         "Src/Dnn/Data/Tokenizer.ixx"
         "Src/Dnn/Data/Gpt2Tokenizer.ixx"
@@ -403,7 +417,15 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlanCache.ixx"
         
         "Src/Dnn/Models/GptModel.ixx"
-        "Src/Dnn/Compute/IDecode.ixx" "Src/Dnn/Compute/IPositionalDecode.ixx")
+        "Src/Dnn/Compute/IDecode.ixx"
+        "Src/Dnn/Compute/IPositionalDecode.ixx"
+        "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
+        "Src/Dnn/Components/Composites/MLP.Dispatch.ixx"
+        "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.ixx"
+        "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
+        
+        "Src/Dnn/Compute/Operations/PairedOperation.ixx"
+)
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -480,13 +502,26 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
+                
+                # CUDA Attention Ops
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqa.Plans.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqa.Dispatch.ixx"
+    
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/CudaMhaOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/CudaMhaOp.Plans.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/CudaMhaOp.Dispatch.ixx"
+
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/CudaTokenEmbeddingOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/CudaTokenEmbeddingOp.Dispatch.ixx"
                 
-                "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Lpe/CudaLpeOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Lpe/CudaLpeOp.Dispatch.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Rope/CudaRopeOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/CudaLpeOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/CudaLpeOp.Dispatch.ixx"
+                
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.Dispatch.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.Cache.ixx"
+
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CublasLtMatMulBias.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.ixx"
@@ -605,11 +640,11 @@ if(MILA_HAS_ROCM)
     add_library(Mila::Rocm ALIAS Mila_Rocm)
 endif()
 
-target_link_libraries( Mila PRIVATE miniz )
-#    PRIVATE
-#     miniz
-#     nlohmann_json::nlohmann_json
-#)
+target_link_libraries( Mila 
+  PRIVATE 
+    miniz
+    sentencepiece-static
+)
 
 # =============================================================================
 # Versioning

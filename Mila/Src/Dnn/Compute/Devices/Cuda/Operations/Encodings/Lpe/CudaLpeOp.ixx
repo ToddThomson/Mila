@@ -323,7 +323,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
     public:
         static void registerOperations()
         {
-            const std::string opName = "EncoderOp";
+            const std::string opName = "LpeOp";
 
             registerUnaryOpType<DeviceType::Cuda,
                 CudaLpeOp<TensorDataType::INT32, TensorDataType::FP32>,

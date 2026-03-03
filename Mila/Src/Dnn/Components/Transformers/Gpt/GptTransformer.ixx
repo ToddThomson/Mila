@@ -191,49 +191,49 @@ namespace Mila::Dnn
                 }
             }
 
-            auto block_out_cpu = toHost<TensorDataType::FP32>( *block_output_ptrs_.back() );
+            /*auto block_out_cpu = toHost<TensorDataType::FP32>( *block_output_ptrs_.back() );
             int C = 768, T = 4;
             for ( int pos = 0; pos < T; ++pos )
             {
                 Utils::Logger::info( std::format(
                     "block_out pos {} elem[0]: {:.4f}",
                     pos, block_out_cpu.data()[ pos * C ] ) );
-            }
+            }*/
 
             normalized_ptr_ = &final_layernorm_->forward( *block_output_ptrs_.back() );
             this->getExecutionContext()->synchronize();
 
-            auto ln_out_cpu = toHost<TensorDataType::FP32>( *normalized_ptr_ );
-            //int C = 768;
-            //int T = 4;
+            //auto ln_out_cpu = toHost<TensorDataType::FP32>( *normalized_ptr_ );
+            ////int C = 768;
+            ////int T = 4;
 
-            // Log first element of each position
-            for ( int pos = 0; pos < T; ++pos )
-            {
-                Utils::Logger::info( std::format(
-                    "ln_final out pos {} elem[0]: {:.4f}",
-                    pos, ln_out_cpu.data()[ pos * C ] ) );
-            }
+            //// Log first element of each position
+            //for ( int pos = 0; pos < T; ++pos )
+            //{
+            //    Utils::Logger::info( std::format(
+            //        "ln_final out pos {} elem[0]: {:.4f}",
+            //        pos, ln_out_cpu.data()[ pos * C ] ) );
+            //}
 
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
             this->getExecutionContext()->synchronize();
 
-            auto logits_cpu = toHost<TensorDataType::FP32>( *logits_ptr_ );
-            int V = 50257;
-            //int T = 4;
+            //auto logits_cpu = toHost<TensorDataType::FP32>( *logits_ptr_ );
+            //int V = 50257;
+            ////int T = 4;
 
-            // Log token 11 logit at every position
-            for ( int pos = 0; pos < T; ++pos )
-            {
-                Utils::Logger::info( std::format(
-                    "token 11 (',') at pos {}: {:.4f}",
-                    pos, logits_cpu.data()[ pos * V + 11 ] ) );
-            }
+            //// Log token 11 logit at every position
+            //for ( int pos = 0; pos < T; ++pos )
+            //{
+            //    Utils::Logger::info( std::format(
+            //        "token 11 (',') at pos {}: {:.4f}",
+            //        pos, logits_cpu.data()[ pos * V + 11 ] ) );
+            //}
 
-            // Also log what's at offset 11 (as if layout were [V, T])
-            Utils::Logger::info( std::format(
-                "offset 11*T+3 (col-major pos 3): {:.4f}",
-                logits_cpu.data()[ 11 * T + 3 ] ) );
+            //// Also log what's at offset 11 (as if layout were [V, T])
+            //Utils::Logger::info( std::format(
+            //    "offset 11*T+3 (col-major pos 3): {:.4f}",
+            //    logits_cpu.data()[ 11 * T + 3 ] ) );
 
             return *logits_ptr_;
         }

@@ -30,7 +30,6 @@ namespace CompositeComponents_Tests
         EXPECT_EQ( config.getHiddenSize(), hidden_size );
         EXPECT_TRUE( config.hasBias() );
         EXPECT_EQ( config.getActivationType(), ActivationType::Gelu );
-        EXPECT_FALSE( config.useLayerNorm() );
     }
 
     TEST_F( MLPConfigTests, Constructor_MinimalValues )
@@ -68,19 +67,6 @@ namespace CompositeComponents_Tests
         EXPECT_EQ( config.getActivationType(), ActivationType::Gelu );
     }
 
-    TEST_F( MLPConfigTests, WithLayerNorm_FluentInterface )
-    {
-        MLPConfig config( 256, 1024 );
-
-        auto& result = config.withLayerNorm( true );
-
-        EXPECT_EQ( &result, &config );
-        EXPECT_TRUE( config.useLayerNorm() );
-
-        config.withLayerNorm( false );
-        EXPECT_FALSE( config.useLayerNorm() );
-    }
-
     TEST_F( MLPConfigTests, FluentInterface_Chaining )
     {
         int64_t input_features = 512;
@@ -91,7 +77,6 @@ namespace CompositeComponents_Tests
         auto& result = config
             .withBias( false )
             .withActivation( ActivationType::Gelu )
-            .withLayerNorm( true )
             .withPrecisionPolicy( ComputePrecision::Policy::Performance );
 
         EXPECT_EQ( &result, &config );
@@ -99,7 +84,6 @@ namespace CompositeComponents_Tests
         EXPECT_EQ( config.getHiddenSize(), hidden_size );
         EXPECT_FALSE( config.hasBias() );
         EXPECT_EQ( config.getActivationType(), ActivationType::Gelu );
-        EXPECT_TRUE( config.useLayerNorm() );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
     }
 
@@ -178,14 +162,12 @@ namespace CompositeComponents_Tests
 
         config.withBias( false )
             .withActivation( ActivationType::Gelu )
-            .withLayerNorm( true )
             .withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
 
         EXPECT_EQ( config.getInputFeatures(), 768 );
         EXPECT_EQ( config.getHiddenSize(), 3072 );
         EXPECT_FALSE( config.hasBias() );
         EXPECT_EQ( config.getActivationType(), ActivationType::Gelu );
-        EXPECT_TRUE( config.useLayerNorm() );
         EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
     }
 
@@ -196,8 +178,7 @@ namespace CompositeComponents_Tests
 
         MLPConfig config( input_features, hidden_size );
         config.withBias( false )
-            .withActivation( ActivationType::Gelu )
-            .withLayerNorm( true );
+            .withActivation( ActivationType::Gelu );
 
         MLPConfig copied_config = config;
 
@@ -205,7 +186,6 @@ namespace CompositeComponents_Tests
         EXPECT_EQ( copied_config.getHiddenSize(), hidden_size );
         EXPECT_FALSE( copied_config.hasBias() );
         EXPECT_EQ( copied_config.getActivationType(), ActivationType::Gelu );
-        EXPECT_TRUE( copied_config.useLayerNorm() );
     }
 
     TEST_F( MLPConfigTests, EdgeCase_LargeFeatureDimensions )
@@ -237,12 +217,6 @@ namespace CompositeComponents_Tests
 
         config.withBias( true );
         EXPECT_TRUE( config.hasBias() );
-
-        config.withLayerNorm( true );
-        EXPECT_TRUE( config.useLayerNorm() );
-
-        config.withLayerNorm( false );
-        EXPECT_FALSE( config.useLayerNorm() );
     }
 
     TEST_F( MLPConfigTests, TypicalTransformer_MLPConfiguration )
@@ -252,14 +226,12 @@ namespace CompositeComponents_Tests
 
         MLPConfig config( transformer_features, ffn_hidden_size );
         config.withBias( true )
-            .withActivation( ActivationType::Gelu )
-            .withLayerNorm( false );
+            .withActivation( ActivationType::Gelu );
 
         EXPECT_EQ( config.getInputFeatures(), transformer_features );
         EXPECT_EQ( config.getHiddenSize(), ffn_hidden_size );
         EXPECT_TRUE( config.hasBias() );
         EXPECT_EQ( config.getActivationType(), ActivationType::Gelu );
-        EXPECT_FALSE( config.useLayerNorm() );
 
         EXPECT_NO_THROW( config.validate() );
     }
@@ -277,13 +249,11 @@ namespace CompositeComponents_Tests
         int64_t original_hidden = 256;
 
         MLPConfig config( original_features, original_hidden );
-        config.withBias( false )
-            .withLayerNorm( true );
+        config.withBias( false );
 
         EXPECT_EQ( config.getInputFeatures(), original_features );
         EXPECT_EQ( config.getHiddenSize(), original_hidden );
         EXPECT_FALSE( config.hasBias() );
-        EXPECT_TRUE( config.useLayerNorm() );
     }
 
     TEST_F( MLPConfigTests, GPT2_Style_Configuration )
@@ -307,6 +277,5 @@ namespace CompositeComponents_Tests
         EXPECT_TRUE( noexcept(config.getHiddenSize()) );
         EXPECT_TRUE( noexcept(config.hasBias()) );
         EXPECT_TRUE( noexcept(config.getActivationType()) );
-        EXPECT_TRUE( noexcept(config.useLayerNorm()) );
     }
 }

@@ -1,6 +1,6 @@
 /**
  * @file OperationRegistrarHelpers.ixx
- * @brief Helpers to standardize registration of unary/binary ops.
+ * @brief Helpers to standardize registration of unary/binary/paired ops.
  *
  * Small helpers that produce consistent factory lambdas for OperationRegistry.
  */
@@ -21,10 +21,10 @@ import Compute.IExecutionContext;
 import Compute.ExecutionContext;
 import Compute.UnaryOperation;
 import Compute.BinaryOperation;
+import Compute.PairedOperation;
 
 namespace Mila::Dnn::Compute
 {
-    // Helper used only for static_assert diagnostics.
     template<typename T>
     struct always_false : std::false_type {};
 
@@ -48,6 +48,7 @@ namespace Mila::Dnn::Compute
         else if constexpr ( std::is_constructible_v<OpType, ExecutionContext<DT>*, const ConfigT&> )
         {
             auto real = dynamic_cast<ExecutionContext<DT>*>( ctx );
+
             if ( !real )
             {
                 throw std::invalid_argument( "makeOpInstance: failed to cast IExecutionContext* to ExecutionContext<DT>*" );
@@ -58,13 +59,14 @@ namespace Mila::Dnn::Compute
         else if constexpr ( std::is_constructible_v<OpType, std::shared_ptr<ExecutionContext<DT>>, const ConfigT&> )
         {
             auto real = dynamic_cast<ExecutionContext<DT>*>( ctx );
+
             if ( !real )
             {
                 throw std::invalid_argument( "makeOpInstance: failed to cast IExecutionContext* to ExecutionContext<DT>* for shared_ptr ctor" );
             }
 
-            // Create a non-owning shared_ptr wrapper (deleter is no-op) so we don't change ownership semantics.
-            std::shared_ptr<ExecutionContext<DT>> sp( real, [](ExecutionContext<DT>*){} );
+            // Non-owning shared_ptr wrapper; deleter is no-op to preserve existing ownership semantics.
+            std::shared_ptr<ExecutionContext<DT>> sp( real, []( ExecutionContext<DT>* ) {} );
             return std::make_shared<OpType>( sp, cfg );
         }
         else
@@ -147,6 +149,45 @@ namespace Mila::Dnn::Compute
             opName,
             [/*capture nothing*/]( IExecutionContext* ctx, const ComponentConfig& cfg )
                 -> std::shared_ptr<BinaryOperation<TDataType, TA, TB, TP>>
+            {
+                const auto& concreteCfg = static_cast<const ConfigType&>( cfg );
+                return makeOpInstance<OpType, TDataType>( ctx, concreteCfg );
+            }
+        );
+    }
+
+    /**
+     * @brief Register a paired operation type with OperationRegistry using a common factory pattern.
+     *
+     * Template parameter ordering:
+     *  - TDataType : DeviceType
+     *  - OpType    : Concrete operation class (must define `using ConfigType = ...`)
+     *  - TA        : Input A precision
+     *  - TB        : Input B precision (defaults to TA)
+     *  - TP        : Compute/output precision (defaults to TA)
+     */
+    export template<DeviceType TDataType, typename OpType, Dnn::TensorDataType TA, Dnn::TensorDataType TB = TA, Dnn::TensorDataType TP = TA>
+    void registerPairedOpType( const std::string& opName )
+    {
+        using ConfigType = typename OpType::ConfigType;
+
+        static_assert(
+            std::is_class_v<ConfigType>,
+            "OpType must expose a ConfigType alias"
+        );
+
+        constexpr bool constructible =
+            std::is_constructible_v<OpType, IExecutionContext*, const ConfigType&> ||
+            std::is_constructible_v<OpType, ExecutionContext<TDataType>*, const ConfigType&> ||
+            std::is_constructible_v<OpType, std::shared_ptr<ExecutionContext<TDataType>>, const ConfigType&>;
+
+        static_assert( constructible,
+            "OpType must be constructible with (IExecutionContext*, ConfigType) or (ExecutionContext<DT>*, ConfigType) or (shared_ptr<ExecutionContext<DT>>, ConfigType)" );
+
+        OperationRegistry::instance().registerPairedOperation<TDataType, TP, TA, TB>(
+            opName,
+            [/*capture nothing*/]( IExecutionContext* ctx, const ComponentConfig& cfg )
+                -> std::shared_ptr<PairedOperation<TDataType, TP, TA, TB>>
             {
                 const auto& concreteCfg = static_cast<const ConfigType&>( cfg );
                 return makeOpInstance<OpType, TDataType>( ctx, concreteCfg );

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="1" failures="0" disabled="0" errors="0" time="0." timestamp="2026-03-03T10:08:37.065" name="AllTests">
+  <testsuite name="Gpt2TokenizerTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-03-03T10:08:37.065">
+    <testcase name="MissingFile" file="C:\Users\ToddT\Src\Repos\Mila\Mila\Tests\Dnn\Data\Gpt2Tokenizer.cpp" line="37" status="run" result="completed" time="0." timestamp="2026-03-03T10:08:37.065" classname="Gpt2TokenizerTest" />
+  </testsuite>
+</testsuites>

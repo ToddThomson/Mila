@@ -208,7 +208,6 @@ namespace CompositeComponents_Tests
             fixture.config = MLPConfig( input_features, hidden_size );
             fixture.config.withBias( has_bias )
                 .withActivation( activation )
-                .withLayerNorm( use_layer_norm )
                 .withPrecisionPolicy( precision );
 
             std::string name = "mlp_cuda_" + shape.name + "_" + PrecisionTraits<TPrecision>::name;
@@ -248,7 +247,6 @@ namespace CompositeComponents_Tests
             fixture.config = MLPConfig( input_features, hidden_size );
             fixture.config.withBias( has_bias )
                 .withActivation( activation )
-                .withLayerNorm( use_layer_norm )
                 .withPrecisionPolicy( precision );
 
             std::string name = "mlp_network_" + shape.name + "_" + PrecisionTraits<TPrecision>::name;

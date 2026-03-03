@@ -23,6 +23,7 @@ import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.BinaryOperation;
+import Compute.PairedOperation;
 import Compute.OperationType;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
@@ -36,10 +37,11 @@ import Compute.CudaDeviceMemoryResource;
 namespace Mila::Dnn::Compute
 {
     /**
-     * @brief A registry for operations using abstract tensor data types.
+     * @brief Central registry for typed, device-aware compute operations.
      *
-     * Stores factory functions for concrete, typed operations. Factories are
-     * registered per (DeviceType, input types, compute precision) and operation name.
+     * Maintains three independent stores keyed by (DeviceType, input types, compute precision)
+     * and operation name — one per operation arity. Separation prevents cross-arity
+     * static_pointer_cast UB when an op is retrieved under the wrong base type.
      */
     export class OperationRegistry
     {
@@ -47,15 +49,13 @@ namespace Mila::Dnn::Compute
 
         /**
          * @brief Composite key for registry lookup.
-         *
-         * For unary operations the second data_type equals the input type.
          */
         struct TypeID
         {
-            DeviceType device_type;                 ///< Target device type for the operation
-            TensorDataType data_type_a;             ///< Abstract tensor data type for input A
-            TensorDataType data_type_b;             ///< Abstract tensor data type for input B (or same as A for unary)
-            TensorDataType compute_precision;       ///< Internal computation/accumulation precision
+            DeviceType     device_type;       ///< Target device type for the operation
+            TensorDataType data_type_a;       ///< Element type for input A
+            TensorDataType data_type_b;       ///< Element type for input B (equals data_type_a for unary)
+            TensorDataType compute_precision; ///< Internal computation/accumulation precision
 
             bool operator==( const TypeID& other ) const
             {
@@ -70,92 +70,110 @@ namespace Mila::Dnn::Compute
         {
             std::size_t operator()( const TypeID& id ) const
             {
-                std::size_t h1 = std::hash<DeviceType>{}(id.device_type);
-                std::size_t h2 = std::hash<TensorDataType>{}(id.data_type_a);
-                std::size_t h3 = std::hash<TensorDataType>{}(id.data_type_b);
-                std::size_t h4 = std::hash<TensorDataType>{}(id.compute_precision);
+                std::size_t h1 = std::hash<DeviceType>{}( id.device_type );
+                std::size_t h2 = std::hash<TensorDataType>{}( id.data_type_a );
+                std::size_t h3 = std::hash<TensorDataType>{}( id.data_type_b );
+                std::size_t h4 = std::hash<TensorDataType>{}( id.compute_precision );
 
                 std::size_t seed = h1;
                 seed ^= (h2 + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
                 seed ^= (h3 + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
                 seed ^= (h4 + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
-                
+
                 return seed;
             }
         };
 
-        /**
-         * @brief Get the singleton instance of the OperationRegistry.
-         */
         static OperationRegistry& instance()
         {
             static OperationRegistry registry;
             return registry;
         }
 
+        // ====================================================================
+        // Registration
+        // ====================================================================
+
         /**
-         * @brief Register a unary operation creator for a specific device type, input type, and compute precision.
+         * @brief Register a unary operation factory.
          *
-         * Creator must accept an IExecutionContext* and ComponentConfig
-         * and return a std::shared_ptr<UnaryOperation<TDeviceType, TInputType, TComputePrecision>>.
+         * Creator must return a std::shared_ptr<UnaryOperation<TDeviceType, TInputType, TComputePrecision>>.
          */
         template<DeviceType TDeviceType, TensorDataType TInputType, TensorDataType TComputePrecision = TInputType>
         void registerUnaryOperation(
             std::string_view operation_name,
             std::function<std::shared_ptr<UnaryOperation<TDeviceType, TInputType, TComputePrecision>>(
-                IExecutionContext*,
-                const ComponentConfig& )> creator )
+                IExecutionContext*, const ComponentConfig& )> creator )
         {
             TypeID type_id{ TDeviceType, TInputType, TInputType, TComputePrecision };
 
-            auto genericCreator = [creator](
-                IExecutionContext* ctx,
-                const ComponentConfig& config ) -> std::shared_ptr<void> {
-
-                    if (!ctx)
-                    {
+            unary_registry_[type_id][std::string( operation_name )] =
+                [creator]( IExecutionContext* ctx, const ComponentConfig& cfg ) -> std::shared_ptr<void>
+                {
+                    if ( !ctx )
                         throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
-                    }
 
-                    return creator( ctx, config );
+                    return creator( ctx, cfg );
                 };
-
-            registry_[type_id][std::string( operation_name )] = std::move( genericCreator );
         }
 
         /**
-         * @brief Register a binary operation creator for a specific device type, input types, and compute precision.
+         * @brief Register a binary operation factory.
          *
-         * Creator must accept an IExecutionContext* and ComponentConfig
-         * and return a std::shared_ptr<BinaryOperation<TDeviceType, TInputA, TInputB, TComputePrecision>>.
+         * Creator must return a std::shared_ptr<BinaryOperation<TDeviceType, TInputA, TInputB, TComputePrecision>>.
          */
         template<DeviceType TDeviceType, TensorDataType TInputA, TensorDataType TInputB = TInputA,
             TensorDataType TComputePrecision = TInputA>
         void registerBinaryOperation(
             const std::string& operation_name,
             std::function<std::shared_ptr<BinaryOperation<TDeviceType, TInputA, TInputB, TComputePrecision>>(
-                IExecutionContext*,
-                const ComponentConfig& )> creator )
+                IExecutionContext*, const ComponentConfig& )> creator )
         {
             TypeID type_id{ TDeviceType, TInputA, TInputB, TComputePrecision };
 
-            auto genericCreator = [creator](
-                IExecutionContext* ctx,
-                const ComponentConfig& config ) -> std::shared_ptr<void> {
-
-                    if (!ctx)
-                    {
+            binary_registry_[type_id][operation_name] =
+                [creator]( IExecutionContext* ctx, const ComponentConfig& cfg ) -> std::shared_ptr<void>
+                {
+                    if ( !ctx )
                         throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
-                    }
 
-                    return creator( ctx, config );
+                    return creator( ctx, cfg );
                 };
-
-            registry_[type_id][operation_name] = std::move( genericCreator );
         }
 
         /**
-         * @brief Create a unary operation instance (typed).
+         * @brief Register a paired operation factory.
+         *
+         * Creator must return a std::shared_ptr<PairedOperation<TDeviceType, TPrecision, TInputA, TInputB>>.
+         */
+        template<DeviceType TDeviceType, TensorDataType TPrecision,
+            TensorDataType TInputA = TPrecision, TensorDataType TInputB = TInputA>
+        void registerPairedOperation(
+            const std::string& operation_name,
+            std::function<std::shared_ptr<PairedOperation<TDeviceType, TPrecision, TInputA, TInputB>>(
+                IExecutionContext*, const ComponentConfig& )> creator )
+        {
+            TypeID type_id{ TDeviceType, TInputA, TInputB, TPrecision };
+
+            paired_registry_[type_id][operation_name] =
+                [creator]( IExecutionContext* ctx, const ComponentConfig& cfg ) -> std::shared_ptr<void>
+                {
+                    if ( !ctx )
+                        throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
+
+                    return creator( ctx, cfg );
+                };
+        }
+
+        // ====================================================================
+        // Creation
+        // ====================================================================
+
+        /**
+         * @brief Create a unary operation instance.
+         *
+         * @throws std::runtime_error if no matching registration exists.
+         * @throws std::invalid_argument if context is null.
          */
         template<DeviceType TDeviceType, TensorDataType TInputType, TensorDataType TComputePrecision = TInputType>
         std::shared_ptr<UnaryOperation<TDeviceType, TInputType, TComputePrecision>> createUnaryOperation(
@@ -163,46 +181,43 @@ namespace Mila::Dnn::Compute
             IExecutionContext* context,
             const ComponentConfig& config ) const
         {
+            if ( !context )
+                throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
+
             TypeID type_id{ TDeviceType, TInputType, TInputType, TComputePrecision };
 
-            auto type_it = registry_.find( type_id );
+            auto type_it = unary_registry_.find( type_id );
 
-            if (type_it == registry_.end())
+            if ( type_it == unary_registry_.end() )
             {
                 throw std::runtime_error( std::format(
                     "createUnaryOperation: No operations registered for Device: {}, InputType: {}, ComputePrecision: {}",
                     TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA",
                     TensorDataTypeTraits<TInputType>::type_name,
-                    TensorDataTypeTraits<TComputePrecision>::type_name
-                ) );
+                    TensorDataTypeTraits<TComputePrecision>::type_name ) );
             }
 
             auto op_it = type_it->second.find( operation_name );
 
-            if (op_it == type_it->second.end())
+            if ( op_it == type_it->second.end() )
             {
                 throw std::runtime_error( std::format(
                     "createUnaryOperation: Operation '{}' not found for Device: {}, InputType: {}, ComputePrecision: {}",
                     operation_name,
                     TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA",
                     TensorDataTypeTraits<TInputType>::type_name,
-                    TensorDataTypeTraits<TComputePrecision>::type_name
-                ) );
-            }
-
-            if (!context)
-            {
-                throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
+                    TensorDataTypeTraits<TComputePrecision>::type_name ) );
             }
 
             return std::static_pointer_cast<UnaryOperation<TDeviceType, TInputType, TComputePrecision>>(
-                op_it->second( context, config ));
+                op_it->second( context, config ) );
         }
 
         /**
-         * @brief Create a binary operation instance (typed).
+         * @brief Create a binary operation instance.
          *
-         * Template parameters allow specifying distinct data types for the two inputs and compute precision.
+         * @throws std::runtime_error if no matching registration exists.
+         * @throws std::invalid_argument if context is null.
          */
         template<DeviceType TDeviceType, TensorDataType TInputA, TensorDataType TInputB = TInputA,
             TensorDataType TComputePrecision = TInputA>
@@ -211,24 +226,26 @@ namespace Mila::Dnn::Compute
             IExecutionContext* context,
             const ComponentConfig& config ) const
         {
+            if ( !context )
+                throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
+
             TypeID type_id{ TDeviceType, TInputA, TInputB, TComputePrecision };
 
-            auto type_it = registry_.find( type_id );
+            auto type_it = binary_registry_.find( type_id );
 
-            if (type_it == registry_.end())
+            if ( type_it == binary_registry_.end() )
             {
                 throw std::runtime_error( std::format(
                     "createBinaryOperation: No operations registered for Device: {}, InputTypes: ({}, {}), ComputePrecision: {}",
                     TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA",
                     TensorDataTypeTraits<TInputA>::type_name,
                     TensorDataTypeTraits<TInputB>::type_name,
-                    TensorDataTypeTraits<TComputePrecision>::type_name
-                ) );
+                    TensorDataTypeTraits<TComputePrecision>::type_name ) );
             }
 
             auto op_it = type_it->second.find( operation_name );
 
-            if (op_it == type_it->second.end())
+            if ( op_it == type_it->second.end() )
             {
                 throw std::runtime_error( std::format(
                     "createBinaryOperation: Operation '{}' not found for Device: {}, InputTypes: ({}, {}), ComputePrecision: {}",
@@ -236,64 +253,123 @@ namespace Mila::Dnn::Compute
                     TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA",
                     TensorDataTypeTraits<TInputA>::type_name,
                     TensorDataTypeTraits<TInputB>::type_name,
-                    TensorDataTypeTraits<TComputePrecision>::type_name
-                ) );
-            }
-
-            if (!context)
-            {
-                throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
+                    TensorDataTypeTraits<TComputePrecision>::type_name ) );
             }
 
             return std::static_pointer_cast<BinaryOperation<TDeviceType, TInputA, TInputB, TComputePrecision>>(
-                op_it->second( context, config ));
+                op_it->second( context, config ) );
         }
 
         /**
-         * @brief Get list of registered operation names for a given type configuration.
+         * @brief Create a paired operation instance.
+         *
+         * @throws std::runtime_error if no matching registration exists.
+         * @throws std::invalid_argument if context is null.
+         */
+        template<DeviceType TDeviceType, TensorDataType TPrecision,
+            TensorDataType TInputA = TPrecision, TensorDataType TInputB = TInputA>
+        std::shared_ptr<PairedOperation<TDeviceType, TPrecision, TInputA, TInputB>> createPairedOperation(
+            const std::string& operation_name,
+            IExecutionContext* context,
+            const ComponentConfig& config ) const
+        {
+            if ( !context )
+                throw std::invalid_argument( "ExecutionContext cannot be null when creating an operation" );
+
+            TypeID type_id{ TDeviceType, TInputA, TInputB, TPrecision };
+
+            auto type_it = paired_registry_.find( type_id );
+
+            if ( type_it == paired_registry_.end() )
+            {
+                throw std::runtime_error( std::format(
+                    "createPairedOperation: No operations registered for Device: {}, InputTypes: ({}, {}), ComputePrecision: {}",
+                    TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA",
+                    TensorDataTypeTraits<TInputA>::type_name,
+                    TensorDataTypeTraits<TInputB>::type_name,
+                    TensorDataTypeTraits<TPrecision>::type_name ) );
+            }
+
+            auto op_it = type_it->second.find( operation_name );
+
+            if ( op_it == type_it->second.end() )
+            {
+                throw std::runtime_error( std::format(
+                    "createPairedOperation: Operation '{}' not found for Device: {}, InputTypes: ({}, {}), ComputePrecision: {}",
+                    operation_name,
+                    TDeviceType == DeviceType::Cpu ? "CPU" : "CUDA",
+                    TensorDataTypeTraits<TInputA>::type_name,
+                    TensorDataTypeTraits<TInputB>::type_name,
+                    TensorDataTypeTraits<TPrecision>::type_name ) );
+            }
+
+            return std::static_pointer_cast<PairedOperation<TDeviceType, TPrecision, TInputA, TInputB>>(
+                op_it->second( context, config ) );
+        }
+
+        // ====================================================================
+        // Discovery
+        // ====================================================================
+
+        /**
+         * @brief Return all registered operation names across all arities for a given type configuration.
          */
         template<DeviceType TDeviceType, TensorDataType TInputA, TensorDataType TInputB = TInputA,
             TensorDataType TComputePrecision = TInputA>
         std::vector<std::string> getRegisteredOperations() const
         {
             TypeID type_id{ TDeviceType, TInputA, TInputB, TComputePrecision };
-            auto type_it = registry_.find( type_id );
-            
-            if (type_it == registry_.end())
-                return {};
-            
             std::vector<std::string> operations;
-            operations.reserve( type_it->second.size() );
-            
-            for (const auto& [name, _] : type_it->second)
-                operations.push_back( name );
+
+            for ( const auto* store : { &unary_registry_, &binary_registry_, &paired_registry_ } )
+            {
+                auto type_it = store->find( type_id );
+
+                if ( type_it != store->end() )
+                {
+                    for ( const auto& [name, _] : type_it->second )
+                        operations.push_back( name );
+                }
+            }
 
             return operations;
         }
 
         /**
-         * @brief Check if an operation is registered for given type configuration.
+         * @brief Return true if an operation name is registered under any arity for a given type configuration.
          */
         template<DeviceType TDeviceType, TensorDataType TInputA, TensorDataType TInputB = TInputA,
             TensorDataType TComputePrecision = TInputA>
         bool isOperationRegistered( const std::string& operation_name ) const
         {
             TypeID type_id{ TDeviceType, TInputA, TInputB, TComputePrecision };
-            auto type_it = registry_.find( type_id );
-            
-            if (type_it == registry_.end())
-                return false;
-            
-            return type_it->second.find( operation_name ) != type_it->second.end();
+
+            for ( const auto* store : { &unary_registry_, &binary_registry_, &paired_registry_ } )
+            {
+                auto type_it = store->find( type_id );
+
+                if ( type_it != store->end() &&
+                    type_it->second.find( operation_name ) != type_it->second.end() )
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
     private:
-        
-        using GenericCreator = std::function<std::shared_ptr<void>(
-            IExecutionContext*,
-            const ComponentConfig& )>;
 
-        std::unordered_map<TypeID, std::unordered_map<std::string, GenericCreator>, TypeIDHash> registry_;
+        using GenericCreator = std::function<std::shared_ptr<void>(
+            IExecutionContext*, const ComponentConfig& )>;
+
+        using RegistryMap = std::unordered_map<TypeID,
+            std::unordered_map<std::string, GenericCreator>,
+            TypeIDHash>;
+
+        RegistryMap unary_registry_;
+        RegistryMap binary_registry_;
+        RegistryMap paired_registry_;
 
         OperationRegistry() = default;
         OperationRegistry( const OperationRegistry& ) = delete;

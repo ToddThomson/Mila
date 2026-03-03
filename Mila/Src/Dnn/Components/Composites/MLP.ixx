@@ -153,16 +153,8 @@ namespace Mila::Dnn
 
             last_norm_out_ = nullptr;
             last_act_out_ = nullptr;
-
-            if ( config_.useLayerNorm() )
-            {
-                last_norm_out_ = &norm_->forward( *last_fc1_out_ );
-                last_act_out_ = &activation_->forward( *last_norm_out_ );
-            }
-            else
-            {
-                last_act_out_ = &activation_->forward( *last_fc1_out_ );
-            }
+            
+            last_act_out_ = &activation_->forward( *last_fc1_out_ );
 
             last_final_out_ = &fc2_->forward( *last_act_out_ );
 
@@ -208,34 +200,34 @@ namespace Mila::Dnn
             auto& fc2_grad = fc2_->backward( *last_act_out_, output_grad );
 
             // Backprop through activation and optional norm using captured forward tensors.
-            if ( config_.useLayerNorm() )
-            {
-                if ( last_norm_out_ == nullptr )
-                {
-                    throw std::runtime_error( "MLP::backward: missing stored norm output for backward chaining" );
-                }
+            //if ( config_.useLayerNorm() )
+            //{
+            //    if ( last_norm_out_ == nullptr )
+            //    {
+            //        throw std::runtime_error( "MLP::backward: missing stored norm output for backward chaining" );
+            //    }
 
-                auto& act_grad = activation_->backward( *last_norm_out_, fc2_grad );
+            //    auto& act_grad = activation_->backward( *last_norm_out_, fc2_grad );
 
-                auto& norm_grad = norm_->backward( *last_fc1_out_, act_grad );
+            //    auto& norm_grad = norm_->backward( *last_fc1_out_, act_grad );
 
-                auto& input_grad = fc1_->backward( input, norm_grad );
+            //    auto& input_grad = fc1_->backward( input, norm_grad );
 
-                // Clear cached forward pointers to avoid accidental reuse across calls.
-                clearForwardCache();
+            //    // Clear cached forward pointers to avoid accidental reuse across calls.
+            //    clearForwardCache();
 
-                return input_grad;
-            }
-            else
-            {
-                auto& act_grad = activation_->backward( *last_fc1_out_, fc2_grad );
+            //    return input_grad;
+            //}
+            //else
+            //{
+            auto& act_grad = activation_->backward( *last_fc1_out_, fc2_grad );
 
-                auto& input_grad = fc1_->backward( input, act_grad );
+            auto& input_grad = fc1_->backward( input, act_grad );
 
-                clearForwardCache();
+            clearForwardCache();
 
-                return input_grad;
-            }
+            return input_grad;
+            //}
         }
 
         TensorType& decode( const TensorType& input ) const
@@ -247,12 +239,6 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
 
             TensorType* act_input = &fc1_out;
-
-            if ( config_.useLayerNorm() )
-            {
-                act_input = &norm_->forward( fc1_out );
-                this->getExecutionContext()->synchronize();
-            }
 
             auto& act_out = activation_->forward( *act_input );
             this->getExecutionContext()->synchronize();
@@ -331,7 +317,6 @@ namespace Mila::Dnn
             oss << "Hidden size: " << config_.getHiddenSize() << std::endl;
             oss << "Bias: " << ( config_.hasBias() ? "enabled" : "disabled" ) << std::endl;
             oss << "Activation: " << activationTypeToString( config_.getActivationType() ) << std::endl;
-            oss << "Layer Norm: " << ( config_.useLayerNorm() ? "enabled" : "disabled" ) << std::endl;
 
             if ( this->hasExecutionContext() )
             {
@@ -415,12 +400,6 @@ namespace Mila::Dnn
             fc1_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_1" );
             fc1_->build( input_shape );
 
-            if ( config_.useLayerNorm() )
-            {
-                norm_ = this->template getComponentAs<LayerNormType>( this->getName() + ".ln" );
-                norm_->build( cached_hidden_shape_ );
-            }
-
             activation_ = this->template getComponentAs<GeluType>( this->getName() + ".gelu" );
             activation_->build( cached_hidden_shape_ );
 
@@ -492,11 +471,6 @@ namespace Mila::Dnn
         void createGraph()
         {
             addLinear( "fc_1", config_.getInputFeatures(), config_.getHiddenSize() );
-
-            if ( config_.useLayerNorm() )
-            {
-                addLayerNorm( "ln" );
-            }
 
             addActivation( "gelu" );
 

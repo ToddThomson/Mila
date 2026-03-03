@@ -135,22 +135,22 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Residual::forward: component must be built before forward pass" );
             }
 
-            // DEBUG: Check input range
-            auto host_input = toHost<TensorDataType::FP32>( input_a );
-            auto host_input_ptr = host_input.data();
-            size_t n = host_input.size();
-            auto [min_in_a, max_in_a] = std::minmax_element( host_input_ptr, host_input_ptr + n );
-            Utils::Logger::debug( std::format( "Residual {} in_a:[{:.3f}, {:.3f}] with shape:{}",
-                this->getName(), *min_in_a, *max_in_a, shapeToString( host_input.shape() ) ) );
+            //// DEBUG: Check input range
+            //auto host_input = toHost<TensorDataType::FP32>( input_a );
+            //auto host_input_ptr = host_input.data();
+            //size_t n = host_input.size();
+            //auto [min_in_a, max_in_a] = std::minmax_element( host_input_ptr, host_input_ptr + n );
+            //Utils::Logger::debug( std::format( "Residual {} in_a:[{:.3f}, {:.3f}] with shape:{}",
+            //    this->getName(), *min_in_a, *max_in_a, shapeToString( host_input.shape() ) ) );
 
-            auto host_input_b = toHost<TensorDataType::FP32>( input_b );
-            auto host_input_b_ptr = host_input_b.data();
-            n = host_input_b.size();
-            auto [min_in_b, max_in_b] = std::minmax_element( host_input_b_ptr, host_input_b_ptr + n );
-            
-            Utils::Logger::debug( std::format( "Residual {} in_b:[{:.3f}, {:.3f}] with shape:{}",
-                this->getName(), *min_in_b, *max_in_b, shapeToString( host_input_b.shape() ) ) );
-            // END DEBUG:
+            //auto host_input_b = toHost<TensorDataType::FP32>( input_b );
+            //auto host_input_b_ptr = host_input_b.data();
+            //n = host_input_b.size();
+            //auto [min_in_b, max_in_b] = std::minmax_element( host_input_b_ptr, host_input_b_ptr + n );
+            //
+            //Utils::Logger::debug( std::format( "Residual {} in_b:[{:.3f}, {:.3f}] with shape:{}",
+            //    this->getName(), *min_in_b, *max_in_b, shapeToString( host_input_b.shape() ) ) );
+            //// END DEBUG:
 
             operation_->forward( input_a, input_b, *output_ );
 
@@ -165,16 +165,16 @@ namespace Mila::Dnn
             }
 
             output_view_ = std::make_unique<TensorType>( output_->view( input_shape ) );
-            Utils::Logger::debug( std::format( "Residual {} output view size:{}, output size: {}",
-                this->getName(), output_view_->size(), output_->size() ) );
+            /*Utils::Logger::debug( std::format( "Residual {} output view size:{}, output size: {}",
+                this->getName(), output_view_->size(), output_->size() ) );*/
 
-            auto host_output = toHost<TensorDataType::FP32>( *output_view_ );
+            /*auto host_output = toHost<TensorDataType::FP32>( *output_view_ );
             auto host_output_ptr = host_output.data();
             const size_t output_n = host_output.size();
             auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
 
             Utils::Logger::debug( std::format( "Residual {} out:[{:.3f}, {:.3f}] with shape:{}",
-                this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );
+                this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );*/
 
             //Utils::Logger::debug( std::format( "Residual {} output at positions:", this->getName() ) );
             //for ( int i = 0; i < 4; ++i )

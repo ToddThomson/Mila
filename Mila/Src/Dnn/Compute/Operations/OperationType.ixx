@@ -20,6 +20,7 @@ namespace Mila::Dnn::Compute
 	 */
 	export enum class OperationType {
 		CrossEntropyOp,				///< Cross entropy loss operation
+		TokenEmbeddingOp,			///< Token embedding operation
 		LpeOp,						///< Learned Positional Embedding operation for transformer architecture
         RopeOp,						///< Rotary Position Embedding operation for transformer architecture
 		FusedOp,					///< Fused operation combining multiple operations for performance optimization

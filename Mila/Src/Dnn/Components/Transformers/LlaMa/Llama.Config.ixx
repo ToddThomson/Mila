@@ -50,7 +50,7 @@ namespace Mila::Dnn
         }
 
         template <typename Self>
-        decltype(auto) withVocabSize( this Self&& self, dim_t vocab_size )
+        decltype(auto) withVocabularyLength( this Self&& self, dim_t vocab_size )
         {
             if ( vocab_size <= 0 )
             {

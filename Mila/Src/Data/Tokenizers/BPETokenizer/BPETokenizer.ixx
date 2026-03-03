@@ -104,14 +104,14 @@ namespace Mila::Data
             // Step 1: Pre-tokenize based on pattern (if any)
             std::vector<std::string> words = preTokenize( text );
 
-            std::cout << "Pre-tokenized into " << words.size() << " words:\n";
+            /*std::cout << "Pre-tokenized into " << words.size() << " words:\n";
             for ( size_t i = 0; i < words.size(); ++i )
             {
                 std::cout << "  [" << i << "]: '" << words[ i ] << "'\n";
-            }
+            }*/
 
-            std::cout << "Tokenizing " << text.size() << " characters into "
-                << words.size() << " word(s)...\n";
+            /*std::cout << "Tokenizing " << text.size() << " characters into "
+                << words.size() << " word(s)...\n";*/
 
             std::vector<std::string> all_tokens;
             size_t pass = 0;

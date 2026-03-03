@@ -17,7 +17,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
 {
     // Conservative residual magnitude bound used only for debug assertions.
     // Chosen to catch explosions while avoiding false positives for common models.
-    static __device__ __constant__ float kResidualAbsLimit = 10000.0f;
+    static __device__ __constant__ float kResidualAbsLimit = 5000.0f;
 
     /**
      * @brief CUDA kernel for element-wise addition of two input tensors with FP32 precision

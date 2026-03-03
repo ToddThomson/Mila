@@ -155,110 +155,29 @@ namespace Mila::Dnn
                 throw std::runtime_error( "GptBlock must be built before forward()." );
             }
 
-            // DEBUG: Check input range
-            auto host_input = toHost<TensorDataType::FP32>( input );
-            auto host_input_ptr = host_input.data();
-            const size_t n = host_input.size();
-            auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
-            Utils::Logger::debug( std::format( "GptBlock {} input in:[{:.3f}, {:.3f}] with shape:{}]",
-                this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
-            // END DEBUG
-
             auto& ln1_out = ln1_->forward( input );
             this->getExecutionContext()->synchronize();
-
-            // DEBUG
-            auto host_output = toHost<TensorDataType::FP32>( ln1_out );
-            auto host_output_ptr = host_output.data();
-            size_t output_n = host_output.size();
-            auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
-            Utils::Logger::debug( std::format( "GptBlock {} ln_1 in:[{:.3f}, {:.3f}] out:[{:.3f}, {:.3f}]",
-                this->getName(), *min_in, *max_in, *min_out, *max_out ) );
-            // END DEBUG
 
             auto& qkv_out = qkv_proj_->forward( ln1_out );
             this->getExecutionContext()->synchronize();
 
-            // DEBUG
-            host_output = toHost<TensorDataType::FP32>( qkv_out );
-            host_output_ptr = host_output.data();
-            output_n = host_output.size();
-            auto [min_qkv_out, max_qkv_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
-            Utils::Logger::debug( std::format( "GptBlock {} qkv_proj out:[{:.3f}, {:.3f}]",
-                this->getName(), *min_qkv_out, *max_qkv_out ) );
-            // END DEBUG
-
             auto& attn_out = attn_->forward( qkv_out );
             this->getExecutionContext()->synchronize();
-
-            // DEBUG
-            host_output = toHost<TensorDataType::FP32>( attn_out );
-            host_output_ptr = host_output.data();
-            output_n = host_output.size();
-            auto [min_attn_out, max_attn_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
-            Utils::Logger::debug( std::format( "GptBlock {} attn out:[{:.3f}, {:.3f}]",
-                this->getName(), *min_attn_out, *max_attn_out ) );
-            // END DEBUG
 
             auto& out_proj = out_proj_->forward( attn_out );
             this->getExecutionContext()->synchronize();
 
-            // DEBUG
-            host_output = toHost<TensorDataType::FP32>( out_proj );
-            host_output_ptr = host_output.data();
-            output_n = host_output.size();
-            auto [min_out_proj, max_out_proj] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
-            Utils::Logger::debug( std::format( "GptBlock {} out_proj out:[{:.3f}, {:.3f}]",
-                this->getName(), *min_out_proj, *max_out_proj ) );
-            // END DEBUG
-
             auto& res1_out = res1_->forward( input, out_proj );
             this->getExecutionContext()->synchronize();
-
-            // DEBUG
-            host_output = toHost<TensorDataType::FP32>( res1_out );
-            host_output_ptr = host_output.data();
-            output_n = host_output.size();
-            auto [min_res1_out, max_res1_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
-            Utils::Logger::debug( std::format( "GptBlock {} res_1_out out:[{:.3f}, {:.3f}]",
-                this->getName(), *min_res1_out, *max_res1_out ) );
-            // END DEBUG
 
             auto& ln2_out = ln2_->forward( res1_out );
             this->getExecutionContext()->synchronize();
 
-            // DEBUG
-            host_output = toHost<TensorDataType::FP32>( ln2_out );
-            host_output_ptr = host_output.data();
-            output_n = host_output.size();
-            auto [min_ln2_out, max_ln2_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
-            Utils::Logger::debug( std::format( "GptBlock {} ln_2_out out:[{:.3f}, {:.3f}]",
-                this->getName(), *min_ln2_out, *max_ln2_out ) );
-            // END DEBUG
-
             auto& ffn_out = ffn_->forward( ln2_out );
             this->getExecutionContext()->synchronize();
 
-            // DEBUG
-            host_output = toHost<TensorDataType::FP32>( ffn_out );
-            host_output_ptr = host_output.data();
-            output_n = host_output.size();
-            auto [min_ffn_out, max_ffn_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
-            Utils::Logger::debug( std::format( "GptBlock {} ffn_out out:[{:.3f}, {:.3f}]",
-                this->getName(), *min_ffn_out, *max_ffn_out ) );
-            // END DEBUG
-
             auto& res2_out = res2_->forward( res1_out, ffn_out );
             this->getExecutionContext()->synchronize();
-
-            // DEBUG
-            host_output = toHost<TensorDataType::FP32>( res2_out );
-            host_output_ptr = host_output.data();
-            output_n = host_output.size();
-            auto [min_res2_out, max_res2_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
-            Utils::Logger::debug( std::format( "GptBlock {} res2_out out:[{:.3f}, {:.3f}]",
-                this->getName(), *min_res2_out, *max_res2_out ) );
-            // END DEBUG
 
             // Cache non-owning pointers for use by backward().
             last_ln1_out_ = &ln1_out;

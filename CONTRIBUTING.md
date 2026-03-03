@@ -29,7 +29,7 @@ We expect all contributors to be respectful and constructive. By participating i
 
 ### Required Components
 * C++23 support
-* NVIDIA CUDA Runtime, 12.8
+* NVIDIA CUDA Runtime, 13.1
 * CMake 3.31
 * GTest framework for unit testing
 
