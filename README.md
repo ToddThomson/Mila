@@ -2,14 +2,14 @@
 
 ## ⚠️ Active Development Notice
 
-The `master` branch reflects the last stable alpha release (**v0.9.XXXX-alpha.1**).
+The `master` branch reflects the last stable alpha release (**v0.9.9140-alpha.1**).
 
 Active development for the latest architectural changes — RoPE, RMSNorm, SwiGLU, and Grouped
 Query Attention — is underway in the [`dev`](https://github.com/ToddThomson/Mila/tree/dev)
 branch. If you are following Mila's progress, `dev` is where the action is.
 
 The next milestone is **v0.11.1-beta**, targeting validated Llama 3.2 1B inference.
-See the [Roadmap](ROADMAP.md) for details.
+See the [Roadmap](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for details.
 
 # Mila
 Mila Deep Neural Network Library
