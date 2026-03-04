@@ -365,14 +365,14 @@ namespace Mila::Dnn
             this->addComponent( std::make_shared<LinearType>( this->getName() + ".fc_out_proj", out_proj_cfg, std::nullopt ) );
 
             ResidualConfig res_cfg1;
-            res_cfg1.withScalingFactor( config_.getResidualScale() );
+            // REVIEW: res_cfg1.withScalingFactor( config_.getResidualScale() );
             this->addComponent( std::make_shared<ResidualType>( this->getName() + ".res_1", res_cfg1, std::nullopt ) );
 
             ResidualConfig res_cfg2;
-            res_cfg2.withScalingFactor( config_.getResidualScale() );
+            // REVIEW: res_cfg2.withScalingFactor( config_.getResidualScale() );
             this->addComponent( std::make_shared<ResidualType>( this->getName() + ".res_2", res_cfg2, std::nullopt ) );
 
-            dim_t hidden_dim = static_cast<dim_t>(config_.getHiddenSize());
+            dim_t hidden_dim = static_cast<dim_t>(config_.getHiddenDimension());
             if ( hidden_dim == 0 )
             {
                 hidden_dim = static_cast<dim_t>(config_.getModelDim() * 4);
@@ -380,7 +380,7 @@ namespace Mila::Dnn
 
             auto mlp_cfg = MLPConfig( static_cast<dim_t>(config_.getModelDim()), hidden_dim );
             mlp_cfg.withBias( config_.useBias() )
-                .withActivation( config_.getActivationType() );
+                .withActivation( ActivationType::Swiglu );
             this->addComponent( std::make_shared<MLPType>( this->getName() + ".mlp", mlp_cfg, std::nullopt ) );
         }
 

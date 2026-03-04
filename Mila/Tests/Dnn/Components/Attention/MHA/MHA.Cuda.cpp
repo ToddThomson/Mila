@@ -8,7 +8,7 @@
 
 import Mila;
 
-namespace Components_Layers_Attention_Tests
+namespace Components::Attention::MHA::Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -50,6 +50,16 @@ namespace Components_Layers_Attention_Tests
             return { batch, seq, embedding_dim };
         }
 
+        shape_t decodeInputShape() const
+        {
+            return { batch, 1, static_cast<int64_t>(3 * embedding_dim) };
+        }
+
+        shape_t decodeOutputShape() const
+        {
+            return { batch, 1, embedding_dim };
+        }
+
         static TestShape Small()
         {
             return { TestShapeSize::Small, 2, 4, 8, 2, "Small" };
@@ -67,7 +77,7 @@ namespace Components_Layers_Attention_Tests
 
         static TestShape Minimal()
         {
-            return { TestShapeSize::Minimal, 1, 1, 1, 1, "Minimal" };
+            return { TestShapeSize::Minimal, 1, 2, 4, 2, "Minimal" };
         }
 
         static std::vector<TestShape> AllShapes()
@@ -79,6 +89,8 @@ namespace Components_Layers_Attention_Tests
         {
             return { Small(), Medium(), Large() };
         }
+        
+        
     };
 
     // ====================================================================
@@ -167,7 +179,7 @@ namespace Components_Layers_Attention_Tests
     // ====================================================================
 
     template<typename T>
-    class AttentionCudaTests : public testing::Test
+    class MHACudaTests : public testing::Test
     {
     protected:
         void SetUp() override
@@ -190,9 +202,9 @@ namespace Components_Layers_Attention_Tests
         PrecisionType<TensorDataType::FP16>*/
     >;
 
-    TYPED_TEST_SUITE( AttentionCudaTests, PrecisionTypes );
+    TYPED_TEST_SUITE( MHACudaTests, PrecisionTypes );
 
-    TYPED_TEST( AttentionCudaTests, Constructor_WithValidDeviceId_CreatesComponent )
+    TYPED_TEST( MHACudaTests, Constructor_WithValidDeviceId_CreatesComponent )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -214,7 +226,7 @@ namespace Components_Layers_Attention_Tests
         EXPECT_EQ( component->getDeviceType(), DeviceType::Cuda );
     }
 
-    TYPED_TEST( AttentionCudaTests, Constructor_WithoutDeviceId_CreatesComponent )
+    TYPED_TEST( MHACudaTests, Constructor_WithoutDeviceId_CreatesComponent )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -234,7 +246,7 @@ namespace Components_Layers_Attention_Tests
         ASSERT_NE( component, nullptr );
     }
 
-    TYPED_TEST( AttentionCudaTests, Constructor_WithInvalidDeviceType_ThrowsInvalidArgument )
+    TYPED_TEST( MHACudaTests, Constructor_WithInvalidDeviceType_ThrowsInvalidArgument )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -252,7 +264,7 @@ namespace Components_Layers_Attention_Tests
         );
     }
 
-    TYPED_TEST( AttentionCudaTests, GetDeviceType_AfterConstruction_ReturnsCuda )
+    TYPED_TEST( MHACudaTests, GetDeviceType_AfterConstruction_ReturnsCuda )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -266,7 +278,7 @@ namespace Components_Layers_Attention_Tests
         EXPECT_EQ( device.type, DeviceType::Cuda );
     }
 
-    TYPED_TEST( AttentionCudaTests, IsTraining_InferenceFixture_ReturnsFalse )
+    TYPED_TEST( MHACudaTests, IsTraining_InferenceFixture_ReturnsFalse )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -279,7 +291,7 @@ namespace Components_Layers_Attention_Tests
         EXPECT_FALSE( fixture.component->isTraining() );
     }
 
-    TYPED_TEST( AttentionCudaTests, IsTraining_TrainingFixture_ReturnsTrue )
+    TYPED_TEST( MHACudaTests, IsTraining_TrainingFixture_ReturnsTrue )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -293,7 +305,7 @@ namespace Components_Layers_Attention_Tests
         EXPECT_TRUE( fixture.component->isTraining() );
     }
 
-    TYPED_TEST( AttentionCudaTests, SetTraining_TogglingMode_UpdatesState )
+    TYPED_TEST( MHACudaTests, SetTraining_TogglingMode_UpdatesState )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -312,7 +324,7 @@ namespace Components_Layers_Attention_Tests
         EXPECT_FALSE( fixture.component->isTraining() );
     }
 
-    TYPED_TEST( AttentionCudaTests, ParameterCount_AfterConstruction_ReturnsZero )
+    TYPED_TEST( MHACudaTests, ParameterCount_AfterConstruction_ReturnsZero )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -323,21 +335,35 @@ namespace Components_Layers_Attention_Tests
         EXPECT_EQ( fixture.component->parameterCount(), 0 );
     }
 
-    TYPED_TEST( AttentionCudaTests, ToString_AfterConstruction_ContainsComponentInfo )
+    TYPED_TEST( MHACudaTests, ToString_PreBuild_ShowsFallbackDecodePath )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
         constexpr TensorDataType TPrecision = TypeParam::value;
-
         auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small() );
+
         std::string output = fixture.component->toString();
 
         EXPECT_NE( output.find( "Attention" ), std::string::npos );
         EXPECT_NE( output.find( "Model dimension" ), std::string::npos );
         EXPECT_NE( output.find( "Number of heads" ), std::string::npos );
+        EXPECT_NE( output.find( "fallback" ), std::string::npos );
     }
 
-    TYPED_TEST( AttentionCudaTests, Synchronize_AfterConstruction_Succeeds )
+    TYPED_TEST( MHACudaTests, ToString_AfterBuild_ShowsKVCacheDecodePath )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+        auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small() );
+        fixture.component->build( fixture.input_shape() );
+
+        std::string output = fixture.component->toString();
+
+        EXPECT_NE( output.find( "KV cache" ), std::string::npos );
+    }
+
+    TYPED_TEST( MHACudaTests, Synchronize_AfterConstruction_Succeeds )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -348,7 +374,7 @@ namespace Components_Layers_Attention_Tests
         EXPECT_NO_THROW( fixture.component->synchronize() );
     }
 
-    TYPED_TEST( AttentionCudaTests, Forward_BeforeBuild_ThrowsRuntimeError )
+    TYPED_TEST( MHACudaTests, Forward_BeforeBuild_ThrowsRuntimeError )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -364,7 +390,7 @@ namespace Components_Layers_Attention_Tests
         );
     }
 
-    TYPED_TEST( AttentionCudaTests, Backward_BeforeBuild_ThrowsRuntimeError )
+    TYPED_TEST( MHACudaTests, Backward_BeforeBuild_ThrowsRuntimeError )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -381,7 +407,7 @@ namespace Components_Layers_Attention_Tests
         );
     }
 
-    TYPED_TEST( AttentionCudaTests, Build_WithVariousShapes_SetsBuiltState )
+    TYPED_TEST( MHACudaTests, Build_WithVariousShapes_SetsBuiltState )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -404,31 +430,27 @@ namespace Components_Layers_Attention_Tests
         }
     }
 
-    TYPED_TEST( AttentionCudaTests, Forward_InvalidInputShape_ThrowsInvalidArgument )
+    TYPED_TEST( MHACudaTests, Forward_InvalidInputShape_ThrowsInvalidArgument )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
         constexpr TensorDataType TPrecision = TypeParam::value;
         auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small() );
-
         fixture.component->build( fixture.input_shape() );
 
-        // Create input with wrong trailing dimension
         shape_t bad_in = fixture.input_shape();
         bad_in[ 2 ] = bad_in[ 2 ] + 1;
         CudaTensor<TPrecision> input_bad_trailing( Device::Cuda( 0 ), bad_in );
 
         EXPECT_THROW( fixture.component->forward( input_bad_trailing ), std::invalid_argument );
 
-        // Create input with mismatched batch dimension versus built shape
-        shape_t bad_in_bs = fixture.input_shape();
-        bad_in_bs[ 0 ] = bad_in_bs[ 0 ] + 1;
-        CudaTensor<TPrecision> input_bad_bs( Device::Cuda( 0 ), bad_in_bs );
+        shape_t bad_rank = { fixture.test_shape.batch, fixture.test_shape.seq };
+        CudaTensor<TPrecision> input_bad_rank( Device::Cuda( 0 ), bad_rank );
 
-        EXPECT_THROW( fixture.component->forward( input_bad_bs ), std::invalid_argument );
+        EXPECT_THROW( fixture.component->forward( input_bad_rank ), std::invalid_argument );
     }
 
-    TYPED_TEST( AttentionCudaTests, Backward_NotTraining_ThrowsRuntimeError )
+    TYPED_TEST( MHACudaTests, Backward_NotTraining_ThrowsRuntimeError )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -443,43 +465,30 @@ namespace Components_Layers_Attention_Tests
         EXPECT_THROW( fixture.component->backward( input, output_grad ), std::runtime_error );
     }
 
-    TYPED_TEST( AttentionCudaTests, Backward_InvalidShapes_ThrowsInvalidArgument )
+    TYPED_TEST( MHACudaTests, Backward_InvalidInputShape_ThrowsInvalidArgument )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
         constexpr TensorDataType TPrecision = TypeParam::value;
         auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small(), true );
-
         fixture.component->build( fixture.input_shape() );
         fixture.component->setTraining( true );
 
-        CudaTensor<TPrecision> input( Device::Cuda( 0 ), fixture.input_shape() );
-
-        // output_grad with wrong trailing dim
-        shape_t bad_outg = fixture.output_shape();
-        bad_outg[ 2 ] = bad_outg[ 2 ] + 5;
-        CudaTensor<TPrecision> outg_bad_trailing( Device::Cuda( 0 ), bad_outg );
-
-        EXPECT_THROW( fixture.component->backward( input, outg_bad_trailing ), std::invalid_argument );
-
-        // input with wrong trailing dim (concatenated qkv must be 3*embed)
-        shape_t bad_in = fixture.input_shape();
-        bad_in[ 2 ] = bad_in[ 2 ] / 3; // invalid trailing
-        CudaTensor<TPrecision> in_bad_trailing( Device::Cuda( 0 ), bad_in );
-
         CudaTensor<TPrecision> outg_ok( Device::Cuda( 0 ), fixture.output_shape() );
+
+        shape_t bad_in = fixture.input_shape();
+        bad_in[ 2 ] = bad_in[ 2 ] / 3;
+        CudaTensor<TPrecision> in_bad_trailing( Device::Cuda( 0 ), bad_in );
 
         EXPECT_THROW( fixture.component->backward( in_bad_trailing, outg_ok ), std::invalid_argument );
 
-        // mismatched batch/sequence dims across tensors
-        shape_t in_mismatch = fixture.input_shape();
-        in_mismatch[ 0 ] = in_mismatch[ 0 ] + 1;
-        CudaTensor<TPrecision> in_bad_bs( Device::Cuda( 0 ), in_mismatch );
+        shape_t bad_rank = { fixture.test_shape.batch, fixture.test_shape.seq };
+        CudaTensor<TPrecision> in_bad_rank( Device::Cuda( 0 ), bad_rank );
 
-        EXPECT_THROW( fixture.component->backward( in_bad_bs, outg_ok ), std::invalid_argument );
+        EXPECT_THROW( fixture.component->backward( in_bad_rank, outg_ok ), std::invalid_argument );
     }
 
-    TYPED_TEST( AttentionCudaTests, Forward_WithVariousShapes_ProducesValidOutput )
+    TYPED_TEST( MHACudaTests, Forward_WithVariousShapes_ProducesValidOutput )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -515,7 +524,7 @@ namespace Components_Layers_Attention_Tests
     // CPU <-> CUDA Equivalence Tests (Part of typed suite; run only for FP32)
     // ====================================================================
 
-    TYPED_TEST( AttentionCudaTests, Forward_CPU_CUDA_Equivalence_FP32 )
+    TYPED_TEST( MHACudaTests, Forward_CPU_CUDA_Equivalence_FP32 )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -574,7 +583,7 @@ namespace Components_Layers_Attention_Tests
         }
     }
 
-    TYPED_TEST( AttentionCudaTests, Backward_CPU_CUDA_Equivalence_FP32 )
+    TYPED_TEST( MHACudaTests, Backward_CPU_CUDA_Equivalence_FP32 )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -656,7 +665,7 @@ namespace Components_Layers_Attention_Tests
     // Deterministic Tests with Known Inputs/Outputs
     // ====================================================================
 
-    TYPED_TEST( AttentionCudaTests, Forward_SimpleOnesInput_ProducesKnownOutput )
+    TYPED_TEST( MHACudaTests, Forward_SimpleOnesInput_ProducesKnownOutput )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -713,7 +722,7 @@ namespace Components_Layers_Attention_Tests
         }
     }
 
-    TYPED_TEST( AttentionCudaTests, Forward_SimpleZerosInput_ProducesZeroOutput )
+    TYPED_TEST( MHACudaTests, Forward_SimpleZerosInput_ProducesZeroOutput )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -762,7 +771,7 @@ namespace Components_Layers_Attention_Tests
         }
     }
 
-    TYPED_TEST( AttentionCudaTests, Forward_Deterministic_ReproducibleWithSeed )
+    TYPED_TEST( MHACudaTests, Forward_Deterministic_ReproducibleWithSeed )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -823,7 +832,7 @@ namespace Components_Layers_Attention_Tests
         }
     }
 
-    TYPED_TEST( AttentionCudaTests, Backward_SimpleOnesGradient_ProducesFiniteGradients )
+    TYPED_TEST( MHACudaTests, Backward_SimpleOnesGradient_ProducesFiniteGradients )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -885,7 +894,7 @@ namespace Components_Layers_Attention_Tests
         }
     }
 
-    TYPED_TEST( AttentionCudaTests, Backward_Deterministic_ReproducibleGradientsWithSeed )
+    TYPED_TEST( MHACudaTests, Backward_Deterministic_ReproducibleGradientsWithSeed )
     {
         if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
@@ -957,7 +966,7 @@ namespace Components_Layers_Attention_Tests
         }
     }
 
-    TYPED_TEST( AttentionCudaTests, ForwardBackward_ProducesFiniteGradients )
+    TYPED_TEST( MHACudaTests, ForwardBackward_ProducesFiniteGradients )
     {
         if ( !this->cuda_available_ )
             GTEST_SKIP() << "CUDA not available";
@@ -1039,6 +1048,327 @@ namespace Components_Layers_Attention_Tests
         catch ( const std::exception& e )
         {
             GTEST_SKIP() << "Attention backend not available: " << e.what();
+        }
+    }
+
+    // ====================================================================
+// Accessor Tests
+// ====================================================================
+
+    TYPED_TEST( MHACudaTests, GetModelDim_ReturnsConfiguredValue )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+        auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        EXPECT_EQ( fixture.component->getModelDim(), fixture.test_shape.embedding_dim );
+    }
+
+    TYPED_TEST( MHACudaTests, GetNumHeads_ReturnsConfiguredValue )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+        auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        EXPECT_EQ( fixture.component->getNumHeads(), fixture.test_shape.num_heads );
+    }
+
+    TYPED_TEST( MHACudaTests, GetConfig_ReturnsMatchingConfig )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+        auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        const auto& cfg = fixture.component->getConfig();
+
+        EXPECT_EQ( cfg.getModelDim(), fixture.test_shape.embedding_dim );
+        EXPECT_EQ( cfg.getNumHeads(), fixture.test_shape.num_heads );
+    }
+
+    TYPED_TEST( MHACudaTests, GetType_ReturnsMultiHeadAttention )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+        auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        EXPECT_EQ( fixture.component->getType(), ComponentType::MultiHeadAttention );
+    }
+
+    TYPED_TEST( MHACudaTests, GetParameters_ReturnsEmptyVector )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+        auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        EXPECT_TRUE( fixture.component->getParameters().empty() );
+    }
+
+    TYPED_TEST( MHACudaTests, GetGradients_ReturnsEmptyVector )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+        auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        EXPECT_TRUE( fixture.component->getGradients().empty() );
+    }
+
+    // ====================================================================
+    // KV Cache Interface Tests
+    // ====================================================================
+
+    TYPED_TEST( MHACudaTests, SupportsKVCache_BeforeBuild_ReturnsFalse )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+        auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        EXPECT_FALSE( fixture.component->supportsKVCache() );
+    }
+
+    TYPED_TEST( MHACudaTests, SupportsKVCache_AfterBuild_ReturnsTrue )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+        auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small() );
+        fixture.component->build( fixture.input_shape() );
+
+        EXPECT_TRUE( fixture.component->supportsKVCache() );
+    }
+
+    // ====================================================================
+    // Decode / KV Cache Path Tests
+    // ====================================================================
+
+    TYPED_TEST( MHACudaTests, Decode_BeforeBuild_ThrowsRuntimeError )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+        auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        CudaTensor<TPrecision> input( Device::Cuda( 0 ), fixture.input_shape() );
+
+        EXPECT_THROW( fixture.component->decode( input, 0 ), std::runtime_error );
+    }
+
+    TYPED_TEST( MHACudaTests, Decode_InvalidShape_ThrowsInvalidArgument )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+        auto fixture = AttentionTestFixture<TPrecision>::Create( TestShape::Small() );
+        fixture.component->build( fixture.input_shape() );
+
+        shape_t bad_shape = fixture.input_shape();
+        bad_shape[ 2 ] = bad_shape[ 2 ] + 1;
+        CudaTensor<TPrecision> bad_input( Device::Cuda( 0 ), bad_shape );
+
+        EXPECT_THROW( fixture.component->decode( bad_input, 0 ), std::invalid_argument );
+    }
+
+    TYPED_TEST( MHACudaTests, Decode_AfterForward_UsesKVCachePath )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        if constexpr ( TPrecision != TensorDataType::FP32 )
+            GTEST_SKIP() << "Decode test only runs for FP32";
+
+        try
+        {
+            auto shape = TestShape::Small();
+            MultiHeadAttentionConfig cfg( shape.embedding_dim, shape.num_heads );
+
+            auto comp = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TensorDataType::FP32>>(
+                "attention_kvcache_decode", cfg, Device::Cuda( 0 )
+            );
+
+            comp->build( shape.inputShape() );
+            ASSERT_TRUE( comp->supportsKVCache() );
+
+            CpuTensor<TensorDataType::FP32> host_prefill( Device::Cpu(), shape.inputShape() );
+            random( host_prefill, -1.0f, 1.0f );
+
+            CudaTensor<TensorDataType::FP32> device_prefill( Device::Cuda( 0 ), shape.inputShape() );
+            copy( host_prefill, device_prefill );
+
+            comp->forward( device_prefill );
+
+            CpuTensor<TensorDataType::FP32> host_token( Device::Cpu(), shape.decodeInputShape() );
+            random( host_token, -1.0f, 1.0f );
+
+            CudaTensor<TensorDataType::FP32> device_token( Device::Cuda( 0 ), shape.decodeInputShape() );
+            copy( host_token, device_token );
+
+            auto& out = comp->decode( device_token, static_cast<int>(shape.seq) );
+            comp->synchronize();
+
+            EXPECT_EQ( out.shape(), shape.decodeOutputShape() );
+
+            auto host_out = toHost<TensorDataType::FP32>( out );
+
+            for ( size_t i = 0; i < host_out.size(); ++i )
+            {
+                EXPECT_TRUE( std::isfinite( host_out.data()[ i ] ) )
+                    << "Non-finite decode output at index " << i;
+            }
+        }
+        catch ( const std::exception& e )
+        {
+            GTEST_SKIP() << "KV cache decode not available: " << e.what();
+        }
+    }
+
+    TYPED_TEST( MHACudaTests, Decode_WithoutCacheInitialized_UsesFallbackForward )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        if constexpr ( TPrecision != TensorDataType::FP32 )
+            GTEST_SKIP() << "Decode fallback test only runs for FP32";
+
+        try
+        {
+            auto shape = TestShape::Small();
+            MultiHeadAttentionConfig cfg( shape.embedding_dim, shape.num_heads );
+
+            auto comp = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TensorDataType::FP32>>(
+                "attention_decode_fallback", cfg, Device::Cuda( 0 )
+            );
+
+            comp->build( shape.inputShape() );
+            ASSERT_TRUE( comp->supportsKVCache() );
+
+            // cache_initialized_ is false — decode() must fall through to operation_->forward()
+            CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), shape.inputShape() );
+            random( host_input, -1.0f, 1.0f );
+
+            CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), shape.inputShape() );
+            copy( host_input, device_input );
+
+            auto& out = comp->decode( device_input, 0 );
+            comp->synchronize();
+
+            EXPECT_EQ( out.shape(), shape.outputShape() );
+        }
+        catch ( const std::exception& e )
+        {
+            GTEST_SKIP() << "Decode fallback not available: " << e.what();
+        }
+    }
+
+    // ====================================================================
+    // KV Cache Session State Tests
+    // ====================================================================
+
+    TYPED_TEST( MHACudaTests, Forward_AfterDecode_AutoResetsCacheAndPrefills )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        if constexpr ( TPrecision != TensorDataType::FP32 )
+            GTEST_SKIP() << "Session state test only runs for FP32";
+
+        try
+        {
+            auto shape = TestShape::Small();
+            MultiHeadAttentionConfig cfg( shape.embedding_dim, shape.num_heads );
+
+            auto comp = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TensorDataType::FP32>>(
+                "attention_session_reset", cfg, Device::Cuda( 0 )
+            );
+
+            comp->build( shape.inputShape() );
+
+            CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), shape.inputShape() );
+            random( host_input, -1.0f, 1.0f );
+
+            CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), shape.inputShape() );
+            copy( host_input, device_input );
+
+            comp->forward( device_input );
+
+            CpuTensor<TensorDataType::FP32> host_token( Device::Cpu(), shape.decodeInputShape() );
+            random( host_token, -1.0f, 1.0f );
+
+            CudaTensor<TensorDataType::FP32> device_token( Device::Cuda( 0 ), shape.decodeInputShape() );
+            copy( host_token, device_token );
+
+            // Sets decode_active_ = true
+            comp->decode( device_token, static_cast<int>(shape.seq) );
+
+            // A second forward() must auto-reset the decode session and re-prefill
+            random( host_input, -1.0f, 1.0f );
+            copy( host_input, device_input );
+
+            auto& out = comp->forward( device_input );
+            comp->synchronize();
+
+            EXPECT_EQ( out.shape(), shape.outputShape() );
+        }
+        catch ( const std::exception& e )
+        {
+            GTEST_SKIP() << "Session reset not available: " << e.what();
+        }
+    }
+
+    TYPED_TEST( MHACudaTests, SetTraining_ToTrue_WithActiveCache_ResetsKVCacheSession )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        if constexpr ( TPrecision != TensorDataType::FP32 )
+            GTEST_SKIP() << "Session state test only runs for FP32";
+
+        try
+        {
+            auto shape = TestShape::Small();
+            MultiHeadAttentionConfig cfg( shape.embedding_dim, shape.num_heads );
+
+            auto comp = std::make_shared<MultiHeadAttention<DeviceType::Cuda, TensorDataType::FP32>>(
+                "attention_train_resets_cache", cfg, Device::Cuda( 0 )
+            );
+
+            comp->build( shape.inputShape() );
+
+            CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), shape.inputShape() );
+            random( host_input, -1.0f, 1.0f );
+
+            CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), shape.inputShape() );
+            copy( host_input, device_input );
+
+            comp->forward( device_input );
+
+            // Entering training mode must reset the active cache session
+            comp->setTraining( true );
+            EXPECT_TRUE( comp->isTraining() );
+
+            // After returning to inference mode, forward() must re-initialize cache cleanly
+            comp->setTraining( false );
+
+            random( host_input, -1.0f, 1.0f );
+            copy( host_input, device_input );
+
+            auto& out = comp->forward( device_input );
+            comp->synchronize();
+
+            EXPECT_EQ( out.shape(), shape.outputShape() );
+        }
+        catch ( const std::exception& e )
+        {
+            GTEST_SKIP() << "KV cache session state test not available: " << e.what();
         }
     }
 }

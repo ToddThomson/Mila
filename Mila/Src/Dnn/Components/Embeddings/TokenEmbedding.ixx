@@ -331,12 +331,13 @@ namespace Mila::Dnn
             max_batch_size_ = input_shape[ 0 ];
             max_seq_len_ = input_shape[ 1 ];
 
-            operation_->setParameters( wte_.get() );
+            // REVIEW: API needs work
+            operation_->setParameters( wte_.get(), nullptr );
 
             if ( this->isTraining() )
             {
                 initializeParameterGradients();
-                operation_->setGradients( wte_grad_.get() );
+                operation_->setGradients( wte_grad_.get(), nullptr );
             }
 
             operation_->build( input_shape );
@@ -364,7 +365,7 @@ namespace Mila::Dnn
                 if ( this->isBuilt() )
                 {
                     initializeParameterGradients();
-                    operation_->setGradients( wte_grad_.get() );
+                    operation_->setGradients( wte_grad_.get(), nullptr );
                 }
             }
             else

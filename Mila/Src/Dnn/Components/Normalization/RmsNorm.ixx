@@ -230,6 +230,11 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
         }
 
+        const ComponentType getType() const override
+        {
+            return ComponentType::RmsNorm;
+        }
+
         std::string toString() const override
         {
             std::ostringstream oss;

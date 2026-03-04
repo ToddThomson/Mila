@@ -282,7 +282,7 @@ namespace Mila::Dnn
          * REVIEW: Consider making private with friend TransformerBase<> once
          * that base class is introduced.
          */
-        void initializeKVCache( int64_t max_seq_len )
+        /*void initializeKVCache( int64_t max_seq_len )
         {
             if ( !this->isBuilt() )
             {
@@ -299,7 +299,7 @@ namespace Mila::Dnn
             kv_cacheable_->initializeKVCache(
                 static_cast<int>(max_input_shape_[ 0 ]),
                 static_cast<int>(max_seq_len) );
-        }
+        }*/
 
         /**
          * @brief Reset KV cache state between generation sessions.
@@ -311,7 +311,7 @@ namespace Mila::Dnn
          * REVIEW: Consider making private with friend TransformerBase<> once
          * that base class is introduced.
          */
-        void resetKVCache()
+        /*void resetKVCache()
         {
             if ( !kv_cacheable_ )
             {
@@ -320,7 +320,7 @@ namespace Mila::Dnn
             }
 
             kv_cacheable_->resetKVCache();
-        }
+        }*/
 
         // ====================================================================
         // Serialization

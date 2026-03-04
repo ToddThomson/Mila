@@ -425,7 +425,7 @@ PUBLIC
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
         
         "Src/Dnn/Compute/Operations/PairedOperation.ixx"
-)
+ "Src/Dnn/Models/LlamaModel.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

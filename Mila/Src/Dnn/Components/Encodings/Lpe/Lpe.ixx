@@ -620,13 +620,13 @@ namespace Mila::Dnn
         {
             operation_ = OperationRegistry::instance()
                 .createUnaryOperation<TDeviceType, TIndex, TPrecision>(
-                    "EncoderOp",
+                    "LpeOp",
                     this->getExecutionContext(),
                     config_ );
 
             if ( !operation_ )
             {
-                throw std::runtime_error( "Failed to create Encoder compute backend operation." );
+                throw std::runtime_error( "Failed to create Lpe compute backend operation." );
             }
         }
     };

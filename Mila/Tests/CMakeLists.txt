@@ -113,25 +113,25 @@ add_executable( MilaTests
     "Dnn/Core/CompositeComponent.cpp"
 
    
-    "Dnn/Components/Layers/Attention.Config.cpp"
-    "Dnn/Components/Layers/Attention.Cpu.cpp"
-    "Dnn/Components/Layers/Attention.Cuda.cpp"
+    "Dnn/Components/Attention/MHA/MHA.Config.cpp"
+    "Dnn/Components/Attention/MHA/MHA.Cpu.cpp"
+    "Dnn/Components/Attention/MHA/MHA.Cuda.cpp"
     
-    "Dnn/Components/Layers/Encoder.Cpu.cpp"
-    "Dnn/Components/Layers/Encoder.Cuda.cpp"
-    "Dnn/Components/Layers/EncoderConfig.cpp"
+    "Dnn/Components/Encodings/Lpe/Encoder.Cpu.cpp"
+    "Dnn/Components/Encodings/Lpe/Encoder.Cuda.cpp"
+    "Dnn/Components/Encodings/Lpe/EncoderConfig.cpp"
     
-    "Dnn/Components/Activations/Gelu.Cpu.cpp"
-    "Dnn/Components/Activations/Gelu.Cuda.cpp"
-    "Dnn/Components/Activations/GeluConfig.cpp"
+    "Dnn/Components/Activations/Gelu/Gelu.Cpu.cpp"
+    "Dnn/Components/Activations/Gelu/Gelu.Cuda.cpp"
+    "Dnn/Components/Activations/Gelu/GeluConfig.cpp"
 
     "Dnn/Components/Normalization/LayerNorm.Cpu.cpp"
     "Dnn/Components/Normalization/LayerNorm.Cuda.cpp"
     "Dnn/Components/Normalization/LayerNormConfig.cpp"
 
-    "Dnn/Components/Layers/Linear.Cpu.cpp"
-    "Dnn/Components/Layers/Linear.Cuda.cpp"
-    "Dnn/Components/Layers/LinearConfig.cpp"
+    "Dnn/Components/Linear/Linear.Cpu.cpp"
+    "Dnn/Components/Linear/Linear.Cuda.cpp"
+    "Dnn/Components/Linear/LinearConfig.cpp"
 
     "Dnn/Components/Connections/Residual.Config.cpp"
     "Dnn/Components/Connections/Residual.Cuda.cpp"
@@ -199,10 +199,10 @@ add_executable( MilaTests
     #"Dnn/Components/Losses/CrossEntropy.Config.cpp"
 
     #"Dnn/Serialization/ModelArchive.cpp" 
-    "Dnn/Components/Transformers/Gpt.Presets.cpp"
-    "Dnn/Components/Transformers/GptTransformer.Cpu.cpp"
-    "Dnn/Components/Transformers/LlamaTransformer.cpp"
-    "Dnn/Components/Transformers/Llama.Presets.cpp"
+    "Dnn/Components/Transformers/Gpt/Gpt.Presets.cpp"
+    "Dnn/Components/Transformers/Gpt/GptTransformer.Cpu.cpp"
+    "Dnn/Components/Transformers/Llama/LlamaTransformer.cpp"
+    "Dnn/Components/Transformers/Llama/Llama.Presets.cpp"
     "Dnn/Data/Gpt2Tokenizer.cpp"
     "Data/CharTokenizer/CharVocabulary.cpp"
     "Data/BpeTokenizer/BpeVocabulary.cpp"
@@ -212,7 +212,7 @@ add_executable( MilaTests
     "Data/BpeTokenizer/BpeTokenizer.Gpt2.cpp"
     "Data/CharTokenizer/CharTokenizer.cpp"
     "Dnn/Data/TokenSequenceLoader.cpp"
- "Dnn/Components/Transformers/GptTransformer.Cuda.cpp")
+ "Dnn/Components/Transformers/Gpt/GptTransformer.Cuda.cpp" "Dnn/Components/Attention/GQA/GQA.Config.cpp" "Dnn/Components/Attention/GQA/GQA.Cuda.cpp" "Dnn/Components/Normalization/RmsNorm/RmsNorm.Cuda.cpp")
 
 target_compile_definitions( MilaTests PRIVATE TEST_DATA_DIR="${TEST_DATA_DIR}" )
 

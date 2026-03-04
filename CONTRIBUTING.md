@@ -30,7 +30,7 @@ We expect all contributors to be respectful and constructive. By participating i
 ### Required Components
 * C++23 support
 * NVIDIA CUDA Runtime, 13.1
-* CMake 3.31
+* CMake 3.31 or newer
 * GTest framework for unit testing
 
 ### Build Instructions
@@ -126,7 +126,7 @@ We expect all contributors to be respectful and constructive. By participating i
    - Regression tests for bug fixes
 4. Title your PR with a concise description of the changes
 5. Fill out the PR template completely
-6. Your PR should target the `main` branch
+6. Your PR should target the `dev` branch
 7. PRs require review and approval from at least one maintainer
 
 ## Testing Requirements

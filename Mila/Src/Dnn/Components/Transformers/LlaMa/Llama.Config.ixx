@@ -145,7 +145,7 @@ namespace Mila::Dnn
 
         dim_t getVocabSize() const noexcept { return vocab_size_; }
         dim_t getNumLayers() const noexcept { return num_layers_; }
-        dim_t getEmbeddingSize() const noexcept { return embedding_dim_; }
+        dim_t getModelDim() const noexcept { return embedding_dim_; }
         dim_t getMaxSequenceLength() const noexcept { return max_seq_len_; }
 
         dim_t getNumHeads() const noexcept { return num_heads_; }

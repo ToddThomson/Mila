@@ -183,6 +183,7 @@ export import Dnn.ApproximationMethod;
 export import Dnn.ConnectionType;
 
 export import Dnn.Components.MultiHeadAttention;
+export import Dnn.Components.GroupedQueryAttention;
 export import Dnn.Components.Lpe;
 export import Dnn.Components.Rope;
 export import Dnn.Components.Gelu;
@@ -211,6 +212,7 @@ export import Dnn.Components.LlamaTransformer;
 // Models - Open Source Models
 // ============================================================================
 export import Dnn.Models.GptModel;
+export import Dnn.Models.LlamaModel;
 
 // ============================================================================
 // Dnn - Optimizers

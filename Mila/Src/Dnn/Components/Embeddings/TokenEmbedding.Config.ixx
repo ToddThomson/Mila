@@ -48,10 +48,11 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
-        size_t getVocabSize()    const
+        size_t getVocabSize() const
         {
             return vocab_size_;
         }
+
         size_t getEmbeddingDim() const
         {
             return embedding_dim_;

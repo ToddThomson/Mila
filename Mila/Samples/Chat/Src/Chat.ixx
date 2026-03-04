@@ -2,15 +2,14 @@
  * @file Chat.ixx
  * @brief Mila chat application.
  *
- * Uses GptModel — the inference-only wrapper around a loaded GptTransformer —
- * rather than GptTransformer directly. GptModel owns fromPretrained() and
- * generate(), keeping inference concerns out of the Network layer.
+ * Supports GptModel and LlamaModel backends, selected at construction via ChatConfig.
  */
 
 module;
 #include <iostream>
 #include <string>
 #include <vector>
+#include <variant>
 #include <sstream>
 #include <filesystem>
 #include <format>
@@ -19,6 +18,7 @@ module;
 
 export module Mila.Chat;
 
+export import Chat.Config;
 import Mila;
 
 namespace Mila::ChatApp
@@ -28,21 +28,27 @@ namespace Mila::ChatApp
     using namespace Mila::Dnn::Data;
     using namespace Mila::Data;
 
-    // GptModel — inference-only, owns fromPretrained() and generate()
-    using GptModelType = GptModel<DeviceType::Cuda, TensorDataType::FP32>;
-
-    static std::filesystem::path gpt2_tokenizer_path()
-    {
-        std::filesystem::path models_path = MODELS_DIR;
-        return models_path / "gpt2" / "gpt2_tokenizer.bin";
-    }
+    using GptModelType   = GptModel<DeviceType::Cuda, TensorDataType::FP32>;
+    using LlamaModelType = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>;
+    using ModelVariant   = std::variant<
+        std::unique_ptr<GptModelType>,
+        std::unique_ptr<LlamaModelType>
+    >;
 
     export class Chat
     {
     public:
 
-        explicit Chat( const std::filesystem::path& model_path )
-            : model_path_( model_path )
+        /**
+         * @brief Construct a Chat session from a fully-populated ChatConfig.
+         *
+         * Loads the tokenizer and model on construction; throws on any failure.
+         *
+         * @param config Session configuration (model type, paths, generation params).
+         * @throws std::runtime_error on tokenizer or model load failure.
+         */
+        explicit Chat( ChatConfig config )
+            : config_( std::move( config ) )
         {
             initializeTokenizer();
             loadModel();
@@ -98,8 +104,20 @@ namespace Mila::ChatApp
         {
             try
             {
-                std::cout << "Loading tokenizer from: " << gpt2_tokenizer_path() << "\n";
-                tokenizer_ = BpeTokenizer::loadGpt2( gpt2_tokenizer_path() );
+                std::cout << "Loading tokenizer from: " << config_.tokenizer_path << "\n";
+
+                switch ( config_.model_type )
+                {
+                    case ModelType::Gpt:
+                        tokenizer_ = BpeTokenizer::loadGpt2( config_.tokenizer_path );
+                        break;
+
+                    case ModelType::Llama:
+                        tokenizer_ = std::make_shared<BpeTokenizer>(
+                            BpeTokenizer::loadLlama( config_.tokenizer_path ) );
+                        break;
+                }
+
                 std::cout << "Tokenizer loaded. Vocab size: "
                     << tokenizer_->getVocabSize() << "\n";
             }
@@ -114,14 +132,26 @@ namespace Mila::ChatApp
         {
             try
             {
-                std::cout << "Loading model from: " << model_path_ << "\n";
+                std::cout << "Loading model from: " << config_.model_path << "\n";
 
-                model_ = GptModelType::fromPretrained(
-                    model_path_,
-                    DeviceId{ DeviceType::Cuda, 0 },
-                    /*strict=*/true );
+                switch ( config_.model_type )
+                {
+                    case ModelType::Gpt:
+                        model_ = GptModelType::fromPretrained(
+                            config_.model_path,
+                            DeviceId{ DeviceType::Cuda, 0 },
+                            /*strict=*/true );
+                        break;
 
-                std::cout << model_->toString();
+                    case ModelType::Llama:
+                        model_ = LlamaModelType::fromPretrained(
+                            config_.model_path,
+                            DeviceId{ DeviceType::Cuda, 0 },
+                            /*strict=*/true );
+                        break;
+                }
+
+                std::cout << modelToString();
                 std::cout << "Model loaded successfully!\n";
             }
             catch ( const std::exception& e )
@@ -135,21 +165,24 @@ namespace Mila::ChatApp
         {
             try
             {
-                if ( !model_ || !tokenizer_ )
-                    return "Model not loaded.";
+                if ( !tokenizer_ )
+                    return "Tokenizer not loaded.";
 
-                // For validation: use raw user input directly, no chat template
-                // GPT-2 is a completion model — preparePrompt() adds instruction-following
-                // format that base GPT-2 was never trained on
-                const std::string& prompt = history.back().substr( 6 );  // strip "User: " prefix
+                // Both GPT-2 and LLaMA base models are completion models; pass the raw
+                // user text without a chat template to avoid instruction-format mismatch.
+                const std::string& prompt = history.back().substr( 6 );  // strip "User: "
 
                 std::vector<TokenId> prompt_tokens = tokenizer_->encode( prompt );
 
-                std::vector<int32_t> generated = model_->generate(
-                    std::vector<int32_t>( prompt_tokens.begin(), prompt_tokens.end() ),
-                    /*max_new_tokens=*/512,
-                    /*temperature=*/0.8f,
-                    /*top_k=*/ 40 );
+                std::vector<int32_t> generated = std::visit(
+                    [&]( auto& model_ptr ) -> std::vector<int32_t>
+                    {
+                        return model_ptr->generate(
+                            std::vector<int32_t>( prompt_tokens.begin(), prompt_tokens.end() ),
+                            config_.max_new_tokens,
+                            config_.temperature,
+                            config_.top_k );
+                    }, model_ );
 
                 std::string full_text = tokenizer_->decode(
                     std::vector<TokenId>( generated.begin(), generated.end() ) );
@@ -162,20 +195,6 @@ namespace Mila::ChatApp
             }
         }
 
-        std::string preparePrompt( const std::vector<std::string>& history ) const
-        {
-            std::ostringstream ss;
-            ss << "You are a helpful AI assistant.\n\n";
-
-            // Keep last 10 exchanges to manage context length
-            size_t start = history.size() > 10 ? history.size() - 10 : 0;
-            for ( size_t i = start; i < history.size(); ++i )
-                ss << history[ i ] << "\n";
-
-            ss << "Assistant:";
-            return ss.str();
-        }
-
         std::string extractResponse(
             const std::string& full_output,
             const std::string& prompt ) const
@@ -185,12 +204,10 @@ namespace Mila::ChatApp
 
             std::string response = full_output.substr( prompt.size() );
 
-            // Trim leading whitespace
             auto start = response.find_first_not_of( " \t\n\r" );
             if ( start != std::string::npos )
                 response = response.substr( start );
 
-            // Stop at double newline
             auto end = response.find( "\n\n" );
             if ( end != std::string::npos )
                 response = response.substr( 0, end );
@@ -198,8 +215,15 @@ namespace Mila::ChatApp
             return response;
         }
 
+        std::string modelToString() const
+        {
+            return std::visit( []( const auto& m ) { return m->toString(); }, model_ );
+        }
+
         void printWelcome() const
         {
+            const char* backend = (config_.model_type == ModelType::Gpt) ? "GPT" : "LLaMA";
+
             std::cout << R"(
 +--------------------------------------+
 |         Mila Chat CLI v1.0           |
@@ -208,6 +232,8 @@ namespace Mila::ChatApp
 
 Type 'help' for commands, 'exit' to quit.
 )" << "\n";
+
+            std::cout << "Backend: " << backend << "\n";
         }
 
         void printHelp() const
@@ -223,8 +249,8 @@ Just type your message to chat with Mila AI.
 )" << "\n";
         }
 
-        std::filesystem::path model_path_;
-        std::unique_ptr<GptModelType> model_{ nullptr };
+        ChatConfig                    config_;
+        ModelVariant                  model_;
         std::shared_ptr<BpeTokenizer> tokenizer_{ nullptr };
     };
 }

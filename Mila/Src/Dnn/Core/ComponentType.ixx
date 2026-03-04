@@ -41,6 +41,7 @@ namespace Mila::Dnn
         MultiHeadAttention,
         GroupedQueryAttention,
         Residual,
+        TokenEmbedding,
         Lpe,
         Rope,
 

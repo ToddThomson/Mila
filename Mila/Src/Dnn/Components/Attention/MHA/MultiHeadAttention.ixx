@@ -254,53 +254,56 @@ namespace Mila::Dnn
             return kv_cacheable_ != nullptr;
         }
 
-        /**
-         * @brief Allocate KV cache buffers for inference.
-         *
-         * Intended to be called exclusively by the owning transformer's generate()
-         * during session setup. Throws if the backend does not support KV caching.
-         *
-         * @param max_seq_len Maximum sequence length the cache must accommodate.
-         *
-         * REVIEW: Consider making private with friend TransformerBase<> once
-         * that base class is introduced. See class-level REVIEW note.
-         */
-        void initializeKVCache( int64_t max_seq_len )
-        {
-            if ( !this->isBuilt() )
-            {
-                throw std::runtime_error( "MultiHeadAttention must be built before initializeKVCache()." );
-            }
+        // REVIEW: KV cache is handled by the operation_ when supported, so MultiHeadAttention itself has no direct
+        // state to manage beyond the cache_initialized_ and decode_active_ flags.
 
-            if ( !kv_cacheable_ )
-            {
-                throw std::runtime_error( "MultiHeadAttention: KV cache is not supported by this backend." );
-            }
+        ///**
+        // * @brief Allocate KV cache buffers for inference.
+        // *
+        // * Intended to be called exclusively by the owning transformer's generate()
+        // * during session setup. Throws if the backend does not support KV caching.
+        // *
+        // * @param max_seq_len Maximum sequence length the cache must accommodate.
+        // *
+        // * REVIEW: Consider making private with friend TransformerBase<> once
+        // * that base class is introduced. See class-level REVIEW note.
+        // */
+        //void initializeKVCache( int64_t max_seq_len )
+        //{
+        //    if ( !this->isBuilt() )
+        //    {
+        //        throw std::runtime_error( "MultiHeadAttention must be built before initializeKVCache()." );
+        //    }
 
-            kv_cacheable_->initializeKVCache(
-                static_cast<int>(max_input_shape_[ 0 ]),
-                static_cast<int>(max_seq_len) );
-        }
+        //    if ( !kv_cacheable_ )
+        //    {
+        //        throw std::runtime_error( "MultiHeadAttention: KV cache is not supported by this backend." );
+        //    }
 
-        /**
-         * @brief Reset KV cache state between generation sessions.
-         *
-         * Intended to be called exclusively by the owning transformer's generate()
-         * between independent generation requests. Throws if the backend does not
-         * support KV caching.
-         *
-         * REVIEW: Consider making private with friend TransformerBase<> once
-         * that base class is introduced. See class-level REVIEW note.
-         */
-        void resetKVCache()
-        {
-            if ( !kv_cacheable_ )
-            {
-                throw std::runtime_error( "MultiHeadAttention: KV cache is not supported by this backend." );
-            }
+        //    kv_cacheable_->initializeKVCache(
+        //        static_cast<int>(max_input_shape_[ 0 ]),
+        //        static_cast<int>(max_seq_len) );
+        //}
 
-            kv_cacheable_->resetKVCache();
-        }
+        ///**
+        // * @brief Reset KV cache state between generation sessions.
+        // *
+        // * Intended to be called exclusively by the owning transformer's generate()
+        // * between independent generation requests. Throws if the backend does not
+        // * support KV caching.
+        // *
+        // * REVIEW: Consider making private with friend TransformerBase<> once
+        // * that base class is introduced. See class-level REVIEW note.
+        // */
+        //void resetKVCache()
+        //{
+        //    if ( !kv_cacheable_ )
+        //    {
+        //        throw std::runtime_error( "MultiHeadAttention: KV cache is not supported by this backend." );
+        //    }
+
+        //    kv_cacheable_->resetKVCache();
+        //}
 
         // ====================================================================
         // Serialization

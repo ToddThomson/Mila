@@ -11,7 +11,7 @@ namespace Networks_Tests
         // Llama 3 (8B) preset uses GQA, RMSNorm, RoPE and no bias.
         auto cfg = Llama3_8B();
 
-        EXPECT_EQ( cfg.getEmbeddingSize(), 4096 );
+        EXPECT_EQ( cfg.getModelDim(), 4096 );
         EXPECT_EQ( cfg.getNumHeads(), 32 );
 
         EXPECT_EQ( cfg.getHiddenDimension(), 14336 );
@@ -35,7 +35,7 @@ namespace Networks_Tests
         // Lightweight Llama 3.2 1B preset checks.
         auto cfg = Llama3_2_1B();
 
-        EXPECT_EQ( cfg.getEmbeddingSize(), 2048 );
+        EXPECT_EQ( cfg.getModelDim(), 2048 );
         EXPECT_EQ( cfg.getNumHeads(), 32 );
 
         EXPECT_EQ( cfg.getHiddenDimension(), 8192 );
