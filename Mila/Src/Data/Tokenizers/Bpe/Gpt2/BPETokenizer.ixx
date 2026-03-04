@@ -32,6 +32,8 @@ namespace Mila::Data
     using Mila::Dnn::Data::Tokenizer;
     using Mila::Dnn::Data::TokenizerVocabulary;
 
+    // REVIEW: Moved to BpeTokenizer.PreTokenizationMode.ixx for shared access between Gpt2 and Gpt4 tokenizers
+
     //// GPT-2 pre-tokenization patterns
     //constexpr const char* GPT2_PRETOKENIZATION_PATTERN =
     //    R"('s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+)";

@@ -30,19 +30,21 @@ namespace Mila::Data
         CharVocabulary = 2,
         TokenizedCorpus = 3,
         Dataset = 4,
-        TrainingCheckpoint = 5
+        TrainingCheckpoint = 5,
+        Gpt4BpeVocabulary = 6,      // GPT-4 style BPE vocabulary (Llama 3.x, GPT-4, etc.)
     };
 
     export constexpr const char* toString( MilaFileType type )
     {
         switch ( type )
         {
-            case MilaFileType::BpeVocabulary: return "BpeVocabulary";
-            case MilaFileType::CharVocabulary: return "CharVocabulary";
-            case MilaFileType::TokenizedCorpus: return "TokenizedCorpus";
-            case MilaFileType::Dataset: return "Dataset";
+            case MilaFileType::BpeVocabulary:     return "BpeVocabulary";
+            case MilaFileType::CharVocabulary:    return "CharVocabulary";
+            case MilaFileType::TokenizedCorpus:   return "TokenizedCorpus";
+            case MilaFileType::Dataset:           return "Dataset";
             case MilaFileType::TrainingCheckpoint: return "TrainingCheckpoint";
-            default: return "Unknown";
+            case MilaFileType::Gpt4BpeVocabulary: return "Gpt4BpeVocabulary";
+            default:                              return "Unknown";
         }
     }
 
@@ -71,12 +73,6 @@ namespace Mila::Data
             , metadata_( std::move( metadata ) )
         {}
 
-        /**
-         * @brief Write header to output stream.
-         *
-         * @param out Output stream positioned at the desired header location.
-         * @throws std::runtime_error on I/O errors.
-         */
         void write( std::ostream& out ) const
         {
             uint32_t magic = MAGIC;
@@ -103,13 +99,6 @@ namespace Mila::Data
             }
         }
 
-        /**
-         * @brief Read header from input stream.
-         *
-         * @param in Input stream positioned at header start.
-         * @return MilaFileHeader instance.
-         * @throws std::runtime_error on I/O errors or invalid header.
-         */
         static MilaFileHeader read( std::istream& in )
         {
             uint32_t magic = 0;
@@ -158,15 +147,16 @@ namespace Mila::Data
             return header;
         }
 
-        MilaFileType getFileType() const {
+        MilaFileType getFileType() const
+        {
             return file_type_;
         }
-        
-        const SerializationMetadata& getMetadata() const {
+        const SerializationMetadata& getMetadata() const
+        {
             return metadata_;
         }
-        
-        SerializationMetadata& getMetadata() {
+        SerializationMetadata& getMetadata()
+        {
             return metadata_;
         }
 

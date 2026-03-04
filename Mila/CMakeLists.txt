@@ -383,32 +383,35 @@ PUBLIC
 
         "Src/Dnn/Data/Tokenizer.ixx"
         "Src/Dnn/Data/Gpt2Tokenizer.ixx"
-        "Src/Dnn/Data/LlamaTokenizer.ixx"
+        "Src/Dnn/Data/Llama3Tokenizer.ixx"
         "Src/Dnn/Data/TokenizerVocabulary.ixx"
         "Src/Dnn/Data/TokenizerType.ixx"
 
         "Src/Data/Core/FileHeader.ixx"        
-        # Deprecated "Src/Data/Core/TrainerConfig.ixx"        
         "Src/Data/Core/TokenizerTrainer.ixx"
         "Src/Data/Core/TrainerFactory.ixx"
 
-        # DEPRECATED "Src/Data/Tokenizers/BPETokenizer/BpeSpecialTokens.ixx"
-        "Src/Data/Tokenizers/BPETokenizer/BPETokenizer.ixx"
-        "Src/Data/Tokenizers/BpeTokenizer/BpeTrainer.ixx"
-        "Src/Data/Tokenizers/BPETokenizer/BPEVocabulary.ixx"
-        "Src/Data/Tokenizers/BpeTokenizer/BpeVocabularyConfig.ixx"
+        "Src/Data/Tokenizers/Bpe/Gpt2/BPETokenizer.ixx"
+        "Src/Data/Tokenizers/Bpe/Gpt2/BpeTrainer.ixx"
+        "Src/Data/Tokenizers/Bpe/Gpt2/BPEVocabulary.ixx"
+        "Src/Data/Tokenizers/Bpe/Gpt2/BpeVocabularyConfig.ixx"
 
-        "Src/Data/Tokenizers/CharTokenizer/CharTokenizer.ixx"
-        "Src/Data/Tokenizers/CharTokenizer/CharVocabularyConfig.ixx"
-        "Src/Data/Tokenizers/CharTokenizer/CharTrainer.ixx"
-        "Src/Data/Tokenizers/CharTokenizer/CharVocabulary.ixx"
-        # DEPRECATED "Src/Data/Tokenizers/CharTokenizer/SpecialTokens.ixx"
-        # DEPRECATED "Src/Dnn/Components/Transformers/Transformer.ixx"
+        "Src/Data/Tokenizers/Bpe/Gpt4/Gpt4Tokenizer.ixx"
+        "Src/Data/Tokenizers/Bpe/Gpt4/Gpt4Vocabulary.ixx"
+        "Src/Data/Tokenizers/Bpe/Gpt4/Gpt4Vocabulary.Config.ixx"
+
+        "Src/Data/Tokenizers/Char/CharTokenizer.ixx"
+        "Src/Data/Tokenizers/Char/CharVocabularyConfig.ixx"
+        "Src/Data/Tokenizers/Char/CharTrainer.ixx"
+        "Src/Data/Tokenizers/Char/CharVocabulary.ixx"
+
+        "Src/Data/Tokenizers/Bpe/PreTokenizationMode.ixx"
+
         "Src/Dnn/Components/Transformers/GenerateParams.ixx"
         "Src/Data/Tokenizers/SpecialTokens.ixx"
         "Src/Dnn/Serialization/PretrainedReader.ixx"
         "Src/Dnn/Serialization/Serializer.ixx"
-        "Src/Data/Tokenizers/BPETokenizer/BpePreTokenization.ixx"
+        
         "Src/Dnn/Compute/IKVCacheable.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.Dispatch.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.Dispatch.ixx"
@@ -417,6 +420,8 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlanCache.ixx"
         
         "Src/Dnn/Models/GptModel.ixx"
+        "Src/Dnn/Models/LlamaModel.ixx"
+
         "Src/Dnn/Compute/IDecode.ixx"
         "Src/Dnn/Compute/IPositionalDecode.ixx"
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
@@ -425,7 +430,8 @@ PUBLIC
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
         
         "Src/Dnn/Compute/Operations/PairedOperation.ixx"
- "Src/Dnn/Models/LlamaModel.ixx")
+        
+)
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

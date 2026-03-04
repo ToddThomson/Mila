@@ -49,8 +49,10 @@ static ChatConfig parseArgs( int argc, char* argv[] )
 
             std::string_view type = argv[ ++i ];
 
-            if ( type == "gpt" )        explicit_type = ModelType::Gpt;
-            else if ( type == "llama" ) explicit_type = ModelType::Llama;
+            if ( type == "gpt" )
+                explicit_type = ModelType::Gpt;
+            else if ( type == "llama" )
+                explicit_type = ModelType::Llama;
             else throw std::invalid_argument(
                 std::format( "Unknown --model-type: '{}'. Expected gpt or llama.", type ) );
         }

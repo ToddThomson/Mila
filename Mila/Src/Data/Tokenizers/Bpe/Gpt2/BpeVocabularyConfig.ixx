@@ -14,7 +14,7 @@ module;
 
 export module Data.BpeVocabularyConfig;
 
-import Data.PreTokenizationMode;
+import Data.Tokenizers.Bpe.PreTokenizationMode;
 import Data.SpecialTokens;
 import Serialization.Metadata;
 

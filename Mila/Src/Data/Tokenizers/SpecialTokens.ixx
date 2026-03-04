@@ -7,6 +7,7 @@ module;
 #include <string>
 #include <string_view>
 #include <vector>
+#include <unordered_map>
 #include <cstdint>
 
 export module Data.SpecialTokens;
@@ -30,8 +31,13 @@ namespace Mila::Data
     /**
      * @brief Configuration for special tokens across all tokenizer types.
      *
-     * Used by CharTokenizer, BpeTokenizer, WordPieceTokenizer, etc.
+     * Used by CharTokenizer, BpeTokenizer, Gpt4BpeTokenizer, WordPieceTokenizer, etc.
      * Token strings are customizable to support different model conventions.
+     *
+     * The seven named slots (PAD, UNK, BOS, EOS, MASK, SEP, CLS) cover the
+     * common case for all known model families. For models with additional
+     * special tokens beyond these seven (e.g. Llama 3.2's 256 reserved tokens),
+     * use the extended_special_tokens map.
      */
     export struct SpecialTokens
     {
@@ -52,7 +58,19 @@ namespace Mila::Data
         std::string cls_token = "<CLS>";
 
         /**
-         * @brief Get string representation of a special token.
+         * @brief Extended special tokens beyond the seven named slots.
+         *
+         * Used for model families with large special token sets, such as
+         * Llama 3.2's reserved tokens (IDs 128002-128255). These are matched
+         * during the encode pre-pass before BPE merges are applied.
+         *
+         * Key: token string (e.g. "<|reserved_special_token_0|>")
+         * Value: token ID
+         */
+        std::unordered_map<std::string, int32_t> extended_special_tokens;
+
+        /**
+         * @brief Get string representation of a named special token.
          */
         std::string_view getString( SpecialToken token ) const
         {
@@ -70,7 +88,7 @@ namespace Mila::Data
         }
 
         /**
-         * @brief Check if a token type is enabled.
+         * @brief Check if a named token type is enabled.
          */
         constexpr bool isEnabled( SpecialToken token ) const
         {
@@ -88,7 +106,7 @@ namespace Mila::Data
         }
 
         /**
-         * @brief Get all enabled special tokens in priority order.
+         * @brief Get all enabled named tokens in priority order.
          */
         std::vector<SpecialToken> getEnabledTokens() const
         {
@@ -112,7 +130,8 @@ namespace Mila::Data
         }
 
         /**
-         * @brief Count enabled special tokens.
+         * @brief Count enabled named special tokens.
+         * Does not include extended_special_tokens.
          */
         constexpr size_t count() const
         {
@@ -122,7 +141,15 @@ namespace Mila::Data
         }
 
         /**
-         * @brief Check if a string matches an enabled special token.
+         * @brief Count all special tokens including extended set.
+         */
+        size_t countAll() const
+        {
+            return count() + extended_special_tokens.size();
+        }
+
+        /**
+         * @brief Check if a string matches any enabled special token (named or extended).
          */
         bool isSpecialToken( std::string_view str ) const
         {
@@ -133,29 +160,31 @@ namespace Mila::Data
             if ( use_mask && str == mask_token ) return true;
             if ( use_sep && str == sep_token ) return true;
             if ( use_cls && str == cls_token ) return true;
-            
-            return false;
+
+            // Check extended tokens
+            return extended_special_tokens.find( std::string( str ) ) != extended_special_tokens.end();
         }
 
         /**
          * @brief Get the ID offset for regular tokens.
          *
-         * Special tokens occupy IDs 0 to (count()-1), so regular tokens
-         * start at this offset.
+         * Named special tokens occupy IDs 0 to (count()-1), so regular tokens
+         * start at this offset. Extended tokens have explicit IDs and do not
+         * contribute to this offset.
          */
         constexpr size_t getIdOffset() const
         {
             return count();
         }
 
+        // ====================================================================
         // Factory methods
+        // ====================================================================
 
         /**
          * @brief Standard configuration (PAD, UNK, BOS, EOS).
-         *
-         * Common for most sequence-to-sequence tasks.
          */
-        static constexpr SpecialTokens standard()
+        static SpecialTokens standard()
         {
             return SpecialTokens{
                 .use_pad = true, .use_unk = true, .use_bos = true, .use_eos = true
@@ -164,20 +193,16 @@ namespace Mila::Data
 
         /**
          * @brief Minimal configuration (PAD, UNK only).
-         *
-         * Common for inference or when sequence markers aren't needed.
          */
-        static constexpr SpecialTokens minimal()
+        static SpecialTokens minimal()
         {
             return SpecialTokens{ .use_pad = true, .use_unk = true };
         }
 
         /**
          * @brief Configuration for masked language modeling.
-         *
-         * Includes standard tokens plus MASK.
          */
-        static constexpr SpecialTokens forMLM()
+        static SpecialTokens forMLM()
         {
             return SpecialTokens{
                 .use_pad = true, .use_unk = true, .use_bos = true,
@@ -187,10 +212,8 @@ namespace Mila::Data
 
         /**
          * @brief Configuration for sequence classification (BERT-style).
-         *
-         * Includes standard tokens plus SEP and CLS.
          */
-        static constexpr SpecialTokens forClassification()
+        static SpecialTokens forClassification()
         {
             return SpecialTokens{
                 .use_pad = true, .use_unk = true, .use_bos = true,
@@ -199,14 +222,16 @@ namespace Mila::Data
         }
 
         /**
-         * @brief GPT-style configuration using <|endoftext|> for multiple purposes.
+         * @brief GPT-2 style configuration.
          *
-         * GPT models use the same token string for PAD, UNK, BOS, and EOS.
+         * Uses <|endoftext|> for PAD, UNK, BOS, and EOS — GPT-2 uses one
+         * token string for all roles.
          */
         static SpecialTokens gptStyle()
         {
             return SpecialTokens{
                 .use_pad = true, .use_unk = true, .use_bos = true, .use_eos = true,
+                .use_mask = false, .use_sep = false, .use_cls = false,
                 .pad_token = "<|endoftext|>",
                 .unk_token = "<|endoftext|>",
                 .bos_token = "<|endoftext|>",
@@ -215,11 +240,32 @@ namespace Mila::Data
         }
 
         /**
-         * @brief Configuration with no special tokens.
+         * @brief Llama 3.x style configuration.
          *
-         * Rare, but useful for pre-tokenized data or specific research tasks.
+         * BOS: <|begin_of_text|> (ID 128000)
+         * EOS: <|end_of_text|>   (ID 128001)
+         *
+         * No PAD or UNK — Llama 3.x uses byte fallback for unknown bytes
+         * and does not use a dedicated padding token.
+         *
+         * The 254 reserved special tokens (IDs 128002-128255) are not
+         * populated here as they are unused in standard inference. Add them
+         * to extended_special_tokens if fine-tuning control tokens are needed.
          */
-        static constexpr SpecialTokens none()
+        static SpecialTokens llamaStyle()
+        {
+            return SpecialTokens{
+                .use_pad = false, .use_unk = false, .use_bos = true, .use_eos = true,
+                .use_mask = false, .use_sep = false, .use_cls = false,
+                .bos_token = "<|begin_of_text|>",
+                .eos_token = "<|end_of_text|>"
+            };
+        }
+
+        /**
+         * @brief Configuration with no special tokens.
+         */
+        static SpecialTokens none()
         {
             return SpecialTokens{
                 .use_pad = false, .use_unk = false, .use_bos = false,

@@ -83,12 +83,6 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
     # Convert weights
     state_dict = model.state_dict()
 
-    print("Layer 0 shapes:")
-    print(f"  c_attn (QKV):  {state_dict['transformer.h.0.attn.c_attn.weight'].shape}")
-    print(f"  c_proj (out):  {state_dict['transformer.h.0.attn.c_proj.weight'].shape}")
-    print(f"  c_fc   (fc_1): {state_dict['transformer.h.0.mlp.c_fc.weight'].shape}")
-    print(f"  c_proj (fc_2): {state_dict['transformer.h.0.mlp.c_proj.weight'].shape}")
-    
     # Token embeddings (HuggingFace transformer.wte -> Mila wte)
     writer.add_tensor(
         'lenc.wte',
@@ -159,32 +153,11 @@ def convert_gpt2(model_name: str, output_path: str, dtype: str = 'float32'):
             convert_dtype(state_dict[f'{prefix_hf}.mlp.c_fc.bias'].numpy(), dtype)
         )
 
-        #weight = model.state_dict()['transformer.h.0.mlp.c_proj.weight']
-        #print(f"\nLayer 0 fc_2 (c_proj) stats:")
-        #print(f"  Shape: {weight.shape}")
-        #print(f"  Min: {weight.min():.6f}")
-        #print(f"  Max: {weight.max():.6f}")  
-        #print(f"  Mean: {weight.mean():.6f}")
-
-        #weight_T = weight.T
-        #print(f"\nAfter .T stats:")
-        #print(f"  Shape: {weight_T.shape}")
-        #print(f"  Min: {weight_T.min():.6f}")
-        #print(f"  Max: {weight_T.max():.6f}")
-        #print(f"  Mean: {weight_T.mean():.6f}")
-        
-        #print(f"First 5x5 block:\n{weight[:5, :5]}")
-        #print(f"After .T first 5x5 block:\n{weight.T[:5, :5]}")
-
         writer.add_tensor(
             f'{prefix_mila}.mlp.fc_2.weight',
             convert_dtype(state_dict[f'{prefix_hf}.mlp.c_proj.weight'].numpy().T, dtype)
         )
         
-        #w = model.state_dict()[f'{prefix_hf}.mlp.c_proj.weight']
-        #print(f"Layer {i} fc_2 weight shape: {w.shape}")
-        #print(f"Min: {w.min():.6f}, Max: {w.max():.6f}, Mean: {w.mean():.6f}")
-
         writer.add_tensor(
             f'{prefix_mila}.mlp.fc_2.bias',
             convert_dtype(state_dict[f'{prefix_hf}.mlp.c_proj.bias'].numpy(), dtype)

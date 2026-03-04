@@ -265,7 +265,12 @@ export import Data.BpeVocabulary;
 export import Data.BpeVocabularyConfig;
 export import Data.BpeTokenizer;
 export import Data.BpeTrainer;
-// FIXME: export import Data.BpeSpecialTokens;
+
+export import Data.Tokenizers.Bpe.PreTokenizationMode;
+
+export import Data.Tokenizers.Bpe.Gpt4Vocabulary;
+export import Data.Tokenizers.Bpe.Gpt4VocabularyConfig;
+export import Data.Tokenizers.Bpe.Gpt4Tokenizer;
 
 // ============================================================================
 // Data - Datasets
