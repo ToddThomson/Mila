@@ -203,16 +203,25 @@ add_executable( MilaTests
     "Dnn/Components/Transformers/Gpt/GptTransformer.Cpu.cpp"
     "Dnn/Components/Transformers/Llama/LlamaTransformer.cpp"
     "Dnn/Components/Transformers/Llama/Llama.Presets.cpp"
-    "Dnn/Data/Gpt2Tokenizer.cpp"
-    "Data/CharTokenizer/CharVocabulary.cpp"
-    "Data/BpeTokenizer/BpeVocabulary.cpp"
-    "Data/BpeTokenizer/BpeTrainer.cpp"
-    "Data/CharTokenizer/CharTrainer.cpp"
-    "Data/BpeTokenizer/BpeTokenizer.cpp"
-    "Data/BpeTokenizer/BpeTokenizer.Gpt2.cpp"
-    "Data/CharTokenizer/CharTokenizer.cpp"
+    
+    "Data/Tokenizers/Char/CharVocabulary.cpp"
+    "Data/Tokenizers/Char/CharTrainer.cpp"
+    "Data/Tokenizers/Char/CharTokenizer.cpp"
+    
+    "Data/Tokenizers/Bpe/BpeVocabulary.cpp"
+    "Data/Tokenizers/Bpe/BpeTrainer.cpp"
+    "Data/Tokenizers/Bpe/BpeTokenizer.cpp"
+    "Data/Tokenizers/Bpe/BpeTokenizer.Gpt2.cpp"
+    
     "Dnn/Data/TokenSequenceLoader.cpp"
- "Dnn/Components/Transformers/Gpt/GptTransformer.Cuda.cpp" "Dnn/Components/Attention/GQA/GQA.Config.cpp" "Dnn/Components/Attention/GQA/GQA.Cuda.cpp" "Dnn/Components/Normalization/RmsNorm/RmsNorm.Cuda.cpp")
+    
+    "Dnn/Components/Transformers/Gpt/GptTransformer.Cuda.cpp"
+
+    "Dnn/Components/Attention/GQA/GQA.Config.cpp"
+    "Dnn/Components/Attention/GQA/GQA.Cuda.cpp"
+    
+    "Dnn/Components/Normalization/RmsNorm/RmsNorm.Cuda.cpp"
+)
 
 target_compile_definitions( MilaTests PRIVATE TEST_DATA_DIR="${TEST_DATA_DIR}" )
 

@@ -8,7 +8,7 @@ import Mila;
 #include <sstream>
 #include <iomanip>
 
-namespace Data::Tokenizers::BpeTokenizer_Gpt2_Tests
+namespace Data::Tokenizers::Gpt2Tokenizer_Loader_Tests
 {
     using namespace Mila::Data;
     namespace fs = std::filesystem;
@@ -53,6 +53,7 @@ namespace Data::Tokenizers::BpeTokenizer_Gpt2_Tests
     TEST( BpeTokenizerGpt2, LoadGpt2_SucceedsAndHasLargeVocab )
     {
         auto p = gpt2_tokenizer_path();
+        
         if ( !fs::exists( p ) ) {
             GTEST_SKIP() << "GPT-2 tokenizer binary not present at: " << p.string();
         }
@@ -61,14 +62,14 @@ namespace Data::Tokenizers::BpeTokenizer_Gpt2_Tests
         ASSERT_NO_THROW( {
             std::shared_ptr<BpeTokenizer> tokenizer = BpeTokenizer::loadGpt2( p );
 
-        // Basic expectations for GPT-2 style vocabularies: very large (>50k)
-        size_t vsz = tokenizer->getVocabSize();
-        EXPECT_GT( vsz, 50000u );
+            // Basic expectations for GPT-2 style vocabularies: very large (>50k)
+            size_t vsz = tokenizer->getVocabSize();
+            EXPECT_GT( vsz, 50000u );
 
-        // A few token ids should be valid (beginning and end of range)
-        EXPECT_TRUE( tokenizer->isValidToken( static_cast<Mila::Dnn::Data::TokenId>(0u) ) );
-        EXPECT_TRUE( tokenizer->isValidToken( static_cast<Mila::Dnn::Data::TokenId>(vsz - 1) ) );
-            } );
+            // A few token ids should be valid (beginning and end of range)
+            EXPECT_TRUE( tokenizer->isValidToken( static_cast<Mila::Dnn::Data::TokenId>(0u) ) );
+            EXPECT_TRUE( tokenizer->isValidToken( static_cast<Mila::Dnn::Data::TokenId>(vsz - 1) ) );
+        } );
     }
 
     TEST( BpeTokenizerGpt2, EncodeDecode_SinglePrintableToken )

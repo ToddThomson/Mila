@@ -8,15 +8,18 @@ module;
 #include <memory>
 #include <algorithm>
 
-export module Data.LlamaTokenizer;
+export module Data.LlamaTokenizer_old;
 
 import Data.Tokenizer;
 
 namespace Mila::Dnn::Data
 {
-    export class LlamaTokenizer : public Tokenizer {
+    // DEPRECATED: This is the original LLaMA tokenizer implementation, retained for reference
+    // TODO: Remove this class after the new LLaMA tokenizer is fully implemented and tested.
+
+    export class LlamaTokenizer_old : public Tokenizer {
     public:
-        static std::unique_ptr<LlamaTokenizer> fromFile( const std::string& path );
+        static std::unique_ptr<LlamaTokenizer_old> fromFile( const std::string& path );
 
         std::vector<TokenId> encode( const std::string& text ) override;
         std::string decode( std::span<const TokenId> tokens ) override;
@@ -41,7 +44,7 @@ namespace Mila::Dnn::Data
         bool isValidToken( TokenId tokenId ) const override;
 
     private:
-        LlamaTokenizer() = default;
+        LlamaTokenizer_old() = default;
 
         bool loadFromBinary( const std::string& path );
 
@@ -67,8 +70,8 @@ namespace Mila::Dnn::Data
         bool useByteFallback_{ true };
     };
 
-    std::unique_ptr<LlamaTokenizer> LlamaTokenizer::fromFile( const std::string& path ) {
-        auto tokenizer = std::unique_ptr<LlamaTokenizer>( new LlamaTokenizer() );
+    std::unique_ptr<LlamaTokenizer_old> LlamaTokenizer_old::fromFile( const std::string& path ) {
+        auto tokenizer = std::unique_ptr<LlamaTokenizer_old>( new LlamaTokenizer_old() );
 
         if ( !tokenizer->loadFromBinary( path ) ) {
             return nullptr;
@@ -77,7 +80,7 @@ namespace Mila::Dnn::Data
         return tokenizer;
     }
 
-    bool LlamaTokenizer::loadFromBinary( const std::string& path ) {
+    bool LlamaTokenizer_old::loadFromBinary( const std::string& path ) {
         std::ifstream file( path, std::ios::binary );
 
         if ( !file ) {
@@ -150,16 +153,16 @@ namespace Mila::Dnn::Data
         return true;
     }
 
-    std::string LlamaTokenizer::normalizeText( const std::string& text ) const {
+    std::string LlamaTokenizer_old::normalizeText( const std::string& text ) const {
         return " " + text;
     }
 
-    std::vector<TokenId> LlamaTokenizer::encode( const std::string& text ) {
+    std::vector<TokenId> LlamaTokenizer_old::encode( const std::string& text ) {
         std::string normalized = normalizeText( text );
         return sentencePieceEncode( normalized );
     }
 
-    std::vector<TokenId> LlamaTokenizer::sentencePieceEncode( const std::string& text ) const {
+    std::vector<TokenId> LlamaTokenizer_old::sentencePieceEncode( const std::string& text ) const {
         std::vector<TokenId> result;
         size_t pos = 0;
 
@@ -205,7 +208,7 @@ namespace Mila::Dnn::Data
         return result;
     }
 
-    std::string LlamaTokenizer::decode( std::span<const TokenId> tokens ) {
+    std::string LlamaTokenizer_old::decode( std::span<const TokenId> tokens ) {
         std::string result;
 
         for ( auto tokenId : tokens ) {
@@ -237,12 +240,12 @@ namespace Mila::Dnn::Data
         return result;
     }
 
-    std::string LlamaTokenizer::tokenToString( TokenId tokenId ) const {
+    std::string LlamaTokenizer_old::tokenToString( TokenId tokenId ) const {
         auto it = idToPiece_.find( tokenId );
         return it != idToPiece_.end() ? it->second : "<UNK>";
     }
 
-    bool LlamaTokenizer::isValidToken( TokenId tokenId ) const {
+    bool LlamaTokenizer_old::isValidToken( TokenId tokenId ) const {
         return idToPiece_.contains( tokenId );
     }
 }

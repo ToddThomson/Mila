@@ -1,24 +1,30 @@
+/*!
+ * @file BpeVocabulary.cpp
+ * @brief Unit tests for BpeVocabulary training, serialization, and token lookup.
+ */
+
 #include <gtest/gtest.h>
 
 import Mila;
 
 #include <filesystem>
-#include <sstream>
 #include <fstream>
 #include <chrono>
 #include <random>
-#include <algorithm>
 
-namespace Data::Tokenizers::BpeTokenizer_Tests
+namespace Mila::Data::Tests
 {
-    using namespace Mila::Data;
+    using Mila::Data::BpeVocabulary;
+    using Mila::Data::BpeVocabularyConfig;
+    using Mila::Data::SpecialTokens;
+
     namespace fs = std::filesystem;
 
     static fs::path make_temp_file( const std::string& stem = "bpe_vocab_test" )
     {
         auto dir = fs::temp_directory_path();
         auto now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-        std::mt19937_64 rng( static_cast<unsigned long long>( now ) );
+        std::mt19937_64 rng( static_cast<unsigned long long>(now) );
         std::uniform_int_distribution<unsigned long long> dist;
         auto rand = dist( rng );
 
@@ -36,7 +42,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
 
         EXPECT_EQ( vocab.getSize(), 256u );
 
-        auto tok0 = std::string( 1, static_cast<char>( 0 ) );
+        auto tok0 = std::string( 1, static_cast<char>(0) );
         auto id0 = vocab.tokenToId( tok0 );
         ASSERT_TRUE( id0.has_value() );
         EXPECT_EQ( *id0, 0u );
@@ -52,37 +58,40 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
 
     TEST( BpeVocabularyTests, AddsSpecialTokens_WhenEnabled )
     {
+        const auto st = SpecialTokens::standard();
+
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 260 )
             .withByteLevel( true )
-            .withSpecialTokens( SpecialTokens::standard() );
+            .withSpecialTokens( st );
 
         BpeVocabulary vocab = BpeVocabulary::train( std::string(), cfg );
 
         EXPECT_GE( vocab.getSize(), 256u );
 
-        auto pad_id = vocab.getSpecialTokenId( 'p' );
-        auto unk_id = vocab.getSpecialTokenId( 'u' );
-        auto bos_id = vocab.getSpecialTokenId( 'b' );
-        auto eos_id = vocab.getSpecialTokenId( 'e' );
+        auto pad_id = vocab.getSpecialTokenId( st.pad_token );
+        auto unk_id = vocab.getSpecialTokenId( st.unk_token );
+        auto bos_id = vocab.getSpecialTokenId( st.bos_token );
+        auto eos_id = vocab.getSpecialTokenId( st.eos_token );
 
         ASSERT_TRUE( pad_id.has_value() );
         ASSERT_TRUE( unk_id.has_value() );
         ASSERT_TRUE( bos_id.has_value() );
         ASSERT_TRUE( eos_id.has_value() );
 
-        EXPECT_EQ( vocab.idToToken( *pad_id ).value(), SpecialTokens::standard().pad_token );
-        EXPECT_EQ( vocab.idToToken( *unk_id ).value(), SpecialTokens::standard().unk_token );
-        EXPECT_EQ( vocab.idToToken( *bos_id ).value(), SpecialTokens::standard().bos_token );
-        EXPECT_EQ( vocab.idToToken( *eos_id ).value(), SpecialTokens::standard().eos_token );
+        EXPECT_EQ( vocab.idToToken( *pad_id ).value(), st.pad_token );
+        EXPECT_EQ( vocab.idToToken( *unk_id ).value(), st.unk_token );
+        EXPECT_EQ( vocab.idToToken( *bos_id ).value(), st.bos_token );
+        EXPECT_EQ( vocab.idToToken( *eos_id ).value(), st.eos_token );
 
-        EXPECT_EQ( vocab.tokenToId( SpecialTokens::standard().pad_token ).value(), *pad_id );
-        EXPECT_EQ( vocab.tokenToId( SpecialTokens::standard().unk_token ).value(), *unk_id );
+        EXPECT_EQ( vocab.tokenToId( st.pad_token ).value(), *pad_id );
+        EXPECT_EQ( vocab.tokenToId( st.unk_token ).value(), *unk_id );
     }
 
     TEST( BpeVocabularyTests, PerformsOneMerge_ForFrequentPair )
     {
         std::string corpus = "aa aa aa";
+
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 257 )
             .withByteLevel( true )
@@ -108,6 +117,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
     TEST( BpeVocabularyTests, MinFrequencyPreventsMerges )
     {
         std::string corpus = "aa aa aa";
+
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 257 )
             .withByteLevel( true )
@@ -123,6 +133,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
     TEST( BpeVocabularyTests, MaxMergesLimitsNumberOfMerges )
     {
         std::string corpus = "aaaa bbbb aaaa bbbb aaaa bbbb";
+
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 260 )
             .withByteLevel( true )
@@ -139,10 +150,12 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
     TEST( BpeVocabularyTests, SaveLoad_Roundtrip_PreservesVocabAndMerges )
     {
         std::string corpus = "aa aa aa bb bb";
+        const auto st = SpecialTokens::standard();
+
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 260 )
             .withByteLevel( true )
-            .withSpecialTokens( SpecialTokens::standard() )
+            .withSpecialTokens( st )
             .withMinFrequency( 1 );
 
         BpeVocabulary vocab = BpeVocabulary::train( corpus, cfg );
@@ -157,8 +170,8 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
 
         EXPECT_EQ( loaded.getSize(), vocab.getSize() );
 
-        auto p1 = vocab.getSpecialTokenId( 'p' );
-        auto p2 = loaded.getSpecialTokenId( 'p' );
+        auto p1 = vocab.getSpecialTokenId( st.pad_token );
+        auto p2 = loaded.getSpecialTokenId( st.pad_token );
         ASSERT_TRUE( p1.has_value() );
         ASSERT_TRUE( p2.has_value() );
         EXPECT_EQ( *p1, *p2 );
@@ -167,6 +180,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
         const auto& m1 = vocab.getMergeRules();
         const auto& m2 = loaded.getMergeRules();
         EXPECT_EQ( m1.size(), m2.size() );
+
         for ( size_t i = 0; i < m1.size(); ++i )
         {
             EXPECT_EQ( m1[ i ].first, m2[ i ].first );
@@ -179,6 +193,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
     TEST( BpeVocabularyTests, SaveLoad_Roundtrip_PreservesConfiguration )
     {
         std::string corpus = "test corpus for config preservation";
+
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 300 )
             .withByteLevel( true )
@@ -207,14 +222,16 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
 
     TEST( BpeVocabularyTests, TokenToId_ReturnsUnkWhenConfigured_OrNulloptOtherwise )
     {
+        const auto st = SpecialTokens::standard();
+
         BpeVocabularyConfig cfg1 = BpeVocabularyConfig()
             .withVocabSize( 260 )
             .withByteLevel( true )
-            .withSpecialTokens( SpecialTokens::standard() );
+            .withSpecialTokens( st );
 
         BpeVocabulary v1 = BpeVocabulary::train( std::string(), cfg1 );
 
-        auto unk_id = v1.getSpecialTokenId( 'u' );
+        auto unk_id = v1.getSpecialTokenId( st.unk_token );
         ASSERT_TRUE( unk_id.has_value() );
         auto maybe = v1.tokenToId( "<|this-does-not-exist|>" );
         ASSERT_TRUE( maybe.has_value() );
@@ -240,7 +257,7 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
 
         BpeVocabulary vocab = BpeVocabulary::train( std::string(), cfg );
 
-        auto out = vocab.idToToken( static_cast<uint32_t>( vocab.getSize() + 100 ) );
+        auto out = vocab.idToToken( static_cast<uint32_t>(vocab.getSize() + 100) );
         EXPECT_FALSE( out.has_value() );
     }
 
@@ -307,37 +324,41 @@ namespace Data::Tokenizers::BpeTokenizer_Tests
 
     TEST( BpeVocabularyTests, SpecialTokens_MLM_IncludesMaskToken )
     {
+        const auto st = SpecialTokens::forMLM();
+
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 265 )
             .withByteLevel( true )
-            .withSpecialTokens( SpecialTokens::forMLM() );
+            .withSpecialTokens( st );
 
         BpeVocabulary vocab = BpeVocabulary::train( std::string(), cfg );
 
-        auto mask_id = vocab.getSpecialTokenId( 'm' );
+        auto mask_id = vocab.getSpecialTokenId( st.mask_token );
         ASSERT_TRUE( mask_id.has_value() );
 
         auto mask_token = vocab.idToToken( *mask_id );
         ASSERT_TRUE( mask_token.has_value() );
-        EXPECT_EQ( *mask_token, SpecialTokens::forMLM().mask_token );
+        EXPECT_EQ( *mask_token, st.mask_token );
     }
 
     TEST( BpeVocabularyTests, SpecialTokens_Classification_IncludesSepAndCls )
     {
+        const auto st = SpecialTokens::forClassification();
+
         BpeVocabularyConfig cfg = BpeVocabularyConfig()
             .withVocabSize( 265 )
             .withByteLevel( true )
-            .withSpecialTokens( SpecialTokens::forClassification() );
+            .withSpecialTokens( st );
 
         BpeVocabulary vocab = BpeVocabulary::train( std::string(), cfg );
 
-        auto sep_id = vocab.getSpecialTokenId( 's' );
-        auto cls_id = vocab.getSpecialTokenId( 'c' );
+        auto sep_id = vocab.getSpecialTokenId( st.sep_token );
+        auto cls_id = vocab.getSpecialTokenId( st.cls_token );
 
         ASSERT_TRUE( sep_id.has_value() );
         ASSERT_TRUE( cls_id.has_value() );
 
-        EXPECT_EQ( vocab.idToToken( *sep_id ).value(), SpecialTokens::forClassification().sep_token );
-        EXPECT_EQ( vocab.idToToken( *cls_id ).value(), SpecialTokens::forClassification().cls_token );
+        EXPECT_EQ( vocab.idToToken( *sep_id ).value(), st.sep_token );
+        EXPECT_EQ( vocab.idToToken( *cls_id ).value(), st.cls_token );
     }
 }

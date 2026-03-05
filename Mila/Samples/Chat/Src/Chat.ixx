@@ -113,8 +113,7 @@ namespace Mila::ChatApp
                         break;
 
                     case ModelType::Llama:
-                        tokenizer_ = std::make_shared<BpeTokenizer>(
-                            BpeTokenizer::loadLlama( config_.tokenizer_path ) );
+                        tokenizer_ = BpeTokenizer::loadLlama32( config_.tokenizer_path );
                         break;
                 }
 

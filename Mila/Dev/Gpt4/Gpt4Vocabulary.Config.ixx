@@ -34,36 +34,36 @@ namespace Mila::Data
      * Designed for loading pretrained Llama 3.x vocabularies from Mila binary
      * format. Training from scratch is not supported for this vocabulary type.
      */
-    export class Gpt4BpeVocabularyConfig
+    export class Gpt4VocabularyConfig
     {
     public:
-        Gpt4BpeVocabularyConfig() = default;
+        Gpt4VocabularyConfig() = default;
 
-        Gpt4BpeVocabularyConfig& withVocabSize( size_t size )
+        Gpt4VocabularyConfig& withVocabSize( size_t size )
         {
             vocab_size_ = size;
             return *this;
         }
 
-        Gpt4BpeVocabularyConfig& withSpecialTokens( const SpecialTokens& tokens )
+        Gpt4VocabularyConfig& withSpecialTokens( const SpecialTokens& tokens )
         {
             special_tokens_ = tokens;
             return *this;
         }
 
-        Gpt4BpeVocabularyConfig& withByteLevel( bool byte_level )
+        Gpt4VocabularyConfig& withByteLevel( bool byte_level )
         {
             byte_level_ = byte_level;
             return *this;
         }
 
-        Gpt4BpeVocabularyConfig& withPreTokenization( PreTokenizationMode mode )
+        Gpt4VocabularyConfig& withPreTokenization( PreTokenizationMode mode )
         {
             pre_tokenization_mode_ = mode;
             return *this;
         }
 
-        Gpt4BpeVocabularyConfig& withPreTokenizationPattern( const std::string& pattern )
+        Gpt4VocabularyConfig& withPreTokenizationPattern( const std::string& pattern )
         {
             pre_tokenization_pattern_ = pattern;
             return *this;

@@ -9,7 +9,7 @@
 
 module;
 
-export module Data.Tokenizers.Bpe.PreTokenizationMode;
+export module Data.BpePreTokenizationMode;
 
 namespace Mila::Data
 {

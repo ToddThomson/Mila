@@ -1,9 +1,9 @@
 /*!
- * \file Gpt4BpeTokenizer.ixx
+ * \file Gpt4Tokenizer.ixx
  * \brief GPT-4 style BPE tokenizer for Llama 3.x models.
  *
- * Mirrors BpeTokenizer from the BpeTokenizer module but adds a special token
- * pre-pass in encode() required by Llama 3.x's large special token set.
+ * Mirrors Gpt2Tokenizer but adds a special token pre-pass in encode()
+ * required by Llama 3.x's large special token set.
  *
  * Encode pipeline:
  *   1. Special token pre-pass: scan input for registered special token strings
@@ -50,20 +50,20 @@ namespace Mila::Data
     /**
      * @brief GPT-4 style BPE tokenizer targeting Llama 3.x models.
      *
-     * Use Gpt4BpeVocabulary::loadLlama32() to construct the vocabulary,
+     * Use Gpt4Vocabulary::loadLlama32() to construct the vocabulary,
      * then wrap it in this tokenizer:
      *
      * @code
-     * auto vocab = Gpt4BpeVocabulary::loadLlama32("llama32_tokenizer.bin");
+     * auto vocab = Gpt4Vocabulary::loadLlama32("llama32_tokenizer.bin");
      * auto tokenizer = std::make_shared<Gpt4BpeTokenizer>(std::move(vocab));
      * auto ids = tokenizer->encode("Hello, world!");
      * @endcode
      */
-    export class Gpt4BpeTokenizer : public Tokenizer
+    export class Gpt4Tokenizer : public Tokenizer
     {
     public:
 
-        explicit Gpt4BpeTokenizer( Gpt4BpeVocabulary vocab )
+        explicit Gpt4Tokenizer( Gpt4Vocabulary vocab )
             : vocab_( std::move( vocab ) )
         {
             initializePreTokenization();
@@ -73,9 +73,9 @@ namespace Mila::Data
         // Convenience factory
         // ====================================================================
 
-        static std::shared_ptr<Gpt4BpeTokenizer> loadLlama32( const std::filesystem::path& path )
+        static std::shared_ptr<Gpt4Tokenizer> loadLlama32( const std::filesystem::path& path )
         {
-            return std::make_shared<Gpt4BpeTokenizer>( Gpt4BpeVocabulary::loadLlama32( path ) );
+            return std::make_shared<Gpt4Tokenizer>( Gpt4Vocabulary::loadLlama32( path ) );
         }
 
         // ====================================================================
@@ -212,13 +212,13 @@ namespace Mila::Data
             return static_cast<bool>(vocab_.idToToken( tokenId ));
         }
 
-        const Gpt4BpeVocabulary& getVocab() const
+        const Gpt4Vocabulary& getVocab() const
         {
             return vocab_;
         }
 
     private:
-        Gpt4BpeVocabulary vocab_;
+        Gpt4Vocabulary vocab_;
         std::optional<std::regex> pre_tokenization_regex_;
 
         // ====================================================================
@@ -277,7 +277,7 @@ namespace Mila::Data
 
                 if ( vocab_.isByteLevel() )
                 {
-                    const auto& byte_encoder = Gpt4BpeVocabulary::getByteEncoder();
+                    const auto& byte_encoder = Gpt4Vocabulary::getByteEncoder();
                     for ( unsigned char byte : word )
                     {
                         tokens.push_back( byte_encoder.at( byte ) );
@@ -363,7 +363,7 @@ namespace Mila::Data
                 return;
             }
 
-            const auto& byte_decoder = Gpt4BpeVocabulary::getByteDecoder();
+            const auto& byte_decoder = Gpt4Vocabulary::getByteDecoder();
             size_t i = 0;
             while ( i < token.size() )
             {

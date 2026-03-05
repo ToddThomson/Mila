@@ -200,7 +200,6 @@ export import Dnn.Components.Softmax;
 // ============================================================================
 export import Dnn.Components.MLP;
 export import Dnn.Components.GptBlock;
-export import Dnn.Components.LlamaBlock;
 
 // ============================================================================
 // Networks - Open Source Transformer Networks
@@ -231,7 +230,7 @@ export import Dnn.Optimizers.AdamWConfig;
 export import Data.DataLoader;
 export import Data.Tokenizer;
 export import Data.TokenizerType;
-export import Data.Gpt2Tokenizer;
+// DEPRECATED: export import Data.Gpt2Tokenizer;
 
 // ============================================================================
 // Serialization
@@ -265,12 +264,7 @@ export import Data.BpeVocabulary;
 export import Data.BpeVocabularyConfig;
 export import Data.BpeTokenizer;
 export import Data.BpeTrainer;
-
-export import Data.Tokenizers.Bpe.PreTokenizationMode;
-
-export import Data.Tokenizers.Bpe.Gpt4Vocabulary;
-export import Data.Tokenizers.Bpe.Gpt4VocabularyConfig;
-export import Data.Tokenizers.Bpe.Gpt4Tokenizer;
+export import Data.BpePreTokenizationMode;
 
 // ============================================================================
 // Data - Datasets

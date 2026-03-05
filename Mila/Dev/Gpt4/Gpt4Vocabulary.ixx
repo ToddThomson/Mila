@@ -57,7 +57,7 @@ namespace Mila::Data
      *
      * Immutable after construction. Thread-safe for concurrent reads.
      */
-    export class Gpt4BpeVocabulary : public TokenizerVocabulary
+    export class Gpt4Vocabulary : public TokenizerVocabulary
     {
     public:
 
@@ -68,13 +68,13 @@ namespace Mila::Data
         /**
          * @brief Load vocabulary from Mila binary format.
          *
-         * Reads a Gpt4BpeVocabulary file written by save().
+         * Reads a Gpt4Vocabulary file written by save().
          *
          * @param path Input file path.
          * @return Loaded Gpt4BpeVocabulary instance.
          * @throws std::runtime_error on I/O errors or format mismatch.
          */
-        static Gpt4BpeVocabulary load( const fs::path& path )
+        static Gpt4Vocabulary load( const fs::path& path )
         {
             std::ifstream file( path, std::ios::binary );
             if ( !file )
@@ -91,10 +91,10 @@ namespace Mila::Data
                     std::string( toString( header.getFileType() ) ) + "): " + path.string() );
             }
 
-            Gpt4BpeVocabularyConfig config;
+            Gpt4VocabularyConfig config;
             config.fromMetadata( header.getMetadata() );
 
-            Gpt4BpeVocabulary vocab( config );
+            Gpt4Vocabulary vocab( config );
             vocab.loadContent( file );
 
             return vocab;
@@ -128,7 +128,7 @@ namespace Mila::Data
          * @return Loaded Gpt4BpeVocabulary instance.
          * @throws std::runtime_error on I/O or format errors.
          */
-        static Gpt4BpeVocabulary loadLlama32( const fs::path& path )
+        static Gpt4Vocabulary loadLlama32( const fs::path& path )
         {
             std::ifstream file( path, std::ios::binary );
             if ( !file )
@@ -157,14 +157,14 @@ namespace Mila::Data
                 throw std::runtime_error( "Failed reading use_byte_fallback" );
             }
 
-            Gpt4BpeVocabularyConfig config = Gpt4BpeVocabularyConfig()
+            Gpt4VocabularyConfig config = Gpt4VocabularyConfig()
                 .withVocabSize( vocab_size )
                 .withByteLevel( true )
                 .withPreTokenization( PreTokenizationMode::Llama3Regex )
                 .withPreTokenizationPattern( LLAMA3_PRETOKENIZATION_PATTERN )
                 .withSpecialTokens( SpecialTokens::llamaStyle() );
 
-            Gpt4BpeVocabulary vocab( config );
+            Gpt4Vocabulary vocab( config );
             vocab.id_to_token_.resize( vocab_size );
 
             // --- Vocabulary ---
@@ -263,13 +263,13 @@ namespace Mila::Data
             return vocab;
         }
 
-        Gpt4BpeVocabulary() = delete;
+        Gpt4Vocabulary() = delete;
 
         // ====================================================================
         // Configuration Access
         // ====================================================================
 
-        const Gpt4BpeVocabularyConfig& getConfig() const
+        const Gpt4VocabularyConfig& getConfig() const
         {
             return config_;
         }
@@ -385,7 +385,7 @@ namespace Mila::Data
 
     private:
 
-        explicit Gpt4BpeVocabulary( const Gpt4BpeVocabularyConfig& config )
+        explicit Gpt4Vocabulary( const Gpt4VocabularyConfig& config )
             : config_( config )
         {}
 
@@ -570,7 +570,7 @@ namespace Mila::Data
         // Member Variables
         // ====================================================================
 
-        Gpt4BpeVocabularyConfig config_;
+        Gpt4VocabularyConfig config_;
 
         std::unordered_map<std::string, TokenId> token_to_id_;
         std::vector<std::string> id_to_token_;
@@ -590,7 +590,7 @@ namespace Mila::Data
     // Static Byte Encoder/Decoder (GPT-2 style — shared with BpeVocabulary)
     // ========================================================================
 
-    const std::unordered_map<unsigned char, std::string>& Gpt4BpeVocabulary::getByteEncoder()
+    const std::unordered_map<unsigned char, std::string>& Gpt4Vocabulary::getByteEncoder()
     {
         static std::unordered_map<unsigned char, std::string> encoder = []()
             {
@@ -641,7 +641,7 @@ namespace Mila::Data
         return encoder;
     }
 
-    const std::unordered_map<std::string, unsigned char>& Gpt4BpeVocabulary::getByteDecoder()
+    const std::unordered_map<std::string, unsigned char>& Gpt4Vocabulary::getByteDecoder()
     {
         static std::unordered_map<std::string, unsigned char> decoder = []()
             {

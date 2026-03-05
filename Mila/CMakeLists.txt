@@ -289,9 +289,9 @@ PUBLIC
         #----------------------------------------------------------------------
         # Dnn / Data
         #----------------------------------------------------------------------
-        "Src/Dnn/Data/DataLoader.ixx"
-        "Src/Dnn/Data/TokenSequenceLoader.ixx"
-        "Src/Dnn/Data/TokenSequenceLoader.Config.ixx"
+        "Src/Data/Loaders/DataLoader.ixx"
+        "Src/Data/Loaders/TokenSequenceLoader.ixx"
+        "Src/Data/Loaders/TokenSequenceLoader.Config.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Serialization
@@ -381,31 +381,36 @@ PUBLIC
         
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Presets.ixx"
 
-        "Src/Dnn/Data/Tokenizer.ixx"
-        "Src/Dnn/Data/Gpt2Tokenizer.ixx"
-        "Src/Dnn/Data/Llama3Tokenizer.ixx"
-        "Src/Dnn/Data/TokenizerVocabulary.ixx"
-        "Src/Dnn/Data/TokenizerType.ixx"
+        "Src/Data/Tokenizers/Tokenizer.ixx"
+        # DEPRECATED: "Src/Dnn/Data/Gpt2Tokenizer.ixx"
+        # DEPRECATED: "Src/Dnn/Data/Llama3Tokenizer.ixx"
+        "Src/Data/Tokenizers/TokenizerVocabulary.ixx"
+        "Src/Data/Tokenizers/TokenizerType.ixx"
 
         "Src/Data/Core/FileHeader.ixx"        
         "Src/Data/Core/TokenizerTrainer.ixx"
         "Src/Data/Core/TrainerFactory.ixx"
 
-        "Src/Data/Tokenizers/Bpe/Gpt2/BPETokenizer.ixx"
-        "Src/Data/Tokenizers/Bpe/Gpt2/BpeTrainer.ixx"
-        "Src/Data/Tokenizers/Bpe/Gpt2/BPEVocabulary.ixx"
-        "Src/Data/Tokenizers/Bpe/Gpt2/BpeVocabularyConfig.ixx"
-
-        "Src/Data/Tokenizers/Bpe/Gpt4/Gpt4Tokenizer.ixx"
-        "Src/Data/Tokenizers/Bpe/Gpt4/Gpt4Vocabulary.ixx"
-        "Src/Data/Tokenizers/Bpe/Gpt4/Gpt4Vocabulary.Config.ixx"
+        # REVIEW: Unified Bpe tockenizer
+        #"Src/Data/Tokenizers/Bpe/Gpt2/BPETokenizer.ixx"
+        #"Src/Data/Tokenizers/Bpe/Gpt2/BpeTrainer.ixx"
+        #"Src/Data/Tokenizers/Bpe/Gpt2/BPEVocabulary.ixx"
+        #"Src/Data/Tokenizers/Bpe/Gpt2/BpeVocabularyConfig.ixx"
+        #"Src/Data/Tokenizers/Bpe/Gpt4/Gpt4Tokenizer.ixx"
+        #"Src/Data/Tokenizers/Bpe/Gpt4/Gpt4Vocabulary.ixx"
+        #"Src/Data/Tokenizers/Bpe/Gpt4/Gpt4Vocabulary.Config.ixx"
 
         "Src/Data/Tokenizers/Char/CharTokenizer.ixx"
         "Src/Data/Tokenizers/Char/CharVocabularyConfig.ixx"
         "Src/Data/Tokenizers/Char/CharTrainer.ixx"
         "Src/Data/Tokenizers/Char/CharVocabulary.ixx"
 
-        "Src/Data/Tokenizers/Bpe/PreTokenizationMode.ixx"
+        "Src/Data/Tokenizers/Bpe/BpeVocabularyConfig.ixx"
+        "Src/Data/Tokenizers/Bpe/BpeVocabulary.ixx"
+        "Src/Data/Tokenizers/Bpe/BpeTokenizer.ixx"
+        "Src/Data/Tokenizers/Bpe/BpeTrainer.ixx"
+
+        "Src/Data/Tokenizers/Bpe/BpePreTokenizationMode.ixx"
 
         "Src/Dnn/Components/Transformers/GenerateParams.ixx"
         "Src/Data/Tokenizers/SpecialTokens.ixx"
@@ -430,7 +435,6 @@ PUBLIC
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
         
         "Src/Dnn/Compute/Operations/PairedOperation.ixx"
-        
 )
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
@@ -780,8 +784,8 @@ endif()
 # Generate documentation with Doxygen
 add_subdirectory( Docs )
 
-# Add data tokenization tools
-add_subdirectory( Src/Data/Tools )
+# Add tools: tokenizer trainer, model exporter, etc.
+add_subdirectory( Tools )
 
 # Configure code coverage for MSVC
 if( MILA_ENABLE_COVERAGE AND MSVC)

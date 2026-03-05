@@ -1,5 +1,5 @@
 /**
- * @file Gpt2Tokenizer.ixx
+ * @file Gpt2Tokenizer_old.ixx
  * @brief GPT-style BPE tokenizer and binary loader used by Mila.
  *
  * Loads a compact binary tokenizer format and provides encode/decode functionality.
@@ -20,7 +20,7 @@ module;
 #include <functional>
 #include <limits>
 
-export module Data.Gpt2Tokenizer;
+export module Data.Gpt2Tokenizer_old_old;
 
 import Data.Tokenizer;
 
@@ -50,7 +50,7 @@ namespace Mila::Dnn::Data
      * mutations. Concurrent read-only encode/decode usage is acceptable when no
      * writer modifies state.
      */
-    export class Gpt2Tokenizer : public Tokenizer {
+    export class Gpt2Tokenizer_old : public Tokenizer {
     public:
         /**
          * @brief Create a tokenizer by loading the binary file at `path`.
@@ -60,8 +60,8 @@ namespace Mila::Dnn::Data
          * Preconditions: `path` points to a file produced by the repository
          * conversion utility or another producer that follows the same layout.
          */
-        static std::unique_ptr<Gpt2Tokenizer> fromFile( const std::string& path ) {
-            auto tokenizer = std::unique_ptr<Gpt2Tokenizer>( new Gpt2Tokenizer() );
+        static std::unique_ptr<Gpt2Tokenizer_old> fromFile( const std::string& path ) {
+            auto tokenizer = std::unique_ptr<Gpt2Tokenizer_old>( new Gpt2Tokenizer_old() );
             if ( !tokenizer->loadFromBinary( path ) ) {
                 return nullptr;
             }
@@ -162,7 +162,7 @@ namespace Mila::Dnn::Data
         }
 
     private:
-        Gpt2Tokenizer() = default;
+        Gpt2Tokenizer_old() = default;
 
         /**
          * @brief Load the tokenizer from the repository binary layout.
