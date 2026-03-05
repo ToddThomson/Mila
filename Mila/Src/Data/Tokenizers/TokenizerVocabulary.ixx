@@ -17,7 +17,7 @@ export module Data.TokenizerVocabulary;
 
 import Data.Tokenizer;
 
-namespace Mila::Dnn::Data
+namespace Mila::Data
 {
     /**
      * @brief Generic tokenizer vocabulary interface.

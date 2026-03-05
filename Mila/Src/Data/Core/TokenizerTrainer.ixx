@@ -21,8 +21,6 @@ import Data.TokenizerVocabulary;
 
 namespace Mila::Data
 {
-    using Mila::Dnn::Data::TokenizerVocabulary;
-
     /**
      * @brief Abstract interface for training tokenizer vocabularies from text corpora.
      *

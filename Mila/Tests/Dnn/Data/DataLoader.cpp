@@ -7,8 +7,10 @@
 
 import Mila;
 
-namespace Mila::Dnn::Data::Tests
+namespace Data::Loaders::Tests
 {
+    using namespace Mila::Data;
+    using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
     template<TensorDataType TInput, TensorDataType TTarget = TInput, typename TMemoryResource = CpuMemoryResource>

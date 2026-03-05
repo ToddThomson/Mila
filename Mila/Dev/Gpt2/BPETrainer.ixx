@@ -27,7 +27,7 @@ import Data.BpeVocabulary;
 
 namespace Mila::Data
 {
-    using Mila::Dnn::Data::TokenizerVocabulary;
+    using Mila::Data::TokenizerVocabulary;
 
     /**
      * @brief Byte-Pair Encoding (BPE) tokenizer trainer.

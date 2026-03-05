@@ -23,7 +23,7 @@ import Mila;
 namespace Mila::Data::Tests
 {
     using Mila::Data::BpeTokenizer;
-    using Mila::Dnn::Data::TokenId;
+    using Mila::Data::TokenId;
 
     // Minimal test vocabulary layout (Llama 3.2 binary format):
     //   ID 0-4 : 'H', 'e', 'l', 'o', '!'

@@ -28,7 +28,7 @@ namespace Bard
     namespace fs = std::filesystem;
 
     using namespace Mila::Dnn;
-    using namespace Mila::Dnn::Data;
+    using namespace Mila::Data;
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Optimizers;
     using namespace Mila::Data;

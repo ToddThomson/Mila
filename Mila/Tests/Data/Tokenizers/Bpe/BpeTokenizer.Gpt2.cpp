@@ -67,8 +67,8 @@ namespace Data::Tokenizers::Gpt2Tokenizer_Loader_Tests
             EXPECT_GT( vsz, 50000u );
 
             // A few token ids should be valid (beginning and end of range)
-            EXPECT_TRUE( tokenizer->isValidToken( static_cast<Mila::Dnn::Data::TokenId>(0u) ) );
-            EXPECT_TRUE( tokenizer->isValidToken( static_cast<Mila::Dnn::Data::TokenId>(vsz - 1) ) );
+            EXPECT_TRUE( tokenizer->isValidToken( static_cast<Mila::Data::TokenId>(0u) ) );
+            EXPECT_TRUE( tokenizer->isValidToken( static_cast<Mila::Data::TokenId>(vsz - 1) ) );
         } );
     }
 

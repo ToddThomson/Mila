@@ -34,8 +34,9 @@ import Compute.DeviceType;
 import Compute.CpuMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 
-namespace Mila::Dnn::Data
+namespace Mila::Data
 {
+    using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
     // REVIEW: Semantically, Token Ids are unsigned. However, I want to use int* in my CUDA Encoder kenels

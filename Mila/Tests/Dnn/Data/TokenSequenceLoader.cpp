@@ -10,7 +10,7 @@
 
 import Mila;
 
-namespace Mila::Dnn::Data::Tests
+namespace Mila::Data::Tests
 {
     using namespace Mila::Dnn::Compute;
 

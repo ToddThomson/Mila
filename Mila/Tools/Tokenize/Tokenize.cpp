@@ -37,7 +37,6 @@ import Data.CharTokenizer;
 
 namespace fs = std::filesystem;
 using namespace Mila::Data;
-using namespace Mila::Dnn::Data;
 
 // ============================================================================
 // Command-line argument structure

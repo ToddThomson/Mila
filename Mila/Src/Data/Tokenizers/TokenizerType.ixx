@@ -5,7 +5,7 @@ module;
 
 export module Data.TokenizerType;
 
-namespace Mila::Dnn::Data
+namespace Mila::Data
 {
     /** Tokenizer type discriminator used across tokenizer and vocabulary types. */
     export enum class TokenizerType : uint8_t {

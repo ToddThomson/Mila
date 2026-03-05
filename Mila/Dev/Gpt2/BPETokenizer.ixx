@@ -28,9 +28,9 @@ import Data.TokenizerVocabulary;
 
 namespace Mila::Data
 {
-    using Mila::Dnn::Data::TokenId;
-    using Mila::Dnn::Data::Tokenizer;
-    using Mila::Dnn::Data::TokenizerVocabulary;
+    using Mila::Data::TokenId;
+    using Mila::Data::Tokenizer;
+    using Mila::Data::TokenizerVocabulary;
 
     // REVIEW: Moved to BpeTokenizer.PreTokenizationMode.ixx for shared access between Gpt2 and Gpt4 tokenizers
 

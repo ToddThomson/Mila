@@ -38,8 +38,8 @@ import Data.TokenizerVocabulary;
 
 namespace Mila::Data
 {
-    using Mila::Dnn::Data::TokenId;
-    using Mila::Dnn::Data::Tokenizer;
+    using Mila::Data::TokenId;
+    using Mila::Data::Tokenizer;
 
     /**
      * @brief Unified BPE tokenizer targeting GPT-2, Llama 3.x, and Mistral model families.

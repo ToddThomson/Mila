@@ -36,8 +36,9 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.CpuMemoryResource;
 
-namespace Mila::Dnn::Data
+namespace Mila::Data
 {
+    using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
     /**

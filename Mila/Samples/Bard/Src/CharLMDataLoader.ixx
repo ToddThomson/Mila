@@ -23,7 +23,7 @@ import Mila;
 //{
 //    using namespace Mila::Dnn;
 //    using namespace Mila::Dnn::Compute;
-//    using namespace Mila::Dnn::Data;
+//    using namespace Mila::Data;
 //
 //    namespace fs = std::filesystem;
 //

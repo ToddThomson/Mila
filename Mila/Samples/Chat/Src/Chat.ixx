@@ -25,7 +25,7 @@ namespace Mila::ChatApp
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
-    using namespace Mila::Dnn::Data;
+    using namespace Mila::Data;
     using namespace Mila::Data;
 
     using GptModelType   = GptModel<DeviceType::Cuda, TensorDataType::FP32>;

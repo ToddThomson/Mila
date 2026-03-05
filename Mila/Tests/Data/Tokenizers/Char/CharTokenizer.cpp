@@ -45,7 +45,7 @@ namespace Data::Tokenizers::Tests
 
         std::string input = "hello";
         auto encoded = tokenizer.encode( input );
-        auto decoded = tokenizer.decode( std::span<const Mila::Dnn::Data::TokenId>( encoded.data(), encoded.size() ) );
+        auto decoded = tokenizer.decode( std::span<const Mila::Data::TokenId>( encoded.data(), encoded.size() ) );
 
         EXPECT_EQ( decoded, input );
         EXPECT_EQ( tokenizer.getVocabSize(), tokenizer.getVocabSize() ); // trivial sanity check
@@ -71,9 +71,9 @@ namespace Data::Tokenizers::Tests
         CharTokenizer tokenizer( std::move( vocab ) );
 
         // Prepare tokens: a valid id followed by an invalid out-of-range id
-        std::vector<Mila::Dnn::Data::TokenId> tokens;
+        std::vector<Mila::Data::TokenId> tokens;
         tokens.push_back( 0u );
-        tokens.push_back( static_cast<Mila::Dnn::Data::TokenId>(tokenizer.getVocabSize() + 10) );
+        tokens.push_back( static_cast<Mila::Data::TokenId>(tokenizer.getVocabSize() + 10) );
 
         std::string decoded = tokenizer.decode( tokens );
 
@@ -138,7 +138,7 @@ namespace Data::Tokenizers::Tests
         auto valid = tokenizer.tokenToString( 0 );
         EXPECT_FALSE( valid.empty() );
 
-        auto invalid = tokenizer.tokenToString( static_cast<Mila::Dnn::Data::TokenId>(tokenizer.getVocabSize() + 100) );
+        auto invalid = tokenizer.tokenToString( static_cast<Mila::Data::TokenId>(tokenizer.getVocabSize() + 100) );
         EXPECT_TRUE( invalid.empty() );
     }
 
@@ -160,8 +160,8 @@ namespace Data::Tokenizers::Tests
         CharTokenizer tokenizer( std::move( vocab ) );
 
         EXPECT_TRUE( tokenizer.isValidToken( 0u ) );
-        EXPECT_TRUE( tokenizer.isValidToken( static_cast<Mila::Dnn::Data::TokenId>(tokenizer.getVocabSize() - 1) ) );
-        EXPECT_FALSE( tokenizer.isValidToken( static_cast<Mila::Dnn::Data::TokenId>(tokenizer.getVocabSize()) ) );
+        EXPECT_TRUE( tokenizer.isValidToken( static_cast<Mila::Data::TokenId>(tokenizer.getVocabSize() - 1) ) );
+        EXPECT_FALSE( tokenizer.isValidToken( static_cast<Mila::Data::TokenId>(tokenizer.getVocabSize()) ) );
     }
 
     TEST( CharTokenizerTests, Encode_EmptyString_ReturnsEmptyVector )
@@ -190,7 +190,7 @@ namespace Data::Tokenizers::Tests
         CharVocabulary vocab = CharTrainer( cfg ).train();
         CharTokenizer tokenizer( std::move( vocab ) );
 
-        std::vector<Mila::Dnn::Data::TokenId> empty;
+        std::vector<Mila::Data::TokenId> empty;
         auto decoded = tokenizer.decode( empty );
         EXPECT_TRUE( decoded.empty() );
     }
@@ -219,6 +219,6 @@ namespace Data::Tokenizers::Tests
 
         // middle character 'z' is unknown and should map to 0u
         ASSERT_EQ( encoded.size(), 3u );
-        EXPECT_EQ( encoded[ 1 ], static_cast<Mila::Dnn::Data::TokenId>(0u) );
+        EXPECT_EQ( encoded[ 1 ], static_cast<Mila::Data::TokenId>(0u) );
     }
 }

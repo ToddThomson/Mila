@@ -24,7 +24,7 @@ export module Data.Gpt2Tokenizer_old_old;
 
 import Data.Tokenizer;
 
-namespace Mila::Dnn::Data
+namespace Mila::Data
 {
     /**
      * @brief Hash functor for std::pair<std::string, std::string>.

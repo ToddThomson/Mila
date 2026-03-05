@@ -23,9 +23,9 @@ import Data.TokenizerVocabulary;
 
 namespace Mila::Data
 {
-    using Mila::Dnn::Data::TokenId;
-    using Mila::Dnn::Data::Tokenizer;
-    using Mila::Dnn::Data::TokenizerVocabulary;
+    using Mila::Data::TokenId;
+    using Mila::Data::Tokenizer;
+    using Mila::Data::TokenizerVocabulary;
 
     /**
      * @brief Character-level tokenizer.

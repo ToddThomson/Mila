@@ -9,7 +9,7 @@ namespace Bard
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
-    using namespace Mila::Dnn::Data;
+    using namespace Mila::Data;
 
     /**
      * @brief Configuration for Bard training CLI and trainer.

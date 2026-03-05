@@ -8,7 +8,7 @@ module;
 
 export module Data.Tokenizer;
 
-namespace Mila::Dnn::Data
+namespace Mila::Data
 {
     // Factory function - loads any tokenizer type
     //std::unique_ptr<Tokenizer> loadTokenizer( const std::filesystem::path& vocabulary_path );

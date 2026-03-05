@@ -4,7 +4,7 @@ module;
 
 export module Data.TokenSequenceLoader:Config;
 
-namespace Mila::Dnn::Data
+namespace Mila::Data
 {
     /**
      * @brief Configuration for StreamingSequenceLoader behavior.

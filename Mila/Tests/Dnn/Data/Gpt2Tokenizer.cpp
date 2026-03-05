@@ -16,7 +16,7 @@
 
 import Mila;
 
-using namespace Mila::Dnn::Data;
+using namespace Mila::Data;
 
 namespace Tests::Dnn::Data
 {

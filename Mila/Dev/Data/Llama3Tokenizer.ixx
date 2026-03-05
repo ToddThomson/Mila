@@ -12,7 +12,7 @@ export module Data.LlamaTokenizer_old;
 
 import Data.Tokenizer;
 
-namespace Mila::Dnn::Data
+namespace Mila::Data
 {
     // DEPRECATED: This is the original LLaMA tokenizer implementation, retained for reference
     // TODO: Remove this class after the new LLaMA tokenizer is fully implemented and tested.

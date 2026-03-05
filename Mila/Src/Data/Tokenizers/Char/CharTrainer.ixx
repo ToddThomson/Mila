@@ -32,8 +32,8 @@ namespace Mila::Data
 {
     namespace fs = std::filesystem;
 
-    using Mila::Dnn::Data::TokenizerVocabulary;
-    using Mila::Dnn::Data::TokenId;
+    using Mila::Data::TokenizerVocabulary;
+    using Mila::Data::TokenId;
 
     /**
      * @brief Character-level tokenizer trainer.

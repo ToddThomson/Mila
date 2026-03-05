@@ -33,9 +33,9 @@ import Data.BpeTokenizer;
 
 namespace Mila::Data
 {
-    using Mila::Dnn::Data::Tokenizer;
-    using Mila::Dnn::Data::TokenizerType;
-    using Mila::Dnn::Data::TokenizerVocabulary;
+    using Mila::Data::Tokenizer;
+    using Mila::Data::TokenizerType;
+    using Mila::Data::TokenizerVocabulary;
 
     /**
      * @brief Factory for creating tokenizer trainers and loading vocabularies.
