@@ -18,6 +18,7 @@ Usage:
 """
 
 import argparse
+import torch
 from transformers import AutoModelForCausalLM, AutoConfig
 from common import MilaWeightWriter, convert_dtype
 
@@ -64,7 +65,7 @@ def convert_llama32(model_name: str, output_path: str, dtype: str = 'bfloat16'):
 
     print(f"Loading {model_name} from HuggingFace...")
     # Load in float32 first for safe conversion; we'll cast per-tensor below
-    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype='auto')
+    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float32)
     config = model.config
 
     print(f"Model config:")
@@ -76,7 +77,20 @@ def convert_llama32(model_name: str, output_path: str, dtype: str = 'bfloat16'):
     print(f"  intermediate_size:   {config.intermediate_size}")
     print(f"  max_position_embeddings: {config.max_position_embeddings}")
     print(f"  rms_norm_eps:        {config.rms_norm_eps}")
-    print(f"  rope_theta:          {config.rope_theta}")
+
+    # rope_theta moved into rope_scaling/rope_parameters in newer transformers versions.
+    # Handle all three locations defensively.
+    rope_theta = 500000.0  # Llama 3.2 default fallback
+    if hasattr(config, 'rope_theta'):
+        rope_theta = config.rope_theta
+    elif hasattr(config, 'rope_scaling') and isinstance(config.rope_scaling, dict):
+        rope_theta = config.rope_scaling.get('rope_theta', rope_theta)
+    elif hasattr(config, 'rope_parameters') and isinstance(config.rope_parameters, dict):
+        rope_theta = config.rope_parameters.get('rope_theta', rope_theta)
+
+    rope_scaling = getattr(config, 'rope_scaling', None)
+    print(f"  rope_theta:          {rope_theta}")
+    print(f"  rope_scaling:        {rope_scaling}")
     print(f"  tie_word_embeddings: {config.tie_word_embeddings}")
 
     # Derived GQA info
@@ -101,7 +115,7 @@ def convert_llama32(model_name: str, output_path: str, dtype: str = 'bfloat16'):
         'intermediate_size': config.intermediate_size,
         'max_position_embeddings': config.max_position_embeddings,
         'rms_norm_eps': config.rms_norm_eps,
-        'rope_theta': config.rope_theta,
+        'rope_theta': rope_theta,
         'use_bias': False,
         'activation': 'silu',
         'norm_type': 'rmsnorm',

@@ -8,7 +8,7 @@ import Mila;
 #include <sstream>
 #include <iomanip>
 
-namespace Data::Tokenizers::Gpt2Tokenizer_Loader_Tests
+namespace Data::Tokenizers::BpeTokenizer_Gpt2Loader_Tests
 {
     using namespace Mila::Data;
     namespace fs = std::filesystem;
