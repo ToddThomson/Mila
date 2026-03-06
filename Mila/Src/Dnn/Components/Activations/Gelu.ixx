@@ -44,11 +44,9 @@ import Serialization.Tensor;
 import Serialization.Mode;
 import Serialization.Metadata;
 import Utils.Logger;
-import nlohmann.json;
 
 namespace Mila::Dnn
 {
-    using json = nlohmann::json;
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
 
@@ -182,16 +180,6 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Gelu::forward: component must be built before forward pass" );
             }
 
-            //// DEBUG:
-            //// Check input range
-            //auto host_input = toHost<TensorDataType::FP32>( input );
-            //auto host_input_ptr = host_input.data();
-            //const size_t n = host_input.size();
-            //auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
-            //Utils::Logger::debug( std::format( "Gelu {} in:[{:.3f}, {:.3f}] with shape {}",
-            //    this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
-            //// END DEBUG:
-
             operation_->forward( input, *output_ );
 
             auto input_shape = input.shape();
@@ -202,20 +190,6 @@ namespace Mila::Dnn
             }
 
             output_view_ = std::make_unique<TensorType>( output_->view( input_shape ) );
-
-            //// DEBUG:
-            //// Check output range
-            //this->synchronize();
-
-            //auto host_output = toHost<TensorDataType::FP32>( *output_view_ );
-            //auto host_output_ptr = host_output.data();
-            //const size_t output_n = host_output.size();
-            //auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
-
-            //Utils::Logger::debug( std::format( "Gelu {} out:[{:.3f}, {:.3f}], shape {}",
-            //    this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );
-
-            //// DEBUG END
 
             return *output_view_;
         }

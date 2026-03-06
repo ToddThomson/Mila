@@ -22,8 +22,6 @@ PUBLIC
 		"Src/BardConfig.ixx"
 )
 
-if( MILA_ENABLE_COPY_MODEL_DATA )
-    add_dependencies( Bard MilaCopyData )
-endif()
+target_compile_definitions( Bard PRIVATE MILA_DATA_DIR="${MILA_DATA_DIR}" )
 
 target_link_libraries( Bard PRIVATE Mila CUDA::cudart )

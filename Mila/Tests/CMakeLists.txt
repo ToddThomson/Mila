@@ -28,9 +28,6 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
   set(CMAKE_CUDA_ARCHITECTURES native)
 endif()
 
-# Define the data directory path
-set(TEST_DATA_DIR "${CMAKE_SOURCE_DIR}/Data")
-
 add_executable( MilaTests
     "main.cpp"
 
@@ -201,7 +198,7 @@ add_executable( MilaTests
     #"Dnn/Serialization/ModelArchive.cpp" 
     "Dnn/Components/Transformers/Gpt/Gpt.Presets.cpp"
     "Dnn/Components/Transformers/Gpt/GptTransformer.Cpu.cpp"
-    "Dnn/Components/Transformers/Llama/LlamaTransformer.cpp"
+    "Dnn/Components/Transformers/Llama/Llama.Cuda.cpp"
     "Dnn/Components/Transformers/Llama/Llama.Presets.cpp"
     
     "Data/Tokenizers/Char/CharVocabulary.cpp"
@@ -221,9 +218,9 @@ add_executable( MilaTests
     "Dnn/Components/Attention/GQA/GQA.Cuda.cpp"
     
     "Dnn/Components/Normalization/RmsNorm/RmsNorm.Cuda.cpp"
-)
+ "Data/Tokenizers/Bpe/BpeTokenizer.Llama32.cpp" "Dnn/Components/Transformers/Llama/Llama.Config.cpp")
 
-target_compile_definitions( MilaTests PRIVATE TEST_DATA_DIR="${TEST_DATA_DIR}" )
+target_compile_definitions( MilaTests PRIVATE TEST_DATA_DIR="${MILA_DATA_DIR}" )
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 

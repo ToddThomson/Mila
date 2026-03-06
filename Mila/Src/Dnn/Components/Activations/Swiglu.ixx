@@ -6,7 +6,7 @@
  * device-specific UnaryOperation backend (registered as "SwigluOp").
  */
 
-    module;
+module;
 #include <memory>
 #include <vector>
 #include <string>
@@ -42,11 +42,9 @@ import Serialization.ModelArchive;
 import Serialization.Tensor;
 import Serialization.Mode;
 import Serialization.Metadata;
-import nlohmann.json;
 
 namespace Mila::Dnn
 {
-    using json = nlohmann::json;
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
 
@@ -198,7 +196,8 @@ namespace Mila::Dnn
             oss << "--------------------" << std::endl;
             oss << "Swiglu: " << this->getName() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
-            oss << "Inner GELU: " << std::string( GeluConfig::toString( config_.getInnerGeluMethod() ) ) << std::endl;
+            // FIXME:oss << "Inner GELU: " << std::string( GeluConfig::toString( config_.getInnerGeluMethod() ) ) << std::endl;
+            
             return oss.str();
         }
 
@@ -218,9 +217,13 @@ namespace Mila::Dnn
             operation_->build( input_shape );
             input_shape_ = input_shape;
 
+            // Output last dimension is halved: input [B,T,2H] -> output [B,T,H].
+            shape_t output_shape = input_shape;
+            output_shape.back() /= 2;
+
             DeviceId dev_id = this->getExecutionContext()->getDeviceId();
 
-            output_ = std::make_unique<TensorType>( dev_id, input_shape_ );
+            output_ = std::make_unique<TensorType>( dev_id, output_shape );
             input_grad_ = std::make_unique<TensorType>( dev_id, input_shape_ );
             zero( *input_grad_ );
         }

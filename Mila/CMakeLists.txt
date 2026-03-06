@@ -754,37 +754,14 @@ install(FILES
 # Additional Targets and Subdirectories
 # =============================================================================
 
-# Guard the copy so CI / checkouts without a `data` directory do not fail the build.
-# REVIEW: These are sample datasets. Why is the target not in the samples subdirectory?
-if(EXISTS "${CMAKE_SOURCE_DIR}/Data")
-    add_custom_target(MilaCopyData 
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/Data"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different 
-            "${CMAKE_SOURCE_DIR}/Data/Datasets"
-            "${CMAKE_BINARY_DIR}/Data"
-        COMMENT "Copying Datasets to build directory"
-        VERBATIM
-    )
-
-    if( MILA_ENABLE_COPY_MODEL_DATA AND NOT DEFINED ENV{CI} )
-        set_target_properties(MilaCopyData PROPERTIES EXCLUDE_FROM_ALL FALSE)
-    else()
-        set_target_properties(MilaCopyData PROPERTIES EXCLUDE_FROM_ALL TRUE)
-    endif()
-else()
-    message(STATUS "No 'data' directory found in source tree; skipping MilaCopyData target")
-    # harmless placeholder so references to MilaCopyData won't break other targets
-    add_custom_target(MilaCopyData
-        COMMENT "No model data to copy"
-        VERBATIM
-    )
-    set_target_properties(MilaCopyData PROPERTIES EXCLUDE_FROM_ALL TRUE)
-endif()
+# Define the data directory path (project-wide resource)
+# Mila project benchmarks, samples, tests, and tools can reference this variable to access data files.
+set(MILA_DATA_DIR "${CMAKE_SOURCE_DIR}/Data")
 
 # Generate documentation with Doxygen
 add_subdirectory( Docs )
 
-# Add tools: tokenizer trainer, model exporter, etc.
+# Add tools: tokeniz.exe, etc
 add_subdirectory( Tools )
 
 # Configure code coverage for MSVC

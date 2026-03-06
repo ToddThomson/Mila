@@ -8,8 +8,12 @@
  *      GPT-2 vocabularies with no registered special tokens skip this via fast path.
  *   2. Pre-tokenize each plain text segment with the configured regex pattern.
  *   3. Byte-encode each pre-token using the GPT-2 style byte encoder.
- *   4. Apply BPE merges greedily (lowest priority index first).
- *   5. Map merged tokens to IDs; fall back to UNK when use_unk is enabled.
+ *   4a. BPE path (GPT-2 / trained vocabularies): apply explicit merge rules
+ *       greedily, lowest priority index first.
+ *   4b. Max-munch path (Llama 3.x / TikToken): find the longest vocabulary match
+ *       at each position in the encoded unit sequence. Used when no merge rules
+ *       are present; the merge order is implicit in the token ID assignment.
+ *   5. Map final tokens to IDs; fall back to 0 on a miss.
  *
  * Decode pipeline:
  *   Concatenate token strings and reverse the byte encoding back to UTF-8.
@@ -354,9 +358,11 @@ namespace Mila::Data
 
         /**
          * @brief Encode a plain text segment (guaranteed to contain no special tokens).
+                 /**
+         * @brief Encode a plain text segment (guaranteed to contain no special tokens).
          *
-         * Pre-tokenizes with the configured regex, byte-encodes each word, applies
-         * BPE merges, and appends resulting IDs to @p out.
+         * Dispatches to the BPE merge path when explicit merge rules are present,
+         * or to the max-munch path for TikToken-style vocabularies (Llama 3.x).
          *
          * @param text Plain text segment.
          * @param out  Accumulator for output token IDs.
@@ -369,6 +375,96 @@ namespace Mila::Data
             }
 
             const std::vector<std::string> words = preTokenize( text );
+
+            if ( vocab_.getMergeRules().empty() )
+            {
+                encodeSegmentMaxMunch( words, out );
+            }
+            else
+            {
+                encodeSegmentBpe( words, out );
+            }
+        }
+
+        /**
+         * @brief Max-munch encode for TikToken vocabularies (Llama 3.x).
+         *
+         * Byte-encodes each pre-token then scans for the longest vocabulary match
+         * at each position. Falls back to ID 0 for unrecognised units.
+         *
+         * @param words Pre-tokenized segments from the regex pass.
+         * @param out   Accumulator for output token IDs.
+         */
+        void encodeSegmentMaxMunch( const std::vector<std::string>& words, std::vector<TokenId>& out )
+        {
+            for ( const auto& word : words )
+            {
+                std::vector<std::string> units;
+                units.reserve( word.size() );
+
+                if ( vocab_.isByteLevel() )
+                {
+                    const auto& byte_encoder = BpeVocabulary::getByteEncoder();
+
+                    for ( unsigned char byte : word )
+                    {
+                        units.push_back( byte_encoder.at( byte ) );
+                    }
+                }
+                else
+                {
+                    for ( char c : word )
+                    {
+                        units.push_back( std::string( 1, c ) );
+                    }
+                }
+
+                size_t pos = 0;
+
+                while ( pos < units.size() )
+                {
+                    bool found = false;
+
+                    for ( size_t len = units.size() - pos; len >= 1; --len )
+                    {
+                        std::string candidate;
+
+                        for ( size_t j = pos; j < pos + len; ++j )
+                        {
+                            candidate += units[ j ];
+                        }
+
+                        auto id = vocab_.tokenToId( candidate );
+
+                        if ( id )
+                        {
+                            out.push_back( *id );
+                            pos += len;
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if ( !found )
+                    {
+                        out.push_back( 0 );
+                        ++pos;
+                    }
+                }
+            }
+        }
+
+        /**
+         * @brief BPE merge encode for GPT-2 style vocabularies.
+         *
+         * Byte-encodes each pre-token then applies explicit merge rules greedily
+         * (lowest priority index first) until no more merges are possible.
+         *
+         * @param words Pre-tokenized segments from the regex pass.
+         * @param out   Accumulator for output token IDs.
+         */
+        void encodeSegmentBpe( const std::vector<std::string>& words, std::vector<TokenId>& out )
+        {
             size_t pass = 0;
 
             for ( const auto& word : words )
@@ -393,7 +489,6 @@ namespace Mila::Data
                     }
                 }
 
-                // Greedy lowest-priority-first BPE merge loop.
                 while ( tokens.size() > 1 )
                 {
                     int    best_idx = -1;
@@ -435,7 +530,6 @@ namespace Mila::Data
                 }
             }
         }
-
         /**
          * @brief Split text into pre-tokens using the configured regex.
          *

@@ -17,7 +17,7 @@ option(MILA_ENABLE_BENCHMARKS "Enable Mila Library benchmarks." OFF)
 option(MILA_ENABLE_GPT2_TESTING "Enable GPT2 tests." OFF)  
 option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ON)
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
-option(MILA_ENABLE_COPY_MODEL_DATA "Copy data directory for samples and tests." ON)
+#option(MILA_ENABLE_COPY_MODEL_DATA "Copy data directory for samples and tests." ON)
 
 option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
 
