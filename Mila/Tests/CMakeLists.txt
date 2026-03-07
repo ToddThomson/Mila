@@ -218,7 +218,9 @@ add_executable( MilaTests
     "Dnn/Components/Attention/GQA/GQA.Cuda.cpp"
     
     "Dnn/Components/Normalization/RmsNorm/RmsNorm.Cuda.cpp"
- "Data/Tokenizers/Bpe/BpeTokenizer.Llama32.cpp" "Dnn/Components/Transformers/Llama/Llama.Config.cpp")
+    "Data/Tokenizers/Bpe/BpeTokenizer.Llama32.cpp"
+    "Dnn/Components/Transformers/Llama/Llama.Config.cpp"
+)
 
 target_compile_definitions( MilaTests PRIVATE TEST_DATA_DIR="${MILA_DATA_DIR}" )
 

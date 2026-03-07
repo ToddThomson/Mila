@@ -129,8 +129,8 @@ namespace Mila::ChatApp
 
         void loadModel()
         {
-            try
-            {
+            //try
+            //{
                 std::cout << "Loading model from: " << config_.model_path << "\n";
 
                 switch ( config_.model_type )
@@ -152,12 +152,12 @@ namespace Mila::ChatApp
 
                 std::cout << modelToString();
                 std::cout << "Model loaded successfully!\n";
-            }
-            catch ( const std::exception& e )
-            {
-                std::cerr << "Error loading model: " << e.what() << "\n";
-                throw;
-            }
+            //}
+            //catch ( const std::exception& e )
+            //{
+            //    std::cerr << "Error loading model: " << e.what() << "\n";
+            //    throw;
+            //}
         }
 
         std::string generateResponse( const std::vector<std::string>& history )

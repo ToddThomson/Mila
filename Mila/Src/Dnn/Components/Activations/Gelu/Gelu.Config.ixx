@@ -80,7 +80,7 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
             meta.set( "precision", static_cast<int64_t>( precision_ ) )
-                .set( "approximation_method", std::string( Mila::Dnn::toString( approximation_method_ ) ) );
+                .set( "approximation_method", std::string( ApproximationMethodToString( approximation_method_ ) ) );
 
             return meta;
         }
@@ -136,7 +136,7 @@ namespace Mila::Dnn
             std::ostringstream oss;
             oss << "GeluConfig: { ";
             oss << "precision=" << static_cast<int>( precision_ ) << ", ";
-            oss << "approximation_method=" << static_cast<std::string_view>( ::Mila::Dnn::toString( approximation_method_ ) );
+            oss << "approximation_method=" << static_cast<std::string_view>( ApproximationMethodToString( approximation_method_ ) );
             oss << " }";
 
             return oss.str();

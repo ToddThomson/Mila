@@ -469,6 +469,7 @@ namespace Mila::Dnn
             {
                 throw std::invalid_argument( "View size exceeds tensor size" );
             }
+            
             return Tensor( *this, new_shape, offset );
         }
 

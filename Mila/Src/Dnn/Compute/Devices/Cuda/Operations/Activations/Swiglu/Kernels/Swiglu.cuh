@@ -6,26 +6,26 @@
 
 namespace Mila::Dnn::Compute::Cuda::Swiglu
 {    
-    void cuda_gelu_forward_fp32(
+    void cuda_swiglu_forward_fp32(
         float* Y,
         const float* X,
         int N,
         cudaStream_t stream );
 
-    void cuda_gelu_backward_fp32(
+    void cuda_swiglu_backward_fp32(
         float* dX,
         const float* X,
         const float* dY,
         const int N,
         cudaStream_t stream );
 
-    void cuda_gelu_forward_fp16(
+    void cuda_swiglu_forward_fp16(
         half* Y,
         const half* X,
         int N,
         cudaStream_t stream );
 
-    void cuda_gelu_backward_fp16(
+    void cuda_swiglu_backward_fp16(
         half* dX,
         const half* X,
         const half* dY,

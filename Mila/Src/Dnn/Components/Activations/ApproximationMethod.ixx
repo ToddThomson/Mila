@@ -26,7 +26,7 @@ namespace Mila::Dnn
      *
      * Returns a constexpr std::string_view suitable for logging/serialization.
      */
-    export constexpr std::string_view toString( ApproximationMethod m ) noexcept
+    export constexpr std::string_view ApproximationMethodToString( ApproximationMethod m ) noexcept
     {
         switch ( m )
         {

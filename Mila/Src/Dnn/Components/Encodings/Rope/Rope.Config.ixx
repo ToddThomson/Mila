@@ -2,7 +2,21 @@
  * @file Rope.Config.ixx
  * @brief Configuration for Rotary Position Embedding (RoPE) component.
  *
- * Provides fluent setters, validation and serialization for RoPE configuration.
+ * Provides construction, validation and serialization for RoPE configuration.
+ *
+ * Design principle (Mila-wide):
+ *   - Constructor parameters are structurally required — no sensible default exists.
+ *   - Fluent setters are reserved for optional behavioural parameters that have
+ *     well-known defaults. There are no fluent overrides for constructor parameters.
+ *
+ * Required (constructor): channels, n_heads, n_kv_heads, max_seq_len.
+ * Optional (fluent):      base (default 10000.0f), rotary_dim (default 0 = full head_dim).
+ *
+ * Typical usage:
+ * @code
+ * auto cfg = RopeConfig( model_dim, n_heads, n_kv_heads, max_seq_len )
+ *     .withBase( 500000.0f );  // Llama 3 theta
+ * @endcode
  */
 
 module;
@@ -21,73 +35,45 @@ namespace Mila::Dnn
 {
     using Serialization::SerializationMetadata;
 
-    /**
-     * @brief Configuration for Rotary Positional Embeddings (RoPE).
-     *
-     * Defines the shape and frequency parameters required to build the cos/sin
-     * cache and validate Q/K tensors at runtime.
-     *
-     * Required fields: channels, n_heads, n_kv_heads, max_sequence_length.
-     * head_dim is derived as channels / n_heads and must be even.
-     *
-     * Typical usage:
-     * @code
-     * auto cfg = RopeConfig{}
-     *     .withChannels( 512 )
-     *     .withNumHeads( 8 )
-     *     .withNumKvHeads( 2 )
-     *     .withMaxSequenceLength( 2048 );
-     * @endcode
-     */
     export class RopeConfig : public ComponentConfig
     {
     public:
-        RopeConfig() = default;
 
         /**
-         * @brief Set total Q embedding channel dimension (C = n_heads * head_dim).
+         * @brief Construct with all structurally required parameters.
+         *
+         * @param channels     Total Q embedding width (n_heads * head_dim).
+         * @param n_heads      Number of query heads.
+         * @param n_kv_heads   Number of key/value heads (GQA: <= n_heads).
+         * @param max_seq_len  Maximum sequence length for cos/sin cache precomputation.
          */
-        template <typename Self>
-        decltype(auto) withChannels( this Self&& self, size_t channels )
-        {
-            self.channels_ = channels;
-            return std::forward<Self>( self );
-        }
+        RopeConfig( size_t channels, size_t n_heads, size_t n_kv_heads, size_t max_seq_len )
+            : channels_( channels ), n_heads_( n_heads ), n_kv_heads_( n_kv_heads ), max_seq_len_( max_seq_len )
+        {}
+
+        // ====================================================================
+        // Optional fluent setters — behavioural parameters with sensible defaults.
+        // No fluent overrides exist for constructor parameters.
+        // ====================================================================
 
         /**
-         * @brief Set number of query heads.
+         * @brief Set frequency base for rotary angle computation.
+         *
+         * Standard RoPE default is 10000.0f.
+         * Llama 3 uses 500000.0f.
+         * Default: 10000.0f.
          */
         template <typename Self>
-        decltype(auto) withNumHeads( this Self&& self, size_t n_heads )
+        decltype(auto) withBase( this Self&& self, float base )
         {
-            self.n_heads_ = n_heads;
-            return std::forward<Self>( self );
-        }
-
-        /**
-         * @brief Set number of key/value heads (GQA: must be <= n_heads).
-         */
-        template <typename Self>
-        decltype(auto) withNumKvHeads( this Self&& self, size_t n_kv_heads )
-        {
-            self.n_kv_heads_ = n_kv_heads;
-            return std::forward<Self>( self );
-        }
-
-        /**
-         * @brief Set maximum sequence length for cos/sin cache precomputation.
-         */
-        template <typename Self>
-        decltype(auto) withMaxSequenceLength( this Self&& self, size_t max_seq_len )
-        {
-            self.max_seq_len_ = max_seq_len;
+            self.base_ = base;
             return std::forward<Self>( self );
         }
 
         /**
          * @brief Set rotary sub-dimension per head (number of channels to rotate).
          *
-         * If not set (0) the full head_dim is used.
+         * Default: 0 — the full head_dim is rotated.
          */
         template <typename Self>
         decltype(auto) withRotaryDim( this Self&& self, size_t rotary_dim )
@@ -96,15 +82,9 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
-        /**
-         * @brief Set frequency base used to compute the rotary angles (default 10000.0).
-         */
-        template <typename Self>
-        decltype(auto) withBase( this Self&& self, float base )
-        {
-            self.base_ = base;
-            return std::forward<Self>( self );
-        }
+        // ====================================================================
+        // Accessors
+        // ====================================================================
 
         size_t getEmbeddingDim() const noexcept
         {
@@ -122,9 +102,9 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Per-head embedding dimension, derived as channels / n_heads.
+         * @brief Per-head dimension, derived as channels / n_heads.
          *
-         * Valid only after validate() has confirmed channels and n_heads are consistent.
+         * Valid only after validate() has confirmed consistency.
          */
         size_t getHeadDim() const noexcept
         {
@@ -146,6 +126,10 @@ namespace Mila::Dnn
             return base_;
         }
 
+        // ====================================================================
+        // Validation
+        // ====================================================================
+
         /**
          * @brief Validate configuration.
          *
@@ -158,41 +142,61 @@ namespace Mila::Dnn
         void validate() const override
         {
             if ( channels_ == 0 )
+            {
                 throw std::invalid_argument( "RopeConfig: channels must be > 0" );
+            }
 
             if ( n_heads_ == 0 )
+            {
                 throw std::invalid_argument( "RopeConfig: n_heads must be > 0" );
+            }
 
             if ( n_kv_heads_ == 0 )
+            {
                 throw std::invalid_argument( "RopeConfig: n_kv_heads must be > 0" );
+            }
 
             if ( channels_ % n_heads_ != 0 )
+            {
                 throw std::invalid_argument( "RopeConfig: channels must be divisible by n_heads" );
+            }
 
             const size_t head_dim = channels_ / n_heads_;
 
             if ( head_dim % 2 != 0 )
+            {
                 throw std::invalid_argument( "RopeConfig: head_dim (channels / n_heads) must be even" );
+            }
 
             if ( n_kv_heads_ > n_heads_ )
+            {
                 throw std::invalid_argument( "RopeConfig: n_kv_heads must be <= n_heads" );
+            }
 
             if ( max_seq_len_ == 0 )
+            {
                 throw std::invalid_argument( "RopeConfig: max_sequence_length must be > 0" );
+            }
 
             if ( base_ <= 0.0f )
+            {
                 throw std::invalid_argument( "RopeConfig: base must be > 0" );
+            }
 
             if ( rotary_dim_ != 0 && rotary_dim_ > head_dim )
+            {
                 throw std::invalid_argument( "RopeConfig: rotary_dim must be <= head_dim" );
+            }
         }
 
-        /**
-         * @brief Serialize configuration to metadata.
-         */
+        // ====================================================================
+        // Serialization
+        // ====================================================================
+
         SerializationMetadata toMetadata() const override
         {
             SerializationMetadata meta;
+
             meta.set( "precision", static_cast<int64_t>(precision_) )
                 .set( "channels", static_cast<int64_t>(channels_) )
                 .set( "n_heads", static_cast<int64_t>(n_heads_) )
@@ -201,60 +205,72 @@ namespace Mila::Dnn
                 .set( "base", base_ );
 
             if ( rotary_dim_ != 0 )
+            {
                 meta.set( "rotary_dim", static_cast<int64_t>(rotary_dim_) );
+            }
 
             return meta;
         }
 
-        /**
-         * @brief Populate configuration from metadata.
-         */
         void fromMetadata( const SerializationMetadata& meta ) override
         {
             if ( auto v = meta.tryGetInt( "precision" ) )
+            {
                 precision_ = static_cast<decltype(precision_)>(*v);
+            }
 
             if ( auto v = meta.tryGetInt( "channels" ) )
+            {
                 channels_ = static_cast<size_t>(*v);
+            }
 
             if ( auto v = meta.tryGetInt( "n_heads" ) )
+            {
                 n_heads_ = static_cast<size_t>(*v);
+            }
 
             if ( auto v = meta.tryGetInt( "n_kv_heads" ) )
+            {
                 n_kv_heads_ = static_cast<size_t>(*v);
+            }
 
             if ( auto v = meta.tryGetInt( "max_sequence_length" ) )
+            {
                 max_seq_len_ = static_cast<size_t>(*v);
+            }
 
             if ( auto v = meta.tryGetFloat( "base" ) )
+            {
                 base_ = *v;
+            }
 
             if ( auto v = meta.tryGetInt( "rotary_dim" ) )
+            {
                 rotary_dim_ = static_cast<size_t>(*v);
+            }
         }
 
-        /**
-         * @brief Human-readable summary of the config.
-         */
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << "RopeConfig{ channels=" << channels_
+            oss << "RopeConfig{ "
+                << "channels=" << channels_
                 << ", n_heads=" << n_heads_
                 << ", n_kv_heads=" << n_kv_heads_
                 << ", head_dim=" << getHeadDim()
                 << ", max_sequence_length=" << max_seq_len_
                 << ", rotary_dim=" << rotary_dim_
-                << ", base=" << base_ << " }";
+                << ", base=" << base_
+                << " }";
             return oss.str();
         }
 
     private:
-        size_t channels_   = 0;
-        size_t n_heads_    = 0;
-        size_t n_kv_heads_ = 0;
-        size_t max_seq_len_ = 2048;
-        size_t rotary_dim_ = 0;      ///< 0 means use full head_dim
-        float  base_       = 10000.0f;
+        size_t channels_{ 0 };
+        size_t n_heads_{ 0 };
+        size_t n_kv_heads_{ 0 };
+        size_t max_seq_len_{ 0 };
+        size_t rotary_dim_{ 0 };       ///< 0 = use full head_dim
+        float  base_{ 10000.0f };
     };
 }

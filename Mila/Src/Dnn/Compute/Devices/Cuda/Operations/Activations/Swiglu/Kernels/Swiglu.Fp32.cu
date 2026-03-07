@@ -1,6 +1,6 @@
 /**
- * @file Gelu.Fp32.cu
- * @brief CUDA kernels for GELU activation forward and backward passes.
+ * @file Swiglu.Fp32.cu
+ * @brief CUDA kernels for Swiglu activation forward and backward passes.
  *
  * Implements FP32 precision variants with optional vectorization.
  */

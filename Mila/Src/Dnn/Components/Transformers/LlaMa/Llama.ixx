@@ -70,7 +70,6 @@ namespace Mila::Dnn
         using NetworkBase = Network<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using TokenEmbeddingType = TokenEmbedding<TDeviceType, dtype_t::INT32, TPrecision>;
-        using RopeType = Rope<TDeviceType, TPrecision>;
         using LinearType = Linear<TDeviceType, TPrecision>;
         using RmsNormType = RmsNorm<TDeviceType, TPrecision>;
         using TransformerBlockType = LlamaBlock<TDeviceType, TPrecision>;
@@ -146,9 +145,6 @@ namespace Mila::Dnn
 
             token_embed_out_ptr_ = &embed_out;
 
-            encoder_out_ptr_ = &rope_->forward( embed_out );
-            this->getExecutionContext()->synchronize();
-
             if ( block_input_ptrs_.empty() || block_input_ptrs_.size() != transformer_blocks_.size() )
                 throw std::runtime_error( "LlamaTransformer: forward internal state not initialized" );
 
@@ -183,12 +179,6 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
 
             token_embed_out_ptr_ = &embed_out;
-
-            // FIXME: rope_ applies rotation at sequence offset 0 for T=1 input.
-            //        Add Rope::decode(input, position) to apply the correct
-            //        rotary frequencies for the given KV cache position.
-            encoder_out_ptr_ = &rope_->forward( embed_out );
-            this->getExecutionContext()->synchronize();
 
             if ( block_input_ptrs_.empty() || block_input_ptrs_.size() != transformer_blocks_.size() )
                 throw std::runtime_error( "LlamaTransformer: decode internal state not initialized" );
@@ -257,11 +247,7 @@ namespace Mila::Dnn
                 this->getExecutionContext()->synchronize();
             }
 
-            // Backprop through RoPE then token embedding.
-            auto& rope_in_grad = rope_->backward( *token_embed_out_ptr_, *curr_grad );
-            this->getExecutionContext()->synchronize();
-
-            auto& input_grad = token_embedding_->backward( input, rope_in_grad );
+            auto& input_grad = token_embedding_->backward( input, curr_grad );
             this->getExecutionContext()->synchronize();
 
             return input_grad;
@@ -277,7 +263,6 @@ namespace Mila::Dnn
                 return;
 
             token_embedding_->zeroGradients();
-            rope_->zeroGradients();
 
             for ( auto& block : transformer_blocks_ )
                 block->zeroGradients();
@@ -403,9 +388,6 @@ namespace Mila::Dnn
             token_embedding_ = this->template getComponentAs<TokenEmbeddingType>( this->getName() + ".wte" );
             token_embedding_->build( input_shape );
 
-            rope_ = this->template getComponentAs<RopeType>( this->getName() + ".rope" );
-            rope_->build( embedding_shape_ );
-
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 std::string block_name = this->getName() + ".tf_layer_" + std::to_string( i );
@@ -442,13 +424,12 @@ namespace Mila::Dnn
         int64_t seq_length_{ 0 };
 
         std::shared_ptr<TokenEmbeddingType> token_embedding_{ nullptr };
-        std::shared_ptr<RopeType>           rope_{ nullptr };
         std::vector<std::shared_ptr<TransformerBlockType>> transformer_blocks_;
         std::shared_ptr<RmsNormType> final_rmsnorm_{ nullptr };
         std::shared_ptr<LinearType>  lm_head_{ nullptr };
 
         // Activation pointers — valid between forward() and the next backward().
-        TensorType* token_embed_out_ptr_{ nullptr };  // rope's input
+        TensorType* token_embed_out_ptr_{ nullptr };   // rope's input
         TensorType* encoder_out_ptr_{ nullptr };       // rope's output / blocks' input
         std::vector<TensorType*> block_input_ptrs_;
         std::vector<TensorType*> block_output_ptrs_;
@@ -461,7 +442,7 @@ namespace Mila::Dnn
 
         void createGraph()
         {
-            // 1. Token embedding — pure vocabulary lookup, no positional information.
+            // Token embedding — pure vocabulary lookup, no positional information.
             TokenEmbeddingConfig tok_cfg;
             tok_cfg.withVocabSize( static_cast<size_t>(config_.getVocabSize()) )
                 .withEmbeddingDim( static_cast<size_t>(config_.getModelDim()) );
@@ -471,20 +452,7 @@ namespace Mila::Dnn
 
             this->addComponent( tok_emb );
 
-            // 2. RoPE — rotary positional encoding applied to the embedding stream.
-            RopeConfig rope_cfg;
-            rope_cfg.withChannels( static_cast<size_t>(config_.getModelDim()) )
-                .withNumHeads( static_cast<size_t>(config_.getNumHeads()) )
-                .withNumKvHeads( static_cast<size_t>(config_.getNumKVHeads()) )
-                .withMaxSequenceLength( static_cast<size_t>(config_.getMaxSequenceLength()) )
-                .withBase( config_.getRoPETheta() );
-
-            auto rope = std::make_shared<RopeType>(
-                this->getName() + ".rope", rope_cfg );
-
-            this->addComponent( rope );
-
-            // 3. Transformer blocks.
+            // Transformer blocks.
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 LlamaConfig block_cfg( config_.getModelDim(), 1 );
@@ -501,9 +469,8 @@ namespace Mila::Dnn
                 this->addComponent( layer );
             }
 
-            // 4. Final RMSNorm.
-            auto rms_config = RmsNormConfig()
-                .withNormalizedShape( { config_.getModelDim() } )
+            // Final RMSNorm.
+            auto rms_config = RmsNormConfig( { config_.getModelDim() } )
                 .withEpsilon( config_.getRMSNormEpsilon() )
                 .withBias( false );
 
@@ -512,7 +479,7 @@ namespace Mila::Dnn
 
             this->addComponent( final_rmsnorm );
 
-            // 5. Language model head — projects model_dim → vocab_size, no bias.
+            // Language model head — projects model_dim → vocab_size, no bias.
             auto lm_head_config = LinearConfig( config_.getModelDim(), config_.getVocabSize() )
                 .withBias( false )
                 .withRowMajor( true );

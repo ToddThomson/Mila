@@ -2,17 +2,35 @@
  * @file Rope.ixx
  * @brief Rotary positional embedding (RoPE) component.
  *
- * Applies rotary position embeddings to input embeddings. Delegates compute
- * to a device-specific UnaryOperation backend registered as "RopeOp".
+ * Applies rotary position embeddings to Q and K tensors simultaneously,
+ * rotating both in-place via a single paired backend dispatch using the
+ * same cos/sin cache.
+ *
+ * Unlike GPT-2's Lpe (learned positional encoding) which is a true unary
+ * operation on the full embedding stream, RoPE is inherently paired: Q and K
+ * are rotated in-place using the same cos/sin cache in a single kernel
+ * dispatch. The operation is in-place by design — the CUDA kernel reads each
+ * float2 pair into a local register before writing back, making src == dst
+ * safe with no aliasing hazard.
+ *
+ * Typical usage in LlamaBlock:
+ *
+ *   // Zero-copy views into the fused QKV projection output
+ *   auto Q = qkv_out.view( {B, T, n_heads    * head_dim}, 0      );
+ *   auto K = qkv_out.view( {B, T, n_kv_heads * head_dim}, q_size );
+ *
+ *   rope_->forward( Q, K );    // rotates Q and K in-place inside qkv_out
+ *   attn_->forward( qkv_out ); // GQA sees rotated Q, K and untouched V
+ *
+ * Q shape: [B, T, n_heads    * head_dim]
+ * K shape: [B, T, n_kv_heads * head_dim]
  */
 
 module;
 #include <memory>
 #include <vector>
 #include <string>
-#include <iostream>
 #include <sstream>
-#include <type_traits>
 #include <stdexcept>
 #include <cstdint>
 #include <optional>
@@ -27,6 +45,7 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
+import Dnn.TensorOps;
 import Compute.Precision;
 import Compute.Device;
 import Compute.DeviceId;
@@ -34,9 +53,8 @@ import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
-import Compute.UnaryOperation;
+import Compute.PairedOperation;
 import Compute.OperationRegistry;
-import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
@@ -50,9 +68,12 @@ namespace Mila::Dnn
     /**
      * @brief Device-templated RoPE component.
      *
-     * Delegates heavy compute to a UnaryOperation backend (registered as "RopeOp").
-     * This component does not own trainable parameters; it owns only forward/backward
-     * temporary buffers that mirror the input shape.
+     * Rotates Q and K in-place using a PairedOperation backend registered
+     * as "RopeOp". The component owns no forward output buffers — rotation
+     * writes directly back into the caller-provided tensors (typically views
+     * into a fused QKV projection buffer).
+     *
+     * This component has no trainable parameters.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -63,7 +84,10 @@ namespace Mila::Dnn
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TPrecision, MR>;
 
-        explicit Rope( const std::string& name, const RopeConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+        explicit Rope(
+            const std::string& name,
+            const RopeConfig& config,
+            std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), config_( config )
         {
             config_.validate();
@@ -71,9 +95,7 @@ namespace Mila::Dnn
             if ( device_id.has_value() )
             {
                 if ( device_id->type != TDeviceType )
-                {
                     throw std::invalid_argument( "Rope: device type mismatch" );
-                }
 
                 owned_exec_context_ = createExecutionContext( device_id.value() );
                 this->setExecutionContext( owned_exec_context_.get() );
@@ -82,98 +104,131 @@ namespace Mila::Dnn
 
         ~Rope() override = default;
 
+        // ====================================================================
+        // Build
+        // ====================================================================
+
         /**
-         * @brief Forward: applies rotary position embedding to `input`.
+         * @brief Build the RoPE backend for the given Q and K shapes.
          *
-         * Preconditions:
-         *  - component must be built
-         *  - backend operation must be initialized
-         *  - owned output buffer allocated during build
+         * Must be called before forward() or backward(). No forward output
+         * buffers are allocated — all rotation is in-place. Backward gradient
+         * buffers are allocated once here and reused across training steps.
+         *
+         * @param Q_shape [B, T, n_heads    * head_dim]
+         * @param K_shape [B, T, n_kv_heads * head_dim]
          */
-        TensorType& forward( const TensorType& input )
+        void build( const shape_t& Q_shape, const shape_t& K_shape )
         {
-            if ( !this->isBuilt() )
-            {
-                throw std::runtime_error( "Rope module must be built before calling forward." );
-            }
+            validateShapes( Q_shape, K_shape );
 
-            validateInputShape( input.shape() );
+            q_shape_ = Q_shape;
+            k_shape_ = K_shape;
 
-            if ( !operation_ )
-            {
-                throw std::runtime_error( "Rope: operation backend not initialized" );
-            }
+            operation_->build( Q_shape );
 
-            if ( !owned_output_ )
-            {
-                throw std::runtime_error( "Rope: owned output buffer not allocated" );
-            }
+            auto device = this->getExecutionContext()->getDeviceId();
 
-            operation_->forward( input, *owned_output_ );
+            owned_Q_grad_ = std::make_unique<TensorType>( device, Q_shape );
+            owned_Q_grad_->setName( this->getName() + ".Q_grad" );
+            zero( *owned_Q_grad_ );
 
-            return *owned_output_;
+            owned_K_grad_ = std::make_unique<TensorType>( device, K_shape );
+            owned_K_grad_->setName( this->getName() + ".K_grad" );
+            zero( *owned_K_grad_ );
+
+            // REVIEW: ComponentBase::build() sets built_ = true
+            //this->markBuilt();
         }
 
+        // ====================================================================
+        // Forward
+        // ====================================================================
+
         /**
-         * @brief Backward: computes gradients w.r.t. input (if supported by backend).
+         * @brief Apply rotary position embeddings to Q and K in-place.
          *
-         * Requires training mode and an allocated owned_input_grad_ buffer.
+         * Both tensors are rotated in a single backend dispatch using the
+         * same cos/sin cache. Writes directly back into the provided tensors.
+         *
+         * Safe to call with views of the same underlying buffer — the CUDA
+         * kernel reads each float2 pair into local registers before writing,
+         * so src == dst carries no aliasing hazard.
+         *
+         * @param Q  Query tensor [B, T, n_heads    * head_dim]. Mutated in-place.
+         * @param K  Key tensor   [B, T, n_kv_heads * head_dim]. Mutated in-place.
          */
-        TensorType& backward( const TensorType& input, const TensorType& output_grad )
+        void forward( TensorType& Q, TensorType& K )
         {
             if ( !this->isBuilt() )
-            {
-                throw std::runtime_error( "Rope module must be built before calling backward." );
-            }
+                throw std::runtime_error( "Rope must be built before calling forward()." );
+
+            if ( !operation_ )
+                throw std::runtime_error( "Rope: operation backend not initialized." );
+
+            validateShapes( Q.shape(), K.shape() );
+
+            operation_->forward( Q, K, Q, K );
+        }
+
+        // ====================================================================
+        // Backward
+        // ====================================================================
+
+        /**
+         * @brief Backpropagate gradients through RoPE.
+         *
+         * RoPE is an orthogonal rotation (R^T = R^{-1}), so input gradients
+         * are the upstream gradients rotated by the transpose (negative) angles.
+         * The backend implements this via negate_sin=true in the kernel.
+         *
+         * @param grad_Q  Upstream gradient w.r.t. rotated Q.
+         * @param grad_K  Upstream gradient w.r.t. rotated K.
+         * @return Pair of references: (grad_Q_in, grad_K_in).
+         */
+        std::pair<TensorType&, TensorType&> backward(
+            TensorType& grad_Q,
+            TensorType& grad_K )
+        {
+            if ( !this->isBuilt() )
+                throw std::runtime_error( "Rope must be built before calling backward()." );
 
             if ( !this->isTraining() )
-            {
-                throw std::runtime_error( "Rope must be in training mode to call backward." );
-            }
+                throw std::runtime_error( "Rope must be in training mode to call backward()." );
 
             if ( !operation_ )
-            {
-                throw std::runtime_error( "Rope: operation backend not initialized" );
-            }
+                throw std::runtime_error( "Rope: operation backend not initialized." );
 
-            if ( !owned_input_grad_ )
-            {
-                throw std::runtime_error( "Rope: owned input-grad buffer not allocated" );
-            }
+            zero( *owned_Q_grad_ );
+            zero( *owned_K_grad_ );
 
-            // Zero input gradient buffer before backward pass to avoid accumulation.
-            zero( *owned_input_grad_ );
+            operation_->backward( grad_Q, grad_K, *owned_Q_grad_, *owned_K_grad_ );
 
-            operation_->backward( input, output_grad, *owned_input_grad_ );
-
-            return *owned_input_grad_;
+            return { *owned_Q_grad_, *owned_K_grad_ };
         }
+
+        // ====================================================================
+        // Component interface
+        // ====================================================================
 
         void zeroGradients() override
-        {
-            // RoPE has no learnable parameters; nothing to zero.
-        }
+        {} // No learnable parameters.
 
-        // Serialization placeholder to match project patterns
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
-            (void)archive;
-            (void)mode;
+            (void)archive; (void)mode;
         }
 
         std::vector<ITensor*> getParameters() const override
         {
-            return {}; // RoPE has no parameters
+            return {};
         }
 
         std::vector<ITensor*> getGradients() const override
         {
             if ( !this->isTraining() )
-            {
-                throw std::runtime_error( "Rope: getGradients called when not in training mode" );
-            }
-
-            return {}; // No parameter gradients
+                throw std::runtime_error( "Rope: getGradients called when not in training mode." );
+            return {};
         }
 
         size_t parameterCount() const override
@@ -199,76 +254,77 @@ namespace Mila::Dnn
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << "Rope: " << this->getName() << std::endl;
-            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
-            oss << "Config: " << config_.toString() << std::endl;
+            oss << "Rope: " << this->getName() << "\n";
+            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << "\n";
+            oss << "Config: " << config_.toString() << "\n";
             return oss.str();
         }
 
     protected:
+
         void onExecutionContextSet() override
         {
             createOperation();
         }
 
-        void onBuilding( const shape_t& input_shape ) override
+        /**
+         * @brief Disabled — Rope requires build(Q_shape, K_shape).
+         *
+         * Q and K have different trailing dimensions under GQA so a single
+         * input shape is insufficient.
+         */
+        void onBuilding( const shape_t& ) override
         {
-            validateInputShape( input_shape );
-
-            operation_->build( input_shape );
-
-            auto device = this->getExecutionContext()->getDeviceId();
-
-            owned_output_ = std::make_unique<TensorType>( device, input_shape );
-            owned_output_->setName( this->getName() + ".output" );
-
-            owned_input_grad_ = std::make_unique<TensorType>( device, input_shape );
-            owned_input_grad_->setName( this->getName() + ".input.grad" );
-            zero( *owned_input_grad_ );
+            throw std::logic_error(
+                "Rope: use build(Q_shape, K_shape) — "
+                "single-shape build is not supported." );
         }
 
         void onTrainingChanging( bool is_training ) override
         {
-            operation_->setTraining( is_training );
-
-            if ( !is_training )
+            if ( operation_ )
             {
-                // Clear any internal gradient state in backend
-                operation_->clearGradients();
+                operation_->setTraining( is_training );
+                if ( !is_training )
+                    operation_->clearGradients();
             }
         }
 
     private:
-        RopeConfig config_;
-        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        RopeConfig  config_;
+        shape_t     q_shape_;
+        shape_t     k_shape_;
 
-        std::unique_ptr<TensorType> owned_output_{ nullptr };
-        std::unique_ptr<TensorType> owned_input_grad_{ nullptr };
+        std::unique_ptr<IExecutionContext>                            owned_exec_context_{ nullptr };
+        std::shared_ptr<PairedOperation<TDeviceType, TPrecision>>    operation_{ nullptr };
 
-        void validateInputShape( const shape_t& input_shape ) const
+        // Backward gradient buffers — allocated once at build, reused each step.
+        std::unique_ptr<TensorType> owned_Q_grad_{ nullptr };
+        std::unique_ptr<TensorType> owned_K_grad_{ nullptr };
+
+        void validateShapes( const shape_t& Q_shape, const shape_t& K_shape ) const
         {
-            // Minimal validation: expect at least [B, T, C] or [B, T, ...]
-            if ( input_shape.size() < 2 )
-            {
-                throw std::invalid_argument( "Rope: input rank must be >= 2 (batch, seq, ...)" );
-            }
+            if ( Q_shape.size() < 2 )
+                throw std::invalid_argument( "Rope: Q rank must be >= 2." );
 
-            // Additional checks may rely on RopeConfig in the future.
+            if ( K_shape.size() < 2 )
+                throw std::invalid_argument( "Rope: K rank must be >= 2." );
+
+            if ( Q_shape[ 0 ] != K_shape[ 0 ] || Q_shape[ 1 ] != K_shape[ 1 ] )
+                throw std::invalid_argument(
+                    "Rope: Q and K must have matching batch and sequence dimensions." );
         }
 
         void createOperation()
         {
             operation_ = OperationRegistry::instance()
-                .createUnaryOperation<TDeviceType, TPrecision>(
+                .createPairedOperation<TDeviceType, TPrecision>(
                     "RopeOp",
                     this->getExecutionContext(),
                     config_ );
 
             if ( !operation_ )
-            {
-                throw std::runtime_error( "Failed to create Rope compute backend operation." );
-            }
+                throw std::runtime_error( "Rope: failed to create backend operation." );
         }
     };
 }

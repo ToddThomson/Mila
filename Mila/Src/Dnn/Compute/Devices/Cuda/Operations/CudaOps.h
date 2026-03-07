@@ -27,8 +27,8 @@
 
 namespace Mila::Dnn::Compute
 {
-    
-    
+    // REVIEW: These declaration should no longer be needed.
+
     // Attention functions
     void cuda_mha_forward_fp32(
         float* Y,

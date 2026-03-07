@@ -158,9 +158,6 @@ namespace Mila::Dnn
 
             last_fc1_out_ = &fc1_->forward( input );
 
-            last_norm_out_ = nullptr;
-            last_act_out_ = nullptr;
-
             last_act_out_ = &activation_forward_( *last_fc1_out_ );
 
             last_final_out_ = &fc2_->forward( *last_act_out_ );
@@ -461,7 +458,6 @@ namespace Mila::Dnn
         // Captured child-owned tensors from the most recent forward() call.
         // These are non-owning raw pointers to tensors owned by the child components.
         TensorType* last_fc1_out_{ nullptr };
-        TensorType* last_norm_out_{ nullptr };
         TensorType* last_act_out_{ nullptr };
         TensorType* last_final_out_{ nullptr };
 
@@ -608,7 +604,6 @@ namespace Mila::Dnn
         void clearForwardCache() noexcept
         {
             last_fc1_out_ = nullptr;
-            last_norm_out_ = nullptr;
             last_act_out_ = nullptr;
             last_final_out_ = nullptr;
         }

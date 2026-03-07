@@ -7,7 +7,7 @@
 #include "CudaUtils.h"
 #include "TokenEmbedding.cuh"
 
-namespace Mila::Dnn::Compute::Cuda::Embeddings
+namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
 {
     // ========================================================================
     // Kernels

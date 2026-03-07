@@ -115,16 +115,14 @@ namespace Components_Normalization_LayerNorm_Tests
     template<TensorDataType TPrecision>
     struct LayerNormTestFixture
     {
+        // Members are initialized in declaration order; test_shape precedes config,
+        // so test_shape.normalized_shape is valid in config's initializer.
         LayerNormTestFixture()
             : test_shape( TestShape::Small() ),
-              config(),
+              config( test_shape.normalized_shape ),
               component( nullptr ),
               is_training( false )
-        {
-            config.withNormalizedShape( test_shape.normalized_shape )
-                  .withBias( true )
-                  .withEpsilon( 1e-5f );
-        }
+        {}
 
         TestShape test_shape;
         LayerNormConfig config;
@@ -141,10 +139,9 @@ namespace Components_Normalization_LayerNorm_Tests
             fixture.test_shape = shape;
             fixture.is_training = is_training;
 
-            fixture.config = LayerNormConfig();
-            fixture.config.withNormalizedShape( shape.normalized_shape )
-                          .withBias( has_bias )
-                          .withEpsilon( epsilon );
+            fixture.config = LayerNormConfig( shape.normalized_shape )
+                .withBias( has_bias )
+                .withEpsilon( epsilon );
 
             std::string name = "layernorm_cuda_" + shape.name + "_" + PrecisionTraits<TPrecision>::name;
 
@@ -168,10 +165,9 @@ namespace Components_Normalization_LayerNorm_Tests
             fixture.test_shape = shape;
             fixture.is_training = is_training;
 
-            fixture.config = LayerNormConfig();
-            fixture.config.withAxis( axis )
-                          .withBias( has_bias )
-                          .withEpsilon( epsilon );
+            fixture.config = LayerNormConfig( axis )
+                .withBias( has_bias )
+                .withEpsilon( epsilon );
 
             std::string name = "layernorm_cuda_axis_" + shape.name + "_" + PrecisionTraits<TPrecision>::name;
 
@@ -226,8 +222,7 @@ namespace Components_Normalization_LayerNorm_Tests
 
         constexpr TensorDataType TPrecision = TypeParam::value;
 
-        LayerNormConfig cfg;
-        cfg.withNormalizedShape( { 64 } );
+        LayerNormConfig cfg( shape_t{ 64 } );
 
         std::shared_ptr<LayerNorm<DeviceType::Cuda, TPrecision>> component{ nullptr };
 
@@ -249,8 +244,7 @@ namespace Components_Normalization_LayerNorm_Tests
 
         constexpr TensorDataType TPrecision = TypeParam::value;
 
-        LayerNormConfig cfg;
-        cfg.withNormalizedShape( { 64 } );
+        LayerNormConfig cfg( shape_t{ 64 } );
 
         std::shared_ptr<LayerNorm<DeviceType::Cuda, TPrecision>> component;
 
@@ -270,8 +264,7 @@ namespace Components_Normalization_LayerNorm_Tests
 
         constexpr TensorDataType TPrecision = TypeParam::value;
 
-        LayerNormConfig cfg;
-        cfg.withNormalizedShape( { 64 } );
+        LayerNormConfig cfg( shape_t{ 64 } );
 
         EXPECT_THROW(
             ((void)std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>(
@@ -289,7 +282,7 @@ namespace Components_Normalization_LayerNorm_Tests
 
         constexpr TensorDataType TPrecision = TypeParam::value;
 
-        LayerNormConfig invalid_config;
+        LayerNormConfig invalid_config( shape_t{ 0 } );
 
         EXPECT_THROW(
             (std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>(
@@ -388,6 +381,7 @@ namespace Components_Normalization_LayerNorm_Tests
         fixture.component->build( fixture.test_shape.shape );
 
         size_t norm_size = 1;
+
         for ( auto dim : fixture.test_shape.normalized_shape )
         {
             norm_size *= dim;
@@ -407,6 +401,7 @@ namespace Components_Normalization_LayerNorm_Tests
         fixture.component->build( fixture.test_shape.shape );
 
         size_t norm_size = 1;
+
         for ( auto dim : fixture.test_shape.normalized_shape )
         {
             norm_size *= dim;
@@ -485,8 +480,7 @@ namespace Components_Normalization_LayerNorm_Tests
 
         constexpr TensorDataType TPrecision = TypeParam::value;
 
-        LayerNormConfig config;
-        config.withNormalizedShape( { 4 } );
+        LayerNormConfig config( shape_t{ 4 } );
 
         auto module = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>(
             "null_context_test",
@@ -557,7 +551,7 @@ namespace Components_Normalization_LayerNorm_Tests
                 << "Output size mismatch for shape: " << test_shape.name;
         }
     }
-    
+
     // ====================================================================
     // Additional forward variants
     // ====================================================================
@@ -677,7 +671,7 @@ namespace Components_Normalization_LayerNorm_Tests
     }
 
     // ====================================================================
-    // WithAxis Tests (new API)
+    // Axis Mode Tests
     // ====================================================================
 
     TYPED_TEST( LayerNormCudaTests, WithAxis_Construction_Succeeds )
@@ -744,7 +738,7 @@ namespace Components_Normalization_LayerNorm_Tests
     }
 
     // ====================================================================
-    // Edge Case Tests (new API)
+    // Edge Case Tests
     // ====================================================================
 
     TYPED_TEST( LayerNormCudaTests, EdgeCase_MinimalShape_Succeeds )
@@ -790,9 +784,9 @@ namespace Components_Normalization_LayerNorm_Tests
         EXPECT_NO_THROW( { auto& out_ref = fixture.component->forward( device_input ); out_ptr = &out_ref; } );
         ASSERT_NE( out_ptr, nullptr );
     }
-    
+
     // ====================================================================
-    // CPU <-> CUDA Equivalence Tests (FP32 only, adapted to new API)
+    // CPU <-> CUDA Equivalence Tests (FP32 only)
     // ====================================================================
 
     TYPED_TEST( LayerNormCudaTests, Forward_CPU_CUDA_Equivalence_FP32 )
@@ -810,10 +804,9 @@ namespace Components_Normalization_LayerNorm_Tests
         {
             auto shape = TestShape::Small();
 
-            LayerNormConfig config;
-            config.withNormalizedShape( shape.normalized_shape )
-                  .withBias( true )
-                  .withEpsilon( 1e-5f );
+            auto config = LayerNormConfig( shape.normalized_shape )
+                .withBias( true )
+                .withEpsilon( 1e-5f );
 
             auto cpu_comp = std::make_shared<LayerNorm<DeviceType::Cpu, TensorDataType::FP32>>(
                 "layernorm_cpu_equiv", config, Device::Cpu()
@@ -829,14 +822,12 @@ namespace Components_Normalization_LayerNorm_Tests
             CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), shape.shape );
             random( host_input, -2.0f, 2.0f );
 
-            // CPU forward (new API)
             Tensor<TensorDataType::FP32, CpuMemoryResource>* cpu_out_ptr = nullptr;
             ASSERT_NO_THROW( { auto& out_ref = cpu_comp->forward( host_input ); cpu_out_ptr = &out_ref; } );
             ASSERT_NE( cpu_out_ptr, nullptr );
 
             auto& cpu_out_tensor = *cpu_out_ptr;
 
-            // CUDA forward (new API)
             CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), shape.shape );
             copy( host_input, device_input );
 
@@ -865,7 +856,7 @@ namespace Components_Normalization_LayerNorm_Tests
     }
 
     // ====================================================================
-    // Backward Tests (CPU <-> CUDA Equivalence, FP32 only, new API)
+    // Backward Tests (CPU <-> CUDA Equivalence, FP32 only)
     // ====================================================================
 
     TYPED_TEST( LayerNormCudaTests, Backward_CPU_CUDA_Equivalence_FP32 )
@@ -883,8 +874,7 @@ namespace Components_Normalization_LayerNorm_Tests
         {
             auto shape = TestShape::Small();
 
-            LayerNormConfig config;
-            config.withNormalizedShape( shape.normalized_shape )
+            auto config = LayerNormConfig( shape.normalized_shape )
                 .withBias( true )
                 .withEpsilon( 1e-5f );
 
@@ -960,7 +950,6 @@ namespace Components_Normalization_LayerNorm_Tests
         }
     }
 
-
     // ====================================================================
     // Deterministic Tests
     // ====================================================================
@@ -983,7 +972,7 @@ namespace Components_Normalization_LayerNorm_Tests
 
             auto cuda_comp = std::make_shared<LayerNorm<DeviceType::Cuda, TensorDataType::FP32>>(
                 "layernorm_reproducible",
-                LayerNormConfig().withNormalizedShape( shape.normalized_shape ),
+                LayerNormConfig( shape.normalized_shape ),
                 Device::Cuda( 0 )
             );
 
@@ -999,7 +988,7 @@ namespace Components_Normalization_LayerNorm_Tests
             copy( host_input1, device_input1 );
 
             Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>* out1_ptr = nullptr;
-            
+
             ASSERT_NO_THROW( { auto& out_ref = cuda_comp->forward( device_input1 ); out1_ptr = &out_ref; } );
             ASSERT_NE( out1_ptr, nullptr );
 

@@ -1116,7 +1116,7 @@ namespace CompositeComponents_Tests
         EXPECT_NO_THROW( { auto& out = fixture.component->forward( device_input ); (void)out; } );
     }
 
-    TYPED_TEST( GptBlockCudaTests, EdgeCase_SingleHead_Forward )
+    TYPED_TEST( GptBlockCudaTests, EdgeCase_TwoHead_Forward )
     {
         if ( !this->cuda_available_ )
         {
@@ -1125,9 +1125,9 @@ namespace CompositeComponents_Tests
 
         constexpr TensorDataType TPrecision = TypeParam::value;
 
-        TestShape test_shape = { TestShapeSize::Small, { 1, 4, 64 }, "SingleHead" };
+        TestShape test_shape = { TestShapeSize::Small, { 1, 4, 64 }, "TwoHead" };
         dim_t embedding_dim = 64;
-        dim_t num_heads = 1;
+        dim_t num_heads = 2;
 
         auto fixture = GptBlockTestFixture<TPrecision>::CreateStandalone(
             test_shape,

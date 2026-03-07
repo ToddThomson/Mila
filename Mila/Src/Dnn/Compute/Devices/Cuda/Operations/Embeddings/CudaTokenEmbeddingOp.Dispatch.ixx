@@ -12,7 +12,7 @@ module;
 
 export module Compute.CudaTokenEmbeddingOp:Dispatch;
 
-namespace Mila::Dnn::Compute::Cuda::Embeddings::Detail
+namespace Mila::Dnn::Compute::Cuda::TokenEmbedding::Detail
 {
     template <typename TNative>
         requires std::is_same_v<TNative, float> || std::is_same_v<TNative, half>

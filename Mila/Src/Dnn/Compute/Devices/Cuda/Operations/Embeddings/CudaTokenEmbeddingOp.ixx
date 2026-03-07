@@ -35,7 +35,7 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.OperationRegistrarHelpers;
 
-namespace Mila::Dnn::Compute::Cuda::Embeddings
+namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
 {
     using namespace Mila::Dnn;
 

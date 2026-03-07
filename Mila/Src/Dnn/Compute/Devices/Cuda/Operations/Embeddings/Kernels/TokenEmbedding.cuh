@@ -2,7 +2,7 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 
-namespace Mila::Dnn::Compute::Cuda::Embeddings
+namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
 {
     void cuda_token_embedding_forward_fp32(
         float* Y, const int* X, const float* wte,

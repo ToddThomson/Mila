@@ -519,10 +519,10 @@ namespace Mila::Dnn
             auto attn_cfg = MultiHeadAttentionConfig( config_.getModelDim(), config_.getNumHeads() );
             this->addComponent( std::make_shared<AttentionType>( this->getName() + ".attn", attn_cfg, std::nullopt ) );
 
-            auto ln1_cfg = LayerNormConfig().withNormalizedShape( shape_t{ static_cast<int64_t>(config_.getModelDim()) } );
+            auto ln1_cfg = LayerNormConfig( shape_t{ static_cast<int64_t>(config_.getModelDim()) } );
             this->addComponent( std::make_shared<LayerNormType>( this->getName() + ".ln_1", ln1_cfg, std::nullopt ) );
 
-            auto ln2_cfg = LayerNormConfig().withNormalizedShape( shape_t{ static_cast<int64_t>(config_.getModelDim()) } );
+            auto ln2_cfg = LayerNormConfig( shape_t{ static_cast<int64_t>(config_.getModelDim()) } );
             this->addComponent( std::make_shared<LayerNormType>( this->getName() + ".ln_2", ln2_cfg, std::nullopt ) );
 
             auto qkv_cfg = LinearConfig( static_cast<dim_t>(config_.getModelDim()), static_cast<dim_t>(config_.getModelDim() * 3) );

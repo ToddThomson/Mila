@@ -9,6 +9,9 @@ add_library( Mila STATIC
     #--------------------------------------------------------------------------
     # Cuda Operations Kernels
     #--------------------------------------------------------------------------
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.cuh"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.cu"
+
     "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.cuh"
@@ -36,6 +39,9 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.cuh"
+
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.cuh"
     
     "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp16.cu"
@@ -193,10 +199,10 @@ PUBLIC
         
         # Components - Activations
         "Src/Dnn/Components/Activations/ActivationType.ixx"
-        "Src/Dnn/Components/Activations/Gelu.ixx"
-        "Src/Dnn/Components/Activations/Gelu.Config.ixx"
-        "Src/Dnn/Components/Activations/Swiglu.ixx"
-        "Src/Dnn/Components/Activations/Swiglu.Config.ixx"
+        "Src/Dnn/Components/Activations/Gelu/Gelu.ixx"
+        "Src/Dnn/Components/Activations/Gelu/Gelu.Config.ixx"
+        "Src/Dnn/Components/Activations/Swiglu/Swiglu.ixx"
+        "Src/Dnn/Components/Activations/Swiglu/Swiglu.Config.ixx"
         
         # Components - Connections
         "Src/Dnn/Components/Connections/ConnectionType.ixx"
@@ -221,10 +227,10 @@ PUBLIC
         "Src/Dnn/Components/Linear/LinearConfig.ixx"
 
         # Components - Normalization / Losses / Regularization / Composites
-        "Src/Dnn/Components/Normalization/LayerNorm.ixx"
-        "Src/Dnn/Components/Normalization/LayerNormConfig.ixx"
-        "Src/Dnn/Components/Normalization/RmsNorm.ixx"
-        "Src/Dnn/Components/Normalization/RmsNorm.Config.ixx"
+        "Src/Dnn/Components/Normalization/LayerNorm/LayerNorm.ixx"
+        "Src/Dnn/Components/Normalization/LayerNorm/LayerNormConfig.ixx"
+        "Src/Dnn/Components/Normalization/RmsNorm/RmsNorm.ixx"
+        "Src/Dnn/Components/Normalization/RmsNorm/RmsNorm.Config.ixx"
         "Src/Dnn/Components/Normalization/Softmax.ixx"
         "Src/Dnn/Components/Normalization/SoftmaxConfig.ixx"
         
@@ -234,10 +240,11 @@ PUBLIC
         #"Src/Dnn/Components/Regularization/Dropout.ixx"
         #"Src/Dnn/Components/Regularization/DropoutConfig.ixx"
         
-        "Src/Dnn/Components/Composites/MLP.ixx"
-        "Src/Dnn/Components/Composites/MLP.Config.ixx"
-        "Src/Dnn/Components/Composites/GptBlock.ixx"
-        "Src/Dnn/Components/Composites/GptBlock.Config.ixx"
+        "Src/Dnn/Components/FFN/MLP.ixx"
+        "Src/Dnn/Components/FFN/MLP.Config.ixx"
+        "Src/Dnn/Components/FFN/MLP.Dispatch.ixx"
+        "Src/Dnn/Components/Transformers/Gpt/GptBlock.ixx"
+        "Src/Dnn/Components/Transformers/Gpt/GptBlock.Config.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute (core)
@@ -430,7 +437,7 @@ PUBLIC
         "Src/Dnn/Compute/IDecode.ixx"
         "Src/Dnn/Compute/IPositionalDecode.ixx"
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
-        "Src/Dnn/Components/Composites/MLP.Dispatch.ixx"
+        
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.ixx"
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
         
@@ -546,7 +553,9 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Zero.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaDebug.ixx"
                 
-    )
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/RmsNormOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/RmsNormOp.Dispatch.ixx"
+     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.Dispatch.ixx")
 
     target_link_libraries( Mila PUBLIC 
         CUDA::cudart

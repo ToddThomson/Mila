@@ -124,11 +124,11 @@ namespace Components::Layers::Tests
 
     TEST_F( MultiHeadAttentionConfigTests, EdgeCases_MinimalValid )
     {
-        MultiHeadAttentionConfig cfg( 1, 1 );
+        MultiHeadAttentionConfig cfg( 2, 2 );
 
         EXPECT_NO_THROW( cfg.validate() );
-        EXPECT_EQ( cfg.getModelDim(), 1 );
-        EXPECT_EQ( cfg.getNumHeads(), 1 );
+        EXPECT_EQ( cfg.getModelDim(), 2 );
+        EXPECT_EQ( cfg.getNumHeads(), 2 );
     }
 
     TEST_F( MultiHeadAttentionConfigTests, EdgeCases_LargeValues )

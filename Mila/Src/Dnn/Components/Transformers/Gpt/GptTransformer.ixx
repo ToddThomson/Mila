@@ -726,8 +726,7 @@ namespace Mila::Dnn
                 this->addComponent( layer );
             }
 
-            auto ln_config = LayerNormConfig()
-                .withNormalizedShape( { config_.getEmbeddingSize() });
+            auto ln_config = LayerNormConfig( shape_t{ config_.getEmbeddingSize() } );
 
             auto final_layernorm = std::make_shared<LayerNormType>(
                 this->getName() + ".ln_final", ln_config, std::nullopt );

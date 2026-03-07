@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <memory>
+#include <optional>
 #include <vector>
 #include <string>
 #include <random>
@@ -21,7 +22,7 @@ namespace Dnn::Components::Normalization::Tests
     {
         shape_t shape;
         shape_t normalized_shape;
-        LayerNormConfig config;
+        std::optional<LayerNormConfig> config;
         std::shared_ptr<LayerNorm<DeviceType::Cpu, TPrecision>> module;
         bool is_training;
 
@@ -38,13 +39,12 @@ namespace Dnn::Components::Normalization::Tests
             data.normalized_shape = normalized_shape;
             data.is_training = is_training;
 
-            data.config = LayerNormConfig();
-            data.config.withNormalizedShape( normalized_shape )
+            data.config = LayerNormConfig( normalized_shape )
                 .withBias( has_bias )
                 .withEpsilon( epsilon );
 
             // Standalone construction: give the component a device so it owns a context.
-            data.module = std::make_shared<LayerNorm<DeviceType::Cpu, TPrecision>>( name, data.config, Device::Cpu() );
+            data.module = std::make_shared<LayerNorm<DeviceType::Cpu, TPrecision>>( name, *data.config, Device::Cpu() );
 
             if ( data.is_training )
             {
@@ -66,13 +66,12 @@ namespace Dnn::Components::Normalization::Tests
             data.shape = shape;
             data.is_training = is_training;
 
-            data.config = LayerNormConfig();
-            data.config.withAxis( axis )
+            data.config = LayerNormConfig( axis )
                 .withBias( has_bias )
                 .withEpsilon( epsilon );
 
             // Standalone construction for tests
-            data.module = std::make_shared<LayerNorm<DeviceType::Cpu, TPrecision>>( name, data.config, Device::Cpu() );
+            data.module = std::make_shared<LayerNorm<DeviceType::Cpu, TPrecision>>( name, *data.config, Device::Cpu() );
 
             if ( data.is_training )
             {
@@ -103,7 +102,7 @@ namespace Dnn::Components::Normalization::Tests
 
         LayerNormCpuTestData<TensorDataType::FP32>& SmallFp32Data()
         {
-            if (!small_fp32_.module)
+            if ( !small_fp32_.module )
             {
                 small_fp32_ = LayerNormCpuTestData<TensorDataType::FP32>::Create(
                     "small_layernorm", small_shape_, small_normalized_shape_ );
@@ -114,7 +113,7 @@ namespace Dnn::Components::Normalization::Tests
 
         LayerNormCpuTestData<TensorDataType::FP32>& MediumFp32Data()
         {
-            if (!medium_fp32_.module)
+            if ( !medium_fp32_.module )
             {
                 medium_fp32_ = LayerNormCpuTestData<TensorDataType::FP32>::Create(
                     "medium_layernorm", medium_shape_, medium_normalized_shape_ );
@@ -124,7 +123,7 @@ namespace Dnn::Components::Normalization::Tests
 
         LayerNormCpuTestData<TensorDataType::FP32>& LargeFp32Data()
         {
-            if (!large_fp32_.module)
+            if ( !large_fp32_.module )
             {
                 large_fp32_ = LayerNormCpuTestData<TensorDataType::FP32>::Create(
                     "large_layernorm", large_shape_, large_normalized_shape_ );
@@ -134,7 +133,7 @@ namespace Dnn::Components::Normalization::Tests
 
         LayerNormCpuTestData<TensorDataType::FP32>& TrainingFp32Data()
         {
-            if (!training_fp32_.module)
+            if ( !training_fp32_.module )
             {
                 training_fp32_ = LayerNormCpuTestData<TensorDataType::FP32>::Create(
                     "training_layernorm", medium_shape_, medium_normalized_shape_, true, 1e-5f, true );
@@ -199,12 +198,12 @@ namespace Dnn::Components::Normalization::Tests
         auto params = data.module->getParameters();
 
         ASSERT_FALSE( params.empty() );
-        EXPECT_EQ( static_cast<size_t>(static_cast<CpuTensor<TPrecision>*>(params[0])->size()), expected_weight_size );
+        EXPECT_EQ( static_cast<size_t>(static_cast<CpuTensor<TPrecision>*>(params[ 0 ])->size()), expected_weight_size );
 
-        if (data.config.hasBias())
+        if ( data.config->hasBias() )
         {
             ASSERT_EQ( params.size(), 2 );
-            EXPECT_EQ( static_cast<size_t>(static_cast<CpuTensor<TPrecision>*>(params[1])->size()), expected_weight_size );
+            EXPECT_EQ( static_cast<size_t>(static_cast<CpuTensor<TPrecision>*>(params[ 1 ])->size()), expected_weight_size );
         }
         else
         {
@@ -261,29 +260,29 @@ namespace Dnn::Components::Normalization::Tests
 
         size_t outer_size = 1;
 
-        for (size_t i = 0; i + norm_dims < shape.size(); ++i)
+        for ( size_t i = 0; i + norm_dims < shape.size(); ++i )
         {
-            outer_size *= static_cast<size_t>( shape[i] );
+            outer_size *= static_cast<size_t>( shape[ i ] );
         }
 
         size_t norm_size = 1;
 
-        for (auto dim : normalized_shape)
+        for ( auto dim : normalized_shape )
         {
             norm_size *= static_cast<size_t>( dim );
         }
 
         auto output_ptr = output.data();
 
-        for (size_t outer_idx = 0; outer_idx < outer_size; ++outer_idx)
+        for ( size_t outer_idx = 0; outer_idx < outer_size; ++outer_idx )
         {
             float sum = 0.0f;
             float sum_sq = 0.0f;
 
-            for (size_t norm_idx = 0; norm_idx < norm_size; ++norm_idx)
+            for ( size_t norm_idx = 0; norm_idx < norm_size; ++norm_idx )
             {
                 size_t idx = outer_idx * norm_size + norm_idx;
-                float val = static_cast<float>( output_ptr[idx] );
+                float val = static_cast<float>( output_ptr[ idx ] );
                 sum += val;
                 sum_sq += val * val;
             }
@@ -353,7 +352,7 @@ namespace Dnn::Components::Normalization::Tests
         EXPECT_TRUE( data.module->isBuilt() );
         auto params = data.module->getParameters();
         ASSERT_FALSE( params.empty() );
-        EXPECT_EQ( static_cast<size_t>(static_cast<CpuTensor<TensorDataType::FP32>*>(params[0])->size()),
+        EXPECT_EQ( static_cast<size_t>(static_cast<CpuTensor<TensorDataType::FP32>*>(params[ 0 ])->size()),
             static_cast<size_t>(data.shape.back()) );
     }
 
@@ -370,7 +369,7 @@ namespace Dnn::Components::Normalization::Tests
 
         size_t norm_size = 1;
 
-        for (auto dim : data.normalized_shape)
+        for ( auto dim : data.normalized_shape )
         {
             norm_size *= dim;
         }
@@ -387,7 +386,7 @@ namespace Dnn::Components::Normalization::Tests
 
         size_t norm_size = 1;
 
-        for (auto dim : data.normalized_shape)
+        for ( auto dim : data.normalized_shape )
         {
             norm_size *= dim;
         }
@@ -402,7 +401,7 @@ namespace Dnn::Components::Normalization::Tests
 
         size_t norm_size = 1;
 
-        for (auto dim : data.normalized_shape)
+        for ( auto dim : data.normalized_shape )
         {
             norm_size *= dim;
         }
@@ -419,7 +418,7 @@ namespace Dnn::Components::Normalization::Tests
 
         size_t norm_size = 1;
 
-        for (auto dim : data.normalized_shape)
+        for ( auto dim : data.normalized_shape )
         {
             norm_size *= dim;
         }
@@ -473,31 +472,31 @@ namespace Dnn::Components::Normalization::Tests
 
         auto input_ptr = input.data();
 
-        for (size_t i = 0; i < input.size(); ++i)
+        for ( size_t i = 0; i < input.size(); ++i )
         {
-            input_ptr[i] = dist( rng );
+            input_ptr[ i ] = dist( rng );
         }
 
         auto params = data.module->getParameters();
         ASSERT_FALSE( params.empty() );
 
-        auto weight_ptr = static_cast<CpuTensor<TensorDataType::FP32>*>( params[0] )->data();
+        auto weight_ptr = static_cast<CpuTensor<TensorDataType::FP32>*>( params[ 0 ] )->data();
 
-        if (data.config.hasBias())
+        if ( data.config->hasBias() )
         {
-            auto bias_ptr = static_cast<CpuTensor<TensorDataType::FP32>*>(params[1])->data();
+            auto bias_ptr = static_cast<CpuTensor<TensorDataType::FP32>*>(params[ 1 ])->data();
 
-            for (size_t i = 0; i < static_cast<size_t>( static_cast<CpuTensor<TensorDataType::FP32>*>( params[0] )->size() ); ++i)
+            for ( size_t i = 0; i < static_cast<size_t>( static_cast<CpuTensor<TensorDataType::FP32>*>( params[ 0 ] )->size() ); ++i )
             {
-                weight_ptr[i] = 1.0f;
-                bias_ptr[i] = 0.0f;
+                weight_ptr[ i ] = 1.0f;
+                bias_ptr[ i ] = 0.0f;
             }
         }
         else
         {
-            for (size_t i = 0; i < static_cast<size_t>( static_cast<CpuTensor<TensorDataType::FP32>*>( params[0] )->size() ); ++i)
+            for ( size_t i = 0; i < static_cast<size_t>( static_cast<CpuTensor<TensorDataType::FP32>*>( params[ 0 ] )->size() ); ++i )
             {
-                weight_ptr[i] = 1.0f;
+                weight_ptr[ i ] = 1.0f;
             }
         }
 
@@ -508,7 +507,7 @@ namespace Dnn::Components::Normalization::Tests
         auto* out_tensor = out_ptr;
         ASSERT_NE( out_tensor, nullptr );
 
-        ValidateNormalization<TensorDataType::FP32>( *out_tensor, data.normalized_shape, data.config.getEpsilon() );
+        ValidateNormalization<TensorDataType::FP32>( *out_tensor, data.normalized_shape, data.config->getEpsilon() );
     }
 
     TEST_F( LayerNormCpuTests, Forward_MultipleTrailingDims )
@@ -528,9 +527,9 @@ namespace Dnn::Components::Normalization::Tests
 
         auto input_ptr = input.data();
 
-        for (size_t i = 0; i < input.size(); ++i)
+        for ( size_t i = 0; i < input.size(); ++i )
         {
-            input_ptr[i] = dist( rng );
+            input_ptr[ i ] = dist( rng );
         }
 
         Tensor<TensorDataType::FP32, CpuMemoryResource>* out_ptr = nullptr;
@@ -562,7 +561,7 @@ namespace Dnn::Components::Normalization::Tests
 
         auto params = data.module->getParameters();
         ASSERT_FALSE( params.empty() );
-        EXPECT_EQ( static_cast<size_t>(static_cast<CpuTensor<TensorDataType::FP32>*>(params[0])->size()),
+        EXPECT_EQ( static_cast<size_t>(static_cast<CpuTensor<TensorDataType::FP32>*>(params[ 0 ])->size()),
             static_cast<size_t>(data.shape.back()) );
     }
 
@@ -618,9 +617,9 @@ namespace Dnn::Components::Normalization::Tests
 
         auto input_ptr = input.data();
 
-        for (size_t i = 0; i < input.size(); ++i)
+        for ( size_t i = 0; i < input.size(); ++i )
         {
-            input_ptr[i] = 0.0f;
+            input_ptr[ i ] = 0.0f;
         }
 
         Tensor<TensorDataType::FP32, CpuMemoryResource>* out_ptr = nullptr;
@@ -637,9 +636,9 @@ namespace Dnn::Components::Normalization::Tests
 
         auto input_ptr = input.data();
 
-        for (size_t i = 0; i < input.size(); ++i)
+        for ( size_t i = 0; i < input.size(); ++i )
         {
-            input_ptr[i] = 5.0f;
+            input_ptr[ i ] = 5.0f;
         }
 
         Tensor<TensorDataType::FP32, CpuMemoryResource>* out_ptr = nullptr;
@@ -649,8 +648,7 @@ namespace Dnn::Components::Normalization::Tests
 
     TEST_F( LayerNormCpuTests, Error_BuildWithoutContext )
     {
-        LayerNormConfig config;
-        config.withNormalizedShape( { 4 } );
+        LayerNormConfig config( { 4 } );
 
         // Shared-mode construction (no DeviceId) is allowed — but build should fail
         // because no execution context is set on the component.
@@ -659,16 +657,6 @@ namespace Dnn::Components::Normalization::Tests
         EXPECT_THROW(
             module->build( shape_t{ 2, 1, 4 } ),
             std::runtime_error
-        );
-    }
-
-    TEST_F( LayerNormCpuTests, Error_InvalidConfig )
-    {
-        LayerNormConfig invalid_config;
-        // missing normalized_shape/axis -> validate() should fail in constructor
-        EXPECT_THROW(
-            (std::make_shared<LayerNorm<DeviceType::Cpu, TensorDataType::FP32>>( "cpu_ln", invalid_config, Device::Cpu())),
-            std::invalid_argument
         );
     }
 
@@ -731,13 +719,13 @@ namespace Dnn::Components::Normalization::Tests
         std::mt19937 rng( 789 );
         std::uniform_real_distribution<float> dist( -2.0f, 2.0f );
 
-        for (int iter = 0; iter < 10; ++iter)
+        for ( int iter = 0; iter < 10; ++iter )
         {
             auto input_ptr = input.data();
 
-            for (size_t i = 0; i < input.size(); ++i)
+            for ( size_t i = 0; i < input.size(); ++i )
             {
-                input_ptr[i] = dist( rng );
+                input_ptr[ i ] = dist( rng );
             }
 
             Tensor<TensorDataType::FP32, CpuMemoryResource>* out_ptr = nullptr;

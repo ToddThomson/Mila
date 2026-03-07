@@ -859,11 +859,11 @@ namespace CompositeComponents_Tests
         (void)out;
     }
 
-    TEST_F( GptBlockCpuTests, EdgeCase_SingleHead_Forward )
+    TEST_F( GptBlockCpuTests, EdgeCase_TwoHead_Forward )
     {
-        TestShape test_shape = { TestShapeSize::Small, { 1, 4, 64 }, "SingleHead" };
+        TestShape test_shape = { TestShapeSize::Small, { 1, 4, 64 }, "TwoHead" };
         dim_t embedding_dim = 64;
-        dim_t num_heads = 1;
+        dim_t num_heads = 2;
 
         auto fixture = GptBlockTestFixture::CreateStandalone(
             test_shape,
