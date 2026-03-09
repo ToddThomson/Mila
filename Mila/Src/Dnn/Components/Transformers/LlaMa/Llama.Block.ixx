@@ -395,6 +395,28 @@ namespace Mila::Dnn
             return ComponentType::Transformer;
         }
 
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+
+            for ( const auto& child : this->getComponents() )
+            {
+                stats += child->getMemoryStats();
+            }
+
+            if ( d_res1_accum_ != nullptr )
+            {
+                stats.device_gradient_bytes += d_res1_accum_->getStorageSize();
+            }
+
+            if ( d_input_ != nullptr )
+            {
+                stats.device_gradient_bytes += d_input_->getStorageSize();
+            }
+
+            return stats;
+        }
+
     protected:
 
         // ====================================================================

@@ -381,6 +381,18 @@ namespace Mila::Dnn
             return ComponentType::Gpt2;
         }
 
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+
+            for ( const auto& child : this->getComponents() )
+            {
+                stats += child->getMemoryStats();
+            }
+
+            return stats;
+        }
+
         std::string toString() const override
         {
             std::ostringstream oss;

@@ -422,6 +422,25 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Return memory allocation breakdown.
+         */
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+
+            if ( output_ != nullptr )
+            {
+                stats.device_state_bytes += output_->getStorageSize();
+            }
+            if ( input_grad_ != nullptr )
+            {
+                stats.device_gradient_bytes += input_grad_->getStorageSize();
+            }
+            
+            return stats;
+        }
+
+        /**
          * @brief Generate human-readable description of the component.
          *
          * Produces a multi-line string showing:

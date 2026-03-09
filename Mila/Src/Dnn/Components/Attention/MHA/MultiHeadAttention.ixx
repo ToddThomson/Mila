@@ -352,6 +352,31 @@ namespace Mila::Dnn
             return 0;
         }
 
+        /**
+         * @brief Return memory allocation breakdown.
+         */
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+
+            if ( owned_output_ != nullptr )
+            {
+                stats.device_state_bytes += owned_output_->getStorageSize();
+            }
+
+            if ( owned_decode_output_ != nullptr )
+            {
+                stats.device_state_bytes += owned_decode_output_->getStorageSize();
+            }
+
+            if ( owned_input_grad_ != nullptr )
+            {
+                stats.device_gradient_bytes += owned_input_grad_->getStorageSize();
+            }
+
+            return stats;
+        }
+
         std::string toString() const override
         {
             std::ostringstream oss;

@@ -322,6 +322,28 @@ namespace Mila::Dnn
             return {};
         }
 
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+
+            if ( output_ != nullptr )
+            {
+                stats.device_state_bytes += output_->getStorageSize();
+            }
+
+            if ( input_a_grad_ != nullptr )
+            {
+                stats.device_gradient_bytes += input_a_grad_->getStorageSize();
+            }
+
+            if ( input_b_grad_ != nullptr )
+            {
+                stats.device_gradient_bytes += input_b_grad_->getStorageSize();
+            }
+
+            return stats;
+        }
+
     protected:
 
         // ====================================================================

@@ -312,6 +312,33 @@ namespace Mila::Dnn
             return static_cast<int64_t>(config_.getEmbeddingDim());
         }
 
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+
+            if ( wte_ != nullptr )
+            {
+                stats.device_parameter_bytes += wte_->getStorageSize();
+            }
+
+            if ( output_ != nullptr )
+            {
+                stats.device_state_bytes += output_->getStorageSize();
+            }
+
+            if ( wte_grad_ != nullptr )
+            {
+                stats.device_gradient_bytes += wte_grad_->getStorageSize();
+            }
+
+            if ( input_grad_ != nullptr )
+            {
+                stats.device_gradient_bytes += input_grad_->getStorageSize();
+            }
+
+            return stats;
+        }
+
     protected:
 
         // ====================================================================

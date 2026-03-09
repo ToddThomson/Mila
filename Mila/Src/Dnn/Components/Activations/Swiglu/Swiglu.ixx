@@ -190,6 +190,25 @@ namespace Mila::Dnn
             return this->getExecutionContext()->getDeviceId();
         }
 
+        /**
+         * @brief Return memory allocation breakdown.
+         */
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+            
+            if ( output_ != nullptr )
+            {
+                stats.device_state_bytes += output_->getStorageSize();
+            }
+            if ( input_grad_ != nullptr )
+            {
+                stats.device_gradient_bytes += input_grad_->getStorageSize();
+            }
+            
+            return stats;
+        }
+
         std::string toString() const override
         {
             std::ostringstream oss;

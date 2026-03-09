@@ -149,6 +149,11 @@ namespace CompositeComponents_Tests
             return ComponentType::MockComponent;
         }
 
+        MemoryStats getMemoryStats() const override
+        {
+            return {};
+        }
+
     protected:
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {

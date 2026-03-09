@@ -213,6 +213,23 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
         }
 
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+
+            if ( owned_Q_grad_ != nullptr )
+            {
+                stats.device_gradient_bytes += owned_Q_grad_->getStorageSize();
+            }
+
+            if ( owned_K_grad_ != nullptr )
+            {
+                stats.device_gradient_bytes += owned_K_grad_->getStorageSize();
+            }
+
+            return stats;
+        }
+
         std::string toString() const override
         {
             std::ostringstream oss;

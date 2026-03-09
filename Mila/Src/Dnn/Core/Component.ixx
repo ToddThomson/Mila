@@ -17,8 +17,9 @@ module;
 #include <format>
 
 export module Dnn.Component;
-
 export import :BuildConfig;
+export import :MemoryStats;
+
 import Dnn.ComponentType;
 import Dnn.Tensor;
 import Dnn.ITensor;
@@ -368,6 +369,25 @@ namespace Mila::Dnn
         {
             return TPrecision;
         }
+
+        /**
+         * @brief Return the current memory allocation breakdown for this component.
+         *
+         * Reflects allocations at the moment of the call. The returned stats
+         * naturally track the component lifecycle:
+         *
+         *   After construction        — parameters only
+         *   After build()             — parameters + state
+         *   After setTraining(true)   — parameters + state + gradients
+         *
+         * For CompositeComponent and Network, the returned stats are the
+         * recursive aggregate of all child components.
+         *
+         * May be called at any time — no lifecycle preconditions.
+         *
+         * @return MemoryStats reflecting current allocations.
+         */
+        virtual MemoryStats getMemoryStats() const = 0;
 
         // ====================================================================
         // Operators

@@ -370,7 +370,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlan.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Zero.ixx"
 
-        "Src/Dnn/Core/ComponentBuildConfig.ixx"
+        "Src/Dnn/Core/Component.BuildConfig.ixx"
         "Src/Dnn/Core/LearningRateScheduler.ixx"
         
         "Src/Dnn/Components/Activations/ApproximationMethod.ixx"
@@ -442,7 +442,7 @@ PUBLIC
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
         
         "Src/Dnn/Compute/Operations/PairedOperation.ixx"
-)
+ "Src/Dnn/Core/Component.MemoryStats.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

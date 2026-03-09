@@ -144,6 +144,11 @@ namespace Dnn::Components::Tests
             (void)mode;
         }
 
+        MemoryStats getMemoryStats() const override
+        {
+            return {};
+        }
+
         std::string toString() const override
         {
             std::ostringstream oss;

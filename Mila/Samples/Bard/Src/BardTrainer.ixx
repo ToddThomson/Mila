@@ -385,8 +385,8 @@ namespace Bard
             model_config,
             device_id );
 
-        shape_t input_shape = { config.batch_size, config.seq_length };
-        model->build( input_shape );
+        shape_t leading_shape = { config.batch_size, config.seq_length };
+        model->build( leading_shape );
 
         std::cout << "Model built successfully!" << std::endl;
         std::cout << model->toString() << std::endl;
@@ -406,6 +406,8 @@ namespace Bard
             << " parameter groups" << std::endl;
 
         shape_t logits_shape = { config.batch_size, config.seq_length, static_cast<int64_t>(actual_vocab_size) };
+
+        auto input_shape = leading_shape;
 
         Tensor<TensorDataType::INT32, DeviceMR> input_batch( device_id, input_shape );
         Tensor<TensorDataType::INT32, DeviceMR> target_batch( device_id, input_shape );

@@ -74,6 +74,11 @@ namespace Dnn::Core::Tests
         void save_( ModelArchive& /*archive*/, SerializationMode /*mode*/ ) const override
         {}
 
+        MemoryStats getMemoryStats() const override
+        {
+            return {};
+        }
+
         std::string toString() const override
         {
 
@@ -151,6 +156,18 @@ namespace Dnn::Core::Tests
         const ComponentType getType() const override
         {
             return ComponentType::MockComponent;
+        }
+
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+
+            for ( const auto& child : this->getComponents() )
+            {
+                stats += child->getMemoryStats();
+            }
+
+            return stats;
         }
 
     protected:

@@ -279,6 +279,23 @@ namespace Mila::Mnist
         // Component interface
         // ====================================================================
 
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+
+            for ( const auto& child : this->getComponents() )
+            {
+                stats += child->getMemoryStats();
+            }
+
+            if ( owned_output_ != nullptr )
+            {
+                stats.device_state_bytes += owned_output_->getStorageSize();
+            }
+
+            return stats;
+        }
+
         std::string toString() const override
         {
             std::ostringstream oss;

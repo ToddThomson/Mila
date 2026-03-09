@@ -284,6 +284,18 @@ namespace Mila::Dnn
             return ComponentType::Mlp;
         }
 
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+
+            for ( const auto& child : this->getComponents() )
+            {
+                stats += child->getMemoryStats();
+            }
+
+            return stats;
+        }
+
         /**
          * @brief Human-readable status and configuration summary.
          *

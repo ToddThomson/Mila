@@ -79,6 +79,11 @@ namespace Dnn::Core::Networks::Tests
             archive.writeMetadata( "meta.json", meta );
         }
 
+        MemoryStats getMemoryStats() const override
+        {
+            return {};
+        }
+
         std::string toString() const override
         {
             return std::string( "TestComponent:" ) + this->getName();
@@ -184,6 +189,18 @@ namespace Dnn::Core::Networks::Tests
         const ComponentType getType() const override
         {
             return ComponentType::MockComponent;
+        }
+
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+
+            for ( const auto& child : this->getComponents() )
+            {
+                stats += child->getMemoryStats();
+            }
+
+            return stats;
         }
 
     protected:

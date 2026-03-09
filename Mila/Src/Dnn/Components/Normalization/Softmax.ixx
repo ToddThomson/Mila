@@ -279,6 +279,11 @@ namespace Mila::Dnn
             return this->getExecutionContext()->getDeviceId();
         }
 
+        MemoryStats getMemoryStats() const override
+        {
+            return {};
+        }
+
         /**
          * @brief Generate human-readable description of the module.
          *

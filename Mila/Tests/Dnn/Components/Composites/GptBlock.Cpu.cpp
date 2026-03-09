@@ -108,6 +108,18 @@ namespace CompositeComponents_Tests
             return ComponentType::MockComponent;
         }
 
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+
+            for ( const auto& child : this->getComponents() )
+            {
+                stats += child->getMemoryStats();
+            }
+
+            return stats;
+        }
+
     protected:
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {

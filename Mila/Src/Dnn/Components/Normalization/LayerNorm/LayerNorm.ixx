@@ -400,6 +400,43 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
         }
 
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+
+            if ( weight_ != nullptr )
+            {
+                stats.device_parameter_bytes += weight_->getStorageSize();
+            }
+
+            if ( bias_ != nullptr )
+            {
+                stats.device_parameter_bytes += bias_->getStorageSize();
+            }
+
+            if ( owned_output_ != nullptr )
+            {
+                stats.device_state_bytes += owned_output_->getStorageSize();
+            }
+
+            if ( owned_input_grad_ != nullptr )
+            {
+                stats.device_gradient_bytes += owned_input_grad_->getStorageSize();
+            }
+
+            if ( weight_grad_ != nullptr )
+            {
+                stats.device_gradient_bytes += weight_grad_->getStorageSize();
+            }
+
+            if ( bias_grad_ != nullptr )
+            {
+                stats.device_gradient_bytes += bias_grad_->getStorageSize();
+            }
+
+            return stats;
+        }
+
         std::string toString() const override
         {
             std::ostringstream oss;
