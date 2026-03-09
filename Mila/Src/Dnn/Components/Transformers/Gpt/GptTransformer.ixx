@@ -113,6 +113,8 @@ namespace Mila::Dnn
         // Factory methods
         // --------------------------------------------------------------------
 
+        // REVIEW: Is this factory method necessary given GptModel::fromPretrained()?
+
         static std::unique_ptr<GptTransformer<TDeviceType, TPrecision>> fromPretrained(
             const std::filesystem::path& model_path,
             std::size_t batch_size,      // User specifies runtime dimensions

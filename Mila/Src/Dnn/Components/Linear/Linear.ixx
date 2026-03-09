@@ -703,7 +703,7 @@ namespace Mila::Dnn
                 operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
             }
 
-            Utils::Logger::info( std::format( "Linear {} calling build()", this->getName() ) );
+            Utils::Logger::info( std::format( "Linear {} calling operation build()", this->getName() ) );
             operation_->build( input_shape );
 
             // Allocate and cache component-owned output and input-gradient tensors.

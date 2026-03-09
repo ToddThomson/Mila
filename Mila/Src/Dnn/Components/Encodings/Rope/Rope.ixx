@@ -104,47 +104,6 @@ namespace Mila::Dnn
 
         ~Rope() override = default;
 
-        // ====================================================================
-        // Build
-        // ====================================================================
-
-        /**
-         * @brief Build the RoPE backend for the given Q and K shapes.
-         *
-         * Must be called before forward() or backward(). No forward output
-         * buffers are allocated — all rotation is in-place. Backward gradient
-         * buffers are allocated once here and reused across training steps.
-         *
-         * @param Q_shape [B, T, n_heads    * head_dim]
-         * @param K_shape [B, T, n_kv_heads * head_dim]
-         */
-        void build( const shape_t& Q_shape, const shape_t& K_shape )
-        {
-            validateShapes( Q_shape, K_shape );
-
-            q_shape_ = Q_shape;
-            k_shape_ = K_shape;
-
-            operation_->build( Q_shape );
-
-            auto device = this->getExecutionContext()->getDeviceId();
-
-            owned_Q_grad_ = std::make_unique<TensorType>( device, Q_shape );
-            owned_Q_grad_->setName( this->getName() + ".Q_grad" );
-            zero( *owned_Q_grad_ );
-
-            owned_K_grad_ = std::make_unique<TensorType>( device, K_shape );
-            owned_K_grad_->setName( this->getName() + ".K_grad" );
-            zero( *owned_K_grad_ );
-
-            // REVIEW: ComponentBase::build() sets built_ = true
-            //this->markBuilt();
-        }
-
-        // ====================================================================
-        // Forward
-        // ====================================================================
-
         /**
          * @brief Apply rotary position embeddings to Q and K in-place.
          *
@@ -166,7 +125,7 @@ namespace Mila::Dnn
             if ( !operation_ )
                 throw std::runtime_error( "Rope: operation backend not initialized." );
 
-            validateShapes( Q.shape(), K.shape() );
+            // FIXME: validateShapes( Q.shape(), K.shape() );
 
             operation_->forward( Q, K, Q, K );
         }
@@ -227,7 +186,10 @@ namespace Mila::Dnn
         std::vector<ITensor*> getGradients() const override
         {
             if ( !this->isTraining() )
+            {
                 throw std::runtime_error( "Rope: getGradients called when not in training mode." );
+            }
+
             return {};
         }
 
@@ -268,51 +230,83 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Disabled — Rope requires build(Q_shape, K_shape).
+         * @brief Allocate RoPE forward path buffers.
          *
-         * Q and K have different trailing dimensions under GQA so a single
-         * input shape is insufficient.
+         * Derives Q and K tensor shapes from the leading shape { B, T } and
+         * RopeConfig. All rotation is in-place — no forward output buffers
+         * are allocated.
+         *
+         * @param leading_shape { B, T } — allocation bounds. Trailing dimensions
+         *                      are derived from RopeConfig:
+         *                        Q: n_heads    * head_dim
+         *                        K: n_kv_heads * head_dim
          */
-        void onBuilding( const shape_t& ) override
+        void onBuilding( const shape_t& leading_shape ) override
         {
-            throw std::logic_error(
-                "Rope: use build(Q_shape, K_shape) — "
-                "single-shape build is not supported." );
+            validateLeadingShape( leading_shape );
+
+            q_shape_ = leading_shape;
+            q_shape_.push_back( config_.getNumHeads() * config_.getHeadDim() );
+
+            k_shape_ = leading_shape;
+            k_shape_.push_back( config_.getNumKVHeads() * config_.getHeadDim() );
+
+            operation_->build( leading_shape );
         }
 
+        /**
+         * @brief Manage gradient buffer allocation and state on training mode transitions.
+         *
+         * RoPE has no learnable parameters. Gradient buffers for Q and K are
+         * allocated once on the first transition to training mode and retained
+         * for the component lifetime. They are zeroed on every transition in
+         * both directions to prevent stale gradients leaking across mode switches.
+         *
+         * Transition behavior:
+         *   setTraining( true )  — first call:  allocate Q and K gradient buffers, zero them
+         *                        — subsequent:  zero existing buffers
+         *   setTraining( false ) — zero existing buffers, retain allocations
+         *
+         * @param is_training True when entering training mode.
+         */
         void onTrainingChanging( bool is_training ) override
         {
-            if ( operation_ )
+            if ( owned_Q_grad_ == nullptr )
             {
-                operation_->setTraining( is_training );
-                if ( !is_training )
-                    operation_->clearGradients();
+                auto device = this->getExecutionContext()->getDeviceId();
+
+                owned_Q_grad_ = std::make_unique<TensorType>( device, q_shape_ );
+                owned_Q_grad_->setName( this->getName() + ".Q_grad" );
+
+                owned_K_grad_ = std::make_unique<TensorType>( device, k_shape_ );
+                owned_K_grad_->setName( this->getName() + ".K_grad" );
+
+                zero( *owned_Q_grad_ );
+                zero( *owned_K_grad_ );
             }
+
+            operation_->setTraining( is_training );
+
+            if ( !is_training )
+                operation_->clearGradients();
         }
 
     private:
-        RopeConfig  config_;
-        shape_t     q_shape_;
-        shape_t     k_shape_;
+        RopeConfig config_;
+        shape_t q_shape_;
+        shape_t k_shape_;
 
-        std::unique_ptr<IExecutionContext>                            owned_exec_context_{ nullptr };
-        std::shared_ptr<PairedOperation<TDeviceType, TPrecision>>    operation_{ nullptr };
+        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
+        std::shared_ptr<PairedOperation<TDeviceType, TPrecision>> operation_{ nullptr };
 
         // Backward gradient buffers — allocated once at build, reused each step.
         std::unique_ptr<TensorType> owned_Q_grad_{ nullptr };
         std::unique_ptr<TensorType> owned_K_grad_{ nullptr };
 
-        void validateShapes( const shape_t& Q_shape, const shape_t& K_shape ) const
+        void validateLeadingShape( const shape_t& leading_shape ) const
         {
-            if ( Q_shape.size() < 2 )
-                throw std::invalid_argument( "Rope: Q rank must be >= 2." );
-
-            if ( K_shape.size() < 2 )
-                throw std::invalid_argument( "Rope: K rank must be >= 2." );
-
-            if ( Q_shape[ 0 ] != K_shape[ 0 ] || Q_shape[ 1 ] != K_shape[ 1 ] )
-                throw std::invalid_argument(
-                    "Rope: Q and K must have matching batch and sequence dimensions." );
+            if ( leading_shape.size() < 2 )
+                throw std::invalid_argument( "Rope: leading shape rank must be >= 2." );
         }
 
         void createOperation()

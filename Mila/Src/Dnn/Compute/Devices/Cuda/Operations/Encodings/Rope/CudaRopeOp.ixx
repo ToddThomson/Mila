@@ -235,7 +235,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 cos_cache_, sin_cache_,
                 B, T,
                 static_cast<int>(config_.getNumHeads()),
-                static_cast<int>(config_.getNumKvHeads()),
+                static_cast<int>(config_.getNumKVHeads()),
                 static_cast<int>(config_.getHeadDim()),
                 context_->getStream() );
         }
@@ -276,7 +276,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 cos_cache_, sin_cache_,
                 B, T,
                 static_cast<int>(config_.getNumHeads()),
-                static_cast<int>(config_.getNumKvHeads()),
+                static_cast<int>(config_.getNumKVHeads()),
                 static_cast<int>(config_.getHeadDim()),
                 context_->getStream() );
         }

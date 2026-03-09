@@ -228,7 +228,7 @@ PUBLIC
 
         # Components - Normalization / Losses / Regularization / Composites
         "Src/Dnn/Components/Normalization/LayerNorm/LayerNorm.ixx"
-        "Src/Dnn/Components/Normalization/LayerNorm/LayerNormConfig.ixx"
+        "Src/Dnn/Components/Normalization/LayerNorm/LayerNorm.Config.ixx"
         "Src/Dnn/Components/Normalization/RmsNorm/RmsNorm.ixx"
         "Src/Dnn/Components/Normalization/RmsNorm/RmsNorm.Config.ixx"
         "Src/Dnn/Components/Normalization/Softmax.ixx"

@@ -204,7 +204,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 throw std::invalid_argument( oss.str() );
             }
 
-			// TJT: Better here is outer_size_. The use of batch_size_ is misleading.
+			// TJT: Better here is outer_size_ . The use of batch_size_ is misleading.
             cached_batch_size_ = 1;
             for (size_t i = 0; i + 1 < input_shape.size(); ++i)
             {

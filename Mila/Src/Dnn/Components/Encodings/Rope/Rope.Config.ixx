@@ -96,7 +96,7 @@ namespace Mila::Dnn
             return n_heads_;
         }
 
-        size_t getNumKvHeads() const noexcept
+        size_t getNumKVHeads() const noexcept
         {
             return n_kv_heads_;
         }

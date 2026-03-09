@@ -331,7 +331,7 @@ namespace Mila::Dnn
             max_batch_size_ = input_shape[ 0 ];
             max_seq_len_ = input_shape[ 1 ];
 
-            // REVIEW: API needs work
+            // REVIEW: API needs work. setParameters() wants Weight and Bias
             operation_->setParameters( wte_.get(), nullptr );
 
             if ( this->isTraining() )

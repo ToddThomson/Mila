@@ -30,7 +30,6 @@ SUPPORTED_MODELS = [
     'meta-llama/Llama-3.2-3B-Instruct',
 ]
 
-
 def convert_llama32(model_name: str, output_path: str, dtype: str = 'bfloat16'):
     """
     Convert Llama 3.2 model to Mila component format.
@@ -71,6 +70,7 @@ def convert_llama32(model_name: str, output_path: str, dtype: str = 'bfloat16'):
     print(f"Model config:")
     print(f"  vocab_size:          {config.vocab_size}")
     print(f"  hidden_size:         {config.hidden_size}")
+    print(f"  embedding_dim:       {config.hidden_size}")
     print(f"  num_hidden_layers:   {config.num_hidden_layers}")
     print(f"  num_attention_heads: {config.num_attention_heads}")
     print(f"  num_key_value_heads: {config.num_key_value_heads}")
@@ -104,17 +104,18 @@ def convert_llama32(model_name: str, output_path: str, dtype: str = 'bfloat16'):
     # Set metadata
     writer.set_metadata({
         'architecture': 'llama',
-        'model_name': model_name,
+        'model_name': model_name.rsplit('/', 1)[-1],
         'dtype': dtype,
         'vocab_size': config.vocab_size,
         'hidden_size': config.hidden_size,
+        'embedding_dim': config.hidden_size,
         'num_layers': config.num_hidden_layers,
-        'num_attention_heads': config.num_attention_heads,
-        'num_key_value_heads': config.num_key_value_heads,
+        'num_heads': config.num_attention_heads,
+        'num_kv_heads': config.num_key_value_heads,
         'head_dim': head_dim,
-        'intermediate_size': config.intermediate_size,
-        'max_position_embeddings': config.max_position_embeddings,
-        'rms_norm_eps': config.rms_norm_eps,
+        'hidden_dim': config.intermediate_size,
+        'max_seq_length': config.max_position_embeddings,
+        'norm_eps': config.rms_norm_eps,
         'rope_theta': rope_theta,
         'use_bias': False,
         'activation': 'silu',

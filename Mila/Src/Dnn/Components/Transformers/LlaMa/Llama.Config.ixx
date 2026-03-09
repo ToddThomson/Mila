@@ -54,7 +54,7 @@ namespace Mila::Dnn
         {
             if ( vocab_size <= 0 )
             {
-                throw std::invalid_argument( "vocab_size must be > 0" );
+                throw std::invalid_argument( "LlamaConfig: vocab_size must be > 0" );
             }
 
             self.vocab_size_ = vocab_size;
@@ -66,12 +66,12 @@ namespace Mila::Dnn
         {
             if ( num_heads <= 0 )
             {
-                throw std::invalid_argument( "num_heads must be > 0" );
+                throw std::invalid_argument( "LlamaConfig: num_heads must be > 0" );
             }
 
             if ( self.embedding_dim_ > 0 && (self.embedding_dim_ % num_heads != 0) )
             {
-                throw std::invalid_argument( "num_heads must divide embedding_dim" );
+                throw std::invalid_argument( "LlamaConfig: num_heads must divide embedding_dim" );
             }
 
             self.num_heads_ = num_heads;
@@ -83,7 +83,7 @@ namespace Mila::Dnn
         {
             if ( num_kv_heads > 0 && self.num_heads_ > 0 && (self.num_heads_ % num_kv_heads != 0) )
             {
-                throw std::invalid_argument( "num_heads must be divisible by num_kv_heads" );
+                throw std::invalid_argument( "LlamaConfig: num_heads must be divisible by num_kv_heads" );
             }
 
             self.num_kv_heads_ = num_kv_heads;
@@ -95,7 +95,7 @@ namespace Mila::Dnn
         {
             if ( max_seq_len <= 0 )
             {
-                throw std::invalid_argument( "max_seq_len must be > 0" );
+                throw std::invalid_argument( "LlamaConfig: max_seq_len must be > 0" );
             }
 
             self.max_seq_len_ = max_seq_len;
@@ -114,7 +114,7 @@ namespace Mila::Dnn
         {
             if ( theta <= 0.0f )
             {
-                throw std::invalid_argument( "rope_theta must be > 0" );
+                throw std::invalid_argument( "LlamaConfig: rope_theta must be > 0" );
             }
 
             self.rope_theta_ = theta;
@@ -126,7 +126,7 @@ namespace Mila::Dnn
         {
             if ( scale_factor <= 0.0f )
             {
-                throw std::invalid_argument( "rope_scaling_factor must be > 0" );
+                throw std::invalid_argument( "LlamaConfig: rope_scaling_factor must be > 0" );
             }
 
             self.rope_scaling_factor_ = scale_factor;
@@ -177,24 +177,24 @@ namespace Mila::Dnn
         {
             if ( vocab_size_ <= 0 )
             {
-                throw std::invalid_argument( "vocab_size must be greater than zero" );
+                throw std::invalid_argument( "LlamaConfig: vocab_size must be greater than zero" );
             }
 
             if ( num_layers_ <= 0 )
             {
-                throw std::invalid_argument( "num_layers must be greater than zero" );
+                throw std::invalid_argument( "LlamaConfig: num_layers must be greater than zero" );
             }
 
             if ( embedding_dim_ <= 0 )
             {
-                throw std::invalid_argument( "embedding_dim must be greater than zero" );
+                throw std::invalid_argument( "LlamaConfig: embedding_dim must be greater than zero" );
             }
 
             if ( num_heads_ > 0 )
             {
                 if ( embedding_dim_ % num_heads_ != 0 )
                 {
-                    throw std::invalid_argument( "embedding_dim must be divisible by num_heads" );
+                    throw std::invalid_argument( "LlamaConfig: embedding_dim must be divisible by num_heads" );
                 }
             }
 
@@ -202,18 +202,18 @@ namespace Mila::Dnn
             {
                 if ( num_heads_ % num_kv_heads_ != 0 )
                 {
-                    throw std::invalid_argument( "num_heads must be divisible by num_kv_heads" );
+                    throw std::invalid_argument( "LlamaConfig: num_heads must be divisible by num_kv_heads" );
                 }
             }
 
             if ( rope_theta_ <= 0.0f )
             {
-                throw std::invalid_argument( "roPE theta must be positive" );
+                throw std::invalid_argument( "LlamaConfig: roPE theta must be positive" );
             }
 
             if ( rope_scaling_factor_ <= 0.0f )
             {
-                throw std::invalid_argument( "roPE scaling factor must be positive" );
+                throw std::invalid_argument( "LlamaConfig: roPE scaling factor must be positive" );
             }
         }
 

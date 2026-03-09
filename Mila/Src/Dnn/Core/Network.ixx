@@ -259,6 +259,7 @@ namespace Mila::Dnn
         }
 
         // Deprecated: Use fromPretrained
+
         /**
          * @brief Import a pretrained model from Mila binary format
          *

@@ -417,6 +417,9 @@ namespace Mila::Dnn
                 ? config_.getHiddenDimension()
                 : config_.getModelDim() * 4;
 
+            // Leading shape { B, T } is used to derive Q and K view shapes for RoPE.
+            auto leading_shape = shape_t{ B, T };
+
             // Pre-computed view shapes and Q→K offset — reused every forward/backward.
             q_shape_ = { B, T, n_heads * head_dim };
             k_shape_ = { B, T, n_kv * head_dim };
@@ -436,7 +439,7 @@ namespace Mila::Dnn
 
             // 3. RoPE — paired build with Q and K shapes.
             rope_ = this->template getComponentAs<RopeType>( this->getName() + ".rope" );
-            rope_->build( q_shape_, k_shape_ );
+            rope_->build( leading_shape );
 
             // 4. GQA.
             attn_ = this->template getComponentAs<AttentionType>( this->getName() + ".attn" );

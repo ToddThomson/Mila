@@ -70,7 +70,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
          *
          * @throws std::invalid_argument on null, non-CUDA, or shape-mismatched tensor.
          */
-        void setParameters( ITensor* wte )
+        void setParameters( ITensor* wte, ITensor* ) override
         {
             if ( !wte )
                 throw std::invalid_argument( "CudaTokenEmbeddingOp::setParameters - wte is required" );
@@ -83,15 +83,15 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             if ( shape.size() != 2 )
                 throw std::invalid_argument( "CudaTokenEmbeddingOp::setParameters - wte must be a 2D tensor [vocab_size, C]" );
 
-            if ( static_cast<int>(shape[ 0 ]) != config_.vocab_size )
+            if ( static_cast<int>(shape[ 0 ]) != config_.getVocabSize() )
                 throw std::invalid_argument( std::format(
                     "CudaTokenEmbeddingOp::setParameters - wte vocab_size {} does not match config {}",
-                    shape[ 0 ], config_.vocab_size ) );
+                    shape[ 0 ], config_.getVocabSize() ) );
 
-            if ( static_cast<int>(shape[ 1 ]) != config_.embedding_dim )
+            if ( static_cast<int>(shape[ 1 ]) != config_.getEmbeddingDim() )
                 throw std::invalid_argument( std::format(
                     "CudaTokenEmbeddingOp::setParameters - wte embedding_dim {} does not match config {}",
-                    shape[ 1 ], config_.embedding_dim ) );
+                    shape[ 1 ], config_.getEmbeddingDim() ) );
 
             wte_ = static_cast<NativeType*>(wte->rawData());
             vocab_size_ = static_cast<int>(shape[ 0 ]);
@@ -131,7 +131,9 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         void build( const shape_t& input_shape ) override
         {
             if ( !wte_ )
+            {
                 throw std::runtime_error( "CudaTokenEmbeddingOp::build requires wte bound via setParameters() before build()." );
+            }
 
             validateInputShape( input_shape );
 

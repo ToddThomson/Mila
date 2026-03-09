@@ -103,34 +103,46 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Build the component with the given input shape (convenience).
+         * @brief Build the component with the given leading shape (convenience overload).
          *
-         * Convenience overload that constructs a minimal BuildConfig from the
-         * provided `input_shape` and delegates to the canonical `build(config)`.
+         * Constructs a BuildConfig from the provided leading_shape and delegates
+         * to the canonical build( const BuildConfig& ).
          *
-         * @param input_shape The shape of the input tensor (full-batch first).
+         * The leading shape carries the allocation bound dimensions { B, T, ... }.
+         * Each component derives its full tensor shapes by appending trailing
+         * dimensions from its own component config.
          *
-         * @throws std::runtime_error if component is already built.
-         * @throws std::invalid_argument if input_shape / derived config is invalid.
+         * @param leading_shape The leading dimensions { B, T, ... } used as
+         *                      allocation bounds for all component buffers.
+         *
+         * @throws std::runtime_error      if the component is already built.
+         * @throws std::runtime_error      if no ExecutionContext has been set.
+         * @throws std::invalid_argument   if leading_shape is invalid.
          * @throws Any exception from onBuilding().
          */
-        virtual void build( const shape_t& input_shape ) final
+        virtual void build( const shape_t& leading_shape ) final
         {
-            BuildConfig cfg( input_shape );
-            build( cfg );
+            BuildConfig config( leading_shape );
+            build( config );
         }
 
         /**
-         * @brief Build the component with the provided build configuration.
+         * @brief Build the component with the provided BuildConfig (canonical overload).
          *
-         * Canonical build entrypoint. Validates the provided config and then
-         * invokes the `onBuilding(const BuildConfig&)` hook for component-specific
-         * initialization.
+         * Validates the config then invokes the onBuilding() hook for
+         * component-specific buffer allocation and initialization.
          *
-         * @param config Build-time configuration (must include full input_shape).
+         * After onBuilding() returns without throwing, the component is marked
+         * built and isBuilt() returns true. If onBuilding() throws, built_ remains
+         * false and build() may be retried — but only if the onBuilding()
+         * implementation leaves component state coherent on failure.
          *
-         * @throws std::runtime_error if component is already built.
-         * @throws std::invalid_argument if config.validate() fails.
+         * @param config Build-time configuration carrying the leading shape
+         *               { B, T, ... } and optional micro-batching settings.
+         *
+         * @throws std::runtime_error      if the component is already built.
+         * @throws std::runtime_error      if no ExecutionContext has been set.
+         * @throws std::invalid_argument   if config.validate() fails.
          * @throws Any exception from onBuilding().
          */
         virtual void build( const BuildConfig& config ) final
@@ -139,32 +151,29 @@ namespace Mila::Dnn
             {
                 throw std::runtime_error( "Component already built. Cannot rebuild." );
             }
-
+            
             if ( !hasExecutionContext() )
             {
                 throw std::runtime_error(
                     std::format( "Component::build: ExecutionContext must be set before building component '{}'",
-                        getName() )
-                );
+                        getName() ) );
             }
-
+            
             config.validate();
-
+            
             onBuilding( config );
-
+            
             built_ = true;
         }
 
         /**
-         * @brief Check if the component has been built.
-         *
-         * @return true if build() has completed successfully.
+         * @brief Returns true if build() has completed successfully.
          */
         virtual bool isBuilt() const final
         {
             return built_;
         }
-
+        
         /**
          * @brief Centralized logic for toggling training mode.
          *
@@ -556,61 +565,208 @@ namespace Mila::Dnn
          */
         virtual void onExecutionContextSet() {}
 
-        /**
-         * @brief Hook invoked when training mode is about to change.
-         *
-         * The hook is called while `training_mutex_` is held and after the
-         * `is_training_` atomic has been updated to the new value. Implementations
-         * should perform any bind/unbind or allocation/free actions required for
-         * the new mode (for example, allocate/free gradient buffers or bind/unbind
-         * backend gradient pointers).
-         *
-         * Preconditions and expectations:
-         * - Component MUST be built before setTraining(true) is called (enforced by setTraining()).
-         * - MUST NOT call `setTraining()` (no reentrancy).
-         * - Should avoid throwing; if an exception is thrown it will be
-         *   propagated to the caller of `setTraining()` and the previous state
-         *   will be restored by `setTraining()`.
-         *
-         * Threading:
-         * - Hook runs with `training_mutex_` held; callers may use `isTraining()` 
-         *   to observe the updated mode inside the hook.
-         *
-         * @param is_training true if training mode is enabled (gradients allowed).
-         */
+        // ====================================================================
+// Training Lifecycle Hook
+// ====================================================================
+
+/**
+ * @brief Hook invoked by setTraining() when training mode changes.
+ *
+ * Manages backward path buffer allocation and gradient state. The hook
+ * is always invoked after build() — gradient buffers are never allocated
+ * during onBuilding().
+ *
+ * ## Allocation policy
+ *
+ * Gradient buffers are allocated once on the first transition to training
+ * mode and retained for the lifetime of the component. They are never
+ * destroyed on exit from training mode — only zeroed. This avoids repeated
+ * GPU allocation costs in workflows that toggle between training and
+ * evaluation (e.g. periodic eval checkpoints during a training run).
+ *
+ * ## Transition behavior
+ *
+ * **First setTraining( true ):**
+ *   - Allocate all gradient and backward state buffers
+ *   - Zero all allocated buffers
+ *   - Bind gradients to the operation via operation_->setGradients()
+ *
+ * **Subsequent setTraining( true ):**
+ *   - Zero existing gradient buffers (no reallocation)
+ *   - Re-bind gradients to the operation
+ *
+ * **setTraining( false ):**
+ *   - Zero all gradient buffers (prevent stale gradients leaking
+ *     across mode switches)
+ *   - Retain all allocations
+ *
+ * ## Separation of concerns
+ *
+ * | Hook                    | Responsibility                              |
+ * |-------------------------|---------------------------------------------|
+ * | onBuilding()            | Forward and decode path buffer allocation   |
+ * | onTrainingChanging()    | Backward path buffer allocation and zeroing |
+ *
+ * ## Example implementation
+ *
+ * @code
+ * void onTrainingChanging( bool is_training ) override
+ * {
+ *     if ( is_training )
+ *     {
+ *         if ( weight_grad_ == nullptr )
+ *         {
+ *             // First transition — allocate once.
+ *             auto device = this->getExecutionContext()->getDeviceId();
+ *             weight_grad_ = std::make_unique<TensorType>( device, weight_->shape() );
+ *             weight_grad_->setName( this->getName() + ".weight.grad" );
+ *             bias_grad_ = std::make_unique<TensorType>( device, bias_->shape() );
+ *             bias_grad_->setName( this->getName() + ".bias.grad" );
+ *         }
+ *         zero( *weight_grad_ );
+ *         zero( *bias_grad_ );
+ *         operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
+ *     }
+ *     else
+ *     {
+ *         // Retain allocations — zero to prevent stale gradient leakage.
+ *         if ( weight_grad_ != nullptr ) zero( *weight_grad_ );
+ *         if ( bias_grad_  != nullptr ) zero( *bias_grad_ );
+ *     }
+ * }
+ * @endcode
+ *
+ * @note Do not allocate gradient buffers in onBuilding(). The training
+ *       state is always false during build.
+ *
+ * @note Implementations must be safe to call multiple times with the
+ *       same value — setTraining() is idempotent and will not invoke
+ *       this hook if the mode has not changed, but defensive
+ *       implementations should not assume this.
+ *
+ * @param is_training True when entering training mode, false when
+ *                    entering evaluation mode.
+ */
         virtual void onTrainingChanging( bool is_training )
-        {
-        }
+        {}
+
+
+        // ====================================================================
+        // Component Build Lifecycle — Summary
+        // ====================================================================
 
         /**
-         * @brief Hook invoked before the component is built (canonical).
+         * ## Component build lifecycle
          *
-         * Receives the full `BuildConfig` including input_shape and micro-batching
-         * hints. Implementations should perform validation specific to the module
-         * and allocate device resources as needed.
+         * Components progress through a well-defined lifecycle. Each stage has
+         * a single responsibility and a designated hook for subclass extension.
          *
-         * Default implementation forwards to the legacy `onBuilding(const shape_t&)`
-         * to preserve derived-class compatibility.
+         * ### Stage 1 — Construction
          *
-         * @param config Build-time configuration.
+         * The component is constructed with its name and component config.
+         * No device resources are allocated. No ExecutionContext is required.
+         *
+         * @code
+         *   auto linear = std::make_unique<Linear>( "fc", config, context );
+         * @endcode
+         *
+         * ### Stage 2 — Build  [ onBuilding() ]
+         *
+         * build() is called with a leading_shape { B, T, ... } carrying the
+         * allocation bounds. Each component derives its full tensor shapes by
+         * appending trailing dimensions from its own component config.
+         *
+         * Allocated in onBuilding():
+         *   - owned_output_         forward output buffer
+         *   - owned_decode_output_  decode output buffer (decode-capable components)
+         *   - kv_cache_             KV cache (decode-capable components)
+         *   - operation_ buffers    via operation_->build()
+         *
+         * NOT allocated in onBuilding():
+         *   - gradient buffers      (training has not been enabled)
+         *   - backward state        (training has not been enabled)
+         *
+         * The same BuildConfig is cascaded unchanged through CompositeComponent
+         * and Network to all child components.
+         *
+         * @code
+         *   model->build( shape_t{ batch_size, seq_length } );
+         * @endcode
+         *
+         * ### Stage 3 — Training mode  [ onTrainingChanging() ]
+         *
+         * setTraining( true ) triggers gradient buffer allocation on the first
+         * call. Subsequent calls zero existing buffers without reallocating.
+         * setTraining( false ) zeros gradient buffers and retains allocations.
+         *
+         * Allocated in onTrainingChanging( true ):
+         *   - owned_input_grad_     input gradient buffer
+         *   - weight_grad_          weight gradient buffer
+         *   - bias_grad_            bias gradient buffer
+         *
+         * @code
+         *   model->setTraining( true );
+         * @endcode
+         *
+         * ### Stage 4 — Forward / Decode / Backward
+         *
+         * Runtime dimensions are read from the input tensor shape on each call.
+         * No shape information is cached from build time.
+         *
+         * ### Lifecycle invariants
+         *
+         *   build()          requires ExecutionContext to be set
+         *   setTraining()    requires build() to have completed
+         *   forward()        requires build() to have completed
+         *   backward()       requires setTraining( true ) to have been called
+         *   decode()         requires build() to have completed
+         */
+
+        /**
+         * @brief Hook invoked by build() to allocate component buffers.
+         *
+         * Receives the BuildConfig carrying the leading shape { B, T, ... }
+         * used as the maximum allocation bounds for all component-owned buffers.
+         * Implementations derive their full tensor shapes by appending trailing
+         * dimensions from their own component config:
+         *
+         * @code
+         *   // Example — Linear component:
+         *   shape_t out_shape = config.leadingShape();
+         *   out_shape.push_back( config_.getOutputFeatures() );
+         *   owned_output_ = std::make_unique<TensorType>( device, out_shape );
+         * @endcode
+         *
+         * The default implementation forwards to the legacy onBuilding( const shape_t& )
+         * overload for backwards compatibility. New components should override this
+         * overload directly.
+         *
+         * @note Do not call build() or onBuilding() from within this hook.
+         * @note Implementations should either succeed fully or leave no partial state,
+         *       as a failed build() may be retried.
+         *
+         * @param config Build-time configuration. Use config.leadingShape() to
+         *               obtain the leading dimensions.
          */
         virtual void onBuilding( const BuildConfig& config )
         {
-            onBuilding( config.inputShape() );
+            onBuilding( config.leadingShape() );
         }
 
         /**
-         * @brief Legacy hook invoked before the component is built.
+         * @brief Legacy hook for backwards compatibility.
          *
-         * Provided for backwards compatibility: components that previously
-         * implemented `onBuilding(const shape_t&)` will continue to be called
-         * when the canonical `onBuilding(const BuildConfig&)` forwards to this.
+         * Called by the default onBuilding( const BuildConfig& ) implementation.
+         * Existing components that override this signature continue to work
+         * unchanged. New components should override onBuilding( const BuildConfig& ).
          *
-         * @param input_shape The shape that will be used for building.
+         * @deprecated Override onBuilding( const BuildConfig& ) instead.
+         *
+         * @param leading_shape The leading dimensions { B, T, ... } used as
+         *                      allocation bounds.
          */
-        virtual void onBuilding( const shape_t& input_shape )
-        {
-        }
+        virtual void onBuilding( const shape_t& leading_shape )
+        {}
 
         /**
          * @brief Load a tensor blob into a parameter tensor with validation
