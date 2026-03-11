@@ -256,8 +256,8 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
 
             auto device = context_->getDeviceId();
 
-            rstd_tensor_ = std::make_shared<TensorType>( device, shape_t{ num_slices } );
-            rstd_tensor_->setName( "rstd" );
+            rstd_tensor_ = std::make_shared<TensorType>( device, shape_t{ num_slices }, "rstd" );
+            //rstd_tensor_->setName( "rstd" );
             rstd_ = static_cast<NativeType*>(rstd_tensor_->rawData());
 
             UnaryOperationBase::build( input_shape );

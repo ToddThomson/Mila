@@ -304,12 +304,12 @@ namespace Mila::Dnn
 
             auto device = this->getExecutionContext()->getDeviceId();
 
-            owned_output_ = std::make_unique<TensorType>( device, input_shape );
-            owned_output_->setName( this->getName() + ".output" );
+            owned_output_ = std::make_unique<TensorType>( device, input_shape, this->getName() + ".output" );
+            //owned_output_->setName( this->getName() + ".output" );
 
-            owned_input_grad_ = std::make_unique<TensorType>( device, input_shape );
-            owned_input_grad_->setName( this->getName() + ".input.grad" );
-            zero( *owned_input_grad_ );
+            //owned_input_grad_ = std::make_unique<TensorType>( device, input_shape, this->getName() + ".input.grad" );
+            //owned_input_grad_->setName( this->getName() + ".input.grad" );
+            //zero( *owned_input_grad_ );
         }
 
         void onTrainingChanging( bool is_training ) override
@@ -318,8 +318,20 @@ namespace Mila::Dnn
 
             if ( is_training )
             {
-                initializeGradients();
-                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
+                if ( !weight_grad_ || (config_.hasBias() && !bias_grad_) )
+                 {
+                    // First transition to training mode — allocate gradient buffers.
+                    initializeGradients();
+                    operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
+                }
+
+                if ( !owned_input_grad_ )
+                {
+                    auto device = this->getExecutionContext()->getDeviceId();
+                    owned_input_grad_ = std::make_unique<TensorType>( device, owned_output_->shape(), this->getName() + ".input.grad" );
+                    //owned_input_grad_->setName( this->getName() + ".input.grad" );
+                    zero( *owned_input_grad_ );
+                }
             }
             else
             {
@@ -434,14 +446,14 @@ namespace Mila::Dnn
 
             auto device = this->getExecutionContext()->getDeviceId();
 
-            weight_ = std::make_shared<TensorType>( device, shape_t{ channels } );
-            weight_->setName( this->getName() + ".weight" );
+            weight_ = std::make_shared<TensorType>( device, shape_t{ channels }, this->getName() + ".weight" );
+            //weight_->setName( this->getName() + ".weight" );
             ones( *weight_ );
 
             if ( config_.hasBias() )
             {
-                bias_ = std::make_shared<TensorType>( device, shape_t{ channels } );
-                bias_->setName( this->getName() + ".bias" );
+                bias_ = std::make_shared<TensorType>( device, shape_t{ channels }, this->getName() + ".bias" );
+                //bias_->setName( this->getName() + ".bias" );
                 zero( *bias_ );
             }
         }

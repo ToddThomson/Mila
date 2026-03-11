@@ -36,6 +36,7 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
+import Dnn.Component;
 import Dnn.Components.GptTransformer;
 import Compute.Precision;
 import Compute.Device;
@@ -101,6 +102,7 @@ namespace Mila::Dnn
          */
         static std::unique_ptr<GptModel> fromPretrained(
             const std::filesystem::path& path,
+            std::size_t context_length,
             DeviceId device_id = DeviceId{ TDeviceType, 0 },
             bool strict = true )
         {
@@ -248,6 +250,11 @@ namespace Mila::Dnn
         DeviceId getDeviceId() const noexcept
         {
             return network_->getExecutionContext()->getDeviceId();
+        }
+
+        MemoryStats getMemoryStats() const
+        {
+            return network_->getMemoryStats();
         }
 
         // ====================================================================

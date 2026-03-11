@@ -146,10 +146,6 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             return *this;
         }
 
-        // ====================================================================
-        // Lifecycle
-        // ====================================================================
-
         /**
          * @brief Prepare the operation for a concrete input shape (cold path).
          *
@@ -158,18 +154,16 @@ namespace Mila::Dnn::Compute::Cuda::Rope
          * calls on the same instance update the runtime shape limits only; the
          * shared cache is not re-acquired.
          *
-         * @param input_shape  Shape of the Q input tensor [B, T, n_heads, head_dim].
+         * @param leading_shape  Leading shape of the Q and K input tensors.
          *
-         * @throws std::invalid_argument if input_shape is not rank-4 or incompatible
+         * @throws std::invalid_argument if leading_shape is not rank-4 or incompatible
          *                               with the configuration.
          * @throws CudaError if device memory allocation fails on first acquisition.
          */
-        void build( const shape_t& input_shape )
+        void build( const shape_t& leading_shape )
         {
-            validateInputShape( input_shape );
-
-            batch_size_ = static_cast<int>(input_shape[ 0 ]);
-            seq_length_ = static_cast<int>(input_shape[ 1 ]);
+            batch_size_ = static_cast<int>(leading_shape[ 0 ]);
+            seq_length_ = static_cast<int>(leading_shape[ 1 ]);
 
             if ( built_ )
                 return;
@@ -397,7 +391,9 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 throw std::runtime_error( "CudaRopeOp: build() must be called before forward/backward/decode." );
         }
 
-        void validateInputShape( const shape_t& shape ) const
+        // DEPRECATED: shape validation is done at the component level in Rope::validateShapes() 
+        // — the operation assumes the component has done its job and trusts the shapes.
+        /*void validateInputShape( const shape_t& shape ) const
         {
             if ( shape.size() != 4 )
                 throw std::invalid_argument(
@@ -417,7 +413,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 throw std::invalid_argument( std::format(
                     "CudaRopeOp: head_dim mismatch: tensor has {}, config expects {}",
                     shape[ 3 ], config_.getHeadDim() ) );
-        }
+        }*/
 
         void validateRuntimeShape( int B, int T ) const
         {

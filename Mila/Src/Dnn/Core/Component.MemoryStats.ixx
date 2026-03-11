@@ -113,27 +113,40 @@ namespace Mila::Dnn
          */
         [[nodiscard]] std::string toString() const
         {
-            return std::format(
-                "MemoryStats:\n"
-                "  Device  parameters : {:>12} bytes\n"
-                "  Device  state      : {:>12} bytes\n"
-                "  Device  gradients  : {:>12} bytes\n"
-                "  Device  total      : {:>12} bytes\n"
-                "  Host    parameters : {:>12} bytes\n"
-                "  Host    state      : {:>12} bytes\n"
-                "  Host    gradients  : {:>12} bytes\n"
-                "  Host    total      : {:>12} bytes\n"
-                "  Grand   total      : {:>12} bytes",
-                device_parameter_bytes,
-                device_state_bytes,
-                device_gradient_bytes,
-                totalDeviceBytes(),
-                host_parameter_bytes,
-                host_state_bytes,
-                host_gradient_bytes,
-                totalHostBytes(),
-                totalBytes()
-            );
+            auto fmt_bytes = []( std::size_t bytes ) -> std::string
+                {
+                    constexpr std::size_t KB = 1024;
+                    constexpr std::size_t MB = 1024 * KB;
+                    constexpr std::size_t GB = 1024 * MB;
+
+                    if ( bytes >= GB )
+                        return std::format( "{:.2f} GB", static_cast<double>(bytes) / GB );
+                    if ( bytes >= MB )
+                        return std::format( "{:.2f} MB", static_cast<double>(bytes) / MB );
+                    if ( bytes >= KB )
+                        return std::format( "{:.2f} KB", static_cast<double>(bytes) / KB );
+                    return std::format( "{} B", bytes );
+                };
+
+            const std::string sep = "  +----------------------+---------------+---------------+\n";
+
+            auto row = [&]( const std::string& label, std::size_t dev, std::size_t host ) -> std::string
+                {
+                    return std::format( "  | {:<20} | {:>13} | {:>13} |\n",
+                        label, fmt_bytes( dev ), fmt_bytes( host ) );
+                };
+
+            return "Memory Statistics\n"
+                + sep
+                + std::format( "  | {:<20} | {:>13} | {:>13} |\n", "Category", "Device", "Host" )
+                + sep
+                + row( "Parameters", device_parameter_bytes, host_parameter_bytes )
+                + row( "State", device_state_bytes, host_state_bytes )
+                + row( "Gradients", device_gradient_bytes, host_gradient_bytes )
+                + sep
+                + row( "Total", totalDeviceBytes(), totalHostBytes() )
+                + sep
+                + std::format( "  Grand total: {}", fmt_bytes( totalBytes() ) );
         }
     };
 

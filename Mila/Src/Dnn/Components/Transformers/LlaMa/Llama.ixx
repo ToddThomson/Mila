@@ -397,7 +397,7 @@ namespace Mila::Dnn
             transformer_blocks_.clear();
             transformer_blocks_.reserve( static_cast<size_t>(config_.getNumLayers()) );
 
-            token_embedding_ = this->template getComponentAs<TokenEmbeddingType>( this->getName() + ".wte" );
+            token_embedding_ = this->template getComponentAs<TokenEmbeddingType>( this->getName() + ".emb" );
             token_embedding_->build( input_shape );
 
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
@@ -455,14 +455,14 @@ namespace Mila::Dnn
         void createGraph()
         {
             // Token embedding — pure vocabulary lookup, no positional information.
-            TokenEmbeddingConfig tok_cfg;
-            tok_cfg.withVocabSize( static_cast<size_t>(config_.getVocabSize()) )
+            TokenEmbeddingConfig embedding_config;
+            embedding_config.withVocabSize( static_cast<size_t>(config_.getVocabSize()) )
                 .withEmbeddingDim( static_cast<size_t>(config_.getModelDim()) );
 
-            auto tok_emb = std::make_shared<TokenEmbeddingType>(
-                this->getName() + ".wte", tok_cfg );
+            auto embedding = std::make_shared<TokenEmbeddingType>(
+                this->getName() + ".emb", embedding_config );
 
-            this->addComponent( tok_emb );
+            this->addComponent( embedding );
 
             // Transformer blocks.
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
@@ -482,7 +482,7 @@ namespace Mila::Dnn
             }
 
             // Final RMSNorm.
-            auto rms_config = RmsNormConfig( { config_.getModelDim() } )
+            auto rms_config = RmsNormConfig( shape_t{ config_.getModelDim() } )
                 .withEpsilon( config_.getRMSNormEpsilon() )
                 .withBias( false );
 

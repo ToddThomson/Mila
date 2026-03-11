@@ -704,8 +704,6 @@ namespace Mila::Dnn
          */
         void onExecutionContextSet() override
         {
-            initializeParameters();
-
             createOperation();
         }
 
@@ -725,18 +723,13 @@ namespace Mila::Dnn
 
             max_input_shape_ = input_shape;
 
+            initializeParameters();
+
             operation_->setParameters( weight_.get(), bias_.get() );
             operation_->setTraining( this->isTraining() );
 
             // Resolve IDecode once at build time. May be nullptr for some backends (CPU)
             decode_path_ = dynamic_cast<IDecode*>(operation_.get());
-
-            // REVIEW: training is never set before build in current Component API.
-            if ( this->isTraining() )
-            {
-                initializeGradients();
-                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
-            }
 
             Utils::Logger::info( std::format( "Linear {} calling operation build()", this->getName() ) );
             operation_->build( input_shape );
@@ -747,12 +740,8 @@ namespace Mila::Dnn
             shape_t output_shape = input_shape;
             output_shape.back() = config_.getOutputFeatures();
 
-            owned_output_ = std::make_unique<TensorType>( device_id, output_shape );
-            owned_output_->setName( this->getName() + ".output" );
-
-            owned_input_grad_ = std::make_unique<TensorType>( device_id, input_shape );
-            owned_input_grad_->setName( this->getName() + ".input.grad" );
-            zero( *owned_input_grad_ );
+            owned_output_ = std::make_unique<TensorType>( device_id, output_shape, this->getName() + ".output" );
+            //owned_output_->setName( this->getName() + ".output" );
         }
 
         /**
@@ -770,8 +759,18 @@ namespace Mila::Dnn
 
             if ( is_training )
             {
-                initializeGradients();
-                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
+                if ( !weight_grad_ || (config_.hasBias() && !bias_grad_) )
+                {
+                    initializeGradients();
+                    operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
+                }
+
+                if ( !owned_input_grad_ )
+                {
+                    auto device_id = this->getExecutionContext()->getDeviceId();
+                    owned_input_grad_ = std::make_unique<TensorType>( device_id, max_input_shape_, this->getName() + ".input.grad" );
+                    zero( *owned_input_grad_ );
+                }
             }
             else
             {
@@ -911,8 +910,8 @@ namespace Mila::Dnn
 
             auto device = this->getExecutionContext()->getDeviceId();
 
-            weight_ = std::make_shared<TensorType>( device, shape_t{ output_features, input_features } );
-            weight_->setName( this->getName() + ".weight" );
+            weight_ = std::make_shared<TensorType>( device, shape_t{ output_features, input_features }, this->getName() + ".weight" );
+            //weight_->setName( this->getName() + ".weight" );
 
             xavier<TPrecision, MR>( *weight_, input_features, output_features );
 

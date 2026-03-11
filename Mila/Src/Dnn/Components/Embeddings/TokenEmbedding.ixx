@@ -91,7 +91,7 @@ namespace Mila::Dnn
         explicit TokenEmbedding(
             const std::string& name,
             const TokenEmbeddingConfig& config,
-            std::optional<DeviceId>     device_id = std::nullopt )
+            std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), config_( config )
         {
             config_.validate();
@@ -347,40 +347,27 @@ namespace Mila::Dnn
 
         void onExecutionContextSet() override
         {
-            initializeParameters();
             createOperation();
         }
 
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const shape_t& leading_shape ) override
         {
-            validateInputShape( input_shape );
+            validateInputShape( leading_shape );
 
-            max_batch_size_ = input_shape[ 0 ];
-            max_seq_len_ = input_shape[ 1 ];
+            max_batch_size_ = leading_shape[ 0 ];
+            max_seq_len_ = leading_shape[ 1 ];
+
+            initializeParameters();
 
             // REVIEW: API needs work. setParameters() wants Weight and Bias
             operation_->setParameters( wte_.get(), nullptr );
-
-            if ( this->isTraining() )
-            {
-                initializeParameterGradients();
-                operation_->setGradients( wte_grad_.get(), nullptr );
-            }
-
-            operation_->build( input_shape );
+            operation_->build( leading_shape );
 
             auto device = this->getExecutionContext()->getDeviceId();
 
-            shape_t max_out_shape = {
-                max_batch_size_,
-                max_seq_len_,
-                static_cast<dim_t>(config_.getEmbeddingDim()) };
+            shape_t max_out_shape = { max_batch_size_, max_seq_len_, static_cast<dim_t>(config_.getEmbeddingDim()) };
 
-            output_ = std::make_unique<EmbeddingTensorType>( device, max_out_shape );
-            output_->setName( this->getName() + ".output" );
-
-            input_grad_ = std::make_unique<TokenIndexType>( device, input_shape );
-            input_grad_->setName( this->getName() + ".input.grad" );
+            output_ = std::make_unique<EmbeddingTensorType>( device, max_out_shape, this->getName() + ".output" );
         }
 
         void onTrainingChanging( bool is_training ) override
@@ -389,10 +376,19 @@ namespace Mila::Dnn
 
             if ( is_training )
             {
-                if ( this->isBuilt() )
+                if ( !wte_grad_ )
                 {
                     initializeParameterGradients();
                     operation_->setGradients( wte_grad_.get(), nullptr );
+                }
+
+                if ( !input_grad_ )
+                {
+                    auto device = this->getExecutionContext()->getDeviceId();
+                    input_grad_ = std::make_unique<TokenIndexType>(
+                        device,
+                        shape_t{ max_batch_size_, max_seq_len_ },
+                        this->getName() + ".input.grad" );
                 }
             }
             else
@@ -433,17 +429,18 @@ namespace Mila::Dnn
             const float std_dev = 1.0f / std::sqrt( static_cast<float>(config_.getEmbeddingDim()) );
             auto device_id = this->getExecutionContext()->getDeviceId();
 
-            wte_ = std::make_unique<EmbeddingTensorType>(
-                device_id,
-                shape_t{ static_cast<dim_t>(config_.getVocabSize()),
-                         static_cast<dim_t>(config_.getEmbeddingDim()) } );
-            wte_->setName( this->getName() + ".wte" );
+            // REVIEW: static cast to dim_t is a band-aid for the fact that config_ uses int for vocab and embedding sizes,
+            // but Tensor shapes use dim_t (int64_t).  The API needs work to unify these types and avoid this kind of cast.
+            auto wte_shape = shape_t{ static_cast<dim_t>(config_.getVocabSize()), static_cast<dim_t>(config_.getEmbeddingDim()) };
+
+            wte_ = std::make_unique<EmbeddingTensorType>( device_id, wte_shape, this->getName() + ".wte" );
             normal( *wte_, std_dev );
         }
 
         void initializeParameterGradients()
         {
-            if ( wte_grad_ ) return;
+            if ( wte_grad_ ) 
+                return;
 
             auto device_id = this->getExecutionContext()->getDeviceId();
 

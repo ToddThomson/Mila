@@ -30,6 +30,7 @@ module;
 #include <memory>
 #include <vector>
 #include <string>
+#include <format>
 #include <sstream>
 #include <stdexcept>
 #include <cstdint>
@@ -322,8 +323,14 @@ namespace Mila::Dnn
 
         void validateLeadingShape( const shape_t& leading_shape ) const
         {
-            if ( leading_shape.size() < 2 )
-                throw std::invalid_argument( "Rope: leading shape rank must be >= 2." );
+            if ( leading_shape.size() != 2 )
+                throw std::invalid_argument(
+                    "Rope: leading_shape must be rank-2 [B, T]" );
+
+            if ( leading_shape[ 1 ] > config_.getMaxSequenceLength() )
+                throw std::invalid_argument( std::format(
+                    "Rope: sequence length {} exceeds max_seq_len {}",
+                    leading_shape[ 1 ], config_.getMaxSequenceLength() ) );
         }
 
         void createOperation()

@@ -1,15 +1,56 @@
 /**
  * @file ComponentBuildConfig.ixx
- * @brief Build-time configuration for component construction.
+ * @brief Build-time configuration passed to Component::build().
  *
- * Provides a small, fluent config used by components during build.
+ * BuildConfig carries the leading shape that drives buffer allocation
+ * across the Component hierarchy. It is an opaque shape carrier —
+ * it imposes no interpretation on the dimensions. Each Component
+ * interprets the leading shape according to its own semantics in
+ * its onBuilding() override.
+ *
+ * ## Design
+ *
+ * BuildConfig is constructed by Model and cascaded through the
+ * Component hierarchy during build(). It intentionally has no
+ * concept of RuntimeMode, batch size, sequence length, or any
+ * other domain-specific dimension — those are Component concerns.
+ *
+ * ## Example
+ *
+ * A transformer component expecting [ B, T ] accesses dimensions
+ * by known index in its own onBuilding():
+ *
+ * @code
+ * void onBuilding( const BuildConfig& config ) override
+ * {
+ *     auto batch_size = config.leadingShape()[ 0 ];
+ *     auto seq_len    = config.leadingShape()[ 1 ];
+ *     // allocate output buffers sized to batch_size x seq_len x features
+ * }
+ * @endcode
+ *
+ * A convolution component expecting [ B, C, H, W ] does the same:
+ *
+ * @code
+ * void onBuilding( const BuildConfig& config ) override
+ * {
+ *     auto batch_size = config.leadingShape()[ 0 ];
+ *     auto channels   = config.leadingShape()[ 1 ];
+ *     auto height     = config.leadingShape()[ 2 ];
+ *     auto width      = config.leadingShape()[ 3 ];
+ * }
+ * @endcode
+ *
+ * ## Threading
+ *
+ * Not synchronized. BuildConfig is used only during the single-threaded
+ * build phase and is not retained after build() completes.
  */
 
 module;
 #include <cstddef>
 #include <stdexcept>
 #include <format>
-#include <limits>
 
 export module Dnn.Component:BuildConfig;
 
@@ -18,178 +59,98 @@ import Dnn.TensorTypes;
 namespace Mila::Dnn
 {
     /**
-     * @brief Build-time configuration passed to Component::build() and onBuilding() hooks.
+     * @brief Opaque shape carrier for Component::build().
      *
-     * Carries the leading shape dimensions { B, T, ... } that the network and all
-     * its components use as allocation bounds for their buffers. The leading shape
-     * is not the full input tensor shape — each component derives its own full tensor
-     * shapes by appending trailing dimensions from its own component config.
+     * Lightweight value type constructed by Model and passed down
+     * through the Component hierarchy. Components interpret the
+     * leading shape according to their own dimensional semantics.
      *
-     * Example — for a transformer network:
-     * @code
-     *   shape_t leading_shape = { config.batch_size, config.seq_length };
-     *   model->build( leading_shape );
-     * @endcode
-     *
-     * The parent network cascades the same BuildConfig unchanged to all child
-     * components. Each child appends its own trailing dims from its own config.
-     *
-     * Optional micro-batching settings are modified with fluent setters and are
-     * orthogonal to the leading shape concern.
-     *
-     * Call validate() before use — Component::build() does this automatically.
+     * Setters follow the Mila fluent with* convention for any future
+     * optional behavioral parameters. Currently there are none —
+     * BuildConfig is intentionally minimal.
      */
-    export struct BuildConfig
+    export class BuildConfig
     {
+    public:
+
+        // ====================================================================
+        // Construction
+        // ====================================================================
+
         /**
-         * @brief Construct with the leading shape dimensions.
+         * @brief Construct from a leading shape.
          *
-         * @param leading_shape The leading dimensions { B, T, ... } used as
-         *                      allocation bounds. Must be non-empty with
-         *                      leading_shape[0] > 0.
+         * The shape must have at least one dimension. Interpretation
+         * of the dimensions is left entirely to the Component.
+         *
+         * @param leading_shape Shape driving buffer allocation.
+         * @throws std::invalid_argument if leading_shape is empty.
          */
-        explicit BuildConfig( shape_t leading_shape ) noexcept
+        explicit BuildConfig( shape_t leading_shape )
             : leading_shape_( std::move( leading_shape ) )
-        {}
-
-        /**
-         * @brief Set the micro-batch size.
-         *
-         * @param n Micro-batch size. Must be >= 1.
-         * @return *this for fluent chaining.
-         */
-        BuildConfig& setMicroBatchSize( std::size_t n ) noexcept
         {
-            micro_batch_size_ = n;
-            return *this;
+            if ( leading_shape_.empty() )
+            {
+                throw std::invalid_argument(
+                    "BuildConfig: leading_shape must have at least one dimension" );
+            }
         }
 
-        /**
-         * @brief Set the number of gradient accumulation steps.
-         *
-         * @param n Gradient accumulation steps. Must be >= 1.
-         * @return *this for fluent chaining.
-         */
-        BuildConfig& setGradientAccumulationSteps( std::size_t n ) noexcept
-        {
-            gradient_accumulation_steps_ = n;
-            return *this;
-        }
+        // ====================================================================
+        // Accessors
+        // ====================================================================
 
         /**
-         * @brief The leading shape dimensions { B, T, ... } passed at build time.
+         * @brief The leading shape passed at construction.
          *
-         * Used by components as the allocation bound for their buffers.
-         * Components append their own trailing dims from their component config
-         * to form their full tensor shapes.
+         * Components access dimensions by their own known indices.
+         * BuildConfig imposes no interpretation.
          *
-         * @return The leading shape.
+         * @return Const reference to the leading shape.
          */
-        [[nodiscard]] const shape_t& leadingShape() const noexcept
+        const shape_t& leadingShape() const noexcept
         {
             return leading_shape_;
         }
 
         /**
-         * @brief The leading dimension at the given index.
+         * @brief Number of dimensions in the leading shape.
          *
-         * @param index Index into the leading shape.
-         * @return The dimension value.
+         * Components may use this to validate their expected rank
+         * at the start of onBuilding().
+         *
+         * @return Number of dimensions.
          */
-        [[nodiscard]] std::size_t leadingDim( std::size_t index ) const
+        size_t rank() const noexcept
         {
-            return leading_shape_.at( index );
+            return leading_shape_.size();
         }
 
         /**
-         * @brief The batch size — leading_shape[0].
+         * @brief Access a single dimension by index.
          *
-         * @return Batch size, or 0 if leading_shape is empty.
+         * Convenience accessor for components that need a specific
+         * dimension without holding a reference to the full shape.
+         *
+         * @param index Zero-based dimension index.
+         * @return Size of the requested dimension.
+         * @throws std::out_of_range if index >= rank().
          */
-        [[nodiscard]] std::size_t batchSize() const noexcept
+        int64_t dim( size_t index ) const
         {
-            return leading_shape_.empty() ? 0u : leading_shape_[ 0 ];
-        }
-
-        [[nodiscard]] std::size_t microBatchSize() const noexcept
-        {
-            return micro_batch_size_;
-        }
-
-        [[nodiscard]] std::size_t gradientAccumulationSteps() const noexcept
-        {
-            return gradient_accumulation_steps_;
-        }
-
-        [[nodiscard]] bool isMicroBatchingEnabled() const noexcept
-        {
-            return micro_batch_size_ > 1;
-        }
-
-        [[nodiscard]] std::size_t effectiveBatchSize() const noexcept
-        {
-            return micro_batch_size_ * gradient_accumulation_steps_;
-        }
-
-        /**
-         * @brief Validate configuration invariants.
-         *
-         * Throws std::invalid_argument when:
-         * - leading_shape is empty
-         * - leading_shape[0] (batch size) is 0
-         * - micro_batch_size or gradient_accumulation_steps is 0
-         * - batch size is not divisible by effective batch size
-         *   (micro_batch_size * gradient_accumulation_steps)
-         *
-         * Component::build() calls this automatically before invoking onBuilding().
-         */
-        void validate() const
-        {
-            if ( leading_shape_.empty() )
+            if ( index >= leading_shape_.size() )
             {
-                throw std::invalid_argument(
-                    "BuildConfig::validate: leading_shape must be non-empty" );
+                throw std::out_of_range(
+                    std::format(
+                        "BuildConfig::dim: index {} out of range for rank {}",
+                        index, leading_shape_.size() ) );
             }
 
-            const std::size_t batch_size = leading_shape_[ 0 ];
-
-            if ( batch_size == 0 )
-            {
-                throw std::invalid_argument(
-                    "BuildConfig::validate: leading_shape[0] (batch size) must be > 0" );
-            }
-
-            if ( micro_batch_size_ == 0 )
-            {
-                throw std::invalid_argument(
-                    "BuildConfig::validate: micro_batch_size must be >= 1" );
-            }
-
-            if ( gradient_accumulation_steps_ == 0 )
-            {
-                throw std::invalid_argument(
-                    "BuildConfig::validate: gradient_accumulation_steps must be >= 1" );
-            }
-
-            if ( gradient_accumulation_steps_ > (std::numeric_limits<std::size_t>::max() / micro_batch_size_) )
-            {
-                throw std::invalid_argument(
-                    "BuildConfig::validate: micro_batch_size * gradient_accumulation_steps would overflow" );
-            }
-
-            const std::size_t effective_batch = micro_batch_size_ * gradient_accumulation_steps_;
-
-            if ( batch_size % effective_batch != 0 )
-            {
-                throw std::invalid_argument(
-                    std::format( "BuildConfig::validate: batch size {} is not divisible by effective batch size ({})",
-                        batch_size, effective_batch ) );
-            }
+            return leading_shape_[ index ];
         }
 
     private:
+
         shape_t leading_shape_;
-        std::size_t micro_batch_size_{ 1 };
-        std::size_t gradient_accumulation_steps_{ 1 };
     };
 }

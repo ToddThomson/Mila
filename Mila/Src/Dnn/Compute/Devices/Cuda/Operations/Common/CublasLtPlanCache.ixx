@@ -41,9 +41,9 @@ namespace Mila::Dnn::Compute::Cuda
         else if ( sm >= 75 ) grain = 16;  // Turing
         else if ( sm >= 70 ) grain = 8;   // Volta
 
-        Utils::Logger::info( std::format(
-            "CublasLtPlanCache: device='{}' SM={}.{} grain={} max_batch={}",
-            prop.name, prop.major, prop.minor, grain, max_batch_size ) );
+        //Utils::Logger::info( std::format(
+        //    "CublasLtPlanCache: device='{}' SM={}.{} grain={} max_batch={}",
+        //    prop.name, prop.major, prop.minor, grain, max_batch_size ) );
 
         std::vector<int> buckets;
 
@@ -73,8 +73,8 @@ namespace Mila::Dnn::Compute::Cuda
             bucket_str += std::to_string( b ) + " ";
         }
         
-        Utils::Logger::info( std::format(
-            "CublasLtPlanCache: {} buckets: [ {}]", buckets.size(), bucket_str ) );
+        //Utils::Logger::info( std::format(
+        //    "CublasLtPlanCache: {} buckets: [ {}]", buckets.size(), bucket_str ) );
 
         return buckets;
     }
@@ -133,9 +133,13 @@ namespace Mila::Dnn::Compute::Cuda
         {
             const int bucket = getBucket( buckets_, batch_size );
             auto it = cache_.find( bucket );
+            
             if ( it == cache_.end() )
+            {
                 throw std::runtime_error( std::format(
                     "CublasLtPlanCache: no plan for bucket {}", bucket ) );
+            }
+
             return it->second;
         }
 

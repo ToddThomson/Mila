@@ -405,8 +405,6 @@ namespace Mila::Dnn
             }
         }
 
-        
-
     private:
 
         ResidualConfig config_;

@@ -101,53 +101,55 @@ namespace Mila::Dnn::Compute::Cuda
     }
 
     template<typename TargetType, typename HostType>
-    void launch_array_fill_typed(void* dst, const HostType* host_values, size_t count, cudaStream_t stream) {
+    void launch_array_fill_typed( void* dst, const HostType* host_values, size_t count, cudaStream_t stream )
+    {
         using NativeType = typename DeviceTypeInfo<TargetType>::type;
+        const size_t CHUNK_SIZE = 1024 * 1024;
 
-        // For large arrays, use chunked processing to limit temporary memory usage
-        const size_t CHUNK_SIZE = 1024 * 1024;  // 1M elements per chunk
-
-        if (count <= CHUNK_SIZE) {
-            // Small array - process in single kernel
+        if ( count <= CHUNK_SIZE )
+        {
             HostType* d_temp;
-            cudaMalloc(&d_temp, count * sizeof(HostType));
-            cudaMemcpyAsync(d_temp, host_values, count * sizeof(HostType),
-                cudaMemcpyHostToDevice, stream);
+            cudaMalloc( &d_temp, count * sizeof( HostType ) );
+            cudaMemcpyAsync( d_temp, host_values, count * sizeof( HostType ),
+                cudaMemcpyHostToDevice, stream );
 
             const int blockSize = 256;
-            dim3 grid = calculateOptimalGrid(count, blockSize);
-            dim3 block(blockSize);
+            dim3 grid = calculateOptimalGrid( count, blockSize );
+            dim3 block( blockSize );
 
-            fill_array_kernel<<<grid, block, 0, stream>>>(
+            fill_array_kernel << <grid, block, 0, stream >> > (
                 static_cast<NativeType*>(dst), d_temp, count);
 
-            // Cleanup after kernel completion
-            cudaStreamAddCallback(stream, [](cudaStream_t, cudaError_t, void* userData) {
-                cudaFree(userData);
-            }, d_temp, 0);
+            // Sync on the stream, then free from the host — always legal
+            cudaStreamSynchronize( stream );
+            cudaFree( d_temp );
         }
-        else {
-            // Large array - process in chunks
-            for (size_t offset = 0; offset < count; offset += CHUNK_SIZE) {
-                size_t chunk_count = min(CHUNK_SIZE, count - offset);
+        else
+        {
+            // Allocate ONE staging buffer and reuse it for every chunk.
+            // Safe because same-stream ops are serialized: the memcpy for
+            // chunk N+1 cannot begin until the kernel for chunk N completes.
+            HostType* d_temp;
+            cudaMalloc( &d_temp, CHUNK_SIZE * sizeof( HostType ) );
 
-                HostType* d_temp;
-                cudaMalloc(&d_temp, chunk_count * sizeof(HostType));
-                cudaMemcpyAsync(d_temp, host_values + offset, chunk_count * sizeof(HostType),
-                    cudaMemcpyHostToDevice, stream);
+            for ( size_t offset = 0; offset < count; offset += CHUNK_SIZE )
+            {
+                size_t chunk_count = min( CHUNK_SIZE, count - offset );
+
+                cudaMemcpyAsync( d_temp, host_values + offset, chunk_count * sizeof( HostType ),
+                    cudaMemcpyHostToDevice, stream );
 
                 const int blockSize = 256;
-                dim3 grid = calculateOptimalGrid(chunk_count, blockSize);
-                dim3 block(blockSize);
+                dim3 grid = calculateOptimalGrid( chunk_count, blockSize );
+                dim3 block( blockSize );
 
-                fill_array_kernel<<<grid, block, 0, stream>>>(
+                fill_array_kernel << <grid, block, 0, stream >> > (
                     static_cast<NativeType*>(dst), d_temp, chunk_count, offset);
-
-                // Cleanup after kernel completion
-                cudaStreamAddCallback(stream, [](cudaStream_t, cudaError_t, void* userData) {
-                    cudaFree(userData);
-                }, d_temp, 0);
             }
+
+            // Single sync + free after all chunks are queued
+            cudaStreamSynchronize( stream );
+            cudaFree( d_temp );
         }
     }
 

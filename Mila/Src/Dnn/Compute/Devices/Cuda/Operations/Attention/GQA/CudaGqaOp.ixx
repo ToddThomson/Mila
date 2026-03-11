@@ -132,9 +132,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
         using ConfigType = GroupedQueryAttentionConfig;
 
-        CudaGroupedQueryAttentionOp(
-            IExecutionContext* context,
-            const GroupedQueryAttentionConfig& config )
+        CudaGroupedQueryAttentionOp( IExecutionContext* context, const GroupedQueryAttentionConfig& config )
             : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaGroupedQueryAttentionOp" ) ) , config_( config )
         {
             config_.validate();
@@ -644,38 +642,44 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             const shape_t kv_exp = { B_, NH_,  T_, HS_ };
             const shape_t att_shape = { B_, NH_,  T_, T_ };
             const shape_t vout_shape = { B_, NH_,  T_, HS_ };
+            const shape_t dec_att = { B_, NH_,  1,  T_ };
+            const shape_t dec_vout = { B_, NH_,  1,  HS_ };
 
-            const shape_t dec_att = { B_, NH_, 1, T_ };
-            const shape_t dec_vout = { B_, NH_, 1, HS_ };
-
-            auto make = [&]( const shape_t& sh, const std::string& nm )
+            auto make_tensor = [&]( const shape_t& shape, const std::string& name )
                 {
-                    auto t = std::make_shared<TensorType>( device, sh );
-                    t->setName( nm );
-                    return t;
+                    auto tensor = std::make_shared<TensorType>( device, shape, name );
+                    
+                    return tensor;
                 };
 
-            q_tensor_ = make( q_shape, "gqa.q" );  q_ = raw( q_tensor_ );
-            k_tensor_ = make( kv_shape, "gqa.k" );  k_ = raw( k_tensor_ );
-            v_tensor_ = make( kv_shape, "gqa.v" );  v_ = raw( v_tensor_ );
-            k_exp_tensor_ = make( kv_exp, "gqa.k_exp" );  k_exp_ = raw( k_exp_tensor_ );
-            v_exp_tensor_ = make( kv_exp, "gqa.v_exp" );  v_exp_ = raw( v_exp_tensor_ );
-            preatt_tensor_ = make( att_shape, "gqa.preatt" );  preatt_ = raw( preatt_tensor_ );
-            att_tensor_ = make( att_shape, "gqa.att" );  att_ = raw( att_tensor_ );
-            v_out_tensor_ = make( vout_shape, "gqa.v_out" );  v_out_ = raw( v_out_tensor_ );
+            // Always allocated — needed for both prefill and decode
+            q_tensor_ = make_tensor( q_shape, "gqa.q" );  q_ = raw( q_tensor_ );
+            k_tensor_ = make_tensor( kv_shape, "gqa.k" );  k_ = raw( k_tensor_ );
+            v_tensor_ = make_tensor( kv_shape, "gqa.v" );  v_ = raw( v_tensor_ );
+            k_exp_tensor_ = make_tensor( kv_exp, "gqa.k_exp" );  k_exp_ = raw( k_exp_tensor_ );
+            v_exp_tensor_ = make_tensor( kv_exp, "gqa.v_exp" );  v_exp_ = raw( v_exp_tensor_ );
 
-            preatt_decode_tensor_ = make( dec_att, "gqa.preatt_dec" ); preatt_decode_ = raw( preatt_decode_tensor_ );
-            att_decode_tensor_ = make( dec_att, "gqa.att_dec" ); att_decode_ = raw( att_decode_tensor_ );
-            v_out_decode_tensor_ = make( dec_vout, "gqa.v_out_dec" ); v_out_decode_ = raw( v_out_decode_tensor_ );
+            // Decode path — always allocated for inference
+            preatt_decode_tensor_ = make_tensor( dec_att, "gqa.preatt_dec" );  preatt_decode_ = raw( preatt_decode_tensor_ );
+            att_decode_tensor_ = make_tensor( dec_att, "gqa.att_dec" );  att_decode_ = raw( att_decode_tensor_ );
+            v_out_decode_tensor_ = make_tensor( dec_vout, "gqa.v_out_dec" );  v_out_decode_ = raw( v_out_decode_tensor_ );
 
-            dq_tensor_ = make( q_shape, "gqa.dq" );  dq_ = raw( dq_tensor_ );
-            dK_tensor_ = make( kv_shape, "gqa.dK" );  dK_ = raw( dK_tensor_ );
-            dV_tensor_ = make( kv_shape, "gqa.dV" );  dV_ = raw( dV_tensor_ );
-            dK_exp_tensor_ = make( kv_exp, "gqa.dK_exp" );  dK_exp_ = raw( dK_exp_tensor_ );
-            dV_exp_tensor_ = make( kv_exp, "gqa.dV_exp" );  dV_exp_ = raw( dV_exp_tensor_ );
-            dpreatt_tensor_ = make( att_shape, "gqa.dpreatt" );  dpreatt_ = raw( dpreatt_tensor_ );
-            datt_tensor_ = make( att_shape, "gqa.datt" );  datt_ = raw( datt_tensor_ );
-            dVout_tensor_ = make( vout_shape, "gqa.dVout" );  dVout_ = raw( dVout_tensor_ );
+            // Training-only — full attention buffers and all gradients
+            if ( this->isTraining() )
+            {
+                preatt_tensor_ = make_tensor( att_shape, "gqa.preatt" );  preatt_ = raw( preatt_tensor_ );
+                att_tensor_ = make_tensor( att_shape, "gqa.att" );  att_ = raw( att_tensor_ );
+                v_out_tensor_ = make_tensor( vout_shape, "gqa.v_out" );  v_out_ = raw( v_out_tensor_ );
+
+                dq_tensor_ = make_tensor( q_shape, "gqa.dq" );  dq_ = raw( dq_tensor_ );
+                dK_tensor_ = make_tensor( kv_shape, "gqa.dK" );  dK_ = raw( dK_tensor_ );
+                dV_tensor_ = make_tensor( kv_shape, "gqa.dV" );  dV_ = raw( dV_tensor_ );
+                dK_exp_tensor_ = make_tensor( kv_exp, "gqa.dK_exp" );  dK_exp_ = raw( dK_exp_tensor_ );
+                dV_exp_tensor_ = make_tensor( kv_exp, "gqa.dV_exp" );  dV_exp_ = raw( dV_exp_tensor_ );
+                dpreatt_tensor_ = make_tensor( att_shape, "gqa.dpreatt" );  dpreatt_ = raw( dpreatt_tensor_ );
+                datt_tensor_ = make_tensor( att_shape, "gqa.datt" );  datt_ = raw( datt_tensor_ );
+                dVout_tensor_ = make_tensor( vout_shape, "gqa.dVout" );  dVout_ = raw( dVout_tensor_ );
+            }
         }
 
         static NativeType* raw( const std::shared_ptr<TensorType>& t )

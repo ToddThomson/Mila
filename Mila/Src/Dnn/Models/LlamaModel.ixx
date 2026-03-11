@@ -26,6 +26,7 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
+import Dnn.Component;
 import Dnn.Components.LlamaTransformer;
 import Compute.Precision;
 import Compute.Device;
@@ -91,6 +92,7 @@ namespace Mila::Dnn
          */
         static std::unique_ptr<LlamaModel> fromPretrained(
             const std::filesystem::path& path,
+            dim_t context_length,
             DeviceId device_id = DeviceId{ TDeviceType, 0 },
             bool strict = true )
         {
@@ -108,7 +110,10 @@ namespace Mila::Dnn
             auto network = std::make_unique<LlamaTransformerType>(
                 metadata.model_name, config, device_id );
 
-            network->build( shape_t{ 1, config.getMaxSequenceLength() } );
+            //BuildConfig build_config( shape_t{ 1, context_length } );
+            //build_config.withExecutionMode( ExecutionMode::Inference );
+
+            network->build( shape_t{ 1, context_length } );
             network->setTraining( false );
             network->loadParameters( reader, strict );
 
@@ -190,6 +195,11 @@ namespace Mila::Dnn
         DeviceId getDeviceId() const noexcept
         {
             return network_->getExecutionContext()->getDeviceId();
+        }
+
+        MemoryStats getMemoryStats() const
+        {
+            return network_->getMemoryStats();
         }
 
         // ====================================================================

@@ -268,60 +268,6 @@ namespace Mila::Dnn
             return kv_cacheable_ != nullptr;
         }
 
-        /**
-         * @brief Allocate KV cache buffers for inference.
-         *
-         * Intended to be called exclusively by the owning transformer's generate()
-         * during session setup.  Throws if the backend does not support KV caching.
-         *
-         * The KV cache is sized for num_kv_heads rather than num_heads, reflecting
-         * the memory savings that GQA provides over MHA.
-         *
-         * @param max_seq_len Maximum sequence length the cache must accommodate.
-         *
-         * REVIEW: Consider making private with friend TransformerBase<> once
-         * that base class is introduced.
-         */
-        /*void initializeKVCache( int64_t max_seq_len )
-        {
-            if ( !this->isBuilt() )
-            {
-                throw std::runtime_error(
-                    "GroupedQueryAttention must be built before initializeKVCache()." );
-            }
-
-            if ( !kv_cacheable_ )
-            {
-                throw std::runtime_error(
-                    "GroupedQueryAttention: KV cache is not supported by this backend." );
-            }
-
-            kv_cacheable_->initializeKVCache(
-                static_cast<int>(max_input_shape_[ 0 ]),
-                static_cast<int>(max_seq_len) );
-        }*/
-
-        /**
-         * @brief Reset KV cache state between generation sessions.
-         *
-         * Intended to be called exclusively by the owning transformer's generate()
-         * between independent generation requests.  Throws if the backend does not
-         * support KV caching.
-         *
-         * REVIEW: Consider making private with friend TransformerBase<> once
-         * that base class is introduced.
-         */
-        /*void resetKVCache()
-        {
-            if ( !kv_cacheable_ )
-            {
-                throw std::runtime_error(
-                    "GroupedQueryAttention: KV cache is not supported by this backend." );
-            }
-
-            kv_cacheable_->resetKVCache();
-        }*/
-
         // ====================================================================
         // Serialization
         // ====================================================================
@@ -459,12 +405,12 @@ namespace Mila::Dnn
             shape_t out_shape = max_input_shape_;
             out_shape.back() = config_.getModelDim();
 
-            owned_output_ = std::make_unique<TensorType>( device, out_shape );
-            owned_output_->setName( this->getName() + ".output" );
+            owned_output_ = std::make_unique<TensorType>( device, out_shape, this->getName() + ".output" );
+            //owned_output_->setName( this->getName() + ".output" );
 
             // Input gradient has the same shape as the (packed QKV) input.
-            owned_input_grad_ = std::make_unique<TensorType>( device, max_input_shape_ );
-            owned_input_grad_->setName( this->getName() + ".input.grad" );
+            //owned_input_grad_ = std::make_unique<TensorType>( device, max_input_shape_, this->getName() + ".input.grad" );
+            //owned_input_grad_->setName( this->getName() + ".input.grad" );
 
             // Single-token decode output: [B, 1, model_dim]
             shape_t decode_output_shape = { max_input_shape_[ 0 ], 1, config_.getModelDim() };
@@ -474,8 +420,15 @@ namespace Mila::Dnn
 
         void onTrainingChanging( bool is_training ) override
         {
-            if ( operation_ )
-                operation_->setTraining( is_training );
+            operation_->setTraining( is_training );
+
+            if (!owned_input_grad_)
+            {
+                auto device = this->getExecutionContext()->getDeviceId();
+                // Input gradient has the same shape as the (packed QKV) input.
+                owned_input_grad_ = std::make_unique<TensorType>( device, max_input_shape_, this->getName() + ".input.grad" );
+                //owned_input_grad_->setName( this->getName() + ".input.grad" );
+            }
 
             // Entering training mode invalidates any active decode session.
             if ( is_training && kv_cacheable_ && cache_initialized_ )

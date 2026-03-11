@@ -24,6 +24,9 @@ module;
 #include <cstring>
 #include <cstddef>
 
+#include <cassert>
+#include <string>
+
 export module Dnn.TensorBuffer;
 
 import Dnn.TensorDataType;
@@ -98,6 +101,18 @@ namespace Mila::Dnn
 
 			return logical_size * element_size;
 		}
+
+		inline std::string formatBytes( size_t bytes )
+		{
+			if ( bytes < 1024 )
+				return std::format( "{} B", bytes );
+			if ( bytes < 1024 * 1024 )
+				return std::format( "{:.2f} KB", bytes / 1024.0 );
+			if ( bytes < 1024ull * 1024 * 1024 )
+				return std::format( "{:.2f} MB", bytes / (1024.0 * 1024.0) );
+
+			return std::format( "{:.2f} GB", bytes / (1024.0 * 1024.0 * 1024.0) );
+		}
 	}
 
 	/**
@@ -144,7 +159,7 @@ namespace Mila::Dnn
 	 * TensorBuffer<TensorDataType::BF16, Compute::CudaDeviceMemoryResource, true> trackedBuffer(device_context, 100);
 	 * @endcode
 	 */
-	export template <TensorDataType TDataType, typename TMemoryResource, bool TrackMemory = false>
+	export template <TensorDataType TDataType, typename TMemoryResource, bool TrackMemory = true>
 		requires isValidTensor<TDataType, TMemoryResource>
 	class TensorBuffer {
 	public:
@@ -187,6 +202,15 @@ namespace Mila::Dnn
 
 			// Calculate storage requirements
 			storage_bytes_ = Detail::getStorageSize<TDataType>( logical_size_ );
+
+			// DEBUG:
+			if ( storage_bytes_ >= (1ULL << 30) )
+			{
+				throw std::length_error(
+					"TensorBuffer storage size exceeds 1 GB limit: " + std::to_string( storage_bytes_ ) + " bytes"
+				);
+			}
+            // END DEBUG:
 
 			// Check for overflow in alignment calculations
 			if (storage_bytes_ > (std::numeric_limits<size_t>::max() - alignment + 1)) {
@@ -490,12 +514,14 @@ namespace Mila::Dnn
 		/**
 		 * @brief Logs memory allocation for tracking and profiling
 		 */
-		void logAllocation() const {
-			if constexpr (TrackMemory) {
+		void logAllocation() const
+		{
+			if constexpr ( TrackMemory )
+			{
 				std::cout << "TensorBuffer allocated: " << logical_size_ << " elements ("
-					<< storage_bytes_ << " storage bytes, " << aligned_size_ << " aligned)"
+					<< Detail::formatBytes( storage_bytes_ ) << " storage, "
+					<< Detail::formatBytes( aligned_size_ ) << " aligned)"
 					<< " DataType: " << DataTypeTraits::type_name
-					<< " Pointer: 0x" << std::hex << reinterpret_cast<uintptr_t>(data_) << std::dec
 					<< std::endl;
 			}
 		}
@@ -503,10 +529,13 @@ namespace Mila::Dnn
 		/**
 		 * @brief Logs memory deallocation for tracking and profiling
 		 */
-		void logDeallocation() const {
-			if constexpr (TrackMemory) {
+		void logDeallocation() const
+		{
+			if constexpr ( TrackMemory )
+			{
 				std::cout << "TensorBuffer deallocated: " << logical_size_ << " elements ("
-					<< storage_bytes_ << " storage bytes, " << aligned_size_ << " aligned)"
+					<< Detail::formatBytes( storage_bytes_ ) << " storage, "
+					<< Detail::formatBytes( aligned_size_ ) << " aligned)"
 					<< " DataType: " << DataTypeTraits::type_name
 					<< " Pointer: 0x" << std::hex << reinterpret_cast<uintptr_t>(data_) << std::dec
 					<< std::endl;

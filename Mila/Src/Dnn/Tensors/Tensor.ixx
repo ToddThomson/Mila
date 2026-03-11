@@ -51,6 +51,18 @@ namespace Mila::Dnn
 {
     namespace detail
     {
+        inline std::string formatBytes( size_t bytes )
+        {
+            if ( bytes < 1024 )
+                return std::format( "{} B", bytes );
+            if ( bytes < 1024 * 1024 )
+                return std::format( "{:.2f} KB", bytes / 1024.0 );
+            if ( bytes < 1024ull * 1024 * 1024 )
+                return std::format( "{:.2f} MB", bytes / (1024.0 * 1024.0) );
+
+            return std::format( "{:.2f} GB", bytes / (1024.0 * 1024.0 * 1024.0) );
+        }
+
         /**
          * @brief Calculates storage size in bytes for given logical element count
          *
@@ -135,8 +147,8 @@ namespace Mila::Dnn
          * @throws std::runtime_error If device type doesn't match memory resource
          * @throws std::bad_alloc If memory allocation fails
          */
-        explicit Tensor( Compute::DeviceId device_id, const shape_t& shape )
-            : device_id_( validateDeviceId( device_id ) ), uid_( setUId() ), shape_( shape ),
+        explicit Tensor( Compute::DeviceId device_id, const shape_t& shape, std::string name = {} )
+            : device_id_( validateDeviceId( device_id ) ), uid_( setUId() ), shape_( shape ), name_( std::move( name ) ),
             strides_( computeStrides( shape ) ), size_( computeSize( shape ) ) {
 
             allocateBuffer();
@@ -627,11 +639,11 @@ namespace Mila::Dnn
         
         Compute::DeviceId device_id_;       ///< DeviceId for proper device binding and resource management
         
-        std::string uid_;                                                          ///< Unique identifier for this tensor instance
-        std::string name_;                                                         ///< Optional user-assigned name for debugging
-        size_t size_{ 0 };                                                         ///< Total number of logical elements in the tensor
-        std::vector<int64_t> shape_{};                                              ///< Dimensional sizes for each tensor dimension
-        std::vector<int64_t> strides_{};                                            ///< Memory stride values for multi-dimensional indexing
+        std::string uid_;                   ///< Unique identifier for this tensor instance
+        std::string name_;                  ///< Optional user-assigned name for debugging
+        size_t size_{ 0 };                  ///< Total number of logical elements in the tensor
+        std::vector<int64_t> shape_{};      ///< Dimensional sizes for each tensor dimension
+        std::vector<int64_t> strides_{};    ///< Memory stride values for multi-dimensional indexing
         std::shared_ptr<TensorBuffer<TDataType, TMemoryResource>> buffer_{ nullptr }; ///< Managed buffer containing tensor data
 
         bool is_view_{ false };
@@ -688,6 +700,16 @@ namespace Mila::Dnn
          */
         void allocateBuffer() {
             if (size_ > 0) {
+
+                // DEBUG
+                std::cout << "Tensor::allocateBuffer: "
+                    << uid_ << (name_.empty() ? "" : "::" + name_)
+                    << " device=" << device_id_.toString()
+                    << " size=" << detail::formatBytes( size_ * elementSize() )
+                    << " shape=" << shapeToString( shape_ )
+                    << std::endl;
+                // END DEBUG
+
                 buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>( device_id_.index, size_);
             }
         }

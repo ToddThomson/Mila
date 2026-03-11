@@ -138,6 +138,7 @@ namespace Mila::ChatApp
                     case ModelType::Gpt:
                         model_ = GptModelType::fromPretrained(
                             config_.model_path,
+                            config_.context_length,
                             DeviceId{ DeviceType::Cuda, 0 },
                             /*strict=*/true );
                         break;
@@ -145,12 +146,17 @@ namespace Mila::ChatApp
                     case ModelType::Llama:
                         model_ = LlamaModelType::fromPretrained(
                             config_.model_path,
+                            config_.context_length,
                             DeviceId{ DeviceType::Cuda, 0 },
                             /*strict=*/true );
                         break;
                 }
 
                 std::cout << modelToString();
+                
+                auto stats = std::visit( []( const auto& m ) { return m->getMemoryStats(); }, model_ );
+                std::cout << stats.toString() << "\n";
+
                 std::cout << "Model loaded successfully!\n";
             //}
             //catch ( const std::exception& e )
