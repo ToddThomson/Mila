@@ -31,6 +31,7 @@ module;
 
 export module Dnn.Models.GptModel;
 
+import Dnn.LanguageModel;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -68,10 +69,11 @@ namespace Mila::Dnn
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class GptModel
+    class GptModel : public LanguageModel<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+        using ModelBase = LanguageModel<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using GptTransformerType = GptTransformer<TDeviceType, TPrecision>;
@@ -102,7 +104,7 @@ namespace Mila::Dnn
          */
         static std::unique_ptr<GptModel> fromPretrained(
             const std::filesystem::path& path,
-            std::size_t context_length,
+            dim_t context_length,
             DeviceId device_id = DeviceId{ TDeviceType, 0 },
             bool strict = true )
         {
@@ -120,12 +122,12 @@ namespace Mila::Dnn
             auto network = std::make_unique<GptTransformerType>(
                 metadata.model_name, config, device_id );
 
-            // Build at max sequence length — position embeddings cover full range
-            network->build( shape_t{ 1, config.getMaxSequenceLength() } );
+            // TJT: Was Build at max sequence length — position embeddings cover full range
+            network->build( shape_t{ 1, context_length } );
             network->setTraining( false );
             network->loadParameters( reader, strict );
 
-            return std::unique_ptr<GptModel>( new GptModel( std::move( network ), config ) );
+            return std::unique_ptr<GptModel>( new GptModel( std::move( network ), config, RuntimeMode::Inference ) );
         }
 
         /**
@@ -180,34 +182,14 @@ namespace Mila::Dnn
             truncateIfNeeded( tokens );
             int64_t seq_len = static_cast<int64_t>(tokens.size());
             auto prefill_input = makeTokenTensor( tokens );
-            auto& logits = network_->forward( prefill_input );
-            network_->getExecutionContext()->synchronize();
+            auto& logits = getNetwork().forward(prefill_input);
+            getNetwork().getExecutionContext()->synchronize();
 
             // FIXME: Remove
             //// In GptModel::generate() after prefill forward():
             //auto logits_cpu = toHost<TensorDataType::FP32>( logits );
             ////auto logits_cpu = toHost( logits );
             //int vocab_size = 50257;
-
-            //// What is Mila's top token at pos 3?
-            //float max_val = -1e9f;
-            //int   max_tok = 0;
-            //for ( int v = 0; v < vocab_size; ++v )
-            //{
-            //    float val = logits_cpu.data()[ 3 * vocab_size + v ];
-            //    if ( val > max_val )
-            //    {
-            //        max_val = val; max_tok = v;
-            //    }
-            //}
-            //Utils::Logger::info( std::format(
-            //    "Prefill top token at pos 3: token={} logit={:.4f}", max_tok, max_val ) );
-
-            //// What is token 11's logit at pos 3?
-            //Utils::Logger::info( std::format(
-            //    "Prefill token 11 (',') at pos 3: {:.4f}",
-            //    logits_cpu.data()[ 3 * vocab_size + 11 ] ) );
-
 
             // Sample first token from last position of prefill
             int32_t next_token = sampleFromLogits(
@@ -223,8 +205,8 @@ namespace Mila::Dnn
             for ( size_t step = 1; step < max_new_tokens; ++step )
             {
                 auto decode_input = makeTokenTensor( { next_token } );
-                auto& decode_logits = network_->decode( decode_input, position );
-                network_->getExecutionContext()->synchronize();
+                auto& decode_logits = getNetwork().decode( decode_input, position );
+                getNetwork().getExecutionContext()->synchronize();
 
                 next_token = sampleFromLogits(
                     decode_logits, 0, temperature, top_k, rng );  // pos 0 — single token output
@@ -249,12 +231,12 @@ namespace Mila::Dnn
 
         DeviceId getDeviceId() const noexcept
         {
-            return network_->getExecutionContext()->getDeviceId();
+            return getNetwork().getExecutionContext()->getDeviceId();
         }
 
         MemoryStats getMemoryStats() const
         {
-            return network_->getMemoryStats();
+            return getNetwork().getMemoryStats();
         }
 
         // ====================================================================
@@ -265,7 +247,7 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "GptModel\n";
-            oss << "Device: " << getDeviceId().toString() << "\n";
+            // FIXME: oss << "Device: " << getDeviceId().toString() << "\n";
             oss << "Vocabulary: " << config_.getVocabSize() << " tokens\n";
             oss << "Max sequence length: " << config_.getMaxSequenceLength() << "\n";
             oss << "Embedding dim: " << config_.getEmbeddingSize() << "\n";
@@ -275,16 +257,68 @@ namespace Mila::Dnn
             return oss.str();
         }
 
+        // ====================================================================
+                // LanguageModel pure virtual overrides
+                // ====================================================================
+
+                /**
+                 * @brief GPT-2 end-of-text token id.
+                 *
+                 * Should be sourced from tokenizer metadata once tokenizer
+                 * integration is complete.
+                 */
+        int32_t eosToken() const noexcept override
+        {
+            return eos_token_;
+        }
+
+        /**
+         * @brief Maximum sequence length from GPT config.
+         */
+        int64_t maxSequenceLength() const noexcept override
+        {
+            return static_cast<int64_t>(config_.getMaxSequenceLength());
+        }
+
+        /**
+         * @brief Vocabulary size from GPT config.
+         */
+        int64_t vocabSize() const noexcept override
+        {
+            return static_cast<int64_t>(config_.getVocabSize());
+        }
+
+        /**
+         * @brief Training loop — not yet implemented for GptModel.
+         *
+         * @throws std::runtime_error always — GptModel does not yet
+         *         support training.
+         */
+        void onTraining() override
+        {
+            throw std::runtime_error(
+                "GptModel::onTraining: training not yet implemented" );
+        }
     private:
 
         explicit GptModel(
             std::unique_ptr<GptTransformerType> network,
-            const GptConfig& config )
-            : network_( std::move( network ) )
-            , config_( config )
+            const GptConfig& config,
+            RuntimeMode runtime_mode )
+            : ModelBase( std::move( network ), runtime_mode ), config_( config )
         {}
 
-        std::unique_ptr<GptTransformerType> network_;
+        GptTransformerType& getNetwork() noexcept
+        {
+            return static_cast<GptTransformerType&>(*ModelBase::network_);
+        }
+
+        const GptTransformerType& getNetwork() const noexcept
+        {
+            return static_cast<const GptTransformerType&>(*ModelBase::network_);
+        }
+
+        //std::unique_ptr<GptTransformerType> network_;
         GptConfig config_;
 
         // REVIEW: Should come from tokenizer metadata when tokenizer support added.

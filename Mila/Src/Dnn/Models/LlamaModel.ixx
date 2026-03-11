@@ -21,6 +21,7 @@ module;
 
 export module Dnn.Models.LlamaModel;
 
+import Dnn.LanguageModel;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -57,10 +58,11 @@ namespace Mila::Dnn
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class LlamaModel
+    class LlamaModel : public LanguageModel<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+        using ModelBase = LanguageModel<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using LlamaTransformerType = LlamaTransformer<TDeviceType, TPrecision>;
@@ -83,10 +85,12 @@ namespace Mila::Dnn
          * HuggingFace LLaMA checkpoint) via PretrainedModelReader. The network
          * is built at max sequence length so RoPE embeddings cover the full range.
          *
-         * @param path      Path to the pretrained artifact.
-         * @param device_id Target device; must match TDeviceType.
-         * @param strict    If true, throws on any unrecognized parameter name.
-         * @return          Inference-ready LlamaModel.
+         * @param path              Path to the pretrained artifact.
+         * @param context_length    Maximum sequence length to build for.
+         * @param device_id         Target device; must match TDeviceType.
+         * @param strict            If true, throws on any unrecognized parameter name.
+         * @return                  Inference-ready LlamaModel.
+         * 
          * @throws std::invalid_argument on device type mismatch.
          * @throws std::runtime_error    on load or parameter binding failure.
          */
@@ -107,17 +111,13 @@ namespace Mila::Dnn
 
             LlamaConfig config = configFromMetadata( metadata );
 
-            auto network = std::make_unique<LlamaTransformerType>(
-                metadata.model_name, config, device_id );
-
-            //BuildConfig build_config( shape_t{ 1, context_length } );
-            //build_config.withExecutionMode( ExecutionMode::Inference );
+            auto network = std::make_unique<LlamaTransformerType>( metadata.model_name, config, device_id );
 
             network->build( shape_t{ 1, context_length } );
             network->setTraining( false );
             network->loadParameters( reader, strict );
 
-            return std::unique_ptr<LlamaModel>( new LlamaModel( std::move( network ), config ) );
+            return std::unique_ptr<LlamaModel>( new LlamaModel( std::move( network ), config, RuntimeMode::Inference ) );
         }
 
         // ====================================================================
@@ -153,8 +153,8 @@ namespace Mila::Dnn
             int64_t seq_len = static_cast<int64_t>(tokens.size());
 
             auto prefill_input = makeTokenTensor( tokens );
-            auto& logits = network_->forward( prefill_input );
-            network_->getExecutionContext()->synchronize();
+            auto& logits = getNetwork().forward( prefill_input );
+            getNetwork().getExecutionContext()->synchronize();
 
             int32_t next_token = sampleFromLogits(
                 logits, seq_len - 1, temperature, top_k, rng );
@@ -168,8 +168,8 @@ namespace Mila::Dnn
             for ( size_t step = 1; step < max_new_tokens; ++step )
             {
                 auto decode_input = makeTokenTensor( { next_token } );
-                auto& decode_logits = network_->decode( decode_input, position );
-                network_->getExecutionContext()->synchronize();
+                auto& decode_logits = getNetwork().decode( decode_input, position );
+                getNetwork().getExecutionContext()->synchronize();
 
                 next_token = sampleFromLogits(
                     decode_logits, 0, temperature, top_k, rng );
@@ -194,12 +194,12 @@ namespace Mila::Dnn
 
         DeviceId getDeviceId() const noexcept
         {
-            return network_->getExecutionContext()->getDeviceId();
+            return getNetwork().getExecutionContext()->getDeviceId();
         }
 
         MemoryStats getMemoryStats() const
         {
-            return network_->getMemoryStats();
+            return getNetwork().getMemoryStats();
         }
 
         // ====================================================================
@@ -222,16 +222,71 @@ namespace Mila::Dnn
             return oss.str();
         }
 
+        protected:
+
+            // ====================================================================
+            // LanguageModel pure virtual overrides
+            // ====================================================================
+
+            /**
+             * @brief LLaMA 2 </s> = 2; LLaMA 3 <|end_of_text|> = 128001.
+             *
+             * Should be sourced from tokenizer metadata once tokenizer
+             * integration is complete.
+             */
+            int32_t eosToken() const noexcept override
+            {
+                return eos_token_;
+            }
+
+            /**
+             * @brief Maximum sequence length from LLaMA config.
+             */
+            int64_t maxSequenceLength() const noexcept override
+            {
+                return static_cast<int64_t>(config_.getMaxSequenceLength());
+            }
+
+            /**
+             * @brief Vocabulary size from LLaMA config.
+             */
+            int64_t vocabSize() const noexcept override
+            {
+                return static_cast<int64_t>(config_.getVocabSize());
+            }
+
+            /**
+             * @brief Training loop — not yet implemented for LlamaModel.
+             *
+             * @throws std::runtime_error always — LlamaModel does not yet
+             *         support training.
+             */
+            void onTraining() override
+            {
+                throw std::runtime_error(
+                    "LlamaModel::onTraining: training not yet implemented" );
+            }
+
     private:
 
-        explicit LlamaModel(
+        explicit LlamaModel( 
             std::unique_ptr<LlamaTransformerType> network,
-            const LlamaConfig& config )
-            : network_( std::move( network ) )
-            , config_( config )
+            const LlamaConfig& config,
+            RuntimeMode runtime_mode )
+            : ModelBase( std::move( network ), runtime_mode ), config_( config )
         {}
 
-        std::unique_ptr<LlamaTransformerType> network_;
+        LlamaTransformerType& getNetwork() noexcept
+        {
+            return static_cast<LlamaTransformerType&>(*ModelBase::network_);
+        }
+
+        const LlamaTransformerType& getNetwork() const noexcept
+        {
+            return static_cast<const LlamaTransformerType&>(*ModelBase::network_);
+        }
+
+        //std::unique_ptr<LlamaTransformerType> network_;
         LlamaConfig config_;
 
         // LLaMA 2 </s> = 2; LLaMA 3 <|end_of_text|> = 128001.

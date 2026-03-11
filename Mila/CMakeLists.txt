@@ -442,7 +442,7 @@ PUBLIC
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
         
         "Src/Dnn/Compute/Operations/PairedOperation.ixx"
- "Src/Dnn/Core/Component.MemoryStats.ixx" "Src/Dnn/Core/Model.RuntimeMode.ixx" "Src/Dnn/Core/Model.ixx")
+ "Src/Dnn/Core/Component.MemoryStats.ixx" "Src/Dnn/Core/Model.RuntimeMode.ixx" "Src/Dnn/Core/Model.ixx" "Src/Dnn/Core/LanguageModel.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

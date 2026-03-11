@@ -258,37 +258,6 @@ namespace Mila::Dnn
             return built_;
         }
 
-        // ====================================================================
-        // Execution Mode
-        // ====================================================================
-
-        /**
-         * @brief The build-time execution mode — immutable after build().
-         *
-         * Reflects the ExecutionMode set in the BuildConfig passed to build().
-         * Governs buffer allocation policy for the lifetime of the component.
-         *
-         * @return ExecutionMode::Inference or ExecutionMode::Training.
-         *
-         * @throws std::runtime_error if called before build().
-         */
-        /*ExecutionMode getExecutionMode() const
-        {
-            ensureBuilt( "getExecutionMode" );
-            return build_config_.getExecutionMode();
-        }*/
-
-        /**
-         * @brief True if the component was built for the inference / decode path.
-         *
-         * Output buffers are sized at T=1. setEvaluation() is not permitted
-         * on Inference-built components. Always returns false before build().
-         */
-        /*bool isInference() const
-        {
-            return built_ && build_config_.isInference();
-        }*/
-
         /**
          * @brief True if the component was built for the training path
          *        and is not currently in evaluation mode.
@@ -301,20 +270,6 @@ namespace Mila::Dnn
         {
             return built_ && !is_training_.load();
         }
-
-        /**
-         * @brief True if the component is currently in evaluation mode.
-         *
-         * Only meaningful when built with ExecutionMode::Training.
-         * Always false for Inference-built components or before build().
-         * When true, backward() must not be called.
-         */
-        /*bool isEvaluating() const
-        {
-            return built_
-                && build_config_.isTraining()
-                && is_evaluating_.load();
-        }*/
 
         /**
          * @brief Toggle evaluation mode on a Training-built component.

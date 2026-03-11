@@ -17,7 +17,6 @@ module;
 #include <stdexcept>
 
 export module Mila.Chat;
-
 export import Chat.Config;
 import Mila;
 
@@ -28,12 +27,7 @@ namespace Mila::ChatApp
     using namespace Mila::Data;
     using namespace Mila::Data;
 
-    using GptModelType   = GptModel<DeviceType::Cuda, TensorDataType::FP32>;
-    using LlamaModelType = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>;
-    using ModelVariant   = std::variant<
-        std::unique_ptr<GptModelType>,
-        std::unique_ptr<LlamaModelType>
-    >;
+    using LanguageModelType = LanguageModel<DeviceType::Cuda, TensorDataType::FP32>;
 
     export class Chat
     {
@@ -136,7 +130,7 @@ namespace Mila::ChatApp
                 switch ( config_.model_type )
                 {
                     case ModelType::Gpt:
-                        model_ = GptModelType::fromPretrained(
+                        model_ = GptModel<DeviceType::Cuda, TensorDataType::FP32>::fromPretrained(
                             config_.model_path,
                             config_.context_length,
                             DeviceId{ DeviceType::Cuda, 0 },
@@ -144,7 +138,7 @@ namespace Mila::ChatApp
                         break;
 
                     case ModelType::Llama:
-                        model_ = LlamaModelType::fromPretrained(
+                        model_ = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>::fromPretrained(
                             config_.model_path,
                             config_.context_length,
                             DeviceId{ DeviceType::Cuda, 0 },
@@ -152,9 +146,9 @@ namespace Mila::ChatApp
                         break;
                 }
 
-                std::cout << modelToString();
+                std::cout << model_->toString();
                 
-                auto stats = std::visit( []( const auto& m ) { return m->getMemoryStats(); }, model_ );
+                auto stats = model_->getMemoryStats();
                 std::cout << stats.toString() << "\n";
 
                 std::cout << "Model loaded successfully!\n";
@@ -179,18 +173,15 @@ namespace Mila::ChatApp
 
                 std::vector<TokenId> prompt_tokens = tokenizer_->encode( prompt );
 
-                std::vector<int32_t> generated = std::visit(
-                    [&]( auto& model_ptr ) -> std::vector<int32_t>
-                    {
-                        return model_ptr->generate(
-                            std::vector<int32_t>( prompt_tokens.begin(), prompt_tokens.end() ),
-                            config_.max_new_tokens,
-                            config_.temperature,
-                            config_.top_k );
-                    }, model_ );
+                std::vector<int32_t> input_tokens( prompt_tokens.begin(), prompt_tokens.end() );
 
-                std::string full_text = tokenizer_->decode(
-                    std::vector<TokenId>( generated.begin(), generated.end() ) );
+                std::vector<int32_t> generated = model_->generate(
+                    std::vector<int32_t>( input_tokens ),
+                    config_.max_new_tokens,
+                    config_.temperature,
+                    config_.top_k );
+
+                std::string full_text = tokenizer_->decode( std::vector<TokenId>( generated.begin(), generated.end() ) );
 
                 return extractResponse( full_text, prompt );
             }
@@ -218,11 +209,6 @@ namespace Mila::ChatApp
                 response = response.substr( 0, end );
 
             return response;
-        }
-
-        std::string modelToString() const
-        {
-            return std::visit( []( const auto& m ) { return m->toString(); }, model_ );
         }
 
         void printWelcome() const
@@ -254,8 +240,8 @@ Just type your message to chat with Mila AI.
 )" << "\n";
         }
 
-        ChatConfig                    config_;
-        ModelVariant                  model_;
+        ChatConfig config_;
+        std::unique_ptr<LanguageModelType> model_;
         std::shared_ptr<BpeTokenizer> tokenizer_{ nullptr };
     };
 }

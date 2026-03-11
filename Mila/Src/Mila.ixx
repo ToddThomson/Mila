@@ -148,10 +148,16 @@ export import Dnn.ComponentConfig;
 export import Dnn.CompositeComponent;
 
 // ============================================================================
-// Dnn -Core Network
+// Dnn - Core Network
 // ============================================================================
 export import Dnn.Network;
 export import Dnn.NetworkFactory;
+
+// ============================================================================
+// Dnn - Core Model
+// ============================================================================
+export import Dnn.Model;
+export import Dnn.LanguageModel;
 
 // ====================================================================
 // Dnn - Tensors
