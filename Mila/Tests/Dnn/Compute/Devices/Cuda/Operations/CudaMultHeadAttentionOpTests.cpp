@@ -453,7 +453,7 @@ namespace Operations::Tests
 
         for ( size_t seq_len : seq_lengths ) {
             // Create shape with varying sequence length
-            std::vector<int64_t> shape = { 2, seq_len, 64 };
+            shape_t = { 2, seq_len, 64 };
 
             // Create input, weight, bias, and output tensors
             Tensor<float, CudaDeviceMemoryResource> device_input( shape );
@@ -522,7 +522,7 @@ namespace Operations::Tests
 
         for ( size_t batch_size : batch_sizes ) {
             // Create shape with varying batch size
-            std::vector<int64_t> shape = { batch_size, 16, 64 };
+            shape_t = { batch_size, 16, 64 };
 
             // Create input, weight, bias, and output tensors
             Tensor<float, CudaDeviceMemoryResource> device_input( shape );

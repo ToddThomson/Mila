@@ -34,7 +34,7 @@ namespace GBench::GeluBenchmarks
 		}
 
 		// build shape [batch, seq, channels]
-		std::vector<int64_t> shape = { batch, seq, channels };
+		shape_t shape = { batch, seq, channels };
 
 		// Create CUDA execution context (device0)
 		auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );

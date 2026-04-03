@@ -243,7 +243,7 @@ namespace Components::Layers::Tests
             "deferred_ctx_encoder",
             config );
 
-        EXPECT_THROW( component->build( shape_t{ 1,1 } ), std::runtime_error );
+        EXPECT_THROW( component->build( shape_t{ 1,1 }, RuntimeMode::Training ), std::runtime_error );
     }
 
     TEST_F( EncoderCpuTests, Constructor_WithInvalidDevice_ThrowsInvalidArgument )
@@ -267,7 +267,7 @@ namespace Components::Layers::Tests
         EncoderCpuTestData<TensorDataType::FP32> d = EncoderCpuTestData<TensorDataType::FP32>::Create(
             "minimal_cpu", 1, 1, 16, 8, 50 );
 
-        EXPECT_NO_THROW( d.module->build( d.input_shape ) );
+        EXPECT_NO_THROW( d.module->build( d.input_shape, RuntimeMode::Training ) );
         CpuIndexTensor input( d.module->getDeviceId(), d.input_shape );
 
         auto idx_ptr = input.data();

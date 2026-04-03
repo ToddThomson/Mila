@@ -32,7 +32,9 @@ namespace Components::Layers::Tests
 
         // Building without an execution context must fail per Component contract
         shape_t input_shape = { 1, 1, static_cast<int64_t>(3 * 64) };
-        EXPECT_THROW( module->build( input_shape ), std::runtime_error );
+        BuildConfig build_config = BuildContext( input_shape, RuntimeMode::Training );
+            
+        EXPECT_THROW( module->build( build_config ), std::runtime_error );
     }
 
     TEST_F( AttentionCpuTests, ParameterCount_IsZero )
@@ -63,7 +65,9 @@ namespace Components::Layers::Tests
         shape_t output_shape = { B, T, static_cast<int64_t>(C) };
 
         // Build using model-layout shapes
-        EXPECT_NO_THROW( module->build( input_shape ) );
+        auto build_config = BuildContext( input_shape, RuntimeMode::Training );
+        
+        EXPECT_NO_THROW( module->build( build_config ) );
         EXPECT_TRUE( module->isBuilt() );
 
         // Prepare concatenated QKV input in model-layout
@@ -98,7 +102,8 @@ namespace Components::Layers::Tests
         shape_t input_shape = { B, T, static_cast<int64_t>(3 * C) };
         shape_t output_shape = { B, T, static_cast<int64_t>(C) };
 
-        module->build( input_shape );
+        auto build_config = BuildContext( input_shape, RuntimeMode::Training );
+        module->build( build_config );
 
         // Prepare input and output-grad tensors
         CpuTensor<TensorDataType::FP32> input( dev, input_shape );
@@ -115,7 +120,7 @@ namespace Components::Layers::Tests
         }
 
         // Enable training mode to allow backward
-        module->setTraining( true );
+        module->setTrainingMode( true );
         EXPECT_TRUE( module->isTraining() );
 
         // Call backward: returns reference to component-owned input-gradient tensor

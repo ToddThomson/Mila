@@ -88,12 +88,14 @@ namespace Mila::Dnn::Compute
 
         ~CpuAttentionOp() override = default;
 
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
             if ( is_built_ )
             {
                 return;
             }
+
+            const auto& input_shape = config.inputShape();
 
             validateInputShape( input_shape );
 

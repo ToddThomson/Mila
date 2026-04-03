@@ -225,9 +225,9 @@ namespace Mila::Mnist
                 throw std::runtime_error( "MnistClassifier: must be built before backward pass" );
             }
 
-            if ( !this->isTraining() )
+            if ( this->isInferenceMode() )
             {
-                throw std::runtime_error( "MnistClassifier: backward requires training mode (setTraining(true))." );
+                throw std::runtime_error( "MnistClassifier::backward requires training mode" );
             }
 
             // Validate we have cached forward activation pointers
@@ -408,8 +408,10 @@ namespace Mila::Mnist
             archive.writeMetadata( "classifier_meta.json", meta );
         }
 
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const BuildContext& build_config ) override
         {
+            const auto& input_shape = build_config.inputShape();
+
             validateInputShape( input_shape );
 
             input_shape_ = input_shape;
@@ -425,25 +427,24 @@ namespace Mila::Mnist
 
             // Cache typed pointers to children
             fc1_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_1" );
-            fc1_->build( input_shape );
+            fc1_->build( build_config ); // was input_shape );
 
             gelu1_ = this->template getComponentAs<GeluType>( this->getName() + ".gelu_1" );
-            gelu1_->build( hidden1_shape_ );
+            gelu1_->build( build_config ); // was hidden1_shape_ );
 
             fc2_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_2" );
-            fc2_->build( hidden1_shape_ );
+            fc2_->build( build_config );// was hidden1_shape_ );
 
             gelu2_ = this->template getComponentAs<GeluType>( this->getName() + ".gelu_2" );
-            gelu2_->build( hidden2_shape_ );
+            gelu2_->build( build_config ); // was hidden2_shape_ );
 
             output_fc_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_output" );
-            output_fc_->build( hidden2_shape_ );
+            output_fc_->build( build_config ); // was hidden2_shape_ );
 
             // Allocate network-owned output buffer (logits)
             auto device = this->getDeviceId();
 
-            owned_output_ = std::make_shared<TensorType>( device, output_shape_ );
-            owned_output_->setName( this->getName() + ".output" );
+            owned_output_ = std::make_shared<TensorType>( device, output_shape_, this->getName() + ".output" );
 
             // Clear cached component pointers used for chaining (will be set during forward)
             fc1_out_ptr_ = nullptr;

@@ -19,8 +19,6 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      * Each thread handles one (position, freq_pair) cell.
      * Grid: [max_seq_len, head_dim/2] threads via 2D launch.
      *
-     * θ_i = 1 / (base ^ (2i / head_dim))
-     *
      * @param cos_out  [max_seq_len, head_dim/2]
      * @param sin_out  [max_seq_len, head_dim/2]
      * @param half_dim head_dim / 2
@@ -33,12 +31,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         int max_seq_len,
         float base )
     {
-        int pos = blockIdx.x * blockDim.x + threadIdx.x;  // position index
-        int i = blockIdx.y * blockDim.y + threadIdx.y;  // frequency pair index
+        int pos = blockIdx.x * blockDim.x + threadIdx.x;
+        int i = blockIdx.y * blockDim.y + threadIdx.y;
 
         if ( pos >= max_seq_len || i >= half_dim ) return;
 
-        // θ_i = base^(-2i / head_dim) = 1 / base^(2i / head_dim)
         float theta = __powf( base, -2.0f * static_cast<float>(i) / static_cast<float>(half_dim * 2) );
         float angle = static_cast<float>(pos) * theta;
 
@@ -64,7 +61,6 @@ namespace Mila::Dnn::Compute::Cuda::Rope
     {
         if constexpr ( negate_sin )
         {
-            // Inverse rotation: multiply by R^T = R(-θ)
             return make_float2(
                 x.x * cos_val + x.y * sin_val,
                 -x.x * sin_val + x.y * cos_val );
@@ -82,25 +78,27 @@ namespace Mila::Dnn::Compute::Cuda::Rope
     // ========================================================================
 
     /**
-     * @brief Full-sequence RoPE rotation kernel.
+     * @brief Full-sequence RoPE rotation kernel with position offset.
      *
      * One thread per (b, t, h, i) where i is a frequency-pair index in [0, head_dim/2).
      * Grid flattens (B * T * n_heads) onto blockIdx.x for Q, and a separate
      * launch handles K with n_kv_heads.
      *
-     * Layout: input[b, t, head, 2i .. 2i+1]
-     * Strides (row-major): [T*n_heads*head_dim, n_heads*head_dim, head_dim, 1]
+     * The position_offset shifts the cos/sin cache lookup so that chunk-local
+     * position t maps to absolute position (t + position_offset). This enables
+     * chunked prefill where chunk 0 uses offset 0, chunk 1 uses offset chunk_size, etc.
      *
-     * @tparam negate_sin  false → forward rotation, true → backward (inverse) rotation.
+     * @tparam negate_sin  false -> forward rotation, true -> backward (inverse) rotation.
      *
-     * @param out       Output tensor (same shape as in).
-     * @param in        Input tensor.
-     * @param cos_cache [max_seq_len, head_dim/2].
-     * @param sin_cache [max_seq_len, head_dim/2].
-     * @param total_heads  B * T * n_heads  (or B * T * n_kv_heads for K).
-     * @param half_dim  head_dim / 2.
-     * @param T         Sequence length (needed to recover t from linear index).
-     * @param n_heads   Number of heads for this tensor (Q or K).
+     * @param out             Output tensor (same shape as in).
+     * @param in              Input tensor.
+     * @param cos_cache       [max_seq_len, head_dim/2].
+     * @param sin_cache       [max_seq_len, head_dim/2].
+     * @param total_heads     B * T * n_heads  (or B * T * n_kv_heads for K).
+     * @param half_dim        head_dim / 2.
+     * @param T               Sequence length (needed to recover t from linear index).
+     * @param n_heads         Number of heads for this tensor (Q or K).
+     * @param position_offset Absolute position of the first token in this chunk.
      */
     template <bool negate_sin>
     __global__ void rope_rotate_kernel(
@@ -111,30 +109,35 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         int total_heads,
         int half_dim,
         int T,
-        int n_heads )
+        int n_heads,
+        int position_offset )
     {
-        // Each thread handles one (b*T*h, i) pair
-        int bth = blockIdx.x * blockDim.x + threadIdx.x;   // flattened batch/time/head
-        int i = blockIdx.y * blockDim.y + threadIdx.y;   // freq pair index [0, half_dim)
+        int bth = blockIdx.x * blockDim.x + threadIdx.x;
+        int i = blockIdx.y * blockDim.y + threadIdx.y;
 
         if ( bth >= total_heads || i >= half_dim ) return;
 
-        // Recover sequence position t from flattened index
-        // bth = b * T * n_heads + t * n_heads + h
         int t = (bth / n_heads) % T;
+        int abs_pos = t + position_offset;
 
-        // Load precomputed cos/sin for this (position, frequency pair)
-        float c = cos_cache[ t * half_dim + i ];
-        float s = sin_cache[ t * half_dim + i ];
+        float c = cos_cache[ abs_pos * half_dim + i ];
+        float s = sin_cache[ abs_pos * half_dim + i ];
 
-        // Address the two elements that form this rotation pair
-        int base_idx = bth * (half_dim * 2) + i * 2;
+        int base_idx = bth * (half_dim * 2);
 
-        float2 x = make_float2( in[ base_idx ], in[ base_idx + 1 ] );
-        float2 y = rotate_pair<negate_sin>( x, c, s );
+        float x0 = in[ base_idx + i ];
+        float x1 = in[ base_idx + i + half_dim ];
 
-        out[ base_idx ] = y.x;
-        out[ base_idx + 1 ] = y.y;
+        float r0 = x0 * c - x1 * s;
+        float r1 = x0 * s + x1 * c;
+
+        if constexpr ( negate_sin )
+        {
+            r1 = x0 * (-s) + x1 * c;
+        }
+
+        out[ base_idx + i ] = r0;
+        out[ base_idx + i + half_dim ] = r1;
     }
 
     /**
@@ -151,17 +154,16 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* __restrict__ in,
         const float* __restrict__ cos_cache,
         const float* __restrict__ sin_cache,
-        int total_heads,   // B * n_heads  (or B * n_kv_heads)
+        int total_heads,
         int half_dim,
         int position,
         int n_heads )
     {
-        int bh = blockIdx.x * blockDim.x + threadIdx.x;   // flattened batch/head
-        int i = blockIdx.y * blockDim.y + threadIdx.y;   // freq pair index
+        int bh = blockIdx.x * blockDim.x + threadIdx.x;
+        int i = blockIdx.y * blockDim.y + threadIdx.y;
 
         if ( bh >= total_heads || i >= half_dim ) return;
 
-        // All threads share the same position row — L1 broadcasts this load
         float c = cos_cache[ position * half_dim + i ];
         float s = sin_cache[ position * half_dim + i ];
 
@@ -180,9 +182,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
     /**
      * @brief Shared kernel launcher for both Q and K with (potentially) different
-     *        head counts.  Used by forward, backward, and decode host functions.
+     *        head counts. Used by forward, backward, and prefill host functions.
      *
      * @tparam negate_sin  Forward or backward rotation.
+     * @param position_offset  Absolute position of first token in the chunk.
+     *                         Pass 0 for training and standard forward passes.
      */
     template <bool negate_sin>
     static void launch_rotate_full(
@@ -194,12 +198,12 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* sin_cache,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
+        int position_offset,
         cudaStream_t stream )
     {
         assert( head_dim % 2 == 0 );
         const int half_dim = head_dim / 2;
 
-        // 2D grid: x = flattened (b,t,h) tiles, y = freq pair tiles
         constexpr int TX = 32;
         constexpr int TY = 16;
 
@@ -213,7 +217,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
             rope_rotate_kernel<negate_sin> << <grid, block, 0, stream >> > (
                 out_Q, in_Q, cos_cache, sin_cache,
-                total, half_dim, T, n_heads);
+                total, half_dim, T, n_heads, position_offset);
         }
 
         // --- K ---
@@ -226,7 +230,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
             rope_rotate_kernel<negate_sin> << <grid, block, 0, stream >> > (
                 out_K, in_K, cos_cache, sin_cache,
-                total, half_dim, T, n_kv_heads);
+                total, half_dim, T, n_kv_heads, position_offset);
         }
 
         cudaCheck( cudaGetLastError() );
@@ -317,12 +321,13 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* sin_cache,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
+        int position_offset,
         cudaStream_t stream )
     {
         launch_rotate_full<false>(
             Q_out, K_out, Q_in, K_in,
             cos_cache, sin_cache,
-            B, T, n_heads, n_kv_heads, head_dim, stream );
+            B, T, n_heads, n_kv_heads, head_dim, position_offset, stream );
     }
 
     void cuda_rope_backward_fp32(
@@ -336,12 +341,10 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         int n_heads, int n_kv_heads, int head_dim,
         cudaStream_t stream )
     {
-        // Backward through an orthogonal rotation is just the transpose (inverse),
-        // which means negating the sin terms: rotate by -θ.
         launch_rotate_full<true>(
             dQ_in, dK_in, dQ_out, dK_out,
             cos_cache, sin_cache,
-            B, T, n_heads, n_kv_heads, head_dim, stream );
+            B, T, n_heads, n_kv_heads, head_dim, 0, stream );
     }
 
     void cuda_rope_decode_fp32(

@@ -128,19 +128,21 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
          * @throws std::runtime_error    if wte is not bound.
          * @throws std::invalid_argument if input shape is invalid.
          */
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
             if ( !wte_ )
             {
                 throw std::runtime_error( "CudaTokenEmbeddingOp::build requires wte bound via setParameters() before build()." );
             }
 
+            const auto& input_shape = config.inputShape();
+
             validateInputShape( input_shape );
 
             batch_size_ = static_cast<int>(input_shape[ 0 ]);
             seq_length_ = static_cast<int>(input_shape[ 1 ]);
 
-            UnaryOperationBase::build( input_shape );
+            UnaryOperationBase::build( config );
         }
 
         // ====================================================================
@@ -168,6 +170,8 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
 
             Detail::cuda_token_embedding_impl<NativeType>::forward(
                 Y, X, wte_, B, T, embedding_dim_, context_->getStream() );
+
+            context_->synchronize();
         }
 
         // ====================================================================

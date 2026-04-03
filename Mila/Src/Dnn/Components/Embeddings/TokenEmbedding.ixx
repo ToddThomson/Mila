@@ -14,12 +14,15 @@ module;
 #include <vector>
 #include <string>
 #include <sstream>
+#include <iostream>
 #include <stdexcept>
 #include <optional>
 #include <cmath>
 #include <algorithm>
 #include <numeric>
 #include <format>
+
+#include <nvtx3/nvtx3.hpp>
 
 export module Dnn.Components.TokenEmbedding;
 export import :Config;
@@ -31,6 +34,7 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
+import Dnn.TensorOps;
 import Compute.Precision;
 import Compute.Device;
 import Compute.DeviceId;
@@ -144,6 +148,13 @@ namespace Mila::Dnn
             shape_t actual_out_shape = { B, T, static_cast<dim_t>(config_.getEmbeddingDim()) };
             current_output_view_ = std::make_unique<EmbeddingTensorType>(
                 output_->view( actual_out_shape ) );
+
+            // DEBUG:
+            std::cout << std::format(
+                "TokenEmbedding::forward: Output View (B={}, T_last={})",
+                B, T ) << std::endl;
+            std::cout << toHost<TensorDataType::FP32>( *current_output_view_ ).toString( true ) << std::endl;
+            // END DEBUG
 
             return *current_output_view_;
         }
@@ -259,11 +270,17 @@ namespace Mila::Dnn
 
         std::vector<ITensor*> getGradients() const override
         {
-            if ( !this->isTraining() )
+            // REVIEW: Needed here?
+            /*if ( !this->isTraining() )
+            {
                 throw std::runtime_error( "TokenEmbedding: getGradients() called when not in training mode" );
+            }*/
 
             std::vector<ITensor*> grads;
-            if ( wte_grad_ ) grads.push_back( wte_grad_.get() );
+            
+            if ( wte_grad_ )
+                grads.push_back( wte_grad_.get() );
+            
             return grads;
         }
 
@@ -350,48 +367,50 @@ namespace Mila::Dnn
             createOperation();
         }
 
-        void onBuilding( const shape_t& leading_shape ) override
+        void onBuilding( const BuildContext& build_context ) override
         {
-            validateInputShape( leading_shape );
+            validateBuildContext( build_context );
+            const auto& input_shape = build_context.inputShape();
 
-            max_batch_size_ = leading_shape[ 0 ];
-            max_seq_len_ = leading_shape[ 1 ];
+            max_batch_size_ = input_shape[ 0 ];
+            max_seq_len_ = input_shape[ 1 ];
 
             initializeParameters();
 
             // REVIEW: API needs work. setParameters() wants Weight and Bias
             operation_->setParameters( wte_.get(), nullptr );
-            operation_->build( leading_shape );
+            operation_->build( build_context );
 
             auto device = this->getExecutionContext()->getDeviceId();
 
-            shape_t max_out_shape = { max_batch_size_, max_seq_len_, static_cast<dim_t>(config_.getEmbeddingDim()) };
+            // Output buffer — allocated at full input shape with embedding_dim as the trailing dimension.
+            shape_t output_shape = {
+                max_batch_size_,
+                max_seq_len_,
+                static_cast<dim_t>(config_.getEmbeddingDim())
+            };
 
-            output_ = std::make_unique<EmbeddingTensorType>( device, max_out_shape, this->getName() + ".output" );
+            output_ = std::make_unique<EmbeddingTensorType>( device, output_shape, this->getName() + ".output" );
+            
+            if ( build_context.isTrainingMode() )
+            {
+                initializeParameterGradients();
+                operation_->setGradients( wte_grad_.get(), nullptr );
+                
+                auto device = this->getExecutionContext()->getDeviceId();
+
+                input_grad_ = std::make_unique<TokenIndexType>( device, shape_t{ max_batch_size_, max_seq_len_ },
+                    this->getName() + ".input.grad" );
+            }
         }
 
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
-            operation_->setTraining( is_training );
+            operation_->setTrainingMode( training_mode );
 
-            if ( is_training )
-            {
-                if ( !wte_grad_ )
-                {
-                    initializeParameterGradients();
-                    operation_->setGradients( wte_grad_.get(), nullptr );
-                }
-
-                if ( !input_grad_ )
-                {
-                    auto device = this->getExecutionContext()->getDeviceId();
-                    input_grad_ = std::make_unique<TokenIndexType>(
-                        device,
-                        shape_t{ max_batch_size_, max_seq_len_ },
-                        this->getName() + ".input.grad" );
-                }
-            }
-            else
+            auto is_eval_mode = ( training_mode == TrainingMode::Eval );
+            
+            if ( is_eval_mode )
             {
                 operation_->clearGradients();
 
@@ -417,15 +436,23 @@ namespace Mila::Dnn
 
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
-        void validateInputShape( const shape_t& shape ) const
+        void validateBuildContext( const BuildContext& context ) const
         {
-            if ( shape.size() != 2 )
+            const auto& input_shape = context.inputShape();
+
+            if ( input_shape.size() != 2 )
+            {
                 throw std::invalid_argument(
                     "TokenEmbedding: input must be rank-2 [B, T]" );
+            }
         }
 
         void initializeParameters()
         {
+            // REVIEW: I cannot get this to work in VS2026
+            //nvtx3::scoped_range marker( "TokenEmbedding::initializeParameters" );
+            //nvtx3::scoped_range(  );
+
             const float std_dev = 1.0f / std::sqrt( static_cast<float>(config_.getEmbeddingDim()) );
             auto device_id = this->getExecutionContext()->getDeviceId();
 
@@ -433,8 +460,18 @@ namespace Mila::Dnn
             // but Tensor shapes use dim_t (int64_t).  The API needs work to unify these types and avoid this kind of cast.
             auto wte_shape = shape_t{ static_cast<dim_t>(config_.getVocabSize()), static_cast<dim_t>(config_.getEmbeddingDim()) };
 
+            //nvtxRangePush( "wte allocation" );
             wte_ = std::make_unique<EmbeddingTensorType>( device_id, wte_shape, this->getName() + ".wte" );
-            normal( *wte_, std_dev );
+            //nvtxRangePop();
+
+            //nvtxRangePush( "wte normal init" );
+            
+            // FIXME: We are bypassing the normal initializer here as it takes too long 
+            // and the llama inference model overrides the wte with pretrained weights immediately after build().
+            // normal( *wte_, std_dev );
+            //nvtxRangePop();
+
+            //nvtxRangePop();
         }
 
         void initializeParameterGradients()
@@ -444,8 +481,7 @@ namespace Mila::Dnn
 
             auto device_id = this->getExecutionContext()->getDeviceId();
 
-            wte_grad_ = std::make_unique<EmbeddingTensorType>( device_id, wte_->shape() );
-            wte_grad_->setName( this->getName() + ".wte.grad" );
+            wte_grad_ = std::make_unique<EmbeddingTensorType>( device_id, wte_->shape(), this->getName() + ".wte.grad" );
             zero( *wte_grad_ );
         }
 

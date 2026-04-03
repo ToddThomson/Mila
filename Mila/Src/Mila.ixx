@@ -158,6 +158,7 @@ export import Dnn.NetworkFactory;
 // ============================================================================
 export import Dnn.Model;
 export import Dnn.LanguageModel;
+export import Dnn.RuntimeMode;
 
 // ====================================================================
 // Dnn - Tensors

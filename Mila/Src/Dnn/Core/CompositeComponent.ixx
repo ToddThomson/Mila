@@ -618,7 +618,7 @@ namespace Mila::Dnn
                 );
             }
 
-            if ( !this->isTraining() )
+            if ( !this->build_context_.isTrainingMode() )
             {
                 throw std::runtime_error(
                     "Cannot get parameter gradients when not in training mode"
@@ -777,11 +777,11 @@ namespace Mila::Dnn
          *
          * @param is_training New training mode (true = training, false = eval)
          */
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
             for ( auto& component : child_components_ )
             {
-                component->setTraining( is_training );
+                component->setTrainingMode( training_mode );
             }
         }
 

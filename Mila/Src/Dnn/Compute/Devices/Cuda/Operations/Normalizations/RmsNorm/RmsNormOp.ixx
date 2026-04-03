@@ -175,7 +175,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
          * Computes normalization axis, partitions tensor dimensions, and allocates
          * forward-pass statistics storage required by backward.
          */
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
             if ( weight_ == nullptr )
             {
@@ -186,6 +186,8 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
             {
                 throw std::runtime_error( "CudaRmsNormOp::build - bias expected by config but not bound via setParameters()" );
             }
+
+            const auto& input_shape = config.inputShape();
 
             if ( !config_.getNormalizedShape().empty() )
             {
@@ -257,10 +259,9 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
             auto device = context_->getDeviceId();
 
             rstd_tensor_ = std::make_shared<TensorType>( device, shape_t{ num_slices }, "rstd" );
-            //rstd_tensor_->setName( "rstd" );
             rstd_ = static_cast<NativeType*>(rstd_tensor_->rawData());
 
-            UnaryOperationBase::build( input_shape );
+            UnaryOperationBase::build( config );
         }
 
         /**
@@ -282,8 +283,6 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
                 outer_size_, inner_size_, norm_dim_,
                 config_.getEpsilon(),
                 stream );
-
-            context_->synchronize();
         }
 
         /**

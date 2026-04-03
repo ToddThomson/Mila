@@ -113,7 +113,7 @@ namespace Mila::Dnn::Compute::Tests
     TEST_F( BinaryOperationTests, Forward_ElementwiseAdd ) {
         using T = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>;
 
-        std::vector<int64_t> shape = { 2, 3 };
+        shape_t shape = { 2, 3 };
         auto device = exec_ctx_->getDeviceId();
 
         T a( device, shape );

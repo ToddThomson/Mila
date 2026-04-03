@@ -3,15 +3,8 @@
  * @brief CUDA implementation of the Rope (rotary positional embedding) operation.
  *
  * Applies RoPE to projected Q and K tensors in preparation for GQA attention.
- * Supports full-sequence forward/backward passes and a position-aware single-token
- * decode pass via IPositionalDecode.
- *
- * Data flow:
- *   wte lookup → [B,T,C] → linear projections
- *       → Q [B,T,n_heads,head_dim], K [B,T,n_kv_heads,head_dim]
- *       → CudaRopeOp
- *       → rotated Q, rotated K
- *       → CudaGqaOp
+ * Supports full-sequence forward/backward, chunked prefill with position offset,
+ * and single-token decode via IPositionalPairedOp.
  */
 
 module;
@@ -25,6 +18,7 @@ export module Compute.CudaRopeOp;
 import :Dispatch;
 import :Cache;
 
+import Dnn.Component;
 import Dnn.Components.Rope;
 import Dnn.Tensor;
 import Dnn.ITensor;
@@ -32,7 +26,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Compute.Precision;
 import Compute.PairedOperation;
-import Compute.IPositionalDecode;
+import Compute.IPositionalPairedOp;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
@@ -62,16 +56,16 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      *   via RopeCacheRegistry. Subsequent ops with the same config reuse the existing
      *   device allocation; build_cache() is called exactly once per unique config.
      * - Two-phase initialization: build() acquires the shared cache and validates
-     *   shapes; forward(), backward(), and decode() are pure hot-path dispatch.
+     *   shapes; forward(), backward(), prefill(), and decode() are pure hot-path
+     *   dispatch.
      * - GQA-aware: Q and K may have different head counts (n_heads vs n_kv_heads).
-     * - Implements IPositionalDecode for KV-cache autoregressive generation.
      * - Backward is exact: RoPE is an orthogonal rotation, so the gradient is the
      *   inverse rotation (negate sin terms). No extra buffers needed.
      *
      * Input/output shapes:
      *   Q:  [B, T, n_heads,    head_dim]
      *   K:  [B, T, n_kv_heads, head_dim]
-     *   Q', K' — same shapes as inputs.
+     *   Q', K' -- same shapes as inputs.
      *
      * Decode shapes (T=1, explicit position):
      *   Q:  [B, 1, n_heads,    head_dim]
@@ -81,17 +75,16 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      */
     export template<TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaRopeOp : public PairedOperation<DeviceType::Cuda, TPrecision>, public IPositionalDecode
+    class CudaRopeOp : public PairedOperation<DeviceType::Cuda, TPrecision>, public IPositionalPairedOp
     {
     public:
 
-        using MR                  = CudaDeviceMemoryResource;
-        using PairedOperationBase = PairedOperation<DeviceType::Cuda, TPrecision>;
-        using TensorType          = Tensor<TPrecision, MR>;
-        using NativeType          = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
+        using MR = CudaDeviceMemoryResource;
+        using TensorType = Tensor<TPrecision, MR>;
+        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
-        using ConfigType          = RopeConfig;
-        using CacheKey            = RopeCacheRegistry::CacheKey;
+        using ConfigType = RopeConfig;
+        using CacheKey = RopeCacheRegistry::CacheKey;
 
         CudaRopeOp( IExecutionContext* context, const RopeConfig& config )
             : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaRopeOp" ) ), config_( config )
@@ -104,8 +97,6 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             releaseCache();
         }
 
-        // Disable copy: cos_cache_ / sin_cache_ are non-owning views into the shared
-        // registry — copying would alias without incrementing the reference count.
         CudaRopeOp( const CudaRopeOp& ) = delete;
         CudaRopeOp& operator=( const CudaRopeOp& ) = delete;
 
@@ -117,11 +108,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             , cache_key_( other.cache_key_ )
             , batch_size_( other.batch_size_ )
             , seq_length_( other.seq_length_ )
-            , built_( other.built_ )
         {
+            this->is_built_ = other.is_built_;
             other.cos_cache_ = nullptr;
             other.sin_cache_ = nullptr;
-            other.built_     = false;
+            other.is_built_ = false;
         }
 
         CudaRopeOp& operator=( CudaRopeOp&& other ) noexcept
@@ -129,18 +120,18 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             if ( this != &other )
             {
                 releaseCache();
-                context_    = other.context_;
-                config_     = std::move( other.config_ );
-                cos_cache_  = other.cos_cache_;
-                sin_cache_  = other.sin_cache_;
-                cache_key_  = other.cache_key_;
+                context_ = other.context_;
+                config_ = std::move( other.config_ );
+                cos_cache_ = other.cos_cache_;
+                sin_cache_ = other.sin_cache_;
+                cache_key_ = other.cache_key_;
                 batch_size_ = other.batch_size_;
                 seq_length_ = other.seq_length_;
-                built_      = other.built_;
+                this->is_built_ = other.is_built_;
 
                 other.cos_cache_ = nullptr;
                 other.sin_cache_ = nullptr;
-                other.built_     = false;
+                other.is_built_ = false;
             }
 
             return *this;
@@ -154,18 +145,15 @@ namespace Mila::Dnn::Compute::Cuda::Rope
          * calls on the same instance update the runtime shape limits only; the
          * shared cache is not re-acquired.
          *
-         * @param leading_shape  Leading shape of the Q and K input tensors.
-         *
-         * @throws std::invalid_argument if leading_shape is not rank-4 or incompatible
-         *                               with the configuration.
-         * @throws CudaError if device memory allocation fails on first acquisition.
+         * @param build_context  Build context carrying the Q/K input shape [B, T, ...].
          */
-        void build( const shape_t& leading_shape )
+        void build( const BuildContext& build_context ) override
         {
-            batch_size_ = static_cast<int>(leading_shape[ 0 ]);
-            seq_length_ = static_cast<int>(leading_shape[ 1 ]);
+            const auto& shape = build_context.inputShape();
+            batch_size_ = static_cast<int>(shape[ 0 ]);
+            seq_length_ = static_cast<int>(shape[ 1 ]);
 
-            if ( built_ )
+            if ( this->is_built_ )
                 return;
 
             const std::size_t cache_bytes =
@@ -176,9 +164,9 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             auto [cos_ptr, sin_ptr, is_new] =
                 RopeCacheRegistry::instance().acquire( cache_key_, cache_bytes );
 
-            cos_cache_ = static_cast<NativeType*>( cos_ptr );
-            sin_cache_ = static_cast<NativeType*>( sin_ptr );
-            built_     = true;
+            cos_cache_ = static_cast<NativeType*>(cos_ptr);
+            sin_cache_ = static_cast<NativeType*>(sin_ptr);
+            this->is_built_ = true;
 
             if ( is_new )
             {
@@ -188,26 +176,16 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                     static_cast<int>(config_.getHeadDim()),
                     config_.getBase(),
                     context_->getStream() );
+
+                context_->synchronize(); // Ensure cache is ready before any op can use it.
             }
         }
 
-        // ====================================================================
-        // Forward
-        // ====================================================================
-
         /**
-         * @brief Full-sequence forward pass (hot path).
+         * @brief Full-sequence forward pass.
          *
-         * Applies RoPE to Q and K across the full sequence. Both Q and K are
-         * rotated in a single dispatch.
-         *
-         * @param Q_in   Input Q  [B, T, n_heads,    head_dim].
-         * @param K_in   Input K  [B, T, n_kv_heads, head_dim].
-         * @param Q_out  Output Q [B, T, n_heads,    head_dim].
-         * @param K_out  Output K [B, T, n_kv_heads, head_dim].
-         *
-         * @throws std::runtime_error if build() has not been called or if B/T
-         *                            exceed the built maximum.
+         * Applies RoPE to Q and K across the full sequence with position_offset = 0.
+         * Used for training forward passes.
          */
         void forward(
             const ITensor& Q_in, const ITensor& K_in,
@@ -221,21 +199,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
             validateRuntimeShape( B, T );
 
-            Detail::cuda_rope_impl<NativeType>::forward(
-                static_cast<NativeType*>(Q_out.rawData()),
-                static_cast<NativeType*>(K_out.rawData()),
-                static_cast<const NativeType*>(Q_in.rawData()),
-                static_cast<const NativeType*>(K_in.rawData()),
-                cos_cache_, sin_cache_,
-                B, T,
-                static_cast<int>(config_.getNumHeads()),
-                static_cast<int>(config_.getNumKVHeads()),
-                static_cast<int>(config_.getHeadDim()),
-                context_->getStream() );
+            dispatchForward( Q_in, K_in, Q_out, K_out, B, T, 0 );
         }
 
         // ====================================================================
-        // Backward
+        // Backward (training)
         // ====================================================================
 
         /**
@@ -243,12 +211,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
          *
          * RoPE is an orthogonal rotation (R^T R = I), so the Jacobian is R^T.
          * The backward pass is therefore the inverse rotation: rotate the upstream
-         * gradients by -θ (negate sin terms). No new parameters are accumulated.
-         *
-         * @param dQ_out  Upstream gradient for Q  [B, T, n_heads,    head_dim].
-         * @param dK_out  Upstream gradient for K  [B, T, n_kv_heads, head_dim].
-         * @param dQ_in   Output gradient w.r.t. Q input  [B, T, n_heads,    head_dim].
-         * @param dK_in   Output gradient w.r.t. K input  [B, T, n_kv_heads, head_dim].
+         * gradients by -theta (negate sin terms). No new parameters are accumulated.
          */
         void backward(
             const ITensor& dQ_out, const ITensor& dK_out,
@@ -276,43 +239,61 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         }
 
         // ====================================================================
-        // Decode (IPositionalDecode)
+        // Positional inference (IPositionalPairedOp)
         // ====================================================================
 
         /**
-         * @brief IPositionalDecode compliance overload — use the typed decode overload instead.
+         * @brief Chunked prefill with explicit position offset.
          *
-         * @see decode( Q_in, K_in, Q_out, K_out, position )
+         * Applies RoPE to Q and K using absolute positions
+         * [position_offset .. position_offset + T - 1] for the cos/sin cache lookup.
+         *
+         * @param Q_in            Input Q  [B, T, n_heads,    head_dim].
+         * @param K_in            Input K  [B, T, n_kv_heads, head_dim].
+         * @param Q_out           Output Q [B, T, n_heads,    head_dim].
+         * @param K_out           Output K [B, T, n_kv_heads, head_dim].
+         * @param position_offset Absolute position of the first token in this chunk.
          */
-        void decode( const ITensor& input, ITensor& output, int position ) const override
+        void prefill(
+            const ITensor& Q_in, const ITensor& K_in,
+            ITensor& Q_out, ITensor& K_out,
+            int position_offset ) override
         {
-            throw std::logic_error(
-                "CudaRopeOp::decode(ITensor) — use the typed decode(Q_in, K_in, Q_out, K_out, position) overload." );
+            ensureBuilt();
+
+            const auto& q_shape = Q_in.shape();
+            int B = static_cast<int>(q_shape[ 0 ]);
+            int T = static_cast<int>(q_shape[ 1 ]);
+
+            if ( position_offset < 0 ||
+                static_cast<size_t>( position_offset + T ) > config_.getMaxSequenceLength() )
+                throw std::invalid_argument( std::format(
+                    "CudaRopeOp::prefill: position_offset {} + T {} exceeds max_seq_len {}",
+                    position_offset, T, config_.getMaxSequenceLength() ) );
+
+            dispatchForward( Q_in, K_in, Q_out, K_out, B, T, position_offset );
         }
 
         /**
-         * @brief Typed single-token decode with explicit Q/K tensors.
+         * @brief Single-token decode with explicit position.
          *
          * Reads only the cache row at `position`. Used for KV-cache autoregressive
          * generation where T=1.
          *
-         * @param Q_in    Input Q  [B, 1, n_heads,    head_dim].
-         * @param K_in    Input K  [B, 1, n_kv_heads, head_dim].
-         * @param Q_out   Output Q [B, 1, n_heads,    head_dim].
-         * @param K_out   Output K [B, 1, n_kv_heads, head_dim].
-         * @param position Absolute sequence position for the cache row.
-         *
-         * @throws std::invalid_argument if position is out of range.
-         * @throws std::runtime_error if build() has not been called.
+         * @param Q_in   Input Q  [B, 1, n_heads,    head_dim].
+         * @param K_in   Input K  [B, 1, n_kv_heads, head_dim].
+         * @param Q_out  Output Q [B, 1, n_heads,    head_dim].
+         * @param K_out  Output K [B, 1, n_kv_heads, head_dim].
+         * @param position Zero-based absolute sequence position.
          */
         void decode(
             const ITensor& Q_in, const ITensor& K_in,
             ITensor& Q_out, ITensor& K_out,
-            int position ) const
+            int position ) override
         {
             ensureBuilt();
 
-            if ( position < 0 || static_cast<size_t>(position) >= config_.getMaxSequenceLength() )
+            if ( position < 0 || static_cast<size_t>( position ) >= config_.getMaxSequenceLength() )
                 throw std::invalid_argument( std::format(
                     "CudaRopeOp::decode: position {} out of range [0, {})",
                     position, config_.getMaxSequenceLength() ) );
@@ -327,7 +308,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 cos_cache_, sin_cache_,
                 B, position,
                 static_cast<int>(config_.getNumHeads()),
-                static_cast<int>(config_.getNumKvHeads()),
+                static_cast<int>(config_.getNumKVHeads()),
                 static_cast<int>(config_.getHeadDim()),
                 context_->getStream() );
         }
@@ -336,32 +317,47 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         // Component interface
         // ====================================================================
 
-        OperationType getOperationType() const
+        OperationType getOperationType() const override
         {
             return OperationType::RopeOp;
         }
 
-        std::string getName() const
+        std::string getName() const override
         {
             return "Cuda::RopeOp";
         }
 
     private:
-        RopeConfig            config_;
+        RopeConfig config_;
         CudaExecutionContext* context_;
 
-        // Non-owning views into the shared RopeCacheRegistry entry.
         NativeType* cos_cache_{ nullptr };
         NativeType* sin_cache_{ nullptr };
 
         CacheKey cache_key_{};
-        int      batch_size_{ 0 };
-        int      seq_length_{ 0 };
-        bool     built_{ false };
+        int batch_size_{ 0 };
+        int seq_length_{ 0 };
 
-        // ====================================================================
-        // Internal helpers
-        // ====================================================================
+        void dispatchForward(
+            const ITensor& Q_in, const ITensor& K_in,
+            ITensor& Q_out, ITensor& K_out,
+            int B, int T, int position_offset ) const
+        {
+            Detail::cuda_rope_impl<NativeType>::forward(
+                static_cast<NativeType*>(Q_out.rawData()),
+                static_cast<NativeType*>(K_out.rawData()),
+                static_cast<const NativeType*>(Q_in.rawData()),
+                static_cast<const NativeType*>(K_in.rawData()),
+                cos_cache_, sin_cache_,
+                B, T,
+                static_cast<int>(config_.getNumHeads()),
+                static_cast<int>(config_.getNumKVHeads()),
+                static_cast<int>(config_.getHeadDim()),
+                position_offset,
+                context_->getStream() );
+
+            context_->synchronize();
+        }
 
         CacheKey makeCacheKey() const noexcept
         {
@@ -376,44 +372,20 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
         void releaseCache() noexcept
         {
-            if ( built_ )
+            if ( this->is_built_ )
             {
                 RopeCacheRegistry::instance().release( cache_key_ );
                 cos_cache_ = nullptr;
                 sin_cache_ = nullptr;
-                built_     = false;
+                this->is_built_ = false;
             }
         }
 
         void ensureBuilt() const
         {
-            if ( !built_ )
-                throw std::runtime_error( "CudaRopeOp: build() must be called before forward/backward/decode." );
+            if ( !this->is_built_ )
+                throw std::runtime_error( "CudaRopeOp: build() must be called before forward/backward/prefill/decode." );
         }
-
-        // DEPRECATED: shape validation is done at the component level in Rope::validateShapes() 
-        // — the operation assumes the component has done its job and trusts the shapes.
-        /*void validateInputShape( const shape_t& shape ) const
-        {
-            if ( shape.size() != 4 )
-                throw std::invalid_argument(
-                    "CudaRopeOp: Q input must be rank-4 [B, T, n_heads, head_dim]" );
-
-            if ( shape[ 1 ] > config_.getMaxSequenceLength() )
-                throw std::invalid_argument( std::format(
-                    "CudaRopeOp: sequence length {} exceeds max_seq_len {}",
-                    shape[ 1 ], config_.getMaxSequenceLength() ) );
-
-            if ( shape[ 2 ] != config_.getNumHeads() )
-                throw std::invalid_argument( std::format(
-                    "CudaRopeOp: n_heads mismatch: tensor has {}, config expects {}",
-                    shape[ 2 ], config_.getNumHeads() ) );
-
-            if ( shape[ 3 ] != config_.getHeadDim() )
-                throw std::invalid_argument( std::format(
-                    "CudaRopeOp: head_dim mismatch: tensor has {}, config expects {}",
-                    shape[ 3 ], config_.getHeadDim() ) );
-        }*/
 
         void validateRuntimeShape( int B, int T ) const
         {

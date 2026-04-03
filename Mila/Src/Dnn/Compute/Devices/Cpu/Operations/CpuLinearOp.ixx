@@ -174,8 +174,10 @@ namespace Mila::Dnn::Compute
          *
          * After build(), the operation is ready for zero-overhead forward/backward dispatch.
          */
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
+            const auto& input_shape = config.inputShape();
+
             if (weight_ == nullptr)
             {
                 throw std::runtime_error( "CpuLinearOp::build requires parameters bound via setParameters() before build()." );
@@ -228,7 +230,7 @@ namespace Mila::Dnn::Compute
             // Cache OMP parallelization threshold
             enable_omp_ = (batch_size_ > 100);
 
-            UnaryOperationBase::build( input_shape );
+            UnaryOperationBase::build( config );
         }
 
         // ====================================================================

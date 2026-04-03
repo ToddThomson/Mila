@@ -5,7 +5,7 @@
 module;
 #include <cstdint>
 
-export module Dnn.Model:RuntimeMode;
+export module Dnn.RuntimeMode;
 
 namespace Mila::Dnn
 {

@@ -286,7 +286,7 @@ namespace Components::Layers::Tests
             "deferred_cuda_encoder",
             cfg );
 
-        EXPECT_THROW( component->build( shape_t{ 1,1 } ), std::runtime_error );
+        EXPECT_THROW( component->build( shape_t{ 1,1 }, RuntimeMode::Training ), std::runtime_error );
     }
 
     TEST_F( EncoderCudaTests, Constructor_WithInvalidDevice_ThrowsInvalidArgument )

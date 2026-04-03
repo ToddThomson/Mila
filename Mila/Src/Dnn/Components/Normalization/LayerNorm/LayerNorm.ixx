@@ -107,10 +107,6 @@ namespace Mila::Dnn
 
         ~LayerNorm() override = default;
 
-        // ====================================================================
-        // Compute operation dispatch (new API)
-        // ====================================================================
-
         /**
          * @brief Run forward pass and return a reference to the component-owned output tensor.
          *
@@ -131,55 +127,24 @@ namespace Mila::Dnn
         {
             if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "LayerNorm module must be built before calling forward." );
+                throw std::runtime_error( "LayerNorm::forward: must be built." );
             }
 
-            //// DEBUG:
+            operation_->forward( input, *output_ );
 
-            //// Check input range
-            //auto host_input = toHost<TensorDataType::FP32>( input );
-            //auto host_input_ptr = host_input.data();
-            //const size_t n = host_input.size();
-            //auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
-            //Utils::Logger::debug( std::format( "LayerNorm {} in:[{:.3f}, {:.3f}] with shape {}",
-            //    this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
+            const auto& input_shape = input.shape();
 
-            //// END DEBUG:
-
-            operation_->forward( input, *owned_output_ );
-
-            // Resolve the output: return the full buffer if the shape matches,
-            // otherwise produce a view trimmed to the actual input shape.
-            auto input_shape = input.shape();
-
-            TensorType* result = nullptr;
-
-            if ( input_shape == max_input_shape_ )
+            if ( input_shape == output_->shape() )
             {
-                result = owned_output_.get();
+                return *output_;
             }
-            else
+
+            if ( !output_view_.has_value() || output_view_->shape() != input_shape )
             {
-                current_output_view_ = std::make_unique<TensorType>(
-                    owned_output_->view( input_shape )
-                );
-                result = current_output_view_.get();
+                output_view_.emplace( output_->view( input_shape ) );
             }
 
-            //// DEBUG:
-
-            //// Check output range on the resolved view to avoid reading stale
-            //// elements beyond the current input extent in the pre-allocated buffer.
-            //auto host_output = toHost<TensorDataType::FP32>( *result );
-            //auto host_output_ptr = host_output.data();
-            //const size_t m = host_output.size();
-            //auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + m );
-            //Utils::Logger::debug( std::format( "LayerNorm {} out:[{:.3f}, {:.3f}] with shape {}",
-            //    this->getName(), *min_out, *max_out, shapeToString( result->shape() ) ) );
-
-            //// END DEBUG:
-
-            return *result;
+            return *output_view_;
         }
 
         /**
@@ -207,17 +172,12 @@ namespace Mila::Dnn
                 throw std::runtime_error( "LayerNorm module must be built before calling backward." );
             }
 
-            if ( !this->isTraining() )
+            if ( this->isInferenceMode() )
             {
-                throw std::runtime_error( "LayerNorm must be in training mode to call backward." );
+                throw std::runtime_error( "LayerNorm::backward: must be in training mode" );
             }
 
-            if ( !operation_ )
-            {
-                throw std::runtime_error( "LayerNorm: operation backend not initialized" );
-            }
-
-            if ( !owned_input_grad_ )
+            if ( !input_grad_ )
             {
                 throw std::runtime_error( "LayerNorm: owned input-grad buffer not allocated" );
             }
@@ -226,11 +186,11 @@ namespace Mila::Dnn
             // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed buffers
             // to prevent gradient buildup across calls. Without this, gradients grow linearly
             // with each call -> explosion.
-            zero( *owned_input_grad_ );
+            zero( *input_grad_ );
 
-            operation_->backward( input, output_grad, *owned_input_grad_ );
+            operation_->backward( input, output_grad, *input_grad_ );
 
-            return *owned_input_grad_;
+            return *input_grad_;
         }
 
         void zeroGradients() override
@@ -279,7 +239,7 @@ namespace Mila::Dnn
 
         std::vector<ITensor*> getGradients() const override
         {
-            if ( !this->isTraining() )
+            if ( !this->build_context_.isTrainingMode() )
             {
                 throw std::runtime_error( "LayerNorm: getGradients called when not in training mode" );
             }
@@ -414,14 +374,14 @@ namespace Mila::Dnn
                 stats.device_parameter_bytes += bias_->getStorageSize();
             }
 
-            if ( owned_output_ != nullptr )
+            if ( output_ != nullptr )
             {
-                stats.device_state_bytes += owned_output_->getStorageSize();
+                stats.device_state_bytes += output_->getStorageSize();
             }
 
-            if ( owned_input_grad_ != nullptr )
+            if ( input_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += owned_input_grad_->getStorageSize();
+                stats.device_gradient_bytes += input_grad_->getStorageSize();
             }
 
             if ( weight_grad_ != nullptr )
@@ -473,26 +433,44 @@ namespace Mila::Dnn
          * to the backend operation, triggers backend build, and allocates the
          * component-owned forward output and input-gradient tensors.
          */
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const BuildContext& context ) override
         {
-            validateInputShape( input_shape );
+            validateBuildContext( context );
 
-            max_input_shape_ = input_shape;
+            const auto& input_shape = context.inputShape();
 
-            allocateParameters( input_shape );
+            initializeParameters( input_shape );
 
             operation_->setParameters( weight_.get(), bias_.get() );
-
-            operation_->build( input_shape );
+            operation_->build( context );
 
             auto device = this->getExecutionContext()->getDeviceId();
 
-            owned_output_ = std::make_unique<TensorType>( device, input_shape );
-            owned_output_->setName( this->getName() + ".output" );
+            /**
+             * Output buffer — allocated at the full input shape.
+             *
+             * LayerNorm is a general component with no knowledge of sequence
+             * dimensions or inference decode paths. The parent Network or
+             * Transformer is responsible for passing the correct input shape
+             * via BuildContext:
+             *
+             *   Training   — full sequence shape e.g. [B, T, features]
+             *   Inference  — decode shape e.g. [1, 1, features] for decode path
+             *                or prefill shape e.g. [1, T_chunk, features] for prefill
+             *
+             * In all cases LayerNorm simply allocates at inputShape() — no
+             * special casing for inference or sequence dimensions.
+             */
+            output_ = std::make_unique<TensorType>( device, input_shape, this->getName() + ".output" );
 
-            owned_input_grad_ = std::make_unique<TensorType>( device, input_shape );
-            owned_input_grad_->setName( this->getName() + ".input.grad" );
-            zero( *owned_input_grad_ );
+            if ( context.isTrainingMode() )
+            {
+                initializeGradients();
+                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
+
+                input_grad_ = std::make_unique<TensorType>( device, input_shape, this->getName() + ".input_grad" );
+                zero( *input_grad_ );
+            }
         }
 
         /**
@@ -501,17 +479,13 @@ namespace Mila::Dnn
          * Propagates training state to the backend operation and allocates or
          * clears parameter gradient buffers as appropriate.
          */
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
-            operation_->setTraining( is_training );
+            operation_->setTrainingMode( training_mode );
 
-            if ( is_training )
-            {
-                initializeGradients();
+            auto is_eval_mode = (training_mode == TrainingMode::Eval);
 
-                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
-            }
-            else
+            if ( is_eval_mode )
             {
                 operation_->clearGradients();
 
@@ -529,8 +503,7 @@ namespace Mila::Dnn
 
     private:
         LayerNormConfig config_;
-        shape_t max_input_shape_;
-        
+                
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
 
@@ -542,9 +515,60 @@ namespace Mila::Dnn
 
         // Component-owned forward output and input-gradient tensors (new API).
         // Stored as unique_ptr since the component exclusively owns these buffers.
-        std::unique_ptr<TensorType> owned_output_{ nullptr };
-        std::unique_ptr<TensorType> owned_input_grad_{ nullptr };
-        std::unique_ptr<TensorType> current_output_view_{ nullptr };
+        std::unique_ptr<TensorType> output_{ nullptr };
+        std::unique_ptr<TensorType> input_grad_{ nullptr };
+        std::optional<TensorType> output_view_;
+
+        void validateBuildContext( const BuildContext& context ) const
+        {
+            const auto& input_shape = context.inputShape();
+
+            if ( input_shape.empty() )
+            {
+                throw std::invalid_argument( "LayerNorm: input shape must not be empty" );
+            }
+
+            if ( config_.hasNormalizedShape() )
+            {
+                const auto& normalized_shape = config_.getNormalizedShape();
+
+                if ( input_shape.size() < normalized_shape.size() )
+                {
+                    throw std::invalid_argument( std::format(
+                        "LayerNorm: input rank {} is less than normalized_shape rank {}",
+                        input_shape.size(), normalized_shape.size() ) );
+                }
+
+                size_t offset = input_shape.size() - normalized_shape.size();
+                for ( size_t i = 0; i < normalized_shape.size(); ++i )
+                {
+                    if ( input_shape[ offset + i ] != normalized_shape[ i ] )
+                    {
+                        throw std::invalid_argument( std::format(
+                            "LayerNorm: input trailing dim {} is {} but normalized_shape expects {}",
+                            i, input_shape[ offset + i ], normalized_shape[ i ] ) );
+                    }
+                }
+            }
+            else if ( config_.getAxis().has_value() )
+            {
+                int64_t axis = config_.getAxis().value();
+                int64_t rank = static_cast<int64_t>(input_shape.size());
+
+                // Resolve negative axis
+                if ( axis < 0 )
+                {
+                    axis = rank + axis;
+                }
+
+                if ( axis < 0 || axis >= rank )
+                {
+                    throw std::invalid_argument( std::format(
+                        "LayerNorm: axis {} out of range for input rank {}",
+                        config_.getAxis().value(), rank ) );
+                }
+            }
+        }
 
         void validateInputShape( const shape_t& input_shape ) const
         {
@@ -575,25 +599,18 @@ namespace Mila::Dnn
          *
          * @param input_shape Optional pointer to the build-time input shape.
          */
-        void allocateParameters( const shape_t& input_shape )
+        void initializeParameters( const shape_t& input_shape )
         {
-            if ( weight_ )
-            {
-                return;
-            }
-
             const dim_t normalized_features = computeNormalizedFeatureCount( input_shape );
 
             auto device = this->getExecutionContext()->getDeviceId();
 
-            weight_ = std::make_shared<TensorType>( device, shape_t{ normalized_features } );
-            weight_->setName( this->getName() + ".weight" );
+            weight_ = std::make_shared<TensorType>( device, shape_t{ normalized_features }, this->getName() + ".weight" );
             ones( *weight_ );
 
             if ( config_.hasBias() )
             {
-                bias_ = std::make_shared<TensorType>( device, shape_t{ normalized_features } );
-                bias_->setName( this->getName() + ".bias" );
+                bias_ = std::make_shared<TensorType>( device, shape_t{ normalized_features }, this->getName() + ".bias" );
                 zero( *bias_ );
             }
         }
@@ -604,15 +621,13 @@ namespace Mila::Dnn
 
             if ( !weight_grad_ && weight_ )
             {
-                weight_grad_ = std::make_shared<TensorType>( device_id, weight_->shape() );
-                weight_grad_->setName( this->getName() + ".weight.grad" );
+                weight_grad_ = std::make_shared<TensorType>( device_id, weight_->shape(), this->getName() + ".weight_grad" );
                 zeros( *weight_grad_ );
             }
 
             if ( config_.hasBias() && !bias_grad_ && bias_ )
             {
-                bias_grad_ = std::make_shared<TensorType>( device_id, bias_->shape() );
-                bias_grad_->setName( this->getName() + ".bias.grad" );
+                bias_grad_ = std::make_shared<TensorType>( device_id, bias_->shape(), this->getName() + ".bias_grad" );
                 zeros( *bias_grad_ );
             }
         }

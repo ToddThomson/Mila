@@ -27,7 +27,7 @@ namespace Dnn::Components::Activations::Tests
 
     struct GeluCpuTestData
     {
-        std::vector<int64_t> shape;
+        shape_t shape;
         std::shared_ptr<GeluCpu> gelu;
 
         static GeluCpuTestData Create(
@@ -186,7 +186,7 @@ namespace Dnn::Components::Activations::Tests
         DeviceId device_id = Device::Cpu();
         auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
-        std::vector<int64_t> shape = { 2, 3, 4 };
+        shape_t shape = { 2, 3, 4 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
 
@@ -230,7 +230,7 @@ namespace Dnn::Components::Activations::Tests
         DeviceId device_id = Device::Cpu();
         auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
-        std::vector<int64_t> shape = { 2, 4, 8 };
+        shape_t shape = { 2, 4, 8 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
@@ -260,7 +260,7 @@ namespace Dnn::Components::Activations::Tests
         DeviceId device_id = Device::Cpu();
         auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
-        std::vector<int64_t> shape = { 3, 5, 7 };
+        shape_t shape = { 3, 5, 7 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
@@ -285,7 +285,7 @@ namespace Dnn::Components::Activations::Tests
         DeviceId device_id = Device::Cpu();
         auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
-        std::vector<int64_t> shape = { 2, 3, 4 };
+        shape_t shape = { 2, 3, 4 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
@@ -330,7 +330,7 @@ namespace Dnn::Components::Activations::Tests
         DeviceId device_id = Device::Cpu();
         auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
-        std::vector<int64_t> shape = { 2, 3, 4 };
+        shape_t shape = { 2, 3, 4 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
@@ -372,7 +372,7 @@ namespace Dnn::Components::Activations::Tests
         DeviceId device_id = Device::Cpu();
         auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
-        std::vector<int64_t> shape = { 2, 3, 4 };
+        shape_t shape = { 2, 3, 4 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
@@ -406,7 +406,7 @@ namespace Dnn::Components::Activations::Tests
         DeviceId device_id = Device::Cpu();
         auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
-        std::vector<int64_t> shape = { 1, 8 };
+        shape_t shape = { 1, 8 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
@@ -445,7 +445,7 @@ namespace Dnn::Components::Activations::Tests
         DeviceId device_id = Device::Cpu();
         auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
 
-        std::vector<int64_t> shape = { 2, 3 };
+        shape_t shape = { 2, 3 };
 
         Tensor<dtype_t::FP32, MR> input( device_id, shape );
         Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );

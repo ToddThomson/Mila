@@ -6,6 +6,7 @@
 module;
 #include <vector>
 #include <random>
+#include <execution>
 #include <cmath>
 #include <type_traits>
 #include <concepts>
@@ -89,13 +90,19 @@ namespace Mila::Dnn
             }
             else
             {
-                std::normal_distribution<float> dis( mean, stddev );
+                std::normal_distribution<float> dist( mean, stddev );
 
                 std::vector<float> values( count );
-                for ( size_t i = 0; i < count; ++i )
+
+                std::generate( std::execution::par, values.begin(), values.end(), [&]() {
+                    return dist( gen );
+                    } );
+                
+                /*for ( size_t i = 0; i < count; ++i )
                 {
                     values[ i ] = dis( gen );
-                }
+                }*/
+                
                 return values;
             }
         }

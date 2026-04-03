@@ -152,10 +152,12 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
          * @throws std::invalid_argument if input shape is invalid or sequence length
          *                               exceeds the positional embedding capacity.
          */
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
             if ( !wte_ || !wpe_ )
                 throw std::runtime_error( "CudaLpeOp::build requires parameters bound via setParameters() before build()." );
+
+            const auto& input_shape = config.inputShape();
 
             validateInputShape( input_shape );
 
@@ -169,7 +171,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
             if ( embedding_dim_ != config_.getEmbeddingDim() )
                 throw std::invalid_argument( "CudaLpeOp::build - parameter embedding dimension does not match configuration" );
 
-            UnaryOperationBase::build( input_shape );
+            UnaryOperationBase::build( config );
         }
 
         // ====================================================================
@@ -239,8 +241,39 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
         }
 
         // ====================================================================
-        // Decode (IPositionalDecode)
+        // Positional inference (IPositionalUnaryOp)
         // ====================================================================
+
+        /**
+         * @brief Chunked prefill with explicit position offset.
+         *
+         * Computes output[b,t,:] = wte[X[b,t],:] + wpe[position_offset + t,:]
+         * by shifting the wpe base pointer before calling the standard forward
+         * kernel. No dedicated prefill kernel is needed.
+         *
+         * @param input           Token indices [B, T] (INT32).
+         * @param output          Pre-allocated embeddings [B, T, C].
+         * @param position_offset Absolute position of the first token in this chunk.
+         */
+        //void prefill( const ITensor& input, ITensor& output, int position_offset ) override
+        //{
+        //    const auto& input_shape = input.shape();
+        //    int B = static_cast<int>(input_shape[ 0 ]);
+        //    int T = static_cast<int>(input_shape[ 1 ]);
+
+        //    if ( position_offset < 0 ||
+        //        position_offset + T > wpe_max_seq_len_ )
+        //        throw std::invalid_argument( std::format(
+        //            "CudaLpeOp::prefill: position_offset {} + T {} exceeds max_seq_len {}",
+        //            position_offset, T, wpe_max_seq_len_ ) );
+
+        //    const int32_t* X = static_cast<const int32_t*>(input.rawData());
+        //    NativeType* Y = static_cast<NativeType*>(output.rawData());
+
+        //    Detail::cuda_lpe_impl<NativeType>::forward(
+        //        Y, X, wte_, wpe_ + position_offset * embedding_dim_,
+        //        B, T, embedding_dim_, context_->getStream() );
+        //}
 
         /**
          * @brief Single-token decode with an explicit sequence position (hot path).
@@ -250,17 +283,11 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
          * `position` and calls the forward kernel with T=1, so no dedicated decode
          * kernel is required.
          *
-         * Precondition: build() must have been called. position must be in
-         * [0, max_seq_len).
-         *
          * @param input    Single-token indices [B, 1] (INT32).
-         * @param output   Pre-allocated output buffer [B, 1, C] (only first B*C
-         *                 elements are written).
+         * @param output   Pre-allocated output buffer [B, 1, C].
          * @param position Zero-based absolute sequence position for the wpe lookup.
-         *
-         * @throws std::invalid_argument if position is out of range.
          */
-        void decode( const ITensor& input, ITensor& output, int position ) const override
+        void decode( const ITensor& input, ITensor& output, int position ) override
         {
             if ( position < 0 || position >= wpe_max_seq_len_ )
                 throw std::invalid_argument( std::format(
@@ -270,7 +297,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
             int B = static_cast<int>( input.shape()[ 0 ] );
 
             const int32_t* X = static_cast<const int32_t*>( input.rawData() );
-            NativeType* Y    = static_cast<NativeType*>( output.rawData() );
+            NativeType* Y = static_cast<NativeType*>( output.rawData() );
 
             Detail::cuda_lpe_impl<NativeType>::decode(
                 Y, X, wte_, wpe_, B, position, embedding_dim_, context_->getStream() );
@@ -323,15 +350,15 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
     public:
         static void registerOperations()
         {
-            const std::string opName = "LpeOp";
+            //const std::string opName = "LpeOp";
 
             registerUnaryOpType<DeviceType::Cuda,
                 CudaLpeOp<TensorDataType::INT32, TensorDataType::FP32>,
-                TensorDataType::INT32, TensorDataType::FP32>( opName );
+                TensorDataType::INT32, TensorDataType::FP32>( "LpeOp" );
 
             registerUnaryOpType<DeviceType::Cuda,
                 CudaLpeOp<TensorDataType::INT32, TensorDataType::FP16>,
-                TensorDataType::INT32, TensorDataType::FP16>( opName );
+                TensorDataType::INT32, TensorDataType::FP16>( "LpeOp");
         }
     };
 }

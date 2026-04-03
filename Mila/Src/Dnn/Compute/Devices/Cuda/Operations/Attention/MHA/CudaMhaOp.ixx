@@ -43,7 +43,8 @@ import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
-import Compute.KVCacheable;
+import Compute.IKvCacheLifecycle;
+import Compute.IPackedKvInference;
 import Compute.CublasLtPlan;
 import CublasLt.Error;
 import Utils.Logger;
@@ -84,7 +85,8 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
      */
     export template<TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaMultiHeadAttentionOp : public UnaryOperation<DeviceType::Cuda, TPrecision>, public IKVCacheable
+    class CudaMultiHeadAttentionOp : public UnaryOperation<DeviceType::Cuda, TPrecision>, 
+        public IPackedKvInference
     {
     public:
         using MR = CudaDeviceMemoryResource;
@@ -106,7 +108,11 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         void setGradients( ITensor* /*unused1*/, ITensor* /*unused2*/ ) override
         {}
 
-        void initializeKVCache( int batch_size, int max_seq_length )
+        // ====================================================================
+        // IKVCacheLifecycle implementation
+        // ====================================================================
+
+        void initializeKvCache( int batch_size, int max_seq_length ) override
         {
             if ( !this->isBuilt() )
             {
@@ -135,12 +141,16 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             kv_cache_enabled_ = true;
         }
 
-        void resetKVCache()
+        void resetKvCache() override
         {
             cached_seq_len_ = 0;
         }
 
-        void forwardPrefill( const ITensor& input, ITensor& output )
+        // ====================================================================
+        // IPositionalUnaryOp implementation
+        // ====================================================================
+
+        void prefill( const ITensor& input, ITensor& output ) override
         {
             const auto& input_shape = input.shape();
 
@@ -217,18 +227,18 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             // Dump the first 5 elements of v_out_ for debugging
             context_->synchronize();
- /*           {
-                shape_t v_out_shape = { B_, NH_, actual_seq_len, HS_ };
-                std::string v_out_dump = dump_tensor<NativeType>(
-                    v_out_, v_out_shape, this->getName() + ".dbg.v_out_", 16, stream );
-
-                Utils::Logger::info( this->getName() + ": dbg.v_out_ (device dump):\n" + v_out_dump );
-            }*/
+            //{
+            //    shape_t v_out_shape = { B_, NH_, actual_seq_len, HS_ };
+            //    std::string v_out_dump = dump_tensor<NativeType>(
+            //        v_out_, v_out_shape, this->getName() + ".dbg.v_out_", 16, stream );
+            //
+            //    Utils::Logger::info( this->getName() + ": dbg.v_out_ (device dump):\n" + v_out_dump );
+            //}
 
             cached_seq_len_ = actual_seq_len;
         }
 
-        void forwardDecode( const ITensor& input, ITensor& output, int position )
+        void decode( const ITensor& input, ITensor& output, int position ) override
         {
             const auto& input_shape = input.shape();
 
@@ -408,8 +418,9 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             }
         }
 
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
+            const auto& input_shape = config.inputShape();
             validateInputShape( input_shape );
 
             B_ = static_cast<int>(input_shape[ 0 ]);
@@ -446,7 +457,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             buildCublasLtPlans();
 
-            UnaryOperationBase::build( input_shape );
+            UnaryOperationBase::build( config );
         }
 
         void forward( const ITensor& input, ITensor& output ) const override
@@ -559,7 +570,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         {
             assert( this->isBuilt() && "CudaAttentionOp must be built before calling backward()" );
 
-            if ( !this->isTraining() )
+            if ( !this->isEvalMode() )
             {
                 throw std::runtime_error( "CudaAttentionOp::backward called in inference mode" );
             }

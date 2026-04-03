@@ -45,8 +45,9 @@ namespace Dnn::Components::Transformers::Tests
             .withBias( false );
 
         LlamaCudaType net( "llama_cuda_build", cfg, Device::Cuda( 0 ) );
-
-        EXPECT_NO_THROW( net.build( { 1, 8 } ) );
+        auto build_config = BuildContext( shape_t{ 1, 8 }, RuntimeMode::Inference );
+        
+        EXPECT_NO_THROW( net.build( build_config ) );
         EXPECT_GT( net.parameterCount(), 0u );
     }
 
@@ -75,7 +76,9 @@ namespace Dnn::Components::Transformers::Tests
         const int64_t batch = 2;
         const int64_t seq = 5;
 
-        net.build( { batch, cfg.getMaxSequenceLength() } );
+        auto build_config = BuildContext( shape_t{ batch, cfg.getMaxSequenceLength() }, RuntimeMode::Inference );
+
+        net.build( build_config );
 
         LlamaCudaType::TokenIndexType input( cuda_id, shape_t{ batch, seq } );
 

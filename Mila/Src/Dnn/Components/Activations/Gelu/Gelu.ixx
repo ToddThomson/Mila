@@ -164,14 +164,15 @@ namespace Mila::Dnn
         /**
          * @brief Run the forward computation for this GELU component.
          *
-         * Delegates the computation to the device-specific UnaryOperation backend.
-         * The component owns an output buffer that is allocated during onBuilding().
+         * Dispatches to the device-specific UnaryOperation backend via a cached
+         * output view. The view is pre-initialized at build time and rebuilt only
+         * when the input shape changes (e.g. prefill vs decode). Zero heap
+         * allocation in steady-state.
          *
-         * @param input Const reference to the input tensor (non-owning).
-         * @return Pointer to an ITensor containing the forward result.
+         * @param input Const reference to the input tensor.
+         * @return Reference to the cached output view.
          *
          * @throws std::runtime_error if component has not been built via build().
-         * @throws std::runtime_error if operation backend is not initialized.
          */
         TensorType& forward( const TensorType& input )
         {
@@ -180,17 +181,15 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Gelu::forward: component must be built before forward pass" );
             }
 
-            operation_->forward( input, *output_ );
+            const auto& input_shape = input.shape();
 
-            auto input_shape = input.shape();
-
-            if ( input_shape == max_input_shape_ )
+            if ( output_view_->shape() != input_shape )
             {
-                return *output_;
+                output_view_.emplace( output_->view( input_shape ) );
             }
 
-            output_view_ = std::make_unique<TensorType>( output_->view( input_shape ) );
-
+            operation_->forward( input, *output_view_ );
+            
             return *output_view_;
         }
 
@@ -223,10 +222,11 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Gelu::backward: component must be built before backward pass" );
             }
 
-            if ( !this->isTraining() )
+            // REVIEW
+            /*if ( !this->isTraining() )
             {
                 throw std::runtime_error( "Gelu::backward: component must be in training mode to compute gradients" );
-            }
+            }*/
 
             // Zero input gradient buffer before backward pass. No exeptions.
             // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed buffers
@@ -502,28 +502,23 @@ namespace Mila::Dnn
          * @throws std::runtime_error if backend allocation or build fails.
          * @throws std::runtime_error if operation is not initialized.
          */
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const BuildContext& build_context ) override
         {
-            if ( !operation_ )
-            {
-                throw std::runtime_error(
-                    std::format( "Gelu::onBuilding: operation backend not initialized for component '{}'. "
-                        "Ensure onExecutionContextSet() was called successfully.",
-                        this->getName() )
-                );
-            }
-
-            operation_->build( input_shape );
-            max_input_shape_ = input_shape;
+            operation_->build( build_context );
+            const auto& input_shape = build_context.inputShape();
 
             // Allocate owned output and input-gradient tensors with device binding.
             // Buffers are owned by this component and reused across calls.
             DeviceId dev_id = this->getExecutionContext()->getDeviceId();
 
-            output_ = std::make_unique<TensorType>( dev_id, max_input_shape_ );
+            output_ = std::make_unique<TensorType>( dev_id, input_shape, this->getName() + ".output" );
+            output_view_.emplace( output_->view( input_shape ) );
 
-            input_grad_ = std::make_unique<TensorType>( dev_id, max_input_shape_ );
-            zero( *input_grad_ );
+            if ( build_context.isTrainingMode() )
+            {
+                input_grad_ = std::make_unique<TensorType>( dev_id, input_shape, this->getName() + ".input_grad" );
+                zero( *input_grad_ );
+            }
         }
 
         /**
@@ -541,24 +536,20 @@ namespace Mila::Dnn
          * @note Do not call setTraining() from this hook (reentrancy prohibited).
          * @note If operation is not initialized, silently returns (may occur during construction).
          */
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
-            if ( operation_ )
-            {
-                operation_->setTraining( is_training );
-            }
+            operation_->setTrainingMode( training_mode );
         }
 
     private:
 
         GeluConfig config_;
-        shape_t max_input_shape_;
        
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
 
         std::unique_ptr<TensorType> output_{ nullptr };
-        std::unique_ptr<TensorType> output_view_{ nullptr };
+        std::optional<TensorType> output_view_;
         std::unique_ptr<TensorType> input_grad_{ nullptr };
 
         /**

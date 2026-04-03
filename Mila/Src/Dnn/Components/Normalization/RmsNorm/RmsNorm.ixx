@@ -88,60 +88,70 @@ namespace Mila::Dnn
 
         ~RmsNorm() override = default;
 
-        // Forward pass returns component-owned output tensor reference.
+        /**
+         * @brief Run forward pass and return a reference to the component-owned output tensor.
+         *
+         * Dispatches to the operation via a cached output view. The view is pre-initialized
+         * at build time and rebuilt only when the input shape changes (e.g. prefill vs decode).
+         * Zero heap allocation in steady-state.
+         *
+         * @param input Input tensor bound to the component device.
+         * @return Reference to the cached output view.
+         */
         TensorType& forward( const TensorType& input )
         {
             if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "RmsNorm module must be built before calling forward." );
+                throw std::runtime_error( "RmsNorm::forward: must be built." );
             }
 
-            validateInputShape( input.shape() );
+            const auto& input_shape = input.shape();
 
-            if ( !operation_ )
+            if ( output_view_->shape() != input_shape )
             {
-                throw std::runtime_error( "RmsNorm: operation backend not initialized" );
+                output_view_.emplace( output_->view( input_shape ) );
             }
 
-            if ( !owned_output_ )
-            {
-                throw std::runtime_error( "RmsNorm: owned output buffer not allocated" );
-            }
-
-            operation_->forward( input, *owned_output_ );
-
-            return *owned_output_;
+            operation_->forward( input, *output_view_ );
+            
+            return *output_view_;
         }
 
-        // Backward pass returns component-owned input-gradient tensor reference.
+        /**
+         * @brief Run backward pass and return a reference to the component-owned input-gradient tensor.
+         *
+         * @param input       Original forward input tensor.
+         * @param output_grad Gradient with respect to the component output.
+         * @return Reference to the component-owned input-gradient tensor.
+         */
         TensorType& backward( const TensorType& input, const TensorType& output_grad )
         {
             if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "RmsNorm module must be built before calling backward." );
+                throw std::runtime_error( "RmsNorm: must be built before calling backward." );
             }
 
             if ( !this->isTraining() )
             {
-                throw std::runtime_error( "RmsNorm must be in training mode to call backward." );
+                throw std::runtime_error( "RmsNorm: must be in training mode to call backward." );
             }
 
             if ( !operation_ )
             {
-                throw std::runtime_error( "RmsNorm: operation backend not initialized" );
+                throw std::runtime_error( "RmsNorm: operation backend not initialized." );
             }
 
-            if ( !owned_input_grad_ )
+            if ( !input_grad_ )
             {
-                throw std::runtime_error( "RmsNorm: owned input-grad buffer not allocated" );
+                throw std::runtime_error( "RmsNorm: input-grad buffer not allocated." );
             }
 
             // Zero input gradient buffer before backward pass to avoid gradient accumulation.
-            zero( *owned_input_grad_ );
+            zero( *input_grad_ );
 
-            operation_->backward( input, output_grad, *owned_input_grad_ );
+            operation_->backward( input, output_grad, *input_grad_ );
 
-            return *owned_input_grad_;
+            return *input_grad_;
         }
 
         void zeroGradients() override
@@ -157,7 +167,6 @@ namespace Mila::Dnn
             }
         }
 
-        // Serialization (placeholder to match LayerNorm pattern)
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
             (void)archive;
@@ -183,11 +192,6 @@ namespace Mila::Dnn
 
         std::vector<ITensor*> getGradients() const override
         {
-            if ( !this->isTraining() )
-            {
-                throw std::runtime_error( "RmsNorm: getGradients called when not in training mode" );
-            }
-
             std::vector<ITensor*> grads;
 
             if ( weight_grad_ )
@@ -220,6 +224,28 @@ namespace Mila::Dnn
             return count;
         }
 
+        void loadParameter( const std::string& name, const TensorBlob& blob ) override
+        {
+            if ( name == "weight" )
+            {
+                this->loadParameterFromBlob( "weight", blob, *weight_, weight_->shape() );
+            }
+            else if ( name == "bias" )
+            {
+                if ( !config_.hasBias() )
+                {
+                    throw std::runtime_error(
+                        std::format( "Component '{}' was configured without bias", this->getName() ) );
+                }
+
+                this->loadParameterFromBlob( "bias", blob, *bias_, bias_->shape() );
+            }
+            else
+            {
+                this->loadParameter( name, blob );
+            }
+        }
+
         DeviceId getDeviceId() const override
         {
             return this->getExecutionContext()->getDeviceId();
@@ -249,14 +275,14 @@ namespace Mila::Dnn
                 stats.device_parameter_bytes += bias_->getStorageSize();
             }
 
-            if ( owned_output_ != nullptr )
+            if ( output_ != nullptr )
             {
-                stats.device_state_bytes += owned_output_->getStorageSize();
+                stats.device_state_bytes += output_->getStorageSize();
             }
 
-            if ( owned_input_grad_ != nullptr )
+            if ( input_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += owned_input_grad_->getStorageSize();
+                stats.device_gradient_bytes += input_grad_->getStorageSize();
             }
 
             if ( weight_grad_ != nullptr )
@@ -285,55 +311,44 @@ namespace Mila::Dnn
         }
 
     protected:
-        // Lifecycle hooks follow LayerNorm patterns.
 
         void onExecutionContextSet() override
         {
             createOperation();
         }
 
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const BuildContext& build_context ) override
         {
-            validateInputShape( input_shape );
+            const auto& input_shape = build_context.inputShape();
 
+            validateInputShape( input_shape );
             allocateParameters( &input_shape );
 
             operation_->setParameters( weight_.get(), bias_.get() );
-
-            operation_->build( input_shape );
+            operation_->build( build_context );
 
             auto device = this->getExecutionContext()->getDeviceId();
 
-            owned_output_ = std::make_unique<TensorType>( device, input_shape, this->getName() + ".output" );
-            //owned_output_->setName( this->getName() + ".output" );
+            output_ = std::make_unique<TensorType>( device, input_shape, this->getName() + ".output" );
+            output_view_.emplace( output_->view( input_shape ) );
 
-            //owned_input_grad_ = std::make_unique<TensorType>( device, input_shape, this->getName() + ".input.grad" );
-            //owned_input_grad_->setName( this->getName() + ".input.grad" );
-            //zero( *owned_input_grad_ );
+            if ( build_context.isTrainingMode() )
+            {
+                initializeGradients();
+                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
+
+                input_grad_ = std::make_unique<TensorType>( device, input_shape, this->getName() + ".input_grad" );
+                zero( *input_grad_ );
+            }
         }
 
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
-            operation_->setTraining( is_training );
+            operation_->setTrainingMode( training_mode );
 
-            if ( is_training )
-            {
-                if ( !weight_grad_ || (config_.hasBias() && !bias_grad_) )
-                 {
-                    // First transition to training mode — allocate gradient buffers.
-                    initializeGradients();
-                    operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
-                }
+            auto is_training = (training_mode == TrainingMode::Normal);
 
-                if ( !owned_input_grad_ )
-                {
-                    auto device = this->getExecutionContext()->getDeviceId();
-                    owned_input_grad_ = std::make_unique<TensorType>( device, owned_output_->shape(), this->getName() + ".input.grad" );
-                    //owned_input_grad_->setName( this->getName() + ".input.grad" );
-                    zero( *owned_input_grad_ );
-                }
-            }
-            else
+            if ( !is_training )
             {
                 operation_->clearGradients();
 
@@ -351,10 +366,10 @@ namespace Mila::Dnn
 
     private:
         RmsNormConfig config_;
+        shape_t outer_shape_;
+
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
-
-        std::vector<int64_t> outer_shape_;
 
         std::shared_ptr<TensorType> weight_{ nullptr };
         std::shared_ptr<TensorType> bias_{ nullptr };
@@ -362,8 +377,9 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> weight_grad_{ nullptr };
         std::shared_ptr<TensorType> bias_grad_{ nullptr };
 
-        std::unique_ptr<TensorType> owned_output_{ nullptr };
-        std::unique_ptr<TensorType> owned_input_grad_{ nullptr };
+        std::unique_ptr<TensorType> output_{ nullptr };
+        std::unique_ptr<TensorType> input_grad_{ nullptr };
+        std::optional<TensorType> output_view_;
 
         void validateInputShape( const shape_t& input_shape ) const
         {
@@ -401,21 +417,18 @@ namespace Mila::Dnn
 
                 channels = ap.axis_size;
 
-                outer_shape_.clear();
+                outer_shape_ = {};
+                uint8_t out_ndim = 0;
 
-                if ( ap.normalized_axis > 0 )
+                for ( uint8_t i = 0; i < input_shape->ndim; ++i )
                 {
-                    outer_shape_.insert( outer_shape_.end(),
-                        input_shape->begin(),
-                        input_shape->begin() + ap.normalized_axis );
+                    if ( static_cast<int64_t>( i ) != ap.normalized_axis )
+                    {
+                        outer_shape_.dims[ out_ndim++ ] = (*input_shape)[ i ];
+                    }
                 }
 
-                if ( ap.normalized_axis + 1 < static_cast<int64_t>(input_shape->size()) )
-                {
-                    outer_shape_.insert( outer_shape_.end(),
-                        input_shape->begin() + ap.normalized_axis + 1,
-                        input_shape->end() );
-                }
+                outer_shape_.ndim = out_ndim;
             }
             else
             {
@@ -431,7 +444,7 @@ namespace Mila::Dnn
                     MultiAxisPartition mp = computeNormalizedShapePartition( *input_shape, normalized_shape, "RmsNorm" );
 
                     channels = mp.normalized_size;
-                    outer_shape_ = std::move( mp.outer_shape );
+                    outer_shape_ = shape_t{ mp.outer_shape.data(), mp.outer_shape.data() + mp.outer_shape.size() };
                 }
                 else
                 {
@@ -440,20 +453,18 @@ namespace Mila::Dnn
                         channels *= dim;
                     }
 
-                    outer_shape_.clear();
+                    outer_shape_ = {};
                 }
             }
 
             auto device = this->getExecutionContext()->getDeviceId();
 
             weight_ = std::make_shared<TensorType>( device, shape_t{ channels }, this->getName() + ".weight" );
-            //weight_->setName( this->getName() + ".weight" );
             ones( *weight_ );
 
             if ( config_.hasBias() )
             {
                 bias_ = std::make_shared<TensorType>( device, shape_t{ channels }, this->getName() + ".bias" );
-                //bias_->setName( this->getName() + ".bias" );
                 zero( *bias_ );
             }
         }
@@ -464,15 +475,13 @@ namespace Mila::Dnn
 
             if ( !weight_grad_ && weight_ )
             {
-                weight_grad_ = std::make_shared<TensorType>( device_id, weight_->shape() );
-                weight_grad_->setName( this->getName() + ".weight.grad" );
+                weight_grad_ = std::make_shared<TensorType>( device_id, weight_->shape(), this->getName() + ".weight.grad" );
                 zeros( *weight_grad_ );
             }
 
             if ( config_.hasBias() && !bias_grad_ && bias_ )
             {
-                bias_grad_ = std::make_shared<TensorType>( device_id, bias_->shape() );
-                bias_grad_->setName( this->getName() + ".bias.grad" );
+                bias_grad_ = std::make_shared<TensorType>( device_id, bias_->shape(), this->getName() + ".bias.grad" );
                 zeros( *bias_grad_ );
             }
         }

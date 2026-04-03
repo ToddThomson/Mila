@@ -98,7 +98,7 @@ namespace Dnn::Core::Tests
 
     protected:
 
-        void onBuilding( const shape_t& /*input_shape*/ ) override
+        void onBuilding( const BuildConfig& config ) override
         {}
     private:
 
@@ -172,13 +172,15 @@ namespace Dnn::Core::Tests
 
     protected:
 
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const BuildConfig& build_config ) override
         {
             for ( const auto& component : this->getComponents() )
             {
+                // REVIEW: This guard is likely not needed since build() 
+                // should only be called once per component lifecycle
                 if ( !component->isBuilt() )
                 {
-                    component->build( input_shape );
+                    component->build( build_config );
                 }
             }
         }
@@ -340,7 +342,7 @@ namespace Dnn::Core::Tests
         EXPECT_FALSE( child1->isBuilt() );
         EXPECT_FALSE( child2->isBuilt() );
 
-        comp_->build( { 2, 3 } );
+        comp_->build( { 2, 3 }, RuntimeMode::Training );
 
         EXPECT_TRUE( comp_->isBuilt() );
         EXPECT_TRUE( child1->isBuilt() );
@@ -355,7 +357,7 @@ namespace Dnn::Core::Tests
         EXPECT_THROW( comp_->parameterCount(), std::runtime_error );
         //EXPECT_THROW( comp_->getParameters(), std::runtime_error );
 
-        comp_->build( { 1 } );
+        comp_->build( { 1 }, RuntimeMode::Training );
 
         EXPECT_EQ( comp_->parameterCount(), 30u );
 
@@ -399,7 +401,7 @@ namespace Dnn::Core::Tests
         EXPECT_FALSE( child_b->isTraining() );
 
         // Build before enabling training to satisfy Component lifecycle contract.
-        comp_->build( { 1 } );
+        comp_->build( { 1 }, RuntimeMode::Training );
 
         comp_->setTraining( true );
 
@@ -422,7 +424,7 @@ namespace Dnn::Core::Tests
     {
         comp_->addTestChild( "a", 1 );
 
-        comp_->build( { 1 } );
+        comp_->build( { 1 }, RuntimeMode::Training );
 
         EXPECT_THROW(
             comp_->addTestChild( "new", 1 ),
@@ -436,7 +438,7 @@ namespace Dnn::Core::Tests
     {
         comp_->addTestChild( "locked", 0 );
 
-        comp_->build( { 1 } );
+        comp_->build( { 1 }, RuntimeMode::Training );
 
         EXPECT_THROW(
             comp_->clearComponents(),
@@ -448,7 +450,7 @@ namespace Dnn::Core::Tests
     {
         comp_->addTestChild( "locked", 0 );
 
-        comp_->build( { 1 } );
+        comp_->build( { 1 }, RuntimeMode::Training );
 
         EXPECT_THROW(
             comp_->removeComponent( "locked" ),

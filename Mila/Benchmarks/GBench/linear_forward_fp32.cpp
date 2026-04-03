@@ -41,8 +41,8 @@ namespace GBench::GeluBenchmarks
 		const size_t total_bytes = input_bytes + weight_bytes + output_bytes;
 
 		// Build shapes (use int64_t shapes to match tensor APIs)
-		std::vector<int64_t> input_shape = { batch, seq, input_features };
-		std::vector<int64_t> output_shape = { batch, seq, output_features };
+		shape_t input_shape = { batch, seq, input_features };
+		shape_t output_shape = { batch, seq, output_features };
 
 		try
 		{
@@ -75,8 +75,8 @@ namespace GBench::GeluBenchmarks
 			copy( host_input, input );
 
 			// Initialize weights and bias
-			std::vector<int64_t> weight_shape = { output_features, input_features };
-			std::vector<int64_t> bias_shape = { output_features };
+			shape_t weight_shape = { output_features, input_features };
+			shape_t bias_shape = { output_features };
 
 			Tensor<TensorDataType::FP32, CpuMemoryResource> host_weight( cpu_dev, weight_shape );
 			xavier<TensorDataType::FP32, CpuMemoryResource>( host_weight, input_features, output_features );

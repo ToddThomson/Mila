@@ -77,7 +77,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
      */
     export template<TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaLinearOp : public UnaryOperation<DeviceType::Cuda, TPrecision>, public IDecode
+    class CudaLinearOp : public UnaryOperation<DeviceType::Cuda, TPrecision> //, public IDecode
     {
     public:
         using MR = CudaDeviceMemoryResource;
@@ -169,8 +169,10 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             }
         }
 
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& build_config ) override
         {
+            const auto& input_shape = build_config.inputShape();
+
             if (weight_ == nullptr)
             {
                 throw std::runtime_error( "CudaLinearOp::build requires parameters bound via setParameters() before build()." );
@@ -205,10 +207,10 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             }
 
 			// TJT: Better here is outer_size_ . The use of batch_size_ is misleading.
-            cached_batch_size_ = 1;
+            cached_outer_size_ = 1;
             for (size_t i = 0; i + 1 < input_shape.size(); ++i)
             {
-                cached_batch_size_ *= static_cast<int>(input_shape[i]);
+                cached_outer_size_ *= static_cast<int>(input_shape[i]);
             }
 
             cached_out_features_ = static_cast<int>(config_.getOutputFeatures());
@@ -233,19 +235,20 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 }
             }
 
-            UnaryOperationBase::build( input_shape );
+            UnaryOperationBase::build( build_config );
         }
 
         void forward( const ITensor& input, ITensor& output ) const override
         {
-            const auto& input_shape = input.shape();
+            //const auto& input_shape = input.shape();
+            // Compute outer dim size (all dims except last)
+            //int64_t outer_size = 1;
+            //for ( size_t i = 0; i < input_shape.size() - 1; ++i )
+            //{
+            //    outer_size *= input_shape[ i ];
+            //}
 
-            // Compute leading dim size (all dims except last)
-            int64_t batch_size = 1;
-            for ( size_t i = 0; i < input_shape.size() - 1; ++i )
-            {
-                batch_size *= input_shape[ i ];
-            }
+            const int outer_size = static_cast<int>(input.size()) / cached_in_features_;
 
             // Last dimension should match in_features (already validated at build)
             // int64_t actual_in_features = input_shape.back();  // Should equal cached_in_features_
@@ -255,6 +258,18 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             cudaStream_t stream = context_->getStream();
 
+            // Special case for single-token decode path: bypass matmul and execute fused matvec kernel
+            if ( outer_size == 1 )
+            {
+                Detail::cuda_matvec_impl<NativeType>::decode(
+                    output_ptr, input_ptr, 
+                    weight_, bias_,
+                    cached_in_features_, cached_out_features_,
+                    stream );
+
+                return;
+            }
+
             if (use_cublaslt_)
             {
                 const float alpha = 1.0f;
@@ -262,7 +277,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
                 execute_plan<NativeType>(
                     cached_cublaslt_handle_,
-                    forward_plan_cache_.get( static_cast<int>(batch_size) ),
+                    forward_plan_cache_.get( static_cast<int>(outer_size) ),
                     &alpha,
                     input_ptr, weight_,
                     &beta,
@@ -285,7 +300,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             Detail::cuda_matmul_impl<NativeType>::forward(
                 output_ptr, input_ptr,
                 weight_, bias_,
-                static_cast<int>(batch_size),
+                static_cast<int>(outer_size),
                 cached_in_features_, cached_out_features_,
                 stream );
         }
@@ -295,15 +310,18 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             const ITensor& output_grad,
             ITensor& input_grad ) const override
         {
-            if ( !this->isTraining() )
+            if ( !this->isEvalMode() )
             {
                 throw std::runtime_error( "CudaLinearOp::backward called in inference mode" );
 			}
 
-            const auto& grad_shape = output_grad.shape();
-            int64_t batch_size = 1;
-            for ( size_t i = 0; i + 1 < grad_shape.size(); ++i )
-                batch_size *= grad_shape[ i ];
+            //const auto& grad_shape = output_grad.shape();
+            //
+            //int64_t outer_size = 1;
+            //for ( size_t i = 0; i + 1 < grad_shape.size(); ++i )
+            //    outer_size *= grad_shape[ i ];
+
+            const int outer_size = static_cast<int>(output_grad.size()) / cached_out_features_;
 
             const NativeType* input_ptr = static_cast<const NativeType*>(input.rawData());
             const NativeType* output_grad_ptr = static_cast<const NativeType*>(output_grad.rawData());
@@ -320,7 +338,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 // dX[batch, in] = dY[batch, out] @ weight[out, in]
                 execute_plan<NativeType>(
                     cached_cublaslt_handle_,
-                    backward_input_plan_cache_.get( static_cast<int>(batch_size) ),
+                    backward_input_plan_cache_.get( static_cast<int>(outer_size) ),
                     &alpha,
                     output_grad_ptr, weight_,
                     &beta,
@@ -350,7 +368,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     Detail::compute_bias_gradient(
                         bias_grad_,
                         output_grad_ptr,
-                        static_cast<int>(batch_size),
+                        static_cast<int>(outer_size),
                         cached_out_features_,
                         stream );
                 }
@@ -362,26 +380,26 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             Detail::cuda_matmul_impl<NativeType>::backward(
                 input_grad_ptr, weight_grad_, bias_grad_,
                 output_grad_ptr, input_ptr, weight_,
-                cached_batch_size_,
+                cached_outer_size_,
                 cached_in_features_, cached_out_features_,
                 stream );
         }
 
-        void decode( const ITensor& input, ITensor& output ) const override
-        {
-            const NativeType* input_ptr = static_cast<const NativeType*>(input.rawData());
-            NativeType* output_ptr = static_cast<NativeType*>(output.rawData());
-            cudaStream_t stream = context_->getStream();
+        //void decode( const ITensor& input, ITensor& output ) const override
+        //{
+        //    const NativeType* input_ptr = static_cast<const NativeType*>(input.rawData());
+        //    NativeType* output_ptr = static_cast<NativeType*>(output.rawData());
+        //    cudaStream_t stream = context_->getStream();
 
-            Detail::cuda_matvec_impl<NativeType>::decode(
-                output_ptr,
-                input_ptr,
-                weight_,
-                bias_,
-                cached_in_features_,
-                cached_out_features_,
-                stream );
-        }
+        //    Detail::cuda_matvec_impl<NativeType>::decode(
+        //        output_ptr,
+        //        input_ptr,
+        //        weight_,
+        //        bias_,
+        //        cached_in_features_,
+        //        cached_out_features_,
+        //        stream );
+        //}
 
         OperationType getOperationType() const override
         {
@@ -413,7 +431,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         int64_t weight_out_features_{ 0 };
         int64_t weight_in_features_{ 0 };
 
-        int cached_batch_size_{ 0 };
+        int cached_outer_size_{ 0 };
         int cached_in_features_{ 0 };
         int cached_out_features_{ 0 };
 
@@ -454,7 +472,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             scale_type_ = scale_type;
 
             forward_plan_cache_ = CublasLtPlanCache<CublasLtMatMulPlan<NativeType>>(
-                cached_batch_size_,
+                cached_outer_size_,
                 [&]( int bucket )
                 {
                     return Detail::build_forward_plan<NativeType>(
@@ -469,7 +487,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 } );
 
             backward_input_plan_cache_ = CublasLtPlanCache<CublasLtMatMulPlan<NativeType>>(
-                cached_batch_size_,
+                cached_outer_size_,
                 [&]( int bucket )
                 {
                     return Detail::build_backward_input_plan<NativeType>(
@@ -484,7 +502,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             backward_weight_plan_ = Detail::build_backward_weight_plan<NativeType>(
                 cached_cublaslt_handle_,
-                cached_batch_size_,
+                cached_outer_size_,
                 cached_in_features_,
                 cached_out_features_,
                 cuda_data_type_,

@@ -191,7 +191,8 @@ namespace Mila::Dnn
 
             this->getExecutionContext()->synchronize();
 
-            forward_executed_ = this->isTraining();
+            // FIXME:
+            // forward_executed_ = this->isTraining();
 
             return res2_out;
         }
@@ -206,13 +207,15 @@ namespace Mila::Dnn
         TensorType& backward( const TensorType& input, const TensorType& output_grad )
         {
             if ( !this->isBuilt() )
-                throw std::runtime_error( "GptBlock must be built before backward()." );
+                throw std::runtime_error( "GptBlock::backward must be built before backward()" );
 
-            if ( !this->isTraining() )
-                throw std::runtime_error( "GptBlock must be in training mode to call backward(). Call setTraining(true) first." );
+            if ( this->isInferenceMode() )
+            {
+                throw std::runtime_error( "GptBlock::backward: must be in training mode to call backward()" );
+            }
 
             if ( !forward_executed_ )
-                throw std::runtime_error( "GptBlock::backward: a training-mode forward() must be executed before backward()." );
+                throw std::runtime_error( "GptBlock::backward: a training-mode forward() must be executed before backward()" );
 
             auto [d_res1_from_res2, d_ffn_from_res2] =
                 res2_->backward( *last_res1_out_, *last_ffn_out_, output_grad );
@@ -270,14 +273,14 @@ namespace Mila::Dnn
             auto& ln1_out = ln1_->forward( input );
             this->getExecutionContext()->synchronize();
 
-            auto& qkv_out = qkv_proj_->decode( ln1_out );
+            auto& qkv_out = qkv_proj_->forward( ln1_out );
             this->getExecutionContext()->synchronize();
 
             // Attention decides: fast KV cache path or fallback to forward()
             auto& attn_out = attn_->decode( qkv_out, position );
             this->getExecutionContext()->synchronize();
 
-            auto& out_proj = out_proj_->decode( attn_out );
+            auto& out_proj = out_proj_->forward( attn_out );
             this->getExecutionContext()->synchronize();
 
             auto& res1_out = res1_->forward( input, out_proj );
@@ -447,60 +450,62 @@ namespace Mila::Dnn
 
     protected:
 
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const BuildContext& context ) override
         {
-            validateInputShape( input_shape );
+            validateBuildContext( context );
 
-            cached_input_shape_ = input_shape;
+            const auto& input_shape = context.inputShape();
 
             ln1_ = this->template getComponentAs<LayerNormType>( this->getName() + ".ln_1" );
-            ln1_->build( input_shape );
+            ln1_->build( context );
 
             qkv_proj_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_qkv_proj" );
-            qkv_proj_->build( input_shape );
+            qkv_proj_->build( context );
 
-            out_proj_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_out_proj" );
-            out_proj_->build( input_shape );
-
+            // attn_ receives packed QKV — trailing dim is model_dim * 3
             shape_t qkv_shape = input_shape;
             qkv_shape.back() = static_cast<int64_t>(config_.getModelDim() * 3);
-
+            auto qkv_context = BuildContext( qkv_shape, context.getRuntimeMode() );
             attn_ = this->template getComponentAs<AttentionType>( this->getName() + ".attn" );
-            attn_->build( qkv_shape );
+            attn_->build( qkv_context );
+
+            out_proj_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_out_proj" );
+            out_proj_->build( context );
 
             ln2_ = this->template getComponentAs<LayerNormType>( this->getName() + ".ln_2" );
-            ln2_->build( input_shape );
+            ln2_->build( context );
 
             res1_ = this->template getComponentAs<ResidualType>( this->getName() + ".res_1" );
-            res1_->build( input_shape );
+            res1_->build( context );
 
             res2_ = this->template getComponentAs<ResidualType>( this->getName() + ".res_2" );
-            res2_->build( input_shape );
+            res2_->build( context );
 
             ffn_ = this->template getComponentAs<MLPType>( this->getName() + ".mlp" );
-            ffn_->build( input_shape );
+            ffn_->build( context );
 
-            auto device = this->getDeviceId();
+            if ( context.isTrainingMode() )
+            {
+                auto device = this->getDeviceId();
 
-            d_res1_accum_ = std::make_shared<TensorType>( device, input_shape );
-            d_res1_accum_->setName( this->getName() + ".d_res1_accum" );
-            zero( *d_res1_accum_ );
+                d_res1_accum_ = std::make_shared<TensorType>( device, input_shape, this->getName() + ".d_res1_accum" );
+                zero( *d_res1_accum_ );
 
-            d_input_ = std::make_shared<TensorType>( device, input_shape );
-            d_input_->setName( this->getName() + ".d_input" );
-            zero( *d_input_ );
+                d_input_ = std::make_shared<TensorType>( device, input_shape, this->getName() + ".d_input" );
+                zero( *d_input_ );
+            }
         }
 
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
-            if ( attn_ )     attn_->setTraining( is_training );
-            if ( ln1_ )      ln1_->setTraining( is_training );
-            if ( ln2_ )      ln2_->setTraining( is_training );
-            if ( qkv_proj_ ) qkv_proj_->setTraining( is_training );
-            if ( out_proj_ ) out_proj_->setTraining( is_training );
-            if ( res1_ )     res1_->setTraining( is_training );
-            if ( res2_ )     res2_->setTraining( is_training );
-            if ( ffn_ )      ffn_->setTraining( is_training );
+            if ( attn_ )     attn_->setTrainingMode( training_mode );
+            if ( ln1_ )      ln1_->setTrainingMode( training_mode );
+            if ( ln2_ )      ln2_->setTrainingMode( training_mode );
+            if ( qkv_proj_ ) qkv_proj_->setTrainingMode( training_mode );
+            if ( out_proj_ ) out_proj_->setTrainingMode( training_mode );
+            if ( res1_ )     res1_->setTrainingMode( training_mode );
+            if ( res2_ )     res2_->setTrainingMode( training_mode );
+            if ( ffn_ )      ffn_->setTrainingMode( training_mode );
 
             forward_executed_ = false;
         }
@@ -573,6 +578,25 @@ namespace Mila::Dnn
             this->addComponent( std::make_shared<MLPType>( this->getName() + ".mlp", mlp_cfg, std::nullopt ) );
         }
 
+        void validateBuildContext( const BuildContext& context ) const
+        {
+            const auto& input_shape = context.inputShape();
+
+            if ( input_shape.size() != 3 )
+            {
+                throw std::invalid_argument( std::format(
+                    "GptBlock: input must be rank 3 [B, T, embedding_dim], got rank {}",
+                    input_shape.size() ) );
+            }
+
+            if ( input_shape.back() != static_cast<int64_t>(config_.getModelDim()) )
+            {
+                throw std::invalid_argument( std::format(
+                    "GptBlock: embedding dim mismatch — expected {}, got {}",
+                    config_.getModelDim(), input_shape.back() ) );
+            }
+        }
+
         void validateInputShape( const shape_t& input_shape ) const
         {
             if ( input_shape.size() != 3 )
@@ -583,10 +607,9 @@ namespace Mila::Dnn
             int64_t trailing = input_shape.back();
             if ( trailing != static_cast<int64_t>(config_.getModelDim()) )
             {
-                std::ostringstream oss;
-                oss << "GptBlock: model dimension mismatch. Config says "
-                    << config_.getModelDim() << " got " << trailing;
-                throw std::invalid_argument( oss.str() );
+                throw std::invalid_argument( std::format(
+                    "GptBlock: embedding dim mismatch — expected {}, got {}",
+                    config_.getModelDim(), input_shape.back() ) );
             }
         }
     };

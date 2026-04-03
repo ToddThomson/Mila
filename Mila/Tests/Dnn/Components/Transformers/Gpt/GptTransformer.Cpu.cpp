@@ -46,7 +46,9 @@ namespace Dnn::Components::Transformers::Tests
 
         // Build with a small shape (batch, seq)
         shape_t build_shape = { 1, 8 };
-        EXPECT_NO_THROW( net.build( build_shape ) );
+        auto build_config = BuildContext( build_shape, RuntimeMode::Inference );
+
+        EXPECT_NO_THROW( net.build( build_config ) );
 
         // Parameter count should be positive after build
         auto params = net.parameterCount();
@@ -64,7 +66,9 @@ namespace Dnn::Components::Transformers::Tests
 
         // Build network with runtime positional capacity
         shape_t build_shape = { batch, cfg.getMaxSequenceLength() };
-        net.build( build_shape );
+        auto build_config = BuildContext( build_shape, RuntimeMode::Inference );
+        
+        net.build( build_config );
 
         // Create compact inference input (batch, seq)
         typename GptType::TokenIndexType input( Device::Cpu(), shape_t{ batch, seq } );

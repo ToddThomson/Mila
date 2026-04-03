@@ -266,6 +266,9 @@ namespace Mila::Dnn
         }
 
     private:
+
+        // REVIEW: Establishing dim_t as the canonical type for model dimension parameters
+        // is the right library-wide rule: if a field describes the size of a tensor axis, it is dim_t.
         size_t channels_{ 0 };
         size_t n_heads_{ 0 };
         size_t n_kv_heads_{ 0 };

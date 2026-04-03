@@ -10,6 +10,7 @@ module;
 #include <vector>
 #include <memory>
 #include <sstream>
+#include <iostream>
 #include <stdexcept>
 #include <cstdint>
 #include <format>
@@ -49,6 +50,8 @@ namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
+
+    //export constexpr int64_t kPrefillChunkSize = 64;
 
     /**
      * @brief LLaMA-style transformer (decoder-only) for autoregressive token prediction.
@@ -122,18 +125,16 @@ namespace Mila::Dnn
             std::size_t runtime_seq = std::min<std::size_t>(
                 seq_length, static_cast<std::size_t>(config.getMaxSequenceLength()) );
 
-            llama->build( shape_t{
-                static_cast<dim_t>(batch_size),
-                static_cast<dim_t>(runtime_seq) } );
+            auto build_config =  BuildContext( 
+                shape_t{ static_cast<dim_t>(batch_size), static_cast<dim_t>(runtime_seq) },
+                RuntimeMode::Inference );
+
+            llama->build( build_config );
 
             llama->loadParameters( reader, strict );
 
             return llama;
         }
-
-        // ====================================================================
-        // Forward / Decode
-        // ====================================================================
 
         TensorType& forward( const TokenIndexType& input )
         {
@@ -170,11 +171,79 @@ namespace Mila::Dnn
             return *logits_ptr_;
         }
 
+        TensorType& prefill( const TokenIndexType& input )
+        {
+            const int64_t B = input.shape()[ 0 ];
+            const int64_t T_prompt = input.shape()[ 1 ];
+            int64_t offset = 0;
+            int64_t T_last = 0;
+
+            TensorType* last_block_out = nullptr;
+
+            while ( offset < T_prompt )
+            {
+                const int64_t T_actual = std::min( kPrefillChunkSize, T_prompt - offset );
+                T_last = T_actual;
+
+                auto chunk_input = input.view( shape_t{ B, T_actual }, offset );
+
+                // Embed directly — output buffer lives in token_embedding_
+                TensorType* block_input = &token_embedding_->forward( chunk_input ); // DEBUG: Validated tensor output from forward is the same as HF
+                this->getExecutionContext()->synchronize();
+
+                for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
+                {
+                    auto& block_out = transformer_blocks_[ i ]->prefill( *block_input, static_cast<int>( offset ) );
+                    this->getExecutionContext()->synchronize();
+                    block_input = &block_out;
+                }
+
+                last_block_out = block_input;
+                offset += T_actual;
+            }
+
+            // DEBUG:
+            // Dump final block output for the last chunk
+            std::cout << std::format(
+                "LlamaTransformer::prefill: final block output for last chunk (B={}, T_last={})",
+                B, T_last ) << std::endl;
+            std::cout << toHost<TensorDataType::FP32>( *last_block_out ).toString( true ) << std::endl;
+            // END DEBUG
+
+            // Extract last position from final chunk output — [B, 1, model_dim]
+            size_t last_pos_offset = static_cast<size_t>((T_last - 1) * config_.getModelDim());
+            auto last_pos = last_block_out->view(
+                shape_t{ B, 1, config_.getModelDim() },
+                last_pos_offset );
+            // DEBUG:
+            // Dump last pos block output for the last chunk
+            std::cout << std::format(
+                "LlamaTransformer::prefill: last_pos for last chunk (B={}, T_last={})",
+                B, T_last ) << std::endl;
+            std::cout << toHost<TensorDataType::FP32>( last_pos ).toString( true ) << std::endl;
+            // END DEBUG
+
+            normalized_ptr_ = &final_rmsnorm_->forward( last_pos );
+            this->getExecutionContext()->synchronize();
+            // DEBUG:
+            // Dump RmsNorm output
+            std::cout << std::format( "LlamaTransformer::prefill: normalized output: " ) << std::endl;
+            std::cout << toHost<TensorDataType::FP32>( *normalized_ptr_ ).toString( true ) << std::endl;
+            // END DEBUG
+
+            logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
+            this->getExecutionContext()->synchronize();
+            // DEBUG:
+            // Dump logits output
+            std::cout << std::format( "LlamaTransformer::prefill: logits output: " ) << std::endl;
+            std::cout << toHost<TensorDataType::FP32>( *logits_ptr_ ).toString( true ) << std::endl;
+            // END DEBUG
+
+            return *logits_ptr_;
+        }
+
         TensorType& decode( const TokenIndexType& input, int position )
         {
-            if ( !this->isBuilt() )
-                throw std::runtime_error( "LlamaTransformer must be built before calling decode()." );
-
             auto& embed_out = token_embedding_->forward( input );
             this->getExecutionContext()->synchronize();
 
@@ -199,15 +268,11 @@ namespace Mila::Dnn
             normalized_ptr_ = &final_rmsnorm_->forward( *block_output_ptrs_.back() );
             this->getExecutionContext()->synchronize();
 
-            logits_ptr_ = &lm_head_->decode( *normalized_ptr_ );
+            logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
             this->getExecutionContext()->synchronize();
 
             return *logits_ptr_;
         }
-
-        // ====================================================================
-        // Backward
-        // ====================================================================
 
         TokenIndexType& backward( const TokenIndexType& input, const TensorType& output_grad )
         {
@@ -349,6 +414,60 @@ namespace Mila::Dnn
 
     protected:
 
+        void onBuilding( const BuildContext& context ) override
+        {
+            validateBuildContext( context );
+
+            const auto& input_shape = context.inputShape();
+
+            const auto B = input_shape[ 0 ];
+            const auto T = input_shape[ 1 ];
+
+            // Blocks need full context_length so GQA can size the KV cache correctly.
+            // LlamaBlock handles the prefill/decode split internally.
+            shape_t block_shape = { B, T, config_.getModelDim() };
+            BuildContext block_context( block_shape, context.getRuntimeMode() );
+
+            // Inference: final_rmsnorm and lm_head only process the last position.
+            // Training: must process full sequence for loss computation.
+            shape_t final_shape = context.isInferenceMode() ? 
+                shape_t{ B, 1, config_.getModelDim() } : shape_t{ B, T, config_.getModelDim() };
+
+            BuildContext final_context( final_shape, context.getRuntimeMode() );
+
+            transformer_blocks_.clear();
+            transformer_blocks_.reserve( static_cast<size_t>(config_.getNumLayers()) );
+
+            token_embedding_ = this->template getComponentAs<TokenEmbeddingType>( this->getName() + ".temb" );
+            token_embedding_->build( context );
+
+            for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
+            {
+                std::string block_name = this->getName() + ".tf_layer_" + std::to_string( i );
+                auto block = this->template getComponentAs<TransformerBlockType>( block_name );
+                block->build( block_context );
+                transformer_blocks_.push_back( block );
+            }
+
+            final_rmsnorm_ = this->template getComponentAs<RmsNormType>( this->getName() + ".rmsn_final" );
+            final_rmsnorm_->build( final_context );
+
+            lm_head_ = this->template getComponentAs<LinearType>( this->getName() + ".lm_head" );
+            lm_head_->build( final_context );
+
+            block_input_ptrs_.assign( transformer_blocks_.size(), nullptr );
+            block_output_ptrs_.assign( transformer_blocks_.size(), nullptr );
+            token_embed_out_ptr_ = nullptr;
+            encoder_out_ptr_ = nullptr;
+            normalized_ptr_ = nullptr;
+            logits_ptr_ = nullptr;
+        }
+
+        void onTrainingModeChanging( TrainingMode training_mode ) override
+        {
+            NetworkBase::onTrainingModeChanging( training_mode );
+        }
+
         void save_( ModelArchive& archive, SerializationMode /*mode*/ ) const override
         {
             SerializationMetadata meta;
@@ -378,50 +497,6 @@ namespace Mila::Dnn
             archive.writeMetadata( "transformer_meta.json", meta );
         }
 
-        void onTrainingChanging( bool is_training ) override
-        {
-            NetworkBase::onTrainingChanging( is_training );
-        }
-
-        void onBuilding( const shape_t& input_shape ) override
-        {
-            validateInputShape( input_shape );
-
-            input_shape_ = input_shape;
-            batch_size_ = input_shape[ 0 ];
-            seq_length_ = input_shape[ 1 ];
-
-            embedding_shape_ = { batch_size_, seq_length_, config_.getModelDim() };
-            output_shape_ = { batch_size_, seq_length_, config_.getVocabSize() };
-
-            transformer_blocks_.clear();
-            transformer_blocks_.reserve( static_cast<size_t>(config_.getNumLayers()) );
-
-            token_embedding_ = this->template getComponentAs<TokenEmbeddingType>( this->getName() + ".emb" );
-            token_embedding_->build( input_shape );
-
-            for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
-            {
-                std::string block_name = this->getName() + ".tf_layer_" + std::to_string( i );
-                auto block = this->template getComponentAs<TransformerBlockType>( block_name );
-                block->build( embedding_shape_ );
-                transformer_blocks_.push_back( block );
-            }
-
-            final_rmsnorm_ = this->template getComponentAs<RmsNormType>( this->getName() + ".rms_final" );
-            final_rmsnorm_->build( embedding_shape_ );
-
-            lm_head_ = this->template getComponentAs<LinearType>( this->getName() + ".lm_head" );
-            lm_head_->build( embedding_shape_ );
-
-            block_input_ptrs_.assign( transformer_blocks_.size(), nullptr );
-            block_output_ptrs_.assign( transformer_blocks_.size(), nullptr );
-
-            token_embed_out_ptr_ = nullptr;
-            encoder_out_ptr_ = nullptr;
-            normalized_ptr_ = nullptr;
-            logits_ptr_ = nullptr;
-        }
 
     private:
 
@@ -439,6 +514,9 @@ namespace Mila::Dnn
         std::vector<std::shared_ptr<TransformerBlockType>> transformer_blocks_;
         std::shared_ptr<RmsNormType> final_rmsnorm_{ nullptr };
         std::shared_ptr<LinearType>  lm_head_{ nullptr };
+        
+        // Inference-only prefill buffer for autoregressive decoding.
+        std::unique_ptr<TensorType> prefill_{ nullptr };
 
         // Activation pointers — valid between forward() and the next backward().
         TensorType* token_embed_out_ptr_{ nullptr };   // rope's input
@@ -454,20 +532,17 @@ namespace Mila::Dnn
 
         void createGraph()
         {
-            // Token embedding — pure vocabulary lookup, no positional information.
             TokenEmbeddingConfig embedding_config;
             embedding_config.withVocabSize( static_cast<size_t>(config_.getVocabSize()) )
                 .withEmbeddingDim( static_cast<size_t>(config_.getModelDim()) );
 
-            auto embedding = std::make_shared<TokenEmbeddingType>(
-                this->getName() + ".emb", embedding_config );
-
+            auto embedding = std::make_shared<TokenEmbeddingType>( this->getName() + ".temb", embedding_config );
             this->addComponent( embedding );
 
             // Transformer blocks.
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
-                LlamaConfig block_cfg( config_.getModelDim(), 1 );
+                LlamaConfig block_cfg( config_.getModelDim(), /*num_layers*/ 1 );
                 block_cfg.withNumHeads( config_.getNumHeads() )
                     .withNumKVHeads( config_.getNumKVHeads() )
                     .withHiddenDimension( config_.getHiddenDimension() )
@@ -487,7 +562,7 @@ namespace Mila::Dnn
                 .withBias( false );
 
             auto final_rmsnorm = std::make_shared<RmsNormType>(
-                this->getName() + ".rms_final", rms_config, std::nullopt );
+                this->getName() + ".rmsn_final", rms_config, std::nullopt );
 
             this->addComponent( final_rmsnorm );
 
@@ -516,16 +591,35 @@ namespace Mila::Dnn
             return { full_name.substr( 0, last_dot ), full_name.substr( last_dot + 1 ) };
         }
 
-        void validateInputShape( const shape_t& input_shape ) const
+        void validateBuildContext( const BuildContext& context ) const
         {
-            if ( input_shape.size() != 2 )
-                throw std::invalid_argument(
-                    "LlamaTransformer: input must have rank 2 (batch_size, seq_length)" );
+            const auto& input_shape = context.inputShape();
 
-            if ( input_shape[ 1 ] > config_.getMaxSequenceLength() )
+            if ( input_shape.size() != 2 )
+            {
+                throw std::invalid_argument( std::format(
+                    "LlamaTransformer: input must be rank 2 [B, T], got rank {}",
+                    input_shape.size() ) );
+            }
+
+            if ( input_shape[ 0 ] < 1 || input_shape[ 1 ] < 1 )
+            {
+                throw std::invalid_argument( std::format(
+                    "LlamaTransformer: B and T must be >= 1, got [{}, {}]",
+                    input_shape[ 0 ], input_shape[ 1 ] ) );
+            }
+        }
+
+        void validateLeadingShape( const shape_t& leading_shape ) const
+        {
+            if ( leading_shape.size() != 2 )
+                throw std::invalid_argument(
+                    "LlamaTransformer: Leading shape must have rank 2 (batch_size, seq_length)" );
+
+            if ( leading_shape[ 1 ] > config_.getMaxSequenceLength() )
                 throw std::invalid_argument(
                     std::format( "LlamaTransformer: sequence length {} exceeds maximum {}",
-                        input_shape[ 1 ], config_.getMaxSequenceLength() ) );
+                        leading_shape[ 1 ], config_.getMaxSequenceLength() ) );
         }
 
         static LlamaConfig createConfigFromMetadata( const PretrainedMetadata& metadata )

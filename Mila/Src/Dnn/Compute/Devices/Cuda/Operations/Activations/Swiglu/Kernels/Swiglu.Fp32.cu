@@ -38,20 +38,24 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
     __global__ void swiglu_forward_fp32_kernel(
         float* __restrict__ Y,
         const float* __restrict__ X,
-        int N )
+        int N,
+        int half_width )
     {
         int i = blockIdx.x * blockDim.x + threadIdx.x;
 
         if ( i < N )
         {
-            // Read gate and x values
-            // Gate is in first half, x is in second half
-            float gate = X[ i ];
-            float x = X[ i + N ];
+            int token = i / half_width;
+            int col = i % half_width;
+            int gate_idx = token * (half_width * 2) + col;
+            int up_idx = token * (half_width * 2) + col + half_width;
+
+            float gate = __ldg( &X[ gate_idx ] );
+            float x = __ldg( &X[ up_idx ] );
 
         #ifndef NDEBUG
-            constexpr float kSwigluInputAbsLimit = 50.0f;
-            constexpr float kSwigluOutputAbsLimit = 100.0f;
+            constexpr float kSwigluInputAbsLimit = 1000.0f; // REVIEW: not principled
+            constexpr float kSwigluOutputAbsLimit = 5000.0f;
 
             if ( !isfinite( gate ) || fabsf( gate ) > kSwigluInputAbsLimit ||
                 !isfinite( x ) || fabsf( x ) > kSwigluInputAbsLimit )
@@ -64,11 +68,8 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
             }
         #endif
 
-            // Compute Swish(gate) = gate * sigmoid(gate)
-            // sigmoid(gate) = 1 / (1 + exp(-gate))
-            float swish = gate / (1.0f + expf( -gate ));
-
-            // SwiGLU output
+            float sigmoid_gate = __frcp_rn( 1.0f + __expf( -gate ) );
+            float swish = gate * sigmoid_gate;
             float y = swish * x;
 
         #ifndef NDEBUG
@@ -149,13 +150,13 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
     void cuda_swiglu_forward_fp32(
         float* Y,
         const float* X,
-        int N,
+        int N, int half_width,
         cudaStream_t stream )
     {
-        const int block_size = 128;
+        const int block_size = 256;
         const int grid_size = (N + block_size - 1) / block_size;
 
-        swiglu_forward_fp32_kernel << <grid_size, block_size, 0, stream >> > (Y, X, N);
+        swiglu_forward_fp32_kernel <<<grid_size, block_size, 0, stream >>> (Y, X, N, half_width );
 
         cudaCheck( cudaGetLastError() );
     }

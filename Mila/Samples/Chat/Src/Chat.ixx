@@ -162,8 +162,8 @@ namespace Mila::ChatApp
 
         std::string generateResponse( const std::vector<std::string>& history )
         {
-            try
-            {
+            /*try
+            {*/
                 if ( !tokenizer_ )
                     return "Tokenizer not loaded.";
 
@@ -184,11 +184,11 @@ namespace Mila::ChatApp
                 std::string full_text = tokenizer_->decode( std::vector<TokenId>( generated.begin(), generated.end() ) );
 
                 return extractResponse( full_text, prompt );
-            }
+            /*}
             catch ( const std::exception& e )
             {
                 return "Error: " + std::string( e.what() );
-            }
+            }*/
         }
 
         std::string extractResponse(

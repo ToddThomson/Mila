@@ -23,6 +23,8 @@ module;
 #include <limits>
 #include <exception>
 #include <optional>
+#include <format>
+#include <algorithm>
 
 export module Dnn.Tensor;
 
@@ -173,13 +175,18 @@ namespace Mila::Dnn
             size_( other.size_ ),
             shape_( std::move( other.shape_ ) ),
             strides_( std::move( other.strides_ ) ),
-            buffer_( std::move( other.buffer_ ) ) {
+            buffer_( std::move( other.buffer_ ) ),
+            is_view_( other.is_view_ ),
+            view_offset_( other.view_offset_ )
+        {
 
             // Leave moved-from object in clearly invalid state
             other.size_ = 0;
             other.shape_ = {};
             other.strides_ = {};
             other.device_id_ = {};
+            other.is_view_ = false;
+            other.view_offset_ = 0;
         }
 
         /**
@@ -194,8 +201,9 @@ namespace Mila::Dnn
          *
          * Self-assignment safe implementation.
          */
-        Tensor& operator=( Tensor&& other ) noexcept {
-            if (this != &other)
+        Tensor& operator=( Tensor&& other ) noexcept
+        {
+            if ( this != &other )
             {
                 device_id_ = std::move( other.device_id_ );
                 uid_ = std::move( other.uid_ );
@@ -204,11 +212,15 @@ namespace Mila::Dnn
                 strides_ = std::move( other.strides_ );
                 size_ = other.size_;
                 buffer_ = std::move( other.buffer_ );
+                is_view_ = other.is_view_;
+                view_offset_ = other.view_offset_;
 
                 other.size_ = 0;
-                other.shape_.clear();
-                other.strides_.clear();
-                // FIXME: other.device_id_.clear();
+                other.shape_ = {};
+                other.strides_ = {};
+                other.device_id_ = {};
+                other.is_view_ = false;
+                other.view_offset_ = 0;
             }
 
             return *this;
@@ -338,9 +350,9 @@ namespace Mila::Dnn
          *
          * Only available for host-accessible memory resources.
          */
-        auto& operator[]( const std::vector<int64_t>& indices )
-            requires TMemoryResource::is_host_accessible {
-
+        auto& operator[]( const index_t& indices )
+            requires TMemoryResource::is_host_accessible 
+        {
             if (isScalar()) {
                 throw std::runtime_error( "Cannot use operator[] on scalar tensors. Use item() instead." );
             }
@@ -356,9 +368,9 @@ namespace Mila::Dnn
         /**
          * @brief Accesses tensor element using multi-dimensional indices (const version)
          */
-        const auto& operator[]( const std::vector<int64_t>& indices ) const
-            requires TMemoryResource::is_host_accessible {
-
+        const auto& operator[]( const index_t& indices ) const
+            requires TMemoryResource::is_host_accessible 
+        {
             if (isScalar()) {
                 throw std::runtime_error( "Cannot use operator[] on scalar tensors. Use item() instead." );
             }
@@ -376,8 +388,10 @@ namespace Mila::Dnn
          */
         template<typename... Indices>
         auto& operator[]( Indices... indices )
-            requires TMemoryResource::is_host_accessible && (std::convertible_to<Indices, int64_t> && ...) {
-            std::vector<int64_t> idx{ static_cast<int64_t>(indices)... };
+            requires TMemoryResource::is_host_accessible && (std::convertible_to<Indices, int64_t> && ...) 
+        {
+            index_t idx{ static_cast<int64_t>(indices)... };
+            
             return this->operator[]( idx );
         }
 
@@ -458,6 +472,7 @@ namespace Mila::Dnn
         [[nodiscard]] constexpr auto* data() noexcept requires TMemoryResource::is_host_accessible
         {
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
+            
             return buffer_ ? static_cast<HostType*>(buffer_->data()) + view_offset_ : nullptr;
         }
 
@@ -467,6 +482,7 @@ namespace Mila::Dnn
         [[nodiscard]] constexpr const auto* data() const noexcept requires TMemoryResource::is_host_accessible
         {
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
+            
             return buffer_ ? static_cast<const HostType*>(buffer_->data()) + view_offset_ : nullptr;
         }
 
@@ -474,14 +490,13 @@ namespace Mila::Dnn
         // Shape Transformation Operations
         // ====================================================================
 
-        Tensor view( const shape_t& new_shape, size_t offset = 0 )
+        [[nodiscard]] Tensor view( const shape_t& new_shape, size_t offset = 0 ) const
         {
-            size_t view_size = computeSize( new_shape );
-            if ( view_offset_ + offset + view_size > buffer_->size() )
+            if ( !buffer_ )
             {
-                throw std::invalid_argument( "View size exceeds tensor size" );
+                throw std::runtime_error( "Tensor::view: cannot create view of a tensor with no buffer" );
             }
-            
+
             return Tensor( *this, new_shape, offset );
         }
 
@@ -642,8 +657,8 @@ namespace Mila::Dnn
         std::string uid_;                   ///< Unique identifier for this tensor instance
         std::string name_;                  ///< Optional user-assigned name for debugging
         size_t size_{ 0 };                  ///< Total number of logical elements in the tensor
-        std::vector<int64_t> shape_{};      ///< Dimensional sizes for each tensor dimension
-        std::vector<int64_t> strides_{};    ///< Memory stride values for multi-dimensional indexing
+        shape_t shape_{};                   ///< Dimensional sizes for each tensor dimension
+        stride_t strides_{};                ///< Memory stride values for multi-dimensional indexing
         std::shared_ptr<TensorBuffer<TDataType, TMemoryResource>> buffer_{ nullptr }; ///< Managed buffer containing tensor data
 
         bool is_view_{ false };
@@ -702,12 +717,12 @@ namespace Mila::Dnn
             if (size_ > 0) {
 
                 // DEBUG
-                std::cout << "Tensor::allocateBuffer: "
-                    << uid_ << (name_.empty() ? "" : "::" + name_)
-                    << " device=" << device_id_.toString()
-                    << " size=" << detail::formatBytes( size_ * elementSize() )
-                    << " shape=" << shapeToString( shape_ )
-                    << std::endl;
+                //std::cout << "Tensor::allocateBuffer: "
+                //    << uid_ << (name_.empty() ? "" : "::" + name_)
+                //    << " device=" << device_id_.toString()
+                //    << " size=" << detail::formatBytes( size_ * elementSize() )
+                //    << " shape=" << shapeToString( shape_ )
+                //    << std::endl;
                 // END DEBUG
 
                 buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>( device_id_.index, size_);
@@ -717,7 +732,7 @@ namespace Mila::Dnn
         /**
          * @brief Validates multi-dimensional indices against tensor shape
          */
-        void validateIndices( const std::vector<int64_t>& indices, const char* fn ) const {
+        void validateIndices( const index_t& indices, const char* fn ) const {
             if (indices.size() != shape_.size()) {
                 throw std::runtime_error( std::string( fn ) + ": number of indices must match tensor rank" );
             }
@@ -732,7 +747,7 @@ namespace Mila::Dnn
         /**
          * @brief Computes flat memory index from multi-dimensional indices
          */
-        int64_t computeFlatIndex( const std::vector<int64_t>& indices ) const {
+        int64_t computeFlatIndex( const index_t& indices ) const {
             int64_t idx = 0;
 
             for (size_t d = 0; d < indices.size(); ++d) {
@@ -769,23 +784,40 @@ namespace Mila::Dnn
         /**
          * @brief Computes total element count from shape vector
          */
-        int64_t computeSize( const std::vector<int64_t>& shape ) {
+        int64_t computeSize( const shape_t& shape ) const
+        {
+            return std::ranges::fold_left( shape, int64_t{ 1 }, std::multiplies{} );
+
+            // REVIEW: Improbably bug in the std::accumulate version with 1ull initial value causing overflow for large shapes.
+            // std::ranges::fold_left with int64_t initial value works correctly.
+            // 
+            // TODO: Remove the old version after testing and validation of the new implementation.
+            // 
             // Product of empty sequence is 1 (multiplicative identity) for scalar construction
-            return std::accumulate( shape.begin(), shape.end(), 1ull, std::multiplies<int64_t>() );
+            // return std::accumulate( shape.begin(), shape.end(), 1ull, std::multiplies<int64_t>() );
         }
 
         /**
          * @brief Computes row-major memory strides from shape
          */
-        std::vector<int64_t> computeStrides(const std::vector<int64_t>& shape) {
-            std::vector<int64_t> strides(shape.size(), 1);
+        stride_t computeStrides( const shape_t& shape )
+        {
+            stride_t strides;
+            strides.ndim = shape.ndim;
 
-            if (shape.empty()) {
+            for ( uint8_t i = 0; i < shape.ndim; ++i )
+            {
+                strides[ i ] = 1;
+            }
+
+            if ( shape.empty() )
+            {
                 return strides;
             }
 
-            for (int64_t i = shape.size() - 1; i > 0; --i) {
-                strides[i - 1] = strides[i] * shape[i];
+            for ( int64_t i = static_cast<int64_t>( shape.ndim ) - 1; i > 0; --i )
+            {
+                strides[ i - 1 ] = strides[ i ] * shape[ i ];
             }
 
             return strides;

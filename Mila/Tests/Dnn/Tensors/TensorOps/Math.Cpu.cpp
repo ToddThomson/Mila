@@ -48,7 +48,7 @@ namespace Dnn::Tensors::TensorOps::Tests
     template<TensorDataType TDataType>
     Tensor<TDataType, CpuMemoryResource> makeCpuTensor(
         const DeviceId device_name,
-        const std::vector<int64_t>& shape,
+        const shape_t& shape,
         const std::vector<typename TensorHostTypeMap<TDataType>::host_type>& values = {} )
     {
         Tensor<TDataType, CpuMemoryResource> tensor( device_name, shape );

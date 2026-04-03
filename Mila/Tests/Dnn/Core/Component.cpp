@@ -188,7 +188,7 @@ namespace Dnn::Components::Tests
 
     protected:
 
-        void onBuilding( const shape_t& /*input_shape*/ ) override
+        void onBuilding( const BuildConfig& config ) override
         {}
 
     private:

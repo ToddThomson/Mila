@@ -83,11 +83,11 @@ namespace Mila::Dnn
          * ExecutionContext to be provided later via setExecutionContext().
          *
          * @param name Component name.
-         * @param config Layer configuration (validated on construction).
+         * @param context Layer configuration (validated on construction).
          * @param device_id Optional device identifier. When present the component
          *                  creates an owned ExecutionContext for the device.
          *
-         * @throws std::invalid_argument if config is invalid or device type mismatches.
+         * @throws std::invalid_argument if context is invalid or device type mismatches.
          * @throws std::runtime_error if ExecutionContext creation fails.
          */
         explicit Linear( const std::string& name, const LinearConfig& config, std::optional<DeviceId> device_id = std::nullopt )
@@ -130,145 +130,32 @@ namespace Mila::Dnn
             }
 
             validateInputShape( input.shape() );
+            // REVIEW: This is now a compute operation optimization rather than a decode path.
+            // Fast decode path — single token, inference mode, dedicated kernel.
+            //if ( decode_path_ && isInferenceMode() && input.shape()[ 1 ] == 1 )
+            //{
+            //    decode_path_->decode( input, *owned_output_ );
+            //    
+            //    return *owned_output_;
+            //}
 
-            //// DEBUG:
-            //auto input_shape_d = input.shape();
-            //Utils::Logger::info( std::format(
-            //    "lm_head forward: input_shape={} max_input_shape={} shapes_equal={}",
-            //    shapeToString( input_shape_d ),
-            //    shapeToString( max_input_shape_ ),
-            //    input_shape_d == max_input_shape_ ) );
-
-
-            //// Check input range
-            //auto host_input = toHost<TensorDataType::FP32>( input );
-            //auto host_input_ptr = host_input.data();
-            //const size_t n = host_input.size();
-            //auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
-            //Utils::Logger::debug( std::format( "LinearOp {} in:[{:.3f}, {:.3f}] with shape {}",
-            //    this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
-
-            //// END DEBUG:
-
-            operation_->forward( input, *owned_output_ );
+            operation_->forward( input, *output_ );
 
             auto input_shape = input.shape();
             
             TensorType* result = nullptr;
-            if ( input_shape == max_input_shape_ )
+            if ( input_shape == leading_shape_ )
             {
-                result = owned_output_.get();
+                result = output_.get();
             }
             else
             {
                 auto output_shape = input_shape;
                 output_shape.back() = config_.getOutputFeatures();
-                output_view_ = std::make_unique<TensorType>( owned_output_->view( output_shape ) );
+                output_view_ = std::make_unique<TensorType>( output_->view( output_shape ) );
                 
                 result = output_view_.get();
             }
-
-            /*auto output_shape = input_shape;
-            output_shape.back() = config_.getOutputFeatures();
-            output_view_ = std::make_unique<TensorType>( owned_output_->view( output_shape ) );*/
-
-            // DEBUG: Start
-            //auto component_name = this->getName();
-            //
-            //if ( component_name.find( "mlp.fc_1" ) != std::string::npos && component_name.find( "layer_0" ) != std::string::npos )
-            //{
-            //    this->synchronize();
-            //
-            //    auto host_weight = toHost<TensorDataType::FP32>( *weight_ );
-            //    auto host_input = toHost<TensorDataType::FP32>( input );
-            //    auto host_output = toHost<TensorDataType::FP32>( *owned_output_ );
-            //
-            //    int in_feat = config_.getInputFeatures();
-            //    int out_feat = config_.getOutputFeatures();
-            //
-            //    const float* w_ptr = host_weight.data();
-            //    const float* in_ptr = host_input.data();
-            //    const float* out_ptr = host_output.data();
-            //
-            //    float manual_result = 0.0f;
-            //    for ( int i = 0; i < in_feat; i++ )
-            //    {
-            //        manual_result += w_ptr[ i ] * in_ptr[ i ];
-            //    }
-            //
-            //    // Add bias if present
-            //    if ( bias_ )
-            //    {
-            //        auto host_bias = toHost<TensorDataType::FP32>( *bias_ );
-            //        const float* b_ptr = host_bias.data();
-            //        manual_result += b_ptr[ 0 ];  // Add bias for output element 0
-            //    }
-            //
-            //    Utils::Logger::info( std::format( "FC_1 Weight shape: [{}x{}]", out_feat, in_feat ) );
-            //    Utils::Logger::info( std::format( "FC_1 Input first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
-            //        in_ptr[ 0 ], in_ptr[ 1 ], in_ptr[ 2 ], in_ptr[ 3 ], in_ptr[ 4 ] ) );
-            //    Utils::Logger::info( std::format( "FC_1 Weight row 0 first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
-            //        w_ptr[ 0 ], w_ptr[ 1 ], w_ptr[ 2 ], w_ptr[ 3 ], w_ptr[ 4 ] ) );
-            //    Utils::Logger::info( std::format( "FC_1 Manual output[0,0]: {:.6f}", manual_result ) );
-            //    Utils::Logger::info( std::format( "FC_1 cuBLASLt output[0,0]: {:.6f}", out_ptr[ 0 ] ) );
-            //}
-            //
-            //if ( component_name.find( "mlp.fc_2" ) != std::string::npos && component_name.find( "layer_0" ) != std::string::npos )
-            //{
-            //    this->synchronize();
-            //
-            //    // Get all data to host
-            //    auto host_weight = toHost<TensorDataType::FP32>( *weight_ );
-            //    auto host_input = toHost<TensorDataType::FP32>( input );
-            //    auto host_output = toHost<TensorDataType::FP32>( *owned_output_ );
-            //
-            //    int in_feat = config_.getInputFeatures();
-            //    int out_feat = config_.getOutputFeatures();
-            //
-            //    const float* w_ptr = host_weight.data();
-            //    const float* in_ptr = host_input.data();
-            //    const float* out_ptr = host_output.data();
-            //
-            //    // output[0,0] = dot(weight row 0, input row 0)
-            //    // Weight row 0: elements [0...in_feat-1]
-            //    // Input row 0: elements [0...in_feat-1]
-            //    float manual_result = 0.0f;
-            //    for ( int i = 0; i < in_feat; i++ )
-            //    {
-            //        manual_result += w_ptr[ i ] * in_ptr[ i ];
-            //    }
-            //
-            //    // Add bias if present
-            //    if ( bias_ )
-            //    {
-            //        auto host_bias = toHost<TensorDataType::FP32>( *bias_ );
-            //        const float* b_ptr = host_bias.data();
-            //        manual_result += b_ptr[ 0 ];  // Add bias for output element 0
-            //    }
-            //
-            //    Utils::Logger::info( std::format( "Weight shape: [{}x{}]", out_feat, in_feat ) );
-            //    Utils::Logger::info( std::format( "Input first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
-            //        in_ptr[ 0 ], in_ptr[ 1 ], in_ptr[ 2 ], in_ptr[ 3 ], in_ptr[ 4 ] ) );
-            //    Utils::Logger::info( std::format( "Weight row 0 first 5: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
-            //        w_ptr[ 0 ], w_ptr[ 1 ], w_ptr[ 2 ], w_ptr[ 3 ], w_ptr[ 4 ] ) );
-            //    Utils::Logger::info( std::format( "Manual output[0,0]: {:.6f}", manual_result ) );
-            //    Utils::Logger::info( std::format( "cuBLASLt output[0,0]: {:.6f}", out_ptr[ 0 ] ) );
-            //    Utils::Logger::info( std::format( "Difference: {:.6f}", std::abs( manual_result - out_ptr[ 0 ] ) ) );
-            //}
-            //// DEBUG: End
-
-            //// DEBUG:
-            //// Check output range
-            //this->synchronize();
-
-            //auto host_output = toHost<TensorDataType::FP32>( *result );
-            //auto host_output_ptr = host_output.data();
-            //const size_t output_n = host_output.size();
-            //auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
-
-            //Utils::Logger::debug( std::format( "LinearOp {} out:[{:.3f}, {:.3f}], shape {}",
-            //    this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );
-            //// DEBUG END
 
             return *result;
         }
@@ -290,19 +177,19 @@ namespace Mila::Dnn
         {
             if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "Linear Component must be built before calling backward." );
+                throw std::runtime_error( "Linear::backward: must be built" );
             }
 
-            if ( !this->isTraining() )
+            if ( this->isInferenceMode() )
             {
-                throw std::runtime_error( "Linear Component must be in training mode to call backward. Call setTraining(true) first." );
+                throw std::runtime_error( "Linear::backward: must be in training mode" );
             }
 
             // Zero input gradient buffer before backward pass. No exeptions.
             // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed buffers
             // to prevent gradient buildup across calls. Without this, gradients grow linearly
             // with each call -> explosion.
-            zero( *owned_input_grad_ );
+            zero( *input_grad_ );
 
             // DEBUG: Dump W and B and input
             //debugDumpTensor<TPrecision,MR>( *weight_, "weight" );
@@ -315,40 +202,41 @@ namespace Mila::Dnn
             //debugDumpTensor<TPrecision,MR>( input, "input" );
             //debugDumpTensor<TPrecision,MR>( output_grad, "output_grad" );
 
-            operation_->backward( input, output_grad, *owned_input_grad_ );
+            operation_->backward( input, output_grad, *input_grad_ );
 
-            return *owned_input_grad_;
+            return *input_grad_;
         }
 
-        TensorType& decode( const TensorType& input )
-        {
-            if ( !this->isBuilt() )
-                throw std::runtime_error( "Linear must be built before calling decode()." );
+        // REVIEW: This is now a compute operation optimization rather than a decode path.
+        //TensorType& decode( const TensorType& input )
+        //{
+        //    if ( !this->isBuilt() )
+        //        throw std::runtime_error( "Linear must be built before calling decode()." );
 
-            validateDecodeShape( input.shape() );
+        //    validateDecodeShape( input.shape() );
 
-            if ( decode_path_ )
-            {
-                decode_path_->decode( input, *owned_output_ );
-            }
-            else
-            {
-                // Fallback for backends without a specialized decode path (e.g. CPU). 
-                // Uses the standard forward() method.
-                operation_->forward( input, *owned_output_ );
-            }
+        //    if ( decode_path_ )
+        //    {
+        //        decode_path_->decode( input, *output_ );
+        //    }
+        //    else
+        //    {
+        //        // Fallback for backends without a specialized decode path (e.g. CPU). 
+        //        // Uses the standard forward() method.
+        //        operation_->forward( input, *output_ );
+        //    }
 
-            if ( input.shape() == max_input_shape_ )
-            {
-                return *owned_output_;
-            }
+        //    if ( input.shape() == leading_shape_ )
+        //    {
+        //        return *output_;
+        //    }
 
-            auto output_shape = input.shape();
-            output_shape.back() = config_.getOutputFeatures();
-            output_view_ = std::make_unique<TensorType>( owned_output_->view( output_shape ) );
+        //    auto output_shape = input.shape();
+        //    output_shape.back() = config_.getOutputFeatures();
+        //    output_view_ = std::make_unique<TensorType>( output_->view( output_shape ) );
 
-            return *output_view_;
-        }
+        //    return *output_view_;
+        //}
 
         void zeroGradients() override
         {
@@ -363,9 +251,9 @@ namespace Mila::Dnn
             }
 
             // REVIEW: Not strictly necessary, but zero input gradients for safety during testing
-            if ( owned_input_grad_ )
+            if ( input_grad_ )
             {
-                zero( *owned_input_grad_ );
+                zero( *input_grad_ );
             }
         }
 
@@ -542,10 +430,11 @@ namespace Mila::Dnn
 
         std::vector<ITensor*> getGradients() const override
         {
-            if ( !this->isTraining() )
+            // REVIEW:
+            /*if ( !this->isTraining() )
             {
                 throw std::runtime_error( "Linear: getGradients called when not in training mode" );
-            }
+            }*/
 
             std::vector<ITensor*> grads;
 
@@ -589,73 +478,73 @@ namespace Mila::Dnn
                 this->loadParameter( name, blob ); // Throws
             }
 
-            // DEBUG: Diagnostics
+            //// DEBUG: Diagnostics
 
-            if ( name == "weight" )
-            {
-                // DIAGNOSTIC: Check weight statistics
-                auto host_weights = toHost<TensorDataType::FP32>( *weight_ );
-
-                const float* ptr = host_weights.data();
-                const size_t n = host_weights.size();
-
-                if ( n > 0 )
-                {
-                    float min_w = *std::min_element( ptr, ptr + n );
-                    float max_w = *std::max_element( ptr, ptr + n );
-                    float mean_w = std::accumulate( ptr, ptr + n, 0.0f ) / static_cast<float>(n);
-
-                    Utils::Logger::info( std::format(
-                        "LinearOp [{}x{}] weight stats: min={:.6f} max={:.6f} mean={:.6f}",
-                        config_.getInputFeatures(), config_.getOutputFeatures(), min_w, max_w, mean_w ) );
-                }
-
-                // DEBUG: Print first 5x5 block for fc_2 layers
-                auto component_name = this->getName();
-                if ( component_name.find( "mlp.fc_2" ) != std::string::npos )
-                {
-                    auto host_data = host_weights.data();
-                    auto shape = weight_->shape();
-                    int num_cols = shape[ 1 ];
-                    
-                    Utils::Logger::info( std::format( "{} weight first 5x5 block:", component_name ) );
-                    for ( int row = 0; row < 5; ++row )
-                    {
-                        Utils::Logger::info( std::format( "  [{:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}]",
-                            host_data[ row * num_cols + 0 ],
-                            host_data[ row * num_cols + 1 ],
-                            host_data[ row * num_cols + 2 ],
-                            host_data[ row * num_cols + 3 ],
-                            host_data[ row * num_cols + 4 ] ) );
-                    }
-
-                    auto strides = weight_->strides();
-
-                    Utils::Logger::info( std::format( "Weight tensor info:" ) );
-                    Utils::Logger::info( std::format( "  Shape: [{}, {}]", shape[ 0 ], shape[ 1 ] ) );
-                    Utils::Logger::info( std::format( "  Size: {}", weight_->size() ) );
-                    Utils::Logger::info( std::format( "  Strides: [{}, {}]", strides[0], strides[1] ) );
-                }
-            }
-
-            if ( name == "bias" )
-            {
-                auto host_bias = toHost<TensorDataType::FP32>( *bias_ );
-                const float* ptr = host_bias.data();
-                const size_t n = host_bias.size();
-
-                if ( n > 0 )
-                {
-                    float min_b = *std::min_element( ptr, ptr + n );
-                    float max_b = *std::max_element( ptr, ptr + n );
-
-                    Utils::Logger::info( std::format(
-                        "  bias stats: min={:.6f} max={:.6f}",
-                        min_b, max_b ) );
-                }
-            }
-
-            // END DEBUG:
+            //if ( name == "weight" )
+            //{
+            //    // DIAGNOSTIC: Check weight statistics
+            //    auto host_weights = toHost<TensorDataType::FP32>( *weight_ );
+            //
+            //    const float* ptr = host_weights.data();
+            //    const size_t n = host_weights.size();
+            //
+            //    if ( n > 0 )
+            //    {
+            //        float min_w = *std::min_element( ptr, ptr + n );
+            //        float max_w = *std::max_element( ptr, ptr + n );
+            //        float mean_w = std::accumulate( ptr, ptr + n, 0.0f ) / static_cast<float>(n);
+            //
+            //        Utils::Logger::info( std::format(
+            //            "LinearOp [{}x{}] weight stats: min={:.6f} max={:.6f} mean={:.6f}",
+            //            config_.getInputFeatures(), config_.getOutputFeatures(), min_w, max_w, mean_w ) );
+            //    }
+            //
+            //    // DEBUG: Print first 5x5 block for fc_2 layers
+            //    auto component_name = this->getName();
+            //    if ( component_name.find( "mlp.fc_2" ) != std::string::npos )
+            //    {
+            //        auto host_data = host_weights.data();
+            //        auto shape = weight_->shape();
+            //        int num_cols = shape[ 1 ];
+            //        
+            //        Utils::Logger::info( std::format( "{} weight first 5x5 block:", component_name ) );
+            //        for ( int row = 0; row < 5; ++row )
+            //        {
+            //            Utils::Logger::info( std::format( "  [{:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}]",
+            //                host_data[ row * num_cols + 0 ],
+            //                host_data[ row * num_cols + 1 ],
+            //                host_data[ row * num_cols + 2 ],
+            //                host_data[ row * num_cols + 3 ],
+            //                host_data[ row * num_cols + 4 ] ) );
+            //        }
+            //
+            //        auto strides = weight_->strides();
+            //
+            //        Utils::Logger::info( std::format( "Weight tensor info:" ) );
+            //        Utils::Logger::info( std::format( "  Shape: [{}, {}]", shape[ 0 ], shape[ 1 ] ) );
+            //        Utils::Logger::info( std::format( "  Size: {}", weight_->size() ) );
+            //        Utils::Logger::info( std::format( "  Strides: [{}, {}]", strides[0], strides[1] ) );
+            //    }
+            //}
+            //
+            //if ( name == "bias" )
+            //{
+            //    auto host_bias = toHost<TensorDataType::FP32>( *bias_ );
+            //    const float* ptr = host_bias.data();
+            //    const size_t n = host_bias.size();
+            //
+            //    if ( n > 0 )
+            //    {
+            //        float min_b = *std::min_element( ptr, ptr + n );
+            //        float max_b = *std::max_element( ptr, ptr + n );
+            //
+            //        Utils::Logger::info( std::format(
+            //            "  bias stats: min={:.6f} max={:.6f}",
+            //            min_b, max_b ) );
+            //    }
+            //}
+            //
+            //// END DEBUG:
         }
 
         /**
@@ -673,13 +562,13 @@ namespace Mila::Dnn
             {
                 stats.device_parameter_bytes += bias_->getStorageSize();
             }
-            if ( owned_output_ != nullptr )
+            if ( output_ != nullptr )
             {
-                stats.device_state_bytes += owned_output_->getStorageSize();
+                stats.device_state_bytes += output_->getStorageSize();
             }
-            if ( owned_input_grad_ != nullptr )
+            if ( input_grad_ != nullptr )
             {
-                stats.device_gradient_bytes += owned_input_grad_->getStorageSize();
+                stats.device_gradient_bytes += input_grad_->getStorageSize();
             }
             if ( weight_grad_ != nullptr )
             {
@@ -717,31 +606,33 @@ namespace Mila::Dnn
          *
          * @param input_shape Shape of the incoming tensor.
          */
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const BuildContext& context ) override
         {
-            validateInputShape( input_shape );
+            validateBuildContext( context );
 
-            max_input_shape_ = input_shape;
+            const auto& input_shape = context.inputShape();
 
             initializeParameters();
-
             operation_->setParameters( weight_.get(), bias_.get() );
-            operation_->setTraining( this->isTraining() );
+            operation_->build( context );
 
-            // Resolve IDecode once at build time. May be nullptr for some backends (CPU)
-            decode_path_ = dynamic_cast<IDecode*>(operation_.get());
-
-            Utils::Logger::info( std::format( "Linear {} calling operation build()", this->getName() ) );
-            operation_->build( input_shape );
-
-            // Allocate and cache component-owned output and input-gradient tensors.
             auto device_id = this->getExecutionContext()->getDeviceId();
 
+            // NOTES:
+            // Output buffer — allocated at the full input shape with the
+            // trailing dimension replaced by output_features.
             shape_t output_shape = input_shape;
             output_shape.back() = config_.getOutputFeatures();
+            output_ = std::make_unique<TensorType>( device_id, output_shape, this->getName() + ".output" );
 
-            owned_output_ = std::make_unique<TensorType>( device_id, output_shape, this->getName() + ".output" );
-            //owned_output_->setName( this->getName() + ".output" );
+            if ( context.isTrainingMode() )
+            {
+                initializeGradients();
+                operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
+
+                input_grad_ = std::make_unique<TensorType>( device_id, input_shape, this->getName() + ".input_grad" );
+                zero( *input_grad_ );
+            }
         }
 
         /**
@@ -753,38 +644,31 @@ namespace Mila::Dnn
          *
          * @param is_training New training mode.
          */
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode mode ) override
         {
-            operation_->setTraining( is_training );
+            operation_->setTrainingMode( mode );
 
-            if ( is_training )
-            {
-                if ( !weight_grad_ || (config_.hasBias() && !bias_grad_) )
-                {
-                    initializeGradients();
-                    operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
-                }
-
-                if ( !owned_input_grad_ )
-                {
-                    auto device_id = this->getExecutionContext()->getDeviceId();
-                    owned_input_grad_ = std::make_unique<TensorType>( device_id, max_input_shape_, this->getName() + ".input.grad" );
-                    zero( *owned_input_grad_ );
-                }
-            }
-            else
+            if ( mode == TrainingMode::Eval )
             {
                 operation_->clearGradients();
 
-                // Prefer to keep gradient buffers allocated for next training phase.
+                // Retain gradient buffers for next training pass — just zero them.
                 if ( weight_grad_ )
                 {
                     zero( *weight_grad_ );
                 }
-                
+
                 if ( bias_grad_ )
                 {
                     zero( *bias_grad_ );
+                }
+            }
+            else
+            {
+                // Restore gradients on return to training pass.
+                if ( weight_grad_ )
+                {
+                    operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
                 }
             }
         }
@@ -792,7 +676,7 @@ namespace Mila::Dnn
     private:
 
         LinearConfig config_;
-        shape_t max_input_shape_;
+        shape_t leading_shape_;
 
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
@@ -809,9 +693,28 @@ namespace Mila::Dnn
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
 
         // Component-owned forward output and input-gradient tensors (exclusive ownership)
-        std::unique_ptr<TensorType> owned_output_{ nullptr };
+        std::unique_ptr<TensorType> output_{ nullptr };
         std::unique_ptr<TensorType> output_view_{ nullptr };
-        std::unique_ptr<TensorType> owned_input_grad_{ nullptr };
+        std::unique_ptr<TensorType> input_grad_{ nullptr };
+
+        void validateBuildContext( const BuildContext& context ) const
+        {
+            const auto& input_shape = context.inputShape();
+
+            if ( input_shape.size() < 2 )
+            {
+                throw std::invalid_argument( std::format(
+                    "Linear '{}': input must be at least rank 2, got rank {}",
+                    this->getName(), input_shape.size() ) );
+            }
+
+            if ( input_shape.back() != config_.getInputFeatures() )
+            {
+                throw std::invalid_argument( std::format(
+                    "Linear '{}': input features mismatch — expected {}, got {}",
+                    this->getName(), config_.getInputFeatures(), input_shape.back() ) );
+            }
+        }
 
         /**
          * @brief Validate input shape for the linear operation.
@@ -842,7 +745,7 @@ namespace Mila::Dnn
         /**
          * @brief Validate that an input shape satisfies the decode() contract.
          *
-         * Combines the feature-dimension check from validateInputShape() with an
+         * Combines the feature-dimension check from validateLeadingShape() with an
          * outer-size check: the product of all dimensions except the last must be
          * exactly 1.  This matches the cuda_matvec_impl assumption and ensures the
          * CPU fallback path behaves consistently.
@@ -882,17 +785,15 @@ namespace Mila::Dnn
 
             if ( !weight_grad_ )
             {
-                weight_grad_ = std::make_shared<TensorType>( device_id, weight_->shape() );
-                weight_grad_->setName( this->getName() + ".weight.grad" );
-
+                weight_grad_ = std::make_shared<TensorType>(
+                    device_id, weight_->shape(), this->getName() + ".weight.grad" );
                 zero( *weight_grad_ );
             }
 
             if ( config_.hasBias() && !bias_grad_ )
             {
-                bias_grad_ = std::make_shared<TensorType>( device_id, bias_->shape() );
-                bias_grad_->setName( this->getName() + ".bias.grad" );
-
+                bias_grad_ = std::make_shared<TensorType>(
+                    device_id, bias_->shape(), this->getName() + ".bias.grad" );
                 zero( *bias_grad_ );
             }
         }
@@ -907,19 +808,18 @@ namespace Mila::Dnn
         {
             int64_t input_features = config_.getInputFeatures();
             int64_t output_features = config_.getOutputFeatures();
-
             auto device = this->getExecutionContext()->getDeviceId();
 
-            weight_ = std::make_shared<TensorType>( device, shape_t{ output_features, input_features }, this->getName() + ".weight" );
-            //weight_->setName( this->getName() + ".weight" );
-
+            weight_ = std::make_shared<TensorType>(
+                device, shape_t{ output_features, input_features },
+                this->getName() + ".weight" );
             xavier<TPrecision, MR>( *weight_, input_features, output_features );
 
             if ( config_.hasBias() )
             {
-                bias_ = std::make_shared<TensorType>( device, shape_t{ output_features } );
-                bias_->setName( this->getName() + ".bias" );
-
+                bias_ = std::make_shared<TensorType>(
+                    device, shape_t{ output_features },
+                    this->getName() + ".bias" );
                 zero( *bias_ );
             }
         }

@@ -229,8 +229,7 @@ namespace Bard
     {
         using DeviceMR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
 
-        bool was_training = model->isTraining();
-        model->setTraining( false );
+        model->setTrainingMode( TrainingMode::Eval );
 
         // Encode prompt using tokenizer API (handles BPE/char differences)
         std::vector<TokenId> prompt_tokens = tokenizer->encode( config.sample_prompt );
@@ -293,10 +292,7 @@ namespace Bard
         std::string generated_text = tokenizer->decode(
             std::span<const TokenId>( generated_tokens.data(), generated_tokens.size() ) );
 
-        if ( was_training )
-        {
-            model->setTraining( true );
-        }
+        model->setTrainingMode( TrainingMode::Normal );
 
         return generated_text;
     }
@@ -386,12 +382,16 @@ namespace Bard
             device_id );
 
         shape_t leading_shape = { config.batch_size, config.seq_length };
-        model->build( leading_shape );
+        auto build_config = BuildContext( leading_shape, RuntimeMode::Training );
+        
+        model->build( build_config );
 
         std::cout << "Model built successfully!" << std::endl;
         std::cout << model->toString() << std::endl;
 
-        model->setTraining( true );
+        // DEPRECATED: BuildConfig now sets TRAINING or INFERENCE mode, so this is redundant.
+        // Remove in favor of build config.
+        // model->setTraining( true );
 
         auto optimizer = model->createOptimizer<AdamWOptimizer<TDeviceType, TDataType>>(
             AdamWConfig()

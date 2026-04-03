@@ -18,4 +18,4 @@ PUBLIC
 set(MODELS_DIR "${CMAKE_SOURCE_DIR}/Data/Models")
 target_compile_definitions( ChatApp PRIVATE MODELS_DIR="${MODELS_DIR}" )
 
-target_link_libraries( ChatApp PRIVATE Mila CUDA::cudart )
+target_link_libraries( ChatApp PRIVATE Mila CUDA::cudart CUDA::nvtx3 )

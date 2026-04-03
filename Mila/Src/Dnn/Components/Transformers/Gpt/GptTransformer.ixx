@@ -137,8 +137,9 @@ namespace Mila::Dnn
                 );
 
             // Build with max sequence length (position embeddings support full range)
-            shape_t build_shape = { 1, config.getMaxSequenceLength() };
-            gpt->build( build_shape );
+            auto build_config = BuildContext( { 1, config.getMaxSequenceLength() }, RuntimeMode::Inference );
+            
+            gpt->build( build_config );
 
             gpt->loadParameters( reader, strict );
 
@@ -193,49 +194,11 @@ namespace Mila::Dnn
                 }
             }
 
-            /*auto block_out_cpu = toHost<TensorDataType::FP32>( *block_output_ptrs_.back() );
-            int C = 768, T = 4;
-            for ( int pos = 0; pos < T; ++pos )
-            {
-                Utils::Logger::info( std::format(
-                    "block_out pos {} elem[0]: {:.4f}",
-                    pos, block_out_cpu.data()[ pos * C ] ) );
-            }*/
-
             normalized_ptr_ = &final_layernorm_->forward( *block_output_ptrs_.back() );
             this->getExecutionContext()->synchronize();
 
-            //auto ln_out_cpu = toHost<TensorDataType::FP32>( *normalized_ptr_ );
-            ////int C = 768;
-            ////int T = 4;
-
-            //// Log first element of each position
-            //for ( int pos = 0; pos < T; ++pos )
-            //{
-            //    Utils::Logger::info( std::format(
-            //        "ln_final out pos {} elem[0]: {:.4f}",
-            //        pos, ln_out_cpu.data()[ pos * C ] ) );
-            //}
-
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
             this->getExecutionContext()->synchronize();
-
-            //auto logits_cpu = toHost<TensorDataType::FP32>( *logits_ptr_ );
-            //int V = 50257;
-            ////int T = 4;
-
-            //// Log token 11 logit at every position
-            //for ( int pos = 0; pos < T; ++pos )
-            //{
-            //    Utils::Logger::info( std::format(
-            //        "token 11 (',') at pos {}: {:.4f}",
-            //        pos, logits_cpu.data()[ pos * V + 11 ] ) );
-            //}
-
-            //// Also log what's at offset 11 (as if layout were [V, T])
-            //Utils::Logger::info( std::format(
-            //    "offset 11*T+3 (col-major pos 3): {:.4f}",
-            //    logits_cpu.data()[ 11 * T + 3 ] ) );
 
             return *logits_ptr_;
         }
@@ -247,7 +210,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "GptTransformer must be built before calling backward." );
             }
 
-            if ( !this->isTraining() )
+            if ( !this->isTrainingMode() )
             {
                 throw std::runtime_error( "GptTransformer: backward requires training mode (setTraining(true))." );
             }
@@ -292,6 +255,73 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
 
             return input_grad_ptr;
+        }
+
+        /**
+         * @brief Inference prefill — process full prompt and return last-token logits.
+         *
+         * Populates the KV cache across all transformer blocks by running the
+         * full prompt through encoder + blocks via forward(). Then extracts only
+         * the last token's representation for the final LayerNorm + LM head,
+         * avoiding the T=1 output buffer overflow that forward() would cause
+         * on those components.
+         *
+         * Unlike LlamaTransformer::prefill(), GPT does not need chunked prefill
+         * or explicit position offsets (no RoPE). The full sequence is processed
+         * in a single pass.
+         *
+         * @param input  Full prompt token indices [B, T].
+         * @return        Logits for the last token [B, 1, vocab_size].
+         */
+        TensorType& prefill( const TokenIndexType& input )
+        {
+            if ( !this->isBuilt() )
+                throw std::runtime_error(
+                    "GptTransformer must be built before calling prefill()." );
+
+            int64_t T_prompt = input.shape()[ 1 ];
+
+            // 1. Encoder — full sequence embedding (Lpe output buffer is full-sized)
+            encoder_out_ptr_ = &encoder_->forward( input );
+            this->getExecutionContext()->synchronize();
+
+            if ( block_input_ptrs_.empty() || block_input_ptrs_.size() != transformer_blocks_.size() )
+                throw std::runtime_error(
+                    "GptTransformer: prefill internal state not initialized" );
+
+            // 2. Blocks — full sequence forward populates KV cache
+            block_input_ptrs_[ 0 ] = encoder_out_ptr_;
+
+            for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
+            {
+                auto& block_out = transformer_blocks_[ i ]->forward( *block_input_ptrs_[ i ] );
+                this->getExecutionContext()->synchronize();
+
+                block_output_ptrs_[ i ] = &block_out;
+
+                if ( i + 1 < transformer_blocks_.size() )
+                {
+                    block_input_ptrs_[ i + 1 ] = &block_out;
+                }
+            }
+
+            // 3. Extract only the last token's representation for LN + LM head.
+            //    This avoids writing T=seq_len into the T=1 inference output buffers
+            //    allocated by LayerNorm and lm_head.
+            size_t last_pos_offset = static_cast<size_t>(
+                (T_prompt - 1) * config_.getEmbeddingSize());
+
+            auto last_pos = block_output_ptrs_.back()->view(
+                shape_t{ input.shape()[ 0 ], 1, config_.getEmbeddingSize() },
+                last_pos_offset );
+
+            normalized_ptr_ = &final_layernorm_->forward( last_pos );
+            this->getExecutionContext()->synchronize();
+
+            logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
+            this->getExecutionContext()->synchronize();
+
+            return *logits_ptr_;
         }
 
         /**
@@ -352,7 +382,7 @@ namespace Mila::Dnn
             normalized_ptr_ = &final_layernorm_->forward( *block_output_ptrs_.back() );
             this->getExecutionContext()->synchronize();
 
-            logits_ptr_ = &lm_head_->decode( *normalized_ptr_ );
+            logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
             this->getExecutionContext()->synchronize();
 
             return *logits_ptr_;
@@ -414,8 +444,8 @@ namespace Mila::Dnn
                 oss << "  Batch size: " << batch_size_ << std::endl;
                 oss << "  Sequence length: " << seq_length_ << std::endl;
 
-                oss << "  Input shape: ("; for ( size_t i = 0; i < input_shape_.size(); ++i ) {
-                    oss << input_shape_[ i ]; if ( i != input_shape_.size() - 1 ) oss << ", ";
+                oss << "  Input shape: ("; for ( size_t i = 0; i < leading_shape_.size(); ++i ) {
+                    oss << leading_shape_[ i ]; if ( i != leading_shape_.size() - 1 ) oss << ", ";
                 } oss << ")" << std::endl;
 
                 oss << "  Output shape: ("; for ( size_t i = 0; i < output_shape_.size(); ++i ) {
@@ -528,7 +558,7 @@ namespace Mila::Dnn
 
             if ( this->isBuilt() )
             {
-                meta.set( "input_shape", input_shape_ )
+                meta.set( "input_shape", leading_shape_ )
                     .set( "embedding_shape", embedding_shape_ )
                     .set( "output_shape", output_shape_ )
                     .set( "batch_size", batch_size_ )
@@ -538,47 +568,50 @@ namespace Mila::Dnn
             archive.writeMetadata( "transformer_meta.json", meta );
         }
 
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
-            NetworkBase::onTrainingChanging( is_training );
+            NetworkBase::onTrainingModeChanging( training_mode );
         }
 
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const BuildContext& context ) override
         {
-            validateInputShape( input_shape );
+            const auto& input_shape = context.inputShape();
+            validateBuildContext( context );
 
-            input_shape_ = input_shape;
-            batch_size_ = input_shape[ 0 ];
-            seq_length_ = input_shape[ 1 ];
+            // encoder receives token ids — same shape as incoming context [B, T]
+            encoder_ = this->template getComponentAs<EncoderType>(
+                this->getName() + ".lenc" );
+            encoder_->build( context );
 
-            embedding_shape_ = { batch_size_, seq_length_, config_.getEmbeddingSize() };
-            output_shape_ = { batch_size_, seq_length_, config_.getVocabSize() };
+            // All downstream components receive embeddings [B, T, embedding_dim]
+            shape_t embedding_shape = {
+                input_shape[ 0 ],
+                input_shape[ 1 ],
+                config_.getEmbeddingSize()
+            };
+            BuildContext embedding_context( embedding_shape, context.getRuntimeMode() );
 
-            encoder_ = this->template getComponentAs<EncoderType>( this->getName() + ".lenc" );
-            encoder_->build( input_shape );
+            transformer_blocks_.clear();
+            transformer_blocks_.reserve( static_cast<size_t>(config_.getNumLayers()) );
 
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 std::string block_name = this->getName() + ".tf_layer_" + std::to_string( i );
                 auto block = this->template getComponentAs<TransformerBlockType>( block_name );
-                block->build( embedding_shape_ );
+                block->build( embedding_context );
                 transformer_blocks_.push_back( block );
             }
 
-            final_layernorm_ = this->template getComponentAs<LayerNormType>( this->getName() + ".ln_final" );
-            final_layernorm_->build( embedding_shape_ );
+            final_layernorm_ = this->template getComponentAs<LayerNormType>(
+                this->getName() + ".ln_final" );
+            final_layernorm_->build( embedding_context );
 
-            lm_head_ = this->template getComponentAs<LinearType>( this->getName() + ".lm_head" );
-            lm_head_->build( embedding_shape_ );
-
-            //auto device_id = this->getDeviceId();
-
-            //owned_output_ = std::make_shared<TensorType>( device_id, output_shape_ );
-            //owned_output_->setName( this->getName() + ".output" );
+            lm_head_ = this->template getComponentAs<LinearType>(
+                this->getName() + ".lm_head" );
+            lm_head_->build( embedding_context );
 
             block_input_ptrs_.assign( transformer_blocks_.size(), nullptr );
             block_output_ptrs_.assign( transformer_blocks_.size(), nullptr );
-
             encoder_out_ptr_ = nullptr;
             normalized_ptr_ = nullptr;
             logits_ptr_ = nullptr;
@@ -589,7 +622,7 @@ namespace Mila::Dnn
 
         GptConfig config_;
 
-        shape_t input_shape_;
+        shape_t leading_shape_;
         shape_t embedding_shape_;
         shape_t output_shape_;
         int64_t batch_size_{ 0 };
@@ -600,7 +633,7 @@ namespace Mila::Dnn
         std::shared_ptr<LayerNormType> final_layernorm_{ nullptr };
         std::shared_ptr<LinearType> lm_head_{ nullptr };
 
-        //std::shared_ptr<TensorType> owned_output_{ nullptr };
+        //std::shared_ptr<TensorType> output_{ nullptr };
         //std::unique_ptr<TensorType> output_view_{ nullptr };
 
         TensorType* encoder_out_ptr_{ nullptr };
@@ -691,7 +724,24 @@ namespace Mila::Dnn
             return { component_path, param_name };
         }
 
-        
+        void validateBuildContext( const BuildContext& context ) const
+        {
+            const auto& input_shape = context.inputShape();
+
+            if ( input_shape.size() != 2 )
+            {
+                throw std::invalid_argument( std::format(
+                    "GptTransformer: input must be rank 2 [B, T], got rank {}",
+                    input_shape.size() ) );
+            }
+
+            if ( input_shape[ 0 ] < 1 || input_shape[ 1 ] < 1 )
+            {
+                throw std::invalid_argument( std::format(
+                    "GptTransformer: B and T must be >= 1, got [{}, {}]",
+                    input_shape[ 0 ], input_shape[ 1 ] ) );
+            }
+        }
 
         void validateInputShape( const shape_t& input_shape ) const
         {
@@ -718,9 +768,7 @@ namespace Mila::Dnn
 
             enc_cfg.validate();
 
-            auto encoder = std::make_shared<EncoderType>(
-                this->getName() + ".lenc", enc_cfg );
-
+            auto encoder = std::make_shared<EncoderType>( this->getName() + ".lenc", enc_cfg );
             this->addComponent( encoder );
 
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
@@ -732,28 +780,22 @@ namespace Mila::Dnn
                 block_cfg.withHiddenSize( static_cast<dim_t>( config_.getHiddenSize() ))
                     .withBias( config_.getUseBias() )
                     .withActivation( ActivationType::Gelu )
-                    .withResidualScale( 1.0f ); // FIXME: Was 1.of / sqrtf( static_cast<float>( config_.getNumLayers() ) ) );
+                    .withResidualScale( 1.0f );
 
-                auto layer = std::make_shared<TransformerBlockType>(
-                    this->getName() + ".tf_layer_" + std::to_string( i ), block_cfg, std::nullopt );
-
+                auto layer = std::make_shared<TransformerBlockType>( this->getName() + ".tf_layer_" + std::to_string( i ), block_cfg, std::nullopt );
                 this->addComponent( layer );
             }
 
             auto ln_config = LayerNormConfig( shape_t{ config_.getEmbeddingSize() } );
 
-            auto final_layernorm = std::make_shared<LayerNormType>(
-                this->getName() + ".ln_final", ln_config, std::nullopt );
-
+            auto final_layernorm = std::make_shared<LayerNormType>( this->getName() + ".ln_final", ln_config, std::nullopt );
             this->addComponent( final_layernorm );
 
             auto lm_head_config = LinearConfig( config_.getEmbeddingSize(), config_.getVocabSize() )
                 .withBias( false )
                 .withRowMajor( true );
 
-            auto lm_head = std::make_shared<LinearType>(
-                this->getName() + ".lm_head", lm_head_config, std::nullopt );
-
+            auto lm_head = std::make_shared<LinearType>( this->getName() + ".lm_head", lm_head_config, std::nullopt );
             this->addComponent( lm_head );
         }
 

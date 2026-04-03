@@ -49,10 +49,6 @@ namespace Mila::Dnn
     {
     public:
 
-        // ====================================================================
-        // Constructors — pick exactly one normalization mode.
-        // ====================================================================
-
         /**
          * @brief Construct in shape mode.
          *
@@ -60,8 +56,8 @@ namespace Mila::Dnn
          *
          * @param shape  Trailing dimensions to normalize over (e.g. shape_t{ model_dim }).
          */
-        explicit RmsNormConfig( shape_t shape )
-            : normalized_shape_( std::move( shape ) )
+        explicit RmsNormConfig( shape_t normalized_shape )
+            : normalized_shape_( std::move( normalized_shape ) )
         {}
 
         /**

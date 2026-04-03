@@ -159,7 +159,7 @@ namespace Mila::Dnn
 	 * TensorBuffer<TensorDataType::BF16, Compute::CudaDeviceMemoryResource, true> trackedBuffer(device_context, 100);
 	 * @endcode
 	 */
-	export template <TensorDataType TDataType, typename TMemoryResource, bool TrackMemory = true>
+	export template <TensorDataType TDataType, typename TMemoryResource, bool TrackMemory = false>
 		requires isValidTensor<TDataType, TMemoryResource>
 	class TensorBuffer {
 	public:
@@ -204,13 +204,14 @@ namespace Mila::Dnn
 			storage_bytes_ = Detail::getStorageSize<TDataType>( logical_size_ );
 
 			// DEBUG:
-			if ( storage_bytes_ >= (1ULL << 30) )
+			if ( storage_bytes_ >= (4ULL << 30) )  // 4GB limit
 			{
 				throw std::length_error(
-					"TensorBuffer storage size exceeds 1 GB limit: " + std::to_string( storage_bytes_ ) + " bytes"
+					"TensorBuffer storage size exceeds 4 GB limit: "
+					+ std::to_string( storage_bytes_ ) + " bytes"
 				);
 			}
-            // END DEBUG:
+			// END DEBUG:
 
 			// Check for overflow in alignment calculations
 			if (storage_bytes_ > (std::numeric_limits<size_t>::max() - alignment + 1)) {

@@ -202,7 +202,7 @@ namespace Mila::Dnn
                 );
             }
 
-            this->setTraining( true );
+            this->setTrainingMode( TrainingMode::Normal );
 
             auto optimizer = std::make_shared<TOptimizer>(
                 this->getExecutionContext(), config );
@@ -369,7 +369,7 @@ namespace Mila::Dnn
          *     json meta;
          *     meta["type"] = "MnistClassifier";  // Type identifier for runtime dispatch
          *     meta["batch_size"] = batch_size_;
-         *     meta["input_shape"] = input_shape_;
+         *     meta["input_shape"] = leading_shape_;
          *     // ... other configuration
          *     archive.writeJson("network/classifier_meta.json", meta);
          * }

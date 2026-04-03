@@ -156,6 +156,23 @@ namespace Mila::Dnn::Serialization
         }
 
         /**
+         * @brief Set shape value.
+         *
+         * Converts TensorShape to the wire format (std::vector<int64_t>) for JSON
+         * serialization. getShape() performs the inverse conversion on load.
+         *
+         * @param key Metadata key
+         * @param value Shape value
+         * @return Reference to this for method chaining
+         */
+        SerializationMetadata& set( const std::string& key, const shape_t& value )
+        {
+            data_[ key ] = std::vector<int64_t>( value.begin(), value.end() );
+
+            return *this;
+        }
+
+        /**
          * @brief Set double vector value.
          *
          * @param key Metadata key
@@ -321,15 +338,25 @@ namespace Mila::Dnn::Serialization
         }
 
         /**
-         * @brief Get shape value (integer vector).
+         * @brief Get shape value.
+         *
+         * Constructs a TensorShape from the stored wire-format integer vector.
          *
          * @param key Metadata key
-         * @return Shape vector
+         * @return shape_t value
          * @throws std::runtime_error if key not found or type mismatch
          */
         shape_t getShape( const std::string& key ) const
         {
-            return getIntVector( key );
+            const auto& value = getValue( key );
+
+            if ( const auto* vec = std::get_if<std::vector<int64_t>>( &value ) )
+            {
+                return shape_t{ vec->data(), vec->data() + vec->size() };
+            }
+
+            throw std::runtime_error(
+                std::format( "SerializationMetadata: key '{}' is not a shape", key ) );
         }
 
         /**
@@ -516,8 +543,10 @@ namespace Mila::Dnn::Serialization
         /**
          * @brief Get optional shape value.
          *
+         * Constructs a TensorShape from the stored wire-format integer vector.
+         *
          * @param key Metadata key
-         * @return Shape or std::nullopt if not found or type mismatch
+         * @return shape_t or std::nullopt if not found or type mismatch
          */
         std::optional<shape_t> tryGetShape( const std::string& key ) const noexcept
         {
@@ -529,7 +558,7 @@ namespace Mila::Dnn::Serialization
 
             if ( const auto* vec = std::get_if<std::vector<int64_t>>( &it->second ) )
             {
-                return *vec;
+                return shape_t{ vec->data(), vec->data() + vec->size() };
             }
 
             return std::nullopt;

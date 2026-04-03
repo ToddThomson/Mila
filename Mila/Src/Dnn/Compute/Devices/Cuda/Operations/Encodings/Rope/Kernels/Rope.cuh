@@ -11,10 +11,9 @@ namespace Mila::Dnn::Compute::Cuda::Rope
     /**
      * @brief Build the cos/sin frequency cache on the device.
      *
-     * Fills cos_cache[pos, i] = cos(pos * θ_i) and
-     *       sin_cache[pos, i] = sin(pos * θ_i)
+     * Fills cos_cache[pos, i] = cos(pos * theta_i) and
+     *       sin_cache[pos, i] = sin(pos * theta_i)
      * for pos in [0, max_seq_len) and i in [0, head_dim/2).
-     * θ_i = base^(-2i / head_dim), base = 10000.
      *
      * @param cos_cache  Device buffer [max_seq_len, head_dim/2].
      * @param sin_cache  Device buffer [max_seq_len, head_dim/2].
@@ -32,28 +31,31 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         cudaStream_t stream );
 
     // ========================================================================
-    // Forward — full sequence
+    // Forward — full sequence with position offset
     // ========================================================================
 
     /**
-     * @brief Apply RoPE to Q and K for a full sequence (training / prefill).
+     * @brief Apply RoPE to Q and K for a (possibly offset) sequence chunk.
      *
-     * Input layout:  [B, T, n_heads,   head_dim] for Q
-     *                [B, T, n_kv_heads, head_dim] for K
-     * Output layout: same shape, rotated in-place or to separate buffers.
+     * Each token at chunk-local position t is rotated using the cache row
+     * at absolute position (t + position_offset). This enables chunked prefill
+     * where successive chunks use increasing offsets.
      *
-     * @param Q_out      Output Q [B, T, n_heads,    head_dim].
-     * @param K_out      Output K [B, T, n_kv_heads, head_dim].
-     * @param Q_in       Input  Q [B, T, n_heads,    head_dim].
-     * @param K_in       Input  K [B, T, n_kv_heads, head_dim].
-     * @param cos_cache  Precomputed cosines [max_seq_len, head_dim/2].
-     * @param sin_cache  Precomputed sines   [max_seq_len, head_dim/2].
-     * @param B          Batch size.
-     * @param T          Sequence length.
-     * @param n_heads    Number of query heads.
-     * @param n_kv_heads Number of key/value heads (GQA: n_kv_heads <= n_heads).
-     * @param head_dim   Per-head dimension (must be divisible by 2).
-     * @param stream     CUDA stream.
+     * For standard training/forward passes, pass position_offset = 0.
+     *
+     * @param Q_out           Output Q [B, T, n_heads,    head_dim].
+     * @param K_out           Output K [B, T, n_kv_heads, head_dim].
+     * @param Q_in            Input  Q [B, T, n_heads,    head_dim].
+     * @param K_in            Input  K [B, T, n_kv_heads, head_dim].
+     * @param cos_cache       Precomputed cosines [max_seq_len, head_dim/2].
+     * @param sin_cache       Precomputed sines   [max_seq_len, head_dim/2].
+     * @param B               Batch size.
+     * @param T               Sequence length of this chunk.
+     * @param n_heads         Number of query heads.
+     * @param n_kv_heads      Number of key/value heads (GQA: n_kv_heads <= n_heads).
+     * @param head_dim        Per-head dimension (must be divisible by 2).
+     * @param position_offset Absolute position of the first token in this chunk.
+     * @param stream          CUDA stream.
      */
     void cuda_rope_forward_fp32(
         float* Q_out,
@@ -64,6 +66,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         const float* sin_cache,
         int B, int T,
         int n_heads, int n_kv_heads, int head_dim,
+        int position_offset,
         cudaStream_t stream );
 
     // ========================================================================
@@ -74,7 +77,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      * @brief Backward pass for RoPE (full sequence).
      *
      * RoPE is an orthogonal rotation, so the backward pass is the inverse
-     * rotation: negate the sin terms (rotate by -θ).
+     * rotation: negate the sin terms (rotate by -theta). Position offset is
+     * always 0 because backward is only used during training.
      *
      * @param dQ_in      Output gradient w.r.t. Q input  [B, T, n_heads,    head_dim].
      * @param dK_in      Output gradient w.r.t. K input  [B, T, n_kv_heads, head_dim].

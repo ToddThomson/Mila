@@ -152,8 +152,10 @@ namespace Mila::Dnn::Compute
          * Allocates backend-owned tensor storage for mean/rstd statistics sized to the
          * outer grouping implied by the input shape and normalized axes.
          */
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
+            const auto& input_shape = config.inputShape();
+
             if ( weight_ == nullptr )
             {
                 throw std::runtime_error( "CpuLayerNormOp::build requires parameters bound via setParameters() before build()." );
@@ -170,7 +172,7 @@ namespace Mila::Dnn::Compute
 
             allocateStatisticsTensors();
 
-            UnaryOperationBase::build( input_shape );
+            UnaryOperationBase::build( config );
         }
 
         // ====================================================================

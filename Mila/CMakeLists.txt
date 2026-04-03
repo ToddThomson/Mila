@@ -29,6 +29,8 @@ add_library( Mila STATIC
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/CudaGqa.cuh"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/CudaGqa.Permute.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/CudaGqa.Prefill.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/CudaGqa.Train.Fp32.cu"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp16.cu"
@@ -73,6 +75,7 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.h"
     "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
     "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Reduction.h"
+    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Structural.cu"
 
     #--------------------------------------------------------------------------
     # Cuda Optimizer Kernels
@@ -370,7 +373,7 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlan.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Zero.ixx"
 
-        "Src/Dnn/Core/Component.BuildConfig.ixx"
+        "Src/Dnn/Core/Component.BuildContext.ixx"
         "Src/Dnn/Core/LearningRateScheduler.ixx"
         
         "Src/Dnn/Components/Activations/ApproximationMethod.ixx"
@@ -424,7 +427,7 @@ PUBLIC
         "Src/Dnn/Serialization/PretrainedReader.ixx"
         "Src/Dnn/Serialization/Serializer.ixx"
         
-        "Src/Dnn/Compute/IKVCacheable.ixx"
+        "Src/Dnn/Compute/Operations/IKVCacheLifecycle.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.Dispatch.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.Dispatch.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Dispatch.ixx"
@@ -435,14 +438,14 @@ PUBLIC
         "Src/Dnn/Models/LlamaModel.ixx"
 
         "Src/Dnn/Compute/IDecode.ixx"
-        "Src/Dnn/Compute/IPositionalDecode.ixx"
+        
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
         
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.ixx"
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
         
         "Src/Dnn/Compute/Operations/PairedOperation.ixx"
- "Src/Dnn/Core/Component.MemoryStats.ixx" "Src/Dnn/Core/Model.RuntimeMode.ixx" "Src/Dnn/Core/Model.ixx" "Src/Dnn/Core/LanguageModel.ixx")
+ "Src/Dnn/Core/Component.MemoryStats.ixx" "Src/Dnn/Core/Model.RuntimeMode.ixx" "Src/Dnn/Core/Model.ixx" "Src/Dnn/Core/LanguageModel.ixx" "Src/Dnn/Core/Comonent.TrainingMode.ixx" "Src/Dnn/Compute/Operations/IPositionalPairedOp.ixx" "Src/Dnn/Tensors/Operations/TensorOps.Random.ixx" "Src/Dnn/Tensors/Operations/TensorOps.Structural.ixx" "Src/Dnn/Compute/Operations/IPositionalDecode.ixx" "Src/Dnn/Compute/Operations/IKvInference.ixx" "Src/Dnn/Compute/Operations/IPackedKvInference.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -555,11 +558,12 @@ if(MILA_HAS_CUDA)
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/RmsNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/RmsNormOp.Dispatch.ixx"
-     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.Dispatch.ixx")
+     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Random.ixx" "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Structural.ixx")
 
-    target_link_libraries( Mila PUBLIC 
+    target_link_libraries( Mila PRIVATE 
         CUDA::cudart
         CUDA::cublas
+        CUDA::nvtx3
     )
 
     target_compile_definitions(Mila PUBLIC MILA_HAS_CUDA)
@@ -776,7 +780,7 @@ add_subdirectory( Tools )
 # Configure code coverage for MSVC
 if( MILA_ENABLE_COVERAGE AND MSVC)
     add_compile_options(/Zi /Od)
-    add_link_options(/DEBUG:FULL /PROFILE)
+    add_link_options(/DEBUG:FULL)
     
     message(STATUS "Code coverage enabled for MSVC")
 endif()

@@ -1,15 +1,6 @@
 /**
  * @file MultiHeadAttention.ixx
- * @brief Multi-Head MultiHeadAttention module (concatenated QKV input).
- *
- * Module delegates compute to a device-specific UnaryOperation implementation
- * that expects a concatenated QKV input.
- *
- * KV-cache inference is an optional backend capability surfaced via
- * supportsKVCache(). When supported, forward() dispatches to the appropriate
- * IKVCacheable path based on the MultiHeadAttentionForwardContext passed by the owning
- * transformer's generate() method. External callers use the default context
- * (Mode::Standard) and are unaffected by the KV cache machinery.
+ * @brief Multi-Head Attention module (concatenated QKV input).
  */
 
 module;
@@ -44,7 +35,8 @@ import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
-import Compute.KVCacheable;
+import Compute.IPackedKvInference;
+import Compute.IKvCacheLifecycle;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 
@@ -54,7 +46,7 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Multi-Head MultiHeadAttention module that accepts concatenated QKV input.
+     * @brief Multi-Head Attention module that accepts concatenated QKV input.
      *
      * The module requires a single input tensor in model-layout containing
      * concatenated Q, K and V along the feature axis:
@@ -66,13 +58,13 @@ namespace Mila::Dnn
      *
      * KV-cache inference is an optional backend capability. After build(),
      * supportsKVCache() indicates whether the underlying operation implements
-     * IKVCacheable. The cached pointer is resolved once at build time.
+     * both IPositionalUnaryOp (prefill/decode dispatch) and IKVCacheLifecycle
+     * (cache init/reset). Both pointers are resolved once at build time.
      *
      * The KV cache lifecycle (initializeKVCache / resetKVCache) is intended
      * to be driven exclusively by the owning transformer's generate() method.
-     * The ForwardContext-based dispatch in forward() is the sole entry point
-     * for prefill and decode paths; forwardPrefill / forwardDecode do not
-     * exist as public methods.
+     * forward() is the sole entry point for prefill; decode() handles
+     * autoregressive single-token generation.
      *
      * REVIEW: initializeKVCache() and resetKVCache() are currently public.
      * When TransformerBase<> is introduced as the common base for GptTransformer,
@@ -117,7 +109,7 @@ namespace Mila::Dnn
         ~MultiHeadAttention() override = default;
 
         // ====================================================================
-        // Forward / Backward / Decode
+        // Forward / Backward
         // ====================================================================
 
         /**
@@ -125,9 +117,9 @@ namespace Mila::Dnn
          *
          * Always available regardless of backend. When the backend supports
          * KV caching, the first forward() call initializes and populates the
-         * cache (prefill). When called again after decode() steps, it
-         * automatically resets the cache and begins a new prefill session —
-         * no explicit session management required by callers.
+         * cache (prefill with position_offset=0). When called again after
+         * decode() steps, it automatically resets the cache and begins a new
+         * prefill session — no explicit session management required by callers.
          *
          * @param input Concatenated QKV input [B, T, 3 * embedding_dim].
          * @return Reference to component-owned output tensor.
@@ -140,12 +132,12 @@ namespace Mila::Dnn
 
             validateConcatenatedQKVShape( input.shape() );
 
-            if ( kv_cacheable_ )
+            if ( kv_cache_op_ && positional_op_ )
             {
                 // Called after decode steps — reset for new session
                 if ( decode_active_ )
                 {
-                    kv_cacheable_->resetKVCache();
+                    kv_cache_op_->resetKvCache();
                     cache_initialized_ = false;
                     decode_active_ = false;
                 }
@@ -153,18 +145,20 @@ namespace Mila::Dnn
                 // Initialize cache on first forward() if not yet done
                 if ( !cache_initialized_ )
                 {
-                    kv_cacheable_->initializeKVCache(
+                    kv_cache_op_->initializeKvCache(
                         static_cast<int>(max_input_shape_[ 0 ]),
                         static_cast<int>(max_input_shape_[ 1 ]) );
                     cache_initialized_ = true;
                 }
 
                 // Prefill — populates cache as side effect
-                kv_cacheable_->forwardPrefill( input, *owned_output_ );
+                positional_op_->prefill( input, *owned_output_ );
+
                 return resolveOutputView( input.shape() );
             }
 
             operation_->forward( input, *owned_output_ );
+
             return resolveOutputView( input.shape() );
         }
 
@@ -182,7 +176,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "MultiHeadAttention must be built before calling backward." );
             }
 
-            if ( !this->isTraining() )
+            if ( this->isInferenceMode() )
             {
                 throw std::runtime_error( "MultiHeadAttention must be in training mode to call backward. Call setTraining(true) first." );
             }
@@ -196,20 +190,17 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // Decode path/KV Cache
+        // Decode path / KV Cache
         // ====================================================================
 
         /**
          * @brief Inference-only single-token decode pass.
          *
-         * When the backend implements IKVCacheable and the cache has been
+         * When the backend implements IPositionalUnaryOp and the cache has been
          * populated by a prior forward() call, uses the fast O(n) KV cache
-         * path. When the backend does not support KV caching (CpuMultiHeadAttentionOp),
-         * falls back to forward(). The caller never needs to know which path
-         * was taken.
-         *
-         * Any future component with an optimized inference-only path follows
-         * this same pattern — expose decode(), decide path internally.
+         * path. When the backend does not support positional dispatch
+         * (CpuMultiHeadAttentionOp), falls back to forward(). The caller never
+         * needs to know which path was taken.
          *
          * Precondition: forward() must have been called at least once to
          * populate the KV cache before decode() is called.
@@ -226,24 +217,23 @@ namespace Mila::Dnn
 
             validateConcatenatedQKVShape( input.shape() );
 
-            if ( kv_cacheable_ && cache_initialized_ )
+            if ( positional_op_ && cache_initialized_ )
             {
-                // Fast path — O(n) MultiHeadAttention using cached KV state
-                kv_cacheable_->forwardDecode( input, *owned_decode_output_, position );
-                
+                positional_op_->decode( input, *owned_decode_output_, position );
                 decode_active_ = true;
+
                 return *owned_decode_output_;
             }
 
             // Fallback — CpuMultiHeadAttentionOp or cache not yet initialized.
-            // Correct but not optimized — acceptable for CPU inference.
             operation_->forward( input, *owned_output_ );
-            
+
             return resolveOutputView( input.shape() );
         }
 
         /**
-         * @brief Returns true when the underlying operation implements IKVCacheable.
+         * @brief Returns true when the underlying operation implements both
+         * IPositionalUnaryOp and IKVCacheLifecycle.
          *
          * Resolved once at build time. CPU backends return false; CUDA backends
          * return true when CudaMultiHeadAttentionOp is in use. Safe to query before
@@ -251,59 +241,8 @@ namespace Mila::Dnn
          */
         bool supportsKVCache() const noexcept
         {
-            return kv_cacheable_ != nullptr;
+            return kv_cache_op_ != nullptr && positional_op_ != nullptr;
         }
-
-        // REVIEW: KV cache is handled by the operation_ when supported, so MultiHeadAttention itself has no direct
-        // state to manage beyond the cache_initialized_ and decode_active_ flags.
-
-        ///**
-        // * @brief Allocate KV cache buffers for inference.
-        // *
-        // * Intended to be called exclusively by the owning transformer's generate()
-        // * during session setup. Throws if the backend does not support KV caching.
-        // *
-        // * @param max_seq_len Maximum sequence length the cache must accommodate.
-        // *
-        // * REVIEW: Consider making private with friend TransformerBase<> once
-        // * that base class is introduced. See class-level REVIEW note.
-        // */
-        //void initializeKVCache( int64_t max_seq_len )
-        //{
-        //    if ( !this->isBuilt() )
-        //    {
-        //        throw std::runtime_error( "MultiHeadAttention must be built before initializeKVCache()." );
-        //    }
-
-        //    if ( !kv_cacheable_ )
-        //    {
-        //        throw std::runtime_error( "MultiHeadAttention: KV cache is not supported by this backend." );
-        //    }
-
-        //    kv_cacheable_->initializeKVCache(
-        //        static_cast<int>(max_input_shape_[ 0 ]),
-        //        static_cast<int>(max_seq_len) );
-        //}
-
-        ///**
-        // * @brief Reset KV cache state between generation sessions.
-        // *
-        // * Intended to be called exclusively by the owning transformer's generate()
-        // * between independent generation requests. Throws if the backend does not
-        // * support KV caching.
-        // *
-        // * REVIEW: Consider making private with friend TransformerBase<> once
-        // * that base class is introduced. See class-level REVIEW note.
-        // */
-        //void resetKVCache()
-        //{
-        //    if ( !kv_cacheable_ )
-        //    {
-        //        throw std::runtime_error( "MultiHeadAttention: KV cache is not supported by this backend." );
-        //    }
-
-        //    kv_cacheable_->resetKVCache();
-        //}
 
         // ====================================================================
         // Serialization
@@ -352,9 +291,6 @@ namespace Mila::Dnn
             return 0;
         }
 
-        /**
-         * @brief Return memory allocation breakdown.
-         */
         MemoryStats getMemoryStats() const override
         {
             MemoryStats stats;
@@ -386,8 +322,9 @@ namespace Mila::Dnn
             oss << "Model dimension: " << config_.getModelDim() << "\n";
             oss << "Number of heads: " << config_.getNumHeads() << "\n";
             oss << "Head size: " << (config_.getModelDim() / config_.getNumHeads()) << "\n";
-            oss << "Decode path: " << (kv_cacheable_ ? "KV cache (fast)" : "fallback (forward)") << "\n";
+            oss << "Decode path: " << (supportsKVCache() ? "KV cache (fast)" : "fallback (forward)") << "\n";
             oss << "Parameter count: " << parameterCount() << "\n";
+
             return oss.str();
         }
 
@@ -411,16 +348,19 @@ namespace Mila::Dnn
             createOperation();
         }
 
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const BuildContext& build_config ) override
         {
+            const auto& input_shape = build_config.inputShape();
+
             validateConcatenatedQKVShape( input_shape );
 
-            operation_->setTraining( this->isTraining() );
             operation_->setParameters( nullptr, nullptr );
-            operation_->build( input_shape );
+            operation_->build( build_config );
 
-            // Resolve IKVCacheable once at build time. Null for CPU backends.
-            kv_cacheable_ = dynamic_cast<IKVCacheable*>(operation_.get());
+            // Resolve capability interfaces once at build time.
+            // Null for CPU backends that lack KV cache / positional dispatch.
+            kv_cache_op_ = dynamic_cast<IKvCacheLifecycle*>( operation_.get() );
+            positional_op_ = dynamic_cast<IPackedKvInference*>( operation_.get() );
 
             max_input_shape_ = input_shape;
 
@@ -429,27 +369,24 @@ namespace Mila::Dnn
             shape_t out_shape = max_input_shape_;
             out_shape.back() = config_.getModelDim();
 
-            owned_output_ = std::make_unique<TensorType>( device, out_shape );
-            owned_output_->setName( this->getName() + ".output" );
-
-            owned_input_grad_ = std::make_unique<TensorType>( device, max_input_shape_ );
-            owned_input_grad_->setName( this->getName() + ".input.grad" );
+            owned_output_ = std::make_unique<TensorType>( device, out_shape, this->getName() + ".output" );
+            owned_input_grad_ = std::make_unique<TensorType>( device, max_input_shape_, this->getName() + ".input.grad" );
 
             // Decode output is a single-token slice: [B, 1, model_dim]
             shape_t decode_output_shape = { max_input_shape_[ 0 ], 1, config_.getModelDim() };
-            owned_decode_output_ = std::make_unique<TensorType>( device, decode_output_shape );
-            owned_decode_output_->setName( this->getName() + ".output.decode" );
+            owned_decode_output_ = std::make_unique<TensorType>( device, decode_output_shape, this->getName() + ".output.decode" );
         }
 
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
-            if ( operation_ )
-                operation_->setTraining( is_training );
+            operation_->setTrainingMode( training_mode );
+
+            auto is_training = (training_mode == TrainingMode::Normal);
 
             // Entering training mode resets any active decode session
-            if ( is_training && kv_cacheable_ && cache_initialized_ )
+            if ( is_training && kv_cache_op_ && cache_initialized_ )
             {
-                kv_cacheable_->resetKVCache();
+                kv_cache_op_->resetKvCache();
                 cache_initialized_ = false;
                 decode_active_ = false;
             }
@@ -462,9 +399,11 @@ namespace Mila::Dnn
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::unique_ptr<IExecutionContext> context_{ nullptr };
 
-        // Non-owning; lifetime tied to operation_. Null for when compute backend does not
-        // implement IKVCacheable (e.g. CPU). Resolved once in onBuilding(). decode() uses this to select fast path.
-        IKVCacheable* kv_cacheable_{ nullptr };
+        // Non-owning capability interface pointers. Lifetime tied to operation_.
+        // Resolved once in onBuilding(). Null for backends that do not implement
+        // the corresponding interface (e.g. CPU).
+        IKvCacheLifecycle* kv_cache_op_{ nullptr };
+        IPackedKvInference* positional_op_{ nullptr };
 
         // KV cache session state
         bool cache_initialized_{ false };
@@ -475,13 +414,6 @@ namespace Mila::Dnn
         std::unique_ptr<TensorType> owned_input_grad_{ nullptr };
         std::unique_ptr<TensorType> owned_decode_output_{ nullptr };
 
-        /**
-         * @brief Return a view of owned_output_ trimmed to the actual input shape.
-         *
-         * When the input is smaller than max_input_shape_ (e.g. final batch),
-         * we return a view with the correct leading dimensions rather than the
-         * full pre-allocated buffer.
-         */
         TensorType& resolveOutputView( const shape_t& input_shape )
         {
             if ( input_shape == max_input_shape_ )
@@ -492,6 +424,7 @@ namespace Mila::Dnn
             auto output_shape = input_shape;
             output_shape.back() = config_.getModelDim();
             output_view_ = std::make_unique<TensorType>( owned_output_->view( output_shape ) );
+
             return *output_view_;
         }
 

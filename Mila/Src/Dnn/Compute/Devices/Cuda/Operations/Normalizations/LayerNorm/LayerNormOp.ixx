@@ -213,7 +213,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
          *
          * @note After build(), forward() and backward() become pure dispatch with zero overhead
          */
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
             if ( weight_ == nullptr )
             {
@@ -224,6 +224,8 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             {
                 throw std::runtime_error( "CudaLayerNormOp::build - bias expected by config but not bound via setParameters()" );
             }
+
+            const auto& input_shape = config.inputShape();
 
             validateNormalizedShape_( input_shape );
 
@@ -257,7 +259,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             rstd_tensor_->setName( "rstd" );
             rstd_ = static_cast<NativeType*>(rstd_tensor_->rawData());
 
-            UnaryOperationBase::build( input_shape );
+            UnaryOperationBase::build( config );
         }
 
         /**

@@ -647,8 +647,8 @@ namespace Operations::Tests
      */
     TEST_F( CudaResidualOpTests, Forward_MismatchedShapes ) {
         // Create tensors with different shapes
-        std::vector<int64_t> shape1 = { 2, 3, 4 };
-        std::vector<int64_t> shape2 = { 2, 3, 5 };  // Different last dimension
+        shape_t shape1 = { 2, 3, 4 };
+        shape_t shape2 = { 2, 3, 5 };  // Different last dimension
 
         Tensor<float, CudaDeviceMemoryResource> device_input1( shape1 );
         Tensor<float, CudaDeviceMemoryResource> device_input2( shape2 );

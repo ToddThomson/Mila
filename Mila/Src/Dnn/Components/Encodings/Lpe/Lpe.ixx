@@ -201,7 +201,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Encoder module must be built before calling backward." );
             }
 
-            if ( !this->isTraining() )
+            if ( !this->isTrainingMode() )
             {
                 throw std::runtime_error( "Encoder module must be in training mode to call backward. Call setTraining(true) first." );
             }
@@ -253,9 +253,9 @@ namespace Mila::Dnn
             if ( !this->isBuilt() )
                 throw std::runtime_error( "Lpe must be built before calling decode()." );
 
-            // Resolve IDecode once — same pattern as Linear
+            // Resolved IPositionalDecode from onBuilding
             if ( !decode_path_ )
-                throw std::runtime_error( "Lpe: backend operation does not support decode() — IDecode not implemented" );
+                throw std::runtime_error( "Lpe: backend operation does not support decode() — IPositionalDecode not implemented" );
 
             decode_path_->decode( input, *output_, position );
 
@@ -383,10 +383,6 @@ namespace Mila::Dnn
 
         std::vector<ITensor*> getGradients() const override
         {
-            if ( !this->isTraining() )
-            {
-                throw std::runtime_error( "Encoder: getGradients called when not in training mode" );
-            }
 
             std::vector<ITensor*> grads;
 
@@ -512,11 +508,12 @@ namespace Mila::Dnn
             createOperation();
         }
 
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const BuildContext& build_config ) override
         {
+            const auto& input_shape = build_config.inputShape();
             validateInputShape( input_shape );
 
-            // Resolve IPositionalDecode once at build time. May be nullptr for some backends (CPU)
+            // Resolve IPositionalDecode once at build time. May be nullptr for some backends
             decode_path_ = dynamic_cast<IPositionalDecode*>(operation_.get());
 
             // Store MAX dimensions for dynamic input validation in forward/backward 
@@ -525,32 +522,30 @@ namespace Mila::Dnn
             max_seq_len_ = input_shape[ 1 ];
 
             operation_->setParameters( wte_.get(), wpe_.get() );
-
-            if ( this->isTraining() )
-            {
-                initializeParameterGradients();
-                operation_->setGradients( wte_grad_.get(), wpe_grad_.get() );
-            }
-
-            operation_->build( input_shape );
+            operation_->build( build_config );
 
             // Allocate and cache component-owned output and input-grad tensors.
             auto device = this->getExecutionContext()->getDeviceId();
             shape_t max_out_shape = { max_batch_size_, max_seq_len_, static_cast<dim_t>( config_.getEmbeddingDim() ) };
 
-            output_ = std::make_unique<EmbeddingsTensorType>( device, max_out_shape );
-            output_->setName( this->getName() + ".output" );
+            output_ = std::make_unique<EmbeddingsTensorType>( device, max_out_shape, this->getName() + ".output" );
 
-            input_grad_ = std::make_unique<TokenIndexType>( device, input_shape );
-            input_grad_->setName( this->getName() + ".input.grad" );
+            if ( build_config.isTrainingMode() )
+            {
+                initializeParameterGradients();
+                operation_->setGradients( wte_grad_.get(), wpe_grad_.get() );
+
+                input_grad_ = std::make_unique<TokenIndexType>( device, input_shape, this->getName() + ".input.grad" );
+            }
         }
 
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
-            operation_->setTraining( is_training );
+            operation_->setTrainingMode( training_mode );
 
-            if ( is_training )
+            if ( training_mode == TrainingMode::Normal )
             {
+                // REVIEW: Must already be built! Impossible to not be built already.
                 if ( this->isBuilt() )
                 {
                     initializeParameterGradients();
@@ -586,7 +581,7 @@ namespace Mila::Dnn
         std::unique_ptr<EmbeddingsTensorType> current_output_view_{ nullptr };
 
         std::shared_ptr<UnaryOperation<TDeviceType, TIndex, TPrecision>> operation_{ nullptr };
-        IPositionalDecode* decode_path_{ nullptr };  // non-owning, resolved at build time. nullptr for CPU backends.
+        IPositionalDecode* decode_path_{ nullptr };  // non-owning, resolved at build time.
         
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 

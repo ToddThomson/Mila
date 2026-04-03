@@ -10,6 +10,10 @@ module;
 #include <vector>
 #include <string>
 #include <sstream>
+#include <type_traits>
+#include <cstdint>
+#include <optional>
+#include <iostream>
 #include <stdexcept>
 #include <filesystem>
 #include <format>
@@ -101,10 +105,12 @@ namespace Mila::Dnn
             bool strict = true )
         {
             if ( device_id.type != TDeviceType )
+            {
                 throw std::invalid_argument( std::format(
                     "LlamaModel::fromPretrained: device type mismatch: expected {}, got {}",
                     deviceTypeToString( TDeviceType ),
                     deviceTypeToString( device_id.type ) ) );
+            }
 
             PretrainedModelReader reader( path );
             const auto& metadata = reader.getPretrainedMetadata();
@@ -113,11 +119,26 @@ namespace Mila::Dnn
 
             auto network = std::make_unique<LlamaTransformerType>( metadata.model_name, config, device_id );
 
-            network->build( shape_t{ 1, context_length } );
-            network->setTraining( false );
+            BuildContext build_context( shape_t{ 1, context_length }, RuntimeMode::Inference );
+
+            network->build( build_context );
+
+            auto stats = network->getMemoryStats();
+            std::cout << "\n--- Memory after build() ---\n";
+            std::cout << stats.toString() << std::endl;
+
             network->loadParameters( reader, strict );
 
-            return std::unique_ptr<LlamaModel>( new LlamaModel( std::move( network ), config, RuntimeMode::Inference ) );
+            stats = network->getMemoryStats();
+            std::cout << "\n--- Memory after loadParameters() ---\n";
+            std::cout << stats.toString() << std::endl;
+
+            auto model = std::unique_ptr<LlamaModel>(
+                new LlamaModel( std::move( network ), config, RuntimeMode::Inference ) );
+
+            return model;
+
+            // Was return std::unique_ptr<LlamaModel>( new LlamaModel( std::move( network ), config, RuntimeMode::Inference ) );
         }
 
         // ====================================================================
@@ -145,6 +166,15 @@ namespace Mila::Dnn
             float temperature = 1.0f,
             int top_k = 0 )
         {
+
+            // DEBUG
+            // Override temperature and top_k for deterministic output during development.
+
+            temperature = 0.0f;
+            top_k = 0;
+
+            // END DEBUG
+
             std::vector<int32_t> tokens = prompt_tokens;
             std::mt19937 rng( std::chrono::high_resolution_clock::now()
                 .time_since_epoch().count() );
@@ -153,12 +183,14 @@ namespace Mila::Dnn
             int64_t seq_len = static_cast<int64_t>(tokens.size());
 
             auto prefill_input = makeTokenTensor( tokens );
-            auto& logits = getNetwork().forward( prefill_input );
+            auto& logits = getNetwork().prefill( prefill_input );
             getNetwork().getExecutionContext()->synchronize();
 
-            int32_t next_token = sampleFromLogits(
-                logits, seq_len - 1, temperature, top_k, rng );
+            int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
             tokens.push_back( next_token );
+
+            // DEBUG:
+            return tokens;
 
             if ( next_token == eos_token_ )
                 return tokens;
@@ -171,8 +203,7 @@ namespace Mila::Dnn
                 auto& decode_logits = getNetwork().decode( decode_input, position );
                 getNetwork().getExecutionContext()->synchronize();
 
-                next_token = sampleFromLogits(
-                    decode_logits, 0, temperature, top_k, rng );
+                next_token = sampleFromLogits( decode_logits, 0, temperature, top_k, rng );
                 tokens.push_back( next_token );
                 ++position;
 
@@ -286,8 +317,10 @@ namespace Mila::Dnn
             return static_cast<const LlamaTransformerType&>(*ModelBase::network_);
         }
 
-        //std::unique_ptr<LlamaTransformerType> network_;
         LlamaConfig config_;
+        std::unique_ptr<TensorType> prefill_scratch_;
+        dim_t context_length_;
+        int64_t prefill_chunk_size_{ 64 };
 
         // LLaMA 2 </s> = 2; LLaMA 3 <|end_of_text|> = 128001.
         // Should be sourced from tokenizer metadata once tokenizer integration is added.
@@ -338,7 +371,16 @@ namespace Mila::Dnn
             const float* row = cpu.data()
                 + static_cast<size_t>(position) * static_cast<size_t>(config_.getVocabSize());
 
-            return sampleToken( row,
+            // DEBUG:
+
+            // Dump the cpu logits for the first few tokens to verify correctness of copy and indexing
+
+            std::cout << cpu.toString( true );
+
+            // END DEBUG
+
+            return sampleToken( 
+                row,
                 static_cast<size_t>(config_.getVocabSize()),
                 temperature, top_k, rng );
         }
@@ -351,8 +393,9 @@ namespace Mila::Dnn
             std::mt19937& rng )
         {
             if ( temperature <= 0.0f || top_k == 1 )
-                return static_cast<int32_t>(
-                    std::max_element( logits, logits + vocab_size ) - logits);
+            {
+                return static_cast<int32_t>( std::max_element( logits, logits + vocab_size ) - logits );
+            }
 
             float max_logit = *std::max_element( logits, logits + vocab_size );
 

@@ -32,7 +32,7 @@ namespace Dnn::Components::Activations::Tests
 
     struct GeluCudaTestData
     {
-        std::vector<int64_t> shape;
+        shape_t shape;
         std::shared_ptr<GeluCuda> gelu_module;
         std::unique_ptr<IExecutionContext> exec_context;
 
@@ -196,7 +196,7 @@ namespace Dnn::Components::Activations::Tests
         DeviceId cuda_id = Device::Cuda( 0 );
         auto gelu = std::make_shared<GeluCuda>( "gelu", GeluConfig(), cuda_id );
 
-        std::vector<int64_t> shape = { 2, 3, 4 };
+        shape_t shape = { 2, 3, 4 };
         auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
@@ -250,7 +250,7 @@ namespace Dnn::Components::Activations::Tests
         DeviceId cuda_id = Device::Cuda( 0 );
         auto gelu = std::make_shared<GeluCuda>( "gelu", GeluConfig(), cuda_id );
 
-        std::vector<int64_t> shape = { 2, 4, 8 };
+        shape_t shape = { 2, 4, 8 };
         auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
@@ -296,7 +296,7 @@ namespace Dnn::Components::Activations::Tests
         DeviceId cuda_id = Device::Cuda( 0 );
         auto gelu = std::make_shared<GeluCuda>( "gelu", GeluConfig(), cuda_id );
 
-        std::vector<int64_t> shape = { 3, 5, 7 };
+        shape_t shape = { 3, 5, 7 };
         auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
@@ -334,7 +334,7 @@ namespace Dnn::Components::Activations::Tests
         DeviceId cuda_id = Device::Cuda( 0 );
         auto gelu = std::make_shared<GeluCuda>( "gelu", GeluConfig(), cuda_id );
 
-        std::vector<int64_t> shape = { 2, 3, 4 };
+        shape_t shape = { 2, 3, 4 };
         auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
@@ -400,7 +400,7 @@ namespace Dnn::Components::Activations::Tests
         DeviceId cuda_id = Device::Cuda( 0 );
         auto gelu = std::make_shared<GeluCuda>( "gelu", GeluConfig(), cuda_id );
 
-        std::vector<int64_t> shape = { 2, 3, 4 };
+        shape_t shape = { 2, 3, 4 };
         auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
@@ -452,7 +452,7 @@ namespace Dnn::Components::Activations::Tests
         DeviceId cuda_id = Device::Cuda( 0 );
         auto gelu = std::make_shared<GeluCuda>( "gelu", GeluConfig(), cuda_id );
 
-        std::vector<int64_t> shape = { 2, 3, 4 };
+        shape_t shape = { 2, 3, 4 };
         auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
@@ -497,7 +497,7 @@ namespace Dnn::Components::Activations::Tests
         DeviceId cuda_id = Device::Cuda( 0 );
         auto gelu = std::make_shared<GeluCuda>( "gelu", GeluConfig(), cuda_id );
 
-        std::vector<int64_t> shape = { 1, 8 };
+        shape_t shape = { 1, 8 };
         auto cuda_device = gelu->getDeviceId();
 
         Tensor<TensorDataType::FP32, MR> input( cuda_device, shape );
@@ -579,7 +579,7 @@ namespace Dnn::Components::Activations::Tests
             return;
         }
 
-        std::vector<int64_t> shape = { 2, 2, 4 };
+        shape_t shape = { 2, 2, 4 };
         GeluConfig config;
 
         DeviceId cpu_id = Device::Cpu();

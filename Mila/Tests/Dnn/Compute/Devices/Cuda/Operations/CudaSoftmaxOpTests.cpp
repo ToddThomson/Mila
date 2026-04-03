@@ -907,7 +907,7 @@ namespace Operations::Tests
         auto fp16_op = std::make_shared<CudaSoftmaxOp<half>>( cuda_context );
 
         // Define test shape
-        std::vector<int64_t> shape = { 16, 32, 1024 }; // Large shape for significant performance difference
+        shape_t shape = { 16, 32, 1024 }; // Large shape for significant performance difference
 
         // Create tensors
         Tensor<float, CudaDeviceMemoryResource> input( shape );

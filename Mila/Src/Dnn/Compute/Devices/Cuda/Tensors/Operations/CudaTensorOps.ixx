@@ -4,6 +4,7 @@ export import :Zero;
 export import :Fill;
 export import :Math;
 export import :Transfer;
+export import :Structural;
 
 import Dnn.TensorOps.Base;
 import Compute.DeviceType;
@@ -13,5 +14,5 @@ namespace Mila::Dnn
 	using namespace Mila::Dnn::Compute::Cuda;
 
 	export template<>
-	struct TensorOps<Compute::DeviceType::Cuda> : ZeroOps, FillOps, MathOps, TransferOps {};
+	struct TensorOps<Compute::DeviceType::Cuda> : ZeroOps, FillOps, MathOps, TransferOps, StructuralOps {};
 }

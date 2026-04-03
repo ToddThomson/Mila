@@ -88,10 +88,10 @@ namespace Mila::Dnn
          * - Shared mode (no device_id): parent must call setExecutionContext() prior to build().
          *
          * @param name Component name identifier (mandatory).
-         * @param config Residual configuration.
+         * @param build_config Residual configuration.
          * @param device_id Optional device identifier to create owned ExecutionContext.
          *
-         * @throws std::invalid_argument if config is invalid or device type mismatches.
+         * @throws std::invalid_argument if build_config is invalid or device type mismatches.
          * @throws std::runtime_error if ExecutionContext creation fails (standalone mode).
          */
         explicit Residual( const std::string& name, const ResidualConfig& config, std::optional<DeviceId> device_id = std::nullopt )
@@ -135,54 +135,19 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Residual::forward: component must be built before forward pass" );
             }
 
-            //// DEBUG: Check input range
-            //auto host_input = toHost<TensorDataType::FP32>( input_a );
-            //auto host_input_ptr = host_input.data();
-            //size_t n = host_input.size();
-            //auto [min_in_a, max_in_a] = std::minmax_element( host_input_ptr, host_input_ptr + n );
-            //Utils::Logger::debug( std::format( "Residual {} in_a:[{:.3f}, {:.3f}] with shape:{}",
-            //    this->getName(), *min_in_a, *max_in_a, shapeToString( host_input.shape() ) ) );
-
-            //auto host_input_b = toHost<TensorDataType::FP32>( input_b );
-            //auto host_input_b_ptr = host_input_b.data();
-            //n = host_input_b.size();
-            //auto [min_in_b, max_in_b] = std::minmax_element( host_input_b_ptr, host_input_b_ptr + n );
-            //
-            //Utils::Logger::debug( std::format( "Residual {} in_b:[{:.3f}, {:.3f}] with shape:{}",
-            //    this->getName(), *min_in_b, *max_in_b, shapeToString( host_input_b.shape() ) ) );
-            //// END DEBUG:
-
             operation_->forward( input_a, input_b, *output_ );
 
-            // DEBUG: Check output range
+            // DEBUG: 
             this->synchronize();
 
             auto input_shape = input_a.shape();
 
-            if ( input_shape == max_input_shape_ )
+            if ( input_shape == leading_shape_ )
             {
                 return *output_;
             }
 
             output_view_ = std::make_unique<TensorType>( output_->view( input_shape ) );
-            /*Utils::Logger::debug( std::format( "Residual {} output view size:{}, output size: {}",
-                this->getName(), output_view_->size(), output_->size() ) );*/
-
-            /*auto host_output = toHost<TensorDataType::FP32>( *output_view_ );
-            auto host_output_ptr = host_output.data();
-            const size_t output_n = host_output.size();
-            auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
-
-            Utils::Logger::debug( std::format( "Residual {} out:[{:.3f}, {:.3f}] with shape:{}",
-                this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );*/
-
-            //Utils::Logger::debug( std::format( "Residual {} output at positions:", this->getName() ) );
-            //for ( int i = 0; i < 4; ++i )
-            //{  // First 4 tokens
-            //    auto feature_value = host_output_ptr[ i * 768 ];  // Assuming last dimension is 768
-            //    Utils::Logger::debug( std::format( "  Token {}: {:.3f}", i, feature_value ) );  // First feature of each token
-            //}
-            // DEBUG END
 
             return *output_view_;
         }
@@ -211,10 +176,11 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Residual::backward: component must be built before backward pass" );
             }
 
-            if ( !this->isTraining() )
+            if ( this->isInferenceMode() )
             {
                 throw std::runtime_error( "Residual::backward: component must be in training mode to compute gradients" );
             }
+
             // Zero BOTH owned input gradient buffers before backward pass.
             // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed
             // buffers to prevent gradient buildup across calls.
@@ -278,7 +244,7 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "Residual: " << this->getName() << std::endl;
-            oss << "Training mode: " << (this->isTraining() ? "true" : "false") << std::endl;
+            // REVEIW: oss << "Training mode: " << (this->isTraining() ? "true" : "false") << std::endl;
             oss << "Built: " << (this->isBuilt() ? "true" : "false") << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
 
@@ -314,10 +280,11 @@ namespace Mila::Dnn
          */
         std::vector<ITensor*> getGradients() const override
         {
-            if ( !this->isTraining() )
+            // REVIEW:
+            /*if ( !this->isTraining() )
             {
                 throw std::runtime_error( "Residual: getGradients called when not in training mode" );
-            }
+            }*/
 
             return {};
         }
@@ -346,10 +313,6 @@ namespace Mila::Dnn
 
     protected:
 
-        // ====================================================================
-        // Lifecycle hooks aligned with Component base
-        // ====================================================================
-
         /**
          * @brief Hook invoked after ExecutionContext is set on the base Component.
          *
@@ -360,32 +323,48 @@ namespace Mila::Dnn
             createOperation();
         }
 
-        void onBuilding( const shape_t& input_shape ) override
+        /**
+         * @brief Build the Residual component from the provided BuildContext.
+         *
+         * Allocates the component-owned output buffer and, for Training-mode
+         * builds, the gradient buffers for both inputs.
+         *
+         * ## Output buffer
+         *
+         * The output buffer matches the full input shape. Residual is a
+         * pure elementwise addition with no sequence dimension concern —
+         * RuntimeMode does not influence output buffer allocation.
+         *
+         * ## Gradient buffers
+         *
+         * input_a_grad_ and input_b_grad_ are allocated only for
+         * RuntimeMode::Training builds. Both are the same shape as the
+         * input — Residual is elementwise addition and both inputs are
+         * always symmetric in shape.
+         *
+         * @param build_config Full input shape and RuntimeMode for this build.
+         */
+        void onBuilding( const BuildContext& build_config ) override
         {
-            if ( !operation_ )
-            {
-                throw std::runtime_error( "Residual::onBuilding: operation backend not initialized. Ensure execution context was set." );
-            }
+            const auto& input_shape = build_config.inputShape();
 
-            operation_->build( input_shape );
+            operation_->build( build_config );
 
-            max_input_shape_ = input_shape;
-
-            // Allocate component-owned forward output and input-gradient tensors.
             auto device = this->getExecutionContext()->getDeviceId();
 
-            // Output shape is same as input_a/input_b output
-            output_ = std::make_unique<TensorType>( device, max_input_shape_ );
-            output_->setName( this->getName() + ".output" );
+            output_ = std::make_unique<TensorType>(
+                device, input_shape, this->getName() + ".output" );
 
-            // Allocate gradients for both inputs (same shape as respective inputs)
-            input_a_grad_ = std::make_unique<TensorType>( device, max_input_shape_ );
-            input_a_grad_->setName( this->getName() + ".input_a.grad" );
-            zero( *input_a_grad_ );
+            if ( build_config.isTrainingMode() )
+            {
+                input_a_grad_ = std::make_unique<TensorType>(
+                    device, input_shape, this->getName() + ".input_a.grad" );
+                zero( *input_a_grad_ );
 
-            input_b_grad_ = std::make_unique<TensorType>( device, max_input_shape_ );
-            input_b_grad_->setName( this->getName() + ".input_b.grad" );
-            zero( *input_b_grad_ );
+                input_b_grad_ = std::make_unique<TensorType>(
+                    device, input_shape, this->getName() + ".input_b.grad" );
+                zero( *input_b_grad_ );
+            }
         }
 
         /**
@@ -397,18 +376,15 @@ namespace Mila::Dnn
          *
          * Called with Component's training mutex held; do not call setTraining() here.
          */
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
-            if ( operation_ )
-            {
-                operation_->setTraining( is_training );
-            }
+            operation_->setTrainingMode( training_mode );
         }
 
     private:
 
         ResidualConfig config_;
-        shape_t max_input_shape_;
+        shape_t leading_shape_;
 
         std::shared_ptr<BinaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };

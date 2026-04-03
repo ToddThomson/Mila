@@ -1,29 +1,6 @@
 /**
  * @file Rope.ixx
  * @brief Rotary positional embedding (RoPE) component.
- *
- * Applies rotary position embeddings to Q and K tensors simultaneously,
- * rotating both in-place via a single paired backend dispatch using the
- * same cos/sin cache.
- *
- * Unlike GPT-2's Lpe (learned positional encoding) which is a true unary
- * operation on the full embedding stream, RoPE is inherently paired: Q and K
- * are rotated in-place using the same cos/sin cache in a single kernel
- * dispatch. The operation is in-place by design — the CUDA kernel reads each
- * float2 pair into a local register before writing back, making src == dst
- * safe with no aliasing hazard.
- *
- * Typical usage in LlamaBlock:
- *
- *   // Zero-copy views into the fused QKV projection output
- *   auto Q = qkv_out.view( {B, T, n_heads    * head_dim}, 0      );
- *   auto K = qkv_out.view( {B, T, n_kv_heads * head_dim}, q_size );
- *
- *   rope_->forward( Q, K );    // rotates Q and K in-place inside qkv_out
- *   attn_->forward( qkv_out ); // GQA sees rotated Q, K and untouched V
- *
- * Q shape: [B, T, n_heads    * head_dim]
- * K shape: [B, T, n_kv_heads * head_dim]
  */
 
 module;
@@ -55,6 +32,7 @@ import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.PairedOperation;
+import Compute.IPositionalPairedOp;
 import Compute.OperationRegistry;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
@@ -74,6 +52,15 @@ namespace Mila::Dnn
      * writes directly back into the caller-provided tensors (typically views
      * into a fused QKV projection buffer).
      *
+     * Supports three dispatch modes:
+     *   forward(Q, K)                  — training, positions 0..T-1
+     *   prefill(Q, K, position_offset) — chunked prefill, positions offset..offset+T-1
+     *   decode(Q, K, position)         — single-token KV-cache decode
+     *
+     * Positional dispatch (prefill/decode) is available when the backend
+     * implements IPositionalPairedOp. The interface pointer is cached at
+     * operation creation via dynamic_cast.
+     *
      * This component has no trainable parameters.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
@@ -85,10 +72,7 @@ namespace Mila::Dnn
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TPrecision, MR>;
 
-        explicit Rope(
-            const std::string& name,
-            const RopeConfig& config,
-            std::optional<DeviceId> device_id = std::nullopt )
+        explicit Rope( const std::string& name, const RopeConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), config_( config )
         {
             config_.validate();
@@ -108,12 +92,7 @@ namespace Mila::Dnn
         /**
          * @brief Apply rotary position embeddings to Q and K in-place.
          *
-         * Both tensors are rotated in a single backend dispatch using the
-         * same cos/sin cache. Writes directly back into the provided tensors.
-         *
-         * Safe to call with views of the same underlying buffer — the CUDA
-         * kernel reads each float2 pair into local registers before writing,
-         * so src == dst carries no aliasing hazard.
+         * Uses implicit positions 0..T-1. Suitable for training forward passes.
          *
          * @param Q  Query tensor [B, T, n_heads    * head_dim]. Mutated in-place.
          * @param K  Key tensor   [B, T, n_kv_heads * head_dim]. Mutated in-place.
@@ -125,8 +104,6 @@ namespace Mila::Dnn
 
             if ( !operation_ )
                 throw std::runtime_error( "Rope: operation backend not initialized." );
-
-            // FIXME: validateShapes( Q.shape(), K.shape() );
 
             operation_->forward( Q, K, Q, K );
         }
@@ -140,7 +117,6 @@ namespace Mila::Dnn
          *
          * RoPE is an orthogonal rotation (R^T = R^{-1}), so input gradients
          * are the upstream gradients rotated by the transpose (negative) angles.
-         * The backend implements this via negate_sin=true in the kernel.
          *
          * @param grad_Q  Upstream gradient w.r.t. rotated Q.
          * @param grad_K  Upstream gradient w.r.t. rotated K.
@@ -168,11 +144,58 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
+        // Positional inference (IPositionalPairedOp)
+        // ====================================================================
+
+        /**
+         * @brief Apply rotary position embeddings with an explicit position offset.
+         *
+         * Each token at chunk-local position t is rotated using the cos/sin cache
+         * row at absolute position (t + position_offset). Required for chunked
+         * prefill where successive chunks use increasing offsets.
+         *
+         * @param Q               Query tensor [B, T, n_heads    * head_dim]. Mutated in-place.
+         * @param K               Key tensor   [B, T, n_kv_heads * head_dim]. Mutated in-place.
+         * @param position_offset Absolute position of the first token in this chunk.
+         */
+        void prefill( TensorType& Q, TensorType& K, int position_offset )
+        {
+            if ( !this->isBuilt() )
+                throw std::runtime_error( "Rope must be built before calling prefill()." );
+
+            if ( !positional_op_ )
+                throw std::runtime_error( "Rope: backend does not support positional inference." );
+
+            positional_op_->prefill( Q, K, Q, K, position_offset );
+        }
+
+        /**
+         * @brief Single-token decode with explicit position.
+         *
+         * Rotates Q and K in-place using the cos/sin cache row at `position`.
+         * Required for KV-cache autoregressive generation where T=1.
+         *
+         * @param Q        Query tensor [B, 1, n_heads    * head_dim]. Mutated in-place.
+         * @param K        Key tensor   [B, 1, n_kv_heads * head_dim]. Mutated in-place.
+         * @param position Absolute position of the token in the full sequence.
+         */
+        void decode( TensorType& Q, TensorType& K, int position )
+        {
+            if ( !this->isBuilt() )
+                throw std::runtime_error( "Rope must be built before calling decode()." );
+
+            if ( !positional_op_ )
+                throw std::runtime_error( "Rope: backend does not support positional inference." );
+
+            positional_op_->decode( Q, K, Q, K, position );
+        }
+
+        // ====================================================================
         // Component interface
         // ====================================================================
 
         void zeroGradients() override
-        {} // No learnable parameters.
+        {}
 
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
@@ -186,11 +209,6 @@ namespace Mila::Dnn
 
         std::vector<ITensor*> getGradients() const override
         {
-            if ( !this->isTraining() )
-            {
-                throw std::runtime_error( "Rope: getGradients called when not in training mode." );
-            }
-
             return {};
         }
 
@@ -237,6 +255,7 @@ namespace Mila::Dnn
             oss << "Rope: " << this->getName() << "\n";
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << "\n";
             oss << "Config: " << config_.toString() << "\n";
+
             return oss.str();
         }
 
@@ -247,90 +266,51 @@ namespace Mila::Dnn
             createOperation();
         }
 
-        /**
-         * @brief Allocate RoPE forward path buffers.
-         *
-         * Derives Q and K tensor shapes from the leading shape { B, T } and
-         * RopeConfig. All rotation is in-place — no forward output buffers
-         * are allocated.
-         *
-         * @param leading_shape { B, T } — allocation bounds. Trailing dimensions
-         *                      are derived from RopeConfig:
-         *                        Q: n_heads    * head_dim
-         *                        K: n_kv_heads * head_dim
-         */
-        void onBuilding( const shape_t& leading_shape ) override
+        void onBuilding( const BuildContext& build_context ) override
         {
-            validateLeadingShape( leading_shape );
+            validateBuildContext( build_context );
+            const auto& input_shape = build_context.inputShape();
 
-            q_shape_ = leading_shape;
-            q_shape_.push_back( config_.getNumHeads() * config_.getHeadDim() );
+            q_shape_ = shape_t{ input_shape[ 0 ], input_shape[ 1 ], static_cast<dim_t>( config_.getNumHeads() * config_.getHeadDim() ) };
+            k_shape_ = shape_t{ input_shape[ 0 ], input_shape[ 1 ], static_cast<dim_t>( config_.getNumKVHeads() * config_.getHeadDim() ) };
 
-            k_shape_ = leading_shape;
-            k_shape_.push_back( config_.getNumKVHeads() * config_.getHeadDim() );
-
-            operation_->build( leading_shape );
-        }
-
-        /**
-         * @brief Manage gradient buffer allocation and state on training mode transitions.
-         *
-         * RoPE has no learnable parameters. Gradient buffers for Q and K are
-         * allocated once on the first transition to training mode and retained
-         * for the component lifetime. They are zeroed on every transition in
-         * both directions to prevent stale gradients leaking across mode switches.
-         *
-         * Transition behavior:
-         *   setTraining( true )  — first call:  allocate Q and K gradient buffers, zero them
-         *                        — subsequent:  zero existing buffers
-         *   setTraining( false ) — zero existing buffers, retain allocations
-         *
-         * @param is_training True when entering training mode.
-         */
-        void onTrainingChanging( bool is_training ) override
-        {
-            if ( owned_Q_grad_ == nullptr )
+            if ( build_context.isTrainingMode() )
             {
                 auto device = this->getExecutionContext()->getDeviceId();
 
-                owned_Q_grad_ = std::make_unique<TensorType>( device, q_shape_ );
-                owned_Q_grad_->setName( this->getName() + ".Q_grad" );
-
-                owned_K_grad_ = std::make_unique<TensorType>( device, k_shape_ );
-                owned_K_grad_->setName( this->getName() + ".K_grad" );
-
+                owned_Q_grad_ = std::make_unique<TensorType>( device, q_shape_, this->getName() + ".Q_grad" );
                 zero( *owned_Q_grad_ );
+
+                owned_K_grad_ = std::make_unique<TensorType>( device, k_shape_, this->getName() + ".K_grad" );
                 zero( *owned_K_grad_ );
             }
 
-            operation_->setTraining( is_training );
+            operation_->build( build_context );
+        }
 
-            if ( !is_training )
-                operation_->clearGradients();
+        void onTrainingModeChanging( TrainingMode training_mode ) override
+        {
+
         }
 
     private:
         RopeConfig config_;
+
+        std::shared_ptr<PairedOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        IPositionalPairedOp* positional_op_{ nullptr };
+
+        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
+
         shape_t q_shape_;
         shape_t k_shape_;
 
-        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
-        std::shared_ptr<PairedOperation<TDeviceType, TPrecision>> operation_{ nullptr };
-
-        // Backward gradient buffers — allocated once at build, reused each step.
         std::unique_ptr<TensorType> owned_Q_grad_{ nullptr };
         std::unique_ptr<TensorType> owned_K_grad_{ nullptr };
 
-        void validateLeadingShape( const shape_t& leading_shape ) const
+        void validateBuildContext( const BuildContext& context ) const
         {
-            if ( leading_shape.size() != 2 )
-                throw std::invalid_argument(
-                    "Rope: leading_shape must be rank-2 [B, T]" );
-
-            if ( leading_shape[ 1 ] > config_.getMaxSequenceLength() )
-                throw std::invalid_argument( std::format(
-                    "Rope: sequence length {} exceeds max_seq_len {}",
-                    leading_shape[ 1 ], config_.getMaxSequenceLength() ) );
+            if ( context.inputShape().size() < 2 )
+                throw std::invalid_argument( "Rope: leading shape must have at least rank 2 [B, T, ...]" );
         }
 
         void createOperation()
@@ -342,7 +322,9 @@ namespace Mila::Dnn
                     config_ );
 
             if ( !operation_ )
-                throw std::runtime_error( "Rope: failed to create backend operation." );
+                throw std::runtime_error( "Rope: failed to create RopeOp backend." );
+
+            positional_op_ = dynamic_cast<IPositionalPairedOp*>( operation_.get() );
         }
     };
 }

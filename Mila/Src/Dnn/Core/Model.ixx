@@ -50,10 +50,10 @@ module;
 #include <format>
 
 export module Dnn.Model;
-export import :RuntimeMode;
 
 import Dnn.Network;
 import Dnn.Component;
+import Dnn.RuntimeMode;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Compute.DeviceType;
@@ -134,6 +134,48 @@ namespace Mila::Dnn
         {
             ensureTrainingMode( "train" );
             onTraining();
+        }
+
+        // ====================================================================
+        // Eval toggle — Training mode only
+        // ====================================================================
+
+        /**
+         * @brief Toggle eval sub-state for this model.
+         *
+         * When eval is true, the forward pass runs without gradients,
+         * dropout is disabled, and batch norm uses running statistics.
+         * When eval is false, the full training pass is restored.
+         *
+         * Cascades through Network to every Component and Operation
+         * in the graph via their onEvalChanging() hooks.
+         *
+         * Only valid on models constructed with RuntimeMode::Training.
+         * Inference-mode models are always in eval state by definition.
+         *
+         * @param eval true to enter eval sub-state, false to restore training.
+         * @throws std::runtime_error if called on a RuntimeMode::Inference model.
+         */
+        void setEval( bool eval )
+        {
+            ensureTrainingMode( "setEval" );
+            network_->setEval( eval );
+        }
+
+        /**
+         * @brief True if this model is currently in eval sub-state.
+         *
+         * For RuntimeMode::Inference models always returns true —
+         * inference models never compute gradients.
+         * For RuntimeMode::Training models reflects the last setEval() call.
+         */
+        bool isEval() const noexcept
+        {
+            if ( isInferenceMode() )
+            {
+                return true;
+            }
+            return network_->isEval();
         }
 
         // ====================================================================

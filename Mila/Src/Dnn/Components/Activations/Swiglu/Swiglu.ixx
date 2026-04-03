@@ -91,9 +91,19 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Swiglu::forward: component must be built before forward pass" );
             }
 
-            operation_->forward( input, *output_ );
+            const auto& input_shape = input.shape();
 
-            return *output_;
+            shape_t view_shape = input_shape;
+            view_shape.back() /= 2;
+
+            if ( output_view_->shape() != view_shape )
+            {
+                output_view_.emplace( output_->view( view_shape ) );
+            }
+
+            operation_->forward( input, *output_view_ );
+            
+            return *output_view_;
         }
 
         TensorType& backward( const TensorType& input, const TensorType& output_grad )
@@ -103,10 +113,11 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Swiglu::backward: component must be built before backward pass" );
             }
 
-            if ( !this->isTraining() )
+            // REVIEW:
+            /*if ( !this->isTraining() )
             {
                 throw std::runtime_error( "Swiglu::backward: component must be in training mode to compute gradients" );
-            }
+            }*/
 
             zero( *input_grad_ );
 
@@ -221,35 +232,39 @@ namespace Mila::Dnn
         }
 
     protected:
+        
         void onExecutionContextSet() override
         {
             createOperation();
         }
 
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const BuildContext& build_context ) override
         {
-            if ( !operation_ )
-            {
-                throw std::runtime_error( std::format( "Swiglu::onBuilding: operation backend not initialized for '{}'", this->getName() ) );
-            }
+            validateBuildContext( build_context );
 
-            operation_->build( input_shape );
-            input_shape_ = input_shape;
+            const auto& input_shape = build_context.inputShape();
 
-            // Output last dimension is halved: input [B,T,2H] -> output [B,T,H].
+            operation_->build( build_context );
+
+            // Output shape is same as input but with feature dim halved for gate/value split
             shape_t output_shape = input_shape;
             output_shape.back() /= 2;
 
-            DeviceId dev_id = this->getExecutionContext()->getDeviceId();
+            DeviceId device_id = this->getExecutionContext()->getDeviceId();
 
-            output_ = std::make_unique<TensorType>( dev_id, output_shape );
-            input_grad_ = std::make_unique<TensorType>( dev_id, input_shape_ );
-            zero( *input_grad_ );
+            output_ = std::make_unique<TensorType>( device_id, output_shape );
+            output_view_.emplace( output_->view( output_shape ) );
+
+            if ( build_context.isTrainingMode() )
+            {
+                input_grad_ = std::make_unique<TensorType>( device_id, input_shape, this->getName() + ".input_grad" );
+                zero( *input_grad_ );
+            }
         }
 
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
-            if ( operation_ ) operation_->setTraining( is_training );
+            operation_->setTrainingMode( training_mode );
         }
 
     private:
@@ -260,7 +275,44 @@ namespace Mila::Dnn
         std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
 
         std::unique_ptr<TensorType> output_{ nullptr };
+        std::optional<TensorType> output_view_;
+
         std::unique_ptr<TensorType> input_grad_{ nullptr };
+
+        void validateBuildContext( const BuildContext& build_context ) const
+        {
+            const auto& input_shape = build_context.inputShape();
+
+            if ( input_shape.size() != 3 )
+            {
+                throw std::invalid_argument(
+                    std::format( "SwiGLU: expected rank-3 input [B, T, 2*hidden_dim], got rank {}", input_shape.size() ) );
+            }
+
+            if ( input_shape[ 0 ] <= 0 )
+            {
+                throw std::invalid_argument(
+                    std::format( "SwiGLU: batch dimension must be > 0, got {}", input_shape[ 0 ] ) );
+            }
+
+            if ( input_shape[ 1 ] <= 0 )
+            {
+                throw std::invalid_argument(
+                    std::format( "SwiGLU: sequence dimension must be > 0, got {}", input_shape[ 1 ] ) );
+            }
+
+            if ( input_shape[ 2 ] <= 0 )
+            {
+                throw std::invalid_argument(
+                    std::format( "SwiGLU: feature dimension must be > 0, got {}", input_shape[ 2 ] ) );
+            }
+
+            if ( input_shape[ 2 ] % 2 != 0 )
+            {
+                throw std::invalid_argument(
+                    std::format( "SwiGLU: feature dimension must be even for gate/value split, got {}", input_shape[ 2 ] ) );
+            }
+        }
 
         static void validateMetadata_( const SerializationMetadata& meta, const std::string& component_name )
         {

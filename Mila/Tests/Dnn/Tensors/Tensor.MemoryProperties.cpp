@@ -23,7 +23,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST_F( TensorMemoryPropertiesTest, HostOnly_HostCompatibleDataTypes_CpuMemoryResource ) {
-        std::vector<int64_t> shape = { 2, 3 };
+        shape_t shape = { 2, 3 };
 
         // FP32 (host-compatible floating-point) - CPU only
         {
@@ -90,7 +90,7 @@ namespace Dnn::Tensors::Tests
             GTEST_SKIP() << "CUDA device not available. Skipping CUDA memory-resource checks.";
         }
 
-        std::vector<int64_t> shape = { 2, 3 };
+        shape_t shape = { 2, 3 };
 
         // FP32 across CUDA resources
         {
@@ -151,7 +151,7 @@ namespace Dnn::Tensors::Tests
             GTEST_SKIP() << "CUDA device not available. Skipping device-only type checks.";
         }
 
-        std::vector<int64_t> shape = { 2, 3 };
+        shape_t shape = { 2, 3 };
 
         // FP16 (device-only half precision)
         {
@@ -300,7 +300,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST_F( TensorMemoryPropertiesTest, HostOnly_TypeAliasProperties ) {
-        std::vector<int64_t> shape = { 2, 3 };
+        shape_t shape = { 2, 3 };
 
         // Host aliases for various types
         HostTensor<TensorDataType::FP32> host_fp32_tensor( Device::Cpu(), shape );
@@ -324,7 +324,7 @@ namespace Dnn::Tensors::Tests
             GTEST_SKIP() << "CUDA device not available. Skipping device alias checks.";
         }
 
-        std::vector<int64_t> shape = { 2, 3 };
+        shape_t shape = { 2, 3 };
 
         DeviceTensor<TensorDataType::FP32> device_fp32_tensor( Device::Cuda( 0 ), shape );
         PinnedTensor<TensorDataType::FP32> pinned_fp32_tensor( Device::Cuda( 0 ), shape );
@@ -354,7 +354,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST_F( TensorMemoryPropertiesTest, Host_PropertyConsistencyAcrossOperations ) {
-        std::vector<int64_t> shape = { 3, 3 };
+        shape_t shape = { 3, 3 };
 
         // Test with FP32 on CPU
         {
@@ -379,7 +379,7 @@ namespace Dnn::Tensors::Tests
             GTEST_SKIP() << "CUDA device not available. Skipping device operation consistency tests.";
         }
 
-        std::vector<int64_t> shape = { 3, 3 };
+        shape_t shape = { 3, 3 };
 
         // Test with INT32 on CUDA device memory
         {
@@ -423,7 +423,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST_F( TensorMemoryPropertiesTest, HostOnly_DataTypeInformation ) {
-        std::vector<int64_t> shape = { 2, 2 };
+        shape_t shape = { 2, 2 };
 
         {
             Tensor<TensorDataType::INT8, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
@@ -474,7 +474,7 @@ namespace Dnn::Tensors::Tests
             GTEST_SKIP() << "CUDA device not available. Skipping device data-type information tests.";
         }
 
-        std::vector<int64_t> shape = { 2, 2 };
+        shape_t shape = { 2, 2 };
 
         {
             Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda( 0 ), shape );
@@ -649,7 +649,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST_F( TensorMemoryPropertiesTest, Host_DeviceContextCompatibility ) {
-        std::vector<int64_t> shape = { 2, 2 };
+        shape_t shape = { 2, 2 };
 
         {
             Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
@@ -662,7 +662,7 @@ namespace Dnn::Tensors::Tests
             GTEST_SKIP() << "CUDA device not available. Skipping device context compatibility tests.";
         }
 
-        std::vector<int64_t> shape = { 2, 2 };
+        shape_t shape = { 2, 2 };
 
         {
             Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );

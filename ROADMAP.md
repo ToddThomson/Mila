@@ -6,7 +6,7 @@
 
 | Stage | Version |
 |---|---|
-| Current | 0.10.15-alpha.2 |
+| Current | 0.10.16-alpha.2 |
 | Planned beta | 0.11.1-beta |
 
 ---
@@ -33,13 +33,15 @@ that all subsequent architecture work follows.
 | AdamW optimizer + MNIST training loop | Complete |
 
 ---
-
 ## Alpha.2 — In Progress
 
 **Llama architecture, validated against HuggingFace using the same methodology.**
 
 Success criterion: Greedy decode of LlamaModel matches HuggingFace LlamaForCausalLM
 token-for-token on identical prompts using Llama 3.2 1B weights.
+
+**Milestone reached:** Prefill pipeline validated — logits on initial prompt processing
+match HuggingFace LlamaForCausalLM. Autoregressive decode validation remaining.
 
 Alpha.2 completes directly into the beta milestone. No intermediate release is planned.
 
@@ -62,33 +64,34 @@ Alpha.2 completes directly into the beta milestone. No intermediate release is p
 
 #### Components
 
-- [ ] TokenEmbedding — pure vocabulary lookup, wte only
-- [ ] RoPE — rotary positional encoding applied to Q and K inside attention
-- [ ] SiLU activation — forward + CUDA kernel
-- [ ] SwiGLU MLP — gate_proj * silu(up_proj) then down_proj
-- [ ] GroupedQueryAttention — GQA with configurable num_kv_heads and KV-cache path
-- [ ] LlamaBlock — pre-RMSNorm, GQA, SwiGLU MLP, residual connections
+- [x] TokenEmbedding — pure vocabulary lookup, wte only
+- [x] RoPE — rotary positional encoding applied to Q and K inside attention
+- [x] SiLU activation — forward + CUDA kernel
+- [x] SwiGLU MLP — gate_proj * silu(up_proj) then down_proj
+- [x] GroupedQueryAttention — GQA with configurable num_kv_heads and KV-cache path
+- [x] LlamaBlock — pre-RMSNorm, GQA, SwiGLU MLP, residual connections
 
 #### Model
 
-- [ ] LlamaTransformer — decoder-only stack
-- [ ] LlamaModel — fromPretrained() + generate(), mirrors GptModel
-- [ ] LlamaConfig — rope_theta, rms_norm_eps, num_kv_heads, intermediate_size
+- [x] LlamaTransformer — decoder-only stack
+- [x] LlamaModel — fromPretrained() + generate(), mirrors GptModel
+- [x] LlamaConfig — rope_theta, rms_norm_eps, num_kv_heads, intermediate_size
 
 #### Weight Conversion
 
-- [ ] convert_llama_weights.py — HuggingFace to Mila binary format
-- [ ] Handle GQA weight layout and SwiGLU MLP layout
-- [ ] Preserve rope_theta and rms_norm_eps in metadata
+- [x] convert_llama_weights.py — HuggingFace to Mila binary format
+- [x] Handle GQA weight layout and SwiGLU MLP layout
+- [x] Preserve rope_theta and rms_norm_eps in metadata
 
 #### Tokenizer
 
-- [ ] SentencePiece support for Llama 3.x tokenization
-- [ ] Validated encode/decode round-trip against HuggingFace tokenizer
+- [x] SentencePiece support for Llama 3.x tokenization
+- [x] Validated encode/decode round-trip against HuggingFace tokenizer
 
 #### Validation
 
-- [ ] Per-component numerical comparison vs HuggingFace — RMSNorm, RoPE, SwiGLU, GQA
+- [x] Per-component numerical comparison vs HuggingFace — RMSNorm, RoPE, SwiGLU, GQA
+- [x] Prefill pipeline validated — logits match HuggingFace LlamaForCausalLM on identical prompts
 - [ ] Full-network greedy decode comparison — LlamaModel vs LlamaForCausalLM
 - [ ] Validation script mirroring hf_greedy_validation.py
 
@@ -102,7 +105,6 @@ Alpha.2 completes directly into the beta milestone. No intermediate release is p
 - [ ] Remove debug instrumentation from GptTransformer, GptBlock, CudaMhaOp
 - [ ] Remove debug logit inspection from GptModel::generate()
 - [ ] Gate remaining diagnostics behind MILA_DEBUG compile flag
-
 ---
 
 ## Beta — 0.11.1

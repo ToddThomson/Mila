@@ -116,9 +116,9 @@ namespace Mila::Dnn::Compute
          *
          * After build(), the operation is ready for zero-overhead forward/backward dispatch.
          */
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
-            const auto& shape = input_shape;
+            const auto& shape = config.inputShape();
             const int64_t ndim = static_cast<int64_t>(shape.size());
 
             if (ndim == 0)
@@ -154,7 +154,7 @@ namespace Mila::Dnn::Compute
 
             enable_omp_ = (outer_size * inner_size > 100);
 
-            UnaryOperationBase::build( input_shape );
+            UnaryOperationBase::build( config );
         }
 
         /**

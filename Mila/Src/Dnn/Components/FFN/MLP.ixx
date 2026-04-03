@@ -215,13 +215,13 @@ namespace Mila::Dnn
             if ( !this->isBuilt() )
                 throw std::runtime_error( "MLP must be built before decode()." );
 
-            auto& fc1_out = fc1_->decode( input );
+            auto& fc1_out = fc1_->forward( input );
             this->getExecutionContext()->synchronize();
 
             auto& act_out = activation_forward_( fc1_out );
             this->getExecutionContext()->synchronize();
 
-            auto& fc2_out = fc2_->decode( act_out );
+            auto& fc2_out = fc2_->forward( act_out );
             this->getExecutionContext()->synchronize();
 
             return fc2_out;
@@ -236,11 +236,6 @@ namespace Mila::Dnn
         void zeroGradients() override
         {
             fc1_->zeroGradients();
-
-            if ( norm_ )
-            {
-                norm_->zeroGradients();
-            }
 
             if ( activation_ )
             {
@@ -261,11 +256,6 @@ namespace Mila::Dnn
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
             fc1_->save_( archive, mode );
-
-            if ( norm_ )
-            {
-                norm_->save_( archive, mode );
-            }
 
             if ( activation_ )
             {
@@ -353,11 +343,6 @@ namespace Mila::Dnn
                 oss << "  - fc1: " << fc1_->getName() << std::endl;
             }
 
-            if ( norm_ )
-            {
-                oss << "  - norm: " << norm_->getName() << std::endl;
-            }
-
             if ( activation_ )
             {
                 oss << "  - activation: " << activation_->getName() << std::endl;
@@ -385,8 +370,9 @@ namespace Mila::Dnn
          *
          * @throws std::invalid_argument if `input_shape` rank < 1 or last dimension mismatches config.
          */
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const BuildContext& context ) override
         {
+            const auto& input_shape = context.inputShape();
             validateInputShape( input_shape );
 
             cached_input_shape_ = input_shape;
@@ -395,7 +381,7 @@ namespace Mila::Dnn
             cached_hidden_shape_.back() = config_.getHiddenSize();
 
             fc1_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_1" );
-            fc1_->build( input_shape );
+            fc1_->build( context );
 
             // For SwiGLU: activation input is 2*H (fused gate+up); output collapses back to H.
             // For all other activations: activation input and output are both H.
@@ -406,10 +392,12 @@ namespace Mila::Dnn
                 activation_input_shape.back() *= 2;
             }
 
-            activation_->build( activation_input_shape );
+            BuildContext activation_context( activation_input_shape, context.getRuntimeMode(), context.prefillSize() );
+            activation_->build( activation_context );
 
             fc2_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_2" );
-            fc2_->build( cached_hidden_shape_ );
+            BuildContext fc2_context( cached_hidden_shape_, context.getRuntimeMode(), context.prefillSize() );
+            fc2_->build( fc2_context );
 
             clearForwardCache();
         }
@@ -422,27 +410,11 @@ namespace Mila::Dnn
          *
          * @param is_training True if switching to training mode; false for evaluation mode.
          */
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
-            if ( fc1_ )
-            {
-                fc1_->setTraining( is_training );
-            }
-
-            if ( norm_ )
-            {
-                norm_->setTraining( is_training );
-            }
-
-            if ( activation_ )
-            {
-                activation_->setTraining( is_training );
-            }
-
-            if ( fc2_ )
-            {
-                fc2_->setTraining( is_training );
-            }
+            fc1_->setTrainingMode( training_mode );
+            activation_->setTrainingMode( training_mode );
+            fc2_->setTrainingMode( training_mode );
         }
 
     private:
@@ -456,7 +428,6 @@ namespace Mila::Dnn
 
         std::shared_ptr<LinearType> fc1_{ nullptr };
         std::shared_ptr<LinearType> fc2_{ nullptr };
-        std::shared_ptr<LayerNormType> norm_{ nullptr };
 
         // Polymorphic activation: holds either Gelu or Swiglu via the Component base.
         using ActivationBase = Component<TDeviceType, TPrecision>;
@@ -482,6 +453,8 @@ namespace Mila::Dnn
          */
         void createGraph()
         {
+            // REVIEW: fc_in, fc_out general naming. We could also have Swiglu specific naming?
+
             // SwiGLU fuses gate and up projections: fc1 must output 2*H for the split.
             dim_t fc1_out = ( config_.getActivationType() == ActivationType::Swiglu )
                 ? config_.getHiddenSize() * 2

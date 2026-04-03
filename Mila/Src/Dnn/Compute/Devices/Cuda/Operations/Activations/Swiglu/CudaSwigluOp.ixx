@@ -32,7 +32,6 @@ import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextTemplate;
-// DEPRECATED: import Compute.CudaDeviceResources;
 import Compute.OperationType;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
@@ -62,20 +61,19 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
 
         void forward( const ITensor& input, ITensor& output ) const override
         {
-            if ( input.getDeviceType() != DeviceType::Cuda || output.getDeviceType() != DeviceType::Cuda ) {
-                throw std::invalid_argument( "CudaSwigluOp: Input and output tensors must be on CUDA device." );
-            }
-
-            if ( input.size() % 2 != 0 ) {
+            if ( input.size() % 2 != 0 )
+            {
                 throw std::invalid_argument( "CudaSwigluOp: Input must have even number of elements (split in half for SwiGLU)." );
             }
 
             const size_t outSize = input.size() / 2;
-            if ( output.size() != outSize ) {
+            if ( output.size() != outSize )
+            {
                 throw std::invalid_argument( "CudaSwigluOp: Output must have half the size of the input for SwiGLU." );
             }
 
             int N = static_cast<int>(outSize);
+            int half_width = static_cast<int>(input.shape().back() / 2);
 
             auto* cuda_context = static_cast<CudaExecutionContext*>(context_);
             cudaStream_t stream = cuda_context->getStream();
@@ -83,7 +81,7 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
             auto X = static_cast<const NativeType*>(input.rawData());
             auto Y = static_cast<NativeType*>(output.rawData());
 
-            impl_.forward( Y, X, N, stream );
+            impl_.forward( Y, X, N, half_width, stream );
         }
 
         void backward( const ITensor& input, const ITensor& output_gradient, ITensor& input_gradient ) const override

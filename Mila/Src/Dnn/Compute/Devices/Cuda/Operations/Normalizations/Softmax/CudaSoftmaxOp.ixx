@@ -173,8 +173,9 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
          *
          * After build(), the operation is ready for zero-overhead forward/backward dispatch.
          */
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
+            const auto& input_shape = config.inputShape();
             const auto& shape = input_shape;
             const int64_t ndim = static_cast<int64_t>(shape.size());
 
@@ -211,7 +212,7 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
 
             use_optimized_kernel_ = (axis == ndim - 1 || inner_size == 1);
 
-            UnaryOperationBase::build( input_shape );
+            UnaryOperationBase::build( config );
         }
 
         /**

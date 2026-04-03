@@ -9,7 +9,7 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
     void cuda_swiglu_forward_fp32(
         float* Y,
         const float* X,
-        int N,
+        int N, int half_width,
         cudaStream_t stream );
 
     void cuda_swiglu_backward_fp32(
@@ -22,7 +22,7 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
     void cuda_swiglu_forward_fp16(
         half* Y,
         const half* X,
-        int N,
+        int N, int half_width,
         cudaStream_t stream );
 
     void cuda_swiglu_backward_fp16(

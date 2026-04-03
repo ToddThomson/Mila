@@ -17,7 +17,8 @@ module;
 #include <format>
 
 export module Dnn.Component;
-export import :BuildConfig;
+export import :TrainingMode;
+export import :BuildContext;
 export import :MemoryStats;
 
 import Dnn.ComponentType;
@@ -69,7 +70,7 @@ namespace Mila::Dnn
      *
      * ### Stage 2 — Build  [ onBuilding() ]
      *
-     * build() is called with a BuildConfig carrying the leading shape
+     * build() is called with a BuildContext carrying the leading shape
      * { B, T, ... } and the ExecutionMode that governs buffer allocation.
      *
      * | Mode      | allocationSeqLen() | Gradient buffers    |
@@ -78,8 +79,8 @@ namespace Mila::Dnn
      * | Training  | leading_shape[1]   | allocated on demand |
      *
      * Allocated in onBuilding():
-     *   - owned_output_         forward output buffer sized by allocationSeqLen()
-     *   - owned_decode_output_  decode output buffer (decode-capable components)
+     *   - output_         forward output buffer sized by allocationSeqLen()
+     *   - decode_output_  decode output buffer (decode-capable components)
      *   - kv_cache_             KV cache (decode-capable components)
      *   - operation_ buffers    via operation_->build()
      *
@@ -87,11 +88,11 @@ namespace Mila::Dnn
      *   - gradient buffers      (deferred to first setEvaluation( false ))
      *   - backward state        (deferred to first setEvaluation( false ))
      *
-     * The same BuildConfig is cascaded unchanged through CompositeComponent
+     * The same BuildContext is cascaded unchanged through CompositeComponent
      * and Network to all child components.
      *
      * @code
-     *   BuildConfig config( shape_t{ batch_size, seq_length } );
+     *   BuildContext config( shape_t{ batch_size, seq_length } );
      *   config.withExecutionMode( ExecutionMode::Training );
      *   model->build( config );
      * @endcode
@@ -104,7 +105,7 @@ namespace Mila::Dnn
      * gradient buffers and disables the backward path.
      *
      * Allocated on first setEvaluation( false ):
-     *   - owned_input_grad_     input gradient buffer
+     *   - input_grad_     input gradient buffer
      *   - weight_grad_          weight gradient buffer
      *   - bias_grad_            bias gradient buffer
      *
@@ -177,35 +178,8 @@ namespace Mila::Dnn
 
         virtual ~Component() = default;
 
-        // ====================================================================
-        // Lifecycle
-        // ====================================================================
-
         /**
-         * @brief Build the component with a raw leading shape (convenience overload).
-         *
-         * Constructs a BuildConfig with the default ExecutionMode::Inference
-         * and delegates to the canonical build( const BuildConfig& ).
-         *
-         * Prefer the BuildConfig overload when the execution mode must be
-         * explicitly set (e.g. Training).
-         *
-         * @param leading_shape The leading dimensions { B, T, ... } used as
-         *                      allocation bounds for all component buffers.
-         *
-         * @throws std::runtime_error    if the component is already built.
-         * @throws std::runtime_error    if no ExecutionContext has been set.
-         * @throws std::invalid_argument if leading_shape is invalid.
-         * @throws Any exception from onBuilding().
-         */
-        virtual void build( const shape_t& leading_shape ) final
-        {
-            BuildConfig config( leading_shape );
-            build( config );
-        }
-
-        /**
-         * @brief Build the component with the provided BuildConfig (canonical overload).
+         * @brief Build the component with the provided BuildContext (canonical overload).
          *
          * Validates the config, stores it as build_config_, then invokes the
          * onBuilding() hook for component-specific buffer allocation and
@@ -216,7 +190,7 @@ namespace Mila::Dnn
          * remains false and build() may be retried — but only if the
          * onBuilding() implementation leaves component state coherent on failure.
          *
-         * The stored BuildConfig is accessible to derived classes via the
+         * The stored BuildContext is accessible to derived classes via the
          * protected build_config_ member throughout the component lifetime.
          *
          * @param config Build-time configuration carrying the leading shape
@@ -228,7 +202,7 @@ namespace Mila::Dnn
          * @throws std::invalid_argument if config.validate() fails.
          * @throws Any exception from onBuilding().
          */
-        virtual void build( const BuildConfig& config ) final
+        virtual void build( const BuildContext& context ) final
         {
             if ( isBuilt() )
             {
@@ -243,9 +217,9 @@ namespace Mila::Dnn
                         getName() ) );
             }
 
-            build_config_ = config;
+            build_context_ = context;
 
-            onBuilding( build_config_ );
+            onBuilding( build_context_ );
 
             built_ = true;
         }
@@ -259,95 +233,97 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief True if the component was built for the training path
-         *        and is not currently in evaluation mode.
+         * @brief Set the runtime behavioral mode for this Component.
          *
-         * Output buffers are sized at T=full. Gradient buffers are allocated
-         * lazily on the first setEvaluation( false ) call.
-         * Always returns false before build() or when isEvaluating() is true.
+         * Toggles between Training and Eval behavioral states at runtime.
+         * Only valid on Components built with RuntimeMode::Training —
+         * throws if called on a Component built with RuntimeMode::Inference.
+         *
+         * ## State transitions
+         *
+         * | From     | To       | Effect                                      |
+         * |----------|----------|---------------------------------------------|
+         * | Training | Eval     | Gradients off, dropout off, running stats   |
+         * | Eval     | Training | Gradients on, dropout on, batch stats       |
+         *
+         * Derived classes respond to the transition via the
+         * onTrainingModeChanging() hook, called before the state is updated.
+         *
+         * @param mode TrainingMode::Normal or TrainingMode::Eval.
+         * @throws std::runtime_error if the component is not built.
+         * @throws std::runtime_error if built with RuntimeMode::Inference.
          */
-        bool isTraining() const
+        void setTrainingMode( TrainingMode mode )
         {
-            return built_ && !is_training_.load();
-        }
+            ensureBuilt( "setTrainingMode" );
 
-        /**
-         * @brief Toggle evaluation mode on a Training-built component.
-         *
-         * Provides a serialized transition between training and evaluation
-         * behavioral modes. Idempotent — calling with the current state is
-         * a no-op.
-         *
-         * ## Allocation policy
-         *
-         * Gradient buffers are allocated once on the first transition to
-         * training mode ( setEvaluation( false ) ) and retained for the
-         * lifetime of the component. They are never destroyed on entry to
-         * evaluation mode — only zeroed. This avoids repeated GPU allocation
-         * costs in workflows that toggle between training and evaluation
-         * (e.g. periodic eval checkpoints during a training run).
-         *
-         * ## Transition behavior
-         *
-         * **First setEvaluation( false ) — enter training:**
-         *   - Allocate all gradient and backward state buffers.
-         *   - Zero all allocated buffers.
-         *   - Bind gradients to the operation via operation_->setGradients().
-         *
-         * **Subsequent setEvaluation( false ) — resume training:**
-         *   - Zero existing gradient buffers (no reallocation).
-         *   - Re-bind gradients to the operation.
-         *
-         * **setEvaluation( true ) — enter evaluation:**
-         *   - Zero all gradient buffers (prevent stale gradient leakage
-         *     across mode switches).
-         *   - Retain all allocations.
-         *
-         * ## Separation of concerns
-         *
-         * | Hook                     | Responsibility                              |
-         * |--------------------------|---------------------------------------------|
-         * | onBuilding()             | Forward and decode path buffer allocation   |
-         * | onEvaluationChanging()   | Backward path buffer allocation and zeroing |
-         *
-         * ## Thread safety
-         *
-         * The transition is serialized by an internal mutex. The underlying
-         * is_evaluating_ atomic is updated before invoking the hook.
-         * If the hook throws, the prior state is restored and the exception
-         * is rethrown.
-         *
-         * @param is_evaluating True to enter evaluation mode, false to resume training.
-         *
-         * @throws std::runtime_error if called before build().
-         * @throws std::runtime_error if the component was built with
-         *         ExecutionMode::Inference.
-         * @throws Any exception propagated from onEvaluationChanging(); prior
-         *         evaluation state is restored on throw.
-         */
-        void setTraining( bool is_training )
-        {
-            ensureBuilt( "setTraining" );
+            if ( build_context_.isInferenceMode() )
+            {
+                throw std::runtime_error( std::format(
+                    "Component::setTrainingMode: '{}' was built with RuntimeMode::Inference "
+                    "and does not support TrainingMode transitions.", name_ ) );
+            }
 
-            std::lock_guard<std::mutex> lock( mode_mutex_ );
+            std::lock_guard<std::mutex> lock( training_mode_mutex_ );
 
-            if ( is_training_.load() == is_training )
+            if ( training_mode_ == mode )
             {
                 return;
             }
 
-            bool prev = is_training_.load();
-            is_training_.store( is_training );
+            onTrainingModeChanging( mode );
+            
+            training_mode_ = mode;
+        }
 
-            try
+        /**
+         * @brief The current runtime behavioral mode of this Component.
+         *
+         * Returns the current TrainingMode for Components built with
+         * RuntimeMode::Training. For Components built with
+         * RuntimeMode::Inference the return value is always
+         * TrainingMode::Eval — inference components never compute gradients.
+         *
+         * @return Current TrainingMode.
+         */
+        TrainingMode getTrainingMode() const noexcept
+        {
+            if ( build_context_.isInferenceMode() )
             {
-                onTrainingChanging( is_training );
+                return TrainingMode::Eval;
             }
-            catch ( ... )
-            {
-                is_training_.store( prev );
-                throw;
-            }
+
+            return training_mode_;
+        }
+
+        // REVIEW: Ambiguous and does not add value
+        ///**
+        // * @brief Convenience accessor — true if currently in Eval mode.
+        // *
+        // * Equivalent to getTrainingMode() == TrainingMode::Eval.
+        // * Valid for both RuntimeMode::Inference and RuntimeMode::Training
+        // * built components.
+        // *
+        // * @return true if in Eval mode.
+        // */
+        //bool isEvalMode() const noexcept
+        //{
+        //    return getTrainingMode() == TrainingMode::Eval;
+        //}
+
+        RuntimeMode getRuntimeMode() const noexcept
+        {
+            return build_context_.getRuntimeMode();
+        }
+
+        bool isInferenceMode() const noexcept
+        {
+            return build_context_.isInferenceMode();
+        }
+
+        bool isTrainingMode() const noexcept
+        {
+            return build_context_.isTrainingMode();
         }
 
         // ====================================================================
@@ -568,8 +544,9 @@ namespace Mila::Dnn
 
     protected:
 
+        // REVIEW: Does build_config_ need to be protected given our new access methods?
         /**
-         * @brief The BuildConfig stored at build time.
+         * @brief The BuildContext stored at build time.
          *
          * Available to derived classes throughout the component lifetime —
          * in onBuilding(), onEvaluationChanging(), forward(), backward(),
@@ -584,7 +561,7 @@ namespace Mila::Dnn
          * Initialized to a placeholder before build() completes. Only valid
          * after isBuilt() returns true.
          */
-        BuildConfig build_config_{ shape_t{ 1 } };
+        BuildContext build_context_{ shape_t{ 1 }, RuntimeMode::Training };
 
         // ====================================================================
         // Execution Context
@@ -718,14 +695,10 @@ namespace Mila::Dnn
         virtual void onExecutionContextSet()
         {}
 
-        // ====================================================================
-        // Build Hook
-        // ====================================================================
-
         /**
          * @brief Hook invoked by build() to allocate component buffers.
          *
-         * Receives the stored BuildConfig. Implementations must use
+         * Receives the stored BuildContext. Implementations must use
          * config.allocationSeqLen() when sizing output buffers — this is
          * the single call that makes Inference and Training allocate the
          * correct buffer sizes automatically without per-component logic.
@@ -738,7 +711,7 @@ namespace Mila::Dnn
          *       config.allocationSeqLen(),   // 1 for Inference, T for Training
          *       config_.getOutputFeatures()
          *   };
-         *   owned_output_ = std::make_unique<TensorType>( device, out_shape,
+         *   output_ = std::make_unique<TensorType>( device, out_shape,
          *       this->getName() + ".output" );
          * @endcode
          *
@@ -753,107 +726,24 @@ namespace Mila::Dnn
          * @param config Build-time configuration. Use config.allocationSeqLen()
          *               to obtain the correct output buffer sequence dimension.
          */
-        virtual void onBuilding( const BuildConfig& config )
+        virtual void onBuilding( const BuildContext& config )
         {
-            onBuilding( config.leadingShape() );
         }
-
+ 
         /**
-         * @brief Legacy hook for backwards compatibility.
+         * @brief Hook called before TrainingMode transitions.
          *
-         * Called by the default onBuilding( const BuildConfig& ) implementation.
-         * Existing components that override this signature continue to work
-         * unchanged. New components should override onBuilding( const BuildConfig& ).
+         * Called by setTrainingMode() after validation and lock acquisition,
+         * before the internal state is updated. Derived classes override to
+         * respond to the transition — e.g. zeroing gradient buffers on
+         * transition to Eval, or re-enabling dropout on transition to Training.
          *
-         * @deprecated Override onBuilding( const BuildConfig& ) instead.
+         * The default implementation is a no-op.
          *
-         * @param leading_shape The leading dimensions { B, T, ... }.
+         * @param mode The incoming TrainingMode.
          */
-        virtual void onBuilding( const shape_t& leading_shape )
+        virtual void onTrainingModeChanging( TrainingMode mode )
         {}
-
-        // ====================================================================
-        // Evaluation Mode Hook
-        // ====================================================================
-
-        /**
-         * @brief Hook invoked by setEvaluation() when evaluation mode changes.
-         *
-         * Only called on Training-built components. Never called on
-         * Inference-built components.
-         *
-         * ## Allocation policy
-         *
-         * Gradient buffers are allocated once on the first transition to
-         * training mode ( is_evaluating = false ) and retained for the
-         * lifetime of the component. They are never destroyed on entry to
-         * evaluation mode — only zeroed. This avoids repeated GPU allocation
-         * costs in workflows that toggle frequently between training and
-         * evaluation.
-         *
-         * ## Transition behavior
-         *
-         * **First setEvaluation( false ) — enter training:**
-         *   - Allocate all gradient and backward state buffers.
-         *   - Zero all allocated buffers.
-         *   - Bind gradients to the operation via operation_->setGradients().
-         *
-         * **Subsequent setEvaluation( false ) — resume training:**
-         *   - Zero existing gradient buffers (no reallocation).
-         *   - Re-bind gradients to the operation.
-         *
-         * **setEvaluation( true ) — enter evaluation:**
-         *   - Zero all gradient buffers (prevent stale gradient leakage).
-         *   - Retain all allocations.
-         *
-         * ## Separation of concerns
-         *
-         * | Hook                     | Responsibility                              |
-         * |--------------------------|---------------------------------------------|
-         * | onBuilding()             | Forward and decode path buffer allocation   |
-         * | onEvaluationChanging()   | Backward path buffer allocation and zeroing |
-         *
-         * ## Example implementation
-         *
-         * @code
-         * void onEvaluationChanging( bool is_evaluating ) override
-         * {
-         *     if ( !is_evaluating )
-         *     {
-         *         if ( weight_grad_ == nullptr )
-         *         {
-         *             // First transition to training — allocate once.
-         *             auto device = this->getExecutionContext()->getDeviceId();
-         *             weight_grad_ = std::make_unique<TensorType>(
-         *                 device, weight_->shape(), this->getName() + ".weight.grad" );
-         *             bias_grad_ = std::make_unique<TensorType>(
-         *                 device, bias_->shape(), this->getName() + ".bias.grad" );
-         *         }
-         *         zero( *weight_grad_ );
-         *         zero( *bias_grad_ );
-         *         operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
-         *     }
-         *     else
-         *     {
-         *         // Entering evaluation — zero to prevent stale gradient leakage.
-         *         if ( weight_grad_ != nullptr ) zero( *weight_grad_ );
-         *         if ( bias_grad_  != nullptr ) zero( *bias_grad_  );
-         *     }
-         * }
-         * @endcode
-         *
-         * @note Do not allocate gradient buffers in onBuilding(). The evaluation
-         *       state is always true (training inactive) during build.
-         *
-         * @param is_evaluating True when entering evaluation mode, false when
-         *                      entering training mode.
-         */
-        virtual void onTrainingChanging( bool is_training )
-        {}
-
-        // ====================================================================
-        // Parameter Loading Helper
-        // ====================================================================
 
         /**
          * @brief Load a tensor blob into a parameter tensor with validation.
@@ -902,10 +792,8 @@ namespace Mila::Dnn
         std::string name_;
         IExecutionContext* exec_context_{ nullptr };
         bool built_{ false };
-        //BuildConfig build_config_{ shape_t{ 1 } };
-
-        std::atomic<bool> is_training_{ false };
-        std::mutex mode_mutex_;
+        TrainingMode training_mode_{ TrainingMode::Normal };
+        std::mutex training_mode_mutex_;
 
         /**
          * @brief Throws if the component has not yet been built.

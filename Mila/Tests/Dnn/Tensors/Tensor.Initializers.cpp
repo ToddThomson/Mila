@@ -17,7 +17,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorInitializersTests, Random_FP32_CPU ) {
-        std::vector<int64_t> shape = { 100, 100 };
+        shape_t shape = { 100, 100 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         float min_val = -1.0f;
@@ -56,7 +56,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Random_INT32_CPU ) {
-        std::vector<int64_t> shape = { 50, 50 };
+        shape_t shape = { 50, 50 };
         Tensor<TensorDataType::INT32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         int32_t min_val = -100;
@@ -87,7 +87,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Random_UINT32_CPU ) {
-        std::vector<int64_t> shape = { 30, 30 };
+        shape_t shape = { 30, 30 };
         Tensor<TensorDataType::UINT32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         int32_t min_val = 0;
@@ -122,7 +122,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorInitializersTests, Random_FP32_CUDA ) {
-        std::vector<int64_t> shape = { 100, 100 };
+        shape_t shape = { 100, 100 };
 
         // Skip if CUDA not available
         try
@@ -175,7 +175,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Random_INT32_CUDA ) {
-        std::vector<int64_t> shape = { 60, 60 };
+        shape_t shape = { 60, 60 };
 
         try
         {
@@ -223,7 +223,7 @@ namespace Dnn::Tensors::Tests
     TEST( TensorInitializersTests, Random_FP32_ManagedMemory ) {
         try
         {
-            std::vector<int64_t> shape = { 50, 50 };
+            shape_t shape = { 50, 50 };
             Tensor<TensorDataType::FP32, Compute::CudaManagedMemoryResource> tensor( Device::Cuda( 0 ), shape );
 
             float min_val = -1.0f;
@@ -265,7 +265,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorInitializersTests, Normal_FP32_CPU ) {
-        std::vector<int64_t> shape = { 100, 100 };
+        shape_t shape = { 100, 100 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         float mean = 0.0f;
@@ -306,7 +306,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Normal_INT32_CPU ) {
-        std::vector<int64_t> shape = { 60, 60 };
+        shape_t shape = { 60, 60 };
         Tensor<TensorDataType::INT32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         float mean = 0.0f;
@@ -339,7 +339,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Normal_FP32_CUDA ) {
-        std::vector<int64_t> shape = { 80, 80 };
+        shape_t shape = { 80, 80 };
 
         try
         {
@@ -391,7 +391,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Normal_NegativeStddev_Throws ) {
-        std::vector<int64_t> shape = { 10, 10 };
+        shape_t shape = { 10, 10 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         EXPECT_THROW( normal( tensor, 0.0f, -1.0f ), std::invalid_argument );
@@ -402,7 +402,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorInitializersTests, Xavier_FP32_CPU ) {
-        std::vector<int64_t> shape = { 100, 100 };
+        shape_t shape = { 100, 100 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         size_t input_size = 784;   // Typical MNIST input size
@@ -444,7 +444,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Xavier_INT32_CPU ) {
-        std::vector<int64_t> shape = { 50, 50 };
+        shape_t shape = { 50, 50 };
         Tensor<TensorDataType::INT32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         size_t input_size = 100;
@@ -483,7 +483,7 @@ namespace Dnn::Tensors::Tests
     TEST( TensorInitializersTests, Xavier_FP32_CUDA ) {
         try
         {
-            std::vector<int64_t> shape = { 100, 100 };
+            shape_t shape = { 100, 100 };
             Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda( 0 ), shape );
 
             size_t input_size = 1024;
@@ -534,7 +534,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Xavier_ExtremeInputOutputSizes ) {
-        std::vector<int64_t> shape = { 20, 20 };
+        shape_t shape = { 20, 20 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         // Very large input size, small output size
@@ -572,7 +572,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorInitializersTests, Zeros_FP32_CPU ) {
-        std::vector<int64_t> shape = { 50, 50 };
+        shape_t shape = { 50, 50 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         zeros( tensor );
@@ -594,7 +594,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Zeros_INT32_CPU ) {
-        std::vector<int64_t> shape = { 30, 30 };
+        shape_t shape = { 30, 30 };
         Tensor<TensorDataType::INT32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         zeros( tensor );
@@ -615,7 +615,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Ones_FP32_CPU ) {
-        std::vector<int64_t> shape = { 50, 50 };
+        shape_t shape = { 50, 50 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         ones( tensor );
@@ -636,7 +636,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Ones_UINT32_CPU ) {
-        std::vector<int64_t> shape = { 20, 20 };
+        shape_t shape = { 20, 20 };
         Tensor<TensorDataType::UINT32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         ones( tensor );
@@ -657,7 +657,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Fill_FP32_CPU ) {
-        std::vector<int64_t> shape = { 50, 50 };
+        shape_t shape = { 50, 50 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         float fill_value = 3.14f;
@@ -680,7 +680,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Fill_NegativeValue_CPU ) {
-        std::vector<int64_t> shape = { 30, 30 };
+        shape_t shape = { 30, 30 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         float fill_value = -2.718f;
@@ -708,7 +708,7 @@ namespace Dnn::Tensors::Tests
     TEST( TensorInitializersTests, Zeros_FP32_CUDA ) {
         try
         {
-            std::vector<int64_t> shape = { 50, 50 };
+            shape_t shape = { 50, 50 };
             Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda( 0 ), shape );
 
             zeros( tensor );
@@ -741,7 +741,7 @@ namespace Dnn::Tensors::Tests
     TEST( TensorInitializersTests, Ones_FP32_CUDA ) {
         try
         {
-            std::vector<int64_t> shape = { 50, 50 };
+            shape_t shape = { 50, 50 };
             Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda( 0 ), shape );
 
             ones( tensor );
@@ -774,7 +774,7 @@ namespace Dnn::Tensors::Tests
     TEST( TensorInitializersTests, Fill_FP32_CUDA ) {
         try
         {
-            std::vector<int64_t> shape = { 50, 50 };
+            shape_t shape = { 50, 50 };
             Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda( 0 ), shape );
 
             float fill_value = 2.71f;
@@ -808,7 +808,7 @@ namespace Dnn::Tensors::Tests
     TEST( TensorInitializersTests, Fill_INT32_CUDA ) {
         try
         {
-            std::vector<int64_t> shape = { 40, 40 };
+            shape_t shape = { 40, 40 };
             Tensor<TensorDataType::INT32, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda( 0 ), shape );
 
             int32_t fill_value = 42;
@@ -858,7 +858,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, InitializeSingleElement ) {
-        std::vector<int64_t> shape = { 1 };
+        shape_t shape = { 1 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> single_tensor( Device::Cpu(), shape );
 
         float fill_value = 7.5f;
@@ -876,7 +876,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Initialize1DTensor ) {
-        std::vector<int64_t> shape = { 100 };
+        shape_t shape = { 100 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor_1d( Device::Cpu(), shape );
 
         zeros( tensor_1d );
@@ -890,7 +890,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Initialize3DTensor ) {
-        std::vector<int64_t> shape = { 10, 20, 30 };
+        shape_t shape = { 10, 20, 30 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor_3d( Device::Cpu(), shape );
 
         float fill_value = 1.23f;
@@ -917,7 +917,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, InitializeLargeTensor ) {
-        std::vector<int64_t> shape = { 500, 500 };
+        shape_t shape = { 500, 500 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> large_tensor( Device::Cpu(), shape );
 
         // Test that initialization doesn't fail with large tensors
@@ -937,7 +937,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorInitializersTests, Cpu_Random_InvalidRange ) {
-        std::vector<int64_t> shape = { 10, 10 };
+        shape_t shape = { 10, 10 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         // Should handle min_val > max_val gracefully
@@ -949,7 +949,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Random_EqualMinMax ) {
-        std::vector<int64_t> shape = { 20, 20 };
+        shape_t shape = { 20, 20 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         float value = 3.14f;
@@ -972,7 +972,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Xavier_ZeroInputSize ) {
-        std::vector<int64_t> shape = { 10, 10 };
+        shape_t shape = { 10, 10 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         // Xavier with zero input size should not crash
@@ -980,7 +980,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Xavier_ZeroOutputSize ) {
-        std::vector<int64_t> shape = { 10, 10 };
+        shape_t shape = { 10, 10 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         // Xavier with zero output size should not crash
@@ -988,7 +988,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, Xavier_BothZeroSizes ) {
-        std::vector<int64_t> shape = { 10, 10 };
+        shape_t shape = { 10, 10 };
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
 
         // Xavier with both zero sizes - implementation should handle gracefully
@@ -1002,7 +1002,7 @@ namespace Dnn::Tensors::Tests
     TEST( TensorInitializersTests, CrossDevice_FillConsistency ) {
         try
         {
-            std::vector<int64_t> shape = { 50, 50 };
+            shape_t shape = { 50, 50 };
 
             Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
             Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );
@@ -1043,7 +1043,7 @@ namespace Dnn::Tensors::Tests
     TEST( TensorInitializersTests, CrossDevice_ZerosConsistency ) {
         try
         {
-            std::vector<int64_t> shape = { 30, 30 };
+            shape_t shape = { 30, 30 };
 
             Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
             Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );
@@ -1084,7 +1084,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST( TensorInitializersTests, RandomSeedReproducibility ) {
-        std::vector<int64_t> shape = { 20, 20 };
+        shape_t shape = { 20, 20 };
 
         // Set specific seed
         Mila::Core::RandomGenerator::getInstance().setSeed( 12345 );
@@ -1117,7 +1117,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST( TensorInitializersTests, DifferentSeedsDifferentValues ) {
-        std::vector<int64_t> shape = { 20, 20 };
+        shape_t shape = { 20, 20 };
 
         Mila::Core::RandomGenerator::getInstance().setSeed( 11111 );
         Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor1( Device::Cpu(), shape );

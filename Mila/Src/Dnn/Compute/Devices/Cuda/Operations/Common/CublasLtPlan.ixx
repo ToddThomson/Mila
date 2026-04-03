@@ -346,15 +346,15 @@ export namespace Mila::Dnn::Compute::Cuda
     }
 
     /**
- * @brief Execute a previously-built cuBLASLt plan.
- *
- * Computes: C = alpha * op(A) * op(B) + beta * C, with optional bias epilogue.
- *
- * @param bias         Device pointer to bias vector. Applied only when plan.has_bias_epilogue is true.
- * @param workspace    Optional device workspace buffer. Must be non-null when the selected
- *                     algorithm requires scratch memory (workspaceSize > 0 in heuristic result).
- * @param workspaceSize Size of the workspace buffer in bytes.
- */
+     * @brief Execute a previously-built cuBLASLt plan.
+     *
+     * Computes: C = alpha * op(A) * op(B) + beta * C, with optional bias epilogue.
+     *
+     * @param bias         Device pointer to bias vector. Applied only when plan.has_bias_epilogue is true.
+     * @param workspace    Optional device workspace buffer. Must be non-null when the selected
+     *                     algorithm requires scratch memory (workspaceSize > 0 in heuristic result).
+     * @param workspaceSize Size of the workspace buffer in bytes.
+     */
     template <typename TNative>
     void execute_plan(
         cublasLtHandle_t handle,

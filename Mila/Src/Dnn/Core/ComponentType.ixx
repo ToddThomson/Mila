@@ -98,6 +98,8 @@ namespace Mila::Dnn
                 return "MLP";
             case ComponentType::Transformer:
                 return "Transformer";
+            case ComponentType::TokenEmbedding :
+                return "TokenEmbedding";
             case ComponentType::Lpe:
                 return "Lpe";
             case ComponentType::Rope:
@@ -146,6 +148,8 @@ namespace Mila::Dnn
             return ComponentType::Mlp;
         if ( low == "transformer" )
             return ComponentType::Transformer;
+        if ( low == "tokenembedding" )
+            return ComponentType::TokenEmbedding;
         if ( low == "lpe" )
             return ComponentType::Lpe;
         if ( low == "rope" )
@@ -175,7 +179,7 @@ namespace Mila::Dnn
             case ComponentType::Gelu:
                 return "gelu";
             case ComponentType::Swiglu:
-                return "swig";
+                return "sglu";
             case ComponentType::LayerNorm:
                 return "ln";
             case ComponentType::RmsNorm:
@@ -184,12 +188,16 @@ namespace Mila::Dnn
                 return "smax";
             case ComponentType::MultiHeadAttention:
                 return "mha";
+            case ComponentType::GroupedQueryAttention:
+                return "gqa";
             case ComponentType::Residual:
                 return "res";
             case ComponentType::Mlp:
                 return "mlp";
             case ComponentType::Transformer:
                 return "tf";
+            case ComponentType::TokenEmbedding:
+                return "temb";
             case ComponentType::Lpe:
                 return "lpe";
             case ComponentType::Rope:

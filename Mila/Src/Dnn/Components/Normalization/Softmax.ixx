@@ -365,13 +365,15 @@ namespace Mila::Dnn
          * @throws std::invalid_argument if input_shape is invalid or axis out of bounds.
          * @throws std::runtime_error if backend build fails.
          */
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const BuildContext& build_config ) override
         {
+            const auto& input_shape = build_config.inputShape();
             validateInputShape( input_shape );
 
+            // REVIEW: Why???
             operation_->setParameters( nullptr, nullptr );
 
-            operation_->build( input_shape );
+            operation_->build( build_config );
         }
 
         /**
@@ -384,9 +386,9 @@ namespace Mila::Dnn
          *
          * @note Do not call setTraining() from this hook (reentrancy prohibited).
          */
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
-            operation_->setTraining( is_training );
+            operation_->setTrainingMode( training_mode );
         }
 
     private:

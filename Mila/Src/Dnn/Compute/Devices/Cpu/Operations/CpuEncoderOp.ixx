@@ -119,10 +119,12 @@ namespace Mila::Dnn::Compute
          * Validates the input shape and caches B, T and C for hot-path loops.
          * Must be called (via Module::build) before forward/backward.
          */
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
             if ( is_built_ )
                 return;
+
+            const auto& input_shape = config.inputShape();
 
             validateInputShape( input_shape );
 

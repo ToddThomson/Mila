@@ -122,9 +122,13 @@ namespace Mila::Dnn
             auto network = std::make_unique<GptTransformerType>(
                 metadata.model_name, config, device_id );
 
-            // TJT: Was Build at max sequence length — position embeddings cover full range
-            network->build( shape_t{ 1, context_length } );
-            network->setTraining( false );
+            // GptTransformer input is token ids — full input shape is [B, T].
+            // GptTransformer::onBuilding() constructs correct full shapes for each child component from its own config.
+            BuildContext build_context(
+                shape_t{ 1, static_cast<int64_t>(context_length) },
+                RuntimeMode::Inference );
+
+            network->build( build_context );
             network->loadParameters( reader, strict );
 
             return std::unique_ptr<GptModel>( new GptModel( std::move( network ), config, RuntimeMode::Inference ) );
@@ -155,7 +159,7 @@ namespace Mila::Dnn
             GptConfig config = GptConfig::fromArchive( archive );
 
             auto network = std::make_unique<GptTransformerType>(
-                "GptTransformer" /* FIXME: archive.readNetworkName() */, config, device_id);
+                "GptTransformer" /* FIXME: archive.readNetworkName() */, config, device_id );
 
             network->build( shape_t{ 1, config.getMaxSequenceLength() } );
             network->setTraining( false );
@@ -177,30 +181,28 @@ namespace Mila::Dnn
             std::vector<int32_t> tokens = prompt_tokens;
             std::mt19937 rng( std::chrono::high_resolution_clock::now()
                 .time_since_epoch().count() );
-
-            // Phase 1: Prefill — process full prompt, populate KV cache
+            
             truncateIfNeeded( tokens );
             int64_t seq_len = static_cast<int64_t>(tokens.size());
+
+            // Phase 1: Prefill — process full prompt, populate KV cache.
+            // Returns logits at last prompt position only — shape [1, 1, vocab_size].
             auto prefill_input = makeTokenTensor( tokens );
-            auto& logits = getNetwork().forward(prefill_input);
+            auto& logits = getNetwork().prefill( prefill_input );
             getNetwork().getExecutionContext()->synchronize();
 
-            // FIXME: Remove
-            //// In GptModel::generate() after prefill forward():
-            //auto logits_cpu = toHost<TensorDataType::FP32>( logits );
-            ////auto logits_cpu = toHost( logits );
-            //int vocab_size = 50257;
-
-            // Sample first token from last position of prefill
+            // Sample first new token from last prefill position.
+            // Position 0 — prefill() returns single position output.
             int32_t next_token = sampleFromLogits(
-                logits, seq_len - 1, temperature, top_k, rng );
+                logits, 0, temperature, top_k, rng );
             tokens.push_back( next_token );
 
             if ( next_token == eos_token_ )
                 return tokens;
 
-            // Phase 2: Decode — single token at a time using KV cache
-            int position = static_cast<int>(seq_len);  // next position after prefill
+            // Phase 2: Decode — single token at a time using KV cache.
+            // Position tracks absolute sequence position for KV cache lookup.
+            int position = static_cast<int>(seq_len);
 
             for ( size_t step = 1; step < max_new_tokens; ++step )
             {
@@ -208,8 +210,9 @@ namespace Mila::Dnn
                 auto& decode_logits = getNetwork().decode( decode_input, position );
                 getNetwork().getExecutionContext()->synchronize();
 
+                // Position 0 — decode() always returns single token output.
                 next_token = sampleFromLogits(
-                    decode_logits, 0, temperature, top_k, rng );  // pos 0 — single token output
+                    decode_logits, 0, temperature, top_k, rng );
                 tokens.push_back( next_token );
                 ++position;
 
@@ -306,7 +309,8 @@ namespace Mila::Dnn
             const GptConfig& config,
             RuntimeMode runtime_mode )
             : ModelBase( std::move( network ), runtime_mode ), config_( config )
-        {}
+        {
+        }
 
         GptTransformerType& getNetwork() noexcept
         {

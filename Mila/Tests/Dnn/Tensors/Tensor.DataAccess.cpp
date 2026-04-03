@@ -25,7 +25,7 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
 
     TEST_F( TensorElementAccessTest, Host_OperatorIndex1D ) {
-        std::vector<int64_t> shape = { 6 };
+        shape_t shape = { 6 };
         auto tensor = Tensor<TensorDataType::FP32, CpuMemoryResource>( Device::Cpu(), shape );
 
         tensor[ {0} ] = 1.0f;
@@ -33,7 +33,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_OperatorIndex2D ) {
-        std::vector<int64_t> shape = { 2, 3 };
+        shape_t shape = { 2, 3 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( Device::Cpu(), shape );
 
         tensor[ 0, 1 ] = 1.0f;
@@ -41,7 +41,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_OperatorIndex3D ) {
-        std::vector<int64_t> shape = { 2, 3, 4 };
+        shape_t shape = { 2, 3, 4 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( Device::Cpu(), shape );
 
         tensor[ 1, 2, 3 ] = 5.5f;
@@ -49,7 +49,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_OperatorIndex4D ) {
-        std::vector<int64_t> shape = { 2, 2, 2, 2 };
+        shape_t shape = { 2, 2, 2, 2 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( Device::Cpu(), shape );
 
         tensor[ 1, 0, 1, 0 ] = 7.7f;
@@ -57,7 +57,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_OperatorIndexOutOfBounds ) {
-        std::vector<int64_t> shape = { 2, 3 };
+        shape_t shape = { 2, 3 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( Device::Cpu(), shape );
 
         EXPECT_THROW( (tensor[ 2, 0 ]), std::out_of_range );
@@ -66,7 +66,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_OperatorIndexWrongDimensions ) {
-        std::vector<int64_t> shape = { 2, 3 };
+        shape_t shape = { 2, 3 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( Device::Cpu(), shape );
 
         EXPECT_THROW( (tensor[ {0} ]), std::runtime_error );
@@ -74,10 +74,10 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_VectorOperatorIndex ) {
-        std::vector<int64_t> shape = { 2, 3, 4 };
+        shape_t shape = { 2, 3, 4 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( Device::Cpu(), shape );
 
-        std::vector<int64_t> indices = { 1, 2, 3 };
+        shape_t indices = { 1, 2, 3 };
         tensor[ indices ] = 9.9f;
         EXPECT_FLOAT_EQ( (tensor[ indices ]), 9.9f );
     }
@@ -99,7 +99,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_DeviceMemoryDirectAccessThrows_CompileTimeBehavior ) {
-        std::vector<int64_t> shape = { 2, 3 };
+        shape_t shape = { 2, 3 };
 
         // This test validates that CPU tensor operator[] works as expected.
         auto cpu_tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( Device::Cpu(), shape );
@@ -109,7 +109,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_IntegerTypes ) {
-        std::vector<int64_t> shape = { 2, 2 };
+        shape_t shape = { 2, 2 };
 
         {
             auto int32_tensor = Tensor<TensorDataType::INT32, Compute::CpuMemoryResource>( Device::Cpu(), shape );
@@ -131,7 +131,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_SingleElementTensor ) {
-        std::vector<int64_t> shape = { 1 };
+        shape_t shape = { 1 };
         auto single_tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( Device::Cpu(), shape );
 
         single_tensor[ {0} ] = 99.0f;
@@ -139,7 +139,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_MultiDimensionalSingleElement ) {
-        std::vector<int64_t> shape = { 1, 1, 1 };
+        shape_t shape = { 1, 1, 1 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( Device::Cpu(), shape );
 
         tensor[ 0, 0, 0 ] = 77.0f;
@@ -147,7 +147,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_LargeTensorAccess ) {
-        std::vector<int64_t> shape = { 100, 200 };
+        shape_t shape = { 100, 200 };
         auto large_tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( Device::Cpu(), shape );
 
         // Initialize all to 1.0f
@@ -190,7 +190,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_RandomAccess ) {
-        std::vector<int64_t> shape = { 5, 5 };
+        shape_t shape = { 5, 5 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( Device::Cpu(), shape );
 
         // Initialize all to 0.0f
@@ -237,7 +237,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_ErrorMessageValidation ) {
-        std::vector<int64_t> shape = { 2, 3 };
+        shape_t shape = { 2, 3 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( Device::Cpu(), shape );
 
         try {
@@ -272,7 +272,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_AccessPerformance ) {
-        std::vector<int64_t> shape = { 100, 100 };
+        shape_t shape = { 100, 100 };
         auto tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( Device::Cpu(), shape );
 
         for ( size_t i = 0; i < 100; ++i ) {
@@ -290,7 +290,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_HostTypeMappingInt8 ) {
-        std::vector<int64_t> shape = { 2, 2 };
+        shape_t shape = { 2, 2 };
         auto int8_tensor = Tensor<TensorDataType::INT8, Compute::CpuMemoryResource>( Device::Cpu(), shape );
 
         // INT8 should map to std::int8_t for host access
@@ -302,7 +302,7 @@ namespace Dnn::Tensors::Tests
     }
 
     TEST_F( TensorElementAccessTest, Host_TypeSafetyCompileTime ) {
-        std::vector<int64_t> shape = { 2, 2 };
+        shape_t shape = { 2, 2 };
 
         // Test that different data types work correctly
         auto fp32_tensor = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( Device::Cpu(), shape );
@@ -328,7 +328,7 @@ namespace Dnn::Tensors::Tests
             GTEST_SKIP() << "CUDA device not available. Skipping pinned memory access test.";
         }
 
-        std::vector<int64_t> shape = { 2, 3 };
+        shape_t shape = { 2, 3 };
         auto pinned_tensor = Tensor<TensorDataType::FP32, Compute::CudaPinnedMemoryResource>( Device::Cuda( 0 ), shape );
 
         pinned_tensor[ 0, 0 ] = 1.1f;
@@ -343,7 +343,7 @@ namespace Dnn::Tensors::Tests
             GTEST_SKIP() << "CUDA device not available. Skipping managed memory access test.";
         }
 
-        std::vector<int64_t> shape = { 2, 2 };
+        shape_t shape = { 2, 2 };
         auto managed_tensor = Tensor<TensorDataType::FP32, Compute::CudaManagedMemoryResource>( Device::Cuda( 0 ), shape );
 
         managed_tensor[ 0, 0 ] = 4.4f;

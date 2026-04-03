@@ -52,8 +52,8 @@ namespace Dnn::Components::Transformers::Tests
         GptType net( "gpt_test_build_cuda", cfg, cuda_id );
 
         // Build with a small shape (batch, seq)
-        shape_t build_shape = { 1, 8 };
-        EXPECT_NO_THROW( net.build( build_shape ) );
+        auto build_config = BuildContext( { 1, 8 }, RuntimeMode::Inference );
+        EXPECT_NO_THROW( net.build( build_config ) );
 
         // Parameter count should be positive after build
         auto params = net.parameterCount();
@@ -77,8 +77,8 @@ namespace Dnn::Components::Transformers::Tests
         const int64_t seq = 5;
 
         // Build network with runtime positional capacity
-        shape_t build_shape = { batch, cfg.getMaxSequenceLength() };
-        net.build( build_shape );
+        auto build_config = BuildContext( { batch, cfg.getMaxSequenceLength() }, RuntimeMode::Inference );
+        net.build( build_config );
 
         // Create device inference input (batch, seq)
         typename GptType::TokenIndexType input( cuda_id, shape_t{ batch, seq } );

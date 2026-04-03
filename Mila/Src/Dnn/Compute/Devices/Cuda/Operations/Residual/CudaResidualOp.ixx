@@ -148,8 +148,10 @@ namespace Mila::Dnn::Compute::Cuda::Residual
                 dA, dB, dY, static_cast<int>(actual_size), stream );
         }
 
-        void build( const shape_t& input_shape )
+        void build( const BuildContext& config )
         {
+            const auto& input_shape = config.inputShape();
+
             max_size_ = 1;
 
             for ( const auto& dim : input_shape )

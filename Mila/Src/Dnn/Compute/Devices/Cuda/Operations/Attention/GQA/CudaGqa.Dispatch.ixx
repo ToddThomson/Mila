@@ -32,18 +32,43 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             // GQA-specific: permute / expand / reduce
             // ----------------------------------------------------------------
 
+            static void prefill_permute_q(
+                float* Q, const float* Xq,
+                int B, int chunk_len, int NH, int HS,
+                int position_offset, int T, cudaStream_t stream )
+            {
+                cuda_gqa_prefill_permute_q_fp32(
+                    Q, Xq, B, chunk_len, NH, HS, position_offset, T, stream );
+            }
+
+            static void prefill_permute_kv(
+                float* K, float* V, const float* Xk, const float* Xv,
+                int B, int chunk_len, int NKV, int HS,
+                int position_offset, int T, cudaStream_t stream )
+            {
+                cuda_gqa_prefill_permute_kv_fp32(
+                    K, V, Xk, Xv, B, chunk_len, NKV, HS, position_offset, T, stream );
+            }
+
             static void permute_qkv(
                 float* Q, float* K, float* V, const float* X,
                 int B, int T, int NH, int NKV, int HS, cudaStream_t s )
             {
-                cuda_gqa_permute_qkv_fp32( Q, K, V, X, B, T, NH, NKV, HS, s );
+                // FIXME: cuda_gqa_permute_q_fp32( Q, K, V, X, B, T, NH, NKV, HS, s );
+            }
+
+            static void permute_kv(
+                float* Q, float* K, float* V, const float* X,
+                int B, int T, int NH, int NKV, int HS, cudaStream_t s )
+            {
+                // FIXME: cuda_gqa_permute_kv_fp32( Q, K, V, X, B, T, NH, NKV, HS, s );
             }
 
             static void permute_qkv_padded(
                 float* Q, float* K, float* V, const float* X,
-                int B, int input_T, int output_T, int NH, int NKV, int HS, cudaStream_t s )
+                int B, int input_T, int output_T, int NH, int NKV, int HS, cudaStream_t stream )
             {
-                cuda_gqa_permute_qkv_padded_fp32( Q, K, V, X, B, input_T, output_T, NH, NKV, HS, s );
+                cuda_gqa_permute_qkv_padded_fp32( Q, K, V, X, B, input_T, output_T, NH, NKV, HS, stream );
             }
 
             static void permute_qkv_decode(
@@ -56,9 +81,17 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             static void expand_kv(
                 float* k_exp, float* v_exp,
                 const float* k_compact, const float* v_compact,
-                int B, int T, int NH, int NKV, int HS, cudaStream_t s )
+                int B, int T, int NH, int NKV, int HS, cudaStream_t stream )
             {
-                cuda_gqa_expand_kv_fp32( k_exp, v_exp, k_compact, v_compact, B, T, NH, NKV, HS, s );
+                cuda_gqa_expand_kv_fp32( k_exp, v_exp, k_compact, v_compact, B, T, NH, NKV, HS, stream );
+            }
+
+            static void prefill_expand_kv(
+                float* k_exp, float* v_exp,
+                const float* k_compact, const float* v_compact,
+                int B, int chunk_len, int T, int NH, int NKV, int HS, int position_offset, cudaStream_t stream )
+            {
+                cuda_gqa_prefill_expand_kv_fp32( k_exp, v_exp, k_compact, v_compact, B, chunk_len, T, NH, NKV, HS, position_offset, stream );
             }
 
             static void reduce_kv_grad(
@@ -75,6 +108,35 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 int B, int T, int NH, int NKV, int HS, cudaStream_t s )
             {
                 cuda_gqa_permute_backward_fp32( dX, dQ, dK, dV, B, T, NH, NKV, HS, s );
+            }
+
+            // ----------------------------------------------------------------
+            // GQA Softmax  - prefill
+            // ----------------------------------------------------------------
+
+            static void prefill_softmax(
+                float* att, const float* preatt,
+                int B, int NH, int T_stride, int chunk_stride, int chunk_len, int position_offset,
+                cudaStream_t stream )
+            {
+                cuda_gqa_prefill_softmax_fp32(
+                    att, preatt, B, NH, T_stride, chunk_stride, chunk_len, position_offset, stream );
+            }
+
+            /*static void prefill_permute_qkv(
+                float* Q, float* K, float* V, const float* X,
+                int B, int chunk_len, int T, int NH, int NKV, int HS, int position_offset,
+                cudaStream_t stream )
+            {
+                cuda_gqa_prefill_permute_qkv_fp32( Q, K, V, X, B, chunk_len, T, NH, NKV, HS, position_offset, stream );
+            }*/
+
+            static void prefill_unpermute_output_padded(
+                const float* vaccum, float* out,
+                int B, int chunk_len, int T, int NH, int HS,
+                cudaStream_t stream )
+            {
+                cuda_gqa_prefill_unpermute_output_padded_fp32( vaccum, out, B, chunk_len, T, NH, HS, stream );
             }
 
             // ----------------------------------------------------------------
@@ -153,6 +215,22 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             // GQA-specific: permute / expand / reduce
             // ----------------------------------------------------------------
 
+            static void prefill_permute_q(
+                half* Q, const half* Xq,
+                int B, int chunk_len, int NH, int HS,
+                int position_offset, int T, cudaStream_t stream )
+            {
+                // TODO: cuda_gqa_prefill_permute_q_fp16( Q, Xq, B, chunk_len, NH, HS, position_offset, T, stream );
+            }
+
+            static void prefill_permute_kv(
+                half* K, half* V, const half* Xk, const half* Xv,
+                int B, int chunk_len, int NKV, int HS,
+                int position_offset, int T, cudaStream_t stream )
+            {
+                // TODO: cuda_gqa_prefill_permute_kv_fp16( K, V, Xk, Xv, B, chunk_len, NKV, HS, position_offset, T, stream );
+            }
+
             static void permute_qkv(
                 half* Q, half* K, half* V, const half* X,
                 int B, int T, int NH, int NKV, int HS, cudaStream_t s )
@@ -174,12 +252,27 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 cuda_gqa_permute_qkv_decode_fp16( Q, K, V, X, B, position, cache_T, NH, NKV, HS, s );
             }
 
+            static void prefill_permute_qkv(
+                half* Q, half* K, half* V, const half* X,
+                int B, int chunk_len, int T, int NH, int NKV, int HS, int position_offset,
+                cudaStream_t stream )
+            {
+                // TODO: cuda_gqa_prefill_permute_qkv_fp16( Q, K, V, X, B, chunk_len, T, NH, NKV, HS, position_offset, stream );
+            }
+            static void prefill_expand_kv(
+                half* k_exp, half* v_exp,
+                const half* k_compact, const half* v_compact,
+                int B, int chunk_len, int T, int NH, int NKV, int HS, int pos_offset, cudaStream_t stream )
+            {
+                // TODO: cuda_gqa_prefill_expand_kv_fp16( k_exp, v_exp, k_compact, v_compact, B, chunk_len, T, NH, NKV, HS, pos_offset, stream );
+            }
+
             static void expand_kv(
                 half* k_exp, half* v_exp,
                 const half* k_compact, const half* v_compact,
-                int B, int T, int NH, int NKV, int HS, cudaStream_t s )
+                int B, int T, int NH, int NKV, int HS, cudaStream_t stream )
             {
-                cuda_gqa_expand_kv_fp16( k_exp, v_exp, k_compact, v_compact, B, T, NH, NKV, HS, s );
+                // TODO: cuda_gqa_expand_kv_fp16( k_exp, v_exp, k_compact, v_compact, B, T, NH, NKV, HS, stream );
             }
 
             static void reduce_kv_grad(
@@ -196,6 +289,26 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 int B, int T, int NH, int NKV, int HS, cudaStream_t s )
             {
                 cuda_gqa_permute_backward_fp16( dX, dQ, dK, dV, B, T, NH, NKV, HS, s );
+            }
+
+            // ----------------------------------------------------------------
+            // GQA Softmax prefill
+            // ----------------------------------------------------------------
+
+            static void prefill_softmax(
+                half* att, const half* preatt,
+                int B_NH, int T, int T_stride, int chunk_stride, int chunk_len, int position_offset,
+                cudaStream_t stream )
+            {
+                // TODO: cuda_gqa_softmax_prefill_fp16( att, preatt, B_NH, T, chunk_len, position_offset, stream );
+            }
+
+            static void prefill_unpermute_output_padded(
+                const half* vaccum, half* out,
+                int B, int chunk_len, int T, int NH, int HS,
+                cudaStream_t stream )
+            {
+                // TODO: cuda_gqa_prefill_unpermute_output_padded_fp16( vaccum, out, B, chunk_len, T, NH, HS, stream );
             }
 
             // ----------------------------------------------------------------

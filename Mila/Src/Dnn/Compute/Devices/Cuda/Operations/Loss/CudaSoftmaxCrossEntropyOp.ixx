@@ -230,8 +230,9 @@ namespace Mila::Dnn::Compute::Cuda::SoftmaxCrossEntropy
          *  3. Cache CUDA stream
          *  4. Allocate internal probability cache for backward pass
          */
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
+            const auto& input_shape = config.inputShape();
             const auto& shape = input_shape;
             const int64_t ndim = static_cast<int64_t>(shape.size());
 

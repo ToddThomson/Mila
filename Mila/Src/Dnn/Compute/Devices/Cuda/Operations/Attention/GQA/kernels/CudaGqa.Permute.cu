@@ -254,39 +254,42 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
     // KV expansion: [B, NKV, T, HS] → [B, NH, T, HS]
     // ========================================================================
 
-    /**
-     * @brief Broadcast each KV head to its group of Q heads (FP32).
-     *
-     * For Q head nh: kv_head = nh / GS  where GS = NH / NKV.
-     * Reads k_compact/v_compact[b, kv_head, t, hs] and writes
-     * k_exp/v_exp[b, nh, t, hs].
-     *
-     * Total threads: B * NH * T * HS (indexed over the expanded layout).
-     */
-    __global__ void expand_kv_fp32_kernel(
+    __global__ void expand_kv_prefill_fp32_kernel(
         float* k_exp, float* v_exp,
         const float* k_compact, const float* v_compact,
-        int B, int T, int NH, int NKV, int HS )
+        int B, int chunk_len, int T_stride, int NH, int NKV, int HS,
+        int position_offset )
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-        if ( idx < B * NH * T * HS )
+        if ( idx >= B * NH * chunk_len * HS )
         {
-            const int b = idx / (NH * T * HS);
-            int rest = idx % (NH * T * HS);
-            const int nh = rest / (T * HS);
-            rest = rest % (T * HS);
-            const int t = rest / HS;
-            const int hs = rest % HS;
-
-            // Map Q head → KV head (integer division, GS = NH/NKV).
-            const int nkv = nh / (NH / NKV);
-
-            const int src_idx = b * (NKV * T * HS) + nkv * (T * HS) + t * HS + hs;
-
-            k_exp[ idx ] = k_compact[ src_idx ];
-            v_exp[ idx ] = v_compact[ src_idx ];
+            return;
         }
+
+        const int b = idx / (NH * chunk_len * HS);
+        int rest = idx % (NH * chunk_len * HS);
+        const int nh = rest / (chunk_len * HS);
+        rest = rest % (chunk_len * HS);
+        const int t = rest / HS;
+        const int hs = rest % HS;
+
+        const int nkv = nh / (NH / NKV);
+
+        // Source: k_compact is [B, NKV, chunk_len, HS]
+        int src_idx = b * (NKV * chunk_len * HS)
+            + nkv * (chunk_len * HS)
+            + t * HS
+            + hs;
+
+        // Dest: k_exp is [B, NH, T_stride, HS], write at absolute row position_offset + t
+        int dst_idx = b * (NH * T_stride * HS)
+            + nh * (T_stride * HS)
+            + (position_offset + t) * HS
+            + hs;
+
+        k_exp[ dst_idx ] = k_compact[ src_idx ];
+        v_exp[ dst_idx ] = v_compact[ src_idx ];
     }
 
     __global__ void expand_kv_fp16_kernel(
@@ -710,7 +713,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
     {
         const int block_size = 256;
 
-        permute_q_padded_fp32_kernel << <ceil_div( B * NH * output_T * HS, block_size ), block_size, 0, stream >> > (
+        permute_q_padded_fp32_kernel <<<ceil_div( B * NH * output_T * HS, block_size ), block_size, 0, stream >>> (
             Q, X, B, input_T, output_T, NH, NKV, HS);
         cudaCheck( cudaGetLastError() );
 
@@ -736,17 +739,20 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         cudaCheck( cudaGetLastError() );
     }
 
-    void cuda_gqa_expand_kv_fp32(
+    void cuda_gqa_expand_kv_prefill_fp32(
         float* k_exp, float* v_exp,
         const float* k_compact, const float* v_compact,
-        int B, int T, int NH, int NKV, int HS,
-        cudaStream_t stream )
+        int B, int chunk_len, int T_stride, int NH, int NKV, int HS,
+        int position_offset, cudaStream_t stream )
     {
         const int block_size = 256;
-        const int num_blocks = ceil_div( B * NH * T * HS, block_size );
+        const int total = B * NH * chunk_len * HS;
+        const int num_blocks = ceil_div( total, block_size );
 
-        expand_kv_fp32_kernel << <num_blocks, block_size, 0, stream >> > (
-            k_exp, v_exp, k_compact, v_compact, B, T, NH, NKV, HS);
+        expand_kv_prefill_fp32_kernel << <num_blocks, block_size, 0, stream >> > (
+            k_exp, v_exp, k_compact, v_compact,
+            B, chunk_len, T_stride, NH, NKV, HS, position_offset);
+
         cudaCheck( cudaGetLastError() );
     }
 

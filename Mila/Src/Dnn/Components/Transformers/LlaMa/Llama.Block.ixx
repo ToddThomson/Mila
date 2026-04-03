@@ -37,6 +37,8 @@ module;
 #include <memory>
 #include <vector>
 #include <string>
+#include <format>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <optional>
@@ -73,6 +75,9 @@ namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
+
+    // TODO: Temporary. To be replaced by tuned chunk size based on empirical perf testing across devices and precisions.
+    export constexpr int64_t kPrefillChunkSize = 64;
 
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -112,17 +117,8 @@ namespace Mila::Dnn
 
         ~LlamaBlock() override = default;
 
-        // ====================================================================
-        // Forward
-        // ====================================================================
-
         TensorType& forward( const TensorType& input )
         {
-            if ( !this->isBuilt() )
-            {
-                throw std::runtime_error( "LlamaBlock must be built before forward()." );
-            }
-
             // 1. Pre-attention RMSNorm.
             auto& rms1_out = rms1_->forward( input );
             this->getExecutionContext()->synchronize();
@@ -183,7 +179,7 @@ namespace Mila::Dnn
             last_ffn_out_ = &ffn_out;
             last_res2_out_ = &res2_out;
 
-            forward_executed_ = this->isTraining();
+            // FIXME: forward_executed_ = this->isTraining();
 
             return res2_out;
         }
@@ -192,46 +188,221 @@ namespace Mila::Dnn
         // Decode (inference / KV-cache path)
         // ====================================================================
 
+        TensorType& prefill( const TensorType& input, int position_offset )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error(
+                    "LlamaBlock::prefill: must be built before prefill()." );
+            }
+
+            auto print_stats = [&]( const std::string& label, const TensorType& t )
+                {
+                    auto host = toHost<TensorDataType::FP32>( t );
+                    const float* data = static_cast<const float*>(host.data());
+                    int64_t total = host.size();
+
+                    // Last token — trailing model_dim elements
+                    int64_t B = t.shape()[ 0 ];
+                    int64_t T = t.shape()[ 1 ];
+                    int64_t D = total / (B * T);
+                    int64_t last_token_offset = (T - 1) * D;
+
+                    const float* last = data + last_token_offset;
+
+                    float mn = last[ 0 ];
+                    float mx = last[ 0 ];
+                    double sum = 0.0;
+
+                    for ( int64_t i = 0; i < D; ++i )
+                    {
+                        float v = last[ i ];
+                        mn = std::min( mn, v );
+                        mx = std::max( mx, v );
+                        sum += v;
+                    }
+
+                    double mean = sum / static_cast<double>( D );
+
+                    double var_sum = 0.0;
+                    for ( int64_t i = 0; i < D; ++i )
+                    {
+                        double diff = static_cast<double>( last[ i ] ) - mean;
+                        var_sum += diff * diff;
+                    }
+
+                    double std_dev = std::sqrt( var_sum / static_cast<double>( D ) );
+
+                    // Simple deterministic 64-bit FNV-1a checksum over the little-endian float32 bytes
+                    // This is intentionally simple and portable: it detects any bitwise difference.
+                    uint64_t checksum = 1469598103934665603ULL;
+                    constexpr uint64_t fnv_prime = 1099511628211ULL;
+
+                    for ( int64_t i = 0; i < D; ++i )
+                    {
+                        // reinterpret float bits as uint32_t in a well-defined way
+                        uint32_t bits = std::bit_cast<uint32_t>( last[ i ] );
+                        // process 4 bytes little-endian to keep ordering stable across platforms
+                        for ( int byte = 0; byte < 4; ++byte )
+                        {
+                            uint8_t b = static_cast<uint8_t>( (bits >> (byte * 8)) & 0xFFu );
+                            checksum ^= static_cast<uint64_t>( b );
+                            checksum *= fnv_prime;
+                        }
+                    }
+
+                    std::cout << std::format(
+                        "  {}: min={:.6f} max={:.6f} mean={:.6f} std={:.6f} checksum=0x{:016x}",
+                        label, mn, mx, mean, std_dev, checksum ) << std::endl;
+
+                    std::cout << host.toString( true ) << std::endl;
+                };
+
+            int64_t B = input.shape()[ 0 ];
+            int64_t T_actual = input.shape()[ 1 ];
+            const int64_t n_heads = config_.getNumHeads();
+            const int64_t n_kv = config_.getNumKVHeads();
+            const int64_t head_dim = config_.getModelDim() / n_heads;
+
+            // Preserve skip connection
+            auto res1_view = res1_prefill_->view( shape_t{ B, T_actual, config_.getModelDim() }, 0 );
+            copy( input, res1_view );
+            this->getExecutionContext()->synchronize();
+
+            // Pre-attention RMSNorm
+            auto& rms1_out = rms1_->forward( input );
+            this->getExecutionContext()->synchronize();
+            // TJT: These stats match HF
+            print_stats( "rmsn_1", rms1_out ); 
+
+            // Fused QKV projection
+            auto& qkv_out = qkv_proj_->forward( rms1_out );
+            this->getExecutionContext()->synchronize();
+            print_stats( "qkv_out", qkv_out );
+
+            // Split the fused QKV output into separate Q, K and V for RoPE and GQA
+            // Create T-trimmed views into the pre-allocated chunk buffers so split()'s
+            // shape validation (B and T must match) succeeds when T_actual < kPrefillChunkSize.
+            auto q_view = q_->view( shape_t{ B, T_actual, n_heads * head_dim }, 0 );
+            auto k_view = k_->view( shape_t{ B, T_actual, n_kv * head_dim }, 0 );
+            auto v_view = v_->view( shape_t{ B, T_actual, n_kv * head_dim }, 0 );
+
+            split(
+                qkv_out,
+                q_view, k_view, v_view,
+                this->getExecutionContext() );
+            print_stats( "q_view", q_view );
+            print_stats( "k_view", k_view );
+            print_stats( "v_view", v_view );
+            // TJT: The q_view, k_view and v_view are the same as HF
+
+            // RoPE
+            rope_->prefill( q_view, k_view, position_offset );
+            this->getExecutionContext()->synchronize();
+            print_stats( "q_view after rope", q_view );
+            print_stats( "k_view after rope", k_view );
+
+            // GQA prefill
+            auto& attn_out = attn_->prefill( q_view, k_view, v_view, position_offset );
+            this->getExecutionContext()->synchronize();
+            print_stats( "attn_out", attn_out );
+
+            // 5. Output projection
+            auto& out_proj_out = out_proj_->forward( attn_out );
+            this->getExecutionContext()->synchronize();
+            print_stats( "fc_out_proj", out_proj_out );
+
+            // 6. First residual
+            auto& res1_out = res1_->forward( res1_view, out_proj_out );
+            this->getExecutionContext()->synchronize();
+
+            // 7. Post-attention RMSNorm
+            auto& rms2_out = rms2_->forward( res1_out );
+            this->getExecutionContext()->synchronize();
+            print_stats( "rmsn_2", rms2_out );
+            // TJT: The rms2_out stats match HF, indicating that the correct data is flowing through the prefill path and the RMSNorm is working as expected.
+
+            // 8. Fused gate+up projection
+            auto& gate_up_out = fc_gate_up_->forward( rms2_out );
+            this->getExecutionContext()->synchronize();
+            print_stats( "fc_gate_up", gate_up_out );
+            // TJT: the gate_up_out stats match HF to here
+
+            // 9. SwiGLU
+            auto& swiglu_out = swiglu_->forward( gate_up_out );
+            this->getExecutionContext()->synchronize();
+            print_stats( "swiglu_out", swiglu_out );
+
+            // 10. Down projection
+            auto& ffn_out = fc_down_->forward( swiglu_out );
+            this->getExecutionContext()->synchronize();
+            print_stats( "fc_down", ffn_out );
+
+            // 11. Second residual
+            auto& res2_out = res2_->forward( res1_out, ffn_out );
+            this->getExecutionContext()->synchronize();
+            print_stats( "block_out", res2_out );
+
+            return res2_out;
+        }
+
         TensorType& decode( const TensorType& input, int position )
         {
             if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "LlamaBlock must be built before decode()." );
+                throw std::runtime_error(
+                    "LlamaBlock::decode: must be built before decode()." );
             }
 
+            // 1. Pre-attention RMSNorm — T=1
             auto& rms1_out = rms1_->forward( input );
             this->getExecutionContext()->synchronize();
 
+            // 2. Fused QKV projection — T=1
             auto& qkv_out = qkv_proj_->forward( rms1_out );
             this->getExecutionContext()->synchronize();
 
-            auto Q = qkv_out.view( q_shape_, 0 );
-            auto K = qkv_out.view( k_shape_, q_offset_ );
+            // 3. RoPE — decode view shapes T=1
+            // qkv_out is sized to kPrefillChunkSize — extract T=1 view
+            auto qkv_decode = qkv_out.view(
+                shape_t{ input.shape()[ 0 ], 1,
+                    (config_.getNumHeads() + 2 * config_.getNumKVHeads())
+                    * (config_.getModelDim() / config_.getNumHeads()) }, 0 );
 
+            auto Q = qkv_decode.view( q_shape_, 0 );
+            auto K = qkv_decode.view( k_shape_, q_offset_ );
             rope_->forward( Q, K );
             this->getExecutionContext()->synchronize();
 
-            auto& attn_out = attn_->decode( qkv_out, position );
+            // 4. GQA decode — KV cache lookup at position
+            auto& attn_out = attn_->decode( qkv_decode, position );
             this->getExecutionContext()->synchronize();
 
+            // 5. Output projection — T=1
             auto& out_proj_out = out_proj_->forward( attn_out );
             this->getExecutionContext()->synchronize();
 
+            // 6. First residual — input + out_proj_out, T=1
             auto& res1_out = res1_->forward( input, out_proj_out );
             this->getExecutionContext()->synchronize();
 
+            // 7. Post-attention RMSNorm — T=1
             auto& rms2_out = rms2_->forward( res1_out );
             this->getExecutionContext()->synchronize();
 
+            // 8. Fused gate+up projection — T=1
             auto& gate_up_out = fc_gate_up_->forward( rms2_out );
             this->getExecutionContext()->synchronize();
 
+            // 9. SwiGLU — T=1
             auto& swiglu_out = swiglu_->forward( gate_up_out );
             this->getExecutionContext()->synchronize();
 
+            // 10. Down projection — T=1
             auto& ffn_out = fc_down_->forward( swiglu_out );
             this->getExecutionContext()->synchronize();
 
+            // 11. Second residual — res1_out + ffn_out, T=1
             auto& res2_out = res2_->forward( res1_out, ffn_out );
             this->getExecutionContext()->synchronize();
 
@@ -419,150 +590,176 @@ namespace Mila::Dnn
 
     protected:
 
-        // ====================================================================
-        // Build
-        // ====================================================================
-
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const BuildContext& context ) override
         {
-            validateInputShape( input_shape );
+            validateBuildContext( context );
 
-            cached_input_shape_ = input_shape;
+            const auto& input_shape = context.inputShape();
 
             const int64_t B = input_shape[ 0 ];
-            const int64_t T = input_shape[ 1 ];
+            const int64_t context_length = input_shape[ 1 ];
             const int64_t n_heads = config_.getNumHeads();
             const int64_t n_kv = config_.getNumKVHeads();
             const int64_t head_dim = config_.getModelDim() / n_heads;
-
             const int64_t hidden_dim = config_.getHiddenDimension() > 0
                 ? config_.getHiddenDimension()
                 : config_.getModelDim() * 4;
 
-            // Leading shape { B, T } is used to derive Q and K view shapes for RoPE.
-            auto leading_shape = shape_t{ B, T };
+            // Decode view shapes — T=1, always
+            q_shape_ = { B, 1, n_heads * head_dim };
+            k_shape_ = { B, 1, n_kv * head_dim };
+            q_offset_ = static_cast<size_t>(B * 1 * n_heads * head_dim);
 
-            // Pre-computed view shapes and Q→K offset — reused every forward/backward.
-            q_shape_ = { B, T, n_heads * head_dim };
-            k_shape_ = { B, T, n_kv * head_dim };
-            q_offset_ = static_cast<size_t>(B * T * n_heads * head_dim);
+            // GQA — context_length for KV cache sizing, correct QKV trailing dim
+            const shape_t qkv_shape = { B, context_length, (n_heads + 2 * n_kv) * head_dim };
+            BuildContext qkv_context( qkv_shape, context.getRuntimeMode() );
 
-            const shape_t qkv_shape = { B, T, (n_heads + 2 * n_kv) * head_dim };
-            const shape_t gate_up_shape = { B, T, 2 * hidden_dim };
-            const shape_t hidden_shape = { B, T, hidden_dim };
+            if ( context.isInferenceMode() )
+            {
+                // Non-attention components built at kPrefillChunkSize —
+                // owned_output_ sized to hold a full prefill chunk.
+                // decode() uses resolveOutputView() to extract T=1 slice.
+                const shape_t prefill_shape = { B, kPrefillChunkSize, config_.getModelDim() };
+                const shape_t gate_up_prefill = { B, kPrefillChunkSize, 2 * hidden_dim };
+                const shape_t hidden_prefill = { B, kPrefillChunkSize, hidden_dim };
 
-            // 1. Pre-attention RMSNorm.
-            rms1_ = this->template getComponentAs<RmsNormType>( this->getName() + ".ln_1" );
-            rms1_->build( input_shape );
+                BuildContext prefill_context( prefill_shape, RuntimeMode::Inference );
+                BuildContext gate_up_context( gate_up_prefill, RuntimeMode::Inference );
+                BuildContext hidden_context( hidden_prefill, RuntimeMode::Inference );
 
-            // 2. Fused QKV projection.
-            qkv_proj_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_qkv_proj" );
-            qkv_proj_->build( input_shape );
+                // Prefill view shapes — kPrefillChunkSize
+                q_prefill_shape_ = { B, kPrefillChunkSize, n_heads * head_dim };
+                k_prefill_shape_ = { B, kPrefillChunkSize, n_kv * head_dim };
+                q_prefill_offset_ = static_cast<size_t>( B * kPrefillChunkSize * n_heads * head_dim);
 
-            // 3. RoPE — paired build with Q and K shapes.
-            rope_ = this->template getComponentAs<RopeType>( this->getName() + ".rope" );
-            rope_->build( leading_shape );
+                rms1_ = this->template getComponentAs<RmsNormType>( this->getName() + ".rmsn_1" );
+                rms1_->build( prefill_context );
 
-            // 4. GQA.
-            attn_ = this->template getComponentAs<AttentionType>( this->getName() + ".attn" );
-            attn_->build( qkv_shape );
+                qkv_proj_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_qkv_proj" );
+                qkv_proj_->build( prefill_context );
 
-            // 5. Output projection.
-            out_proj_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_out_proj" );
-            out_proj_->build( input_shape );
+                rope_ = this->template getComponentAs<RopeType>( this->getName() + ".rope" );
+                rope_->build( prefill_context );
 
-            // 6. First residual.
-            res1_ = this->template getComponentAs<ResidualType>( this->getName() + ".res_1" );
-            res1_->build( input_shape );
+                attn_ = this->template getComponentAs<AttentionType>( this->getName() + ".gqa" );
+                attn_->build( qkv_context );
 
-            // 7. Post-attention RMSNorm.
-            rms2_ = this->template getComponentAs<RmsNormType>( this->getName() + ".ln_2" );
-            rms2_->build( input_shape );
+                out_proj_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_out_proj" );
+                out_proj_->build( prefill_context );
 
-            // 8. Fused gate+up projection.
-            fc_gate_up_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_gate_up" );
-            fc_gate_up_->build( input_shape );
+                res1_ = this->template getComponentAs<ResidualType>( this->getName() + ".res_1" );
+                res1_->build( prefill_context );
 
-            // 9. SwiGLU.
-            swiglu_ = this->template getComponentAs<SwiGLUType>( this->getName() + ".swiglu" );
-            swiglu_->build( gate_up_shape );
+                rms2_ = this->template getComponentAs<RmsNormType>(
+                    this->getName() + ".rmsn_2" );
+                rms2_->build( prefill_context );
 
-            // 10. Down projection.
-            fc_down_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_down" );
-            fc_down_->build( hidden_shape );
+                fc_gate_up_ = this->template getComponentAs<LinearType>(
+                    this->getName() + ".fc_gate_up" );
+                fc_gate_up_->build( prefill_context );
 
-            // 11. Second residual.
-            res2_ = this->template getComponentAs<ResidualType>( this->getName() + ".res_2" );
-            res2_->build( input_shape );
+                swiglu_ = this->template getComponentAs<SwiGLUType>(
+                    this->getName() + ".sglu" );
+                swiglu_->build( gate_up_context );
 
-            // Backward scratch buffers.
-            auto device = this->getDeviceId();
+                fc_down_ = this->template getComponentAs<LinearType>(
+                    this->getName() + ".fc_down" );
+                fc_down_->build( hidden_context );
 
-            d_res1_accum_ = std::make_unique<TensorType>( device, input_shape );
-            d_res1_accum_->setName( this->getName() + ".d_res1_accum" );
-            zero( *d_res1_accum_ );
+                res2_ = this->template getComponentAs<ResidualType>(
+                    this->getName() + ".res_2" );
+                res2_->build( prefill_context );
 
-            d_input_ = std::make_unique<TensorType>( device, input_shape );
-            d_input_->setName( this->getName() + ".d_input" );
-            zero( *d_input_ );
+                // Skip connection buffer — preserves input across attention block
+                // during prefill. Cannot reuse component buffers as they get
+                // overwritten by subsequent components.
+                auto device = this->getExecutionContext()->getDeviceId();
+
+                res1_prefill_ = std::make_unique<TensorType>( device, shape_t{ B, kPrefillChunkSize, config_.getModelDim() }, this->getName() + ".res_1.prefill" );
+
+                q_ = std::make_unique<TensorType>( device, shape_t{ B, kPrefillChunkSize, n_heads * head_dim }, this->getName() + ".q" );
+                k_ = std::make_unique<TensorType>( device, shape_t{ B, kPrefillChunkSize, n_kv * head_dim }, this->getName() + ".k" );
+                v_ = std::make_unique<TensorType>( device, shape_t{ B, kPrefillChunkSize, n_kv * head_dim }, this->getName() + ".v" );
+            }
+            else
+            {
+                // Training — build all components at full T
+                const shape_t training_shape = { B, context_length, config_.getModelDim() };
+                const shape_t gate_up_shape = { B, context_length, 2 * hidden_dim };
+                const shape_t hidden_shape = { B, context_length, hidden_dim };
+
+                BuildContext training_context( training_shape, RuntimeMode::Training );
+                BuildContext gate_up_context( gate_up_shape, RuntimeMode::Training );
+                BuildContext hidden_context( hidden_shape, RuntimeMode::Training );
+
+                rms1_ = this->template getComponentAs<RmsNormType>( this->getName() + ".rmsn_1" );
+                rms1_->build( training_context );
+
+                qkv_proj_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_qkv_proj" );
+                qkv_proj_->build( training_context );
+
+                rope_ = this->template getComponentAs<RopeType>( this->getName() + ".rope" );
+                rope_->build( training_context );
+
+                attn_ = this->template getComponentAs<AttentionType>( this->getName() + ".gqa" );
+                attn_->build( qkv_context );
+
+                out_proj_ = this->template getComponentAs<LinearType>(
+                    this->getName() + ".fc_out_proj" );
+                out_proj_->build( training_context );
+
+                res1_ = this->template getComponentAs<ResidualType>(
+                    this->getName() + ".res_1" );
+                res1_->build( training_context );
+
+                rms2_ = this->template getComponentAs<RmsNormType>(
+                    this->getName() + ".rmsn_2" );
+                rms2_->build( training_context );
+
+                fc_gate_up_ = this->template getComponentAs<LinearType>(
+                    this->getName() + ".fc_gate_up" );
+                fc_gate_up_->build( training_context );
+
+                swiglu_ = this->template getComponentAs<SwiGLUType>(
+                    this->getName() + ".sglu" );
+                swiglu_->build( gate_up_context );
+
+                fc_down_ = this->template getComponentAs<LinearType>(
+                    this->getName() + ".fc_down" );
+                fc_down_->build( hidden_context );
+
+                res2_ = this->template getComponentAs<ResidualType>(
+                    this->getName() + ".res_2" );
+                res2_->build( training_context );
+
+                // Training backward scratch buffers
+                auto device = this->getExecutionContext()->getDeviceId();
+
+                d_res1_accum_ = std::make_unique<TensorType>(
+                    device, training_shape,
+                    this->getName() + ".d_res1_accum" );
+                zero( *d_res1_accum_ );
+
+                d_input_ = std::make_unique<TensorType>(
+                    device, training_shape,
+                    this->getName() + ".d_input" );
+                zero( *d_input_ );
+            }
         }
 
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
-            if ( rope_ )
-            {
-                rope_->setTraining( is_training );
-            }
-
-            if ( attn_ )
-            {
-                attn_->setTraining( is_training );
-            }
-
-            if ( rms1_ )
-            {
-                rms1_->setTraining( is_training );
-            }
-
-            if ( rms2_ )
-            {
-                rms2_->setTraining( is_training );
-            }
-
-            if ( qkv_proj_ )
-            {
-                qkv_proj_->setTraining( is_training );
-            }
-
-            if ( out_proj_ )
-            {
-                out_proj_->setTraining( is_training );
-            }
-
-            if ( res1_ )
-            {
-                res1_->setTraining( is_training );
-            }
-
-            if ( res2_ )
-            {
-                res2_->setTraining( is_training );
-            }
-
-            if ( fc_gate_up_ )
-            {
-                fc_gate_up_->setTraining( is_training );
-            }
-
-            if ( swiglu_ )
-            {
-                swiglu_->setTraining( is_training );
-            }
-
-            if ( fc_down_ )
-            {
-                fc_down_->setTraining( is_training );
-            }
+            rope_->setTrainingMode( training_mode );
+            attn_->setTrainingMode( training_mode );
+            rms1_->setTrainingMode( training_mode );
+            rms2_->setTrainingMode( training_mode );
+            qkv_proj_->setTrainingMode( training_mode );
+            out_proj_->setTrainingMode( training_mode );
+            res1_->setTrainingMode( training_mode );
+            res2_->setTrainingMode( training_mode );
+            fc_gate_up_->setTrainingMode( training_mode );
+            swiglu_->setTrainingMode( training_mode );
+            fc_down_->setTrainingMode( training_mode );
 
             forward_executed_ = false;
         }
@@ -572,6 +769,10 @@ namespace Mila::Dnn
         shape_t cached_input_shape_;
         bool forward_executed_{ false };
 
+        shape_t q_prefill_shape_;
+        shape_t k_prefill_shape_;
+        size_t q_prefill_offset_;
+
         // Pre-computed at build — reused every forward/backward call.
         shape_t q_shape_;
         shape_t k_shape_;
@@ -579,18 +780,24 @@ namespace Mila::Dnn
 
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
-        // Components — named to match convert_llama32.py tensor mapping.
-        std::shared_ptr<RmsNormType>   rms1_{ nullptr };
-        std::shared_ptr<LinearType>    qkv_proj_{ nullptr };
-        std::shared_ptr<RopeType>      rope_{ nullptr };
+        // Components
+        std::shared_ptr<RmsNormType> rms1_{ nullptr };
+        std::shared_ptr<LinearType> qkv_proj_{ nullptr };
+        std::shared_ptr<RopeType> rope_{ nullptr };
         std::shared_ptr<AttentionType> attn_{ nullptr };
-        std::shared_ptr<LinearType>    out_proj_{ nullptr };
-        std::shared_ptr<ResidualType>  res1_{ nullptr };
-        std::shared_ptr<RmsNormType>   rms2_{ nullptr };
-        std::shared_ptr<LinearType>    fc_gate_up_{ nullptr };
-        std::shared_ptr<SwiGLUType>    swiglu_{ nullptr };
-        std::shared_ptr<LinearType>    fc_down_{ nullptr };
-        std::shared_ptr<ResidualType>  res2_{ nullptr };
+        std::shared_ptr<LinearType> out_proj_{ nullptr };
+        std::shared_ptr<ResidualType> res1_{ nullptr };
+        std::shared_ptr<RmsNormType> rms2_{ nullptr };
+        std::shared_ptr<LinearType> fc_gate_up_{ nullptr };
+        std::shared_ptr<SwiGLUType> swiglu_{ nullptr };
+        std::shared_ptr<LinearType> fc_down_{ nullptr };
+        std::shared_ptr<ResidualType> res2_{ nullptr };
+
+        // Inference-only prefill buffers
+        std::unique_ptr<TensorType> res1_prefill_{ nullptr };
+        std::unique_ptr<TensorType> q_{ nullptr };
+        std::unique_ptr<TensorType> k_{ nullptr };
+        std::unique_ptr<TensorType> v_{ nullptr };
 
         // Backward scratch.
         std::unique_ptr<TensorType> d_res1_accum_{ nullptr };
@@ -619,83 +826,104 @@ namespace Mila::Dnn
             const int64_t n_kv = config_.getNumKVHeads();
             const int64_t head_dim = model_dim / n_heads;
             const int64_t qkv_dim = (n_heads + 2 * n_kv) * head_dim;
-            const int64_t hidden_dim = config_.getHiddenDimension() > 0
-                ? config_.getHiddenDimension()
-                : model_dim * 4;
+            const int64_t hidden_dim = config_.getHiddenDimension() > 0 ? config_.getHiddenDimension() : model_dim * 4;
 
             const std::string name = this->getName();
 
             // Pre-attention RMSNorm.
-            auto ln1_cfg = RmsNormConfig( shape_t{ model_dim } )
+            auto preattn_norm_config = RmsNormConfig( shape_t{ model_dim } )
                 .withEpsilon( config_.getRMSNormEpsilon() )
                 .withBias( false );
+            auto rmsn_1 = std::make_shared<RmsNormType>( name + ".rmsn_1", preattn_norm_config );
+            this->addComponent( rmsn_1 );
 
-            auto ln1 = std::make_shared<RmsNormType>( name + ".ln_1", ln1_cfg, std::nullopt );
-            this->addComponent( ln1 );
+            // First residual.
+            auto res1_cfg = ResidualConfig{};
+            auto res1 = std::make_shared<ResidualType>( name + ".res_1", res1_cfg );
+            this->addComponent( res1 );
 
             // Fused QKV projection: model_dim → (n_heads + 2*n_kv) * head_dim
             auto qkv_cfg = LinearConfig( model_dim, qkv_dim )
                 .withBias( false );
 
-            auto qkv_proj = std::make_shared<LinearType>( name + ".fc_qkv_proj", qkv_cfg, std::nullopt );
+            auto qkv_proj = std::make_shared<LinearType>( name + ".fc_qkv_proj", qkv_cfg );
             this->addComponent( qkv_proj );
 
             // RoPE.
             auto rope_cfg = RopeConfig( model_dim, n_heads, n_kv, config_.getMaxSequenceLength() )
                 .withBase( config_.getRoPETheta() );
 
-            auto rope = std::make_shared<RopeType>( name + ".rope", rope_cfg, std::nullopt );
+            auto rope = std::make_shared<RopeType>( name + ".rope", rope_cfg );
             this->addComponent( rope );
 
             // GQA.
             auto gqa_cfg = GroupedQueryAttentionConfig( model_dim, n_heads, n_kv );
-
-            auto attn = std::make_shared<AttentionType>( name + ".attn", gqa_cfg, std::nullopt );
+            auto attn = std::make_shared<AttentionType>( name + ".gqa", gqa_cfg );
             this->addComponent( attn );
 
-            // Output projection.
-            auto out_proj_cfg = LinearConfig( model_dim, model_dim )
-                .withBias( false );
+            // ----------------------------------------------------------------
+            // Llama 3.2 FFN Block
+            // ----------------------------------------------------------------
 
-            auto out_proj = std::make_shared<LinearType>( name + ".fc_out_proj", out_proj_cfg, std::nullopt );
-            this->addComponent( out_proj );
-
-            // First residual.
-            auto res1_cfg = ResidualConfig{};
-            auto res1 = std::make_shared<ResidualType>( name + ".res_1", res1_cfg, std::nullopt );
-            this->addComponent( res1 );
-
-            // Post-attention RMSNorm.
-            auto ln2_cfg = RmsNormConfig(shape_t{ model_dim } )
-                .withEpsilon( config_.getRMSNormEpsilon() )
-                .withBias( false );
-
-            auto ln2 = std::make_shared<RmsNormType>( name + ".ln_2", ln2_cfg, std::nullopt );
-            this->addComponent( ln2 );
-
-            // Fused gate+up projection: model_dim → 2*hidden_dim  [gate | up]
+            // Fused gate+up projection: model_dim → 2 * hidden_dim  [gate | up]
             auto gate_up_cfg = LinearConfig( model_dim, 2 * hidden_dim )
                 .withBias( false );
 
-            auto fc_gate_up = std::make_shared<LinearType>( name + ".fc_gate_up", gate_up_cfg, std::nullopt );
+            auto fc_gate_up = std::make_shared<LinearType>( name + ".fc_gate_up", gate_up_cfg );
             this->addComponent( fc_gate_up );
 
-            // SwiGLU: 2*hidden_dim → hidden_dim.
+            // SwiGLU: 2 * hidden_dim → hidden_dim.
             auto swiglu_cfg = SwigluConfig();
-            auto swiglu = std::make_shared<SwiGLUType>( name + ".swiglu", swiglu_cfg, std::nullopt );
+            auto swiglu = std::make_shared<SwiGLUType>( name + ".sglu", swiglu_cfg );
             this->addComponent( swiglu );
 
             // Down projection: hidden_dim → model_dim.
             auto fc_down_cfg = LinearConfig( hidden_dim, model_dim )
                 .withBias( false );
 
-            auto fc_down = std::make_shared<LinearType>( name + ".fc_down", fc_down_cfg, std::nullopt );
+            auto fc_down = std::make_shared<LinearType>( name + ".fc_down", fc_down_cfg );
             this->addComponent( fc_down );
+
+            // ----------------------------------------------------------------
+
+            // Output projection.
+            auto out_proj_cfg = LinearConfig( model_dim, model_dim )
+                .withBias( false );
+
+            auto out_proj = std::make_shared<LinearType>( name + ".fc_out_proj", out_proj_cfg );
+            this->addComponent( out_proj );
+
+            // Post-attention RMSNorm.
+            auto ln2_cfg = RmsNormConfig(shape_t{ model_dim } )
+                .withEpsilon( config_.getRMSNormEpsilon() )
+                .withBias( false );
+
+            auto ln2 = std::make_shared<RmsNormType>( name + ".rmsn_2", ln2_cfg, std::nullopt );
+            this->addComponent( ln2 );
 
             // Second residual.
             auto res2_cfg = ResidualConfig{};
             auto res2 = std::make_shared<ResidualType>( name + ".res_2", res2_cfg, std::nullopt );
             this->addComponent( res2 );
+        }
+
+        void validateBuildContext( const BuildContext& context ) const
+        {
+            const auto& input_shape = context.inputShape();
+
+            if ( input_shape.size() != 3 )
+            {
+                throw std::invalid_argument( std::format(
+                    "LlamaBlock: input must be rank 3 [B, T, model_dim], got rank {}",
+                    input_shape.size() ) );
+            }
+
+            if ( input_shape.back() != static_cast<int64_t>(config_.getModelDim()) )
+            {
+                throw std::invalid_argument( std::format(
+                    "LlamaBlock: model dim mismatch — expected {}, got {}",
+                    config_.getModelDim(), input_shape.back() ) );
+            }
         }
 
         void validateInputShape( const shape_t& input_shape ) const

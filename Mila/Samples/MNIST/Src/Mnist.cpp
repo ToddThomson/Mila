@@ -291,14 +291,11 @@ void trainMnist( const MnistConfig& config )
     // Build the model with the provided input shape
     shape_t input_shape = { config.batch_size, MNIST_IMAGE_SIZE };
 
-    BuildConfig cfg( input_shape );
+    BuildContext cfg( input_shape, RuntimeMode::Training );
     mnist_net->build( cfg );
 
     std::cout << "Mnist Classifier built successfully!" << std::endl;
     std::cout << mnist_net->toString() << std::endl;
-
-    // After building, set training mode
-    mnist_net->setTraining( true );
 
     // ============================================================
     // AdamW optimizer setup
@@ -398,7 +395,7 @@ void trainMnist( const MnistConfig& config )
         float test_acc = 0.0f;
         size_t test_batches = 0;
 
-        mnist_net->setTraining( false );
+        mnist_net->setTrainingMode( TrainingMode::Eval );
 
         while ( test_loader.hasNext() )
         {
@@ -422,7 +419,7 @@ void trainMnist( const MnistConfig& config )
         test_loss /= test_batches;
         test_acc /= test_batches;
 
-        mnist_net->setTraining( true );
+        mnist_net->setTrainingMode( TrainingMode::Normal );
 
         std::cout << "Epoch " << (epoch + 1) << "/" << config.epochs
             << " - Time: " << std::fixed << std::setprecision( 2 ) << epoch_time_sec << "s"
