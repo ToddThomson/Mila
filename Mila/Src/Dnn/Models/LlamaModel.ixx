@@ -129,10 +129,6 @@ namespace Mila::Dnn
 
             network->loadParameters( reader, strict );
 
-            stats = network->getMemoryStats();
-            std::cout << "\n--- Memory after loadParameters() ---\n";
-            std::cout << stats.toString() << std::endl;
-
             auto model = std::unique_ptr<LlamaModel>(
                 new LlamaModel( std::move( network ), config, RuntimeMode::Inference ) );
 
@@ -170,8 +166,8 @@ namespace Mila::Dnn
             // DEBUG
             // Override temperature and top_k for deterministic output during development.
 
-            temperature = 0.0f;
-            top_k = 0;
+            /*temperature = 0.0f;
+            top_k = 0;*/
 
             // END DEBUG
 
@@ -188,9 +184,6 @@ namespace Mila::Dnn
 
             int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
             tokens.push_back( next_token );
-
-            // DEBUG:
-            return tokens;
 
             if ( next_token == eos_token_ )
                 return tokens;
@@ -324,7 +317,7 @@ namespace Mila::Dnn
 
         // LLaMA 2 </s> = 2; LLaMA 3 <|end_of_text|> = 128001.
         // Should be sourced from tokenizer metadata once tokenizer integration is added.
-        static constexpr int32_t eos_token_ = 2;
+        static constexpr int32_t eos_token_ = 128001;
 
         // ====================================================================
         // Generation helpers
@@ -370,14 +363,6 @@ namespace Mila::Dnn
 
             const float* row = cpu.data()
                 + static_cast<size_t>(position) * static_cast<size_t>(config_.getVocabSize());
-
-            // DEBUG:
-
-            // Dump the cpu logits for the first few tokens to verify correctness of copy and indexing
-
-            std::cout << cpu.toString( true );
-
-            // END DEBUG
 
             return sampleToken( 
                 row,

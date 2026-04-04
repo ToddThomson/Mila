@@ -159,14 +159,8 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             cached_seq_len_ = 0;
         }
 
-        // ====================================================================
-        // IPositionalUnaryOp
-        // ====================================================================
-
         void prefill(
-            const ITensor& q,
-            const ITensor& k,
-            const ITensor& v,
+            const ITensor& q, const ITensor& k, const ITensor& v,
             ITensor& output,
             int position_offset ) override
         {
@@ -192,19 +186,6 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             const float beta = 0.0f;
             const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
 
-            // DEBUG: start
-            // Dump permute_qkv_padded args
-            /*Utils::Logger::debug( std::format(
-                "prefill_permute_qkv: B={} chunk_len={}  NH={} NKV={} HS={} pos_offset={} T={}",
-                B_, chunk_len, NH_, NKV_, HS_, position_offset, T_ ) );*/
-            // DEBUG: end
-
-            // DEBUG
-            //std::string input_dump = dump_tensor<NativeType>(
-            //    X, input.shape(), this->getName() + ".dbg.X", 16, stream);
-            //Utils::Logger::info( this->getName() + ": dbg.X:\n" + input_dump );
-            // END DEBUG
-
             // Permute Q: [B, chunk_len, NH*HS] → [B, NH, T_max, HS]
             // Writes into KV cache at rows [start_pos .. start_pos + chunk_len)
             Detail::cuda_gqa_kernels<NativeType>::prefill_permute_q(
@@ -227,23 +208,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 stream );
             context_->synchronize();
 
-            // DEBUG
-            //shape_t q_shape = { B_, NH_, T_, HS_ };
-            //std::string q_dump = dump_tensor<NativeType>(
-            //    q_, q_shape, this->getName() + ".dbg.q_", 16, stream );
-            //Utils::Logger::info( this->getName() + ": dbg.q_:\n" + q_dump );
-            //shape_t k_shape = { B_, NKV_, T_, HS_ };
-            //std::string k_dump = dump_tensor<NativeType>(
-            //    k_, k_shape, this->getName() + ".dbg.k_", 16, stream );
-            //Utils::Logger::info( this->getName() + ": dbg.k_:\n" + k_dump );
-            //shape_t v_shape = { B_, NKV_, T_, HS_ };
-            //std::string v_dump = dump_tensor<NativeType>(
-            //    v_, v_shape, this->getName() + ".dbg.v_", 16, stream );
-            //Utils::Logger::info( this->getName() + ": dbg.v_:\n" + v_dump );
-            // END DEBUG
-
-
-            // 2. Expand K/V from [B,NKV,T,HS] → k_exp/v_exp [B,NH,T,HS]
+            // Expand K/V from [B,NKV,T,HS] → k_exp/v_exp [B,NH,T,HS]
             Detail::cuda_gqa_kernels<NativeType>::prefill_expand_kv(
                 k_exp_, v_exp_,
                 k_, v_,
@@ -251,12 +216,6 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 position_offset,
                 stream );
             context_->synchronize();
-            /*{
-                shape_t k_exp_shape = { B_, NH_, T_, HS_ };
-                std::string k_exp_dump = dump_tensor<NativeType>(
-                    k_exp_, k_exp_shape, this->getName() + ".dbg.k_exp_", 16, stream );
-                Utils::Logger::info( this->getName() + ": dbg.k_exp_:\n" + k_exp_dump );
-            }*/
 
             // The full-chunk plan is pre-built at build() time. Partial chunk plans are
             // built lazily on first use and cached — each writes tight-packed output with
@@ -265,7 +224,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             const auto& qk_plan = is_full_chunk ? qk_prefill_plan_ : getOrBuildPartialQKPlan( chunk_len );
             const auto& av_plan = is_full_chunk ? att_value_prefill_plan_ : getOrBuildPartialAVPlan( chunk_len );
 
-            // 3. preatt = Q @ k_exp^T  [B,NH,chunk,T]
+            // preatt = Q @ k_exp^T  [B,NH,chunk,T]
             execute_plan<NativeType>(
                 cublaslt_handle_, qk_plan,
                 &scale, q_, k_exp_, &beta, preatt_,
@@ -275,30 +234,15 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 context_->getCublasLtWorkspaceSize() );
 
             context_->synchronize();
-            //{
-            //    // Dump preatt_ for debugging — shape [B, NH, chunk_len, T]
-            //    // NOTE: We only calculate chunk_len rows of preatt_ for efficiency, so the shape is [B, NH, chunk_len, T] not [B, NH, kPrefillChunkSize, T].
-            //    shape_t preatt_shape = { B_, NH_, chunk_len, T_ };
-            //    std::string preatt_dump = dump_tensor<NativeType>(
-            //        preatt_, preatt_shape, this->getName() + ".dbg.preatt_", 16, stream );
-            //    Utils::Logger::info( this->getName() + ": dbg.preatt_ (before softmax):\n" + preatt_dump );
-            //}
 
-            // 4. att = softmax(preatt / sqrt(HS)) with causal mask
-            // NOTE: scale is applied in step 3 as alpha in the MatMul
+            // att = softmax(preatt / sqrt(HS)) with causal mask
+            // NOTE: scale is applied in qk_plan step as alpha in the MatMul
             Detail::cuda_gqa_kernels<NativeType>::prefill_softmax(
                 att_, preatt_,
                 B_, NH_, T_, kPrefillChunkSize, chunk_len, position_offset,
                 stream );
 
             context_->synchronize();
-            //{
-            //    // Dump att_ for debugging — shape [B, NH, chunk_len, T]
-            //    shape_t att_shape = { B_, NH_, chunk_len, T_ };
-            //    std::string att_dump = dump_tensor<NativeType>(
-            //        att_, att_shape, this->getName() + ".dbg.att_", 16, stream );
-            //    Utils::Logger::info( this->getName() + ": dbg.att_ (after softmax):\n" + att_dump );
-            //}
 
             // 5. v_out = att @ v_exp  [B,NH,chunk,HS]
             execute_plan<NativeType>(
@@ -310,13 +254,6 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 context_->getCublasLtWorkspaceSize() );
             
             context_->synchronize();
-            /*{
-                shape_t v_out_shape = { B_, NH_, chunk_len, HS_ };
-                std::string v_out_dump = dump_tensor<NativeType>(
-                    v_out_, v_out_shape, this->getName() + ".dbg.v_out_", 16, stream );
-
-                Utils::Logger::info( this->getName() + ": dbg.v_out_:\n" + v_out_dump );
-            }*/
 
             // 6. Unpack v_out [B, NQH, padded_T, HS] → Y [B, actual_T, NQH*HS]
             Detail::cuda_gqa_kernels<NativeType>::prefill_unpermute_output_padded(
@@ -330,29 +267,27 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 stream );
 
             context_->synchronize();
-            /*{
-                shape_t output_shape = { B_, chunk_len, NH_* HS_ };
-                std::string output_dump = dump_tensor<NativeType>(
-                    Y, output_shape, this->getName() + ".dbg.output Y", 16, stream );
-
-                Utils::Logger::info( this->getName() + ": dbg.output Y:\n" + output_dump );
-            }*/
 
             cached_seq_len_ = position_offset + chunk_len;
         }
 
-        void decode( const ITensor& input, ITensor& output, int position ) override
+        void decode(
+            const ITensor& q, const ITensor& k, const ITensor& v,
+            ITensor& output,
+            int position ) override
         {
             ensureKVCacheEnabled();
-            validateDecodeInputShape( input.shape() );
 
             if ( position < 0 || position >= active_max_seq_len_ )
                 throw std::invalid_argument(
                     "CudaGroupedQueryAttentionOp::decode position out of range" );
 
             const int actual_len = position + 1;
+            //const bool debug = (position == 5);
 
-            const NativeType* X = static_cast<const NativeType*>( input.rawData() );
+            const NativeType* Xq = static_cast<const NativeType*>( q.rawData() );
+            const NativeType* Xk = static_cast<const NativeType*>( k.rawData() );
+            const NativeType* Xv = static_cast<const NativeType*>( v.rawData() );
             NativeType* Y = static_cast<NativeType*>( output.rawData() );
             cudaStream_t stream = context_->getStream();
 
@@ -360,21 +295,48 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             const float beta = 0.0f;
             const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
 
-            // 1. Write single Q token; append K/V token to compact cache.
-            Detail::cuda_gqa_kernels<NativeType>::permute_qkv_decode(
-                q_, k_, v_,
-                X,
-                B_, position, T_, NH_, NKV_, HS_,
+            // Permute Q into cache at position.
+            Detail::cuda_gqa_kernels<NativeType>::prefill_permute_q(
+                q_,
+                Xq,
+                B_, 1,
+                NH_, HS_,
+                position, T_,
                 stream );
+            context_->synchronize();
 
-            // 2. Expand KV cache up to actual_len into k_exp / v_exp.
-            Detail::cuda_gqa_kernels<NativeType>::expand_kv(
+            // Permute K, V into cache at position.
+            Detail::cuda_gqa_kernels<NativeType>::prefill_permute_kv(
+                k_, v_,
+                Xk, Xv,
+                B_, 1,
+                NKV_, HS_,
+                position, T_,
+                stream );
+            context_->synchronize();
+
+            /*if ( debug )
+            {
+                print_stats( "decode.k", k_, { 1, 1, actual_len, HS_ }, 8, stream );
+                print_stats( "decode.v", v_, { 1, 1, actual_len, HS_ }, 8, stream );
+            }*/
+
+            // Expand KV cache up to actual_len into k_exp / v_exp.
+            Detail::cuda_gqa_kernels<NativeType>::prefill_expand_kv(
                 k_exp_, v_exp_,
                 k_, v_,
-                B_, actual_len, NH_, NKV_, HS_,
+                B_, actual_len, T_, NH_, NKV_, HS_,
+                0,
                 stream );
+            context_->synchronize();
 
-            // 3. Decode QK: q_decode points at the current token's row.
+ /*           if ( debug )
+            {
+                print_stats( "decode.k_exp", k_exp_, { 1, 1, actual_len, HS_ }, 8, stream );
+                print_stats( "decode.v_exp", v_exp_, { 1, 1, actual_len, HS_ }, 8, stream );
+            }*/
+
+            // Decode QK: q_decode points at the current token's row.
             const NativeType* q_decode = q_ + static_cast<int64_t>(position) * HS_;
 
             execute_plan<NativeType>(
@@ -384,14 +346,21 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 stream,
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
+            context_->synchronize();
 
-            // 4. Softmax over actual_len positions.
+            //if ( debug )
+            //    print_stats( "decode.preatt", preatt_decode_, { 1, 1, 1, actual_len }, 8, stream );
+
+            // Softmax over actual_len positions.
             Detail::cuda_gqa_kernels<NativeType>::softmax_decode_forward(
                 att_decode_, 1.0f, preatt_decode_,
                 B_, NH_, T_, actual_len,
                 stream );
+            context_->synchronize();
+            //if ( debug )
+            //    print_stats( "decode.att", att_decode_, { 1, 1, 1, actual_len }, 8, stream );
 
-            // 5. Weighted sum over V.
+            // Weighted sum over V.
             execute_plan<NativeType>(
                 cublaslt_handle_, att_value_decode_plan_,
                 &alpha, att_decode_, v_exp_, &beta, v_out_decode_,
@@ -399,12 +368,18 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 stream,
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
+            context_->synchronize();
+            //if ( debug )
+            //    print_stats( "decode.v_out", v_out_decode_, { 1, 1, 1, HS_ }, 8, stream );
 
-            // 6. Unpack single token output.
+            // Unpack single token output.
             Detail::cuda_gqa_kernels<NativeType>::unpermute_output(
                 v_out_decode_, Y,
                 B_, 1, NH_, HS_,
                 stream );
+            context_->synchronize();
+            //if ( debug )
+            //    print_stats( "decode.Y", Y, { 1, 1, NH_ * HS_ }, 8, stream );
 
             if ( actual_len > cached_seq_len_ )
                 cached_seq_len_ = actual_len;

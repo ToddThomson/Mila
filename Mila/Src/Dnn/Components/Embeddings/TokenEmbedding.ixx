@@ -150,10 +150,10 @@ namespace Mila::Dnn
                 output_->view( actual_out_shape ) );
 
             // DEBUG:
-            std::cout << std::format(
-                "TokenEmbedding::forward: Output View (B={}, T_last={})",
-                B, T ) << std::endl;
-            std::cout << toHost<TensorDataType::FP32>( *current_output_view_ ).toString( true ) << std::endl;
+            //std::cout << std::format(
+            //    "TokenEmbedding::forward: Output View (B={}, T_last={})",
+            //    B, T ) << std::endl;
+            //std::cout << toHost<TensorDataType::FP32>( *current_output_view_ ).toString( true ) << std::endl;
             // END DEBUG
 
             return *current_output_view_;

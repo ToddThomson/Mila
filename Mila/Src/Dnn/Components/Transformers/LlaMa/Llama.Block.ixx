@@ -71,6 +71,8 @@ import Dnn.Components.Swiglu;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 
+import Cuda.Debug;
+
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
@@ -196,68 +198,6 @@ namespace Mila::Dnn
                     "LlamaBlock::prefill: must be built before prefill()." );
             }
 
-            auto print_stats = [&]( const std::string& label, const TensorType& t )
-                {
-                    auto host = toHost<TensorDataType::FP32>( t );
-                    const float* data = static_cast<const float*>(host.data());
-                    int64_t total = host.size();
-
-                    // Last token — trailing model_dim elements
-                    int64_t B = t.shape()[ 0 ];
-                    int64_t T = t.shape()[ 1 ];
-                    int64_t D = total / (B * T);
-                    int64_t last_token_offset = (T - 1) * D;
-
-                    const float* last = data + last_token_offset;
-
-                    float mn = last[ 0 ];
-                    float mx = last[ 0 ];
-                    double sum = 0.0;
-
-                    for ( int64_t i = 0; i < D; ++i )
-                    {
-                        float v = last[ i ];
-                        mn = std::min( mn, v );
-                        mx = std::max( mx, v );
-                        sum += v;
-                    }
-
-                    double mean = sum / static_cast<double>( D );
-
-                    double var_sum = 0.0;
-                    for ( int64_t i = 0; i < D; ++i )
-                    {
-                        double diff = static_cast<double>( last[ i ] ) - mean;
-                        var_sum += diff * diff;
-                    }
-
-                    double std_dev = std::sqrt( var_sum / static_cast<double>( D ) );
-
-                    // Simple deterministic 64-bit FNV-1a checksum over the little-endian float32 bytes
-                    // This is intentionally simple and portable: it detects any bitwise difference.
-                    uint64_t checksum = 1469598103934665603ULL;
-                    constexpr uint64_t fnv_prime = 1099511628211ULL;
-
-                    for ( int64_t i = 0; i < D; ++i )
-                    {
-                        // reinterpret float bits as uint32_t in a well-defined way
-                        uint32_t bits = std::bit_cast<uint32_t>( last[ i ] );
-                        // process 4 bytes little-endian to keep ordering stable across platforms
-                        for ( int byte = 0; byte < 4; ++byte )
-                        {
-                            uint8_t b = static_cast<uint8_t>( (bits >> (byte * 8)) & 0xFFu );
-                            checksum ^= static_cast<uint64_t>( b );
-                            checksum *= fnv_prime;
-                        }
-                    }
-
-                    std::cout << std::format(
-                        "  {}: min={:.6f} max={:.6f} mean={:.6f} std={:.6f} checksum=0x{:016x}",
-                        label, mn, mx, mean, std_dev, checksum ) << std::endl;
-
-                    std::cout << host.toString( true ) << std::endl;
-                };
-
             int64_t B = input.shape()[ 0 ];
             int64_t T_actual = input.shape()[ 1 ];
             const int64_t n_heads = config_.getNumHeads();
@@ -272,13 +212,10 @@ namespace Mila::Dnn
             // Pre-attention RMSNorm
             auto& rms1_out = rms1_->forward( input );
             this->getExecutionContext()->synchronize();
-            // TJT: These stats match HF
-            print_stats( "rmsn_1", rms1_out ); 
 
             // Fused QKV projection
             auto& qkv_out = qkv_proj_->forward( rms1_out );
             this->getExecutionContext()->synchronize();
-            print_stats( "qkv_out", qkv_out );
 
             // Split the fused QKV output into separate Q, K and V for RoPE and GQA
             // Create T-trimmed views into the pre-allocated chunk buffers so split()'s
@@ -291,26 +228,18 @@ namespace Mila::Dnn
                 qkv_out,
                 q_view, k_view, v_view,
                 this->getExecutionContext() );
-            print_stats( "q_view", q_view );
-            print_stats( "k_view", k_view );
-            print_stats( "v_view", v_view );
-            // TJT: The q_view, k_view and v_view are the same as HF
 
             // RoPE
             rope_->prefill( q_view, k_view, position_offset );
             this->getExecutionContext()->synchronize();
-            print_stats( "q_view after rope", q_view );
-            print_stats( "k_view after rope", k_view );
 
             // GQA prefill
             auto& attn_out = attn_->prefill( q_view, k_view, v_view, position_offset );
             this->getExecutionContext()->synchronize();
-            print_stats( "attn_out", attn_out );
 
             // 5. Output projection
             auto& out_proj_out = out_proj_->forward( attn_out );
             this->getExecutionContext()->synchronize();
-            print_stats( "fc_out_proj", out_proj_out );
 
             // 6. First residual
             auto& res1_out = res1_->forward( res1_view, out_proj_out );
@@ -319,30 +248,23 @@ namespace Mila::Dnn
             // 7. Post-attention RMSNorm
             auto& rms2_out = rms2_->forward( res1_out );
             this->getExecutionContext()->synchronize();
-            print_stats( "rmsn_2", rms2_out );
-            // TJT: The rms2_out stats match HF, indicating that the correct data is flowing through the prefill path and the RMSNorm is working as expected.
 
             // 8. Fused gate+up projection
             auto& gate_up_out = fc_gate_up_->forward( rms2_out );
             this->getExecutionContext()->synchronize();
-            print_stats( "fc_gate_up", gate_up_out );
-            // TJT: the gate_up_out stats match HF to here
 
             // 9. SwiGLU
             auto& swiglu_out = swiglu_->forward( gate_up_out );
             this->getExecutionContext()->synchronize();
-            print_stats( "swiglu_out", swiglu_out );
 
             // 10. Down projection
             auto& ffn_out = fc_down_->forward( swiglu_out );
             this->getExecutionContext()->synchronize();
-            print_stats( "fc_down", ffn_out );
 
             // 11. Second residual
             auto& res2_out = res2_->forward( res1_out, ffn_out );
             this->getExecutionContext()->synchronize();
-            print_stats( "block_out", res2_out );
-
+            
             return res2_out;
         }
 
@@ -354,55 +276,61 @@ namespace Mila::Dnn
                     "LlamaBlock::decode: must be built before decode()." );
             }
 
-            // 1. Pre-attention RMSNorm — T=1
+            int64_t B = input.shape()[ 0 ];
+            int64_t T_actual = input.shape()[ 1 ];
+            const int64_t n_heads = config_.getNumHeads();
+            const int64_t n_kv = config_.getNumKVHeads();
+            const int64_t head_dim = config_.getModelDim() / n_heads;
+
+            // Pre-attention RMSNorm, T=1
             auto& rms1_out = rms1_->forward( input );
             this->getExecutionContext()->synchronize();
 
-            // 2. Fused QKV projection — T=1
+            // 2. Fused QKV projection, T=1
             auto& qkv_out = qkv_proj_->forward( rms1_out );
             this->getExecutionContext()->synchronize();
 
-            // 3. RoPE — decode view shapes T=1
-            // qkv_out is sized to kPrefillChunkSize — extract T=1 view
-            auto qkv_decode = qkv_out.view(
-                shape_t{ input.shape()[ 0 ], 1,
-                    (config_.getNumHeads() + 2 * config_.getNumKVHeads())
-                    * (config_.getModelDim() / config_.getNumHeads()) }, 0 );
+            // Split fused QKV into separate contiguous tensors
+            auto q_decode = q_->view( shape_t{ B, 1, n_heads * head_dim }, 0 );
+            auto k_decode = k_->view( shape_t{ B, 1, n_kv * head_dim }, 0 );
+            auto v_decode = v_->view( shape_t{ B, 1, n_kv * head_dim }, 0 );
 
-            auto Q = qkv_decode.view( q_shape_, 0 );
-            auto K = qkv_decode.view( k_shape_, q_offset_ );
-            rope_->forward( Q, K );
+            split( qkv_out, q_decode, k_decode, v_decode, this->getExecutionContext() );
             this->getExecutionContext()->synchronize();
 
-            // 4. GQA decode — KV cache lookup at position
-            auto& attn_out = attn_->decode( qkv_decode, position );
+            // RoPE with correct absolute position
+            rope_->decode( q_decode, k_decode, position );
             this->getExecutionContext()->synchronize();
 
-            // 5. Output projection — T=1
+            // GQA decode — KV cache lookup at position
+            auto& attn_out = attn_->decode( q_decode, k_decode, v_decode, position );
+            this->getExecutionContext()->synchronize();
+
+            // Output projection, T=1
             auto& out_proj_out = out_proj_->forward( attn_out );
             this->getExecutionContext()->synchronize();
 
-            // 6. First residual — input + out_proj_out, T=1
+            // First residual, input + out_proj_out, T=1
             auto& res1_out = res1_->forward( input, out_proj_out );
             this->getExecutionContext()->synchronize();
 
-            // 7. Post-attention RMSNorm — T=1
+            // Post-attention RMSNorm — T=1
             auto& rms2_out = rms2_->forward( res1_out );
             this->getExecutionContext()->synchronize();
 
-            // 8. Fused gate+up projection — T=1
+            // Fused gate+up projection — T=1
             auto& gate_up_out = fc_gate_up_->forward( rms2_out );
             this->getExecutionContext()->synchronize();
 
-            // 9. SwiGLU — T=1
+            // SwiGLU — T=1
             auto& swiglu_out = swiglu_->forward( gate_up_out );
             this->getExecutionContext()->synchronize();
 
-            // 10. Down projection — T=1
+            // Down projection — T=1
             auto& ffn_out = fc_down_->forward( swiglu_out );
             this->getExecutionContext()->synchronize();
 
-            // 11. Second residual — res1_out + ffn_out, T=1
+            // Second residual — res1_out + ffn_out, T=1
             auto& res2_out = res2_->forward( res1_out, ffn_out );
             this->getExecutionContext()->synchronize();
 

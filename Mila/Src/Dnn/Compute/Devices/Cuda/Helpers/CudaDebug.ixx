@@ -19,6 +19,30 @@ import Utils.Logger;
 export namespace Mila::Dnn::Compute::Cuda
 {
     /**
+     * @brief Copies a device tensor to host, formats it via dump_tensor, and emits
+     *        the result through Utils::Logger::info.
+     *
+     * The 3-argument form (name, ptr, shape) is the common call site; max_display
+     * and stream have defaults so callers that own a stream can opt in for async copy.
+     *
+     * @param name     Label used as the tensor name in the dump output.
+     * @param data     Non-owning device pointer to the tensor data.
+     * @param shape    Logical shape passed to dump_tensor for layout interpretation.
+     * @param max_display  Maximum elements per dimension to display (default 8).
+     * @param stream   CUDA stream for the device-to-host copy (default nullptr = sync).
+     */
+    export template<typename T>
+        void print_stats(
+            const std::string& name,
+            const T* data,
+            const shape_t& shape,
+            int max_display = 8,
+            cudaStream_t stream = nullptr )
+    {
+        Utils::Logger::info( dump_tensor<T>( data, shape, name, max_display, stream ) );
+    }
+
+    /**
      * @brief Helper to dump a single 2D row-major matrix (host memory)
      *
      * Indexing: element (row=r, col=c) -> host_data[r * cols + c]

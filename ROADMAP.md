@@ -6,7 +6,7 @@
 
 | Stage | Version |
 |---|---|
-| Current | 0.10.16-alpha.2 |
+| Current | 0.10.17-alpha.2 |
 | Planned beta | 0.11.1-beta |
 
 ---
@@ -92,8 +92,8 @@ Alpha.2 completes directly into the beta milestone. No intermediate release is p
 
 - [x] Per-component numerical comparison vs HuggingFace — RMSNorm, RoPE, SwiGLU, GQA
 - [x] Prefill pipeline validated — logits match HuggingFace LlamaForCausalLM on identical prompts
-- [ ] Full-network greedy decode comparison — LlamaModel vs LlamaForCausalLM
-- [ ] Validation script mirroring hf_greedy_validation.py
+- [x] Full-network greedy decode comparison — LlamaModel vs LlamaForCausalLM
+- [x] Validation script mirroring hf_greedy_validation.py
 
 #### Correctness Fixes (carried from Alpha.1)
 

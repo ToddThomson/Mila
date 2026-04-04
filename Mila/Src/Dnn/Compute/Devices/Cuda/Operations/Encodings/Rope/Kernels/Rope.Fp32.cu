@@ -140,14 +140,6 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         out[ base_idx + i + half_dim ] = r1;
     }
 
-    /**
-     * @brief Single-token decode kernel.
-     *
-     * Identical to rope_rotate_kernel but position is fixed (not derived from
-     * the index), so the cache lookup always hits the same row. T=1 is implicit.
-     *
-     * @tparam negate_sin  Forward or backward rotation (decode is always forward).
-     */
     template <bool negate_sin>
     __global__ void rope_decode_kernel(
         float* __restrict__       out,
@@ -167,13 +159,16 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         float c = cos_cache[ position * half_dim + i ];
         float s = sin_cache[ position * half_dim + i ];
 
-        int base_idx = bh * (half_dim * 2) + i * 2;
+        int base_idx = bh * (half_dim * 2);
 
-        float2 x = make_float2( in[ base_idx ], in[ base_idx + 1 ] );
-        float2 y = rotate_pair<negate_sin>( x, c, s );
+        float x0 = in[ base_idx + i ];
+        float x1 = in[ base_idx + i + half_dim ];
 
-        out[ base_idx ] = y.x;
-        out[ base_idx + 1 ] = y.y;
+        float r0 = x0 * c - x1 * s;
+        float r1 = x0 * s + x1 * c;
+
+        out[ base_idx + i ] = r0;
+        out[ base_idx + i + half_dim ] = r1;
     }
 
     // ========================================================================

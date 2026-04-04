@@ -13,6 +13,7 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <format>
+#include <sstream>
 
 export module Compute.CudaRopeOp;
 import :Dispatch;
@@ -35,9 +36,13 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.OperationRegistrarHelpers;
 
+import Utils.Logger;
+import Cuda.Debug;
+
 namespace Mila::Dnn::Compute::Cuda::Rope
 {
     using namespace Mila::Dnn;
+    using namespace Mila::Dnn::Compute::Cuda; // For DEBUG:
 
     // ========================================================================
     // CudaRopeOp
@@ -300,6 +305,16 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
             int B = static_cast<int>( Q_in.shape()[ 0 ] );
 
+            //const bool debug = (position == 5);
+
+            //if ( debug )
+            //{
+            //    auto Xk = static_cast<const NativeType*>(K_in.rawData());
+            //    auto shape = shape_t{ 1, 1, static_cast<size_t>(static_cast<int>( config_.getNumKVHeads() * config_.getHeadDim() ) ) };
+            //    print_stats( "decode.k_pre_rope", Xk, shape, 8, context_->getStream() );
+            //    context_->synchronize();
+            //}
+
             Detail::cuda_rope_impl<NativeType>::decode(
                 static_cast<NativeType*>( Q_out.rawData() ),
                 static_cast<NativeType*>( K_out.rawData() ),
@@ -311,6 +326,15 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 static_cast<int>(config_.getNumKVHeads()),
                 static_cast<int>(config_.getHeadDim()),
                 context_->getStream() );
+            
+            context_->synchronize();
+
+            //if ( debug )
+            //{
+            //    auto Xk_out = static_cast<const NativeType*>(K_out.rawData());
+            //    auto shape = shape_t{ 1, 1, static_cast<size_t>(static_cast<int>(config_.getNumKVHeads() * config_.getHeadDim() )) };
+            //    print_stats( "decode.k_post_rope", Xk_out, shape, 8, context_->getStream() );
+            //}
         }
 
         // ====================================================================

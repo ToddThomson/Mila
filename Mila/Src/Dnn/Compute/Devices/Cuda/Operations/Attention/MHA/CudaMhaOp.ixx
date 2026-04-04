@@ -169,13 +169,6 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             const float beta = 0.0f;
             const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
 
-            //// DEBUG: start
-            //// Dump permute_qkv_padded args
-            //Utils::Logger::debug( std::format(
-            //    "permute_qkv_padded: B={} input_T={} output_T={} NH={} HS={}",
-            //    B_, actual_seq_len, T_, NH_, HS_ ) );
-            //// DEBUG: end
-
             Detail::cuda_mha_kernels<NativeType>::permute_qkv_padded(
                 q_, k_, v_,
                 X,
@@ -253,8 +246,6 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             int actual_len = position + 1;
 
-            //Utils::Logger::debug( std::format( "CudaAttentionOp position: {}, actual_len: {}", position, actual_len ) );
-
             const NativeType* X = static_cast<const NativeType*>( input.rawData() );
             NativeType* Y = static_cast<NativeType*>( output.rawData() );
 
@@ -315,7 +306,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             //    shape_t preatt_decode_shape = { B_, NH_, 1, T_ };
             //    std::string preatt_decode_dump = dump_tensor<NativeType>(
             //        preatt_decode_, preatt_decode_shape, this->getName() + ".dbg.preatt_decode", 16, stream );
-    
+            //
             //    Utils::Logger::info( this->getName() + ": dbg.preatt_decode (device dump):\n" + preatt_decode_dump );
             //}
             //// DEBUG: End

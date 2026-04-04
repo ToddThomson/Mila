@@ -262,32 +262,34 @@ namespace Mila::Dnn
          * @param position Current sequence position (0-based).
          * @return Reference to component-owned single-token output tensor.
          */
-        TensorType& decode( const TensorType& input, int position )
+        TensorType& decode( const TensorType& q, const TensorType& k, const TensorType& v, int position_offset )
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error(
                     "GroupedQueryAttention must be built before calling decode()." );
 
-            validateConcatenatedQKVShape( input.shape() );
+            //validateConcatenatedQKVShape( input.shape() );
 
             if ( positional_op_ && cache_initialized_ )
             {
-                positional_op_->decode( input, *decode_output_, position );
+                positional_op_->decode( q, k, v, *decode_output_, position_offset );
                 decode_active_ = true;
 
                 return *decode_output_;
             }
 
             // Fallback — backend does not support KV caching or cache not yet initialized.
-            shape_t output_shape = input.shape();
-            output_shape.back() = config_.getModelDim();
+            // FIXME:
+            //shape_t output_shape = input.shape();
+            //output_shape.back() = config_.getModelDim();
 
-            if ( output_view_->shape() != output_shape )
-            {
-                output_view_.emplace( output_->view( output_shape ) );
-            }
+            //if ( output_view_->shape() != output_shape )
+            //{
+            //    output_view_.emplace( output_->view( output_shape ) );
+            //}
 
-            operation_->forward( input, *output_view_ );
+            //operation_->forward( input, *output_view_ );
+            
             return *output_view_;
         }
 

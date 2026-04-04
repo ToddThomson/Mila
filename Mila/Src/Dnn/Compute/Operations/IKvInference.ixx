@@ -1,5 +1,5 @@
 /**
- * @file IKVAttentionOp.ixx
+ * @file IKvInference.ixx
  * @brief KV-cache compute interface for modern attention backends (GQA and beyond).
  */
 
@@ -39,21 +39,21 @@ namespace Mila::Dnn::Compute
          * @param position_offset Absolute position of the first token in this chunk.
          */
         virtual void prefill(
-            const ITensor& q,
-            const ITensor& k,
-            const ITensor& v,
+            const ITensor& q, const ITensor& k, const ITensor& v,
             ITensor& output,
             int position_offset ) = 0;
 
         /**
          * @brief Process a single token at an explicit KV cache position.
          *
-         * @param input    Packed QKV [B, 1, (n_heads + 2*n_kv_heads) * head_dim].
+         * @param q        Query  [B, 1, n_heads     * head_dim].
+         * @param k        Key    [B, 1, n_kv_heads  * head_dim].
+         * @param v        Value  [B, 1, n_kv_heads  * head_dim].
          * @param output   Pre-allocated output [B, 1, model_dim].
          * @param position Zero-based absolute sequence position into the KV cache.
          */
         virtual void decode(
-            const ITensor& input,
+            const ITensor& q, const ITensor& k, const ITensor& v,
             ITensor& output,
             int position ) = 0;
 

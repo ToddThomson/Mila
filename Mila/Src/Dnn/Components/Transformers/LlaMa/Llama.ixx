@@ -149,7 +149,7 @@ namespace Mila::Dnn
             if ( block_input_ptrs_.empty() || block_input_ptrs_.size() != transformer_blocks_.size() )
                 throw std::runtime_error( "LlamaTransformer: forward internal state not initialized" );
 
-            block_input_ptrs_[ 0 ] = encoder_out_ptr_;
+            block_input_ptrs_[ 0 ] = token_embed_out_ptr_;
 
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
@@ -204,10 +204,10 @@ namespace Mila::Dnn
 
             // DEBUG:
             // Dump final block output for the last chunk
-            std::cout << std::format(
-                "LlamaTransformer::prefill: final block output for last chunk (B={}, T_last={})",
-                B, T_last ) << std::endl;
-            std::cout << toHost<TensorDataType::FP32>( *last_block_out ).toString( true ) << std::endl;
+            //std::cout << std::format(
+            //    "LlamaTransformer::prefill: final block output for last chunk (B={}, T_last={})",
+            //    B, T_last ) << std::endl;
+            //std::cout << toHost<TensorDataType::FP32>( *last_block_out ).toString( true ) << std::endl;
             // END DEBUG
 
             // Extract last position from final chunk output — [B, 1, model_dim]
@@ -217,26 +217,26 @@ namespace Mila::Dnn
                 last_pos_offset );
             // DEBUG:
             // Dump last pos block output for the last chunk
-            std::cout << std::format(
-                "LlamaTransformer::prefill: last_pos for last chunk (B={}, T_last={})",
-                B, T_last ) << std::endl;
-            std::cout << toHost<TensorDataType::FP32>( last_pos ).toString( true ) << std::endl;
+            //std::cout << std::format(
+            //    "LlamaTransformer::prefill: last_pos for last chunk (B={}, T_last={})",
+            //    B, T_last ) << std::endl;
+            //std::cout << toHost<TensorDataType::FP32>( last_pos ).toString( true ) << std::endl;
             // END DEBUG
 
             normalized_ptr_ = &final_rmsnorm_->forward( last_pos );
             this->getExecutionContext()->synchronize();
             // DEBUG:
             // Dump RmsNorm output
-            std::cout << std::format( "LlamaTransformer::prefill: normalized output: " ) << std::endl;
-            std::cout << toHost<TensorDataType::FP32>( *normalized_ptr_ ).toString( true ) << std::endl;
+            //std::cout << std::format( "LlamaTransformer::prefill: normalized output: " ) << std::endl;
+            //std::cout << toHost<TensorDataType::FP32>( *normalized_ptr_ ).toString( true ) << std::endl;
             // END DEBUG
 
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
             this->getExecutionContext()->synchronize();
             // DEBUG:
             // Dump logits output
-            std::cout << std::format( "LlamaTransformer::prefill: logits output: " ) << std::endl;
-            std::cout << toHost<TensorDataType::FP32>( *logits_ptr_ ).toString( true ) << std::endl;
+            //std::cout << std::format( "LlamaTransformer::prefill: logits output: " ) << std::endl;
+            //std::cout << toHost<TensorDataType::FP32>( *logits_ptr_ ).toString( true ) << std::endl;
             // END DEBUG
 
             return *logits_ptr_;
@@ -252,7 +252,7 @@ namespace Mila::Dnn
             if ( block_input_ptrs_.empty() || block_input_ptrs_.size() != transformer_blocks_.size() )
                 throw std::runtime_error( "LlamaTransformer: decode internal state not initialized" );
 
-            block_input_ptrs_[ 0 ] = encoder_out_ptr_;
+            block_input_ptrs_[ 0 ] = token_embed_out_ptr_;
 
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
@@ -281,9 +281,6 @@ namespace Mila::Dnn
 
             if ( !this->isTraining() )
                 throw std::runtime_error( "LlamaTransformer: backward requires training mode (setTraining(true))." );
-
-            if ( !token_embed_out_ptr_ || !encoder_out_ptr_ )
-                throw std::runtime_error( "LlamaTransformer: forward activations not present. Call forward() before backward()." );
 
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
@@ -458,7 +455,6 @@ namespace Mila::Dnn
             block_input_ptrs_.assign( transformer_blocks_.size(), nullptr );
             block_output_ptrs_.assign( transformer_blocks_.size(), nullptr );
             token_embed_out_ptr_ = nullptr;
-            encoder_out_ptr_ = nullptr;
             normalized_ptr_ = nullptr;
             logits_ptr_ = nullptr;
         }
@@ -520,7 +516,7 @@ namespace Mila::Dnn
 
         // Activation pointers — valid between forward() and the next backward().
         TensorType* token_embed_out_ptr_{ nullptr };   // rope's input
-        TensorType* encoder_out_ptr_{ nullptr };       // rope's output / blocks' input
+        //TensorType* encoder_out_ptr_{ nullptr };       // rope's output / blocks' input
         std::vector<TensorType*> block_input_ptrs_;
         std::vector<TensorType*> block_output_ptrs_;
         TensorType* normalized_ptr_{ nullptr };
