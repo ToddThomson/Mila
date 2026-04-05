@@ -1,188 +1,272 @@
 /**
  * @file Swiglu.Fp32.cu
- * @brief CUDA kernels for Swiglu activation forward and backward passes.
+ * @brief FP32 CUDA kernels for SwiGLU activation forward and backward passes.
  *
- * Implements FP32 precision variants with optional vectorization.
+ * Implements the FP32 precision variant of SwiGLU using float4 vectorized
+ * loads and stores for maximum memory bandwidth utilization.
+ *
+ * Memory layout (contiguous halves per token):
+ * @code
+ *   X: [ gate_0 ... gate_(hw-1) | up_0 ... up_(hw-1) ]  per token row
+ *   Y: [ y_0   ... y_(hw-1)    ]                         per token row
+ * @endcode
+ *
+ * where hw = half_width = last input dimension / 2.
+ * N  = total output elements = T * half_width.
+ * half_width is the per-token stride to the up half and must be passed
+ * to the kernel. N and half_width are equal only when T=1.
+ *
+ * Vectorization:
+ *   Each thread processes kSwigluFp32VectorWidth (4) output elements.
+ *   Thread i maps to token (i / vec_half_width), column (i % vec_half_width)
+ *   where vec_half_width = half_width / kSwigluFp32VectorWidth.
+ *   This indexing is correct for any T >= 1.
+ *   Loads are unconditional float4 — no scalar fallback. The op layer enforces
+ *   that N and half_width are multiples of kSwigluFp32VectorWidth.
+ *   Buffer pointers are guaranteed 128-byte aligned by the Mila tensor allocator
+ *   (CUDA_WARP_SIZE * sizeof(float) = 128 bytes), satisfying float4 alignment.
+ *
+ * Backward tensor types:
+ *   dY and dX are FP32 — the canonical gradient format at the optimizer boundary,
+ *   consumed by both CUDA Adam and CPU Adam offload. X is FP32 (saved activations).
+ *
+ * See MilaComputeSpec.md for full design rationale.
  */
 
-#define _USE_MATH_DEFINES
-#include <math.h>
-#include <cuda_fp16.h>
+#include <cuda_runtime.h>
 #include "device_launch_parameters.h"
 #include "CudaUtils.h"
-#ifndef NDEBUG
-#  include <cassert>
-#  define KERNEL_ASSERT(cond) assert(cond)
-#else
-#  define KERNEL_ASSERT(cond) ((void)0)
-#endif
 
 namespace Mila::Dnn::Compute::Cuda::Swiglu
 {
     /**
-     * @brief CUDA kernel for SwiGLU activation forward pass with FP32 precision
+     * @brief Vector width for FP32 SwiGLU kernels.
      *
-     * Computes the SwiGLU activation function:
-     * SwiGLU(x, gate) = Swish(gate) * x
-     * where Swish(gate) = gate * sigmoid(gate) = gate / (1 + exp(-gate))
+     * Each thread processes this many output elements per invocation.
+     * The op layer must validate that N % kSwigluFp32VectorWidth == 0
+     * and half_width % kSwigluFp32VectorWidth == 0 before launching.
+     */
+    constexpr int kSwigluFp32VectorWidth = 4;
+
+    // =========================================================================
+    // Device helpers
+    // =========================================================================
+
+    /**
+     * @brief Computes SiLU (Sigmoid Linear Unit) for a single float.
      *
-     * Input layout: [batch_size, 2 * hidden_dim]
-     * - First half: gate values [batch_size, hidden_dim]
-     * - Second half: x values [batch_size, hidden_dim]
-     * Output layout: [batch_size, hidden_dim]
+     * SiLU(x) = x * sigmoid(x) = x / (1 + exp(-x))
      *
-     * @param Y Output tensor [batch_size * hidden_dim]
-     * @param X Input tensor [batch_size * 2 * hidden_dim]
-     * @param N Number of output elements (batch_size * hidden_dim)
+     * Uses fast reciprocal and fast exp intrinsics.
+     *
+     * @param x Input value
+     * @return SiLU(x)
+     */
+    __device__ __forceinline__ float silu_fp32( float x )
+    {
+        float sigmoid = __frcp_rn( 1.0f + __expf( -x ) );
+        return x * sigmoid;
+    }
+
+    // =========================================================================
+    // Forward kernel
+    // =========================================================================
+
+    /**
+     * @brief FP32 SwiGLU forward kernel — float4 vectorized.
+     *
+     * Computes SwiGLU(gate, up) = SiLU(gate) * up for 4 elements per thread.
+     *
+     * Thread i maps to:
+     *   token    = i / vec_half_width
+     *   col      = i % vec_half_width
+     *   gate_vec = token * vec_half_width * 2 + col
+     *   up_vec   = token * vec_half_width * 2 + vec_half_width + col
+     *
+     * @param Y          Output buffer [N], 128-byte aligned
+     * @param X          Input buffer [T * 2 * half_width], 128-byte aligned
+     * @param vec_N      Total float4 output chunks (N / kSwigluFp32VectorWidth)
+     * @param half_width Per-token output element count (last input dim / 2)
      */
     __global__ void swiglu_forward_fp32_kernel(
         float* __restrict__ Y,
         const float* __restrict__ X,
-        int N,
+        int vec_N,
         int half_width )
     {
         int i = blockIdx.x * blockDim.x + threadIdx.x;
 
-        if ( i < N )
+        if ( i < vec_N )
         {
-            int token = i / half_width;
-            int col = i % half_width;
-            int gate_idx = token * (half_width * 2) + col;
-            int up_idx = token * (half_width * 2) + col + half_width;
+            int vec_half_width = half_width / kSwigluFp32VectorWidth;
+            int token = i / vec_half_width;
+            int col = i % vec_half_width;
+            int gate_vec = token * vec_half_width * 2 + col;
+            int up_vec = token * vec_half_width * 2 + vec_half_width + col;
 
-            float gate = __ldg( &X[ gate_idx ] );
-            float x = __ldg( &X[ up_idx ] );
+            float4 gate4 = reinterpret_cast<const float4*>( X )[ gate_vec ];
+            float4 up4 = reinterpret_cast<const float4*>( X )[ up_vec ];
 
-        #ifndef NDEBUG
-            constexpr float kSwigluInputAbsLimit = 1000.0f; // REVIEW: not principled
-            constexpr float kSwigluOutputAbsLimit = 5000.0f;
+            float4 y4;
+            y4.x = silu_fp32( gate4.x ) * up4.x;
+            y4.y = silu_fp32( gate4.y ) * up4.y;
+            y4.z = silu_fp32( gate4.z ) * up4.z;
+            y4.w = silu_fp32( gate4.w ) * up4.w;
 
-            if ( !isfinite( gate ) || fabsf( gate ) > kSwigluInputAbsLimit ||
-                !isfinite( x ) || fabsf( x ) > kSwigluInputAbsLimit )
-            {
-                printf(
-                    "SwiGLU FWD input anomaly: idx=%d gate=%f x=%f\n",
-                    i, gate, x
-                );
-                assert( false );
-            }
-        #endif
-
-            float sigmoid_gate = __frcp_rn( 1.0f + __expf( -gate ) );
-            float swish = gate * sigmoid_gate;
-            float y = swish * x;
-
-        #ifndef NDEBUG
-            if ( !isfinite( y ) || fabsf( y ) > kSwigluOutputAbsLimit )
-            {
-                printf(
-                    "SwiGLU FWD output anomaly: idx=%d gate=%f x=%f swish=%f output=%f\n",
-                    i, gate, x, swish, y
-                );
-                assert( false );
-            }
-        #endif
-
-            Y[ i ] = y;
+            reinterpret_cast<float4*>(Y)[ i ] = y4;
         }
     }
 
+    // =========================================================================
+    // Backward kernel
+    // =========================================================================
+
     /**
-     * @brief CUDA kernel for SwiGLU activation backward pass with FP32 precision
+     * @brief FP32 SwiGLU backward kernel — float4 vectorized.
      *
-     * Computes the gradient of the SwiGLU function with respect to its inputs.
+     * Computes gradients with respect to gate and up inputs:
+     * @code
+     *   sigmoid  = 1 / (1 + exp(-gate))
+     *   swish    = gate * sigmoid                            (= SiLU(gate))
+     *   dL/d_up  = dY * swish
+     *   dL/dgate = dY * up * sigmoid * (1 + gate * (1 - sigmoid))
+     * @endcode
      *
-     * For SwiGLU(x, gate) = Swish(gate) * x where Swish(g) = g * sigmoid(g):
-     * - d(SwiGLU)/dx = Swish(gate)
-     * - d(SwiGLU)/d(gate) = x * d(Swish)/d(gate)
-     *   where d(Swish)/d(gate) = sigmoid(gate) + gate * sigmoid(gate) * (1 - sigmoid(gate))
-     *                           = sigmoid(gate) * (1 + gate * (1 - sigmoid(gate)))
+     * dX layout mirrors X layout — contiguous halves per token:
+     * @code
+     *   dX: [ dgate_0 ... dgate_(hw-1) | dup_0 ... dup_(hw-1) ]  per token
+     * @endcode
      *
-     * @param dX Output gradient with respect to input [batch_size * 2 * hidden_dim]
-     * @param X Original input values from forward pass [batch_size * 2 * hidden_dim]
-     * @param dY Gradient from upstream [batch_size * hidden_dim]
-     * @param N Number of output elements (batch_size * hidden_dim)
+     * The gate_vec / up_vec indexing is identical to the forward kernel,
+     * ensuring dX writes land in the correct positions for any T >= 1.
+     *
+     * @param dX         FP32 gradient output [T * 2 * half_width], 128-byte aligned
+     * @param X          FP32 saved forward input [T * 2 * half_width], 128-byte aligned
+     * @param dY         FP32 upstream gradient [N], 128-byte aligned
+     * @param vec_N      Total float4 output chunks (N / kSwigluFp32VectorWidth)
+     * @param half_width Per-token output element count (last input dim / 2)
      */
     __global__ void swiglu_backward_fp32_kernel(
         float* __restrict__ dX,
         const float* __restrict__ X,
         const float* __restrict__ dY,
-        int N )
+        int vec_N,
+        int half_width )
     {
         int i = blockIdx.x * blockDim.x + threadIdx.x;
 
-        if ( i < N )
+        if ( i < vec_N )
         {
-            float gate = X[ i ];
-            float x = X[ i + N ];
-            float dy = dY[ i ];
+            int vec_half_width = half_width / kSwigluFp32VectorWidth;
+            int token = i / vec_half_width;
+            int col = i % vec_half_width;
+            int gate_vec = token * vec_half_width * 2 + col;
+            int up_vec = token * vec_half_width * 2 + vec_half_width + col;
 
-            // Compute sigmoid(gate) = 1 / (1 + exp(-gate))
-            float sigmoid_gate = 1.0f / (1.0f + expf( -gate ));
+            float4 gate4 = reinterpret_cast<const float4*>( X )[ gate_vec ];
+            float4 up4 = reinterpret_cast<const float4*>( X )[ up_vec ];
+            float4 dy4 = reinterpret_cast<const float4*>( dY )[ i ];
 
-            // Swish(gate) = gate * sigmoid(gate)
-            float swish = gate * sigmoid_gate;
+            float4 dgate4;
+            float4 dup4;
 
-            // Gradient with respect to x: d(SwiGLU)/dx = Swish(gate)
-            float dx = swish * dy;
+            // Element x
+            {
+                float sigmoid = __frcp_rn( 1.0f + __expf( -gate4.x ) );
+                float swish = gate4.x * sigmoid;
+                dup4.x = dy4.x * swish;
+                dgate4.x = dy4.x * up4.x * sigmoid * (1.0f + gate4.x * (1.0f - sigmoid));
+            }
 
-            // Gradient with respect to gate:
-            // d(Swish)/d(gate) = sigmoid(gate) * (1 + gate * (1 - sigmoid(gate)))
-            float dswish_dgate = sigmoid_gate * (1.0f + gate * (1.0f - sigmoid_gate));
-            float dgate = x * dswish_dgate * dy;
+            // Element y
+            {
+                float sigmoid = __frcp_rn( 1.0f + __expf( -gate4.y ) );
+                float swish = gate4.y * sigmoid;
+                dup4.y = dy4.y * swish;
+                dgate4.y = dy4.y * up4.y * sigmoid * (1.0f + gate4.y * (1.0f - sigmoid));
+            }
 
-            // Write gradients
-            dX[ i ] = dgate;        // Gradient for gate (first half)
-            dX[ i + N ] = dx;       // Gradient for x (second half)
+            // Element z
+            {
+                float sigmoid = __frcp_rn( 1.0f + __expf( -gate4.z ) );
+                float swish = gate4.z * sigmoid;
+                dup4.z = dy4.z * swish;
+                dgate4.z = dy4.z * up4.z * sigmoid * (1.0f + gate4.z * (1.0f - sigmoid));
+            }
+
+            // Element w
+            {
+                float sigmoid = __frcp_rn( 1.0f + __expf( -gate4.w ) );
+                float swish = gate4.w * sigmoid;
+                dup4.w = dy4.w * swish;
+                dgate4.w = dy4.w * up4.w * sigmoid * (1.0f + gate4.w * (1.0f - sigmoid));
+            }
+
+            reinterpret_cast<float4*>(dX)[ gate_vec ] = dgate4;
+            reinterpret_cast<float4*>(dX)[ up_vec ] = dup4;
         }
     }
 
+    // =========================================================================
+    // Host launchers
+    // =========================================================================
+
     /**
-     * @brief Host function to launch SwiGLU forward pass with FP32 precision
+     * @brief Launches the FP32 SwiGLU forward kernel.
      *
-     * Computes the SwiGLU activation function on the input tensor.
+     * @pre N % kSwigluFp32VectorWidth == 0           (enforced by CudaSwigluOp::forward)
+     * @pre half_width % kSwigluFp32VectorWidth == 0  (enforced by CudaSwigluOp::forward)
+     * @pre Y, X are 128-byte aligned                 (guaranteed by Mila tensor allocator)
      *
-     * @param Y Output tensor [batch_size * hidden_dim]
-     * @param X Input tensor [batch_size * 2 * hidden_dim]
-     * @param N Number of output elements (batch_size * hidden_dim)
-     * @param stream CUDA stream for asynchronous execution
+     * @param Y          FP32 output buffer [N]
+     * @param X          FP32 input buffer [T * 2 * half_width]
+     * @param N          Total output elements (T * half_width)
+     * @param half_width Per-token output element count (last input dim / 2)
+     * @param stream     CUDA stream
      */
     void cuda_swiglu_forward_fp32(
         float* Y,
         const float* X,
-        int N, int half_width,
+        int N,
+        int half_width,
         cudaStream_t stream )
     {
-        const int block_size = 256;
-        const int grid_size = (N + block_size - 1) / block_size;
+        int vec_N = N / kSwigluFp32VectorWidth;
+        int block_size = 256;
+        int grid_size = (vec_N + block_size - 1) / block_size;
 
-        swiglu_forward_fp32_kernel <<<grid_size, block_size, 0, stream >>> (Y, X, N, half_width );
+        swiglu_forward_fp32_kernel << <grid_size, block_size, 0, stream >> > (Y, X, vec_N, half_width);
 
         cudaCheck( cudaGetLastError() );
     }
 
     /**
-     * @brief Host function to launch SwiGLU backward pass with FP32 precision
+     * @brief Launches the FP32 SwiGLU backward kernel.
      *
-     * Computes the gradient of SwiGLU with respect to its inputs.
+     * @pre N % kSwigluFp32VectorWidth == 0           (enforced by CudaSwigluOp::backward)
+     * @pre half_width % kSwigluFp32VectorWidth == 0  (enforced by CudaSwigluOp::backward)
+     * @pre dX, X, dY are 128-byte aligned            (guaranteed by Mila tensor allocator)
      *
-     * @param dX Output gradient with respect to input [batch_size * 2 * hidden_dim]
-     * @param X Original input values from forward pass [batch_size * 2 * hidden_dim]
-     * @param dY Gradient from upstream [batch_size * hidden_dim]
-     * @param N Number of output elements (batch_size * hidden_dim)
-     * @param stream CUDA stream for asynchronous execution
+     * @param dX         FP32 gradient output [T * 2 * half_width]
+     * @param X          FP32 saved forward input [T * 2 * half_width]
+     * @param dY         FP32 upstream gradient [N]
+     * @param N          Total output elements (T * half_width)
+     * @param half_width Per-token output element count (last input dim / 2)
+     * @param stream     CUDA stream
      */
     void cuda_swiglu_backward_fp32(
         float* dX,
         const float* X,
         const float* dY,
         int N,
+        int half_width,
         cudaStream_t stream )
     {
-        const int block_size = 128;
-        const int grid_size = (N + block_size - 1) / block_size;
+        int vec_N = N / kSwigluFp32VectorWidth;
+        int block_size = 256;
+        int grid_size = (vec_N + block_size - 1) / block_size;
 
-        swiglu_backward_fp32_kernel << <grid_size, block_size, 0, stream >> > (dX, X, dY, N);
+        swiglu_backward_fp32_kernel << <grid_size, block_size, 0, stream >> > (dX, X, dY, vec_N, half_width);
 
         cudaCheck( cudaGetLastError() );
     }

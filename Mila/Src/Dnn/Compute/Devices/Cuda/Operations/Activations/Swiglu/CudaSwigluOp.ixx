@@ -86,29 +86,42 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
 
         void backward( const ITensor& input, const ITensor& output_gradient, ITensor& input_gradient ) const override
         {
-            if ( input.getDeviceType() != DeviceType::Cuda || output_gradient.getDeviceType() != DeviceType::Cuda || input_gradient.getDeviceType() != DeviceType::Cuda ) {
+            if ( input.getDeviceType() != DeviceType::Cuda || output_gradient.getDeviceType() != DeviceType::Cuda || input_gradient.getDeviceType() != DeviceType::Cuda )
+            {
                 throw std::invalid_argument( "CudaSwigluOp::backward: All tensors must be on CUDA device." );
             }
 
-            if ( input.size() % 2 != 0 ) {
+            if ( input.size() % 2 != 0 )
+            {
                 throw std::invalid_argument( "CudaSwigluOp::backward: Input size must be even." );
             }
 
             const size_t outSize = input.size() / 2;
-            if ( output_gradient.size() != outSize || input_gradient.size() != input.size() ) {
+            if ( output_gradient.size() != outSize || input_gradient.size() != input.size() )
+            {
                 throw std::invalid_argument( "CudaSwigluOp::backward: Gradient and input gradient sizes are incompatible." );
             }
 
             int N = static_cast<int>(outSize);
+            int half_width = static_cast<int>(input.shape().back() / 2);
 
             auto* cuda_context = static_cast<CudaExecutionContext*>(context_);
             cudaStream_t stream = cuda_context->getStream();
 
             const NativeType* X = static_cast<const NativeType*>(input.rawData());
-            const NativeType* dY = static_cast<const NativeType*>(output_gradient.rawData());
-            NativeType* dX = static_cast<NativeType*>(input_gradient.rawData());
 
-            impl_.backward( dX, X, dY, N, stream );
+            if constexpr ( TPrecision == TensorDataType::BF16 )
+            {
+                const float* dY = static_cast<const float*>(output_gradient.rawData());
+                float* dX = static_cast<float*>(input_gradient.rawData());
+                impl_.backward( dX, X, dY, N, half_width, stream );
+            }
+            else
+            {
+                const NativeType* dY = static_cast<const NativeType*>(output_gradient.rawData());
+                NativeType* dX = static_cast<NativeType*>(input_gradient.rawData());
+                impl_.backward( dX, X, dY, N, half_width, stream );
+            }
         }
 
         OperationType getOperationType() const override {
@@ -142,13 +155,13 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
                 }
             );
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::BF16, TensorDataType::BF16>(
                 opName,
                 []( IExecutionContext* context, const ComponentConfig& config )
-                -> std::unique_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
+                -> std::unique_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::BF16>>
                 {
                     const auto& swigluConfig = static_cast<const SwigluConfig&>(config);
-                    return std::make_unique<CudaSwigluOp<TensorDataType::FP16>>( context, swigluConfig );
+                    return std::make_unique<CudaSwigluOp<TensorDataType::BF16>>( context, swigluConfig );
                 }
             );
         }

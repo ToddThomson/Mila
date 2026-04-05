@@ -130,218 +130,6 @@
       ]
     },
     {
-      "name": "ExecutionContextIntegrationTest",
-      "tests": 2,
-      "testsuite": [
-        {
-          "name": "TypeSafetyCompileTime",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Compute\\ExecutionContext\\ExecutionContext.cpp",
-          "line": 31
-        },
-        {
-          "name": "MixedDeviceTypes",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Compute\\ExecutionContext\\ExecutionContext.cpp",
-          "line": 50
-        }
-      ]
-    },
-    {
-      "name": "TensorInitializersTests",
-      "tests": 38,
-      "testsuite": [
-        {
-          "name": "Random_FP32_CPU",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 19
-        },
-        {
-          "name": "Random_INT32_CPU",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 58
-        },
-        {
-          "name": "Random_UINT32_CPU",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 89
-        },
-        {
-          "name": "Random_FP32_CUDA",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 124
-        },
-        {
-          "name": "Random_INT32_CUDA",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 177
-        },
-        {
-          "name": "Random_FP32_ManagedMemory",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 223
-        },
-        {
-          "name": "Normal_FP32_CPU",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 267
-        },
-        {
-          "name": "Normal_INT32_CPU",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 308
-        },
-        {
-          "name": "Normal_FP32_CUDA",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 341
-        },
-        {
-          "name": "Normal_NegativeStddev_Throws",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 393
-        },
-        {
-          "name": "Xavier_FP32_CPU",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 404
-        },
-        {
-          "name": "Xavier_INT32_CPU",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 446
-        },
-        {
-          "name": "Xavier_FP32_CUDA",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 483
-        },
-        {
-          "name": "Xavier_ExtremeInputOutputSizes",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 536
-        },
-        {
-          "name": "Zeros_FP32_CPU",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 574
-        },
-        {
-          "name": "Zeros_INT32_CPU",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 596
-        },
-        {
-          "name": "Ones_FP32_CPU",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 617
-        },
-        {
-          "name": "Ones_UINT32_CPU",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 638
-        },
-        {
-          "name": "Fill_FP32_CPU",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 659
-        },
-        {
-          "name": "Fill_NegativeValue_CPU",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 682
-        },
-        {
-          "name": "Zeros_FP32_CUDA",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 708
-        },
-        {
-          "name": "Ones_FP32_CUDA",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 741
-        },
-        {
-          "name": "Fill_FP32_CUDA",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 774
-        },
-        {
-          "name": "Fill_INT32_CUDA",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 808
-        },
-        {
-          "name": "InitializeEmptyTensor",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 846
-        },
-        {
-          "name": "InitializeSingleElement",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 860
-        },
-        {
-          "name": "Initialize1DTensor",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 878
-        },
-        {
-          "name": "Initialize3DTensor",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 892
-        },
-        {
-          "name": "InitializeLargeTensor",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 919
-        },
-        {
-          "name": "Cpu_Random_InvalidRange",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 939
-        },
-        {
-          "name": "Random_EqualMinMax",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 951
-        },
-        {
-          "name": "Xavier_ZeroInputSize",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 974
-        },
-        {
-          "name": "Xavier_ZeroOutputSize",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 982
-        },
-        {
-          "name": "Xavier_BothZeroSizes",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 990
-        },
-        {
-          "name": "CrossDevice_FillConsistency",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 1002
-        },
-        {
-          "name": "CrossDevice_ZerosConsistency",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 1043
-        },
-        {
-          "name": "RandomSeedReproducibility",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 1086
-        },
-        {
-          "name": "DifferentSeedsDifferentValues",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
-          "line": 1119
-        }
-      ]
-    },
-    {
       "name": "TensorElementAccessTest",
       "tests": 22,
       "testsuite": [
@@ -864,6 +652,22 @@
       ]
     },
     {
+      "name": "ExecutionContextIntegrationTest",
+      "tests": 2,
+      "testsuite": [
+        {
+          "name": "TypeSafetyCompileTime",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Compute\\ExecutionContext\\ExecutionContext.cpp",
+          "line": 31
+        },
+        {
+          "name": "MixedDeviceTypes",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Compute\\ExecutionContext\\ExecutionContext.cpp",
+          "line": 50
+        }
+      ]
+    },
+    {
       "name": "TensorOpsFillCuda",
       "tests": 13,
       "testsuite": [
@@ -1300,82 +1104,6 @@
       ]
     },
     {
-      "name": "BpeTokenizerLlama32",
-      "tests": 14,
-      "testsuite": [
-        {
-          "name": "SkipWhenTokenizerMissing",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
-          "line": 55
-        },
-        {
-          "name": "LoadLlama32_SucceedsAndHasCorrectVocabSize",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
-          "line": 68
-        },
-        {
-          "name": "LoadLlama32_InvalidPath_Throws",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
-          "line": 91
-        },
-        {
-          "name": "GetBosTokenId_ReturnsExpectedId",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
-          "line": 99
-        },
-        {
-          "name": "GetEosTokenId_ReturnsExpectedId",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
-          "line": 115
-        },
-        {
-          "name": "GetPadTokenId_ReturnsNullopt",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
-          "line": 131
-        },
-        {
-          "name": "EncodeDecode_Roundtrip_ShortText",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
-          "line": 148
-        },
-        {
-          "name": "Encode_BosSpecialToken_ReturnsDirectId",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
-          "line": 172
-        },
-        {
-          "name": "Encode_EosSpecialToken_ReturnsDirectId",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
-          "line": 188
-        },
-        {
-          "name": "EncodeDecode_Roundtrip_WithBosAndEos",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
-          "line": 204
-        },
-        {
-          "name": "Encode_PlainText_MatchesHuggingFaceOutput",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
-          "line": 224
-        },
-        {
-          "name": "Encode_LongNumber_ChunksToMaxThreeDigits",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
-          "line": 250
-        },
-        {
-          "name": "Decode_KnownTokenIds_MatchesHuggingFaceText",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
-          "line": 274
-        },
-        {
-          "name": "EncodeDecode_Roundtrip_ShortText_Diagnostic",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
-          "line": 295
-        }
-      ]
-    },
-    {
       "name": "TensorIoTest",
       "tests": 24,
       "testsuite": [
@@ -1570,143 +1298,78 @@
       ]
     },
     {
-      "name": "CudaTensorMathTest",
-      "tests": 27,
+      "name": "BpeTokenizerLlama32",
+      "tests": 14,
       "testsuite": [
         {
-          "name": "Add_SameShape_Int32",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 109
+          "name": "SkipWhenTokenizerMissing",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
+          "line": 55
         },
         {
-          "name": "Add_SameShape_Float",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 139
+          "name": "LoadLlama32_SucceedsAndHasCorrectVocabSize",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
+          "line": 68
         },
         {
-          "name": "Add_WithoutExecutionContext",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 161
+          "name": "LoadLlama32_InvalidPath_Throws",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
+          "line": 91
         },
         {
-          "name": "Add_LargeArray_Float",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 183
+          "name": "GetBosTokenId_ReturnsExpectedId",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
+          "line": 99
         },
         {
-          "name": "Add_DifferentShape_Throws",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 211
+          "name": "GetEosTokenId_ReturnsExpectedId",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
+          "line": 115
         },
         {
-          "name": "Add_ResultShapeMismatch_Throws",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 222
+          "name": "GetPadTokenId_ReturnsNullopt",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
+          "line": 131
         },
         {
-          "name": "Add_Scalar_Tensors",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 233
+          "name": "EncodeDecode_Roundtrip_ShortText",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
+          "line": 148
         },
         {
-          "name": "Add_UsingOperator",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 255
+          "name": "Encode_BosSpecialToken_ReturnsDirectId",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
+          "line": 172
         },
         {
-          "name": "Subtract_SameShape_Int32",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 278
+          "name": "Encode_EosSpecialToken_ReturnsDirectId",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
+          "line": 188
         },
         {
-          "name": "Subtract_SameShape_Float",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 300
+          "name": "EncodeDecode_Roundtrip_WithBosAndEos",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
+          "line": 204
         },
         {
-          "name": "Subtract_Negative_Results",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 321
+          "name": "Encode_PlainText_MatchesHuggingFaceOutput",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
+          "line": 224
         },
         {
-          "name": "Subtract_UsingOperator",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 341
+          "name": "Encode_LongNumber_ChunksToMaxThreeDigits",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
+          "line": 250
         },
         {
-          "name": "Multiply_SameShape_Int32",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 363
+          "name": "Decode_KnownTokenIds_MatchesHuggingFaceText",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
+          "line": 274
         },
         {
-          "name": "Multiply_SameShape_Float",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 384
-        },
-        {
-          "name": "Multiply_WithZeros",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 405
-        },
-        {
-          "name": "Multiply_UsingOperator",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 425
-        },
-        {
-          "name": "Sum_SmallTensor",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 535
-        },
-        {
-          "name": "Sum_LargeTensor",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 550
-        },
-        {
-          "name": "Sum_WithoutExecutionContext",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 571
-        },
-        {
-          "name": "Sum_EmptyTensor",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 586
-        },
-        {
-          "name": "Sum_ScalarTensor",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 597
-        },
-        {
-          "name": "Add_3D_Tensors",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 614
-        },
-        {
-          "name": "Operations_SingleElement",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 647
-        },
-        {
-          "name": "ChainedOperations_WithContext",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 675
-        },
-        {
-          "name": "ChainedOperations_UsingOperators",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 703
-        },
-        {
-          "name": "AsyncExecution_MultipleOperations",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 729
-        },
-        {
-          "name": "Operations_EmptyTensors",
-          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
-          "line": 762
+          "name": "EncodeDecode_Roundtrip_ShortText_Diagnostic",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Data\\Tokenizers\\Bpe\\BpeTokenizer.Llama32.cpp",
+          "line": 295
         }
       ]
     },
@@ -1748,6 +1411,202 @@
           "name": "DeviceIdOutlivesContext",
           "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Compute\\ExecutionContext\\CudaExecutionContext.cpp",
           "line": 197
+        }
+      ]
+    },
+    {
+      "name": "TensorInitializersTests",
+      "tests": 38,
+      "testsuite": [
+        {
+          "name": "Random_FP32_CPU",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 19
+        },
+        {
+          "name": "Random_INT32_CPU",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 58
+        },
+        {
+          "name": "Random_UINT32_CPU",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 89
+        },
+        {
+          "name": "Random_FP32_CUDA",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 124
+        },
+        {
+          "name": "Random_INT32_CUDA",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 177
+        },
+        {
+          "name": "Random_FP32_ManagedMemory",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 223
+        },
+        {
+          "name": "Normal_FP32_CPU",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 267
+        },
+        {
+          "name": "Normal_INT32_CPU",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 308
+        },
+        {
+          "name": "Normal_FP32_CUDA",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 341
+        },
+        {
+          "name": "Normal_NegativeStddev_Throws",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 393
+        },
+        {
+          "name": "Xavier_FP32_CPU",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 404
+        },
+        {
+          "name": "Xavier_INT32_CPU",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 446
+        },
+        {
+          "name": "Xavier_FP32_CUDA",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 483
+        },
+        {
+          "name": "Xavier_ExtremeInputOutputSizes",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 536
+        },
+        {
+          "name": "Zeros_FP32_CPU",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 574
+        },
+        {
+          "name": "Zeros_INT32_CPU",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 596
+        },
+        {
+          "name": "Ones_FP32_CPU",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 617
+        },
+        {
+          "name": "Ones_UINT32_CPU",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 638
+        },
+        {
+          "name": "Fill_FP32_CPU",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 659
+        },
+        {
+          "name": "Fill_NegativeValue_CPU",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 682
+        },
+        {
+          "name": "Zeros_FP32_CUDA",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 708
+        },
+        {
+          "name": "Ones_FP32_CUDA",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 741
+        },
+        {
+          "name": "Fill_FP32_CUDA",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 774
+        },
+        {
+          "name": "Fill_INT32_CUDA",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 808
+        },
+        {
+          "name": "InitializeEmptyTensor",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 846
+        },
+        {
+          "name": "InitializeSingleElement",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 860
+        },
+        {
+          "name": "Initialize1DTensor",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 878
+        },
+        {
+          "name": "Initialize3DTensor",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 892
+        },
+        {
+          "name": "InitializeLargeTensor",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 919
+        },
+        {
+          "name": "Cpu_Random_InvalidRange",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 939
+        },
+        {
+          "name": "Random_EqualMinMax",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 951
+        },
+        {
+          "name": "Xavier_ZeroInputSize",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 974
+        },
+        {
+          "name": "Xavier_ZeroOutputSize",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 982
+        },
+        {
+          "name": "Xavier_BothZeroSizes",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 990
+        },
+        {
+          "name": "CrossDevice_FillConsistency",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 1002
+        },
+        {
+          "name": "CrossDevice_ZerosConsistency",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 1043
+        },
+        {
+          "name": "RandomSeedReproducibility",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 1086
+        },
+        {
+          "name": "DifferentSeedsDifferentValues",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\Tensor.Initializers.cpp",
+          "line": 1119
         }
       ]
     },
@@ -2706,6 +2565,147 @@
           "name": "MultipleSequentialCopies",
           "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\TensorOps.Transfer.cpp",
           "line": 602
+        }
+      ]
+    },
+    {
+      "name": "CudaTensorMathTest",
+      "tests": 27,
+      "testsuite": [
+        {
+          "name": "Add_SameShape_Int32",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 109
+        },
+        {
+          "name": "Add_SameShape_Float",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 139
+        },
+        {
+          "name": "Add_WithoutExecutionContext",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 161
+        },
+        {
+          "name": "Add_LargeArray_Float",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 183
+        },
+        {
+          "name": "Add_DifferentShape_Throws",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 211
+        },
+        {
+          "name": "Add_ResultShapeMismatch_Throws",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 222
+        },
+        {
+          "name": "Add_Scalar_Tensors",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 233
+        },
+        {
+          "name": "Add_UsingOperator",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 255
+        },
+        {
+          "name": "Subtract_SameShape_Int32",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 278
+        },
+        {
+          "name": "Subtract_SameShape_Float",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 300
+        },
+        {
+          "name": "Subtract_Negative_Results",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 321
+        },
+        {
+          "name": "Subtract_UsingOperator",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 341
+        },
+        {
+          "name": "Multiply_SameShape_Int32",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 363
+        },
+        {
+          "name": "Multiply_SameShape_Float",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 384
+        },
+        {
+          "name": "Multiply_WithZeros",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 405
+        },
+        {
+          "name": "Multiply_UsingOperator",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 425
+        },
+        {
+          "name": "Sum_SmallTensor",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 535
+        },
+        {
+          "name": "Sum_LargeTensor",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 550
+        },
+        {
+          "name": "Sum_WithoutExecutionContext",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 571
+        },
+        {
+          "name": "Sum_EmptyTensor",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 586
+        },
+        {
+          "name": "Sum_ScalarTensor",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 597
+        },
+        {
+          "name": "Add_3D_Tensors",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 614
+        },
+        {
+          "name": "Operations_SingleElement",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 647
+        },
+        {
+          "name": "ChainedOperations_WithContext",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 675
+        },
+        {
+          "name": "ChainedOperations_UsingOperators",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 703
+        },
+        {
+          "name": "AsyncExecution_MultipleOperations",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 729
+        },
+        {
+          "name": "Operations_EmptyTensors",
+          "file": "C:\\Users\\ToddT\\Src\\Repos\\Mila\\Mila\\Tests\\Dnn\\Tensors\\TensorOps\\Math.Cuda.cpp",
+          "line": 762
         }
       ]
     },

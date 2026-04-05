@@ -43,6 +43,7 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.cuh"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Bf16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.cuh"
     
     "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp32.cu"

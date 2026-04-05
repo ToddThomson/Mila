@@ -2,7 +2,7 @@ module;
 #include <vector>
 #include <memory>
 #include <iostream>
-#include <cuda_fp16.h>
+#include <cuda_bf16.h>
 #include <stdexcept>
 #include <type_traits>
 #include <string>
@@ -35,7 +35,8 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
     namespace Detail
     {
         template <typename TNative>
-            requires std::is_same_v<TNative, float> || std::is_same_v<TNative, half>
+            requires std::is_same_v<TNative, float>
+                  || std::is_same_v<TNative, __nv_bfloat16>
         struct cuda_swiglu_impl;
 
         template <>
@@ -47,30 +48,31 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
 
             inline void forward( float* Y, const float* X, int N, int half_width, cudaStream_t stream ) const
             {
-                Mila::Dnn::Compute::Cuda::Swiglu::cuda_swiglu_forward_fp32( Y, X, N, half_width, stream );
+                cuda_swiglu_forward_fp32( Y, X, N, half_width, stream );
             }
 
-            inline void backward( float* dX, const float* X, const float* dY, int N, cudaStream_t stream ) const
+            inline void backward( float* dX, const float* X, const float* dY, int N, int half_width, cudaStream_t stream ) const
             {
-                Mila::Dnn::Compute::Cuda::Swiglu::cuda_swiglu_backward_fp32( dX, X, dY, N, stream );
+                cuda_swiglu_backward_fp32( dX, X, dY, N, half_width, stream );
             }
         };
 
         template <>
-        struct cuda_swiglu_impl<half>
+        struct cuda_swiglu_impl<__nv_bfloat16>
         {
             cuda_swiglu_impl( const SwigluConfig& /*config*/ )
             {
             }
 
-            inline void forward( half* Y, const half* X, int N, int half_width, cudaStream_t stream ) const
+            inline void forward( __nv_bfloat16* Y, const __nv_bfloat16* X, int N, int half_width, cudaStream_t stream ) const
             {
-                throw std::runtime_error( "CudaSwigluOp: fp16 forward not implemented" );
+                cuda_swiglu_forward_bf16( Y, X, N, half_width, stream );
             }
 
-            inline void backward( half* dX, const half* X, const half* dY, int N, cudaStream_t stream ) const
+            // dX and dY are FP32 — see Swiglu.Bf16.cu for mixed-precision backward contract.
+            inline void backward( float* dX, const __nv_bfloat16* X, const float* dY, int N, int half_width, cudaStream_t stream ) const
             {
-                throw std::runtime_error( "CudaSwigluOp: fp16 backward not implemented" );
+                cuda_swiglu_backward_bf16( dX, X, dY, N, half_width, stream );
             }
         };
     }

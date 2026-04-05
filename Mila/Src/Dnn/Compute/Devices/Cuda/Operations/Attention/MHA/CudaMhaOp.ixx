@@ -108,10 +108,6 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         void setGradients( ITensor* /*unused1*/, ITensor* /*unused2*/ ) override
         {}
 
-        // ====================================================================
-        // IKVCacheLifecycle implementation
-        // ====================================================================
-
         void initializeKvCache( int batch_size, int max_seq_length ) override
         {
             if ( !this->isBuilt() )
@@ -145,10 +141,6 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         {
             cached_seq_len_ = 0;
         }
-
-        // ====================================================================
-        // IPositionalUnaryOp implementation
-        // ====================================================================
 
         void prefill( const ITensor& input, ITensor& output ) override
         {
