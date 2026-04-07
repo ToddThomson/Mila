@@ -15,6 +15,8 @@ module;
 #include <format>
 #include <memory>
 #include <stdexcept>
+#include <future>
+#include <stop_token>
 
 export module Mila.Chat;
 export import Chat.Config;
@@ -24,7 +26,6 @@ namespace Mila::ChatApp
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
-    using namespace Mila::Data;
     using namespace Mila::Data;
 
     using LanguageModelType = LanguageModel<DeviceType::Cuda, TensorDataType::FP32>;
@@ -84,11 +85,34 @@ namespace Mila::ChatApp
 
                 conversation_history.push_back( "User: " + user_input );
 
-                std::string response = generateResponse( conversation_history );
+                const std::string& prompt = conversation_history.back().substr( 6 );
+                std::vector<TokenId> prompt_tokens = tokenizer_->encode( prompt );
+                std::vector<int32_t> input_tokens( prompt_tokens.begin(), prompt_tokens.end() );
 
-                conversation_history.push_back( "Mila: " + response );
+                std::string response;
+                response.reserve( 512 );
 
-                std::cout << "\nMila: " << response << "\n";
+                std::cout << "\nMila: ";
+
+                stop_src_ = std::stop_source{};
+
+                auto fut = model_->generateAsync(
+                    input_tokens,
+                    [&]( int32_t tok )
+                    {
+                        auto text = tokenizer_->decode( std::vector<TokenId>{ static_cast<TokenId>(tok) } );
+                        response += text;
+                        std::cout << text << std::flush;
+                    },
+                    config_.max_new_tokens,
+                    config_.temperature,
+                    config_.top_k,
+                    stop_src_.get_token() );
+
+                fut.wait();
+                std::cout << '\n';
+
+                conversation_history.push_back( "Mila: " + trimResponse( response ) );
             }
         }
 
@@ -123,92 +147,56 @@ namespace Mila::ChatApp
 
         void loadModel()
         {
-            //try
-            //{
-                std::cout << "Loading model from: " << config_.model_path << "\n";
+            std::cout << "Loading model from: " << config_.model_path << "\n";
 
-                switch ( config_.model_type )
-                {
-                    case ModelType::Gpt:
-                        model_ = GptModel<DeviceType::Cuda, TensorDataType::FP32>::fromPretrained(
-                            config_.model_path,
-                            config_.context_length,
-                            DeviceId{ DeviceType::Cuda, 0 },
-                            /*strict=*/true );
-                        break;
-
-                    case ModelType::Llama:
-                        model_ = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>::fromPretrained(
-                            config_.model_path,
-                            config_.context_length,
-                            DeviceId{ DeviceType::Cuda, 0 },
-                            /*strict=*/true );
-                        break;
-                }
-
-                std::cout << model_->toString();
-                
-                auto stats = model_->getMemoryStats();
-                std::cout << stats.toString() << "\n";
-
-                std::cout << "Model loaded successfully!\n";
-            //}
-            //catch ( const std::exception& e )
-            //{
-            //    std::cerr << "Error loading model: " << e.what() << "\n";
-            //    throw;
-            //}
-        }
-
-        std::string generateResponse( const std::vector<std::string>& history )
-        {
-            /*try
-            {*/
-                if ( !tokenizer_ )
-                    return "Tokenizer not loaded.";
-
-                // Both GPT-2 and LLaMA base models are completion models; pass the raw
-                // user text without a chat template to avoid instruction-format mismatch.
-                const std::string& prompt = history.back().substr( 6 );  // strip "User: "
-
-                std::vector<TokenId> prompt_tokens = tokenizer_->encode( prompt );
-
-                std::vector<int32_t> input_tokens( prompt_tokens.begin(), prompt_tokens.end() );
-
-                std::vector<int32_t> generated = model_->generate(
-                    std::vector<int32_t>( input_tokens ),
-                    config_.max_new_tokens,
-                    config_.temperature,
-                    config_.top_k );
-
-                std::string full_text = tokenizer_->decode( std::vector<TokenId>( generated.begin(), generated.end() ) );
-
-                return extractResponse( full_text, prompt );
-            /*}
-            catch ( const std::exception& e )
+            switch ( config_.model_type )
             {
-                return "Error: " + std::string( e.what() );
-            }*/
+                case ModelType::Gpt:
+                    model_ = GptModel<DeviceType::Cuda, TensorDataType::FP32>::fromPretrained(
+                        config_.model_path,
+                        config_.context_length,
+                        DeviceId{ DeviceType::Cuda, 0 },
+                        /*strict=*/true );
+                    break;
+
+                case ModelType::Llama:
+                    model_ = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>::fromPretrained(
+                        config_.model_path,
+                        config_.context_length,
+                        DeviceId{ DeviceType::Cuda, 0 },
+                        /*strict=*/true );
+                    break;
+            }
+
+            std::cout << model_->toString();
+
+            auto stats = model_->getMemoryStats();
+            std::cout << stats.toString() << "\n";
+
+            std::cout << "Model loaded successfully!\n";
         }
 
-        std::string extractResponse(
-            const std::string& full_output,
-            const std::string& prompt ) const
+        /**
+         * @brief Strip leading whitespace and truncate at the first paragraph break.
+         *
+         * Applied to the accumulated streaming response before storing in history.
+         * The live printed output is unaffected.
+         */
+        std::string trimResponse( const std::string& raw ) const
         {
-            if ( full_output.size() <= prompt.size() )
-                return full_output;
+            auto start = raw.find_first_not_of( " \t\n\r" );
 
-            std::string response = full_output.substr( prompt.size() );
+            if ( start == std::string::npos )
+                return {};
 
-            auto start = response.find_first_not_of( " \t\n\r" );
-            if ( start != std::string::npos )
-                response = response.substr( start );
+            std::string result = raw.substr( start );
 
-            auto end = response.find( "\n\n" );
+            auto end = result.find( "\n\n" );
+
             if ( end != std::string::npos )
-                response = response.substr( 0, end );
+                result.resize( end );
 
-            return response;
+            return result;
         }
 
         void printWelcome() const
@@ -243,5 +231,6 @@ Just type your message to chat with Mila AI.
         ChatConfig config_;
         std::unique_ptr<LanguageModelType> model_;
         std::shared_ptr<BpeTokenizer> tokenizer_{ nullptr };
+        std::stop_source stop_src_;
     };
 }

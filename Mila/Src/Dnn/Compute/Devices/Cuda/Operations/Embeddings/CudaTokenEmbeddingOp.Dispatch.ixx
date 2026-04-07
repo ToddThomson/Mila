@@ -15,7 +15,7 @@ export module Compute.CudaTokenEmbeddingOp:Dispatch;
 namespace Mila::Dnn::Compute::Cuda::TokenEmbedding::Detail
 {
     template <typename TNative>
-        requires std::is_same_v<TNative, float> || std::is_same_v<TNative, half>
+        requires std::is_same_v<TNative, float> || std::is_same_v<TNative, __nv_bfloat16>
     struct cuda_token_embedding_impl;
 
     // ========================================================================
@@ -48,31 +48,31 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding::Detail
     };
 
     // ========================================================================
-    // FP16 (stubs)
+    // BF16
     // ========================================================================
 
     template <>
-    struct cuda_token_embedding_impl<half>
+    struct cuda_token_embedding_impl<__nv_bfloat16>
     {
         static void forward(
-            half* Y, const int* X, const half* wte,
+            __nv_bfloat16* Y, const int* X, const __nv_bfloat16* wte,
             int B, int T, int C, cudaStream_t stream )
         {
-            // TODO: cuda_token_embedding_forward_fp16(...)
+            cuda_token_embedding_forward_bf16( Y, X, wte, B, T, C, stream );
         }
 
         static void backward(
-            half* dwte, const half* dY, const int* X,
+            __nv_bfloat16* dwte, const __nv_bfloat16* dY, const int* X,
             int B, int T, int C, cudaStream_t stream )
         {
-            // TODO: cuda_token_embedding_backward_fp16(...)
+            cuda_token_embedding_backward_bf16( dwte, dY, X, B, T, C, stream );
         }
 
         static void decode(
-            half* Y, const int* X, const half* wte,
+            __nv_bfloat16* Y, const int* X, const __nv_bfloat16* wte,
             int B, int C, cudaStream_t stream )
         {
-            // TODO: cuda_token_embedding_decode_fp16(...)
+            cuda_token_embedding_decode_bf16( Y, X, wte, B, C, stream );
         }
     };
 }

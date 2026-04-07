@@ -12,7 +12,6 @@
  *
  *  fromCheckpoint() — Mila-native artifact produced by GptTransformer::save()
  *                     via ModelArchive. Round-trip path after training.
- *
  */
 
 module;
@@ -28,6 +27,8 @@ module;
 #include <algorithm>
 #include <numeric>
 #include <cstring>
+#include <functional>
+#include <stop_token>
 
 export module Dnn.Models.GptModel;
 
@@ -60,12 +61,12 @@ namespace Mila::Dnn
     /**
      * @brief GPT inference model.
      *
-     * Owns a loaded, built GptTransformer and exposes generate() for
+     * Owns a loaded, built GptTransformer and exposes generateStreaming() for
      * autoregressive text generation.
      *
      * Construction is only possible via fromPretrained() or fromCheckpoint().
      * The network is always in a built, weights-loaded, inference-mode state
-     * when generate() is called.
+     * when generation is called.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -78,7 +79,6 @@ namespace Mila::Dnn
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using GptTransformerType = GptTransformer<TDeviceType, TPrecision>;
 
-        // Non-copyable, movable
         GptModel( const GptModel& ) = delete;
         GptModel& operator=( const GptModel& ) = delete;
         GptModel( GptModel&& ) = default;
@@ -97,10 +97,11 @@ namespace Mila::Dnn
          * by converting third-party checkpoints (e.g. HuggingFace GPT-2)
          * via PretrainedModelReader.
          *
-         * @param path      Path to the pretrained artifact.
-         * @param device_id Target device.
-         * @param strict    Throws on unknown parameter names if true.
-         * @return          Inference-ready GptModel.
+         * @param path           Path to the pretrained artifact.
+         * @param context_length Maximum sequence length to build for.
+         * @param device_id      Target device.
+         * @param strict         Throws on unknown parameter names if true.
+         * @return               Inference-ready GptModel.
          */
         static std::unique_ptr<GptModel> fromPretrained(
             const std::filesystem::path& path,
@@ -122,8 +123,6 @@ namespace Mila::Dnn
             auto network = std::make_unique<GptTransformerType>(
                 metadata.model_name, config, device_id );
 
-            // GptTransformer input is token ids — full input shape is [B, T].
-            // GptTransformer::onBuilding() constructs correct full shapes for each child component from its own config.
             BuildContext build_context(
                 shape_t{ 1, static_cast<int64_t>(context_length) },
                 RuntimeMode::Inference );
@@ -169,61 +168,6 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // Inference API
-        // ====================================================================
-
-        std::vector<int32_t> generate(
-            const std::vector<int32_t>& prompt_tokens,
-            size_t max_new_tokens = 64,
-            float temperature = 1.0f,
-            int top_k = 0 )
-        {
-            std::vector<int32_t> tokens = prompt_tokens;
-            std::mt19937 rng( std::chrono::high_resolution_clock::now()
-                .time_since_epoch().count() );
-            
-            truncateIfNeeded( tokens );
-            int64_t seq_len = static_cast<int64_t>(tokens.size());
-
-            // Phase 1: Prefill — process full prompt, populate KV cache.
-            // Returns logits at last prompt position only — shape [1, 1, vocab_size].
-            auto prefill_input = makeTokenTensor( tokens );
-            auto& logits = getNetwork().prefill( prefill_input );
-            getNetwork().getExecutionContext()->synchronize();
-
-            // Sample first new token from last prefill position.
-            // Position 0 — prefill() returns single position output.
-            int32_t next_token = sampleFromLogits(
-                logits, 0, temperature, top_k, rng );
-            tokens.push_back( next_token );
-
-            if ( next_token == eos_token_ )
-                return tokens;
-
-            // Phase 2: Decode — single token at a time using KV cache.
-            // Position tracks absolute sequence position for KV cache lookup.
-            int position = static_cast<int>(seq_len);
-
-            for ( size_t step = 1; step < max_new_tokens; ++step )
-            {
-                auto decode_input = makeTokenTensor( { next_token } );
-                auto& decode_logits = getNetwork().decode( decode_input, position );
-                getNetwork().getExecutionContext()->synchronize();
-
-                // Position 0 — decode() always returns single token output.
-                next_token = sampleFromLogits(
-                    decode_logits, 0, temperature, top_k, rng );
-                tokens.push_back( next_token );
-                ++position;
-
-                if ( next_token == eos_token_ )
-                    break;
-            }
-
-            return tokens;
-        }
-
-        // ====================================================================
         // Accessors
         // ====================================================================
 
@@ -257,19 +201,85 @@ namespace Mila::Dnn
             oss << "Layers: " << config_.getNumLayers() << "\n";
             oss << "Heads: " << config_.getNumHeads() << "\n";
             oss << "MLP hidden dim: " << config_.getHiddenSize() << "\n";
+
             return oss.str();
         }
 
-        // ====================================================================
-                // LanguageModel pure virtual overrides
-                // ====================================================================
+    protected:
 
-                /**
-                 * @brief GPT-2 end-of-text token id.
-                 *
-                 * Should be sourced from tokenizer metadata once tokenizer
-                 * integration is complete.
-                 */
+        // ====================================================================
+        // LanguageModel overrides
+        // ====================================================================
+
+        /**
+         * @brief Prefill + KV-cache decode loop with per-token streaming.
+         *
+         * Phase 1 (prefill): runs the full prompt through forward() to populate
+         * the KV cache and samples the first new token from the last position.
+         * Phase 2 (decode): iterates one token at a time until max_new_tokens
+         * is reached, EOS is emitted, or stop is requested.
+         *
+         * on_token is called for every generated token except EOS.
+         *
+         * @param prompt_tokens  Input token ids; truncated from the start if
+         *                       they exceed the model's max sequence length.
+         * @param on_token       Callback invoked once per generated token (not EOS).
+         * @param max_new_tokens Maximum number of tokens to generate beyond the prompt.
+         * @param temperature    Sampling temperature; <= 0 selects the argmax.
+         * @param top_k          Restrict sampling to the top-k logits; 0 disables.
+         * @param stop           Stop token for cooperative cancellation.
+         */
+        void generateStreaming(
+            const std::vector<int32_t>& prompt_tokens,
+            const std::function<void(int32_t)>& on_token,
+            size_t max_new_tokens,
+            float temperature,
+            int top_k,
+            std::stop_token stop ) override
+        {
+            std::vector<int32_t> prefill_tokens = prompt_tokens;
+            std::mt19937 rng( std::chrono::high_resolution_clock::now()
+                .time_since_epoch().count() );
+
+            truncateIfNeeded( prefill_tokens );
+            int64_t seq_len = static_cast<int64_t>(prefill_tokens.size());
+
+            auto prefill_input = makeTokenTensor( prefill_tokens );
+            auto& logits = getNetwork().prefill( prefill_input );
+            getNetwork().getExecutionContext()->synchronize();
+
+            int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
+
+            if ( next_token == eos_token_ )
+                return;
+
+            on_token( next_token );
+
+            int position = static_cast<int>(seq_len);
+
+            for ( size_t step = 1; step < max_new_tokens; ++step )
+            {
+                if ( stop.stop_requested() ) break;
+
+                auto decode_input = makeTokenTensor( { next_token } );
+                auto& decode_logits = getNetwork().decode( decode_input, position );
+                getNetwork().getExecutionContext()->synchronize();
+
+                next_token = sampleFromLogits( decode_logits, 0, temperature, top_k, rng );
+
+                if ( next_token == eos_token_ ) break;
+
+                on_token( next_token );
+                ++position;
+            }
+        }
+
+        /**
+         * @brief GPT-2 end-of-text token id.
+         *
+         * Should be sourced from tokenizer metadata once tokenizer
+         * integration is complete.
+         */
         int32_t eosToken() const noexcept override
         {
             return eos_token_;
@@ -294,14 +304,14 @@ namespace Mila::Dnn
         /**
          * @brief Training loop — not yet implemented for GptModel.
          *
-         * @throws std::runtime_error always — GptModel does not yet
-         *         support training.
+         * @throws std::runtime_error always.
          */
         void onTraining() override
         {
             throw std::runtime_error(
                 "GptModel::onTraining: training not yet implemented" );
         }
+
     private:
 
         explicit GptModel(
@@ -309,8 +319,13 @@ namespace Mila::Dnn
             const GptConfig& config,
             RuntimeMode runtime_mode )
             : ModelBase( std::move( network ), runtime_mode ), config_( config )
-        {
-        }
+        {}
+
+        explicit GptModel(
+            std::unique_ptr<GptTransformerType> network,
+            const GptConfig& config )
+            : ModelBase( std::move( network ), RuntimeMode::Inference ), config_( config )
+        {}
 
         GptTransformerType& getNetwork() noexcept
         {
@@ -322,7 +337,6 @@ namespace Mila::Dnn
             return static_cast<const GptTransformerType&>(*ModelBase::network_);
         }
 
-        //std::unique_ptr<GptTransformerType> network_;
         GptConfig config_;
 
         // REVIEW: Should come from tokenizer metadata when tokenizer support added.
@@ -335,6 +349,7 @@ namespace Mila::Dnn
         void truncateIfNeeded( std::vector<int32_t>& tokens ) const
         {
             int64_t seq_len = static_cast<int64_t>(tokens.size());
+
             if ( seq_len > config_.getMaxSequenceLength() )
             {
                 Utils::Logger::warning( std::format(
@@ -354,6 +369,7 @@ namespace Mila::Dnn
             std::memcpy( cpu_tensor.data(), token_ids.data(),
                 token_ids.size() * sizeof( int32_t ) );
             copy( cpu_tensor, device_tensor );
+
             return device_tensor;
         }
 
@@ -392,12 +408,14 @@ namespace Mila::Dnn
 
             std::vector<float> probs( vocab_size );
             double sum = 0.0;
+
             for ( size_t i = 0; i < vocab_size; ++i )
             {
                 float v = std::exp( (logits[ i ] - max_logit) / temperature );
                 probs[ i ] = v;
                 sum += v;
             }
+
             for ( size_t i = 0; i < vocab_size; ++i )
                 probs[ i ] /= static_cast<float>( sum );
 
@@ -411,11 +429,13 @@ namespace Mila::Dnn
 
                 std::vector<float> filtered( vocab_size, 0.0f );
                 double filtered_sum = 0.0;
+
                 for ( int i = 0; i < top_k; ++i )
                 {
                     filtered[ indices[ i ] ] = probs[ indices[ i ] ];
                     filtered_sum += probs[ indices[ i ] ];
                 }
+
                 for ( size_t i = 0; i < vocab_size; ++i )
                     probs[ i ] = filtered[ i ] / static_cast<float>( filtered_sum );
             }
@@ -423,9 +443,11 @@ namespace Mila::Dnn
             std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
             float r = dist( rng );
             float cumsum = 0.0f;
+
             for ( size_t i = 0; i < vocab_size; ++i )
             {
                 cumsum += probs[ i ];
+
                 if ( r < cumsum )
                     return static_cast<int32_t>( i );
             }

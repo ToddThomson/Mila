@@ -22,6 +22,8 @@ module;
 #include <algorithm>
 #include <numeric>
 #include <cstring>
+#include <functional>
+#include <stop_token>
 
 export module Dnn.Models.LlamaModel;
 
@@ -51,12 +53,12 @@ namespace Mila::Dnn
     /**
      * @brief LLaMA inference model.
      *
-     * Owns a loaded, built LlamaTransformer and exposes generate() for
-     * autoregressive text generation. Supports the prefill + KV-cache decode
-     * two-phase generation loop identical in structure to GptModel.
+     * Owns a loaded, built LlamaTransformer and exposes generateStreaming()
+     * for autoregressive text generation. Supports the prefill + KV-cache
+     * decode two-phase generation loop.
      *
      * Construction is only possible via fromPretrained(). The network is always
-     * in a built, weights-loaded, inference-mode state when generate() is called.
+     * in a built, weights-loaded, inference-mode state when generation is called.
      *
      * Thread safety: not thread-safe; external synchronization required if shared.
      */
@@ -89,12 +91,12 @@ namespace Mila::Dnn
          * HuggingFace LLaMA checkpoint) via PretrainedModelReader. The network
          * is built at max sequence length so RoPE embeddings cover the full range.
          *
-         * @param path              Path to the pretrained artifact.
-         * @param context_length    Maximum sequence length to build for.
-         * @param device_id         Target device; must match TDeviceType.
-         * @param strict            If true, throws on any unrecognized parameter name.
-         * @return                  Inference-ready LlamaModel.
-         * 
+         * @param path           Path to the pretrained artifact.
+         * @param context_length Maximum sequence length to build for.
+         * @param device_id      Target device; must match TDeviceType.
+         * @param strict         If true, throws on any unrecognized parameter name.
+         * @return               Inference-ready LlamaModel.
+         *
          * @throws std::invalid_argument on device type mismatch.
          * @throws std::runtime_error    on load or parameter binding failure.
          */
@@ -129,82 +131,8 @@ namespace Mila::Dnn
 
             network->loadParameters( reader, strict );
 
-            auto model = std::unique_ptr<LlamaModel>(
+            return std::unique_ptr<LlamaModel>(
                 new LlamaModel( std::move( network ), config, RuntimeMode::Inference ) );
-
-            return model;
-
-            // Was return std::unique_ptr<LlamaModel>( new LlamaModel( std::move( network ), config, RuntimeMode::Inference ) );
-        }
-
-        // ====================================================================
-        // Inference API
-        // ====================================================================
-
-        /**
-         * @brief Autoregressively generate tokens from a prompt.
-         *
-         * Phase 1 (prefill): runs the full prompt through forward() to populate
-         * the KV cache and samples the first new token from the last position.
-         * Phase 2 (decode): iterates decode() one token at a time until
-         * max_new_tokens is reached or the EOS token is emitted.
-         *
-         * @param prompt_tokens  Input token ids; truncated from the start if
-         *                       they exceed the model's max sequence length.
-         * @param max_new_tokens Maximum number of tokens to generate beyond the prompt.
-         * @param temperature    Sampling temperature; <= 0 selects the argmax.
-         * @param top_k          Restrict sampling to the top-k logits; 0 disables.
-         * @return               Full token sequence including the original prompt.
-         */
-        std::vector<int32_t> generate(
-            const std::vector<int32_t>& prompt_tokens,
-            size_t max_new_tokens = 64,
-            float temperature = 1.0f,
-            int top_k = 0 )
-        {
-
-            // DEBUG
-            // Override temperature and top_k for deterministic output during development.
-
-            /*temperature = 0.0f;
-            top_k = 0;*/
-
-            // END DEBUG
-
-            std::vector<int32_t> tokens = prompt_tokens;
-            std::mt19937 rng( std::chrono::high_resolution_clock::now()
-                .time_since_epoch().count() );
-
-            truncateIfNeeded( tokens );
-            int64_t seq_len = static_cast<int64_t>(tokens.size());
-
-            auto prefill_input = makeTokenTensor( tokens );
-            auto& logits = getNetwork().prefill( prefill_input );
-            getNetwork().getExecutionContext()->synchronize();
-
-            int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
-            tokens.push_back( next_token );
-
-            if ( next_token == eos_token_ )
-                return tokens;
-
-            int position = static_cast<int>(seq_len);
-
-            for ( size_t step = 1; step < max_new_tokens; ++step )
-            {
-                auto decode_input = makeTokenTensor( { next_token } );
-                auto& decode_logits = getNetwork().decode( decode_input, position );
-                getNetwork().getExecutionContext()->synchronize();
-
-                next_token = sampleFromLogits( decode_logits, 0, temperature, top_k, rng );
-                tokens.push_back( next_token );
-                ++position;
-
-                if ( next_token == eos_token_ )
-                    break;
-            }
-
-            return tokens;
         }
 
         // ====================================================================
@@ -243,57 +171,120 @@ namespace Mila::Dnn
             oss << "KV heads: " << config_.getNumKVHeads() << "\n";
             oss << "MLP hidden dim: " << config_.getHiddenDimension() << "\n";
             oss << "RoPE theta: " << config_.getRoPETheta() << "\n";
+
             return oss.str();
         }
 
-        protected:
+    protected:
 
-            // ====================================================================
-            // LanguageModel pure virtual overrides
-            // ====================================================================
+        // ====================================================================
+        // LanguageModel overrides
+        // ====================================================================
 
-            /**
-             * @brief LLaMA 2 </s> = 2; LLaMA 3 <|end_of_text|> = 128001.
-             *
-             * Should be sourced from tokenizer metadata once tokenizer
-             * integration is complete.
-             */
-            int32_t eosToken() const noexcept override
+        /**
+         * @brief Prefill + KV-cache decode loop with per-token streaming.
+         *
+         * Phase 1 (prefill): runs the full prompt through forward() to populate
+         * the KV cache and samples the first new token from the last position.
+         * Phase 2 (decode): iterates one token at a time until max_new_tokens
+         * is reached, EOS is emitted, or stop is requested.
+         *
+         * on_token is called for every generated token except EOS.
+         *
+         * @param prompt_tokens  Input token ids; truncated from the start if
+         *                       they exceed the model's max sequence length.
+         * @param on_token       Callback invoked once per generated token (not EOS).
+         * @param max_new_tokens Maximum number of tokens to generate beyond the prompt.
+         * @param temperature    Sampling temperature; <= 0 selects the argmax.
+         * @param top_k          Restrict sampling to the top-k logits; 0 disables.
+         * @param stop           Stop token for cooperative cancellation.
+         */
+        void generateStreaming(
+            const std::vector<int32_t>& prompt_tokens,
+            const std::function<void(int32_t)>& on_token,
+            size_t max_new_tokens,
+            float temperature,
+            int top_k,
+            std::stop_token stop ) override
+        {
+            std::vector<int32_t> prefill_tokens = prompt_tokens;
+            std::mt19937 rng( std::chrono::high_resolution_clock::now()
+                .time_since_epoch().count() );
+
+            truncateIfNeeded( prefill_tokens );
+            int64_t seq_len = static_cast<int64_t>(prefill_tokens.size());
+
+            auto prefill_input = makeTokenTensor( prefill_tokens );
+            auto& logits = getNetwork().prefill( prefill_input );
+            getNetwork().getExecutionContext()->synchronize();
+
+            int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
+
+            if ( next_token == eos_token_ )
+                return;
+
+            on_token( next_token );
+
+            int position = static_cast<int>(seq_len);
+
+            for ( size_t step = 1; step < max_new_tokens; ++step )
             {
-                return eos_token_;
-            }
+                if ( stop.stop_requested() ) break;
 
-            /**
-             * @brief Maximum sequence length from LLaMA config.
-             */
-            int64_t maxSequenceLength() const noexcept override
-            {
-                return static_cast<int64_t>(config_.getMaxSequenceLength());
-            }
+                auto decode_input = makeTokenTensor( { next_token } );
+                auto& decode_logits = getNetwork().decode( decode_input, position );
+                getNetwork().getExecutionContext()->synchronize();
 
-            /**
-             * @brief Vocabulary size from LLaMA config.
-             */
-            int64_t vocabSize() const noexcept override
-            {
-                return static_cast<int64_t>(config_.getVocabSize());
-            }
+                next_token = sampleFromLogits( decode_logits, 0, temperature, top_k, rng );
 
-            /**
-             * @brief Training loop — not yet implemented for LlamaModel.
-             *
-             * @throws std::runtime_error always — LlamaModel does not yet
-             *         support training.
-             */
-            void onTraining() override
-            {
-                throw std::runtime_error(
-                    "LlamaModel::onTraining: training not yet implemented" );
+                if ( next_token == eos_token_ ) break;
+
+                on_token( next_token );
+                ++position;
             }
+        }
+
+        /**
+         * @brief LLaMA 2 </s> = 2; LLaMA 3 <|end_of_text|> = 128001.
+         *
+         * Should be sourced from tokenizer metadata once tokenizer
+         * integration is complete.
+         */
+        int32_t eosToken() const noexcept override
+        {
+            return eos_token_;
+        }
+
+        /**
+         * @brief Maximum sequence length from LLaMA config.
+         */
+        int64_t maxSequenceLength() const noexcept override
+        {
+            return static_cast<int64_t>(config_.getMaxSequenceLength());
+        }
+
+        /**
+         * @brief Vocabulary size from LLaMA config.
+         */
+        int64_t vocabSize() const noexcept override
+        {
+            return static_cast<int64_t>(config_.getVocabSize());
+        }
+
+        /**
+         * @brief Training loop — not yet implemented for LlamaModel.
+         *
+         * @throws std::runtime_error always.
+         */
+        void onTraining() override
+        {
+            throw std::runtime_error(
+                "LlamaModel::onTraining: training not yet implemented" );
+        }
 
     private:
 
-        explicit LlamaModel( 
+        explicit LlamaModel(
             std::unique_ptr<LlamaTransformerType> network,
             const LlamaConfig& config,
             RuntimeMode runtime_mode )
@@ -346,6 +337,7 @@ namespace Mila::Dnn
             std::memcpy( cpu_tensor.data(), token_ids.data(),
                 token_ids.size() * sizeof( int32_t ) );
             copy( cpu_tensor, device_tensor );
+
             return device_tensor;
         }
 
@@ -364,7 +356,7 @@ namespace Mila::Dnn
             const float* row = cpu.data()
                 + static_cast<size_t>(position) * static_cast<size_t>(config_.getVocabSize());
 
-            return sampleToken( 
+            return sampleToken(
                 row,
                 static_cast<size_t>(config_.getVocabSize()),
                 temperature, top_k, rng );
@@ -425,6 +417,7 @@ namespace Mila::Dnn
             for ( size_t i = 0; i < vocab_size; ++i )
             {
                 cumsum += probs[ i ];
+
                 if ( r < cumsum )
                     return static_cast<int32_t>( i );
             }

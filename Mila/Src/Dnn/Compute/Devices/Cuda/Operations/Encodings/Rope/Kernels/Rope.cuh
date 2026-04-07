@@ -137,4 +137,42 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         int B, int position,
         int n_heads, int n_kv_heads, int head_dim,
         cudaStream_t stream );
+
+    // ========================================================================
+    // BF16
+    // ========================================================================
+
+    void cuda_rope_forward_bf16(
+        __nv_bfloat16* Q_out,
+        __nv_bfloat16* K_out,
+        const __nv_bfloat16* Q_in,
+        const __nv_bfloat16* K_in,
+        const float* cos_cache,
+        const float* sin_cache,
+        int B, int T,
+        int n_heads, int n_kv_heads, int head_dim,
+        int position_offset,
+        cudaStream_t stream );
+
+    void cuda_rope_backward_bf16(
+        __nv_bfloat16* dQ_in,
+        __nv_bfloat16* dK_in,
+        const __nv_bfloat16* dQ_out,
+        const __nv_bfloat16* dK_out,
+        const float* cos_cache,
+        const float* sin_cache,
+        int B, int T,
+        int n_heads, int n_kv_heads, int head_dim,
+        cudaStream_t stream );
+
+    void cuda_rope_decode_bf16(
+        __nv_bfloat16* Q_out,
+        __nv_bfloat16* K_out,
+        const __nv_bfloat16* Q_in,
+        const __nv_bfloat16* K_in,
+        const float* cos_cache,
+        const float* sin_cache,
+        int B, int position,
+        int n_heads, int n_kv_heads, int head_dim,
+        cudaStream_t stream );
 }

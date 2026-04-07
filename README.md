@@ -51,11 +51,16 @@ is explicit. There is no shared global state.
 in modern C++ and intends to stay there. No header soup. Fast incremental builds with Ninja.
 
 **CUDA-native.** Matrix operations via cuBLASLt. Hand-written kernels where control
-matters. float4 vectorized memory access in bandwidth-bound operations.
+matters. Vectorized memory access throughout — float4 for FP32, uint4 for BF16.
+
+**Precision is deliberate.** BF16 is the primary reduced-precision target — it matches
+FP32's exponent range, avoiding overflow and underflow without loss scaling, with native
+Tensor Core support on Ada Lovelace and newer. FP16 is not a Mila target; BF16 supersedes
+it for all current use cases. FP8 is deferred post-beta.
 
 ---
 
-## Current Status — Alpha
+## Current Status — Alpha.3
 
 Mila is under active development toward a public beta. The alpha phase focuses on
 building and validating the core architecture against known-good reference implementations.
@@ -65,10 +70,15 @@ GPT-2 inference validated token-for-token against HuggingFace using greedy decod
 The full GPT-2 stack — tokenizer, embeddings, attention, MLP, KV-cache — is implemented,
 tested, and confirmed correct.
 
-**Alpha.2 — In Progress**
-Extending to the Llama architecture: RoPE, RMSNorm, SwiGLU, Grouped Query Attention.
-Target: Llama 3.2 1B validated token-for-token against HuggingFace using the same
-methodology applied to GPT-2.
+**Alpha.2 — Complete**
+Llama architecture validated token-for-token against HuggingFace at FP32. RoPE, RMSNorm,
+SwiGLU, and Grouped Query Attention are implemented and confirmed correct. The full
+LlamaModel stack — including SentencePiece tokenization and HuggingFace weight conversion
+— matches HuggingFace LlamaForCausalLM token-for-token on greedy decode.
+
+**Alpha.3 — In Progress**
+BF16 compute backend. Target: greedy decode of Llama 3.2 3B matches HuggingFace
+token-for-token at BF16 using the same validation methodology applied to FP32.
 
 See [ROADMAP.md](ROADMAP.md) for the full task breakdown.
 
@@ -79,15 +89,21 @@ See [ROADMAP.md](ROADMAP.md) for the full task breakdown.
 | Capability | Status |
 |---|---|
 | GPT-2 inference — greedy and sampled | Validated against HuggingFace |
+| Llama 3.2 1B inference — greedy decode at FP32 | Validated against HuggingFace |
 | Two-phase KV-cache — prefill + decode | Complete |
 | HuggingFace GPT-2 weight converter | Complete |
+| HuggingFace Llama weight converter | Complete |
 | Chat CLI | Complete |
 | MNIST training — 97.5% test accuracy | Complete |
 | AdamW optimizer | Complete |
 | cuBLASLt Linear — forward + backward | Complete |
-| LayerNorm, RMSNorm, GELU, Softmax, CrossEntropy | Complete |
+| LayerNorm, RMSNorm, GELU, SiLU, Softmax, CrossEntropy | Complete |
+| SwiGLU MLP — forward + CUDA kernel | Complete |
 | Multi-Head Attention — forward + backward | Complete |
+| Grouped Query Attention — GQA with KV-cache | Complete |
+| RoPE — rotary positional encoding | Complete |
 | BPE tokenizer | Complete |
+| SentencePiece tokenizer | Complete |
 
 ---
 

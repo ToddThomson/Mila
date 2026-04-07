@@ -10,13 +10,14 @@ add_library( Mila STATIC
     # Cuda Operations Kernels
     #--------------------------------------------------------------------------
     "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.cuh"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.Bf16.cu"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.cuh"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Fp32.cu"
-    #"Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Fp16.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Bf16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.cuh"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.cuh"
@@ -446,7 +447,7 @@ PUBLIC
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
         
         "Src/Dnn/Compute/Operations/PairedOperation.ixx"
- "Src/Dnn/Core/Component.MemoryStats.ixx" "Src/Dnn/Core/Model.RuntimeMode.ixx" "Src/Dnn/Core/Model.ixx" "Src/Dnn/Core/LanguageModel.ixx" "Src/Dnn/Core/Comonent.TrainingMode.ixx" "Src/Dnn/Compute/Operations/IPositionalPairedOp.ixx" "Src/Dnn/Tensors/Operations/TensorOps.Random.ixx" "Src/Dnn/Tensors/Operations/TensorOps.Structural.ixx" "Src/Dnn/Compute/Operations/IPositionalDecode.ixx" "Src/Dnn/Compute/Operations/IKvInference.ixx" "Src/Dnn/Compute/Operations/IPackedKvInference.ixx")
+ "Src/Dnn/Core/Component.MemoryStats.ixx" "Src/Dnn/Core/Model.RuntimeMode.ixx" "Src/Dnn/Core/Model.ixx" "Src/Dnn/Core/LanguageModel.ixx" "Src/Dnn/Core/Comonent.TrainingMode.ixx" "Src/Dnn/Compute/Operations/IPositionalPairedOp.ixx" "Src/Dnn/Tensors/Operations/TensorOps.Random.ixx" "Src/Dnn/Tensors/Operations/TensorOps.Structural.ixx" "Src/Dnn/Compute/Operations/IPositionalDecode.ixx" "Src/Dnn/Compute/Operations/IKvInference.ixx" "Src/Dnn/Compute/Operations/IPackedKvInference.ixx" "Src/Dnn/Core/TokenStreamer.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

@@ -26,32 +26,6 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         template <typename TNative>
         using CublasLtMatMulPlan = Mila::Dnn::Compute::Cuda::CublasLtMatMulPlan<TNative>;
 
-        /**
-         * @brief Build cuBLASLt plan for the Linear forward pass.
-         *
-         * Computes output[batch, out] = input[batch, in] @ weight^T[in, out]
-         *
-         * Uses CUBLASLT_ORDER_COL (column-major) rather than the default ROW ordering.
-         * Although Mila tensors are row-major throughout, col-major with transpose ops
-         * gives equivalent row-major semantics for this operation:
-         *
-         *   weight: [in, out] col-major + opA=T  → cuBLASLt reads as [out, in]
-         *   input:  [in, batch] col-major + opB=N
-         *   output: [out, batch] col-major       → equivalent to [batch, out] row-major in memory
-         *
-         * ROW ordering is not used here because cuBLASLt requires a minimum tile size
-         * (typically M=16 on Ampere+) for tensor core kernels with CUBLASLT_ORDER_ROW.
-         * With M=1 (the decode path, batch_size=1), ROW ordering produces
-         * CUBLAS_STATUS_NOT_SUPPORTED during plan building since no tensor core algorithm
-         * applies. COL ordering allows cuBLASLt to select a SIMT fallback algorithm for
-         * all batch sizes including M=1, at no performance cost since M=1 GEMMs are
-         * memory-bandwidth bound regardless of ordering.
-         *
-         * Note: execute_plan must be called with A=weight, B=input to match this layout.
-         * Note: When CudaExecutionContext gains a workspace buffer, revisit using
-         *       CUBLASLT_ORDER_ROW with CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES for
-         *       full consistency with the attention plans.
-         */
         template <typename TNative>
         CublasLtMatMulPlan<TNative> build_forward_plan(
             cublasLtHandle_t handle,

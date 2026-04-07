@@ -593,25 +593,15 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 }
             );
 
-            /*OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::BF16, TensorDataType::BF16>(
                 opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
-                {
-                    const auto& linearConfig = static_cast<const LinearConfig&>(config);
-                    return std::make_shared<CudaLinearOp<TensorDataType::FP16>>( context, linearConfig );
-                }
-            );
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::BF16>(
-                opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-                    const ModuleConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::BF16>>
+                []( IExecutionContext* context,
+                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::BF16>>
                 {
                     const auto& linearConfig = static_cast<const LinearConfig&>(config);
                     return std::make_shared<CudaLinearOp<TensorDataType::BF16>>( context, linearConfig );
                 }
-            );*/
+            );
         }
 
         static inline bool isRegistered = []() {

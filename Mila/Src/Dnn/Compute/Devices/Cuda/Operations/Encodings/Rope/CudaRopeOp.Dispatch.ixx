@@ -6,7 +6,7 @@
  */
 
 module;
-#include <cuda_fp16.h>
+#include <cuda_bf16.h>
 #include <type_traits>
 #include "Kernels/Rope.cuh"
 
@@ -25,7 +25,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
      * @tparam TNative CUDA native type: float (FP32) or half (FP16).
      */
     template <typename TNative>
-        requires std::is_same_v<TNative, float> || std::is_same_v<TNative, half>
+        requires std::is_same_v<TNative, float> || std::is_same_v<TNative, __nv_bfloat16>
     struct cuda_rope_impl;
 
     // ========================================================================
@@ -108,55 +108,67 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
     };
 
     // ========================================================================
-    // FP16 specialization (stubs)
+    // BF16 specialization
     // ========================================================================
 
     template <>
-    struct cuda_rope_impl<half>
+    struct cuda_rope_impl<__nv_bfloat16>
     {
+        // Cache is always FP32 — delegate directly to the FP32 launcher.
         static void build_cache(
-            half* cos_cache,
-            half* sin_cache,
-            int    max_seq_len,
-            int    head_dim,
-            float  base,
+            float* cos_cache,
+            float* sin_cache,
+            int   max_seq_len,
+            int   head_dim,
+            float base,
             cudaStream_t stream )
         {
-            // TODO: cuda_rope_build_cache_fp16(...)
+            cuda_rope_build_cache_fp32(
+                cos_cache, sin_cache,
+                max_seq_len, head_dim, base, stream );
         }
 
         static void forward(
-            half* Q_out, half* K_out,
-            const half* Q_in, const half* K_in,
-            const half* cos_cache, const half* sin_cache,
+            __nv_bfloat16* Q_out, __nv_bfloat16* K_out,
+            const __nv_bfloat16* Q_in, const __nv_bfloat16* K_in,
+            const float* cos_cache, const float* sin_cache,
             int B, int T,
             int n_heads, int n_kv_heads, int head_dim,
             int position_offset,
             cudaStream_t stream )
         {
-            // TODO: cuda_rope_forward_fp16(...)
+            cuda_rope_forward_bf16(
+                Q_out, K_out, Q_in, K_in,
+                cos_cache, sin_cache,
+                B, T, n_heads, n_kv_heads, head_dim, position_offset, stream );
         }
 
         static void backward(
-            half* dQ_in, half* dK_in,
-            const half* dQ_out, const half* dK_out,
-            const half* cos_cache, const half* sin_cache,
+            __nv_bfloat16* dQ_in, __nv_bfloat16* dK_in,
+            const __nv_bfloat16* dQ_out, const __nv_bfloat16* dK_out,
+            const float* cos_cache, const float* sin_cache,
             int B, int T,
             int n_heads, int n_kv_heads, int head_dim,
             cudaStream_t stream )
         {
-            // TODO: cuda_rope_backward_fp16(...)
+            cuda_rope_backward_bf16(
+                dQ_in, dK_in, dQ_out, dK_out,
+                cos_cache, sin_cache,
+                B, T, n_heads, n_kv_heads, head_dim, stream );
         }
 
         static void decode(
-            half* Q_out, half* K_out,
-            const half* Q_in, const half* K_in,
-            const half* cos_cache, const half* sin_cache,
+            __nv_bfloat16* Q_out, __nv_bfloat16* K_out,
+            const __nv_bfloat16* Q_in, const __nv_bfloat16* K_in,
+            const float* cos_cache, const float* sin_cache,
             int B, int position,
             int n_heads, int n_kv_heads, int head_dim,
             cudaStream_t stream )
         {
-            // TODO: cuda_rope_decode_fp16(...)
+            cuda_rope_decode_bf16(
+                Q_out, K_out, Q_in, K_in,
+                cos_cache, sin_cache,
+                B, position, n_heads, n_kv_heads, head_dim, stream );
         }
     };
 }

@@ -280,8 +280,8 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
                 TensorDataType::INT32, TensorDataType::FP32>( "TokenEmbeddingOp" );
 
             registerUnaryOpType<DeviceType::Cuda,
-                CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::FP16>,
-                TensorDataType::INT32, TensorDataType::FP16>( "TokenEmbeddingOp" );
+                CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::BF16>,
+                TensorDataType::INT32, TensorDataType::BF16>( "TokenEmbeddingOp" );
         }
     };
 }

@@ -161,17 +161,19 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             if ( this->is_built_ )
                 return;
 
+            // NOTE: Cache data type is always float32 regardless of input precision to
+            // preserve accuracy of the trigonometric computations.
+
             const std::size_t cache_bytes =
-                config_.getMaxSequenceLength() * (config_.getHeadDim() / 2) * sizeof( NativeType );
+                config_.getMaxSequenceLength() * (config_.getHeadDim() / 2) * sizeof( float );
 
             cache_key_ = makeCacheKey();
 
             auto [cos_ptr, sin_ptr, is_new] =
                 RopeCacheRegistry::instance().acquire( cache_key_, cache_bytes );
 
-            cos_cache_ = static_cast<NativeType*>(cos_ptr);
-            sin_cache_ = static_cast<NativeType*>(sin_ptr);
-            this->is_built_ = true;
+            cos_cache_ = static_cast<float*>(cos_ptr);
+            sin_cache_ = static_cast<float*>(sin_ptr);
 
             if ( is_new )
             {
@@ -184,6 +186,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
                 context_->synchronize(); // Ensure cache is ready before any op can use it.
             }
+
+            this->is_built_ = true;
         }
 
         /**
@@ -305,16 +309,6 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
             int B = static_cast<int>( Q_in.shape()[ 0 ] );
 
-            //const bool debug = (position == 5);
-
-            //if ( debug )
-            //{
-            //    auto Xk = static_cast<const NativeType*>(K_in.rawData());
-            //    auto shape = shape_t{ 1, 1, static_cast<size_t>(static_cast<int>( config_.getNumKVHeads() * config_.getHeadDim() ) ) };
-            //    print_stats( "decode.k_pre_rope", Xk, shape, 8, context_->getStream() );
-            //    context_->synchronize();
-            //}
-
             Detail::cuda_rope_impl<NativeType>::decode(
                 static_cast<NativeType*>( Q_out.rawData() ),
                 static_cast<NativeType*>( K_out.rawData() ),
@@ -328,13 +322,6 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 context_->getStream() );
             
             context_->synchronize();
-
-            //if ( debug )
-            //{
-            //    auto Xk_out = static_cast<const NativeType*>(K_out.rawData());
-            //    auto shape = shape_t{ 1, 1, static_cast<size_t>(static_cast<int>(config_.getNumKVHeads() * config_.getHeadDim() )) };
-            //    print_stats( "decode.k_post_rope", Xk_out, shape, 8, context_->getStream() );
-            //}
         }
 
         // ====================================================================
@@ -355,8 +342,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         RopeConfig config_;
         CudaExecutionContext* context_;
 
-        NativeType* cos_cache_{ nullptr };
-        NativeType* sin_cache_{ nullptr };
+        float* cos_cache_{ nullptr };
+        float* sin_cache_{ nullptr };
 
         CacheKey cache_key_{};
         int batch_size_{ 0 };
@@ -385,12 +372,15 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
         CacheKey makeCacheKey() const noexcept
         {
+            // Precision is FP32 regardless of TPrecision: the cache is always
+            // float. This allows BF16 and FP32 ops with identical configs to
+            // share one registry entry.
             return {
                 context_->getDeviceId().index,
                 config_.getMaxSequenceLength(),
                 config_.getHeadDim(),
                 config_.getBase(),
-                TPrecision
+                TensorDataType::FP32
             };
         }
 
@@ -401,6 +391,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 RopeCacheRegistry::instance().release( cache_key_ );
                 cos_cache_ = nullptr;
                 sin_cache_ = nullptr;
+                
                 this->is_built_ = false;
             }
         }
@@ -433,7 +424,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
             registerPairedOpType<DeviceType::Cuda, CudaRopeOp<TensorDataType::FP32>, TensorDataType::FP32>( opName );
 
-            //registerPairedOpType<DeviceType::Cuda, CudaRopeOp<TensorDataType::FP16>, TensorDataType::FP16>( opName );
+            registerPairedOpType<DeviceType::Cuda, CudaRopeOp<TensorDataType::BF16>, TensorDataType::BF16>( opName );
         }
     };
 }

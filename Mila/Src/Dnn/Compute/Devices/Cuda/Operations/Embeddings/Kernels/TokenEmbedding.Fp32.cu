@@ -33,6 +33,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             int bt = idx / C4;
             int c4 = idx % C4;
             int ix = X[ bt ];
+            
             Y[ bt * C4 + c4 ] = Wte[ ix * C4 + c4 ];
         }
     }
@@ -86,6 +87,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             int b = idx / C4;
             int c4 = idx % C4;
             int ix = X[ b ];
+            
             Y[ b * C4 + c4 ] = Wte[ ix * C4 + c4 ];
         }
     }
@@ -147,30 +149,5 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             B, C);
 
         cudaCheck( cudaGetLastError() );
-    }
-
-    // ========================================================================
-    // Host launchers — FP16 (stubs)
-    // ========================================================================
-
-    void cuda_token_embedding_forward_fp16(
-        half* Y, const int* X, const half* wte,
-        int B, int T, int C, cudaStream_t stream )
-    {
-        // TODO: cuda_token_embedding_forward_fp16 kernel
-    }
-
-    void cuda_token_embedding_backward_fp16(
-        half* dwte, const half* dY, const int* X,
-        int B, int T, int C, cudaStream_t stream )
-    {
-        // TODO: cuda_token_embedding_backward_fp16 kernel
-    }
-
-    void cuda_token_embedding_decode_fp16(
-        half* Y, const int* X, const half* wte,
-        int B, int C, cudaStream_t stream )
-    {
-        // TODO: cuda_token_embedding_decode_fp16 kernel
     }
 }
