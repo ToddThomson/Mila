@@ -8,7 +8,7 @@ Active development for the latest architectural changes — RoPE, RMSNorm, SwiGL
 Query Attention — is underway in the [`dev`](https://github.com/ToddThomson/Mila/tree/dev)
 branch. If you are following Mila's progress, `dev` is where the action is.
 
-The next milestone is **v0.11.1-beta**, targeting validated Llama 3.2 1B inference.
+The next milestone is **v0.2.0-beta.1**, targeting validated Llama 3.2 3B Bf16 inference.
 See the [Roadmap](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for details.
 
 # Mila
@@ -18,7 +18,7 @@ Mila Deep Neural Network Library
 Mila, version 0.9.914-alpha
 
 ## Roadmap
-Mila is targeting a **v0.1.0-beta release in 10-12 weeks** featuring a stable high-level Model API, GPU-accelerated loss functions, comprehensive checkpointing, and production-quality MNIST examples with 98%+ accuracy. 
+Mila is targeting a **v0.2.0-beta release** featuring a stable high-level Model API, GPU-accelerated loss functions, comprehensive checkpointing, and production-quality MNIST examples with 98%+ accuracy. 
 See the complete [ROADMAP.md](ROADMAP.md) for detailed weekly milestones, success criteria, and the path to beta.
 
 ## Description
