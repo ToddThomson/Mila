@@ -1,6 +1,7 @@
 // CudaGqa.Prefill.Fp16.cu
 
 #include <cuda_runtime.h>
+#include <cuda_bf16.h>
 #include <device_launch_parameters.h>
 #include <math_constants.h>
 #include "CudaUtils.h"
@@ -8,10 +9,9 @@
 
 namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
 {
-    template<>
-    __global__ void permute_q_prefill_kernel<__half>(
-        __half* Q,
-        const __half* X,
+    __global__ void gqa_prefill_permute_q_bf16_kernel(
+        nv_bfloat16* Q,
+        const nv_bfloat16* X,
         int B,
         int chunk_len,
         int start_pos,
@@ -53,10 +53,9 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             reinterpret_cast<const half2*>(X)[ src2 >> 1 ];
     }
 
-    template<>
-    __global__ void permute_kv_prefill_kernel<__half>(
-        __half* K, __half* V,
-        const __half* X,
+    __global__ void gqa_prefill_permute_kv_bf16_kernel(
+        nv_bfloat16* K, nv_bfloat16* V,
+        const nv_bfloat16* X,
         int B,
         int chunk_len,
         int start_pos,
@@ -108,9 +107,9 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
     // Host function to launch the kernels
     // ------------------------------------------------------------------------
 
-    void cuda_gqa_permute_qkv_prefill_half(
-        __half* Q, __half* K, __half* V,
-        const __half* X,
+    void cuda_gqa_prefill_permute_qkv_bf16(
+        nv_bfloat16* Q, nv_bfloat16* K, nv_bfloat16* V,
+        const nv_bfloat16* X,
         int B, int chunk_len, int start_pos, int T_max,
         int NH, int NKV, int HS,
         cudaStream_t stream )
@@ -118,11 +117,11 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         int HS2 = HS >> 1;
         dim3 block( 256 );
 
-        permute_q_prefill_kernel<__half>
+        gqa_prefill_permute_q_bf16_kernel
             << < ceil_div( B * NH * chunk_len * HS2, 256 ), block, 0, stream >> > (
                 Q, X, B, chunk_len, start_pos, T_max, NH, NKV, HS);
 
-        permute_kv_prefill_kernel<__half>
+        gqa_prefill_permute_kv_bf16_kernel
             << < ceil_div( B * NKV * chunk_len * HS2, 256 ), block, 0, stream >> > (
                 K, V, X, B, chunk_len, start_pos, T_max, NH, NKV, HS);
     }

@@ -1,25 +1,20 @@
 #!/usr/bin/env python3
 # ============================================================================
-# File: convert_llama_weights.py
+# File: convert_llama32.py
 # Convert Llama 3.2 weights to Mila format
 # ============================================================================
 
 """
 Convert Llama 3.2 weights from HuggingFace to Mila binary format.
 
-Mila alpha.3:
-    float32 and bfloat16 are validated against Mila's TPrecision template
-    instantiations.
-    Models are loaded directly in the target dtype to minimise peak memory
-    usage — important for the 3B variant under BF16.
+Mila alpha.2 note:
+    Only float32 is supported by Mila's TPrecision template instantiations in alpha.2.
+    float16 / bfloat16 options are provided for forward compatibility but are NOT
+    validated against Mila and will likely produce incorrect results at this stage.
 
 Usage:
-    python convert_llama_weights.py --model meta-llama/Llama-3.2-1B --output ../Weights/llama32/llama32_1b_bf16.bin
-    python convert_llama_weights.py --model meta-llama/Llama-3.2-3B --output ../Weights/llama32/llama32_3b_bf16.bin
-
-    python convert_llama_weights.py --model meta-llama/Llama-3.2-1B --dtype float32 --output ../Weights/llama32/llama32_1b_fp32.bin
-    python convert_llama_weights.py --model meta-llama/Llama-3.2-3B --dtype float32 --output ../Weights/llama32/llama32_3b_fp32.bin
-    
+    python convert_llama32.py --model meta-llama/Llama-3.2-1B --output ../Weights/llama32/llama32_1b_fp32.bin
+    python convert_llama32.py --model meta-llama/Llama-3.2-3B --output ../Weights/llama32/llama32_3b_fp32.bin
 
 Mila component name mnemonics (2-4 chars):
     fc   = Linear (fully-connected)
@@ -38,7 +33,7 @@ Mila component name mnemonics (2-4 chars):
     rope = RoPE
     net  = Network
 
-HuggingFace -> Mila weight mapping:
+HuggingFace → Mila weight mapping:
 
     Token embedding:
         model.embed_tokens.weight                        -> temb.wte
@@ -60,30 +55,28 @@ HuggingFace -> Mila weight mapping:
 
     LM head:
         lm_head.weight                                   -> lm_head.weight
-        (tied with embed_tokens in Llama 3.2 -- written
+        (tied with embed_tokens in Llama 3.2 — written
          explicitly so Mila loader needs no tying logic)
 
     Notes:
         - HF uses 'layernorm' naming historically even though the actual
-          implementation is LlamaRMSNorm -- not LayerNorm.
+          implementation is LlamaRMSNorm — not LayerNorm.
         - No weight transposition needed: Llama uses nn.Linear [out, in]
           which is already Mila's convention.
         - LlamaBlock uses individual Linear components for FFN (no MLP
-          composite) -- fc_gate_up and fc_down have no mlp. prefix.
+          composite) — fc_gate_up and fc_down have no mlp. prefix.
         - gate+up fused into single fc_gate_up tensor for Mila's SwiGLU
           which expects [gate | up] layout.
-        - No positional embedding tensor -- RoPE is computed, not learned.
+        - No positional embedding tensor — RoPE is computed, not learned.
         - No attention or MLP biases.
         - model_name sanitized: '.' replaced with '_' to avoid conflicts
-          with Mila's component path separator '.'.
-        - bfloat16 tensors are stored as raw uint16 bytes (IEEE 754 BF16
-          bit pattern) as expected by MilaWeightWriter and Mila's loader.
+          with Mila's component path separator.
 """
 
 import argparse
 import torch
 from transformers import AutoModelForCausalLM
-from common import MilaWeightWriter
+from common import MilaWeightWriter, convert_dtype
 
 # Supported Llama 3.2 text model variants
 SUPPORTED_MODELS = [
@@ -93,35 +86,10 @@ SUPPORTED_MODELS = [
     'meta-llama/Llama-3.2-3B-Instruct',
 ]
 
-TORCH_DTYPE_MAP = {
-    'float32':  torch.float32,
-    'bfloat16': torch.bfloat16,
-}
-
-
-def _tensor_to_numpy( tensor: torch.Tensor, dtype: str ):
-    """
-    Convert a torch tensor to a numpy array in the target Mila dtype.
-
-    bfloat16 tensors cannot be represented natively in numpy, so they are
-    returned as a uint16 view of the raw BF16 bit patterns. This matches
-    the representation expected by MilaWeightWriter._get_dtype_code and
-    Mila's binary weight loader.
-
-    The input tensor may be in any dtype; conversion to the target dtype
-    is performed before extraction.
-    """
-    if dtype == 'bfloat16':
-        return tensor.to( torch.bfloat16 ).contiguous().view( torch.uint16 ).numpy()
-    else:
-        return tensor.to( torch.float32 ).numpy()
-
-
 def convert_llama32( model_name: str, output_path: str, dtype: str = 'float32' ):
 
-    torch_dtype = TORCH_DTYPE_MAP[dtype]
-    print( f"Loading {model_name} from HuggingFace (dtype={dtype})..." )
-    model = AutoModelForCausalLM.from_pretrained( model_name, torch_dtype=torch_dtype )
+    print( f"Loading {model_name} from HuggingFace..." )
+    model = AutoModelForCausalLM.from_pretrained( model_name, torch_dtype=torch.float32 )
     config = model.config
 
     print( f"Model config:" )
@@ -154,10 +122,10 @@ def convert_llama32( model_name: str, output_path: str, dtype: str = 'float32' )
     print( f"  head_dim:                {head_dim}" )
     print( f"  gqa_groups (Q/KV):       {gqa_ratio}:1" )
 
-    # Sanitize model name -- replace '.' with '_' to avoid conflicts
+    # Sanitize model name — replace '.' with '_' to avoid conflicts
     # with Mila's component path separator '.'.
-    raw_name = model_name.rsplit( '/', 1 )[-1]
-    model_id = raw_name.replace( '.', '_' )
+    raw_name   = model_name.rsplit( '/', 1 )[-1]
+    model_id   = raw_name.replace( '.', '_' )
     print( f"  model_id (sanitized):    {model_id}" )
 
     writer = MilaWeightWriter( output_path )
@@ -192,7 +160,7 @@ def convert_llama32( model_name: str, output_path: str, dtype: str = 'float32' )
     # -------------------------------------------------------------------------
     writer.add_tensor(
         'temb.wte',
-        _tensor_to_numpy( state_dict['model.embed_tokens.weight'], dtype )
+        convert_dtype( state_dict['model.embed_tokens.weight'].numpy(), dtype )
     )
 
     # -------------------------------------------------------------------------
@@ -206,13 +174,14 @@ def convert_llama32( model_name: str, output_path: str, dtype: str = 'float32' )
 
         # Pre-attention RMSNorm (no bias).
         # Note: HF names this 'input_layernorm' historically even though
-        # the actual implementation is LlamaRMSNorm -- not LayerNorm.
+        # the actual implementation is LlamaRMSNorm — not LayerNorm.
         writer.add_tensor(
             f'{prefix_mila}.rmsn_1.weight',
-            _tensor_to_numpy( state_dict[f'{prefix_hf}.input_layernorm.weight'], dtype )
+            convert_dtype(
+                state_dict[f'{prefix_hf}.input_layernorm.weight'].numpy(), dtype )
         )
 
-        # Fused QKV projection -- concatenate Q, K, V along dim 0.
+        # Fused QKV projection — concatenate Q, K, V along dim 0.
         # Q: [num_heads * head_dim,    hidden_size]  e.g. [2048, 2048] for 1B
         # K: [num_kv_heads * head_dim, hidden_size]  e.g. [ 512, 2048] for 1B
         # V: [num_kv_heads * head_dim, hidden_size]  e.g. [ 512, 2048] for 1B
@@ -224,30 +193,32 @@ def convert_llama32( model_name: str, output_path: str, dtype: str = 'float32' )
 
         writer.add_tensor(
             f'{prefix_mila}.fc_qkv_proj.weight',
-            _tensor_to_numpy( qkv_weight, dtype )
+            convert_dtype( qkv_weight.numpy(), dtype )
         )
 
         # Attention output projection.
         # Shape: [hidden_size, hidden_size]  e.g. [2048, 2048]
         writer.add_tensor(
             f'{prefix_mila}.fc_out_proj.weight',
-            _tensor_to_numpy( state_dict[f'{prefix_hf}.self_attn.o_proj.weight'], dtype )
+            convert_dtype(
+                state_dict[f'{prefix_hf}.self_attn.o_proj.weight'].numpy(), dtype )
         )
 
         # Post-attention RMSNorm (no bias).
-        # Note: HF names this 'post_attention_layernorm' historically --
+        # Note: HF names this 'post_attention_layernorm' historically —
         # same naming convention issue as input_layernorm above.
         writer.add_tensor(
             f'{prefix_mila}.rmsn_2.weight',
-            _tensor_to_numpy( state_dict[f'{prefix_hf}.post_attention_layernorm.weight'], dtype )
+            convert_dtype(
+                state_dict[f'{prefix_hf}.post_attention_layernorm.weight'].numpy(), dtype )
         )
 
-        # Fused gate+up projection -- concatenate gate and up along dim 0.
+        # Fused gate+up projection — concatenate gate and up along dim 0.
         # gate_proj: [intermediate_size, hidden_size]     e.g. [8192, 2048]
         # up_proj:   [intermediate_size, hidden_size]     e.g. [8192, 2048]
         # Fused:     [2*intermediate_size, hidden_size]   e.g. [16384, 2048]
         # SwiGLU splits the output into gate and up halves internally.
-        # No mlp. prefix -- LlamaBlock uses individual Linear components,
+        # No mlp. prefix — LlamaBlock uses individual Linear components,
         # not an MLP composite.
         gate_weight    = state_dict[f'{prefix_hf}.mlp.gate_proj.weight']
         up_weight      = state_dict[f'{prefix_hf}.mlp.up_proj.weight']
@@ -255,14 +226,15 @@ def convert_llama32( model_name: str, output_path: str, dtype: str = 'float32' )
 
         writer.add_tensor(
             f'{prefix_mila}.fc_gate_up.weight',
-            _tensor_to_numpy( gate_up_weight, dtype )
+            convert_dtype( gate_up_weight.numpy(), dtype )
         )
 
         # Down projection.
         # Shape: [hidden_size, intermediate_size]  e.g. [2048, 8192]
         writer.add_tensor(
             f'{prefix_mila}.fc_down.weight',
-            _tensor_to_numpy( state_dict[f'{prefix_hf}.mlp.down_proj.weight'], dtype )
+            convert_dtype(
+                state_dict[f'{prefix_hf}.mlp.down_proj.weight'].numpy(), dtype )
         )
 
     # -------------------------------------------------------------------------
@@ -270,25 +242,25 @@ def convert_llama32( model_name: str, output_path: str, dtype: str = 'float32' )
     # -------------------------------------------------------------------------
     writer.add_tensor(
         'rmsn_final.weight',
-        _tensor_to_numpy( state_dict['model.norm.weight'], dtype )
+        convert_dtype( state_dict['model.norm.weight'].numpy(), dtype )
     )
 
     # -------------------------------------------------------------------------
     # LM head
-    # Tied with embed_tokens in Llama 3.2 -- written explicitly so Mila's
+    # Tied with embed_tokens in Llama 3.2 — written explicitly so Mila's
     # weight loader needs no tying logic. The metadata flag tie_word_embeddings
     # is set for reference only.
     # -------------------------------------------------------------------------
     lm_head_key = 'lm_head.weight'
     if lm_head_key in state_dict:
-        lm_head_tensor = state_dict[lm_head_key]
+        lm_head_weight = state_dict[lm_head_key].numpy()
     else:
-        print( "  Note: lm_head.weight not in state_dict (tied) -- copying from embed_tokens" )
-        lm_head_tensor = state_dict['model.embed_tokens.weight']
+        print( "  Note: lm_head.weight not in state_dict (tied) — copying from embed_tokens" )
+        lm_head_weight = state_dict['model.embed_tokens.weight'].numpy()
 
     writer.add_tensor(
         'lm_head.weight',
-        _tensor_to_numpy( lm_head_tensor, dtype )
+        convert_dtype( lm_head_weight, dtype )
     )
 
     writer.write()
@@ -296,7 +268,6 @@ def convert_llama32( model_name: str, output_path: str, dtype: str = 'float32' )
     print( f"\nConversion complete!" )
     print( f"  Output: {output_path}" )
     print( f"  Model:  {model_id}" )
-    print( f"  dtype:  {dtype}" )
 
 
 if __name__ == '__main__':
@@ -318,11 +289,16 @@ if __name__ == '__main__':
     parser.add_argument(
         '--dtype',
         type=str,
-        default='bfloat16',
-        choices=['float32', 'bfloat16'],
-        help='Target dtype for weights (default: bfloat16; float32 and bfloat16 validated in Mila alpha.3)'
+        default='float32',
+        choices=['float32', 'float16', 'bfloat16'],
+        help='Target dtype for weights (default: float32 — only float32 supported in Mila alpha.2)'
     )
 
     args = parser.parse_args()
+
+    if args.dtype != 'float32':
+        print( f"WARNING: dtype '{args.dtype}' is not validated in Mila alpha.2." )
+        print( f"         Only float32 is supported by Mila's TPrecision template instantiations." )
+        print( f"         Proceeding, but results in Mila will likely be incorrect.\n" )
 
     convert_llama32( args.model, args.output, args.dtype )

@@ -130,6 +130,10 @@ namespace Mila::Dnn
             auto& qkv_out = qkv_proj_->forward( rms1_out );
             this->getExecutionContext()->synchronize();
 
+            // REVIEW: The use of tensor views here is incorrect. The Q,K,V splits of qkv_out are not actually contiguous in memory,
+            // so the views are lying about the true layout.
+            // See the prefill() implementation for the correct approach.
+            // 
             // 3. Zero-copy views into the packed QKV buffer.
             auto Q = qkv_out.view( q_shape_, 0 );
             auto K = qkv_out.view( k_shape_, q_offset_ );

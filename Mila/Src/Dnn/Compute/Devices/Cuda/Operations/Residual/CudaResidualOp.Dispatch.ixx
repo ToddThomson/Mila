@@ -1,6 +1,6 @@
 module;
 #include <cublasLt.h>
-#include <cuda_fp16.h>
+#include <cuda_bf16.h>
 #include <vector>
 #include <memory>
 #include <string>
@@ -40,16 +40,16 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         };
 
         template<>
-        struct cuda_residual_impl<half>
+        struct cuda_residual_impl<nv_bfloat16>
         {
-            static inline void forward( half* Y, const half* X1, const half* X2, float scale, int N, cudaStream_t stream )
+            static inline void forward( nv_bfloat16* Y, const nv_bfloat16* X1, const nv_bfloat16* X2, float scale, int N, cudaStream_t stream )
             {
-                cuda_residual_forward_fp16( Y, X1, X2, scale, N, stream );
+                cuda_residual_forward_bf16( Y, X1, X2, scale, N, stream );
             }
 
-            static inline void backward( half* dX1, half* dX2, const half* dY, size_t N, cudaStream_t stream )
+            static inline void backward( nv_bfloat16* dX1, nv_bfloat16* dX2, const nv_bfloat16* dY, int N, cudaStream_t stream )
             {
-                cuda_residual_backward_fp16( dX1, dX2, dY, N, stream );
+                cuda_residual_backward_bf16( dX1, dX2, dY, N, stream );
             }
         };
     }

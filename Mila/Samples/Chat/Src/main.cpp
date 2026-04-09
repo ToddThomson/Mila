@@ -13,23 +13,35 @@ import Mila.Chat;
 
 using namespace Mila::ChatApp;
 
-constexpr ModelType kDefaultModelType = ModelType::Gpt;
+// Defaults: Llama 3.2 3B BF16 WIP Bf16 support
+// Llama 3.2 1B FP32 is supported and validated
+constexpr ModelType      kDefaultModelType = ModelType::Llama;
+constexpr ModelSize      kDefaultModelSize = ModelSize::B1;
+constexpr ModelPrecision kDefaultPrecision = ModelPrecision::FP32;
 
 static std::filesystem::path gpt2_weights_path()
 {
     return std::filesystem::path( MODELS_DIR ) / "gpt2" / "gpt2_small_fp32.bin";
 }
 
-static std::filesystem::path llama_weights_path()
+static std::filesystem::path llama_weights_path( ModelSize size, ModelPrecision precision )
 {
-    return std::filesystem::path( MODELS_DIR ) / "llama" / "llama32_1b_fp32.bin";
+    const char* size_str = (size == ModelSize::B1) ? "1b" : "3b";
+    const char* prec_str = (precision == ModelPrecision::BF16) ? "bf16" : "fp32";
+    return std::filesystem::path( MODELS_DIR ) / "llama"
+        / std::format( "llama32_{}_{}.bin", size_str, prec_str );
 }
 
 static void printUsage( const char* prog_name )
 {
     std::cerr << "Usage: " << prog_name
-        << " [--model-type gpt|llama] [--tokenizer <path>] [--context-length <n>] [model_path]\n"
-        << "  --model-type      Model architecture: gpt or llama.\n"
+        << " [--model-type gpt|llama] [--model-size 1b|3b] [--precision fp32|bf16]"
+           " [--tokenizer <path>] [--context-length <n>] [model_path]\n"
+        << "  --model-type      Model architecture: gpt or llama. Default: llama.\n"
+        << "                    Inferred from model_path if not specified.\n"
+        << "  --model-size      Llama parameter count: 1b or 3b. Default: 3b.\n"
+        << "                    Inferred from model_path if not specified.\n"
+        << "  --precision       Weight dtype: fp32 or bf16. Default: bf16.\n"
         << "                    Inferred from model_path if not specified.\n"
         << "  --tokenizer       Path to the tokenizer file.\n"
         << "  --context-length  Maximum sequence length for inference.\n"
@@ -42,11 +54,15 @@ static void printUsage( const char* prog_name )
 static ChatConfig parseArgs( int argc, char* argv[] )
 {
     std::filesystem::path models_dir = MODELS_DIR;
-    ModelType             model_type = kDefaultModelType;
+    ModelType      model_type = kDefaultModelType;
+    ModelSize      model_size = kDefaultModelSize;
+    ModelPrecision precision  = kDefaultPrecision;
     std::optional<std::filesystem::path> model_path;
     std::optional<std::filesystem::path> tokenizer_path;
     std::optional<std::size_t>           context_length;
-    bool explicit_type = false;
+    bool explicit_type      = false;
+    bool explicit_size      = false;
+    bool explicit_precision = false;
 
     for ( int i = 1; i < argc; ++i )
     {
@@ -57,6 +73,7 @@ static ChatConfig parseArgs( int argc, char* argv[] )
             if ( i + 1 >= argc )
                 throw std::invalid_argument( "--model-type requires a value" );
             std::string_view type = argv[ ++i ];
+
             if ( type == "gpt" )
                 model_type = ModelType::Gpt;
             else if ( type == "llama" )
@@ -64,7 +81,40 @@ static ChatConfig parseArgs( int argc, char* argv[] )
             else
                 throw std::invalid_argument(
                     std::format( "Unknown --model-type: '{}'. Expected gpt or llama.", type ) );
+
             explicit_type = true;
+        }
+        else if ( arg == "--model-size" )
+        {
+            if ( i + 1 >= argc )
+                throw std::invalid_argument( "--model-size requires a value" );
+            std::string_view size = argv[ ++i ];
+
+            if ( size == "1b" )
+                model_size = ModelSize::B1;
+            else if ( size == "3b" )
+                model_size = ModelSize::B3;
+            else
+                throw std::invalid_argument(
+                    std::format( "Unknown --model-size: '{}'. Expected 1b or 3b.", size ) );
+
+            explicit_size = true;
+        }
+        else if ( arg == "--precision" )
+        {
+            if ( i + 1 >= argc )
+                throw std::invalid_argument( "--precision requires a value" );
+            std::string_view prec = argv[ ++i ];
+
+            if ( prec == "fp32" )
+                precision = ModelPrecision::FP32;
+            else if ( prec == "bf16" )
+                precision = ModelPrecision::BF16;
+            else
+                throw std::invalid_argument(
+                    std::format( "Unknown --precision: '{}'. Expected fp32 or bf16.", prec ) );
+
+            explicit_precision = true;
         }
         else if ( arg == "--tokenizer" )
         {
@@ -79,9 +129,11 @@ static ChatConfig parseArgs( int argc, char* argv[] )
             std::string_view val = argv[ ++i ];
             std::size_t n = 0;
             auto result = std::from_chars( val.data(), val.data() + val.size(), n );
+
             if ( result.ec != std::errc{} || n == 0 )
                 throw std::invalid_argument( std::format(
                     "--context-length must be a positive integer, got '{}'", val ) );
+
             context_length = n;
         }
         else if ( !arg.starts_with( "--" ) )
@@ -94,22 +146,34 @@ static ChatConfig parseArgs( int argc, char* argv[] )
         }
     }
 
-    // Infer model type from path if not explicitly set.
-    if ( !explicit_type && model_path )
+    // When a path is provided, infer any unset attributes from it before
+    // building defaults — this is the correct ordering so the default path
+    // construction below reflects the inferred values.
+    if ( model_path )
     {
         std::string lower = model_path->string();
         std::ranges::transform( lower, lower.begin(),
             []( unsigned char c ) { return static_cast<char>(std::tolower( c )); } );
-        model_type = lower.find( "llama" ) != std::string::npos
-            ? ModelType::Llama
-            : ModelType::Gpt;
+
+        if ( !explicit_type )
+            model_type = lower.find( "llama" ) != std::string::npos
+                ? ModelType::Llama : ModelType::Gpt;
+
+        if ( !explicit_size )
+            model_size = lower.find( "_1b_" ) != std::string::npos
+                ? ModelSize::B1 : ModelSize::B3;
+
+        if ( !explicit_precision )
+            precision = lower.find( "bf16" ) != std::string::npos
+                ? ModelPrecision::BF16 : ModelPrecision::FP32;
     }
 
+    // Resolve the default path from the (now fully resolved) attributes.
     if ( !model_path )
     {
         model_path = (model_type == ModelType::Gpt)
             ? gpt2_weights_path()
-            : llama_weights_path();
+            : llama_weights_path( model_size, precision );
     }
 
     if ( !tokenizer_path )
@@ -121,11 +185,11 @@ static ChatConfig parseArgs( int argc, char* argv[] )
 
     ChatConfig config;
     config.model_type = model_type;
+    config.model_size = model_size;
+    config.precision  = precision;
     config.model_path = std::move( *model_path );
     config.tokenizer_path = std::move( *tokenizer_path );
 
-    // Resolve context_length to a model-type-aware default if not
-    // explicitly provided by the user.
     if ( context_length.has_value() )
     {
         config.context_length = *context_length;

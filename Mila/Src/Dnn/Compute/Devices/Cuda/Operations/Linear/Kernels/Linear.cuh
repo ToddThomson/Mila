@@ -2,10 +2,13 @@
 
 #include <cublasLt.h>
 #include <cuda_runtime.h>
-#include <cuda_fp16.h>
+#include <cuda_bf16.h>
 
 namespace Mila::Dnn::Compute::Cuda::Linear
 {
+    // ========================================================================
+    // FP32 Kernels
+    // ========================================================================
     void cuda_matvec_decode_fp32(
         float* y,
         const float* x,
@@ -21,6 +24,18 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         const float* dY,
         int outer_size,
         int out_features,
+        cudaStream_t stream );
+
+    // ========================================================================
+    // BF16 Kernels
+    // ========================================================================
+    void cuda_matvec_decode_bf16(
+    __nv_bfloat16* y,
+        const __nv_bfloat16* x,
+        const __nv_bfloat16* weight,
+        const __nv_bfloat16* bias,
+        int C,
+        int OC,
         cudaStream_t stream );
 
     // TODO: Enable these functions when implemented

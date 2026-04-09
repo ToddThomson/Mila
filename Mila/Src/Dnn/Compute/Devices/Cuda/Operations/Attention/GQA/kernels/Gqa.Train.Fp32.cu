@@ -1,4 +1,4 @@
-// CudaGqa.Train.cu
+// Gqa.Train.Fp32.cu
 
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>

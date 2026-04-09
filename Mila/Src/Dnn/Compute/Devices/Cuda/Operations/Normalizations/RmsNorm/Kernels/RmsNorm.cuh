@@ -8,7 +8,7 @@
 #pragma once
 
 #include <cuda_runtime.h>
-#include <cuda_fp16.h>
+#include <cuda_bf16.h>
 #include <cuda_fp8.h>
 
 namespace Mila::Dnn::Compute::Cuda::RmsNorm
@@ -115,31 +115,33 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         cudaStream_t stream );
 
     /**
-     * @brief FP16 RMS normalization forward launcher.
+     * @brief BF16 RMS normalization forward launcher.
      *
-     * Statistics (rstd) may be stored in FP32 for numerical stability depending on implementation.
+     * I/O tensors are BF16; rstd is stored as BF16 for buffer type consistency.
+     * All internal reduction arithmetic is performed in float32.
      */
-    void cuda_rmsnorm_forward_fp16(
-        half* Y,
-        half* rstd,
-        const half* X,
-        const half* weight, const half* bias,
+    void cuda_rmsnorm_forward_bf16(
+        __nv_bfloat16* Y,
+        __nv_bfloat16* rstd,
+        const __nv_bfloat16* X,
+        const __nv_bfloat16* weight, const __nv_bfloat16* bias,
         int outer_size, int inner_size, int norm_dim,
         float epsilon,
         cudaStream_t stream );
 
     /**
-     * @brief FP16 RMS normalization backward launcher.
+     * @brief BF16 RMS normalization backward launcher.
      *
-     * Parameter gradients may be accumulated in higher precision internally.
+     * Computes dX in BF16 and accumulates dweight/dbias via BF16 atomicAdd
+     * (requires SM >= 8.0, which is the minimum for BF16 support).
      */
-    void cuda_rmsnorm_backward_fp16(
-        half* dX,
-        half* dweight, half* dbias,
-        const half* dY,
-        const half* X,
-        const half* weight,
-        const half* rstd,
+    void cuda_rmsnorm_backward_bf16(
+        __nv_bfloat16* dX,
+        __nv_bfloat16* dweight, __nv_bfloat16* dbias,
+        const __nv_bfloat16* dY,
+        const __nv_bfloat16* X,
+        const __nv_bfloat16* weight,
+        const __nv_bfloat16* rstd,
         int outer_size, int inner_size, int norm_dim,
         cudaStream_t stream );
 }

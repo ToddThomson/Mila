@@ -188,7 +188,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
 
             // Permute Q: [B, chunk_len, NH*HS] → [B, NH, T_max, HS]
             // Writes into KV cache at rows [start_pos .. start_pos + chunk_len)
-            Detail::cuda_gqa_kernels<NativeType>::prefill_permute_q(
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_q(
                 q_,
                 Xq,
                 B_, chunk_len,
@@ -199,7 +199,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
 
             // Permute K and V: [B, chunk_len, NKV*HS] → [B, NKV, T_max, HS]
             // Writes into KV cache at rows [start_pos .. start_pos + chunk_len)
-            Detail::cuda_gqa_kernels<NativeType>::prefill_permute_kv(
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
                 k_, v_,
                 Xk, Xv,
                 B_, chunk_len,
@@ -209,7 +209,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             context_->synchronize();
 
             // Expand K/V from [B,NKV,T,HS] → k_exp/v_exp [B,NH,T,HS]
-            Detail::cuda_gqa_kernels<NativeType>::prefill_expand_kv(
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_expand_kv(
                 k_exp_, v_exp_,
                 k_, v_,
                 B_, chunk_len, T_, NH_, NKV_, HS_,
@@ -261,7 +261,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 Y,         // [B, chunk_len, NQH*HS]
                 B_,        // batch
                 chunk_len, // actual_T (length of the chunk)
-                kPrefillChunkSize, // POSSIBLE BUG: T_,        // padded_T (full KV cache length)
+                kPrefillChunkSize,
                 NH_,       // NQH (number of *query* heads)
                 HS_,       // head size
                 stream );
@@ -296,7 +296,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
 
             // Permute Q into cache at position.
-            Detail::cuda_gqa_kernels<NativeType>::prefill_permute_q(
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_q(
                 q_,
                 Xq,
                 B_, 1,
@@ -306,7 +306,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             context_->synchronize();
 
             // Permute K, V into cache at position.
-            Detail::cuda_gqa_kernels<NativeType>::prefill_permute_kv(
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
                 k_, v_,
                 Xk, Xv,
                 B_, 1,
@@ -322,7 +322,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             }*/
 
             // Expand KV cache up to actual_len into k_exp / v_exp.
-            Detail::cuda_gqa_kernels<NativeType>::prefill_expand_kv(
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_expand_kv(
                 k_exp_, v_exp_,
                 k_, v_,
                 B_, actual_len, T_, NH_, NKV_, HS_,
@@ -976,6 +976,8 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         {
             if constexpr ( std::is_same_v<NativeType, float> )
                 return CUDA_R_32F;
+            else if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
+                return CUDA_R_16BF;
             else if constexpr ( std::is_same_v<NativeType, half> )
                 return CUDA_R_16F;
         }
@@ -1034,15 +1036,13 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                     } );
 
             OperationRegistry::instance()
-                .registerUnaryOperation<DeviceType::Cuda,
-                TensorDataType::FP16,
-                TensorDataType::FP16>(
+                .registerUnaryOperation<DeviceType::Cuda, TensorDataType::BF16, TensorDataType::BF16>(
                     opName,
                     []( IExecutionContext* ctx,
                         const ComponentConfig& cfg )
-                    -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
+                    -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::BF16>>
                     {
-                        return std::make_shared<CudaGroupedQueryAttentionOp<TensorDataType::FP16>>(
+                        return std::make_shared<CudaGroupedQueryAttentionOp<TensorDataType::BF16>>(
                             ctx,
                             static_cast<const GroupedQueryAttentionConfig&>(cfg) );
                     } );

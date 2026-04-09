@@ -6,7 +6,7 @@
 
 | Stage | Version |
 |---|---|
-| Current | 0.11.1-alpha.3 |
+| Current | 0.11.2-alpha.3 |
 | Planned beta | 0.2.1-beta |
 
 ---

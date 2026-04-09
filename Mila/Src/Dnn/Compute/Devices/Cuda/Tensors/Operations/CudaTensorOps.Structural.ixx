@@ -1,5 +1,6 @@
 module;
 #include <cuda_runtime.h>
+#include <cuda_bf16.h>
 #include <cstring>
 #include <algorithm>
 #include <memory>
@@ -56,6 +57,24 @@ namespace Mila::Dnn::Compute::Cuda
                     out_a, out_b, out_c,
                     src_rows, dim_a, dim_b, dim_c,
                     stream );
+            }
+        };
+
+        template<>
+        struct cuda_structural_kernels<nv_bfloat16>
+        {
+            static void split(
+                const float* src,
+                float* out_a, float* out_b, float* out_c,
+                int src_rows, int dim_a, int dim_b, int dim_c,
+                cudaStream_t stream )
+            {
+                // TODO:
+                /*cuda_split3_bf16(
+                    src,
+                    out_a, out_b, out_c,
+                    src_rows, dim_a, dim_b, dim_c,
+                    stream );*/
             }
         };
     }

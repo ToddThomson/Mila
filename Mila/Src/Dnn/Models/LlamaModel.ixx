@@ -350,7 +350,7 @@ namespace Mila::Dnn
         {
             int64_t seq_len = logits.shape()[ 1 ];
             shape_t shape = { 1, seq_len, config_.getVocabSize() };
-            Tensor<TPrecision, CpuMemoryResource> cpu( Device::Cpu(), shape );
+            Tensor<TensorDataType::FP32, CpuMemoryResource> cpu( Device::Cpu(), shape );
             copy( logits, cpu );
 
             const float* row = cpu.data()

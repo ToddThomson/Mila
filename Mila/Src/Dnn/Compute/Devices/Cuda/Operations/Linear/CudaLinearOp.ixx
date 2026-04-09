@@ -87,7 +87,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
         CudaLinearOp( IExecutionContext* context, const LinearConfig& config )
-            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaLinearOp" ) ), config_( config ), impl_()
+            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaLinearOp" ) ), config_( config ), fallback_impl_()
         {
             config_.validate();
         }
@@ -297,12 +297,12 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             // We need to revisit this code block
 
             // Fallback to custom non-cublasLt kernel
-            Detail::cuda_matmul_impl<NativeType>::forward(
-                output_ptr, input_ptr,
-                weight_, bias_,
-                static_cast<int>(outer_size),
-                cached_in_features_, cached_out_features_,
-                stream );
+            //Detail::cuda_matmul_impl<NativeType>::forward(
+            //    output_ptr, input_ptr,
+            //    weight_, bias_,
+            //    static_cast<int>(outer_size),
+            //    cached_in_features_, cached_out_features_,
+            //    stream );
         }
 
         void backward(
@@ -376,13 +376,15 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 return;
             }
 
+            // REVIEW: non cublaslt fallback not required
+
             // Fallback to custom non-cublasLt kernels
-            Detail::cuda_matmul_impl<NativeType>::backward(
-                input_grad_ptr, weight_grad_, bias_grad_,
-                output_grad_ptr, input_ptr, weight_,
-                cached_outer_size_,
-                cached_in_features_, cached_out_features_,
-                stream );
+            //Detail::cuda_matmul_impl<float>::backward(
+            //    input_grad_ptr, weight_grad_, bias_grad_,
+            //    output_grad_ptr, input_ptr, weight_,
+            //    cached_outer_size_,
+            //    cached_in_features_, cached_out_features_,
+            //    stream );
         }
 
         //void decode( const ITensor& input, ITensor& output ) const override
@@ -420,7 +422,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         LinearConfig config_;
         CudaExecutionContext* context_;
-        Detail::cuda_matmul_impl<NativeType> impl_;
+        Detail::cuda_matmul_impl<float> fallback_impl_;
 
         const NativeType* weight_{ nullptr };
         const NativeType* bias_{ nullptr };

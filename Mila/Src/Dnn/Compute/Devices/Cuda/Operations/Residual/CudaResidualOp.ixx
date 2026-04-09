@@ -192,11 +192,11 @@ namespace Mila::Dnn::Compute::Cuda::Residual
                 TensorDataType::FP32, TensorDataType::FP32,
                 TensorDataType::FP32>(opName);
 
-            // Register for FP16
+            // Register for BF16
             registerBinaryOpType<DeviceType::Cuda,
-                CudaResidualOp<TensorDataType::FP16>,
-                TensorDataType::FP16, TensorDataType::FP16,
-                TensorDataType::FP16>(opName);
+                CudaResidualOp<TensorDataType::BF16>,
+                TensorDataType::BF16, TensorDataType::BF16,
+                TensorDataType::BF16>(opName);
         }
     };
 }

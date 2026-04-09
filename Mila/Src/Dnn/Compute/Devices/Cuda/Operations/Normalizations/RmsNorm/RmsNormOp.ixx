@@ -42,7 +42,6 @@ import Compute.CpuMemoryResource;
 
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
-//import Compute.CudaDeviceResources;
 import Compute.OperationType;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
@@ -360,13 +359,13 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
                     return std::make_shared<CudaRmsNormOp<TensorDataType::FP32>>( context, rnConfig );
                 } );
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
+            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::BF16, TensorDataType::BF16>(
                 opName,
                 []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
+                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::BF16>>
                 {
                     const auto& rnConfig = static_cast<const RmsNormConfig&>(config);
-                    return std::make_shared<CudaRmsNormOp<TensorDataType::FP16>>( context, rnConfig );
+                    return std::make_shared<CudaRmsNormOp<TensorDataType::BF16>>( context, rnConfig );
                 } );
         }
     };

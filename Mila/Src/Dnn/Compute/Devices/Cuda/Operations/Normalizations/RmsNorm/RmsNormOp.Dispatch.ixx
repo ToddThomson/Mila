@@ -1,6 +1,7 @@
 module;
 #include <cublasLt.h>
-#include <cuda_fp16.h>
+#include <cuda_runtime.h>
+#include <cuda_bf16.h>
 #include <vector>
 #include <memory>
 #include <string>
@@ -20,10 +21,10 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         /**
          * @brief CUDA kernel dispatcher for RMSNorm operations.
          *
-         * Specialized for float (FP32) and half (FP16) native CUDA types.
+         * Specialized for float (FP32) and half (BF16) native CUDA types.
          */
         template <typename TNative>
-            requires std::is_same_v<TNative, float> || std::is_same_v<TNative, half>
+            requires std::is_same_v<TNative, float> || std::is_same_v<TNative, nv_bfloat16>
         struct cuda_rmsnorm_impl;
 
         template <>
@@ -54,29 +55,29 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         };
 
         template <>
-        struct cuda_rmsnorm_impl<half>
+        struct cuda_rmsnorm_impl<nv_bfloat16>
         {
             cuda_rmsnorm_impl() = default;
 
             static inline void forward(
-                half* Y, const half* X,
-                const half* weight, const half* bias,
-                half* rstd,
+                nv_bfloat16* Y, const nv_bfloat16* X,
+                const nv_bfloat16* weight, const nv_bfloat16* bias,
+                nv_bfloat16* rstd,
                 int outer_size, int inner_size, int norm_dim,
                 float epsilon,
                 cudaStream_t stream )
             {
-                // TODO: cuda_rmsnorm_forward_fp16( Y, rstd, X, weight, bias, outer_size, inner_size, norm_dim, epsilon, stream );
+                cuda_rmsnorm_forward_bf16( Y, rstd, X, weight, bias, outer_size, inner_size, norm_dim, epsilon, stream );
             }
 
             static inline void backward(
-                half* dX, half* dweight, half* dbias,
-                const half* dY, const half* X, const half* weight,
-                const half* rstd,
+                nv_bfloat16* dX, nv_bfloat16* dweight, nv_bfloat16* dbias,
+                const nv_bfloat16* dY, const nv_bfloat16* X, const nv_bfloat16* weight,
+                const nv_bfloat16* rstd,
                 int outer_size, int inner_size, int norm_dim,
                 cudaStream_t stream )
             {
-                // TODO: cuda_rmsnorm_backward_fp16( dX, dweight, dbias, dY, X, weight, rstd, outer_size, inner_size, norm_dim, stream );
+                cuda_rmsnorm_backward_bf16( dX, dweight, dbias, dY, X, weight, rstd, outer_size, inner_size, norm_dim, stream );
             }
         };
     }

@@ -33,31 +33,17 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         int N,
         cudaStream_t stream );
 
-    void cuda_residual_forward_fp16(
-        half* Y,
-        const half* X1, const half* X2,
+    void cuda_residual_forward_bf16(
+        __nv_bfloat16* Y,
+        const __nv_bfloat16* X1, const __nv_bfloat16* X2,
         float scale,
         int N,
         cudaStream_t stream );
 
-    /**
-     * @brief Host function to launch residual backward kernel with half precision (FP16)
-     *
-     * Propagates gradients through the residual connection using half-precision arithmetic.
-     * Both inputs receive the same gradient.
-     *
-     * Formula: dX1 += dY, dX2 += dY
-     *
-     * @param dX1 Gradient tensor for first input in half precision
-     * @param dX2 Gradient tensor for second input in half precision
-     * @param dY Gradient from downstream layers in half precision
-     * @param N Total number of elements in the tensors
-     * @param stream CUDA stream for asynchronous execution
-     */
-    void cuda_residual_backward_fp16(
-        half* dX1,
-        half* dX2,
-        const half* dY,
+    void cuda_residual_backward_bf16(
+        __nv_bfloat16* dX1,
+        __nv_bfloat16* dX2,
+        const __nv_bfloat16* dY,
         int N,
         cudaStream_t stream );
 }
