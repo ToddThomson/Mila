@@ -296,6 +296,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             // REVIEW: Requires testing. Focus is currently on CublasLt plan caching and implementation.
             // We need to revisit this code block
 
+            throw std::runtime_error( "CUDALinearOp: Fallback to custom forward kernel is now deprecated." );
+
             // Fallback to custom non-cublasLt kernel
             //Detail::cuda_matmul_impl<NativeType>::forward(
             //    output_ptr, input_ptr,

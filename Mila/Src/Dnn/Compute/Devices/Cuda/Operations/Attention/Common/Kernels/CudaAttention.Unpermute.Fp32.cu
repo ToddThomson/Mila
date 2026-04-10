@@ -1,5 +1,5 @@
 /**
- * @file CudaAttention.Permute.cu
+ * @file CudaAttention.Permute.Fp32.cu
  * @brief Shared output-unpermute CUDA kernels for attention operations.
  *
  * Implements the unpermute family declared in CudaAttention.cuh.
@@ -19,7 +19,6 @@
  *   out    / dout    : [B, T,  C]        C = NH * HS
  */
 
-#include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include "device_launch_parameters.h"
 #include "CudaUtils.h"
@@ -27,10 +26,6 @@
 
 namespace Mila::Dnn::Compute::Cuda::Attention::Common
 {
-    // ========================================================================
-    // FP32 device kernels
-    // ========================================================================
-
     /**
      * @brief Reorder [B, NH, T, HS] → [B, T, C] (FP32).
      *
@@ -112,80 +107,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
     }
 
     // ========================================================================
-    // FP16 device kernels
-    // ========================================================================
-
-    /**
-     * @brief Reorder [B, NH, T, HS] → [B, T, C] (FP16).
-     */
-    __global__ void unpermute_output_fp16_kernel(
-        const half* vaccum, half* out,
-        int B, int T, int NH, int HS )
-    {
-        int idx = blockIdx.x * blockDim.x + threadIdx.x;
-        const int C = NH * HS;
-
-        if ( idx < B * T * C )
-        {
-            const int b = idx / (T * C);
-            int rest = idx % (T * C);
-            const int t = rest / C;
-            const int c = rest % C;
-            const int nh = c / HS;
-            const int hs = c % HS;
-
-            out[ idx ] = vaccum[ b * (NH * T * HS) + nh * (T * HS) + t * HS + hs ];
-        }
-    }
-
-    /**
-     * @brief Reorder [B, NH, padded_T, HS] → [B, actual_T, C] (FP16).
-     */
-    __global__ void unpermute_output_padded_fp16_kernel(
-        const half* vaccum, half* out,
-        int B, int actual_T, int padded_T, int NH, int HS )
-    {
-        int idx = blockIdx.x * blockDim.x + threadIdx.x;
-        const int C = NH * HS;
-
-        if ( idx < B * actual_T * C )
-        {
-            const int b = idx / (actual_T * C);
-            int rest = idx % (actual_T * C);
-            const int t = rest / C;
-            const int c = rest % C;
-            const int nh = c / HS;
-            const int hs = c % HS;
-
-            out[ idx ] = vaccum[ b * (NH * padded_T * HS) + nh * (padded_T * HS) + t * HS + hs ];
-        }
-    }
-
-    /**
-     * @brief Scatter [B, T, C] → [B, NH, T, HS] (FP16, backward).
-     */
-    __global__ void unpermute_backward_fp16_kernel(
-        half* dvaccum, const half* dout,
-        int B, int T, int NH, int HS )
-    {
-        int idx = blockIdx.x * blockDim.x + threadIdx.x;
-        const int C = NH * HS;
-
-        if ( idx < B * T * C )
-        {
-            const int b = idx / (T * C);
-            int rest = idx % (T * C);
-            const int t = rest / C;
-            const int c = rest % C;
-            const int nh = c / HS;
-            const int hs = c % HS;
-
-            dvaccum[ b * (NH * T * HS) + nh * (T * HS) + t * HS + hs ] = dout[ idx ];
-        }
-    }
-
-    // ========================================================================
-    // Host launchers — FP32
+    // Host launchers
     // ========================================================================
 
     void cuda_attention_unpermute_output_fp32(
@@ -225,52 +147,6 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
         const int num_blocks = ceil_div( B * T * NH * HS, block_size );
 
         unpermute_backward_fp32_kernel << <num_blocks, block_size, 0, stream >> > (
-            dvaccum, dout, B, T, NH, HS);
-
-        cudaCheck( cudaGetLastError() );
-    }
-
-    // ========================================================================
-    // Host launchers — FP16
-    // ========================================================================
-
-    void cuda_attention_unpermute_output_fp16(
-        const half* vaccum, half* out,
-        int B, int T, int NH, int HS,
-        cudaStream_t stream )
-    {
-        const int block_size = 256;
-        const int num_blocks = ceil_div( B * T * NH * HS, block_size );
-
-        unpermute_output_fp16_kernel << <num_blocks, block_size, 0, stream >> > (
-            vaccum, out, B, T, NH, HS);
-
-        cudaCheck( cudaGetLastError() );
-    }
-
-    void cuda_attention_unpermute_output_padded_fp16(
-        const half* vaccum, half* out,
-        int B, int actual_T, int padded_T, int NH, int HS,
-        cudaStream_t stream )
-    {
-        const int block_size = 256;
-        const int num_blocks = ceil_div( B * actual_T * NH * HS, block_size );
-
-        unpermute_output_padded_fp16_kernel << <num_blocks, block_size, 0, stream >> > (
-            vaccum, out, B, actual_T, padded_T, NH, HS);
-
-        cudaCheck( cudaGetLastError() );
-    }
-
-    void cuda_attention_unpermute_backward_fp16(
-        half* dvaccum, const half* dout,
-        int B, int T, int NH, int HS,
-        cudaStream_t stream )
-    {
-        const int block_size = 256;
-        const int num_blocks = ceil_div( B * T * NH * HS, block_size );
-
-        unpermute_backward_fp16_kernel << <num_blocks, block_size, 0, stream >> > (
             dvaccum, dout, B, T, NH, HS);
 
         cudaCheck( cudaGetLastError() );

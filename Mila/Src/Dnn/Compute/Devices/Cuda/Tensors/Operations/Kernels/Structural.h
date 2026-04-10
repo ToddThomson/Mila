@@ -35,4 +35,12 @@ namespace Mila::Dnn::Compute::Cuda
         int dim_a, int dim_b, int dim_c,
         cudaStream_t stream );
 
+    void cuda_split3_bf16(
+        const __nv_bfloat16* __restrict__ src,
+        __nv_bfloat16* __restrict__ out0,
+        __nv_bfloat16* __restrict__ out1,
+        __nv_bfloat16* __restrict__ out2,
+        int rows,
+        int D0, int D1, int D2,
+        cudaStream_t stream );
 }

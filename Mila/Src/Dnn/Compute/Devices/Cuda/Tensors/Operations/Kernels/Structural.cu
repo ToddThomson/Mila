@@ -103,6 +103,48 @@ namespace Mila::Dnn::Compute::Cuda
         }
     }
 
+    __global__ void split3_bf16_vectorized_kernel(
+        const __nv_bfloat16* __restrict__ src,
+        __nv_bfloat16* __restrict__ out0,
+        __nv_bfloat16* __restrict__ out1,
+        __nv_bfloat16* __restrict__ out2,
+        int N,
+        int D0, int D1, int D2 )
+    {
+        const int D = D0 + D1 + D2;
+        const int vecs_per_row = D / 8;
+        const int total_vecs = N * vecs_per_row;
+
+        const int vec_idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+        if ( vec_idx >= total_vecs )
+        {
+            return;
+        }
+
+        const int bt = vec_idx / vecs_per_row;
+        const int vec_col = vec_idx % vecs_per_row;
+        const int col = vec_col * 8;
+
+        const uint4 val = reinterpret_cast<const uint4*>(src + bt * D)[ vec_col ];
+
+        if ( col < D0 )
+        {
+            const int out_vec = vec_col;
+            reinterpret_cast<uint4*>( out0 + bt * D0 )[ out_vec ] = val;
+        }
+        else if ( col < D0 + D1 )
+        {
+            const int out_vec = vec_col - (D0 / 8);
+            reinterpret_cast<uint4*>( out1 + bt * D1 )[ out_vec ] = val;
+        }
+        else
+        {
+            const int out_vec = vec_col - (D0 / 8) - (D1 / 8);
+            reinterpret_cast<uint4*>( out2 + bt * D2 )[ out_vec ] = val;
+        }
+    }
+
     // =========================================================================
     // Host launchers
     // =========================================================================
@@ -145,6 +187,28 @@ namespace Mila::Dnn::Compute::Cuda
         const int grid_size = ceil_div( total_vecs, block_size );
 
         split3_fp32_vectorized_kernel <<< grid_size, block_size, 0, stream >>> (
+            src,
+            out0, out1, out2,
+            rows, D0, D1, D2);
+
+        cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_split3_bf16(
+        const __nv_bfloat16* __restrict__ src,
+        __nv_bfloat16* __restrict__ out0,
+        __nv_bfloat16* __restrict__ out1,
+        __nv_bfloat16* __restrict__ out2,
+        int rows,
+        int D0, int D1, int D2,
+        cudaStream_t stream )
+    {
+        const int D = D0 + D1 + D2;
+        const int total_vecs = rows * (D / 8);
+        const int block_size = 256;
+        const int grid_size = ceil_div( total_vecs, block_size );
+
+        split3_bf16_vectorized_kernel << < grid_size, block_size, 0, stream >> > (
             src,
             out0, out1, out2,
             rows, D0, D1, D2);

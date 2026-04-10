@@ -123,6 +123,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             float base,
             cudaStream_t stream )
         {
+            // REVIEW: Why is cache building going through the dispatcher. Call directly.
             cuda_rope_build_cache_fp32(
                 cos_cache, sin_cache,
                 max_seq_len, head_dim, base, stream );

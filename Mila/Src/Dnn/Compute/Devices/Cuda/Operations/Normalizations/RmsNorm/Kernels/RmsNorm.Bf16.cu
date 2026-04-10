@@ -178,7 +178,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const int num_slices = outer_size * inner_size;
         const int grid_size = (num_slices + warps_per_block - 1) / warps_per_block;
 
-        rmsnorm_backward_bf16_kernel << <grid_size, block_size, 0, stream >> > (
+        rmsnorm_backward_bf16_kernel <<< grid_size, block_size, 0, stream >>> (
             dX, dweight, dbias, dY, X, weight, rstd, num_slices, norm_dim, inner_size);
 
         cudaCheck( cudaGetLastError() );

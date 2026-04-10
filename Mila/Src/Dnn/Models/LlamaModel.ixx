@@ -369,6 +369,22 @@ namespace Mila::Dnn
             int top_k,
             std::mt19937& rng )
         {
+            // DEBUG: Dump top 5 logits
+            //{
+            //    std::vector<size_t> indices( vocab_size );
+            //    std::iota( indices.begin(), indices.end(), 0 );
+            //    std::partial_sort( indices.begin(), indices.begin() + 5, indices.end(),
+            //        [&]( size_t a, size_t b ) { return logits[ a ] > logits[ b ]; } );
+
+            //    std::printf( "Top 5 logits:\n" );
+            //    for ( int i = 0; i < 5; ++i )
+            //    {
+            //        size_t token_id = indices[ i ];
+            //        std::printf( "  [%zu] logit=%.4f\n", token_id, logits[ token_id ] );
+            //    }
+            //}
+            // END DEBUG
+
             if ( temperature <= 0.0f || top_k == 1 )
             {
                 return static_cast<int32_t>( std::max_element( logits, logits + vocab_size ) - logits );

@@ -36,7 +36,23 @@
 namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
 {
     // ========================================================================
-    // QKV permute — FP32
+    // GQA Prefill — BF16
+    // ========================================================================
+
+    void cuda_gqa_prefill_softmax_bf16(
+        __nv_bfloat16* att, const __nv_bfloat16* preatt,
+        int B, int NH, int T_stride, int chunk_stride,
+        int chunk_len, int position_offset,
+        cudaStream_t stream );
+
+    void cuda_gqa_prefill_unpermute_output_padded_bf16(
+        const __nv_bfloat16* vaccum, __nv_bfloat16* out,
+        int B, int actual_T, int padded_T,
+        int NQH, int HS,
+        cudaStream_t stream );
+
+    // ========================================================================
+    // GQA KV Cache FP32
     // ========================================================================
 
     /**
@@ -52,7 +68,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
      * @param max_seq_len KV cache capacity.
      * @param stream      CUDA stream for kernel scheduling.
      */
-    void cuda_gqa_prefill_permute_q_fp32(
+    void cuda_gqa_kvcache_write_q_fp32(
         float* Q,
         const float* X,
         int batch, int chunk_len,
@@ -78,13 +94,81 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
      * @param max_seq_len KV cache capacity.
      * @param stream      CUDA stream for kernel scheduling.
      */
-    void cuda_gqa_prefill_permute_kv_fp32(
+    void cuda_gqa_kvcache_write_kv_fp32(
         float* K, float* V,
         const float* Xk, const float* Xv,
         int batch, int chunk_len,
         int NKV, int HS,
         int start_pos, int max_seq_len,
         cudaStream_t stream );
+
+    // ========================================================================
+    // GQA KV Cache BF16
+    // ========================================================================
+
+    /**
+     * @brief Permute Q from [B, chunk_len, NH*HS] to [B, NH, T_max, HS] (BF16).
+     *
+     * @param Q           Output Q buffer [B * NH * T_max * HS], device memory.
+     * @param X           Input Q buffer  [B * chunk_len * NH * HS], device memory.
+     * @param batch       Batch size.
+     * @param chunk_len   Number of tokens in this prefill chunk.
+     * @param NH          Number of query heads.
+     * @param HS          Head dimension.
+     * @param start_pos   Absolute token position of the first chunk token.
+     * @param max_seq_len KV cache capacity.
+     * @param stream      CUDA stream for kernel scheduling.
+     */
+    void cuda_gqa_kvcache_write_q_bf16(
+        __nv_bfloat16* Q,
+        const __nv_bfloat16* X,
+        int batch, int chunk_len,
+        int NH, int HS,
+        int start_pos, int max_seq_len,
+        cudaStream_t stream );
+
+    /**
+     * @brief Permute K and V from [B, chunk_len, NKV*HS] to [B, NKV, T_max, HS] (BF16).
+     *
+     * K and V are permuted in a single kernel launch since they share identical
+     * stride arithmetic.
+     *
+     * @param K           Output K buffer [B * NKV * T_max * HS], device memory.
+     * @param V           Output V buffer [B * NKV * T_max * HS], device memory.
+     * @param Xk          Input K buffer  [B * chunk_len * NKV * HS], device memory.
+     * @param Xv          Input V buffer  [B * chunk_len * NKV * HS], device memory.
+     * @param batch       Batch size.
+     * @param chunk_len   Number of tokens in this prefill chunk.
+     * @param NKV         Number of key/value heads.
+     * @param HS          Head dimension.
+     * @param start_pos   Absolute token position of the first chunk token.
+     * @param max_seq_len KV cache capacity.
+     * @param stream      CUDA stream for kernel scheduling.
+     */
+    void cuda_gqa_kvcache_write_kv_bf16(
+        __nv_bfloat16* K, __nv_bfloat16* V,
+        const __nv_bfloat16* Xk, const __nv_bfloat16* Xv,
+        int batch, int chunk_len,
+        int NKV, int HS,
+        int start_pos, int max_seq_len,
+        cudaStream_t stream );
+
+    void cuda_gqa_kvcache_expand_kv_bf16(
+        __nv_bfloat16* k_exp, __nv_bfloat16* v_exp,
+        const __nv_bfloat16* k_compact, const __nv_bfloat16* v_compact,
+        int B, int chunk_len, int T_stride, int NH, int NKV, int HS,
+        int position_offset,
+        cudaStream_t stream );
+
+    void cuda_gqa_kvcache_expand_kv_fp32(
+        float* k_exp, float* v_exp,
+        const float* k_compact, const float* v_compact,
+        int B, int chunk_len, int T, int NH, int NKV, int HS, int position_offset,
+        cudaStream_t stream );
+
+    // ========================================================================
+    // TODO Reorg GQA Kernels
+    // ========================================================================
 
     /**
      * @brief Padded variant: pads output to output_T, zeroing positions
@@ -165,11 +249,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         int B, int T, int NH, int NKV, int HS,
         cudaStream_t stream );
 
-    void cuda_gqa_prefill_expand_kv_fp32(
-        float* k_exp, float* v_exp,
-        const float* k_compact, const float* v_compact,
-        int B, int chunk_len, int T, int NH, int NKV, int HS, int position_offset,
-        cudaStream_t stream );
+    
 
     void cuda_gqa_prefill_expand_kv_fp16(
         half* k_exp, half* v_exp,

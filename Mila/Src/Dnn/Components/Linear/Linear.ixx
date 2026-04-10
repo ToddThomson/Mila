@@ -130,6 +130,7 @@ namespace Mila::Dnn
             }
 
             validateInputShape( input.shape() );
+            
             // REVIEW: This is now a compute operation optimization rather than a decode path.
             // Fast decode path — single token, inference mode, dedicated kernel.
             //if ( decode_path_ && isInferenceMode() && input.shape()[ 1 ] == 1 )

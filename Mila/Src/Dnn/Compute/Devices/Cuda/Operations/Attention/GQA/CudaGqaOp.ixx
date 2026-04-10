@@ -186,7 +186,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             const float beta = 0.0f;
             const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
 
-            // Permute Q: [B, chunk_len, NH*HS] → [B, NH, T_max, HS]
+            // KvCache Write Q: [B, chunk_len, NH*HS] → [B, NH, T_max, HS]
             // Writes into KV cache at rows [start_pos .. start_pos + chunk_len)
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_q(
                 q_,
@@ -197,7 +197,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 stream );
             context_->synchronize();
 
-            // Permute K and V: [B, chunk_len, NKV*HS] → [B, NKV, T_max, HS]
+            // KvCache write K and V: [B, chunk_len, NKV*HS] → [B, NKV, T_max, HS]
             // Writes into KV cache at rows [start_pos .. start_pos + chunk_len)
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
                 k_, v_,
@@ -208,7 +208,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 stream );
             context_->synchronize();
 
-            // Expand K/V from [B,NKV,T,HS] → k_exp/v_exp [B,NH,T,HS]
+            // KvCache Expand K/V from [B,NKV,T,HS] → k_exp/v_exp [B,NH,T,HS]
             Detail::cuda_gqa_kernels<NativeType>::kvcache_expand_kv(
                 k_exp_, v_exp_,
                 k_, v_,
@@ -982,9 +982,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 return CUDA_R_16F;
         }
 
-        void getComputeTypes(
-            cublasComputeType_t& compute_type,
-            cudaDataType_t& scale_type ) const
+        void getComputeTypes( cublasComputeType_t& compute_type, cudaDataType_t& scale_type ) const
         {
             scale_type = CUDA_R_32F;
 
@@ -993,18 +991,34 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 case ComputePrecision::Policy::Native:
                 case ComputePrecision::Policy::Accuracy:
                     if constexpr ( std::is_same_v<NativeType, half> )
+                    {
                         compute_type = CUBLAS_COMPUTE_16F;
-                    else
+                    }
+                    else if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
+                    {
                         compute_type = CUBLAS_COMPUTE_32F;
+                    }
+                    else
+                    {
+                        compute_type = CUBLAS_COMPUTE_32F;
+                    }
                     break;
 
                 case ComputePrecision::Policy::Performance:
                 case ComputePrecision::Policy::Auto:
                 default:
                     if constexpr ( std::is_same_v<NativeType, half> )
+                    {
                         compute_type = CUBLAS_COMPUTE_32F_FAST_16F;
+                    }
+                    else if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
+                    {
+                        compute_type = CUBLAS_COMPUTE_32F_FAST_16BF;
+                    }
                     else
+                    {
                         compute_type = CUBLAS_COMPUTE_32F;
+                    }
                     break;
             }
         }

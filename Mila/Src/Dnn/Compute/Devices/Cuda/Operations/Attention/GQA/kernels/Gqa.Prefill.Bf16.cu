@@ -1,4 +1,4 @@
-// CudaGqa.Prefill.Fp16.cu
+// Gqa.Prefill.Bf16.cu
 
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
@@ -9,120 +9,157 @@
 
 namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
 {
-    __global__ void gqa_prefill_permute_q_bf16_kernel(
-        nv_bfloat16* Q,
-        const nv_bfloat16* X,
+    /**
+     * @brief Per-row causal softmax over BF16 preattention scores.
+     *
+     * Mirrors prefill_softmax_fp32_kernel_v2. All arithmetic is performed in
+     * float32; BF16 inputs are widened on load and narrowed on store to
+     * preserve numerical stability across the exp/normalize pass.
+     *
+     * Each thread owns one query row (b, nh, t), iterates over key positions
+     * [0, abs_t], and zeros positions (abs_t, T_stride).
+     *
+     * @param att            Output attention weights [B, NH, chunk_stride, T_stride].
+     * @param preatt         Input pre-attention logits [B, NH, chunk_stride, T_stride].
+     * @param B              Batch size.
+     * @param NH             Number of query heads.
+     * @param T_stride       Maximum sequence length (row width in memory).
+     * @param chunk_stride   Allocated chunk capacity (row pitch for the query axis).
+     * @param chunk_len      Number of active query tokens in this chunk (<= chunk_stride).
+     * @param position_offset Absolute position of the first token in this chunk.
+     */
+    __global__ void prefill_softmax_bf16_kernel(
+        __nv_bfloat16* att,
+        const __nv_bfloat16* preatt,
         int B,
-        int chunk_len,
-        int start_pos,
-        int T_max,
         int NH,
-        int NKV,
-        int HS )
+        int T_stride,
+        int chunk_stride,
+        int chunk_len,
+        int position_offset )
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        int total_rows = B * NH * chunk_len;
 
-        // operate on half2 pairs (2 elements)
-        int HS2 = HS >> 1;
-        const int total2 = B * NH * chunk_len * HS2;
-        if ( idx >= total2 ) return;
+        if ( idx >= total_rows )
+            return;
 
-        int b = idx / (NH * chunk_len * HS2);
-        int r1 = idx % (NH * chunk_len * HS2);
+        int b_nh = idx / chunk_len;
+        int t = idx % chunk_len;
 
-        int nh = r1 / (chunk_len * HS2);
-        r1 %= (chunk_len * HS2);
+        int b = b_nh / NH;
+        int nh = b_nh % NH;
 
-        int t = r1 / HS2;
-        int h2 = r1 % HS2;
+        int row_offset = ((b * NH + nh) * chunk_stride + t) * T_stride;
 
-        int kv_pos = start_pos + t;
+        const __nv_bfloat16* preatt_row = preatt + row_offset;
+        __nv_bfloat16* att_row = att + row_offset;
 
-        int out2 =
-            b * (NH * T_max * HS)
-            + nh * (T_max * HS)
-            + kv_pos * HS
-            + (h2 << 1);
+        int abs_t = position_offset + t;
+        int max_t2 = min( abs_t, T_stride - 1 );
 
-        int src2 =
-            b * chunk_len * (NH + 2 * NKV) * HS +
-            t * (NH + 2 * NKV) * HS +
-            nh * HS + (h2 << 1);
+        // Step 1: find max for numerical stability, promoting to float
+        float max_val = -CUDART_INF_F;
+        for ( int t2 = 0; t2 <= max_t2; ++t2 )
+            max_val = fmaxf( max_val, __bfloat162float( preatt_row[ t2 ] ) );
 
-        reinterpret_cast<half2*>(Q)[ out2 >> 1 ] =
-            reinterpret_cast<const half2*>(X)[ src2 >> 1 ];
+        // Step 2: exponentiate and accumulate sum
+        float sum = 0.0f;
+        for ( int t2 = 0; t2 <= max_t2; ++t2 )
+        {
+            float val = expf( __bfloat162float( preatt_row[ t2 ] ) - max_val );
+            sum += val;
+            att_row[ t2 ] = __float2bfloat16( val );
+        }
+
+        // Step 3: normalize
+        float inv_sum = 1.0f / sum;
+        for ( int t2 = 0; t2 <= max_t2; ++t2 )
+            att_row[ t2 ] = __float2bfloat16( __bfloat162float( att_row[ t2 ] ) * inv_sum );
+
+        // Step 4: zero out future tokens
+        for ( int t2 = max_t2 + 1; t2 < T_stride; ++t2 )
+            att_row[ t2 ] = __float2bfloat16( 0.0f );
     }
 
-    __global__ void gqa_prefill_permute_kv_bf16_kernel(
-        nv_bfloat16* K, nv_bfloat16* V,
-        const nv_bfloat16* X,
-        int B,
-        int chunk_len,
-        int start_pos,
-        int T_max,
-        int NH,
-        int NKV,
-        int HS )
+    /**
+     * @brief Unpack vaccum [B, NQH, padded_T, HS] → out [B, actual_T, NQH*HS].
+     *
+     * BF16 equivalent of gqa_prefill_unpermute_output_padded_fp32_kernel.
+     * No arithmetic; only index permutation — elements are copied as BF16.
+     *
+     * @param vaccum   Input  [B * NQH * padded_T * HS], head-major layout.
+     * @param out      Output [B * actual_T * NQH * HS], token-major layout.
+     * @param B        Batch size.
+     * @param actual_T Number of valid query tokens in this chunk.
+     * @param padded_T Padded chunk capacity (row pitch in vaccum).
+     * @param NQH      Number of query heads.
+     * @param HS       Head dimension.
+     */
+    __global__ void gqa_prefill_unpermute_output_padded_bf16_kernel(
+        const __nv_bfloat16* __restrict__ vaccum,
+        __nv_bfloat16* __restrict__ out,
+        int B, int actual_T, int padded_T,
+        int NQH, int HS )
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        const int C = NQH * HS;
 
-        int HS2 = HS >> 1;
-        const int total2 = B * NKV * chunk_len * HS2;
-        if ( idx >= total2 ) return;
+        int total = B * actual_T * C;
 
-        int b = idx / (NKV * chunk_len * HS2);
-        int r1 = idx % (NKV * chunk_len * HS2);
+        if ( idx >= total ) return;
 
-        int nkv = r1 / (chunk_len * HS2);
-        r1 %= (chunk_len * HS2);
+        const int b = idx / (actual_T * C);
+        int rest = idx % (actual_T * C);
+        const int t = rest / C;
+        const int c = rest % C;
+        const int nh = c / HS;
+        const int hs = c % HS;
 
-        int t = r1 / HS2;
-        int h2 = r1 % HS2;
+        const int in_idx =
+            b * (NQH * padded_T * HS)
+            + nh * (padded_T * HS)
+            + t * HS
+            + hs;
 
-        int kv_pos = start_pos + t;
-
-        int out2 =
-            b * (NKV * T_max * HS)
-            + nkv * (T_max * HS)
-            + kv_pos * HS
-            + (h2 << 1);
-
-        int base =
-            b * chunk_len * (NH + 2 * NKV) * HS +
-            t * (NH + 2 * NKV) * HS;
-
-        int k_src = base + NH * HS + (nkv * HS) + (h2 << 1);
-        int v_src = base + (NH + NKV) * HS + (nkv * HS) + (h2 << 1);
-
-        auto K2 = reinterpret_cast<half2*>(K);
-        auto V2 = reinterpret_cast<half2*>(V);
-
-        const auto* X2 = reinterpret_cast<const half2*>(X);
-
-        K2[ out2 >> 1 ] = X2[ k_src >> 1 ];
-        V2[ out2 >> 1 ] = X2[ v_src >> 1 ];
+        out[ idx ] = vaccum[ in_idx ];
     }
 
-    // ------------------------------------------------------------------------
-    // Host function to launch the kernels
-    // ------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // Host launchers
+    // -------------------------------------------------------------------------
 
-    void cuda_gqa_prefill_permute_qkv_bf16(
-        nv_bfloat16* Q, nv_bfloat16* K, nv_bfloat16* V,
-        const nv_bfloat16* X,
-        int B, int chunk_len, int start_pos, int T_max,
-        int NH, int NKV, int HS,
+    void cuda_gqa_prefill_softmax_bf16(
+        __nv_bfloat16* att, const __nv_bfloat16* preatt,
+        int B, int NH, int T_stride, int chunk_stride,
+        int chunk_len, int position_offset,
         cudaStream_t stream )
     {
-        int HS2 = HS >> 1;
-        dim3 block( 256 );
+        const int total_rows = B * NH * chunk_len;
+        const int block_size = 256;
+        const int grid_size = ceil_div( total_rows, block_size );
 
-        gqa_prefill_permute_q_bf16_kernel
-            << < ceil_div( B * NH * chunk_len * HS2, 256 ), block, 0, stream >> > (
-                Q, X, B, chunk_len, start_pos, T_max, NH, NKV, HS);
+        prefill_softmax_bf16_kernel <<< grid_size, block_size, 0, stream >>> (
+            att, preatt,
+            B, NH, T_stride, chunk_stride,
+            chunk_len, position_offset);
 
-        gqa_prefill_permute_kv_bf16_kernel
-            << < ceil_div( B * NKV * chunk_len * HS2, 256 ), block, 0, stream >> > (
-                K, V, X, B, chunk_len, start_pos, T_max, NH, NKV, HS);
+        cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_gqa_prefill_unpermute_output_padded_bf16(
+        const __nv_bfloat16* vaccum, __nv_bfloat16* out,
+        int B, int actual_T, int padded_T,
+        int NQH, int HS,
+        cudaStream_t stream )
+    {
+        const int block_size = 256;
+        const int total = B * actual_T * NQH * HS;
+        const int num_blocks = ceil_div( total, block_size );
+
+        gqa_prefill_unpermute_output_padded_bf16_kernel << < num_blocks, block_size, 0, stream >> > (
+            vaccum, out, B, actual_T, padded_T, NQH, HS);
+
+        cudaCheck( cudaGetLastError() );
     }
 }

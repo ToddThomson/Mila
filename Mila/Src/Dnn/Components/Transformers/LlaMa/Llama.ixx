@@ -188,7 +188,7 @@ namespace Mila::Dnn
                 auto chunk_input = input.view( shape_t{ B, T_actual }, offset );
 
                 // Embed directly — output buffer lives in token_embedding_
-                TensorType* block_input = &token_embedding_->forward( chunk_input ); // DEBUG: Validated tensor output from forward is the same as HF
+                TensorType* block_input = &token_embedding_->forward( chunk_input );
                 this->getExecutionContext()->synchronize();
 
                 for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
@@ -215,6 +215,7 @@ namespace Mila::Dnn
             auto last_pos = last_block_out->view(
                 shape_t{ B, 1, config_.getModelDim() },
                 last_pos_offset );
+            
             // DEBUG:
             // Dump last pos block output for the last chunk
             //std::cout << std::format(

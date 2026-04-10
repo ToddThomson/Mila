@@ -16,6 +16,7 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <format>
+#include <sstream>
 
 export module Compute.CudaTokenEmbeddingOp;
 import :Dispatch;
@@ -34,6 +35,9 @@ import Compute.OperationType;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.OperationRegistrarHelpers;
+
+// DEBUG:
+import Cuda.Debug;
 
 namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
 {
@@ -172,6 +176,8 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
                 Y, X, wte_, B, T, embedding_dim_, context_->getStream() );
 
             context_->synchronize();
+
+            //print_stats( "emb.output", Y, output.shape(), 8, context_->getStream() );
         }
 
         // ====================================================================

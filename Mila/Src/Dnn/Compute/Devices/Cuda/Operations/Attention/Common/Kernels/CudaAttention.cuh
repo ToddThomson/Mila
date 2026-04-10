@@ -124,30 +124,30 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
         cudaStream_t stream );
 
     // ========================================================================
-    // Softmax — FP16
+    // Softmax — BF16
     // ========================================================================
 
     /// @copydoc cuda_attention_softmax_forward_fp32
-    void cuda_attention_softmax_forward_fp16(
-        half* att, float scale, const half* preatt,
+    void cuda_attention_softmax_forward_bf16(
+        __nv_bfloat16* att, float scale, const __nv_bfloat16* preatt,
         int B, int NH, int T,
         cudaStream_t stream );
 
     /// @copydoc cuda_attention_softmax_padded_forward_fp32
-    void cuda_attention_softmax_padded_forward_fp16(
-        half* att, float scale, const half* preatt,
+    void cuda_attention_softmax_padded_forward_bf16(
+        __nv_bfloat16* att, float scale, const __nv_bfloat16* preatt,
         int B, int NH, int max_T, int actual_T,
         cudaStream_t stream );
 
     /// @copydoc cuda_attention_softmax_decode_forward_fp32
-    void cuda_attention_softmax_decode_forward_fp16(
-        half* att, float scale, const half* preatt,
+    void cuda_attention_softmax_decode_forward_bf16(
+        __nv_bfloat16* att, float scale, const __nv_bfloat16* preatt,
         int B, int NH, int max_len, int actual_len,
         cudaStream_t stream );
 
     /// @copydoc cuda_attention_softmax_backward_fp32
-    void cuda_attention_softmax_backward_fp16(
-        half* dpreatt, const half* datt, const half* att,
+    void cuda_attention_softmax_backward_bf16(
+        __nv_bfloat16* dpreatt, const __nv_bfloat16* datt, const __nv_bfloat16* att,
         float scale,
         int B, int NH, int T,
         cudaStream_t stream );
@@ -214,25 +214,24 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
         cudaStream_t stream );
 
     // ========================================================================
-    // Unpermute — FP16
-    // ========================================================================
+// Unpermute — BF16
+// ========================================================================
 
-    /// @copydoc cuda_attention_unpermute_output_fp32
-    void cuda_attention_unpermute_output_fp16(
-        const half* vaccum, half* out,
+/// @copydoc cuda_attention_unpermute_output_fp32
+    void cuda_attention_unpermute_output_bf16(
+        const __nv_bfloat16* vaccum, __nv_bfloat16* out,
         int B, int T, int NH, int HS,
         cudaStream_t stream );
 
     /// @copydoc cuda_attention_unpermute_output_padded_fp32
-    void cuda_attention_unpermute_output_padded_fp16(
-        const half* vaccum, half* out,
+    void cuda_attention_unpermute_output_padded_bf16(
+        const __nv_bfloat16* vaccum, __nv_bfloat16* out,
         int B, int actual_T, int padded_T, int NH, int HS,
         cudaStream_t stream );
 
     /// @copydoc cuda_attention_unpermute_backward_fp32
-    void cuda_attention_unpermute_backward_fp16(
-        half* dvaccum, const half* dout,
+    void cuda_attention_unpermute_backward_bf16(
+        __nv_bfloat16* dvaccum, const __nv_bfloat16* dout,
         int B, int T, int NH, int HS,
         cudaStream_t stream );
-
 }

@@ -6,7 +6,7 @@
 
 | Stage | Version |
 |---|---|
-| Current | 0.11.2-alpha.3 |
+| Current | 0.11.3-alpha.3 |
 | Planned beta | 0.2.1-beta |
 
 ---
@@ -32,14 +32,14 @@ token-for-token on identical prompts using Llama 3.2 3B weights at BF16.
 
 ### BF16 Compute Backend
 
-- [ ] CUDA BF16 kernels for GQA pipeline components
-- [ ] BF16 dispatch wired through compute backend
+- [x] CUDA BF16 kernels for GQA pipeline components
+- [x] BF16 dispatch wired through compute backend
 
 ### Llama 3.2 3B Validation
 
-- [ ] convert_llama_weights.py — extend for Llama 3.2 3B weight layout
-- [ ] Prefill pipeline validated at BF16 — logits match HuggingFace on identical prompts
-- [ ] Full-network greedy decode validated token-for-token against HuggingFace
+- [x] convert_llama_weights.py — extend for Llama 3.2 3B weight layout
+- [x] Prefill pipeline validated at BF16 — logits match HuggingFace on identical prompts
+- [x] Full-network greedy decode validated token-for-token against HuggingFace
 
 ---
 

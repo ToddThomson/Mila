@@ -64,17 +64,16 @@ namespace Mila::Dnn::Compute::Cuda
         struct cuda_structural_kernels<nv_bfloat16>
         {
             static void split(
-                const float* src,
-                float* out_a, float* out_b, float* out_c,
+                const __nv_bfloat16* src,
+                __nv_bfloat16* out_a, __nv_bfloat16* out_b, __nv_bfloat16* out_c,
                 int src_rows, int dim_a, int dim_b, int dim_c,
                 cudaStream_t stream )
             {
-                // TODO:
-                /*cuda_split3_bf16(
+                cuda_split3_bf16(
                     src,
                     out_a, out_b, out_c,
                     src_rows, dim_a, dim_b, dim_c,
-                    stream );*/
+                    stream );
             }
         };
     }
@@ -157,10 +156,10 @@ namespace Mila::Dnn::Compute::Cuda
                 stream = cuda_ctx->getStream();
             }
 
-            const float* src = static_cast<const float*>(input.rawData());
-            float* dst0 = static_cast<float*>(out0.rawData());
-            float* dst1 = static_cast<float*>(out1.rawData());
-            float* dst2 = static_cast<float*>(out2.rawData());
+            const NativeType* src = static_cast<const NativeType*>(input.rawData());
+            NativeType* dst0 = static_cast<NativeType*>(out0.rawData());
+            NativeType* dst1 = static_cast<NativeType*>(out1.rawData());
+            NativeType* dst2 = static_cast<NativeType*>(out2.rawData());
 
             Detail::cuda_structural_kernels<NativeType>::split(
                 src,

@@ -37,7 +37,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 int B, int chunk_len, int NH, int HS,
                 int position_offset, int T, cudaStream_t stream )
             {
-                cuda_gqa_prefill_permute_q_fp32(
+                cuda_gqa_kvcache_write_q_fp32(
                     Q, Xq, B, chunk_len, NH, HS, position_offset, T, stream );
             }
 
@@ -46,7 +46,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 int B, int chunk_len, int NKV, int HS,
                 int position_offset, int T, cudaStream_t stream )
             {
-                cuda_gqa_prefill_permute_kv_fp32(
+                cuda_gqa_kvcache_write_kv_fp32(
                     K, V, Xk, Xv, B, chunk_len, NKV, HS, position_offset, T, stream );
             }
 
@@ -55,7 +55,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 const float* k_compact, const float* v_compact,
                 int B, int chunk_len, int T, int NH, int NKV, int HS, int position_offset, cudaStream_t stream )
             {
-                cuda_gqa_prefill_expand_kv_fp32( k_exp, v_exp, k_compact, v_compact, B, chunk_len, T, NH, NKV, HS, position_offset, stream );
+                cuda_gqa_kvcache_expand_kv_fp32( k_exp, v_exp, k_compact, v_compact, B, chunk_len, T, NH, NKV, HS, position_offset, stream );
             }
 
             // ----------------------------------------------------------------
@@ -218,7 +218,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         struct cuda_gqa_kernels<nv_bfloat16>
         {
             // ----------------------------------------------------------------
-            // kvcache related
+            // kvcache BF16 dispatchers
             // ----------------------------------------------------------------
 
             static void kvcache_write_q(
@@ -226,9 +226,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 int B, int chunk_len, int NH, int HS,
                 int position_offset, int T, cudaStream_t stream )
             {
-                // TODO: bf16 kernels
-                //cuda_gqa_prefill_permute_q_bf16(
-                //    Q, Xq, B, chunk_len, NH, HS, position_offset, T, stream );
+                cuda_gqa_kvcache_write_q_bf16( Q, Xq, B, chunk_len, NH, HS, position_offset, T, stream );
             }
 
             static void kvcache_write_kv(
@@ -236,9 +234,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 int B, int chunk_len, int NKV, int HS,
                 int position_offset, int T, cudaStream_t stream )
             {
-                // TODO: bf16 kernels
-                //cuda_gqa_prefill_permute_kv_bf16(
-                //    K, V, Xk, Xv, B, chunk_len, NKV, HS, position_offset, T, stream );
+                cuda_gqa_kvcache_write_kv_bf16( K, V, Xk, Xv, B, chunk_len, NKV, HS, position_offset, T, stream );
             }
 
             static void kvcache_expand_kv(
@@ -246,7 +242,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 const nv_bfloat16* k_compact, const nv_bfloat16* v_compact,
                 int B, int chunk_len, int T, int NH, int NKV, int HS, int position_offset, cudaStream_t stream )
             {
-                // TODO: cuda_gqa_prefill_expand_kv_bf16( k_exp, v_exp, k_compact, v_compact, B, chunk_len, T, NH, NKV, HS, position_offset, stream );
+                cuda_gqa_kvcache_expand_kv_bf16( k_exp, v_exp, k_compact, v_compact, B, chunk_len, T, NH, NKV, HS, position_offset, stream );
             }
 
             // ----------------------------------------------------------------
@@ -310,7 +306,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             }
 
             // ----------------------------------------------------------------
-            // GQA Softmax prefill
+            // GQA prefill
             // ----------------------------------------------------------------
 
             static void prefill_softmax(
@@ -318,7 +314,10 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 int B_NH, int T, int T_stride, int chunk_stride, int chunk_len, int position_offset,
                 cudaStream_t stream )
             {
-                // TODO: cuda_gqa_softmax_prefill_fp16( att, preatt, B_NH, T, chunk_len, position_offset, stream );
+                cuda_gqa_prefill_softmax_bf16(
+                    att, preatt, 
+                    B_NH, T, T_stride, chunk_stride, chunk_len, position_offset, 
+                    stream );
             }
 
             static void prefill_unpermute_output_padded(
@@ -326,7 +325,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 int B, int chunk_len, int T, int NH, int HS,
                 cudaStream_t stream )
             {
-                // TODO: cuda_gqa_prefill_unpermute_output_padded_fp16( vaccum, out, B, chunk_len, T, NH, HS, stream );
+                cuda_gqa_prefill_unpermute_output_padded_bf16( vaccum, out, B, chunk_len, T, NH, HS, stream );
             }
 
             // ----------------------------------------------------------------
@@ -337,14 +336,14 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 nv_bfloat16* att, float scale, const nv_bfloat16* preatt,
                 int B, int NH, int T, cudaStream_t stream )
             {
-                //Attention::Common::cuda_attention_softmax_forward_fp16( att, scale, preatt, B, NH, T, stream );
+                Attention::Common::cuda_attention_softmax_forward_bf16( att, scale, preatt, B, NH, T, stream );
             }
 
             static void softmax_padded_forward(
-                half* att, float scale, const half* preatt,
+                nv_bfloat16* att, float scale, const nv_bfloat16* preatt,
                 int B, int NH, int max_T, int actual_T, cudaStream_t s )
             {
-                Attention::Common::cuda_attention_softmax_padded_forward_fp16(
+                Attention::Common::cuda_attention_softmax_padded_forward_bf16(
                     att, scale, preatt, B, NH, max_T, actual_T, s );
             }
 
@@ -352,14 +351,14 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 nv_bfloat16* att, float scale, const nv_bfloat16* preatt,
                 int B, int NH, int max_len, int actual_len, cudaStream_t stream )
             {
-                //Attention::Common::cuda_attention_softmax_decode_forward_fp16( att, scale, preatt, B, NH, max_len, actual_len, stream );
+                Attention::Common::cuda_attention_softmax_decode_forward_bf16( att, scale, preatt, B, NH, max_len, actual_len, stream );
             }
 
             static void softmax_backward(
                 nv_bfloat16* dpreatt, const nv_bfloat16* datt, const nv_bfloat16* att,
                 float scale, int B, int NH, int T, cudaStream_t s )
             {
-                // FIXME: Attention::Common::cuda_attention_softmax_backward_fp16( dpreatt, datt, att, scale, B, NH, T, s );
+                Attention::Common::cuda_attention_softmax_backward_bf16( dpreatt, datt, att, scale, B, NH, T, s );
             }
 
             // ----------------------------------------------------------------
@@ -370,14 +369,14 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 const nv_bfloat16* vaccum, nv_bfloat16* out,
                 int B, int T, int NH, int HS, cudaStream_t s )
             {
-                //Attention::Common::cuda_attention_unpermute_output_fp16( vaccum, out, B, T, NH, HS, s );
+                Attention::Common::cuda_attention_unpermute_output_bf16( vaccum, out, B, T, NH, HS, s );
             }
 
             static void unpermute_output_padded(
                 const nv_bfloat16* vaccum, nv_bfloat16* out,
                 int B, int actual_T, int padded_T, int NH, int HS, cudaStream_t s )
             {
-                //Attention::Common::cuda_attention_unpermute_output_padded_fp16( vaccum, out, B, actual_T, padded_T, NH, HS, s );
+                //Attention::Common::cuda_attention_unpermute_output_padded_bf16( vaccum, out, B, actual_T, padded_T, NH, HS, s );
             }
 
             static void unpermute_backward(

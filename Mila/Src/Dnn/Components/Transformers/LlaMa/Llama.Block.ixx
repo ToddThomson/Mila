@@ -228,10 +228,18 @@ namespace Mila::Dnn
             auto k_view = k_->view( shape_t{ B, T_actual, n_kv * head_dim }, 0 );
             auto v_view = v_->view( shape_t{ B, T_actual, n_kv * head_dim }, 0 );
 
+            // DEBUG:
+            //std::cout << std::format(
+            //    "LlamaBlock::prefill(): qkv_out:" ) << std::endl;
+            //std::cout << toHost<TensorDataType::FP32>( qkv_out ).toString( true ) << std::endl;
+            // END DEBUG
+
             split(
                 qkv_out,
                 q_view, k_view, v_view,
                 this->getExecutionContext() );
+
+            this->getExecutionContext()->synchronize();
 
             // RoPE
             rope_->prefill( q_view, k_view, position_offset );

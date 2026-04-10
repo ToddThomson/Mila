@@ -113,6 +113,12 @@ namespace Mila::Dnn
             }
 
             operation_->forward( input, *output_view_ );
+
+            // DEBUG:
+            //std::cout << std::format(
+            //    "RmsNorm::forward: Output View: " ) << std::endl;
+            //std::cout << toHost<TensorDataType::FP32>( *output_view_ ).toString( true ) << std::endl;
+            // END DEBUG
             
             return *output_view_;
         }

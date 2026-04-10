@@ -22,8 +22,10 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.cuh"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.cuh"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Unpermute.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Softmax.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Unpermute.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Unpermute.Bf16.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Softmax.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Softmax.Bf16.cu"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/Kernels/CudaMha.cuh"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/Kernels/CudaMha.Permute.cu"
@@ -569,7 +571,7 @@ if(MILA_HAS_CUDA)
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/RmsNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/RmsNormOp.Dispatch.ixx"
-     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Random.ixx" "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Structural.ixx")
+     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Random.ixx" "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Structural.ixx" "Src/Dnn/Compute/Devices/Cuda/Helpers/CublasLt.Utils.ixx")
 
     target_link_libraries( Mila PRIVATE 
         CUDA::cudart
