@@ -240,7 +240,7 @@ namespace Mila::Dnn
             return params;
         }
 
-        void loadParameter( const std::string& name, const TensorBlob& blob ) override
+        void loadParameter( const std::string& name, const ITensorBlob& blob ) override
         {
             if ( name == "wte" )
             {

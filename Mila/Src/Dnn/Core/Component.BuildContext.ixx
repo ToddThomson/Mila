@@ -20,26 +20,33 @@ namespace Mila::Dnn
     /**
      * @brief Build-time context for Component::build().
      *
-     * Carries three orthogonal concerns down the Component hierarchy:
+     * Carries four orthogonal concerns down the Component hierarchy:
      *
-     * 1. **Input shape**   — the full input shape the component receives.
-     *                        Used for parameter sizing, output buffer
-     *                        allocation, and build-time validation against
-     *                        component config.
+     * 1. **Input shape**             — the full input shape the component receives.
+     *                                  Used for parameter sizing, output buffer
+     *                                  allocation, and build-time validation against
+     *                                  component config.
      *
-     * 2. **RuntimeMode**   — allocation policy governing output buffer
-     *                        sizing and gradient buffer allocation.
+     * 2. **RuntimeMode**             — allocation policy governing output buffer
+     *                                  sizing and gradient buffer allocation.
      *
-     *                        Inference — T=1 decode path output buffers.
-     *                        Training  — full sequence output buffers,
-     *                                    gradient buffers allocated.
+     *                                  Inference — T=1 decode path output buffers.
+     *                                  Training  — full sequence output buffers,
+     *                                              gradient buffers allocated.
      *
-     * 3. **Prefill size**  — number of tokens processed per prefill pass.
-     *                        Only meaningful for RuntimeMode::Inference.
-     *                        Zero indicates no prefill support.
-     *                        Components that cannot reuse the shared prefill
-     *                        scratch buffer allocate their own prefill buffer
-     *                        sized to prefillSize() in onBuilding().
+     * 3. **Prefill size**            — number of tokens processed per prefill pass.
+     *                                  Only meaningful for RuntimeMode::Inference.
+     *                                  Zero indicates no prefill support.
+     *                                  Components that cannot reuse the shared prefill
+     *                                  scratch buffer allocate their own prefill buffer
+     *                                  sized to prefillSize() in onBuilding().
+     *
+     * 4. **Parameter initialization** — whether components should initialize parameter
+     *                                   tensors after allocation. Set to false when
+     *                                   building for a pretrained weight load to avoid
+     *                                   computing initializers (Xavier, normal, zeros)
+     *                                   that are immediately overwritten by loadParameter().
+     *                                   Defaults to true (training from scratch).
      *
      * ## Caller responsibility
      *
@@ -63,34 +70,44 @@ namespace Mila::Dnn
         /**
          * @brief Default constructor — sentinel value for pre-build state.
          *
-         * Produces a minimal valid BuildContext. Never read before build()
-         * is called — Component::ensureBuilt() guards all access paths.
+         * Produces a minimal valid BuildContext with parameter initialization
+         * enabled. Never read before build() is called — Component::ensureBuilt()
+         * guards all access paths.
          */
         BuildContext()
             : input_shape_{ 1 }
             , runtime_mode_( RuntimeMode::Training )
             , prefill_size_( 0 )
+            , initialize_parameters_( true )
         {
         }
 
         /**
-         * @brief Construct from full input shape, runtime mode and prefill size.
+         * @brief Construct from full input shape, runtime mode, prefill size,
+         *        and parameter initialization policy.
          *
-         * @param input_shape   Complete input shape this component receives.
-         *                      Must have at least one dimension.
-         * @param runtime_mode  Allocation policy: Inference or Training.
-         * @param prefill_size  Tokens per prefill pass. Only meaningful for
-         *                      RuntimeMode::Inference. Zero disables prefill
-         *                      buffer allocation.
+         * @param input_shape            Complete input shape this component receives.
+         *                               Must have at least one dimension.
+         * @param runtime_mode           Allocation policy: Inference or Training.
+         * @param prefill_size           Tokens per prefill pass. Only meaningful for
+         *                               RuntimeMode::Inference. Zero disables prefill
+         *                               buffer allocation.
+         * @param initialize_parameters  When false, components allocate parameter
+         *                               tensors but skip value initialization. Use
+         *                               false when weights will be loaded from a
+         *                               pretrained checkpoint immediately after build().
+         *
          * @throws std::invalid_argument if input_shape is empty.
          */
         explicit BuildContext(
             shape_t input_shape,
             RuntimeMode runtime_mode,
-            int64_t prefill_size = 0 )
+            int64_t prefill_size = 0,
+            bool initialize_parameters = true )
             : input_shape_( std::move( input_shape ) )
             , runtime_mode_( runtime_mode )
             , prefill_size_( prefill_size )
+            , initialize_parameters_( initialize_parameters )
         {
             if ( input_shape_.empty() )
             {
@@ -181,10 +198,30 @@ namespace Mila::Dnn
             return runtime_mode_ == RuntimeMode::Inference && prefill_size_ > 0;
         }
 
+        // ====================================================================
+        // Parameter initialization
+        // ====================================================================
+
+        /**
+         * @brief True if components should initialize parameter values after allocation.
+         *
+         * When false, allocateParameters() runs but initializeParameters() is
+         * skipped. Callers loading a pretrained checkpoint should set this to
+         * false so Xavier, normal, and zero initializers are not computed for
+         * tensors that are immediately overwritten by loadParameter().
+         *
+         * @return True if parameter initialization should be performed.
+         */
+        bool shouldInitializeParameters() const noexcept
+        {
+            return initialize_parameters_;
+        }
+
     private:
 
         shape_t     input_shape_;
         RuntimeMode runtime_mode_;
         int64_t     prefill_size_{ 0 };
+        bool        initialize_parameters_{ true };
     };
 }

@@ -16,7 +16,7 @@ using namespace Mila::ChatApp;
 // Defaults: Llama 3.2 3B BF16 WIP Bf16 support
 // Llama 3.2 1B FP32 is supported and validated
 constexpr ModelType      kDefaultModelType = ModelType::Llama;
-constexpr ModelSize      kDefaultModelSize = ModelSize::B3;
+constexpr ModelSize      kDefaultModelSize = ModelSize::B1;
 constexpr ModelPrecision kDefaultPrecision = ModelPrecision::BF16;
 
 static std::filesystem::path gpt2_weights_path()

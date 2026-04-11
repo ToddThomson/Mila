@@ -458,7 +458,19 @@ PUBLIC
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
         
         "Src/Dnn/Compute/Operations/PairedOperation.ixx"
- "Src/Dnn/Core/Component.MemoryStats.ixx" "Src/Dnn/Core/Model.RuntimeMode.ixx" "Src/Dnn/Core/Model.ixx" "Src/Dnn/Core/LanguageModel.ixx" "Src/Dnn/Core/Comonent.TrainingMode.ixx" "Src/Dnn/Compute/Operations/IPositionalPairedOp.ixx" "Src/Dnn/Tensors/Operations/TensorOps.Random.ixx" "Src/Dnn/Tensors/Operations/TensorOps.Structural.ixx" "Src/Dnn/Compute/Operations/IPositionalDecode.ixx" "Src/Dnn/Compute/Operations/IKvInference.ixx" "Src/Dnn/Compute/Operations/IPackedKvInference.ixx" "Src/Dnn/Core/TokenStreamer.ixx")
+        "Src/Dnn/Core/Component.MemoryStats.ixx"
+        "Src/Dnn/Core/Model.RuntimeMode.ixx"
+        "Src/Dnn/Core/Model.ixx"
+        "Src/Dnn/Core/LanguageModel.ixx"
+        "Src/Dnn/Core/Comonent.TrainingMode.ixx"
+        "Src/Dnn/Compute/Operations/IPositionalPairedOp.ixx"
+        "Src/Dnn/Tensors/Operations/TensorOps.Random.ixx"
+        "Src/Dnn/Tensors/Operations/TensorOps.Structural.ixx"
+        "Src/Dnn/Compute/Operations/IPositionalDecode.ixx"
+        "Src/Dnn/Compute/Operations/IKvInference.ixx"
+        "Src/Dnn/Compute/Operations/IPackedKvInference.ixx"
+        "Src/Dnn/Core/TokenStreamer.ixx"
+)
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -571,11 +583,17 @@ if(MILA_HAS_CUDA)
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/RmsNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/RmsNormOp.Dispatch.ixx"
-     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.Dispatch.ixx" "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Random.ixx" "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Structural.ixx" "Src/Dnn/Compute/Devices/Cuda/Helpers/CublasLt.Utils.ixx")
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.Dispatch.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Random.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Structural.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Helpers/CublasLt.Utils.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Random.h"
+    )
 
     target_link_libraries( Mila PRIVATE 
         CUDA::cudart
         CUDA::cublas
+        CUDA::curand
         CUDA::nvtx3
     )
 

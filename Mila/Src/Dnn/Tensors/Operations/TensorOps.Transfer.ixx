@@ -170,12 +170,12 @@ namespace Mila::Dnn
     export template<TensorDataType TDstDataType, typename TDstMemoryResource>
         requires isValidTensor<TDstDataType, TDstMemoryResource>
     void copyFromBlob(
-        const Serialization::TensorBlob& blob,
+        const Serialization::ITensorBlob& blob,
         Tensor<TDstDataType, TDstMemoryResource>& dst,
         IExecutionContext* exec_context = nullptr )
     {
         // Validate shapes match
-        if ( blob.metadata.shape != dst.shape() )
+        if ( blob.getMetadata().shape != dst.shape() )
         {
             throw std::invalid_argument( "Blob and destination tensor shapes must match" );
         }

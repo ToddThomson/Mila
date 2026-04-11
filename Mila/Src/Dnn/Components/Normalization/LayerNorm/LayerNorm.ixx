@@ -276,7 +276,7 @@ namespace Mila::Dnn
             return count;
         }
 
-        void loadParameter( const std::string& name, const TensorBlob& blob ) override
+        void loadParameter( const std::string& name, const ITensorBlob& blob ) override
         {
             if ( name == "weight" )
             {
@@ -290,6 +290,7 @@ namespace Mila::Dnn
                         std::format( "Component '{}' was configured without bias", this->getName() )
                     );
                 }
+
                 this->loadParameterFromBlob( "bias", blob, *bias_, bias_->shape() );
             }
             else
@@ -297,48 +298,6 @@ namespace Mila::Dnn
                 // Throw by default for unknown parameter names
                 this->loadParameter( name, blob );
             }
-
-            // DEBUG: Diagnostics
-
-            if ( name == "weight" )
-            {
-                // DIAGNOSTIC: Check weight statistics
-                auto host_weights = toHost<TensorDataType::FP32>( *weight_ );
-
-                const float* ptr = host_weights.data();
-                const size_t n = host_weights.size();
-
-                if ( n > 0 )
-                {
-                    float min_w = *std::min_element( ptr, ptr + n );
-                    float max_w = *std::max_element( ptr, ptr + n );
-                    float mean_w = std::accumulate( ptr, ptr + n, 0.0f ) / static_cast<float>(n);
-
-                    Utils::Logger::info( std::format(
-                        "LayerNormOp weight stats: min={:.6f} max={:.6f} mean={:.6f}",
-                        min_w, max_w, mean_w ) );
-                }
-
-            }
-
-            if ( name == "bias" )
-            {
-                auto host_bias = toHost<TensorDataType::FP32>( *bias_ );
-                const float* ptr = host_bias.data();
-                const size_t n = host_bias.size();
-
-                if ( n > 0 )
-                {
-                    float min_b = *std::min_element( ptr, ptr + n );
-                    float max_b = *std::max_element( ptr, ptr + n );
-
-                    Utils::Logger::info( std::format(
-                        "LayerNormOp bias stats: min={:.6f} max={:.6f}",
-                        min_b, max_b ) );
-                }
-            }
-
-            // END DEBUG:
         }
 
         // ====================================================================

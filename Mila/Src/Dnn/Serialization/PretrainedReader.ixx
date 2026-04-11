@@ -15,7 +15,7 @@ module;
 #include <cstdint>
 #include <stdexcept>
 #include <format>
-#include <cstring>
+#include <algorithm>
 
 export module Serialization.PretrainedReader;
 
@@ -24,7 +24,9 @@ import Serialization.OpenMode;
 import Serialization.Tensor;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorBuffer;
 import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Dnn.TensorTypes;
 import Compute.Device;
 import Compute.CpuMemoryResource;
@@ -111,8 +113,8 @@ namespace Mila::Dnn::Serialization
      *
      * for (const auto& name : names)
      * {
-     *     auto blob = reader.readTensorBlob( name );
-     *     network->loadTensorByFlatName( blob, name );
+     *     auto blob = reader.readTensorBlob<CudaPinnedMemoryResource>( name, device_id );
+     *     network->loadTensorByFlatName( name, blob );
      * }
      * @endcode
      */
@@ -210,17 +212,63 @@ namespace Mila::Dnn::Serialization
         }
 
         /**
-         * @brief Read raw tensor bytes by name.
+         * @brief Get the raw byte size of a named tensor.
+         *
+         * All sizes are known at construction time from the tensor index.
+         * No I/O is performed.
+         *
+         * @param name Tensor name.
+         * @return size_t Byte count of the tensor data.
+         * @throws std::runtime_error if name is not found.
          */
-        TensorBlob readTensorBlob( const std::string& name )
+        size_t getTensorSizeBytes( const std::string& name ) const
+        {
+            return static_cast<size_t>( getTensorBlobMetadata( name ).nbytes );
+        }
+
+        /**
+         * @brief Get the maximum byte size across all tensors in the index.
+         *
+         * Returns the largest nbytes value in the tensor index. All sizes are
+         * known at construction time. No I/O is performed.
+         *
+         * @return size_t Maximum tensor byte count, or 0 if the index is empty.
+         */
+        size_t getMaxTensorSizeBytes() const
+        {
+            size_t max_bytes = 0;
+
+            for ( const auto& [name, meta] : tensor_index_ )
+                max_bytes = std::max( max_bytes, static_cast<size_t>( meta.nbytes ) );
+
+            return max_bytes;
+        }
+
+        /**
+         * @brief Read raw tensor bytes by name into a memory-resource-typed blob.
+         *
+         * Allocates a TensorBuffer<UINT8, MR> of the exact tensor byte size and reads
+         * directly from the file into it. No intermediate buffer is used.
+         * When MR is CudaPinnedMemoryResource the returned blob data is page-locked,
+         * enabling direct DMA to device in copyFromBlob without a staging copy.
+         *
+         * @tparam MR Memory resource for the blob data buffer. Defaults to CpuMemoryResource.
+         * @param name Tensor name.
+         * @param device_id Device index passed to the memory resource constructor.
+         * @return TensorBlob<MR> owning the metadata and raw byte buffer.
+         * @throws std::runtime_error if the tensor is not found or the read fails.
+         */
+        template<typename MR = CpuMemoryResource>
+            requires isValidTensor<dtype_t::UINT8, MR>
+        TensorBlob<MR> readTensorBlob( const std::string& name, int device_id = 0 )
         {
             const auto& blob_meta = getTensorBlobMetadata( name );
 
-            std::vector<uint8_t> data( blob_meta.nbytes );
+            TensorBuffer<dtype_t::UINT8, MR> buffer( device_id, static_cast<size_t>( blob_meta.nbytes ) );
 
             file_.seekg( static_cast<std::streamoff>( blob_meta.offset ) );
             file_.read(
-                reinterpret_cast<char*>( data.data() ),
+                reinterpret_cast<char*>( buffer.data() ),
                 static_cast<std::streamsize>( blob_meta.nbytes ) );
 
             if ( !file_.good() )
@@ -234,10 +282,7 @@ namespace Mila::Dnn::Serialization
                 .total_bytes = blob_meta.nbytes
             };
 
-            return TensorBlob{
-                .metadata = tensor_meta,
-                .data = std::move( data )
-            };
+            return TensorBlob<MR>( tensor_meta, std::move( buffer ) );
         }
 
     private:
@@ -256,6 +301,7 @@ namespace Mila::Dnn::Serialization
         const TensorBlobMetadata& getTensorBlobMetadata( const std::string& name ) const
         {
             auto it = tensor_index_.find( name );
+
             if ( it == tensor_index_.end() )
             {
                 throw std::runtime_error( "Tensor not found: " + name );
@@ -376,22 +422,22 @@ namespace Mila::Dnn::Serialization
                 catch ( ... ) { return 0.0f; }
             };
 
-            metadata_.architecture       = extract_string( "architecture" );
-            metadata_.model_name         = extract_string( "model_name" );
-            metadata_.vocab_size         = extract_int( "vocab_size" );
-            metadata_.max_seq_length     = extract_int( "max_seq_length" );
-            metadata_.embedding_dim      = extract_int( "embedding_dim" );
-            metadata_.num_layers         = extract_int( "num_layers" );
-            metadata_.num_heads          = extract_int( "num_heads" );
-            metadata_.num_kv_heads       = extract_int( "num_kv_heads" );
-            metadata_.hidden_dim         = extract_int( "hidden_dim" );
-            metadata_.use_bias           = extract_bool( "use_bias" );
-            metadata_.activation         = extract_string( "activation" );
-            metadata_.norm_type          = extract_string( "norm_type" );
-            metadata_.attention_type     = extract_string( "attention_type" );
+            metadata_.architecture        = extract_string( "architecture" );
+            metadata_.model_name          = extract_string( "model_name" );
+            metadata_.vocab_size          = extract_int( "vocab_size" );
+            metadata_.max_seq_length      = extract_int( "max_seq_length" );
+            metadata_.embedding_dim       = extract_int( "embedding_dim" );
+            metadata_.num_layers          = extract_int( "num_layers" );
+            metadata_.num_heads           = extract_int( "num_heads" );
+            metadata_.num_kv_heads        = extract_int( "num_kv_heads" );
+            metadata_.hidden_dim          = extract_int( "hidden_dim" );
+            metadata_.use_bias            = extract_bool( "use_bias" );
+            metadata_.activation          = extract_string( "activation" );
+            metadata_.norm_type           = extract_string( "norm_type" );
+            metadata_.attention_type      = extract_string( "attention_type" );
             metadata_.positional_encoding = extract_string( "positional_encoding" );
-            metadata_.rope_theta         = extract_float( "rope_theta" );
-            metadata_.norm_epsilon       = extract_float( "norm_epsilon" );
+            metadata_.rope_theta          = extract_float( "rope_theta" );
+            metadata_.norm_epsilon        = extract_float( "norm_epsilon" );
         }
 
         void readTensorIndex()

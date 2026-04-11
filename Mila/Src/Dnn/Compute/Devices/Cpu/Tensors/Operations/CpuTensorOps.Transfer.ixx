@@ -191,16 +191,16 @@ namespace Mila::Dnn::Compute::Cpu
         template <TensorDataType TDstDataType, typename TDstMemoryResource>
             requires isValidTensor<TDstDataType, TDstMemoryResource>
         static void copyFromBlob(
-            const Serialization::TensorBlob& blob,
+            const Serialization::ITensorBlob& blob,
             Tensor<TDstDataType, TDstMemoryResource>& dst,
             [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
-            if ( blob.metadata.shape != dst.shape() )
+            if ( blob.getMetadata().shape != dst.shape() )
             {
                 throw std::invalid_argument( "Blob and destination tensor shapes must match" );
             }
 
-            const void* src_data = blob.data.data();
+            const void* src_data = blob.data();
             void* dst_data = dst.data();
             
             if (!src_data || !dst_data)

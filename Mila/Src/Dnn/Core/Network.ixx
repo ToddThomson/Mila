@@ -258,80 +258,6 @@ namespace Mila::Dnn
             save_(archive, mode);
         }
 
-        // Deprecated: Use fromPretrained
-
-        /**
-         * @brief Import a pretrained model from Mila binary format
-         *
-         * This method:
-         * 1. Opens and validates the model file
-         * 2. Reads metadata and verifies architecture compatibility
-         * 3. Loads all tensor weights into network components
-         *
-         * @param filepath Path to .bin model file
-         * @param strict If true, throw on missing/extra tensors. If false, warn only.
-         *
-         * @throws std::runtime_error if file is invalid or incompatible
-         *
-         * Usage:
-         *   Network<CUDA, float> net = ...;
-         *   net.importModel("../Weights/gpt2/gpt2_small.bin");
-         */
-        //void importModel( const std::filesystem::path& filepath, bool strict = true )
-        //{
-        //    ModelReader reader( filepath );
-
-        //    const auto& metadata = reader.getMetadata();
-
-        //    // DEBUG: Log import info
-        //    std::cout << "Importing model: " << metadata.model_name << std::endl;
-        //    std::cout << "  Architecture: " << metadata.architecture << std::endl;
-        //    std::cout << "  Layers: " << metadata.num_layers << std::endl;
-        //    std::cout << "  Embedding dim: " << metadata.embedding_dim << std::endl;
-
-        //    // Verify architecture compatibility (optional but recommended)
-        //    verifyArchitectureCompatibility( metadata );
-
-        //    // Get all tensors from file
-        //    auto tensor_names = reader.getTensorNames();
-        //    std::cout << "  Total tensors: " << tensor_names.size() << std::endl;
-
-        //    // Load each tensor into the appropriate component
-        //    size_t loaded_count = 0;
-        //    size_t skipped_count = 0;
-
-        //    for ( const auto& name : tensor_names )
-        //    {
-        //        try
-        //        {
-        //            loadTensorIntoComponent(reader, name);
-        //            ++loaded_count;
-        //        }
-        //        catch ( const std::exception& e )
-        //        {
-        //            if ( strict )
-        //            {
-        //                throw std::runtime_error(
-        //                    "Failed to load tensor '" + name + "': " + e.what()
-        //                );
-        //            }
-        //            else
-        //            {
-        //                std::cerr << "Warning: Skipping tensor '" << name
-        //                    << "': " << e.what() << std::endl;
-        //                ++skipped_count;
-        //            }
-        //        }
-        //    }
-
-        //    std::cout << " Model import complete" << std::endl;
-        //    std::cout << " Loaded: " << loaded_count << " tensors" << std::endl;
-        //    if ( skipped_count > 0 )
-        //    {
-        //        std::cout << "  Skipped: " << skipped_count << " tensors" << std::endl;
-        //    }
-        //}
-
         const ComponentType getType() const override
         {
             return ComponentType::Network;
@@ -381,114 +307,21 @@ namespace Mila::Dnn
         virtual void save_(ModelArchive& archive, SerializationMode mode) const = 0;
 
         /**
- * @brief Verify that imported model is compatible with network architecture
- */
+         * @brief Verify that imported model is compatible with network architecture
+         */
         void verifyArchitectureCompatibility( const PretrainedMetadata& metadata )
         {
+            // REVIEW: Required? 
             // Example checks - customize based on your Network's config
             // if ( metadata.num_layers != config_.num_layers ) {
             //     throw std::runtime_error("Layer count mismatch");
             // }
 
-            // This is where you'd validate the metadata against your network's
+            // This is where to validate the metadata against your network's
             // TransformerConfig or equivalent
         }
 
-        /**
-         * @brief Load a single tensor from ModelReader into the appropriate component
-         *
-         * Parses the tensor name to extract component path and parameter name,
-         * then loads the tensor into the target component.
-         *
-         * Examples:
-         *   "wte.weight" -> component "wte", parameter "weight"
-         *   "tf.layer_0.ln_1.weight" -> component "tf.layer_0.ln_1", parameter "weight"
-         *   "tf.layer_0.fc_qkv_proj.bias" -> component "tf.layer_0.fc_qkv_proj", parameter "bias"
-         *
-         * @param reader ModelReader with the opened model file
-         * @param tensor_name Fully qualified tensor name
-         *
-         * @throws std::runtime_error if component not found or tensor incompatible
-         */
-        //void loadTensorIntoComponent( 
-        //    const std::string& tensor_name,
-        //    const TensorBlobMetadata& meta,
-        //    const std::vector<uin8_t> blob )
-        //{
-        //    // Parse tensor name: everything before last '.' is component path
-        //    // Last part is parameter name (typically "weight" or "bias")
-        //    auto last_dot = tensor_name.rfind( '.' );
-
-        //    if ( last_dot == std::string::npos ) {
-        //        throw std::runtime_error(
-        //            "Invalid tensor name (no parameter): " + tensor_name
-        //        );
-        //    }
-
-        //    // Prepend network name to get full component path
-        //    std::string component_path = /* this->getName() + "." + */ tensor_name.substr(0, last_dot);
-        //    std::string param_name = tensor_name.substr( last_dot + 1 );
-
-        //    ComponentPtr target = this->findComponent( component_path );
-
-        //    target->loadParameter( param_name, meta, blob );
-        //}
-
     private:
-
-        /**
-         * @brief Generic weight loading from ModelReader
-         *
-         * Iterates through all tensors in the model file and loads them
-         * into the corresponding components.
-         *
-         * @param reader Opened ModelReader with model weights
-         * @param strict If true, throw on any loading error. If false, warn and continue.
-         */
-        /*void loadWeights( PretrainedReader& reader, bool strict = true )
-        {
-            const auto& metadata = reader.getPretrainedMetadata();
-
-            std::cout << "Loading weights for: " << metadata.model_name << '\n';
-            std::cout << "  Architecture: " << metadata.architecture << '\n';
-            std::cout << "  Layers: " << metadata.num_layers << '\n';
-
-            verifyArchitectureCompatibility( metadata );
-
-            auto tensor_names = reader.getTensorNames();
-            std::size_t loaded_count = 0;
-            std::size_t skipped_count = 0;
-
-            for ( const auto& name : tensor_names )
-            {
-                try
-                {
-                    loadTensorIntoComponent( reader, name );
-                    ++loaded_count;
-                }
-                catch ( const std::exception& e )
-                {
-                    if ( strict )
-                    {
-                        throw std::runtime_error(
-                            "Failed to load tensor '" + name + "': " + e.what()
-                        );
-                    }
-                    else
-                    {
-                        std::cerr << "Warning: Skipping tensor '" << name
-                            << "': " << e.what() << '\n';
-                        ++skipped_count;
-                    }
-                }
-            }
-
-            std::cout << "Loaded " << loaded_count << " tensors";
-            if ( skipped_count > 0 ) {
-                std::cout << " (skipped " << skipped_count << ")";
-            }
-            std::cout << '\n';
-        }*/
 
         /**
          * @brief Parse tensor name into component path and parameter name
@@ -551,21 +384,6 @@ namespace Mila::Dnn
             return std::stoull( idx_str );
         }
 
-        // Dead Code: Example of a more specific loading function for attention tensors
-        
-        //void loadAttentionTensor( ModelReader& reader, size_t layer_idx,
-        //    const std::string& name )
-        //{
-        //    // auto& layer = layers_[layer_idx];
-        //    // auto tensor = reader.readTensor<TPrecision, MR>( name );
-
-        //    // if ( name.find( "q_proj.weight" ) != std::string::npos )
-        //    //     layer->attention->setQWeight( tensor );
-        //    // else if ( name.find( "k_proj.weight" ) != std::string::npos )
-        //    //     layer->attention->setKWeight( tensor );
-        //    // ... etc
-        //}
-
         /**
          * @brief Save base network metadata.
          *
@@ -595,23 +413,23 @@ namespace Mila::Dnn
         }
         
         /**
- * @brief Save component graph topology.
- *
- * Writes the component manifest (list of child components) and
- * recursively saves each component's state with scoped namespacing.
- *
- * Archive structure:
- * - network/architecture.json: Component manifest metadata
- * - network/components_list.json: Array of component names (for ordering)
- * - network/component_<name>.json: Individual component descriptor
- * - components/<name>/...: Component state (via recursive save_)
- *
- * Components are saved in deterministic (sorted by name) order for
- * reproducible archives.
- *
- * @param archive Archive to write to
- * @param mode Serialization mode (passed to children)
- */
+         * @brief Save component graph topology.
+         *
+         * Writes the component manifest (list of child components) and
+         * recursively saves each component's state with scoped namespacing.
+         *
+         * Archive structure:
+         * - network/architecture.json: Component manifest metadata
+         * - network/components_list.json: Array of component names (for ordering)
+         * - network/component_<name>.json: Individual component descriptor
+         * - components/<name>/...: Component state (via recursive save_)
+         *
+         * Components are saved in deterministic (sorted by name) order for
+         * reproducible archives.
+         *
+         * @param archive Archive to write to
+         * @param mode Serialization mode (passed to children)
+         */
         void saveComponentGraph( ModelArchive& archive, SerializationMode mode ) const
         {
             // Use the insertion-order component list API (getComponents) instead of the

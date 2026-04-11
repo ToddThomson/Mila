@@ -2,21 +2,22 @@
  * @file CudaTensorOps.Random.ixx
  * @brief CUDA random initialization partition for tensor buffers.
  *
- * Provides device-dispatched normal and Xavier initialization using cuRAND.
+ * Provides device-dispatched normal and uniform random initialization using cuRAND.
+ * Reuses the cached cuRAND generator from CudaExecutionContext when provided,
+ * avoiding per-call generator creation overhead.
  */
 
 module;
 #include <cuda_runtime.h>
 #include <curand.h>
-#include <curand_kernel.h>
-#include <type_traits>
 #include <stdexcept>
-#include <cmath>
-#include <time.h>
+#include <string>
+#include "Kernels/Random.h"
 
 export module Compute.CudaTensorOps:Random;
 
 import Dnn.Tensor;
+import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.ExecutionContext;
@@ -24,6 +25,7 @@ import Compute.IExecutionContext;
 import Compute.DeviceType;
 import Compute.DeviceTraits;
 import Compute.DeviceId;
+import Core.RandomGenerator;
 import Cuda.Helpers;
 import Cuda.Error;
 
@@ -31,135 +33,219 @@ namespace Mila::Dnn::Compute::Cuda
 {
     using namespace Mila::Dnn::Compute;
 
-    class CudaExecutionContext;
-
     export struct RandomOps
     {
+        /**
+         * @brief Fill a float tensor with values drawn from N(mean, stddev^2) using cuRAND.
+         *
+         * When exec_context is provided, the cached generator from CudaExecutionContext
+         * is reused. Without a context, a temporary generator is created and destroyed
+         * per call, seeded from Core::RandomGenerator.
+         *
+         * curandGenerateNormal requires an even element count (Box-Muller pairs). If the
+         * tensor has an odd element count, a temporary device buffer of size n+1 is
+         * allocated, the full even count is generated into it, and n elements are copied
+         * to the tensor. This is zero-overhead for even-sized tensors.
+         *
+         * @tparam TDataType Floating-point tensor data type.
+         * @tparam TMemoryResource CUDA memory resource type.
+         * @param tensor Destination tensor (pre-allocated).
+         * @param mean Mean of the normal distribution.
+         * @param stddev Standard deviation of the normal distribution.
+         * @param exec_context Optional execution context for stream and generator reuse (borrowed, not owned).
+         *
+         * @note Only FP32 native tensors are currently supported. FP16/BF16 require a
+         *       temporary float buffer with a subsequent conversion pass (not yet implemented).
+         * @throws std::runtime_error On cuRAND or CUDA failure.
+         */
         template<TensorDataType TDataType, typename TMemoryResource>
-            requires isValidTensor<TDataType, TMemoryResource>&& TensorDataTypeTraits<TDataType>::is_float_type
+            requires isValidTensor<TDataType, TMemoryResource> && TensorDataTypeTraits<TDataType>::is_float_type
         static void fill_normal(
             Tensor<TDataType, TMemoryResource>& tensor,
             float mean,
             float stddev,
             IExecutionContext* exec_context = nullptr )
         {
-            std::size_t n = tensor.size();
-            if ( n == 0 ) 
+            size_t n = tensor.size();
+            if ( n == 0 )
                 return;
 
-            float* dst = reinterpret_cast<float*>(tensor.rawData());
-            if ( !dst ) 
+            void* raw_dst = static_cast<ITensor&>(tensor).rawData();
+            if ( !raw_dst )
                 return;
 
-            DeviceId device_id = tensor.getDeviceId();
-            cudaStream_t stream = cudaStreamDefault;
+            cudaStream_t stream = nullptr;
+            bool needs_sync = false;
+            curandGenerator_t gen = nullptr;
+            bool owns_gen = false;
+
             if ( exec_context )
             {
                 auto* cuda_ctx = cast_context_<DeviceType::Cuda>( exec_context );
                 stream = cuda_ctx->getStream();
+                gen = cuda_ctx->getCurandGenerator();
             }
-            int dev_index = device_id.index;
-            Cuda::setCurrentDevice( dev_index );
+            else
+            {
+                DeviceId device_id = tensor.getDeviceId();
+                Cuda::setCurrentDevice( device_id.index );
+                needs_sync = true;
+                gen = make_temp_generator_( nullptr );
+                owns_gen = true;
+            }
 
-            curandGenerator_t gen;
-            curandCreateGenerator( &gen, CURAND_RNG_PSEUDO_DEFAULT );
+            // curandGenerateNormal requires an even count (Box-Muller pairs).
+            size_t gen_count = n + (n & 1);
+            float* gen_dst = static_cast<float*>(raw_dst);
+            float* temp_buf = nullptr;
 
-            // REVIEW: How to best seed the generator for reproducibility? Options:
-            // - Use a fixed seed (e.g. 1234ULL) for deterministic behavior across runs (good for testing)
-            // - Use a time-based seed for variability across runs (good for production)
-            // - Use std::random_device{}() for non-deterministic seed (good for maximum randomness, but may have performance implications)
-            curandSetPseudoRandomGeneratorSeed( gen, 1234ULL );// FIXME: static_cast<unsigned long long>(std::time( nullptr )) );
-            curandSetStream( gen, stream );
+            if ( n & 1 )
+            {
+                cudaError_t err = cudaMalloc( &temp_buf, gen_count * sizeof(float) );
 
-            curandStatus_t status = curandGenerateNormal( gen, dst, n, mean, stddev );
+                if ( err != cudaSuccess )
+                {
+                    if ( owns_gen ) curandDestroyGenerator( gen );
+                    throw std::runtime_error( "cudaMalloc failed for normal distribution padding buffer" );
+                }
+
+                gen_dst = temp_buf;
+            }
+
+            curandStatus_t status = curandGenerateNormal( gen, gen_dst, gen_count, mean, stddev );
+
             if ( status != CURAND_STATUS_SUCCESS )
             {
-                curandDestroyGenerator( gen );
+                if ( temp_buf ) cudaFree( temp_buf );
+                if ( owns_gen ) curandDestroyGenerator( gen );
                 throw std::runtime_error( "curandGenerateNormal failed" );
             }
 
-            curandDestroyGenerator( gen );
-
-            if ( !exec_context )
+            if ( temp_buf )
             {
-                cudaError_t syncErr = cudaStreamSynchronize( stream );
-                if ( syncErr != cudaSuccess )
-                {
-                    throw std::runtime_error( std::string( "cudaStreamSynchronize failed: " ) + cudaGetErrorString( syncErr ) );
-                }
+                cudaMemcpyAsync( raw_dst, temp_buf, n * sizeof(float), cudaMemcpyDeviceToDevice, stream );
+                cudaFree( temp_buf );
+            }
+
+            if ( owns_gen )
+                curandDestroyGenerator( gen );
+
+            if ( needs_sync )
+            {
+                cudaError_t err = cudaStreamSynchronize( stream );
+
+                if ( err != cudaSuccess )
+                    throw std::runtime_error( std::string( "cudaStreamSynchronize failed: " ) + cudaGetErrorString( err ) );
             }
         }
 
+        /**
+         * @brief Fill a float tensor with uniform values in [min_val, max_val) using cuRAND.
+         *
+         * cuRAND generates values in [0, 1), which are scaled and shifted to [min_val, max_val)
+         * by a device kernel. When exec_context is provided, the cached generator is reused.
+         * Without a context, a temporary generator is created and destroyed per call.
+         *
+         * @tparam TDataType Floating-point tensor data type.
+         * @tparam TMemoryResource CUDA memory resource type.
+         * @param tensor Destination tensor (pre-allocated).
+         * @param min_val Lower bound of the uniform range (inclusive).
+         * @param max_val Upper bound of the uniform range (exclusive).
+         * @param exec_context Optional execution context for stream and generator reuse (borrowed, not owned).
+         *
+         * @note Only FP32 native tensors are currently supported.
+         * @throws std::runtime_error On cuRAND or CUDA failure.
+         */
         template<TensorDataType TDataType, typename TMemoryResource>
-            requires isValidTensor<TDataType, TMemoryResource>&& TensorDataTypeTraits<TDataType>::is_float_type
-        static void fill_xavier_uniform(
+            requires isValidTensor<TDataType, TMemoryResource> && TensorDataTypeTraits<TDataType>::is_float_type
+        static void fill_uniform(
             Tensor<TDataType, TMemoryResource>& tensor,
-            std::size_t input_size,
-            std::size_t output_size,
+            float min_val,
+            float max_val,
             IExecutionContext* exec_context = nullptr )
         {
-            std::size_t n = tensor.size();
-            if ( n == 0 ) return;
+            size_t n = tensor.size();
+            if ( n == 0 )
+                return;
 
-            float* dst = reinterpret_cast<float*>(tensor.rawData());
-            if ( !dst ) return;
+            void* raw_dst = static_cast<ITensor&>(tensor).rawData();
+            if ( !raw_dst )
+                return;
 
-            DeviceId device_id = tensor.getDeviceId();
-            cudaStream_t stream = cudaStreamDefault;
+            cudaStream_t stream = nullptr;
+            bool needs_sync = false;
+            curandGenerator_t gen = nullptr;
+            bool owns_gen = false;
+
             if ( exec_context )
             {
                 auto* cuda_ctx = cast_context_<DeviceType::Cuda>( exec_context );
                 stream = cuda_ctx->getStream();
+                gen = cuda_ctx->getCurandGenerator();
             }
-            int dev_index = device_id.index;
-            Cuda::setCurrentDevice( dev_index );
+            else
+            {
+                DeviceId device_id = tensor.getDeviceId();
+                Cuda::setCurrentDevice( device_id.index );
+                needs_sync = true;
+                gen = make_temp_generator_( nullptr );
+                owns_gen = true;
+            }
 
-            float limit = std::sqrt( 6.0f / static_cast<float>(input_size + output_size) );
+            float* dst = static_cast<float*>( raw_dst );
 
-            curandGenerator_t gen;
-            curandCreateGenerator( &gen, CURAND_RNG_PSEUDO_DEFAULT );
-
-
-            // REVIEW: How to best seed the generator for reproducibility? Options:
-            // - Use a fixed seed (e.g. 1234ULL) for deterministic behavior across runs (good for testing)
-            // - Use a time-based seed for variability across runs (good for production)
-            // - Use std::random_device{}() for non-deterministic seed (good for maximum randomness, but may have performance implications)
-            // 
-            curandSetPseudoRandomGeneratorSeed( gen, 1234ULL ); // FIXME: static_cast<unsigned long long>(std::time( nullptr )) );
-            curandSetStream( gen, stream );
-
-            // Fill with uniform [0, 1)
             curandStatus_t status = curandGenerateUniform( gen, dst, n );
+
             if ( status != CURAND_STATUS_SUCCESS )
             {
-                curandDestroyGenerator( gen );
+                if ( owns_gen ) curandDestroyGenerator( gen );
                 throw std::runtime_error( "curandGenerateUniform failed" );
             }
 
-            // Scale and shift to [-limit, limit]
-            // FIXME: scale_shift_kernel <<<(n + 255) / 256, 256, 0, stream >>>( dst, n, limit );
+            // Scale generated [0, 1) values to [min_val, max_val).
+            Cuda::launch_scale_shift( dst, n, min_val, max_val, stream );
 
-            curandDestroyGenerator( gen );
+            if ( owns_gen )
+                curandDestroyGenerator( gen );
 
-            if ( !exec_context )
+            if ( needs_sync )
             {
-                cudaError_t syncErr = cudaStreamSynchronize( stream );
-                if ( syncErr != cudaSuccess )
-                {
-                    throw std::runtime_error( std::string( "cudaStreamSynchronize failed: " ) + cudaGetErrorString( syncErr ) );
-                }
+                cudaError_t err = cudaStreamSynchronize( stream );
+
+                if ( err != cudaSuccess )
+                    throw std::runtime_error( std::string( "cudaStreamSynchronize failed: " ) + cudaGetErrorString( err ) );
             }
         }
 
     private:
-        // Kernel to scale and shift uniform [0,1) to [-limit, limit]
-        /*static __global__ void scale_shift_kernel( float* data, std::size_t n, float limit )
+        // Creates and seeds a temporary cuRAND generator bound to the given stream.
+        // Caller owns the returned generator and must call curandDestroyGenerator on it.
+        static curandGenerator_t make_temp_generator_( cudaStream_t stream )
         {
-            std::size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-            if ( idx < n )
+            curandGenerator_t gen = nullptr;
+            curandStatus_t status = curandCreateGenerator( &gen, CURAND_RNG_PSEUDO_DEFAULT );
+
+            if ( status != CURAND_STATUS_SUCCESS )
+                throw std::runtime_error( "Failed to create cuRAND generator" );
+
+            auto seed = static_cast<unsigned long long>( Core::RandomGenerator::getInstance().getSeed() );
+            status = curandSetPseudoRandomGeneratorSeed( gen, seed );
+
+            if ( status != CURAND_STATUS_SUCCESS )
             {
-                data[ idx ] = (data[ idx ] * 2.0f - 1.0f) * limit;
+                curandDestroyGenerator( gen );
+                throw std::runtime_error( "Failed to seed cuRAND generator" );
             }
-        }*/
+
+            status = curandSetStream( gen, stream );
+
+            if ( status != CURAND_STATUS_SUCCESS )
+            {
+                curandDestroyGenerator( gen );
+                throw std::runtime_error( "Failed to bind cuRAND generator to stream" );
+            }
+
+            return gen;
+        }
     };
 }

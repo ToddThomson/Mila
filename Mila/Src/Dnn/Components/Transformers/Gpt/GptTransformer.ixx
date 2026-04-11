@@ -47,6 +47,7 @@ import Compute.DeviceType;
 import Compute.DeviceId;
 import Compute.DeviceTypeTraits;
 import Compute.CpuMemoryResource;
+import Compute.CudaPinnedMemoryResource;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
@@ -523,13 +524,19 @@ namespace Mila::Dnn
          */
         void loadParameters( PretrainedModelReader& reader, bool strict )
         {
+            const int device_index = this->getExecutionContext()->getDeviceId().index;
+
             for ( const auto& full_name : reader.getTensorNames() )
             {
                 auto [component_path, param_name] = parseParameterPath( full_name );
 
-                auto target = this->findComponent( component_path );
+                ComponentPtr target = nullptr;
 
-                if ( !target )
+                try
+                {
+                    target = this->findComponent( component_path );
+                }
+                catch ( const std::out_of_range& )
                 {
                     if ( strict )
                         throw std::runtime_error( "Component not found: " + component_path );
@@ -537,12 +544,21 @@ namespace Mila::Dnn
                     continue;
                 }
 
-                auto blob = reader.readTensorBlob( full_name );
-
-                target->loadParameter( param_name, blob );
+                if constexpr ( TDeviceType == DeviceType::Cuda )
+                {
+                    auto blob = reader.readTensorBlob<CudaPinnedMemoryResource>( full_name, device_index );
+                    target->loadParameter( param_name, blob );
+                }
+                else
+                {
+                    auto blob = reader.readTensorBlob<CpuMemoryResource>( full_name );
+                    target->loadParameter( param_name, blob );
+                }
             }
         }
+
     protected:
+        
         void save_( ModelArchive& archive, SerializationMode /*mode*/ ) const override
         {
             SerializationMetadata meta;

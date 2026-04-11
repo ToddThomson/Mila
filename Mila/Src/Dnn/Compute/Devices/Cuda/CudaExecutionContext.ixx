@@ -6,6 +6,7 @@
 module;
 #include <cuda_runtime.h>
 #include <cublasLt.h>
+#include <curand.h>
 #ifdef USE_CUDNN
 #include <cudnn.h>
 #endif
@@ -22,6 +23,7 @@ import Compute.IExecutionContext;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceRegistry;
+import Core.RandomGenerator;
 import Cuda.Helpers;
 import Cuda.Error;
 
@@ -120,6 +122,51 @@ namespace Mila::Dnn::Compute
         }
 
         /**
+         * @brief Gets the cuRAND generator bound to this context's stream.
+         *
+         * The generator is created lazily, seeded from Core::RandomGenerator,
+         * and bound to this context's stream. Reuse across calls avoids
+         * per-call creation overhead.
+         *
+         * @return curandGenerator_t The cuRAND generator bound to this stream.
+         * @throws std::runtime_error If generator creation or seeding fails.
+         */
+        [[nodiscard]] curandGenerator_t getCurandGenerator() const
+        {
+            std::call_once( curand_init_flag_, [this]() {
+                Cuda::setCurrentDevice( device_id_.index );
+
+                curandStatus_t status = curandCreateGenerator( &curand_generator_, CURAND_RNG_PSEUDO_DEFAULT );
+
+                if ( status != CURAND_STATUS_SUCCESS )
+                {
+                    throw std::runtime_error( "Failed to create cuRAND generator" );
+                }
+
+                auto seed = static_cast<unsigned long long>( Core::RandomGenerator::getInstance().getSeed() );
+                status = curandSetPseudoRandomGeneratorSeed( curand_generator_, seed );
+
+                if ( status != CURAND_STATUS_SUCCESS )
+                {
+                    curandDestroyGenerator( curand_generator_ );
+                    curand_generator_ = nullptr;
+                    throw std::runtime_error( "Failed to seed cuRAND generator" );
+                }
+
+                status = curandSetStream( curand_generator_, stream_ );
+
+                if ( status != CURAND_STATUS_SUCCESS )
+                {
+                    curandDestroyGenerator( curand_generator_ );
+                    curand_generator_ = nullptr;
+                    throw std::runtime_error( "Failed to bind cuRAND generator to stream" );
+                }
+            } );
+
+            return curand_generator_;
+        }
+
+        /**
          * @brief Get a cuBLASLt handle for this context.
          *
          * The handle is created lazily and owned by this context. Callers
@@ -172,6 +219,42 @@ namespace Mila::Dnn::Compute
             return cublaslt_workspace_size_;
         }
 
+        /**
+         * @brief Gets or grows the pinned host staging buffer for Host->Device transfers.
+         *
+         * Page-locked via cudaHostAlloc so cudaMemcpyAsync from it to device memory
+         * is a direct DMA transfer — no internal CUDA driver staging overhead.
+         * Grown on demand, never shrunk. Freed in releaseResources().
+         *
+         * @param required_bytes Minimum number of bytes required.
+         * @return void* Pinned host buffer of at least required_bytes.
+         * @throws std::runtime_error If allocation fails.
+         */
+        [[nodiscard]] void* getPinnedStagingBuffer( size_t required_bytes ) const
+        {
+            if ( required_bytes <= pinned_staging_size_ )
+                return pinned_staging_buf_;
+
+            if ( pinned_staging_buf_ )
+            {
+                cudaFreeHost( pinned_staging_buf_ );
+                pinned_staging_buf_ = nullptr;
+                pinned_staging_size_ = 0;
+            }
+
+            cudaError_t err = cudaHostAlloc( &pinned_staging_buf_, required_bytes, cudaHostAllocDefault );
+
+            if ( err != cudaSuccess )
+            {
+                throw std::runtime_error(
+                    std::format( "Failed to allocate pinned staging buffer: {}", cudaGetErrorString( err ) ) );
+            }
+
+            pinned_staging_size_ = required_bytes;
+
+            return pinned_staging_buf_;
+        }
+
 #ifdef USE_CUDNN
         /**
          * @brief Get a cuDNN handle bound to this context's stream.
@@ -213,6 +296,9 @@ namespace Mila::Dnn::Compute
     private:
 
         DeviceId device_id_;
+        
+        mutable void* pinned_staging_buf_{ nullptr };
+        mutable size_t pinned_staging_size_{ 0 };
 
         mutable void* cublaslt_workspace_{ nullptr };
         mutable size_t cublaslt_workspace_size_{ 0 };
@@ -220,6 +306,9 @@ namespace Mila::Dnn::Compute
 
         cudaStream_t stream_{ nullptr };
         bool stream_created_{ false };
+
+        mutable curandGenerator_t curand_generator_{ nullptr };
+        mutable std::once_flag curand_init_flag_;
 
         mutable cublasLtHandle_t cublas_handle_{ nullptr };
         mutable std::once_flag cublas_init_flag_;
@@ -283,8 +372,8 @@ namespace Mila::Dnn::Compute
 
             stream_created_ = true;
 
-            // Allocate workspace for cuBLASLt if needed
             cudaError_t ws_error = cudaMalloc( &cublaslt_workspace_, kCublasLtWorkspaceSize );
+
             if ( ws_error != cudaSuccess )
             {
                 cublaslt_workspace_ = nullptr;
@@ -293,9 +382,8 @@ namespace Mila::Dnn::Compute
                     std::format( "Failed to allocate cuBLASLt workspace: {}",
                         cudaGetErrorString( ws_error ) ) );
             }
-            
-            cublaslt_workspace_size_ = kCublasLtWorkspaceSize;
 
+            cublaslt_workspace_size_ = kCublasLtWorkspaceSize;
         }
 
         /**
@@ -306,7 +394,6 @@ namespace Mila::Dnn::Compute
          */
         void releaseResources() noexcept
         {
-            // Destroy library handles first
 #ifdef USE_CUDNN
             if ( cudnn_handle_ )
             {
@@ -321,6 +408,12 @@ namespace Mila::Dnn::Compute
                 cublas_handle_ = nullptr;
             }
 
+            if ( curand_generator_ )
+            {
+                curandDestroyGenerator( curand_generator_ );
+                curand_generator_ = nullptr;
+            }
+
             if ( cublaslt_workspace_ )
             {
                 cudaFree( cublaslt_workspace_ );
@@ -328,10 +421,17 @@ namespace Mila::Dnn::Compute
                 cublaslt_workspace_size_ = 0;
             }
 
-            // Destroy stream last
+            if( pinned_staging_buf_ )
+            {
+                cudaFreeHost( pinned_staging_buf_ );
+                pinned_staging_buf_ = nullptr;
+                pinned_staging_size_ = 0;
+            }
+
             if ( stream_created_ && stream_ )
             {
                 cudaError_t err = cudaStreamSynchronize( stream_ );
+
                 if ( err != cudaSuccess )
                 {
                     std::fprintf( stderr,
@@ -340,6 +440,7 @@ namespace Mila::Dnn::Compute
                 }
 
                 err = cudaStreamDestroy( stream_ );
+
                 if ( err != cudaSuccess )
                 {
                     std::fprintf( stderr,

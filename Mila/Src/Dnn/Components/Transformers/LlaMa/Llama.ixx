@@ -41,6 +41,7 @@ import Compute.DeviceType;
 import Compute.DeviceId;
 import Compute.DeviceTypeTraits;
 import Compute.CpuMemoryResource;
+import Compute.CudaPinnedMemoryResource;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
@@ -80,7 +81,7 @@ namespace Mila::Dnn
         using ComponentPtr = typename NetworkBase::ComponentPtr;
 
         explicit LlamaTransformer( const std::string& name, const LlamaConfig& config, DeviceId device_id )
-            : NetworkBase( name ), owned_context_( createExecutionContext( device_id ) ), config_( config )
+            : NetworkBase( name ), exec_context_( createExecutionContext( device_id ) ), config_( config )
         {
             config_.validate();
 
@@ -94,7 +95,7 @@ namespace Mila::Dnn
 
             createGraph();
 
-            this->setExecutionContext( owned_context_.get() );
+            this->setExecutionContext( exec_context_.get() );
         }
 
         ~LlamaTransformer() override = default;
@@ -390,23 +391,39 @@ namespace Mila::Dnn
 
         void loadParameters( PretrainedModelReader& reader, bool strict )
         {
+            const int device_index = this->getExecutionContext()->getDeviceId().index;
+
             for ( const auto& full_name : reader.getTensorNames() )
             {
                 auto [component_path, param_name] = parseParameterPath( full_name );
 
-                auto target = this->findComponent( component_path );
+                ComponentPtr target = nullptr;
 
-                if ( !target )
+                try
                 {
+                    target = this->findComponent( component_path );
+                }
+                catch ( const std::out_of_range& )
+                {
+                    // REVIEW: if a parameter is missing, should we throw, or just skip it? 
+                    // Skipping allows loading from checkpoints that may be missing some parameters (e.g. final lm_head in a prefill-only checkpoint),
+                    // but risks silent errors if the name is wrong or the checkpoint is incompatible.
                     if ( strict )
                         throw std::runtime_error( "Component not found: " + component_path );
 
                     continue;
                 }
 
-                auto blob = reader.readTensorBlob( full_name );
-
-                target->loadParameter( param_name, blob );
+                if constexpr ( TDeviceType == DeviceType::Cuda )
+                {
+                    auto blob = reader.readTensorBlob<CudaPinnedMemoryResource>( full_name, device_index );
+                    target->loadParameter( param_name, blob );
+                }
+                else
+                {
+                    auto blob = reader.readTensorBlob<CpuMemoryResource>( full_name );
+                    target->loadParameter( param_name, blob );
+                }
             }
         }
 
@@ -494,10 +511,9 @@ namespace Mila::Dnn
             archive.writeMetadata( "transformer_meta.json", meta );
         }
 
-
     private:
 
-        std::unique_ptr<IExecutionContext> owned_context_{ nullptr };
+        std::unique_ptr<IExecutionContext> exec_context_{ nullptr };
 
         LlamaConfig config_;
 

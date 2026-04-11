@@ -61,6 +61,7 @@ namespace Mila::Dnn
                 {
                     values[ i ] = dis( gen );
                 }
+                
                 return values;
             }
         }
@@ -117,7 +118,6 @@ namespace Mila::Dnn
         void fill_uniform_distribution( Tensor<TDataType, TMemoryResource>& tensor,
             host_value_t<TDataType> min_val, host_value_t<TDataType> max_val )
         {
-
             auto host_values = generate_host_values<TDataType>( tensor.size(), min_val, max_val );
 
             // Create span over generated host values and forward to device-dispatching fill.
@@ -176,6 +176,7 @@ namespace Mila::Dnn
                 {
                     fill_uniform_distribution( tensor, -0.01f, 0.01f );
                 }
+                
                 return;
             }
 

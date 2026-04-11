@@ -106,7 +106,7 @@ namespace Mila::Dnn
             {
                 if ( device_id->type != TDeviceType )
                 {
-                    throw std::invalid_argument( "Encoder: device type mismatch" );
+                    throw std::invalid_argument( "Lpe: device type mismatch" );
                 }
 
                 owned_exec_context_ = createExecutionContext( device_id.value() );
@@ -164,18 +164,6 @@ namespace Mila::Dnn
             // Return view with actual output shape
             shape_t actual_out_shape = { B, T, static_cast<dim_t>( config_.getEmbeddingDim() ) };
             current_output_view_ = std::make_unique<EmbeddingsTensorType>( output_->view( actual_out_shape ) );
-
-            //// DEBUG: Check output range
-            //this->synchronize();
-
-            //auto host_output = toHost<TensorDataType::FP32>( *current_output_view_ );
-            //auto host_output_ptr = host_output.data();
-            //const size_t output_n = host_output.size();
-            //auto [min_out, max_out] = std::minmax_element( host_output_ptr, host_output_ptr + output_n );
-
-            //Utils::Logger::debug( std::format( "Lpe {} out:[{:.3f}, {:.3f}] with shape:{}",
-            //    this->getName(), *min_out, *max_out, shapeToString( host_output.shape() ) ) );
-            //// DEBUG END
 
             return *current_output_view_;
         }
@@ -321,7 +309,7 @@ namespace Mila::Dnn
             return params;
         }
 
-        void loadParameter( const std::string& name, const TensorBlob& blob ) override
+        void loadParameter( const std::string& name, const ITensorBlob& blob ) override
         {
             if ( name == "wte" )
             {
@@ -336,49 +324,6 @@ namespace Mila::Dnn
                 // Throw by default for unknown parameter names
                 this->loadParameter( name, blob ); 
             }
-
-            // DEBUG: Diagnostics
-
-            if ( name == "wte" )
-            {
-                // DIAGNOSTIC: Check weight statistics
-                auto host_wte = toHost<TensorDataType::FP32>( *wte_ );
-
-                const float* ptr = host_wte.data();
-                const size_t n = host_wte.size();
-
-                if ( n > 0 )
-                {
-                    float min_w = *std::min_element( ptr, ptr + n );
-                    float max_w = *std::max_element( ptr, ptr + n );
-                    float mean_w = std::accumulate( ptr, ptr + n, 0.0f ) / static_cast<float>(n);
-
-                    Utils::Logger::info( std::format(
-                        "Lpe wte stats: min={:.6f} max={:.6f} mean={:.6f}",
-                        min_w, max_w, mean_w ) );
-                }
-
-            }
-
-            if ( name == "wpe" )
-            {
-                auto host_wpe = toHost<TensorDataType::FP32>( *wpe_ );
-                const float* ptr = host_wpe.data();
-                const size_t n = host_wpe.size();
-
-                if ( n > 0 )
-                {
-                    float min_b = *std::min_element( ptr, ptr + n );
-                    float max_b = *std::max_element( ptr, ptr + n );
-                    float mean_w = std::accumulate( ptr, ptr + n, 0.0f ) / static_cast<float>(n);
-
-                    Utils::Logger::info( std::format(
-                        "Lpe wpe stats: min={:.6f} max={:.6f} mean={:.6f}",
-                        min_b, max_b, mean_w ) );
-                }
-            }
-
-            // END DEBUG:
         }
 
         std::vector<ITensor*> getGradients() const override

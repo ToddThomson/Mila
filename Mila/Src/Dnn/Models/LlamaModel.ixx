@@ -121,7 +121,7 @@ namespace Mila::Dnn
 
             auto network = std::make_unique<LlamaTransformerType>( metadata.model_name, config, device_id );
 
-            BuildContext build_context( shape_t{ 1, context_length }, RuntimeMode::Inference );
+            BuildContext build_context( shape_t{ 1, context_length }, RuntimeMode::Inference, 0, false );
 
             network->build( build_context );
 

@@ -506,7 +506,9 @@ namespace Mila::Dnn
          * @throws std::runtime_error if component has no parameters to load.
          * @throws std::runtime_error if blob shape doesn't match parameter shape.
          */
-        virtual void loadParameter( const std::string& name, const Serialization::TensorBlob& blob )
+        virtual void loadParameter( 
+            const std::string& name, 
+            const Serialization::ITensorBlob& blob )
         {
             throw std::runtime_error(
                 std::format( "Component '{}' does not support parameter loading", getName() ) );
@@ -761,27 +763,27 @@ namespace Mila::Dnn
         template<TensorDataType TPrecision, typename TMemoryResource>
         void loadParameterFromBlob(
             const std::string& param_name,
-            const Serialization::TensorBlob& blob,
+            const Serialization::ITensorBlob& blob,
             Tensor<TPrecision, TMemoryResource>& target,
             const shape_t& expected_shape )
         {
-            if ( blob.metadata.dtype != TPrecision )
+            if ( blob.getMetadata().dtype != TPrecision )
             {
                 throw std::invalid_argument(
                     std::format( "Parameter '{}' dtype mismatch. Expected {}, got {}",
                         param_name,
                         tensorDataTypeToString( TPrecision ),
-                        tensorDataTypeToString( blob.metadata.dtype ) ) );
+                        tensorDataTypeToString( blob.getMetadata().dtype)));
             }
 
-            if ( blob.metadata.shape != expected_shape )
+            if ( blob.getMetadata().shape != expected_shape )
             {
                 throw std::invalid_argument(
                     std::format( "Component '{}' parameter '{}' shape mismatch. Expected {}, got {}",
                         getName(),
                         param_name,
                         shapeToString( expected_shape ),
-                        shapeToString( blob.metadata.shape ) ) );
+                        shapeToString( blob.getMetadata().shape)));
             }
 
             copyFromBlob( blob, target );

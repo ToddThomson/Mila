@@ -82,6 +82,7 @@ namespace Mila::Dnn
                 }
 
                 owned_exec_context_ = createExecutionContext( device_id.value() );
+
                 this->setExecutionContext( owned_exec_context_.get() );
             }
         }
@@ -230,7 +231,7 @@ namespace Mila::Dnn
             return count;
         }
 
-        void loadParameter( const std::string& name, const TensorBlob& blob ) override
+        void loadParameter( const std::string& name, const ITensorBlob& blob ) override
         {
             if ( name == "weight" )
             {

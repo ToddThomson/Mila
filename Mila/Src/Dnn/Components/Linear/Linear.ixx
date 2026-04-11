@@ -452,7 +452,9 @@ namespace Mila::Dnn
             return grads;
         }
 
-        void loadParameter( const std::string& name, const TensorBlob& blob ) override
+        void loadParameter( 
+            const std::string& name, 
+            const ITensorBlob& blob ) override
         {
             if ( name == "weight" )
             {
@@ -476,76 +478,11 @@ namespace Mila::Dnn
             }
             else
             {
-                this->loadParameter( name, blob ); // Throws
+                // REVIEW: Confusing and hidden throw here
+                // Base class loadParameter Throws
+                this->loadParameter( name, blob ); 
             }
 
-            //// DEBUG: Diagnostics
-
-            //if ( name == "weight" )
-            //{
-            //    // DIAGNOSTIC: Check weight statistics
-            //    auto host_weights = toHost<TensorDataType::FP32>( *weight_ );
-            //
-            //    const float* ptr = host_weights.data();
-            //    const size_t n = host_weights.size();
-            //
-            //    if ( n > 0 )
-            //    {
-            //        float min_w = *std::min_element( ptr, ptr + n );
-            //        float max_w = *std::max_element( ptr, ptr + n );
-            //        float mean_w = std::accumulate( ptr, ptr + n, 0.0f ) / static_cast<float>(n);
-            //
-            //        Utils::Logger::info( std::format(
-            //            "LinearOp [{}x{}] weight stats: min={:.6f} max={:.6f} mean={:.6f}",
-            //            config_.getInputFeatures(), config_.getOutputFeatures(), min_w, max_w, mean_w ) );
-            //    }
-            //
-            //    // DEBUG: Print first 5x5 block for fc_2 layers
-            //    auto component_name = this->getName();
-            //    if ( component_name.find( "mlp.fc_2" ) != std::string::npos )
-            //    {
-            //        auto host_data = host_weights.data();
-            //        auto shape = weight_->shape();
-            //        int num_cols = shape[ 1 ];
-            //        
-            //        Utils::Logger::info( std::format( "{} weight first 5x5 block:", component_name ) );
-            //        for ( int row = 0; row < 5; ++row )
-            //        {
-            //            Utils::Logger::info( std::format( "  [{:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}]",
-            //                host_data[ row * num_cols + 0 ],
-            //                host_data[ row * num_cols + 1 ],
-            //                host_data[ row * num_cols + 2 ],
-            //                host_data[ row * num_cols + 3 ],
-            //                host_data[ row * num_cols + 4 ] ) );
-            //        }
-            //
-            //        auto strides = weight_->strides();
-            //
-            //        Utils::Logger::info( std::format( "Weight tensor info:" ) );
-            //        Utils::Logger::info( std::format( "  Shape: [{}, {}]", shape[ 0 ], shape[ 1 ] ) );
-            //        Utils::Logger::info( std::format( "  Size: {}", weight_->size() ) );
-            //        Utils::Logger::info( std::format( "  Strides: [{}, {}]", strides[0], strides[1] ) );
-            //    }
-            //}
-            //
-            //if ( name == "bias" )
-            //{
-            //    auto host_bias = toHost<TensorDataType::FP32>( *bias_ );
-            //    const float* ptr = host_bias.data();
-            //    const size_t n = host_bias.size();
-            //
-            //    if ( n > 0 )
-            //    {
-            //        float min_b = *std::min_element( ptr, ptr + n );
-            //        float max_b = *std::max_element( ptr, ptr + n );
-            //
-            //        Utils::Logger::info( std::format(
-            //            "  bias stats: min={:.6f} max={:.6f}",
-            //            min_b, max_b ) );
-            //    }
-            //}
-            //
-            //// END DEBUG:
         }
 
         /**
@@ -613,7 +550,8 @@ namespace Mila::Dnn
 
             const auto& input_shape = context.inputShape();
 
-            initializeParameters();
+            initializeParameters( context );
+            
             operation_->setParameters( weight_.get(), bias_.get() );
             operation_->build( context );
 
@@ -805,23 +743,27 @@ namespace Mila::Dnn
          * Tensors are created on the ExecutionContext device and weights are
          * initialized using Xavier initialization. Bias is zero-initialized.
          */
-        void initializeParameters()
+        void initializeParameters( const BuildContext& context )
         {
             int64_t input_features = config_.getInputFeatures();
             int64_t output_features = config_.getOutputFeatures();
             auto device = this->getExecutionContext()->getDeviceId();
 
-            weight_ = std::make_shared<TensorType>(
-                device, shape_t{ output_features, input_features },
-                this->getName() + ".weight" );
-            xavier<TPrecision, MR>( *weight_, input_features, output_features );
-
+            weight_ = std::make_shared<TensorType>( device, shape_t{ output_features, input_features }, this->getName() + ".weight" );
+            
+            if ( context.shouldInitializeParameters() )
+            {
+                xavier<TPrecision, MR>( *weight_, input_features, output_features );
+            }
+            
             if ( config_.hasBias() )
             {
-                bias_ = std::make_shared<TensorType>(
-                    device, shape_t{ output_features },
-                    this->getName() + ".bias" );
-                zero( *bias_ );
+                bias_ = std::make_shared<TensorType>( device, shape_t{ output_features }, this->getName() + ".bias" );
+                
+                if ( context.shouldInitializeParameters() )
+                {
+                    zero( *bias_ );
+                }
             }
         }
 
