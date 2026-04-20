@@ -33,6 +33,7 @@
 module;
 #include <vector>
 #include <span>
+#include <unordered_set>
 #include <memory>
 #include <string>
 #include <random>
@@ -204,6 +205,21 @@ namespace Mila::Dnn
          * @brief End-of-sequence token id for this model.
          */
         virtual int32_t eosToken() const noexcept = 0;
+
+        /**
+         * @brief Full set of token ids that terminate generation.
+         *
+         * The default implementation returns a single-element set containing
+         * eosToken(). Models with additional stop tokens (e.g. Llama 3.x
+         * instruct variants that stop on <|eot_id|> and <|eom_id|> as well
+         * as <|end_of_text|>) override this method.
+         *
+         * @return Unordered set of token ids at which generation must halt.
+         */
+        virtual std::unordered_set<int32_t> stopTokens() const
+        {
+            return { eosToken() };
+        }
 
         /**
          * @brief Maximum sequence length for this model.

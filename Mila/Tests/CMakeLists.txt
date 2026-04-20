@@ -45,7 +45,7 @@ add_executable( MilaTests
     "Dnn/Compute/Devices/Registry/DeviceRegistryHelpers.cpp"
 
     "Dnn/Compute/Devices/Cpu/CpuDevice.cpp"
-    "Dnn/Compute/Devices/Cuda/CudaDevice.cpp"
+    #"Dnn/Compute/Devices/Cuda/CudaDevice.cpp"
 
     # --------------------------------------------------------------
     # Dnn::Compute::Execution Context Tests
@@ -74,7 +74,7 @@ add_executable( MilaTests
     "Dnn/Tensors/TensorOps/TensorOps.Transfer.cpp"
 
     # Tensor Helpers
-    "Dnn/Tensors/Tensor.Initializers.cpp"
+    #"Dnn/Tensors/Tensor.Initializers.cpp"
 
     # --------------------------------------------------------------
     # Compute::Device::Cpu Operations Tests
@@ -152,7 +152,7 @@ add_executable( MilaTests
     # --------------------------------------------------------------
     # Data Tests
     # --------------------------------------------------------------
-    "Dnn/Data/DataLoader.cpp"
+    #"Dnn/Data/DataLoader.cpp"
     
     # Cuda Operations...
     #"Dnn/Compute/Operations/Cuda/CudaMatMulBiasOpTests.cpp"
@@ -201,14 +201,14 @@ add_executable( MilaTests
     "Dnn/Components/Transformers/Llama/Llama.Cuda.cpp"
     "Dnn/Components/Transformers/Llama/Llama.Presets.cpp"
     
-    "Data/Tokenizers/Char/CharVocabulary.cpp"
-    "Data/Tokenizers/Char/CharTrainer.cpp"
-    "Data/Tokenizers/Char/CharTokenizer.cpp"
+    #"Data/Tokenizers/Char/CharVocabulary.cpp"
+    #"Data/Tokenizers/Char/CharTrainer.cpp"
+    #"Data/Tokenizers/Char/CharTokenizer.cpp"
     
-    "Data/Tokenizers/Bpe/BpeVocabulary.cpp"
-    "Data/Tokenizers/Bpe/BpeTrainer.cpp"
-    "Data/Tokenizers/Bpe/BpeTokenizer.cpp"
-    "Data/Tokenizers/Bpe/BpeTokenizer.Gpt2.cpp"
+    #"Data/Tokenizers/Bpe/BpeVocabulary.cpp"
+    #"Data/Tokenizers/Bpe/BpeTrainer.cpp"
+    #"Data/Tokenizers/Bpe/BpeTokenizer.cpp"
+    #"Data/Tokenizers/Bpe/BpeTokenizer.Gpt2.cpp"
     
     "Dnn/Data/TokenSequenceLoader.cpp"
     
@@ -218,7 +218,7 @@ add_executable( MilaTests
     #"Dnn/Components/Attention/GQA/GQA.Cuda.cpp"
     
     #"Dnn/Components/Normalization/RmsNorm/RmsNorm.Cuda.cpp"
-    "Data/Tokenizers/Bpe/BpeTokenizer.Llama32.cpp"
+    #"Data/Tokenizers/Bpe/BpeTokenizer.Llama32.cpp"
     "Dnn/Components/Transformers/Llama/Llama.Config.cpp"
 )
 

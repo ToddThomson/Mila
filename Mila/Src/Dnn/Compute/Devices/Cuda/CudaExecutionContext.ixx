@@ -22,10 +22,10 @@ import Compute.ExecutionContextTemplate;
 import Compute.IExecutionContext;
 import Compute.DeviceId;
 import Compute.DeviceType;
-import Compute.DeviceRegistry;
+//import Compute.DeviceRegistry;
 import Core.RandomGenerator;
-import Cuda.Helpers;
-import Cuda.Error;
+//import Cuda.Helpers;
+//import Cuda.Error;
 
 namespace Mila::Dnn::Compute
 {
@@ -95,11 +95,11 @@ namespace Mila::Dnn::Compute
          */
         void synchronize() override
         {
-            cudaCheckLastError();
+            //cudaCheckLastError();
 
-            Cuda::setCurrentDevice( device_id_.index );
+            // FIXME: Cuda::setCurrentDevice( device_id_.index );
 
-            cudaCheckLastError();
+            //cudaCheckLastError();
 
             cudaError_t error = cudaStreamSynchronize( stream_ );
 
@@ -134,7 +134,8 @@ namespace Mila::Dnn::Compute
         [[nodiscard]] curandGenerator_t getCurandGenerator() const
         {
             std::call_once( curand_init_flag_, [this]() {
-                Cuda::setCurrentDevice( device_id_.index );
+                
+                // FIXME: Cuda::setCurrentDevice( device_id_.index );
 
                 curandStatus_t status = curandCreateGenerator( &curand_generator_, CURAND_RNG_PSEUDO_DEFAULT );
 
@@ -180,7 +181,7 @@ namespace Mila::Dnn::Compute
         [[nodiscard]] cublasLtHandle_t getCublasLtHandle() const
         {
             std::call_once( cublas_init_flag_, [this]() {
-                Cuda::setCurrentDevice( device_id_.index );
+                // FIXME: Cuda::setCurrentDevice( device_id_.index );
 
                 cublasStatus_t status = cublasLtCreate( &cublas_handle_ );
 
@@ -335,13 +336,15 @@ namespace Mila::Dnn::Compute
                 );
             }
 
-            if ( !DeviceRegistry::instance().hasDevice( device_id ) )
+            // FIXME:
+
+            /*if ( !DeviceRegistry::instance().hasDevice( device_id ) )
             {
                 throw std::invalid_argument(
                     std::format( "CudaExecutionContext device '{}' is not registered",
                         device_id.toString() )
                 );
-            }
+            }*/
 
             return device_id;
         }
@@ -355,7 +358,7 @@ namespace Mila::Dnn::Compute
          */
         void initializeResources()
         {
-            Cuda::setCurrentDevice( device_id_.index );
+            // FIXME: Cuda::setCurrentDevice( device_id_.index );
 
             cudaError_t error = cudaStreamCreateWithFlags(
                 &stream_,

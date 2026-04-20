@@ -49,6 +49,7 @@ namespace Dnn::Compute::Tests
 		{
 			return props.getComputeCapability();
 		}
+		
 		int getComputeCapabilityVersion() const
 		{
 			return props.getComputeCapabilityVersion();

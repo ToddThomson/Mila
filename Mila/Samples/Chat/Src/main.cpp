@@ -2,21 +2,22 @@
 #include <string_view>
 #include <optional>
 #include <iostream>
+#include <fstream>
 #include <filesystem>
 #include <format>
 #include <stdexcept>
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 
 import Mila;
 import Mila.Chat;
+import nlohmann.json;
 
 using namespace Mila::ChatApp;
 
-// Defaults: Llama 3.2 3B BF16 WIP Bf16 support
-// Llama 3.2 1B FP32 is supported and validated
 constexpr ModelType      kDefaultModelType = ModelType::Llama;
-constexpr ModelSize      kDefaultModelSize = ModelSize::B1;
+constexpr ModelSize      kDefaultModelSize = ModelSize::B3;
 constexpr ModelPrecision kDefaultPrecision = ModelPrecision::BF16;
 
 static std::filesystem::path gpt2_weights_path()
@@ -28,15 +29,20 @@ static std::filesystem::path llama_weights_path( ModelSize size, ModelPrecision 
 {
     const char* size_str = (size == ModelSize::B1) ? "1b" : "3b";
     const char* prec_str = (precision == ModelPrecision::BF16) ? "bf16" : "fp32";
+
     return std::filesystem::path( MODELS_DIR ) / "llama"
         / std::format( "llama32_{}_{}.bin", size_str, prec_str );
 }
 
 static void printUsage( const char* prog_name )
 {
-    std::cerr << "Usage: " << prog_name
-        << " [--model-type gpt|llama] [--model-size 1b|3b] [--precision fp32|bf16]"
-           " [--tokenizer <path>] [--context-length <n>] [model_path]\n"
+    std::cerr
+        << "Usage: " << prog_name
+        << " [--config <path>] [--model-type gpt|llama] [--model-size 1b|3b]\n"
+        << "       [--precision fp32|bf16] [--tokenizer <path>]\n"
+        << "       [--context-length <n>] [--system-prompt <path>] [model_path]\n"
+        << "\n"
+        << "  --config          JSON session config file. CLI args override file values.\n"
         << "  --model-type      Model architecture: gpt or llama. Default: llama.\n"
         << "                    Inferred from model_path if not specified.\n"
         << "  --model-size      Llama parameter count: 1b or 3b. Default: 3b.\n"
@@ -47,8 +53,95 @@ static void printUsage( const char* prog_name )
         << "  --context-length  Maximum sequence length for inference.\n"
         << "                    Defaults to 1024 for GPT-2, 4096 for Llama.\n"
         << "                    Reduce to lower GPU memory usage.\n"
-        << "                    Cannot exceed the model architectural maximum.\n"
+        << "  --system-prompt   JSON file with system_prompt string and optional tools array.\n"
         << "  model_path        Path to the pretrained weights file.\n";
+}
+
+/**
+ * @brief Apply values from a JSON config file as a baseline for ChatConfig.
+ *
+ * Explicit CLI arguments applied after this call override any file values.
+ * Unknown keys are silently ignored so future fields do not break old files.
+ */
+static void applyConfigFile(
+    const std::filesystem::path& path,
+    ModelType& model_type, bool& explicit_type,
+    ModelSize& model_size, bool& explicit_size,
+    ModelPrecision& precision, bool& explicit_precision,
+    std::optional<std::filesystem::path>& model_path,
+    std::optional<std::filesystem::path>& tokenizer_path,
+    std::optional<std::size_t>& context_length,
+    std::optional<std::filesystem::path>& system_prompt_path )
+{
+    std::ifstream file( path );
+
+    if ( !file )
+    {
+        throw std::runtime_error(
+            std::format( "--config: cannot open '{}'", path.string() ) );
+    }
+
+    nlohmann::json j;
+
+    try
+    {
+        file >> j;
+    }
+    catch ( const nlohmann::json::parse_error& e )
+    {
+        throw std::runtime_error(
+            std::format( "--config: JSON parse error in '{}': {}", path.string(), e.what() ) );
+    }
+
+    if ( !explicit_type && j.contains( "model_type" ) && j[ "model_type" ].is_string() )
+    {
+        auto v = j[ "model_type" ].get<std::string>();
+
+        if ( v == "gpt" )
+            model_type = ModelType::Gpt;
+        else if ( v == "llama" )
+            model_type = ModelType::Llama;
+    }
+
+    if ( !explicit_size && j.contains( "model_size" ) && j[ "model_size" ].is_string() )
+    {
+        auto v = j[ "model_size" ].get<std::string>();
+
+        if ( v == "1b" )
+            model_size = ModelSize::B1;
+        else if ( v == "3b" )
+            model_size = ModelSize::B3;
+    }
+
+    if ( !explicit_precision && j.contains( "precision" ) && j[ "precision" ].is_string() )
+    {
+        auto v = j[ "precision" ].get<std::string>();
+
+        if ( v == "fp32" )
+            precision = ModelPrecision::FP32;
+        else if ( v == "bf16" )
+            precision = ModelPrecision::BF16;
+    }
+
+    if ( !model_path && j.contains( "model_path" ) && j[ "model_path" ].is_string() )
+    {
+        model_path = j[ "model_path" ].get<std::string>();
+    }
+
+    if ( !tokenizer_path && j.contains( "tokenizer_path" ) && j[ "tokenizer_path" ].is_string() )
+    {
+        tokenizer_path = j[ "tokenizer_path" ].get<std::string>();
+    }
+
+    if ( !context_length && j.contains( "context_length" ) && j[ "context_length" ].is_number_unsigned() )
+    {
+        context_length = j[ "context_length" ].get<std::size_t>();
+    }
+
+    if ( !system_prompt_path && j.contains( "system_prompt_path" ) && j[ "system_prompt_path" ].is_string() )
+    {
+        system_prompt_path = std::filesystem::path( j[ "system_prompt_path" ].get<std::string>() );
+    }
 }
 
 static ChatConfig parseArgs( int argc, char* argv[] )
@@ -59,6 +152,8 @@ static ChatConfig parseArgs( int argc, char* argv[] )
     ModelPrecision precision  = kDefaultPrecision;
     std::optional<std::filesystem::path> model_path;
     std::optional<std::filesystem::path> tokenizer_path;
+    std::optional<std::filesystem::path> config_path;
+    std::optional<std::filesystem::path> system_prompt_path;
     std::optional<std::size_t>           context_length;
     bool explicit_type      = false;
     bool explicit_size      = false;
@@ -68,7 +163,13 @@ static ChatConfig parseArgs( int argc, char* argv[] )
     {
         std::string_view arg = argv[ i ];
 
-        if ( arg == "--model-type" )
+        if ( arg == "--config" )
+        {
+            if ( i + 1 >= argc )
+                throw std::invalid_argument( "--config requires a value" );
+            config_path = argv[ ++i ];
+        }
+        else if ( arg == "--model-type" )
         {
             if ( i + 1 >= argc )
                 throw std::invalid_argument( "--model-type requires a value" );
@@ -136,6 +237,12 @@ static ChatConfig parseArgs( int argc, char* argv[] )
 
             context_length = n;
         }
+        else if ( arg == "--system-prompt" )
+        {
+            if ( i + 1 >= argc )
+                throw std::invalid_argument( "--system-prompt requires a value" );
+            system_prompt_path = argv[ ++i ];
+        }
         else if ( !arg.starts_with( "--" ) )
         {
             model_path = arg;
@@ -146,9 +253,19 @@ static ChatConfig parseArgs( int argc, char* argv[] )
         }
     }
 
-    // When a path is provided, infer any unset attributes from it before
-    // building defaults — this is the correct ordering so the default path
-    // construction below reflects the inferred values.
+    // Apply config file as baseline before path inference — CLI args already
+    // parsed above take precedence via the explicit_* flags.
+    if ( config_path )
+    {
+        applyConfigFile(
+            *config_path,
+            model_type, explicit_type,
+            model_size, explicit_size,
+            precision, explicit_precision,
+            model_path, tokenizer_path,
+            context_length, system_prompt_path );
+    }
+
     if ( model_path )
     {
         std::string lower = model_path->string();
@@ -168,7 +285,6 @@ static ChatConfig parseArgs( int argc, char* argv[] )
                 ? ModelPrecision::BF16 : ModelPrecision::FP32;
     }
 
-    // Resolve the default path from the (now fully resolved) attributes.
     if ( !model_path )
     {
         model_path = (model_type == ModelType::Gpt)
@@ -184,11 +300,13 @@ static ChatConfig parseArgs( int argc, char* argv[] )
     }
 
     ChatConfig config;
-    config.model_type = model_type;
-    config.model_size = model_size;
-    config.precision  = precision;
-    config.model_path = std::move( *model_path );
-    config.tokenizer_path = std::move( *tokenizer_path );
+    config.model_type         = model_type;
+    config.model_size         = model_size;
+    config.precision          = precision;
+    config.model_path         = std::move( *model_path );
+    config.tokenizer_path     = std::move( *tokenizer_path );
+    config.config_path        = config_path;
+    config.system_prompt_path = system_prompt_path;
 
     if ( context_length.has_value() )
     {
@@ -196,9 +314,7 @@ static ChatConfig parseArgs( int argc, char* argv[] )
     }
     else
     {
-        config.context_length = (model_type == ModelType::Gpt)
-            ? 1024   // GPT-2 architectural maximum
-            : 4096;  // Llama consumer GPU safe default
+        config.context_length = (model_type == ModelType::Gpt) ? 1024 : 4096;
     }
 
     return config;
@@ -208,8 +324,8 @@ int main( int argc, char* argv[] )
 {
     Mila::initialize();
 
-    //try
-    //{
+    try
+    {
         ChatConfig config = parseArgs( argc, argv );
 
         if ( !std::filesystem::exists( config.model_path ) )
@@ -226,14 +342,23 @@ int main( int argc, char* argv[] )
             return 1;
         }
 
+        if ( config.system_prompt_path.has_value() &&
+             !std::filesystem::exists( *config.system_prompt_path ) )
+        {
+            std::cerr << "Error: System prompt file not found: "
+                      << *config.system_prompt_path << "\n";
+            printUsage( argv[ 0 ] );
+            return 1;
+        }
+
         Chat chat( std::move( config ) );
         chat.run();
 
         return 0;
-    //}
-    //catch ( const std::exception& e )
-    //{
-    //    std::cerr << "Fatal error: " << e.what() << "\n";
-    //    return 1;
-    //}
+    }
+    catch ( const std::exception& e )
+    {
+        std::cerr << "Fatal error: " << e.what() << "\n";
+        return 1;
+    }
 }

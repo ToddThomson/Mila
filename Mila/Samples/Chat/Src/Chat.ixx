@@ -5,7 +5,8 @@
  * Supports GptModel (FP32) and LlamaModel (FP32 or BF16) backends,
  * selected at construction via ChatConfig. The active model is stored
  * as a std::variant so each template instantiation retains its full
- * static type through the generate path.
+ * static type through the generate path. Llama instruct models use
+ * structured ChatMessage history formatted via MessageFormatter.
  */
 
 module;
@@ -13,16 +14,20 @@ module;
 #include <string>
 #include <vector>
 #include <variant>
-#include <sstream>
 #include <filesystem>
 #include <format>
 #include <memory>
 #include <stdexcept>
 #include <future>
 #include <stop_token>
+#include <algorithm>
+#include <cctype>
 
 export module Mila.Chat;
 export import Chat.Config;
+export import Chat.Message;
+export import Chat.MessageFormatter;
+export import Chat.SystemPrompt;
 import Mila;
 
 namespace Mila::ChatApp
@@ -35,8 +40,6 @@ namespace Mila::ChatApp
     using LlamaModelFP32Type = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>;
     using LlamaModelBF16Type = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
 
-    // Variant covering all supported (architecture, precision) combinations.
-    // Add new instantiations here as additional backends are introduced.
     using ModelVariant = std::variant<
         std::unique_ptr<GptModelFP32Type>,
         std::unique_ptr<LlamaModelFP32Type>,
@@ -50,24 +53,30 @@ namespace Mila::ChatApp
         /**
          * @brief Construct a Chat session from a fully-populated ChatConfig.
          *
-         * Loads the tokenizer and model on construction; throws on any failure.
+         * Loads the tokenizer, model, and optional system prompt in order.
+         * Throws on any failure — no partially-constructed session is observable.
          *
-         * @param config Session configuration (model type, precision, paths, generation params).
-         * @throws std::runtime_error on tokenizer or model load failure.
+         * @param config Session configuration.
+         * @throws std::runtime_error on tokenizer, model, or system prompt load failure.
          */
         explicit Chat( ChatConfig config )
             : config_( std::move( config ) )
         {
             initializeTokenizer();
             loadModel();
+            loadSystemPrompt();
         }
 
         void run()
         {
             printWelcome();
 
+            if ( !system_prompt_config_.system_prompt.empty() )
+            {
+                history_.push_back( { MessageRole::System, system_prompt_config_.system_prompt } );
+            }
+
             std::string user_input;
-            std::vector<std::string> conversation_history;
 
             while ( true )
             {
@@ -85,7 +94,13 @@ namespace Mila::ChatApp
 
                 if ( user_input == "clear" )
                 {
-                    conversation_history.clear();
+                    history_.clear();
+
+                    if ( !system_prompt_config_.system_prompt.empty() )
+                    {
+                        history_.push_back( { MessageRole::System, system_prompt_config_.system_prompt } );
+                    }
+
                     std::cout << "Conversation history cleared.\n";
                     continue;
                 }
@@ -96,45 +111,102 @@ namespace Mila::ChatApp
                     continue;
                 }
 
-                conversation_history.push_back( "User: " + user_input );
-
-                const std::string& prompt = conversation_history.back().substr( 6 );
-                std::vector<TokenId> prompt_tokens = tokenizer_->encode( prompt );
-                std::vector<int32_t> input_tokens( prompt_tokens.begin(), prompt_tokens.end() );
+                history_.push_back( { MessageRole::User, user_input } );
 
                 std::string response;
                 response.reserve( 512 );
 
                 std::cout << "\nMila: ";
 
-                stop_src_ = std::stop_source{};
+                generateResponse( response );
 
-                auto fut = std::visit(
-                    [&]( auto& m )
-                    {
-                        return m->generateAsync(
-                            input_tokens,
-                            [&]( int32_t tok )
-                            {
-                                auto text = tokenizer_->decode( std::vector<TokenId>{ static_cast<TokenId>(tok) } );
-                                response += text;
-                                std::cout << text << std::flush;
-                            },
-                            config_.max_new_tokens,
-                            config_.temperature,
-                            config_.top_k,
-                            stop_src_.get_token() );
-                    },
-                    model_ );
-
-                fut.wait();
                 std::cout << '\n';
 
-                conversation_history.push_back( "Mila: " + trimResponse( response ) );
+                history_.push_back( { MessageRole::Assistant, response } );
             }
         }
 
     private:
+
+        /**
+         * @brief Format history, tokenize, generate, and stream the response.
+         *
+         * Llama instruct models render the full structured history via
+         * MessageFormatter before tokenization. GPT and Llama base models
+         * encode only the last user message content directly.
+         *
+         * @param response String to accumulate the generated response into.
+         */
+        void generateResponse( std::string& response )
+        {
+            std::vector<int32_t> input_tokens = buildInputTokens();
+
+            stop_src_ = std::stop_source{};
+
+            auto fut = std::visit(
+                [&]( auto& m )
+                {
+                    return m->generateAsync(
+                        input_tokens,
+                        [&]( int32_t tok )
+                        {
+                            auto text = tokenizer_->decode(
+                                std::vector<TokenId>{ static_cast<TokenId>(tok) } );
+                            response += text;
+                            std::cout << text << std::flush;
+                        },
+                        config_.max_new_tokens,
+                        config_.temperature,
+                        config_.top_k,
+                        stop_src_.get_token() );
+                },
+                model_ );
+
+            fut.wait();
+        }
+
+        /**
+         * @brief Build the token sequence for the current generation step.
+         *
+         * Llama instruct models format the full structured history via
+         * MessageFormatter. GPT and Llama base models encode only the last
+         * user message content.
+         *
+         * @return Token ids ready to pass to generateAsync().
+         */
+        std::vector<int32_t> buildInputTokens() const
+        {
+            std::string prompt;
+
+            if ( config_.model_type == ModelType::Llama && isInstructModel() )
+            {
+                prompt = MessageFormatter::format( history_ );
+            }
+            else
+            {
+                prompt = history_.back().content;
+            }
+
+            auto token_ids = tokenizer_->encode( prompt );
+
+            return std::vector<int32_t>( token_ids.begin(), token_ids.end() );
+        }
+
+        /**
+         * @brief Returns true when the loaded model is an instruct variant.
+         *
+         * Inferred from the model path filename — instruct models contain
+         * "instruct" (case-insensitive). Consistent with the naming convention
+         * used by the Llama weight converter.
+         */
+        bool isInstructModel() const
+        {
+            std::string lower = config_.model_path.string();
+            std::ranges::transform( lower, lower.begin(),
+                []( unsigned char c ) { return static_cast<char>(std::tolower( c )); } );
+
+            return lower.find( "instruct" ) != std::string::npos;
+        }
 
         void initializeTokenizer()
         {
@@ -210,32 +282,50 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief Strip leading whitespace and truncate at the first paragraph break.
+         * @brief Load the system prompt and tool definitions from file.
          *
-         * Applied to the accumulated streaming response before storing in history.
-         * The live printed output is unaffected.
+         * No-op when system_prompt_path is not set in config. On success,
+         * system_prompt_config_ is populated and available to run().
+         * File existence is validated by main() before construction so a
+         * missing file here is a logic error.
          */
-        std::string trimResponse( const std::string& raw ) const
+        void loadSystemPrompt()
         {
-            auto start = raw.find_first_not_of( " \t\n\r" );
+            if ( !config_.system_prompt_path.has_value() )
+                return;
 
-            if ( start == std::string::npos )
-                return {};
+            try
+            {
+                std::cout << "Loading system prompt from: "
+                    << *config_.system_prompt_path << "\n";
 
-            std::string result = raw.substr( start );
+                system_prompt_config_ = SystemPromptLoader::load(
+                    *config_.system_prompt_path );
 
-            auto end = result.find( "\n\n" );
+                std::cout << "System prompt loaded";
 
-            if ( end != std::string::npos )
-                result.resize( end );
+                if ( !system_prompt_config_.tools.empty() )
+                {
+                    std::cout << std::format(
+                        " with {} tool definition{}",
+                        system_prompt_config_.tools.size(),
+                        system_prompt_config_.tools.size() == 1 ? "" : "s" );
+                }
 
-            return result;
+                std::cout << ".\n";
+            }
+            catch ( const std::exception& e )
+            {
+                std::cerr << "Error loading system prompt: " << e.what() << "\n";
+                throw;
+            }
         }
 
         void printWelcome() const
         {
-            const char* backend = (config_.model_type == ModelType::Gpt) ? "GPT" : "LLaMA";
+            const char* backend   = (config_.model_type == ModelType::Gpt) ? "GPT" : "LLaMA";
             const char* precision = (config_.precision == ModelPrecision::BF16) ? "BF16" : "FP32";
+            const char* mode      = isInstructModel() ? " Instruct" : "";
 
             std::cout << R"(
 +--------------------------------------+
@@ -246,7 +336,22 @@ namespace Mila::ChatApp
 Type 'help' for commands, 'exit' to quit.
 )" << "\n";
 
-            std::cout << "Backend: " << backend << " (" << precision << ")\n";
+            std::cout << "Backend: " << backend << mode << " (" << precision << ")\n";
+
+            if ( !system_prompt_config_.system_prompt.empty() )
+            {
+                std::cout << "System prompt: active";
+
+                if ( !system_prompt_config_.tools.empty() )
+                {
+                    std::cout << std::format(
+                        " ({} tool{})",
+                        system_prompt_config_.tools.size(),
+                        system_prompt_config_.tools.size() == 1 ? "" : "s" );
+                }
+
+                std::cout << "\n";
+            }
         }
 
         void printHelp() const
@@ -262,9 +367,11 @@ Just type your message to chat with Mila AI.
 )" << "\n";
         }
 
-        ChatConfig config_;
-        ModelVariant model_;
+        ChatConfig         config_;
+        ModelVariant       model_;
+        SystemPromptConfig system_prompt_config_;
         std::shared_ptr<BpeTokenizer> tokenizer_{ nullptr };
-        std::stop_source stop_src_;
+        std::vector<ChatMessage>      history_;
+        std::stop_source              stop_src_;
     };
 }

@@ -47,7 +47,7 @@ module;
 #include <memory>
 #include <string>
 #include <stdexcept>
-#include <format>
+//#include <format>
 
 export module Dnn.Model;
 
@@ -56,9 +56,10 @@ import Dnn.Component;
 import Dnn.RuntimeMode;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Compute.DeviceType;
 import Compute.DeviceId;
-import Compute.DeviceTypeTraits;
+//import Compute.DeviceTypeTraits;
 
 namespace Mila::Dnn
 {
@@ -256,9 +257,9 @@ namespace Mila::Dnn
         {
             if ( runtime_mode_ != RuntimeMode::Training )
             {
-                throw std::runtime_error(
-                    std::format(
-                        "Model::{}: only valid in Training mode", method ) );
+                throw std::runtime_error( "Model::{}: only valid in Training mode" );
+                    //std::format(
+                    //    , method ) );
             }
         }
     };

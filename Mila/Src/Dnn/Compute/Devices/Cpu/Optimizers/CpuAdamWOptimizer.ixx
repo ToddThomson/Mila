@@ -167,11 +167,11 @@ namespace Mila::Dnn::Compute
 
             auto m_state = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
             m_state->setName( param->getName() + ".m" );
-            zeros( *m_state );
+            // FIXME: zeros( *m_state );
 
             auto v_state = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
             v_state->setName( param->getName() + ".v" );
-            zeros( *v_state );
+            // FIXME: zeros( *v_state );
 
             m_states_.push_back( m_state );
             v_states_.push_back( v_state );

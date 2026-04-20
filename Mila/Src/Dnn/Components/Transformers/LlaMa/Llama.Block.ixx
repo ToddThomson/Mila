@@ -228,12 +228,6 @@ namespace Mila::Dnn
             auto k_view = k_->view( shape_t{ B, T_actual, n_kv * head_dim }, 0 );
             auto v_view = v_->view( shape_t{ B, T_actual, n_kv * head_dim }, 0 );
 
-            // DEBUG:
-            //std::cout << std::format(
-            //    "LlamaBlock::prefill(): qkv_out:" ) << std::endl;
-            //std::cout << toHost<TensorDataType::FP32>( qkv_out ).toString( true ) << std::endl;
-            // END DEBUG
-
             split(
                 qkv_out,
                 q_view, k_view, v_view,
@@ -552,7 +546,7 @@ namespace Mila::Dnn
 
             // GQA — context_length for KV cache sizing, correct QKV trailing dim
             const shape_t qkv_shape = { B, context_length, (n_heads + 2 * n_kv) * head_dim };
-            BuildContext qkv_context( qkv_shape, context.getRuntimeMode() );
+            BuildContext qkv_context = context.withShape( qkv_shape );
 
             if ( context.isInferenceMode() )
             {
@@ -563,9 +557,9 @@ namespace Mila::Dnn
                 const shape_t gate_up_prefill = { B, kPrefillChunkSize, 2 * hidden_dim };
                 const shape_t hidden_prefill = { B, kPrefillChunkSize, hidden_dim };
 
-                BuildContext prefill_context( prefill_shape, RuntimeMode::Inference );
-                BuildContext gate_up_context( gate_up_prefill, RuntimeMode::Inference );
-                BuildContext hidden_context( hidden_prefill, RuntimeMode::Inference );
+                BuildContext prefill_context = context.withShape( prefill_shape );
+                BuildContext gate_up_context = context.withShape( gate_up_prefill );
+                BuildContext hidden_context = context.withShape( hidden_prefill );
 
                 // Prefill view shapes — kPrefillChunkSize
                 q_prefill_shape_ = { B, kPrefillChunkSize, n_heads * head_dim };
@@ -628,9 +622,9 @@ namespace Mila::Dnn
                 const shape_t gate_up_shape = { B, context_length, 2 * hidden_dim };
                 const shape_t hidden_shape = { B, context_length, hidden_dim };
 
-                BuildContext training_context( training_shape, RuntimeMode::Training );
-                BuildContext gate_up_context( gate_up_shape, RuntimeMode::Training );
-                BuildContext hidden_context( hidden_shape, RuntimeMode::Training );
+                BuildContext training_context = context.withShape( training_shape );
+                BuildContext gate_up_context = context.withShape( gate_up_shape );
+                BuildContext hidden_context = context.withShape( hidden_shape );
 
                 rms1_ = this->template getComponentAs<RmsNormType>( this->getName() + ".rmsn_1" );
                 rms1_->build( training_context );

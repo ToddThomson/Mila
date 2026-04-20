@@ -8,6 +8,7 @@
 
 module;
 #include <filesystem>
+#include <optional>
 #include <cstddef>
 
 export module Chat.Config;
@@ -36,12 +37,8 @@ namespace Mila::ChatApp
      * @brief Runtime configuration for a Chat session.
      *
      * Holds the model backend selection, size, precision, file paths, and
-     * generation hyper-parameters.
-     *
-     * ## Defaults
-     *
-     * The defaults are tuned for Llama 3.2 3B BF16, which is the recommended
-     * configuration for consumer GPU inference.
+     * generation hyper-parameters. All fields are plain value types so the
+     * struct is cheap to copy and requires no JSON dependency.
      *
      * ## context_length
      *
@@ -63,6 +60,18 @@ namespace Mila::ChatApp
      * Selects the Llama parameter count variant. Ignored for GPT models.
      * Inferred from the model filename (_1b_/_3b_ substring) when not
      * explicitly set via --model-size.
+     *
+     * ## config_path
+     *
+     * Optional path to a JSON session config file. When set, parseArgs()
+     * loads it first and applies it as a baseline; explicit CLI arguments
+     * override any values it provides.
+     *
+     * ## system_prompt_path
+     *
+     * Optional path to a JSON file containing a system_prompt string and
+     * an optional tools array. Loaded by Chat on construction. When absent
+     * no system message is prepended and tool calling is disabled.
      */
     export struct ChatConfig
     {
@@ -74,6 +83,9 @@ namespace Mila::ChatApp
         size_t                max_new_tokens{ 512 };
         float                 temperature{ 0.8f };
         int                   top_k{ 40 };
-        size_t                context_length{ 0 };  // 0 = unset, resolved by parseArgs()
+        size_t                context_length{ 0 };
+
+        std::optional<std::filesystem::path> config_path;
+        std::optional<std::filesystem::path> system_prompt_path;
     };
 }

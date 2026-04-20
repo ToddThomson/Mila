@@ -29,7 +29,7 @@ import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.CpuDevice;
-import Compute.CudaDevice;
+//import Compute.CudaDevice;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;

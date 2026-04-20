@@ -240,26 +240,42 @@ namespace Mila::Data
         }
 
         /**
-         * @brief Llama 3.x style configuration.
+         * @brief Llama 3.x configuration.
          *
-         * BOS: <|begin_of_text|> (ID 128000)
-         * EOS: <|end_of_text|>   (ID 128001)
+         * Registers BOS, EOS, and all five instruct/tool-calling control tokens.
+         * These token IDs are fixed across the Llama 3.x family and exist in
+         * every Llama 3.x vocabulary regardless of whether the model is a base
+         * or instruct variant. Registering them ensures the encoder pre-pass
+         * matches them as single atomic tokens rather than subword fragments.
          *
-         * No PAD or UNK — Llama 3.x uses byte fallback for unknown bytes
-         * and does not use a dedicated padding token.
-         *
-         * The 254 reserved special tokens (IDs 128002-128255) are not
-         * populated here as they are unused in standard inference. Add them
-         * to extended_special_tokens if fine-tuning control tokens are needed.
+         * | Token                   | ID     | Role                       |
+         * |-------------------------|--------|----------------------------|
+         * | <\|begin_of_text\|>     | 128000 | BOS                        |
+         * | <\|end_of_text\|>       | 128001 | EOS                        |
+         * | <\|start_header_id\|>   | 128006 | Opens a role header        |
+         * | <\|end_header_id\|>     | 128007 | Closes a role header       |
+         * | <\|eom_id\|>            | 128008 | Tool call boundary / stop  |
+         * | <\|eot_id\|>            | 128009 | End of turn — primary stop |
+         * | <\|python_tag\|>        | 128010 | Tool call open marker      |
          */
         static SpecialTokens llamaStyle()
         {
-            return SpecialTokens{
+            SpecialTokens st{
                 .use_pad = false, .use_unk = false, .use_bos = true, .use_eos = true,
                 .use_mask = false, .use_sep = false, .use_cls = false,
                 .bos_token = "<|begin_of_text|>",
                 .eos_token = "<|end_of_text|>"
             };
+
+            st.extended_special_tokens = {
+                { "<|start_header_id|>", 128006 },
+                { "<|end_header_id|>",   128007 },
+                { "<|eom_id|>",          128008 },
+                { "<|eot_id|>",          128009 },
+                { "<|python_tag|>",      128010 },
+            };
+
+            return st;
         }
 
         /**

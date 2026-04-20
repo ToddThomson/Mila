@@ -11,7 +11,7 @@ module;
 #include <string>
 #include <stdexcept>
 #include <cstdint>
-#include <format>
+//#include <format>
 
 export module Compute.CudaLpeOp;
 import :Dispatch;
@@ -21,6 +21,7 @@ import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Compute.Precision;
 import Compute.IPositionalDecode;
 import Compute.UnaryOperation;
@@ -195,9 +196,12 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
             int T = static_cast<int>( input_shape[ 1 ] );
 
             if ( B > batch_size_ || T > seq_length_ )
-                throw std::runtime_error( std::format(
-                    "CudaLpeOp: input shape [{}, {}] exceeds built max [{}, {}]",
-                    B, T, batch_size_, seq_length_ ) );
+            {
+                throw std::runtime_error( "CudaLpeOp: input shape [{}, {}] exceeds built max [{}, {}]" );
+                //std::format(
+                //"CudaLpeOp: input shape [{}, {}] exceeds built max [{}, {}]",
+                //B, T, batch_size_, seq_length_ ) );
+            }
 
             const int32_t* X = static_cast<const int32_t*>( input.rawData() );
             NativeType* Y    = static_cast<NativeType*>( output.rawData() );
@@ -229,9 +233,13 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
             int T = static_cast<int>( input_shape[ 1 ] );
 
             if ( B > batch_size_ || T > seq_length_ )
-                throw std::runtime_error( std::format(
-                    "CudaLpeOp: input shape [{}, {}] exceeds built max [{}, {}]",
-                    B, T, batch_size_, seq_length_ ) );
+            {
+                throw std::runtime_error( "CudaLpeOp: input shape [{}, {}] exceeds built max [{}, {}]" );
+                    //FIXME: Possible ICE:
+                    // std::format(
+                    //    "CudaLpeOp: input shape [{}, {}] exceeds built max [{}, {}]",
+                    //    B, T, batch_size_, seq_length_ ) );
+            }
 
             const int32_t* X  = static_cast<const int32_t*>( input.rawData() );
             const NativeType* dY = static_cast<const NativeType*>( output_grad.rawData() );
@@ -290,9 +298,14 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
         void decode( const ITensor& input, ITensor& output, int position ) override
         {
             if ( position < 0 || position >= wpe_max_seq_len_ )
-                throw std::invalid_argument( std::format(
-                    "CudaLpeOp::decode: position {} out of range [0, {})",
-                    position, wpe_max_seq_len_ ) );
+            {
+
+                throw std::invalid_argument( "CudaLpeOp::decode: position {} out of range [0, {})" );
+                    //FIXME: Possible ICE
+                    // std::format(
+                    //"CudaLpeOp::decode: position {} out of range [0, {})",
+                    //position, wpe_max_seq_len_ ) );
+            }
 
             int B = static_cast<int>( input.shape()[ 0 ] );
 

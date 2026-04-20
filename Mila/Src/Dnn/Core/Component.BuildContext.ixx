@@ -133,6 +133,21 @@ namespace Mila::Dnn
             return input_shape_;
         }
 
+        /**
+         * @brief Return a copy of this context with a different input shape.
+         *
+         * All other parameters (RuntimeMode, prefill_size, initialize_parameters)
+         * are preserved. Use when propagating build through sub-graphs that operate
+         * on a reshaped tensor but share the same allocation policy.
+         *
+         * @param new_shape Replacement input shape. Must be non-empty.
+         * @return New BuildContext with new_shape and all other fields unchanged.
+         */
+        [[nodiscard]] BuildContext withShape( shape_t new_shape ) const
+        {
+            return BuildContext( std::move( new_shape ), runtime_mode_, prefill_size_, initialize_parameters_ );
+        }
+
         // ====================================================================
         // RuntimeMode
         // ====================================================================

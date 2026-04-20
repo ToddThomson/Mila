@@ -115,12 +115,6 @@ namespace Mila::Dnn
 
             operation_->forward( input, *output_view_ );
 
-            // DEBUG:
-            //std::cout << std::format(
-            //    "RmsNorm::forward: Output View: " ) << std::endl;
-            //std::cout << toHost<TensorDataType::FP32>( *output_view_ ).toString( true ) << std::endl;
-            // END DEBUG
-            
             return *output_view_;
         }
 
@@ -361,12 +355,12 @@ namespace Mila::Dnn
 
                 if ( weight_grad_ )
                 {
-                    zeros( *weight_grad_ );
+                    // FIXME: zeros( *weight_grad_ );
                 }
 
                 if ( bias_grad_ )
                 {
-                    zeros( *bias_grad_ );
+                    // FIXME: zeros( *bias_grad_ );
                 }
             }
         }
@@ -467,12 +461,12 @@ namespace Mila::Dnn
             auto device = this->getExecutionContext()->getDeviceId();
 
             weight_ = std::make_shared<TensorType>( device, shape_t{ channels }, this->getName() + ".weight" );
-            ones( *weight_ );
+            // FIXME: ones( *weight_ );
 
             if ( config_.hasBias() )
             {
                 bias_ = std::make_shared<TensorType>( device, shape_t{ channels }, this->getName() + ".bias" );
-                zero( *bias_ );
+                // FIXME: zero( *bias_ );
             }
         }
 
@@ -483,13 +477,13 @@ namespace Mila::Dnn
             if ( !weight_grad_ && weight_ )
             {
                 weight_grad_ = std::make_shared<TensorType>( device_id, weight_->shape(), this->getName() + ".weight.grad" );
-                zeros( *weight_grad_ );
+                // FIXME: zeros( *weight_grad_ );
             }
 
             if ( config_.hasBias() && !bias_grad_ && bias_ )
             {
                 bias_grad_ = std::make_shared<TensorType>( device_id, bias_->shape(), this->getName() + ".bias.grad" );
-                zeros( *bias_grad_ );
+                // FIXME: zeros( *bias_grad_ );
             }
         }
 

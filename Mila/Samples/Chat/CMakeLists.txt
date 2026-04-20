@@ -12,6 +12,10 @@ PUBLIC
        TYPE CXX_MODULES FILES
         "Src/Chat.ixx"
 	    "Src/Chat.Config.ixx"
+        "Src/Chat.Message.ixx"
+        "Src/Chat.MessageFormatter.ixx"
+        "Src/Chat.SystemPrompt.ixx"
+        "Src/Json.ixx"
 )
 
 # Define the Data/Models directory path

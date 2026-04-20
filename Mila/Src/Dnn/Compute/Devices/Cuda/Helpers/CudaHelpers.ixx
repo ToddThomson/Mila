@@ -41,27 +41,26 @@ namespace Mila::Dnn::Compute::Cuda
      * @param device_id CUDA device ID to activate
      * @throws std::runtime_error If cudaSetDevice fails
      */
-    export inline void setCurrentDevice( int device_id ) 
+    export inline void setCurrentDevice( int device_id )
     {
+        // REVIEW: This seems overly defensive. Why are we even wrapping cudaSetDevice
+
         // DEBUG: Validate device_id is non-negative (device enumeration should catch invalid IDs)
-        if ( device_id < 0 ) {
+        if ( device_id < 0 )
+        {
             throw std::invalid_argument( "Invalid CUDA device id: must be non-negative." );
         }
 
         //assert( device_id >= 0 && "Invalid CUDA device id" );
 
-        static thread_local int current_device = -1;
-        
-        if (current_device != device_id) {
-            cudaError_t error = cudaSetDevice( device_id );
-            
-            if ( error != cudaSuccess ) {
-                throw std::runtime_error(
-                    std::format( "Failed to set CUDA device {}: {}", device_id, cudaGetErrorString( error ) )
-                );
-            }
-            
-            current_device = device_id;
+        cudaError_t error = cudaSetDevice( device_id );
+
+        if ( error != cudaSuccess )
+        {
+            throw std::runtime_error(
+                std::format( "Failed to set CUDA device {}: {}", device_id, cudaGetErrorString( error ) )
+            );
+
         }
     }
 

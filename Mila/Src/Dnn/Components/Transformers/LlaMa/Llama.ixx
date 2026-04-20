@@ -203,43 +203,17 @@ namespace Mila::Dnn
                 offset += T_actual;
             }
 
-            // DEBUG:
-            // Dump final block output for the last chunk
-            //std::cout << std::format(
-            //    "LlamaTransformer::prefill: final block output for last chunk (B={}, T_last={})",
-            //    B, T_last ) << std::endl;
-            //std::cout << toHost<TensorDataType::FP32>( *last_block_out ).toString( true ) << std::endl;
-            // END DEBUG
-
             // Extract last position from final chunk output — [B, 1, model_dim]
             size_t last_pos_offset = static_cast<size_t>((T_last - 1) * config_.getModelDim());
             auto last_pos = last_block_out->view(
                 shape_t{ B, 1, config_.getModelDim() },
                 last_pos_offset );
             
-            // DEBUG:
-            // Dump last pos block output for the last chunk
-            //std::cout << std::format(
-            //    "LlamaTransformer::prefill: last_pos for last chunk (B={}, T_last={})",
-            //    B, T_last ) << std::endl;
-            //std::cout << toHost<TensorDataType::FP32>( last_pos ).toString( true ) << std::endl;
-            // END DEBUG
-
             normalized_ptr_ = &final_rmsnorm_->forward( last_pos );
             this->getExecutionContext()->synchronize();
-            // DEBUG:
-            // Dump RmsNorm output
-            //std::cout << std::format( "LlamaTransformer::prefill: normalized output: " ) << std::endl;
-            //std::cout << toHost<TensorDataType::FP32>( *normalized_ptr_ ).toString( true ) << std::endl;
-            // END DEBUG
 
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
             this->getExecutionContext()->synchronize();
-            // DEBUG:
-            // Dump logits output
-            //std::cout << std::format( "LlamaTransformer::prefill: logits output: " ) << std::endl;
-            //std::cout << toHost<TensorDataType::FP32>( *logits_ptr_ ).toString( true ) << std::endl;
-            // END DEBUG
 
             return *logits_ptr_;
         }
@@ -441,14 +415,14 @@ namespace Mila::Dnn
             // Blocks need full context_length so GQA can size the KV cache correctly.
             // LlamaBlock handles the prefill/decode split internally.
             shape_t block_shape = { B, T, config_.getModelDim() };
-            BuildContext block_context( block_shape, context.getRuntimeMode() );
+            BuildContext block_context( block_shape, context.getRuntimeMode(), context.prefillSize(), context.shouldInitializeParameters() );
 
             // Inference: final_rmsnorm and lm_head only process the last position.
             // Training: must process full sequence for loss computation.
             shape_t final_shape = context.isInferenceMode() ? 
                 shape_t{ B, 1, config_.getModelDim() } : shape_t{ B, T, config_.getModelDim() };
 
-            BuildContext final_context( final_shape, context.getRuntimeMode() );
+            BuildContext final_context( final_shape, context.getRuntimeMode(), context.prefillSize(), context.shouldInitializeParameters() );
 
             transformer_blocks_.clear();
             transformer_blocks_.reserve( static_cast<size_t>(config_.getNumLayers()) );

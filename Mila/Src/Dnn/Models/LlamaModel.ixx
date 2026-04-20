@@ -175,6 +175,17 @@ namespace Mila::Dnn
             return oss.str();
         }
 
+        // ====================================================================
+        // Profiling
+        // ====================================================================
+
+        void profilePrefill( const std::vector<int32_t>& token_ids )
+        {
+            auto input = makeTokenTensor( token_ids );
+            getNetwork().prefill( input );
+            getNetwork().getExecutionContext()->synchronize();
+        }
+
     protected:
 
         // ====================================================================
@@ -201,12 +212,14 @@ namespace Mila::Dnn
          */
         void generateStreaming(
             const std::vector<int32_t>& prompt_tokens,
-            const std::function<void(int32_t)>& on_token,
+            const std::function<void( int32_t )>& on_token,
             size_t max_new_tokens,
             float temperature,
             int top_k,
             std::stop_token stop ) override
         {
+            const auto stop_ids = stopTokens();
+
             std::vector<int32_t> prefill_tokens = prompt_tokens;
             std::mt19937 rng( std::chrono::high_resolution_clock::now()
                 .time_since_epoch().count() );
@@ -220,7 +233,7 @@ namespace Mila::Dnn
 
             int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
 
-            if ( next_token == eos_token_ )
+            if ( stop_ids.contains( next_token ) )
                 return;
 
             on_token( next_token );
@@ -237,22 +250,11 @@ namespace Mila::Dnn
 
                 next_token = sampleFromLogits( decode_logits, 0, temperature, top_k, rng );
 
-                if ( next_token == eos_token_ ) break;
+                if ( stop_ids.contains( next_token ) ) break;
 
                 on_token( next_token );
                 ++position;
             }
-        }
-
-        /**
-         * @brief LLaMA 2 </s> = 2; LLaMA 3 <|end_of_text|> = 128001.
-         *
-         * Should be sourced from tokenizer metadata once tokenizer
-         * integration is complete.
-         */
-        int32_t eosToken() const noexcept override
-        {
-            return eos_token_;
         }
 
         /**
@@ -308,7 +310,28 @@ namespace Mila::Dnn
 
         // LLaMA 2 </s> = 2; LLaMA 3 <|end_of_text|> = 128001.
         // Should be sourced from tokenizer metadata once tokenizer integration is added.
-        static constexpr int32_t eos_token_ = 128001;
+        // DEPRECATED: static constexpr int32_t eos_token_ = 128001;
+
+        /**
+         * @brief LLaMA 3.x end-of-sequence token.
+         * <|end_of_text|> = 128001.
+         */
+        int32_t eosToken() const noexcept override
+        {
+            return 128001;
+        }
+
+        /**
+         * @brief Llama 3.x generation stop tokens.
+         *
+         * Halts on <|end_of_text|> (128001), <|eot_id|> (128009),
+         * and <|eom_id|> (128008). The latter two are the primary
+         * turn and tool-call boundaries in instruct-format generation.
+         */
+        std::unordered_set<int32_t> stopTokens() const override
+        {
+            return { 128001, 128009, 128008 };
+        }
 
         // ====================================================================
         // Generation helpers
@@ -369,22 +392,6 @@ namespace Mila::Dnn
             int top_k,
             std::mt19937& rng )
         {
-            // DEBUG: Dump top 5 logits
-            //{
-            //    std::vector<size_t> indices( vocab_size );
-            //    std::iota( indices.begin(), indices.end(), 0 );
-            //    std::partial_sort( indices.begin(), indices.begin() + 5, indices.end(),
-            //        [&]( size_t a, size_t b ) { return logits[ a ] > logits[ b ]; } );
-
-            //    std::printf( "Top 5 logits:\n" );
-            //    for ( int i = 0; i < 5; ++i )
-            //    {
-            //        size_t token_id = indices[ i ];
-            //        std::printf( "  [%zu] logit=%.4f\n", token_id, logits[ token_id ] );
-            //    }
-            //}
-            // END DEBUG
-
             if ( temperature <= 0.0f || top_k == 1 )
             {
                 return static_cast<int32_t>( std::max_element( logits, logits + vocab_size ) - logits );
@@ -440,10 +447,6 @@ namespace Mila::Dnn
 
             return static_cast<int32_t>( vocab_size - 1 );
         }
-
-        // ====================================================================
-        // Config helpers
-        // ====================================================================
 
         static LlamaConfig configFromMetadata( const PretrainedMetadata& metadata )
         {

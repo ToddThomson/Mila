@@ -150,15 +150,6 @@ namespace Mila::Dnn
                     B, T, max_batch_size_, max_seq_len_ ) );
             }
 
-            //// DEBUG: Check input range
-            //auto host_input = toHost<TensorDataType::FP32>( input );
-            //auto host_input_ptr = host_input.data();
-            //const size_t n = host_input.size();
-            //auto [min_in, max_in] = std::minmax_element( host_input_ptr, host_input_ptr + n );
-            //Utils::Logger::debug( std::format( "Lpe {} in:[{:.3f}, {:.3f}] with shape:{}",
-            //    this->getName(), *min_in, *max_in, shapeToString( input.shape() ) ) );
-            //// END DEBUG:
-
             operation_->forward( input, *output_ );
 
             // Return view with actual output shape
@@ -586,11 +577,11 @@ namespace Mila::Dnn
 
             wte_ = std::make_unique<EmbeddingsTensorType>( device_id, shape_t{ vocab_size, embedding_dim } );
             wte_->setName( this->getName() + ".wte" );
-            normal( *wte_, std_dev );
+            // FIXME: normal( *wte_, std_dev );
 
             wpe_ = std::make_unique<EmbeddingsTensorType>( device_id, shape_t{ max_seq_len, embedding_dim } );
             wpe_->setName( this->getName() + ".wpe" );
-            normal( *wpe_, std_dev );
+            // FIXME: normal( *wpe_, std_dev );
         }
 
         void createOperation()

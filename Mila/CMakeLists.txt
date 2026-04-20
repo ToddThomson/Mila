@@ -470,6 +470,7 @@ PUBLIC
         "Src/Dnn/Compute/Operations/IKvInference.ixx"
         "Src/Dnn/Compute/Operations/IPackedKvInference.ixx"
         "Src/Dnn/Core/TokenStreamer.ixx"
+        #"Src/Profiling/NvtxRange.ixx"
 )
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
@@ -814,6 +815,10 @@ if( MILA_ENABLE_COVERAGE AND MSVC)
     add_link_options(/DEBUG:FULL)
     
     message(STATUS "Code coverage enabled for MSVC")
+endif()
+
+if(MILA_ENABLE_PROFILING)
+    add_subdirectory(Profiling)
 endif()
 
 if(MILA_ENABLE_TESTING)  

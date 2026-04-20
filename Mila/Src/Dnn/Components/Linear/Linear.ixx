@@ -208,37 +208,6 @@ namespace Mila::Dnn
             return *input_grad_;
         }
 
-        // REVIEW: This is now a compute operation optimization rather than a decode path.
-        //TensorType& decode( const TensorType& input )
-        //{
-        //    if ( !this->isBuilt() )
-        //        throw std::runtime_error( "Linear must be built before calling decode()." );
-
-        //    validateDecodeShape( input.shape() );
-
-        //    if ( decode_path_ )
-        //    {
-        //        decode_path_->decode( input, *output_ );
-        //    }
-        //    else
-        //    {
-        //        // Fallback for backends without a specialized decode path (e.g. CPU). 
-        //        // Uses the standard forward() method.
-        //        operation_->forward( input, *output_ );
-        //    }
-
-        //    if ( input.shape() == leading_shape_ )
-        //    {
-        //        return *output_;
-        //    }
-
-        //    auto output_shape = input.shape();
-        //    output_shape.back() = config_.getOutputFeatures();
-        //    output_view_ = std::make_unique<TensorType>( output_->view( output_shape ) );
-
-        //    return *output_view_;
-        //}
-
         void zeroGradients() override
         {
             if ( weight_grad_ )
@@ -753,7 +722,7 @@ namespace Mila::Dnn
             
             if ( context.shouldInitializeParameters() )
             {
-                xavier<TPrecision, MR>( *weight_, input_features, output_features );
+                // FIXME: xavier<TPrecision, MR>( *weight_, input_features, output_features );
             }
             
             if ( config_.hasBias() )
@@ -762,7 +731,7 @@ namespace Mila::Dnn
                 
                 if ( context.shouldInitializeParameters() )
                 {
-                    zero( *bias_ );
+                    // FIXME: zero( *bias_ );
                 }
             }
         }

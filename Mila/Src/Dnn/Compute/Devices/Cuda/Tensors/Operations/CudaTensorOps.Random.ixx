@@ -26,7 +26,8 @@ import Compute.DeviceType;
 import Compute.DeviceTraits;
 import Compute.DeviceId;
 import Core.RandomGenerator;
-import Cuda.Helpers;
+
+//import Cuda.Helpers;
 import Cuda.Error;
 
 namespace Mila::Dnn::Compute::Cuda
@@ -88,7 +89,9 @@ namespace Mila::Dnn::Compute::Cuda
             else
             {
                 DeviceId device_id = tensor.getDeviceId();
-                Cuda::setCurrentDevice( device_id.index );
+                
+                // FIXME: Cuda::setCurrentDevice( device_id.index );
+                
                 needs_sync = true;
                 gen = make_temp_generator_( nullptr );
                 owns_gen = true;
@@ -186,7 +189,9 @@ namespace Mila::Dnn::Compute::Cuda
             else
             {
                 DeviceId device_id = tensor.getDeviceId();
-                Cuda::setCurrentDevice( device_id.index );
+                
+                // FIXME: Cuda::setCurrentDevice( device_id.index );
+                
                 needs_sync = true;
                 gen = make_temp_generator_( nullptr );
                 owns_gen = true;
@@ -218,6 +223,7 @@ namespace Mila::Dnn::Compute::Cuda
         }
 
     private:
+        
         // Creates and seeds a temporary cuRAND generator bound to the given stream.
         // Caller owns the returned generator and must call curandDestroyGenerator on it.
         static curandGenerator_t make_temp_generator_( cudaStream_t stream )

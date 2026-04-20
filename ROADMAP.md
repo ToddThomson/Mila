@@ -4,42 +4,103 @@
 
 ## Versioning
 
-| Stage | Version |
-|---|---|
-| Current | 0.11.4-alpha.3 |
-| Planned beta | 0.2.1-beta |
+| Stage | Version | Title |
+|---|---|---|
+| In Progress | 0.12.0-alpha.4 | Instruction following and tool calling on Llama 3.2 3B Instruct |
+| Planned | 0.13.0-alpha.5 | FP8 quantization pipeline — Llama 3.1 8B Instruct |
+| Planned | 0.2.1-beta | Public release |
 
 ---
 
-## Alpha.3 — In Progress
+## Alpha.4 — In Progress
 
-**BF16 compute backend, validated against HuggingFace using the same methodology as FP32**
+**Instruction following and tool calling, validated on Llama 3.2 3B Instruct at BF16.**
+
+Alpha.4 delivers the structured message and tool calling infrastructure in the Chat
+application layer. No model architecture changes are required — Llama 3.2 3B Instruct
+shares the same weight layout as the base model validated in Alpha.3, and the converter
+already supports the instruct variant. The work is entirely in the Chat layer above the
+model.
+
+Success criterion: Llama 3.2 3B Instruct produces correct tool call responses
+end-to-end through the structured message pipeline in the Chat application.
+
+### Phase 1 — Structured Message Infrastructure
+
+- [ ] Verify `BpeTokenizer::loadLlama32` encodes Llama 3.2 special tokens as single atomic token IDs (`<|start_header_id|>`, `<|end_header_id|>`, `<|eot_id|>`, `<|eom_id|>`)
+- [ ] `ChatMessage` — role (system / user / assistant / tool), content, optional tool calls
+- [ ] `MessageFormatter` — applies Llama 3.2 instruct chat template to a message sequence
+- [ ] Stop token handling — generation halts on `<|eot_id|>` and `<|eom_id|>`
+- [ ] `Chat::run()` — replace raw string history with structured `ChatMessage` history
+
+### Phase 2 — Tool Calling Framework
+
+- [ ] `ToolDefinition` — name, description, JSON schema parameters
+- [ ] `ToolCall` — parsed tool name and arguments extracted from model output
+- [ ] `ToolCallParser` — detects `<|python_tag|>` boundary, extracts and validates JSON
+- [ ] System prompt builder — injects active `ToolDefinition` list into the system message
+- [ ] `ChatConfig` — add optional `system_prompt` and `tools` list
+
+### Phase 3 — Llama 3.2 3B Instruct Validation
+
+- [ ] Convert Llama 3.2 3B Instruct weights — `convert_llama_weights.py` already supports the instruct variant, confirm output
+- [ ] Instruct format validated — greedy decode with structured prompt matches expected assistant response format
+- [ ] Tool call round-trip validated end-to-end — model issues a tool call, result is fed back, final response is correct
+
+---
+
+## Alpha.5 — Planned
+
+**FP8 quantization pipeline, validated end-to-end on Llama 3.1 8B Instruct.**
+
+FP8 is Mila's quantization target for weight compression at inference time. Alpha.5
+delivers the quantization infrastructure required to load and run 8B-class models
+within a 12 GB VRAM budget, using Meta's W8A8 static quantization format with
+per-channel weight scales and per-layer activation scales.
+
+Success criterion: Greedy decode of Llama 3.1 8B Instruct at FP8 matches
+HuggingFace token-for-token on identical prompts, tool calling validated end-to-end.
+
+### Phase 1 — FP8 Quantization Infrastructure
+
+- [ ] `QuantizedWeight` — FP8 weight buffer + FP32 per-channel scales, contiguous allocation via `Tensor` views
+- [ ] `ScaleGranularity` — `PerChannel` descriptor; `PerBlock` stub for future FP4
+- [ ] `QuantizationConfig` — model-level policy (`none()` / `fp8()` factory methods), wired into `fromPretrained()` API
+- [ ] `LinearConfig::withWeightPrecision()` — fluent setter routing to the correct op registration
+- [ ] `Linear` — optional `QuantizedWeight` member + `input_scale` scalar; `initializeParameters()` branches on config
+- [ ] `CudaLinearOp<TPrecision, TWeightPrecision>` — second template parameter; `NativeWeightType` alias; mixed-precision cuBLASLt plan path
+- [ ] `build_strided_plan` — separate `data_type_A` / `data_type_B` parameters for mixed-precision layouts
+- [ ] FP8 decode matvec kernel — `cuda_matvec_impl` variant: BF16 activation × FP8 weight + FP32 scale → BF16 output
+- [ ] `CudaLinearOp` registrar — register `<BF16, FP8_E4M3>` instantiation
+
+### Phase 2 — Llama 3.1 8B Instruct @ FP8
+
+- [ ] `convert_llama_weights.py` — extend for Llama 3.1 8B weight layout and FP8 checkpoint format (weight + activation scales)
+- [ ] `ChatConfig` — add `ModelSize::B8`, `ModelPrecision::FP8`; default `context_length` for FP8 set to 2048
+- [ ] Prefill pipeline validated at FP8 — logits match HuggingFace on identical prompts
+- [ ] Full-network greedy decode validated token-for-token against HuggingFace
+- [ ] Tool calling validated end-to-end using structured message pipeline from Alpha.4
+
+---
+
+## Alpha.3 — Complete
+
+**BF16 compute backend, validated against HuggingFace using the same methodology as FP32.**
 
 BF16 is Mila's primary reduced-precision compute target. It matches FP32's exponent
 range, avoiding the overflow and underflow risks of FP16, while halving memory
-bandwidth relative to FP32. FP16 is not a Mila target. FP8 is deferred post-beta.
+bandwidth relative to FP32. FP16 is not a Mila target.
 
 Success criterion: Greedy decode of LlamaModel matches HuggingFace LlamaForCausalLM
 token-for-token on identical prompts using Llama 3.2 3B weights at BF16.
 
-### Carried Forward from Alpha.2
-
-- [ ] GELU backward — replace cosh path with 1 - tanh squared identity
-- [ ] Fix loadParameter infinite recursion on unknown parameter names in Lpe and Linear
-- [ ] Remove debug instrumentation from GptTransformer, GptBlock, CudaMhaOp
-- [ ] Remove debug logit inspection from GptModel::generate()
-- [ ] Gate remaining diagnostics behind MILA_DEBUG compile flag
-
-### BF16 Compute Backend
-
-- [x] CUDA BF16 kernels for GQA pipeline components
-- [x] BF16 dispatch wired through compute backend
-
-### Llama 3.2 3B Validation
-
-- [x] convert_llama_weights.py — extend for Llama 3.2 3B weight layout
-- [x] Prefill pipeline validated at BF16 — logits match HuggingFace on identical prompts
-- [x] Full-network greedy decode validated token-for-token against HuggingFace
+| Item | Status |
+|---|---|
+| CUDA BF16 kernels for GQA pipeline components | Complete |
+| BF16 dispatch wired through compute backend | Complete |
+| convert_llama_weights.py — extend for Llama 3.2 3B weight layout | Complete |
+| Prefill pipeline validated at BF16 — logits match HuggingFace on identical prompts | Complete |
+| Full-network greedy decode validated token-for-token against HuggingFace | Complete |
 
 ---
 
@@ -115,9 +176,6 @@ and the library is stable enough for external contributors to work with confiden
 
 Items deferred until the library has a stable contributor base.
 
-**Precision** — FP8 quantization with explicit scale factor management. FP16 is not
-a Mila target; BF16 supersedes it for all inference use cases on supported hardware.
-
 **Training** — Full LLaMA fine-tuning pipeline. Loss function GPU migration.
 Gradient checkpointing. Checkpoint save and restore.
 
@@ -125,4 +183,4 @@ Gradient checkpointing. Checkpoint save and restore.
 Additional attention variants.
 
 **Performance** — Flash Attention integration. Tensor parallelism.
-Deterministic gradient accumulation for training reproducibility.
+Deterministic gradient accumulation for training reproducibility。
