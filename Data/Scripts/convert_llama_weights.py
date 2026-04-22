@@ -7,7 +7,7 @@
 """
 Convert Llama 3.2 weights from HuggingFace to Mila binary format.
 
-Mila alpha.3:
+Mila alpha.4:
     float32 and bfloat16 are validated against Mila's TPrecision template
     instantiations.
     Models are loaded directly in the target dtype to minimise peak memory
@@ -16,6 +16,7 @@ Mila alpha.3:
 Usage:
     python convert_llama_weights.py --model meta-llama/Llama-3.2-1B --output ../Weights/llama32/llama32_1b_bf16.bin
     python convert_llama_weights.py --model meta-llama/Llama-3.2-3B --output ../Weights/llama32/llama32_3b_bf16.bin
+    python convert_llama_weights.py --model meta-llama/Llama-3.2-3B-Instruct --output ../Weights/llama32/llama32_3b_instruct_bf16.bin
 
     python convert_llama_weights.py --model meta-llama/Llama-3.2-1B --dtype float32 --output ../Weights/llama32/llama32_1b_fp32.bin
     python convert_llama_weights.py --model meta-llama/Llama-3.2-3B --dtype float32 --output ../Weights/llama32/llama32_3b_fp32.bin

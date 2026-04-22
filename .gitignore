@@ -21,6 +21,12 @@
 *.pyo
 *.pyproj.user
 
+# Python packaging and compiled extension artifacts
+*.egg-info/
+dist/
+*.pyd
+*.so
+
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 

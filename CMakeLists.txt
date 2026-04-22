@@ -12,14 +12,12 @@ set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
  
 option(MILA_ENABLE_TESTING "Enable Mila Library tests." ON)
-option(MILA_ENABLE_COVERAGE "Enable Mila Library code coverage." ON)
+option(MILA_ENABLE_PYTHON_BINDINGS "Build the MilaPy pybind11 extension module." ON)
 option(MILA_ENABLE_BENCHMARKS "Enable Mila Library benchmarks." OFF)
 option(MILA_ENABLE_PROFILING "Enable Mila Library profiling." ON)
 option(MILA_ENABLE_GPT2_TESTING "Enable GPT2 tests." OFF)  
 option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ON)
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
-#option(MILA_ENABLE_COPY_MODEL_DATA "Copy data directory for samples and tests." ON)
-
 option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
 
 # The Metal and ROCm backends are currently for internal testing only. Please leave them disabled.
@@ -159,6 +157,17 @@ CPMAddPackage(
         "SPM_USE_BUILTIN_PROTOBUF ON"
         "SPM_BUILD_TEST OFF"
 )
+
+if(MILA_ENABLE_PYTHON_BINDINGS)
+    CPMAddPackage(
+        NAME pybind11
+        GITHUB_REPOSITORY pybind/pybind11
+        GIT_TAG v3.0.4
+        OPTIONS
+            "PYBIND11_INSTALL OFF"
+            "PYBIND11_TEST OFF"
+    )
+endif()
 
 find_package(CUDAToolkit REQUIRED)  
 find_package(miniz REQUIRED)

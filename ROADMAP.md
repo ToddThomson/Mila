@@ -6,8 +6,9 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.12.0-alpha.4 | Instruction following and tool calling on Llama 3.2 3B Instruct |
-| Planned | 0.13.0-alpha.5 | FP8 quantization pipeline — Llama 3.1 8B Instruct |
+| In Progress | 0.12.1-alpha.4 | Instruction following and tool calling on Llama 3.2 3B Instruct |
+| Planned | 0.13.0-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
+| Planned | 0.14.0-alpha.6 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
 
 ---
@@ -27,58 +28,113 @@ end-to-end through the structured message pipeline in the Chat application.
 
 ### Phase 1 — Structured Message Infrastructure
 
-- [ ] Verify `BpeTokenizer::loadLlama32` encodes Llama 3.2 special tokens as single atomic token IDs (`<|start_header_id|>`, `<|end_header_id|>`, `<|eot_id|>`, `<|eom_id|>`)
-- [ ] `ChatMessage` — role (system / user / assistant / tool), content, optional tool calls
-- [ ] `MessageFormatter` — applies Llama 3.2 instruct chat template to a message sequence
-- [ ] Stop token handling — generation halts on `<|eot_id|>` and `<|eom_id|>`
-- [ ] `Chat::run()` — replace raw string history with structured `ChatMessage` history
+- [x] Verify `BpeTokenizer::loadLlama32` encodes Llama 3.2 special tokens as single atomic token IDs (`<|start_header_id|>`, `<|end_header_id|>`, `<|eot_id|>`, `<|eom_id|>`)
+- [x] `ChatMessage` — role (system / user / assistant / tool), content, optional tool calls
+- [x] `MessageFormatter` — applies Llama 3.2 instruct chat template to a message sequence
+- [x] Stop token handling — generation halts on `<|eot_id|>` and `<|eom_id|>`
+- [x] `Chat::run()` — replace raw string history with structured `ChatMessage` history
 
 ### Phase 2 — Tool Calling Framework
 
-- [ ] `ToolDefinition` — name, description, JSON schema parameters
-- [ ] `ToolCall` — parsed tool name and arguments extracted from model output
+- [x] `ToolDefinition` — name, description, JSON schema parameters
+- [x] `ToolCall` — parsed tool name and arguments extracted from model output
 - [ ] `ToolCallParser` — detects `<|python_tag|>` boundary, extracts and validates JSON
-- [ ] System prompt builder — injects active `ToolDefinition` list into the system message
-- [ ] `ChatConfig` — add optional `system_prompt` and `tools` list
+- [x] System prompt builder — injects active `ToolDefinition` list into the system message
+- [x] `ChatConfig` — add optional `system_prompt` and `tools` list
 
 ### Phase 3 — Llama 3.2 3B Instruct Validation
 
-- [ ] Convert Llama 3.2 3B Instruct weights — `convert_llama_weights.py` already supports the instruct variant, confirm output
-- [ ] Instruct format validated — greedy decode with structured prompt matches expected assistant response format
+- [x] Convert Llama 3.2 3B Instruct weights — `convert_llama_weights.py` already supports the instruct variant, confirm output
+- [x] Instruct format validated — greedy decode with structured prompt matches expected assistant response format
 - [ ] Tool call round-trip validated end-to-end — model issues a tool call, result is fed back, final response is correct
 
 ---
 
 ## Alpha.5 — Planned
 
-**FP8 quantization pipeline, validated end-to-end on Llama 3.1 8B Instruct.**
+**FP8 load-time quantization pipeline, validated on Llama 3.2 3B Instruct.**
 
-FP8 is Mila's quantization target for weight compression at inference time. Alpha.5
-delivers the quantization infrastructure required to load and run 8B-class models
-within a 12 GB VRAM budget, using Meta's W8A8 static quantization format with
-per-channel weight scales and per-layer activation scales.
+Quantization in Mila is a load-time weight compression policy. When a `QuantizationConfig`
+is supplied, the `Linear` component quantizes its weights from BF16 to FP8_E4M3 during
+`initializeParameters()`, computing per-channel FP32 scales in the same pass. No
+quantized checkpoint format is required — the converter always writes BF16, and
+quantization is entirely Mila's concern. The existing BF16 baseline validated in Alpha.3
+is the correctness reference for all FP8 validation.
 
-Success criterion: Greedy decode of Llama 3.1 8B Instruct at FP8 matches
-HuggingFace token-for-token on identical prompts, tool calling validated end-to-end.
+Llama 3.2 3B Instruct is the validation target because its BF16 baseline is already
+token-for-token correct, making it the cleanest possible foundation for isolating
+precision regressions. The quantization infrastructure is model-agnostic and will apply
+directly to Ministral in Alpha.6.
+
+Success criterion: Greedy decode of Llama 3.2 3B Instruct at FP8 matches the validated
+BF16 baseline token-for-token on identical prompts.
 
 ### Phase 1 — FP8 Quantization Infrastructure
 
-- [ ] `QuantizedWeight` — FP8 weight buffer + FP32 per-channel scales, contiguous allocation via `Tensor` views
-- [ ] `ScaleGranularity` — `PerChannel` descriptor; `PerBlock` stub for future FP4
-- [ ] `QuantizationConfig` — model-level policy (`none()` / `fp8()` factory methods), wired into `fromPretrained()` API
-- [ ] `LinearConfig::withWeightPrecision()` — fluent setter routing to the correct op registration
-- [ ] `Linear` — optional `QuantizedWeight` member + `input_scale` scalar; `initializeParameters()` branches on config
-- [ ] `CudaLinearOp<TPrecision, TWeightPrecision>` — second template parameter; `NativeWeightType` alias; mixed-precision cuBLASLt plan path
-- [ ] `build_strided_plan` — separate `data_type_A` / `data_type_B` parameters for mixed-precision layouts
-- [ ] FP8 decode matvec kernel — `cuda_matvec_impl` variant: BF16 activation × FP8 weight + FP32 scale → BF16 output
-- [ ] `CudaLinearOp` registrar — register `<BF16, FP8_E4M3>` instantiation
+- [ ] `QuantizationConfig` — model-level policy: `none()` and `fp8()` factory methods; carried into `Linear` via `LinearConfig::withQuantization()`
+- [ ] `LinearConfig::withQuantization()` — fluent setter storing the `QuantizationConfig` policy
+- [ ] `Linear::initializeParameters()` — when policy is `fp8()`: allocate `weight_quantized_` (FP8_E4M3 tensor) and `weight_scale_` (FP32 per-channel tensor); run load-time quantization kernel; pass quantized weight to `CudaLinearOp::setParameters()`
+- [ ] Load-time per-channel quantization kernel — converts BF16 weight tensor to FP8_E4M3 and computes `scale[o] = max(abs(W[o,:])) / 448.0f` for each output channel; runs once at model load, not on the forward hot path
+- [ ] `CudaLinearOp::build()` — detect weight dtype via `ITensor::dataType()` at build time; select mixed-precision cuBLASLt plan when weight is FP8_E4M3
+- [ ] `CudaLinearOp::supportsCuBLASLt()` — extend to include FP8_E4M3 with SM >= 8.9 runtime capability check
+- [ ] `CudaLinearOp::getComputeTypes()` — add FP8_E4M3 branch: `compute_type = CUBLAS_COMPUTE_32F`, `scale_type = CUDA_R_32F`
+- [ ] `build_strided_plan` — add separate `data_type_A` and `data_type_B` parameters to support mixed-precision layouts (BF16 activation × FP8 weight → BF16 output)
+- [ ] FP8 decode matvec kernel — `cuda_matvec_impl` specialization: BF16 activation × FP8_E4M3 weight + FP32 per-channel scale → BF16 output; single-token decode hot path
 
-### Phase 2 — Llama 3.1 8B Instruct @ FP8
+### Phase 2 — Llama 3.2 3B Instruct @ FP8
 
-- [ ] `convert_llama_weights.py` — extend for Llama 3.1 8B weight layout and FP8 checkpoint format (weight + activation scales)
-- [ ] `ChatConfig` — add `ModelSize::B8`, `ModelPrecision::FP8`; default `context_length` for FP8 set to 2048
-- [ ] Prefill pipeline validated at FP8 — logits match HuggingFace on identical prompts
+- [ ] `ChatConfig` — add `ModelPrecision::FP8`; enforce `context_length = 2048` as hard cap for FP8 mode
+- [ ] Prefill pipeline validated at FP8 — logits match BF16 baseline on identical prompts
+- [ ] Full-network greedy decode validated token-for-token against BF16 baseline
+- [ ] Tool calling validated end-to-end using structured message pipeline from Alpha.4
+
+---
+
+## Alpha.6 — Planned
+
+**Ministral transformer architecture with Sliding Window Attention, validated on Ministral
+3B Instruct at BF16 and Ministral 8B Instruct at FP8.**
+
+Alpha.6 introduces the Ministral transformer as a new first-class component built on the
+Llama 3.2 foundation. The primary architectural addition is Sliding Window Attention (SWA),
+used on interleaved layers in the Ministral 8B model. The FP8 quantization infrastructure
+delivered in Alpha.5 is applied directly to Ministral 8B, bringing it within the 12 GB
+VRAM budget of consumer Ada Lovelace GPUs (validated at context_length = 2048: ~10.2 GB
+total including KV cache and runtime overhead on an RTX 4070).
+
+Ministral 3B has no SWA and uses standard global GQA, making it a clean BF16 validation
+gate before the combined SWA + FP8 work is exercised on the 8B model.
+
+Success criterion: Greedy decode of Ministral 3B Instruct at BF16 and Ministral 8B Instruct
+at FP8 each match HuggingFace token-for-token on identical prompts. Tool calling validated
+end-to-end on both models using the structured message pipeline from Alpha.4.
+
+### Phase 1 — Ministral Transformer Component
+
+- [ ] `MinistralConfig` — extends `LlamaConfig`; adds `withSlidingWindowSize()` setter and `getSlidingWindowSize()` getter; `0` sentinel disables SWA
+- [ ] `MinistralBlock` — extends `LlamaBlock`; even-indexed layers use global GQA, odd-indexed layers use SWA
+- [ ] `GroupedQueryAttention` — add SWA masking support; SDPA kernel restricts causal mask to last `W` tokens per query position; CPU and CUDA parity required
+- [ ] `MinistralTransformer` — new decoder-only network component, peer to `LlamaTransformer`; alternates block construction based on layer index and `sliding_window` config value
+- [ ] `Ministral.Presets.ixx` — `Ministral3B()` preset: embedding=2048, layers=36, heads=16, kv_heads=8, hidden=6144, vocab=32768, rope_theta=1000000, no SWA
+- [ ] `Ministral.Presets.ixx` — `Ministral8B()` preset: embedding=4096, layers=36, heads=32, kv_heads=8, hidden=14336, vocab=32768, rope_theta=1000000, sliding_window=1024
+
+### Phase 2 — Mistral Tokenizer and Weight Converter
+
+- [ ] Mistral v3 tokenizer support — `vocab_size = 32768`; distinct from Llama tiktoken (128256 tokens)
+- [ ] `convert_ministral_weights.py` — Mistral HuggingFace checkpoint key mapping; gate/up concatenation follows same pattern as Llama converter; always writes BF16
+- [ ] `ChatConfig` — add `ModelVariant::Ministral3B` and `ModelVariant::Ministral8B`; wire Mistral instruct chat template distinct from Llama 3.2 template
+
+### Phase 3 — Ministral 3B Instruct BF16 Validation
+
+- [ ] Prefill pipeline validated at BF16 — logits match HuggingFace on identical prompts
 - [ ] Full-network greedy decode validated token-for-token against HuggingFace
+- [ ] Tool calling validated end-to-end using structured message pipeline from Alpha.4
+
+### Phase 4 — Ministral 8B Instruct FP8 Validation
+
+- [ ] `ChatConfig` — add `ModelSize::B8`; enforce `context_length = 2048` hard cap for Ministral 8B FP8 mode
+- [ ] Prefill pipeline validated at FP8 — logits match BF16 baseline on identical prompts
+- [ ] Full-network greedy decode validated token-for-token against BF16 baseline
 - [ ] Tool calling validated end-to-end using structured message pipeline from Alpha.4
 
 ---
@@ -163,6 +219,7 @@ and the library is stable enough for external contributors to work with confiden
 |---|---|
 | Llama 3.2 1B FP32 validated against HuggingFace | Yes |
 | Llama 3.2 3B BF16 validated against HuggingFace | Yes |
+| Ministral 8B Instruct FP8 validated against HuggingFace | Yes |
 | API documentation complete and published | Yes |
 | CPU reference implementations for all Alpha.2 components | Yes |
 | Debug instrumentation fully gated or removed | Yes |

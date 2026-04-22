@@ -810,11 +810,16 @@ add_subdirectory( Docs )
 add_subdirectory( Tools )
 
 # Configure code coverage for MSVC
-if( MILA_ENABLE_COVERAGE AND MSVC)
-    add_compile_options(/Zi /Od)
-    add_link_options(/DEBUG:FULL)
-    
-    message(STATUS "Code coverage enabled for MSVC")
+# REVIEW: OBSOLETE
+#if( MILA_ENABLE_COVERAGE AND MSVC)
+#    add_compile_options(/Zi /Od)
+#    add_link_options(/DEBUG:FULL)
+#    
+#    message(STATUS "Code coverage enabled for MSVC")
+#endif()
+
+if(MILA_ENABLE_PYTHON_BINDINGS)
+    add_subdirectory( Inference/Bindings )
 endif()
 
 if(MILA_ENABLE_PROFILING)

@@ -1267,6 +1267,25 @@ namespace Mila::Data
             std::cout << "  UNK: '" << st.unk_token << "' (ID: " << unk_id << ")\n";
         }
 
+        // Register extended special tokens from config (chat template tokens).
+        for ( const auto& [token_str, id] : st.extended_special_tokens )
+        {
+            vocab.special_token_ids_[ token_str ] = static_cast<TokenId>(id);
+            // DEBUG:
+            std::cout << "  EXT: '" << token_str << "' (ID: " << id << ")\n";
+            // END DEBUG
+        }
+
+        // DEBUG:
+        for ( const auto& token_str : { "<|start_header_id|>", "<|end_header_id|>", "<|eot_id|>" } )
+        {
+            auto it = vocab.token_to_id_.find( token_str );
+            std::cout << "  VERIFY: '" << token_str << "' in token_to_id_: "
+                << (it != vocab.token_to_id_.end() ? std::to_string( it->second ) : "NOT FOUND")
+                << "\n";
+        }
+        // END DEBUG
+
         vocab.buildSpecialTokenList();
 
         std::cout << "Loaded Llama 3.2 vocabulary: "

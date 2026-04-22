@@ -2,7 +2,7 @@
 
 **A C++23 module-based deep neural network library for those who want full control&mdash;to work at the metal.**
 
-Mila is built for researchers, engineers, and developers who find high-level frameworks too opaque—who wants to understand exactly what happens in every forward pass, trace every gradient,
+Mila is built for researchers, engineers, and developers who find high-level frameworks too opaque—who want to understand exactly what happens in every forward pass, trace every gradient,
 and write kernels that do precisely what they intend. No autograd engine. No runtime
 dispatch magic. Just C++23, CUDA, and full control.
 
@@ -53,14 +53,17 @@ in modern C++ and intends to stay there. No header soup. Fast incremental builds
 **CUDA-native.** Matrix operations via cuBLASLt. Hand-written kernels where control
 matters. Vectorized memory access throughout — float4 for FP32, uint4 for BF16.
 
-**Precision is deliberate.** BF16 is the primary reduced-precision target — it matches
-FP32's exponent range, avoiding overflow and underflow without loss scaling, with native
-Tensor Core support on Ada Lovelace and newer. FP16 is not a Mila target; BF16 supersedes
-it for all current use cases. FP8 is deferred post-beta.
+**Precision is deliberate.** BF16 is the primary reduced-precision compute target — it
+matches FP32's exponent range, avoiding overflow and underflow without loss scaling, with
+native Tensor Core support on Ada Lovelace and newer. FP16 is not a Mila target; BF16
+supersedes it for all current use cases. FP8 quantization is applied at model load time
+as a weight compression strategy: weights are quantized from BF16 to FP8_E4M3 inside the
+`Linear` component according to a `QuantizationConfig` policy, enabling 8B-class models
+to run within a 12 GB VRAM budget.
 
 ---
 
-## Current Status — Alpha.3
+## Current Status — Alpha.4
 
 Mila is under active development toward a public beta. The alpha phase focuses on
 building and validating the core architecture against known-good reference implementations.
@@ -76,9 +79,25 @@ SwiGLU, and Grouped Query Attention are implemented and confirmed correct. The f
 LlamaModel stack — including SentencePiece tokenization and HuggingFace weight conversion
 — matches HuggingFace LlamaForCausalLM token-for-token on greedy decode.
 
-**Alpha.3 — In Progress**
-BF16 compute backend. Target: greedy decode of Llama 3.2 3B matches HuggingFace
-token-for-token at BF16 using the same validation methodology applied to FP32.
+**Alpha.3 — Complete**
+BF16 compute backend validated token-for-token against HuggingFace. Greedy decode of
+Llama 3.2 3B matches HuggingFace LlamaForCausalLM at BF16 using the same methodology
+applied to FP32.
+
+**Alpha.4 — In Progress**
+Instruction following and tool calling, validated on Llama 3.2 3B Instruct at BF16.
+Delivers the structured message and tool calling infrastructure in the Chat application
+layer. No model architecture changes required.
+
+**Alpha.5 — Planned**
+FP8 load-time quantization pipeline, validated on Llama 3.2 3B Instruct. Weights are
+quantized from BF16 to FP8_E4M3 inside `Linear` at model load time. The existing BF16
+baseline provides the correctness reference for FP8 validation.
+
+**Alpha.6 — Planned**
+Ministral transformer architecture with Sliding Window Attention, validated on Ministral
+3B Instruct at BF16 and Ministral 8B Instruct at FP8. FP8 quantization brings Ministral
+8B within the 12 GB VRAM budget of consumer Ada Lovelace GPUs.
 
 See [ROADMAP.md](ROADMAP.md) for the full task breakdown.
 
@@ -90,9 +109,12 @@ See [ROADMAP.md](ROADMAP.md) for the full task breakdown.
 |---|---|
 | GPT-2 inference — greedy and sampled | Validated against HuggingFace |
 | Llama 3.2 1B inference — greedy decode at FP32 | Validated against HuggingFace |
+| Llama 3.2 3B inference — greedy decode at BF16 | Validated against HuggingFace |
 | Two-phase KV-cache — prefill + decode | Complete |
 | HuggingFace GPT-2 weight converter | Complete |
 | HuggingFace Llama weight converter | Complete |
+| Instruction following — Llama 3.2 3B Instruct | In Progress |
+| Tool calling framework | In Progress |
 | Chat CLI | Complete |
 | MNIST training — 97.5% test accuracy | Complete |
 | AdamW optimizer | Complete |
