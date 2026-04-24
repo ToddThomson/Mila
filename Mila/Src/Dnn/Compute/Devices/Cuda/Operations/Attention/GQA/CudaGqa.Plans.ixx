@@ -188,7 +188,16 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             // though only chunk_rows rows are read from each slice.
             const long long strideA = static_cast<long long>(max_seq_length) * head_size;
             const long long strideB = static_cast<long long>(max_seq_length) * head_size;
-            const long long strideC = static_cast<long long>(prefill_window_size) * max_seq_length;
+
+            // FIXME: POSSIBLE BUG
+            //
+            // prefill_window_size is kPrefillChunkSize( 64 ).So strideC = 64 * 4096 = 262144 elements between heads in preatt_.
+            // But for a partial chunk with chunk_rows = 11, the actual output layout is[ 11, T ] per head — only 11 * 4096 = 45056 elements.The next head's data starts 262144 elements later in the buffer, but the softmax (now correctly using chunk_len as the row stride) reads with stride 11 * 4096 = 45056.
+            // So cuBLASLt writes preatt_ with stride 262144 between heads, but the softmax reads it with stride 45056. Every head beyond head 0 reads from the wrong location — pure garbage into softmax.
+            // The fix — strideC must use chunk_rows, not prefill_window_size:
+            // WAS: const long long strideC = static_cast<long long>(prefill_window_size) * max_seq_length;
+
+            const long long strideC = static_cast<long long>(chunk_rows) * max_seq_length;
 
             auto plan = build_strided_plan<TNative>(
                 handle,
@@ -236,9 +245,15 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             // Mathematical operation: v_out[chunk_rows, HS] = att[chunk_rows, T] @ v_exp[T, HS]
             //
 
-            const long long strideA = static_cast<long long>(prefill_window_size) * max_seq_length;
+            // POSSIBLE BUG: strideA must also use chunk_rows, not prefill_window_size
+            // WAS const long long strideA = static_cast<long long>(prefill_window_size) * max_seq_length;
+            const long long strideA = static_cast<long long>(chunk_rows) * max_seq_length;
+
             const long long strideB = static_cast<long long>(max_seq_length) * head_size;
-            const long long strideC = static_cast<long long>(prefill_window_size) * head_size;
+
+            // POSSIBLE BUG: strideC must use chunk_rows, not prefill_window_size, to match the actual output layout and softmax read pattern.
+            // WAS: const long long strideC = static_cast<long long>(prefill_window_size) * head_size;
+            const long long strideC = static_cast<long long>(chunk_rows) * head_size;
 
             auto plan = build_strided_plan<TNative>(
                 handle,

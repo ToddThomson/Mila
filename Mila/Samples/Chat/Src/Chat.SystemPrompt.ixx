@@ -37,8 +37,8 @@ namespace Mila::ChatApp
      */
     export struct ToolParameterSchema
     {
-        std::string                                          type{ "object" };
-        std::vector<std::string>                             required;
+        std::string type{ "object" };
+        std::vector<std::string> required;
         std::vector<std::pair<std::string, ToolParameterProperty>> properties;
     };
 
@@ -50,8 +50,8 @@ namespace Mila::ChatApp
      */
     export struct ToolDefinition
     {
-        std::string         name;
-        std::string         description;
+        std::string name;
+        std::string description;
         ToolParameterSchema parameters;
     };
 
@@ -63,7 +63,7 @@ namespace Mila::ChatApp
      */
     export struct SystemPromptConfig
     {
-        std::string                system_prompt;
+        std::string system_prompt;
         std::vector<ToolDefinition> tools;
     };
 

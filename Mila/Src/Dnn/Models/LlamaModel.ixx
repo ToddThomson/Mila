@@ -195,7 +195,7 @@ namespace Mila::Dnn
         /**
          * @brief Prefill + KV-cache decode loop with per-token streaming.
          *
-         * Phase 1 (prefill): runs the full prompt through forward() to populate
+         * Phase 1 (prefill): runs the full prompt through prefill() to populate
          * the KV cache and samples the first new token from the last position.
          * Phase 2 (decode): iterates one token at a time until max_new_tokens
          * is reached, EOS is emitted, or stop is requested.

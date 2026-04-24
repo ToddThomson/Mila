@@ -18,6 +18,9 @@ module;
 #include <unordered_map>
 #include "Kernels/CudaGqa.cuh"
 
+// DEBUG:
+#include <iostream>
+
 export module Compute.CudaGroupedQueryAttentionOp;
 import :Dispatch;
 import :Plans;
@@ -208,13 +211,24 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 stream );
             context_->synchronize();
 
-            // KvCache Expand K/V from [B,NKV,T,HS] → k_exp/v_exp [B,NH,T,HS]
+            // Expand the full KV cache history [0 .. position_offset+chunk_len) so that
+            // chunk 1+ tokens can attend to all previously cached keys, not just their own chunk.
+            const int total_kv_len = position_offset + chunk_len;
+
             Detail::cuda_gqa_kernels<NativeType>::kvcache_expand_kv(
+                k_exp_, v_exp_,
+                k_, v_,
+                B_, total_kv_len, T_, NH_, NKV_, HS_,
+                0,
+                stream );
+
+            // KvCache Expand K/V from [B,NKV,T,HS] → k_exp/v_exp [B,NH,T,HS]
+            /*Detail::cuda_gqa_kernels<NativeType>::kvcache_expand_kv(
                 k_exp_, v_exp_,
                 k_, v_,
                 B_, chunk_len, T_, NH_, NKV_, HS_,
                 position_offset,
-                stream );
+                stream );*/
             context_->synchronize();
 
             // The full-chunk plan is pre-built at build() time. Partial chunk plans are
@@ -225,15 +239,54 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             const auto& av_plan = is_full_chunk ? att_value_prefill_plan_ : getOrBuildPartialAVPlan( chunk_len );
 
             // preatt = Q @ k_exp^T  [B,NH,chunk,T]
+            // Offset into the KV cache Q buffer so the plan reads rows
+            // [position_offset .. position_offset+chunk_len) rather than row 0.
+            const NativeType* q_chunk = q_ + static_cast<int64_t>(position_offset) * HS_;
+
+            // ----------------------------------------------------------------
+            /*if ( !is_full_chunk )
+            {
+                std::cout << std::format(
+                    "[GQA::prefill PARTIAL] chunk_len={} position_offset={} total_kv_len={}\n",
+                    chunk_len, position_offset, total_kv_len );
+
+                print_stats( "q_chunk",
+                    q_chunk,
+                    { (size_t)B_, (size_t)NH_, (size_t)chunk_len, (size_t)HS_ },
+                    8, stream );
+
+                print_stats( "k_exp[0..total_kv_len]",
+                    k_exp_,
+                    { (size_t)B_, (size_t)NH_, (size_t)total_kv_len, (size_t)HS_ },
+                    8, stream );
+            }*/
+            // ----------------------------------------------------------------
+
             execute_plan<NativeType>(
                 cublaslt_handle_, qk_plan,
-                &scale, q_, k_exp_, &beta, preatt_,
+                &scale, q_chunk, k_exp_, &beta, preatt_,
                 nullptr,
                 stream,
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
 
             context_->synchronize();
+
+            // ----------------------------------------------------------------
+            /*if ( !is_full_chunk )
+            {
+                print_stats( "preatt_",
+                    preatt_,
+                    { (size_t)B_, (size_t)NH_, (size_t)chunk_len, (size_t)total_kv_len },
+                    8, stream );
+            }*/
+            // ----------------------------------------------------------------
+
+            // DEBUG:
+            //std::cout << std::format(
+            //    "[GQA::prefill_softmax] B={} NH={} T_stride={} chunk_stride={} chunk_len={} position_offset={}\n",
+            //    B_, NH_, T_, static_cast<int>(kPrefillChunkSize), chunk_len, position_offset );
+            // END DEBUG
 
             // att = softmax(preatt / sqrt(HS)) with causal mask
             // NOTE: scale is applied in qk_plan step as alpha in the MatMul
@@ -255,19 +308,22 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             
             context_->synchronize();
 
-            // 6. Unpack v_out [B, NQH, padded_T, HS] → Y [B, actual_T, NQH*HS]
+            // Unpack v_out [B, NQH, padded_T, HS] → Y [B, actual_T, NQH*HS]
+            const int padded_T = is_full_chunk ? static_cast<int>(kPrefillChunkSize): chunk_len;
+
             Detail::cuda_gqa_kernels<NativeType>::prefill_unpermute_output_padded(
                 v_out_,    // [B, NQH, padded_T, HS]
                 Y,         // [B, chunk_len, NQH*HS]
                 B_,        // batch
                 chunk_len, // actual_T (length of the chunk)
-                kPrefillChunkSize,
+                padded_T,  // WAS: kPrefilChunkSize which looks to be a possible bug
                 NH_,       // NQH (number of *query* heads)
                 HS_,       // head size
                 stream );
 
             context_->synchronize();
 
+            // Update the cached sequence length if we've filled beyond the prior cache boundary.
             cached_seq_len_ = position_offset + chunk_len;
         }
 
@@ -283,7 +339,6 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                     "CudaGroupedQueryAttentionOp::decode position out of range" );
 
             const int actual_len = position + 1;
-            //const bool debug = (position == 5);
 
             const NativeType* Xq = static_cast<const NativeType*>( q.rawData() );
             const NativeType* Xk = static_cast<const NativeType*>( k.rawData() );

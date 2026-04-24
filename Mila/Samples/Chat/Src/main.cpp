@@ -31,7 +31,7 @@ static std::filesystem::path llama_weights_path( ModelSize size, ModelPrecision 
     const char* prec_str = (precision == ModelPrecision::BF16) ? "bf16" : "fp32";
 
     return std::filesystem::path( MODELS_DIR ) / "llama"
-        / std::format( "llama32_{}_{}.bin", size_str, prec_str );
+        / std::format( "llama32_{}_instruct_{}.bin", size_str, prec_str );
 }
 
 static void printUsage( const char* prog_name )
@@ -71,7 +71,10 @@ static void applyConfigFile(
     std::optional<std::filesystem::path>& model_path,
     std::optional<std::filesystem::path>& tokenizer_path,
     std::optional<std::size_t>& context_length,
-    std::optional<std::filesystem::path>& system_prompt_path )
+    std::optional<std::filesystem::path>& system_prompt_path,
+    std::optional<std::size_t>& max_new_tokens,
+    std::optional<float>& temperature,
+    std::optional<int>& top_k )
 {
     std::ifstream file( path );
 
@@ -124,24 +127,25 @@ static void applyConfigFile(
     }
 
     if ( !model_path && j.contains( "model_path" ) && j[ "model_path" ].is_string() )
-    {
         model_path = j[ "model_path" ].get<std::string>();
-    }
 
     if ( !tokenizer_path && j.contains( "tokenizer_path" ) && j[ "tokenizer_path" ].is_string() )
-    {
         tokenizer_path = j[ "tokenizer_path" ].get<std::string>();
-    }
 
     if ( !context_length && j.contains( "context_length" ) && j[ "context_length" ].is_number_unsigned() )
-    {
         context_length = j[ "context_length" ].get<std::size_t>();
-    }
 
     if ( !system_prompt_path && j.contains( "system_prompt_path" ) && j[ "system_prompt_path" ].is_string() )
-    {
         system_prompt_path = std::filesystem::path( j[ "system_prompt_path" ].get<std::string>() );
-    }
+
+    if ( !max_new_tokens && j.contains( "max_new_tokens" ) && j[ "max_new_tokens" ].is_number_unsigned() )
+        max_new_tokens = j[ "max_new_tokens" ].get<std::size_t>();
+
+    if ( !temperature && j.contains( "temperature" ) && j[ "temperature" ].is_number() )
+        temperature = j[ "temperature" ].get<float>();
+
+    if ( !top_k && j.contains( "top_k" ) && j[ "top_k" ].is_number_integer() )
+        top_k = j[ "top_k" ].get<int>();
 }
 
 static ChatConfig parseArgs( int argc, char* argv[] )
@@ -152,12 +156,17 @@ static ChatConfig parseArgs( int argc, char* argv[] )
     ModelPrecision precision  = kDefaultPrecision;
     std::optional<std::filesystem::path> model_path;
     std::optional<std::filesystem::path> tokenizer_path;
-    std::optional<std::filesystem::path> config_path;
     std::optional<std::filesystem::path> system_prompt_path;
-    std::optional<std::size_t>           context_length;
+    std::optional<std::size_t> context_length;
+    std::optional<std::size_t> max_new_tokens;
+    std::optional<float> temperature;
+    std::optional<int> top_k;
     bool explicit_type      = false;
     bool explicit_size      = false;
     bool explicit_precision = false;
+
+    // Default config — overridden by --config on the command line.
+    std::filesystem::path config_path = "Data/session.json";
 
     for ( int i = 1; i < argc; ++i )
     {
@@ -255,15 +264,16 @@ static ChatConfig parseArgs( int argc, char* argv[] )
 
     // Apply config file as baseline before path inference — CLI args already
     // parsed above take precedence via the explicit_* flags.
-    if ( config_path )
+    if ( std::filesystem::exists( config_path ) )
     {
         applyConfigFile(
-            *config_path,
+            config_path,
             model_type, explicit_type,
             model_size, explicit_size,
             precision, explicit_precision,
             model_path, tokenizer_path,
-            context_length, system_prompt_path );
+            context_length, system_prompt_path,
+            max_new_tokens, temperature, top_k );
     }
 
     if ( model_path )
@@ -317,6 +327,15 @@ static ChatConfig parseArgs( int argc, char* argv[] )
         config.context_length = (model_type == ModelType::Gpt) ? 1024 : 4096;
     }
 
+    if ( max_new_tokens.has_value() )
+        config.max_new_tokens = *max_new_tokens;
+
+    if ( temperature.has_value() )
+        config.temperature = *temperature;
+
+    if ( top_k.has_value() )
+        config.top_k = *top_k;
+
     return config;
 }
 
@@ -352,6 +371,14 @@ int main( int argc, char* argv[] )
         }
 
         Chat chat( std::move( config ) );
+
+        chat.registerTool( "get_weather", []( const std::string& args ) -> std::string {
+            auto j = nlohmann::json::parse( args );
+            std::string location = j.value( "location", "unknown" );
+
+            return std::format( "The current weather in {} is 22C and sunny.", location );
+            } );
+
         chat.run();
 
         return 0;
@@ -359,6 +386,7 @@ int main( int argc, char* argv[] )
     catch ( const std::exception& e )
     {
         std::cerr << "Fatal error: " << e.what() << "\n";
+        
         return 1;
     }
 }

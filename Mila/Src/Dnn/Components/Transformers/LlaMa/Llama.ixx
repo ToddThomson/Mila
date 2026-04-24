@@ -174,13 +174,19 @@ namespace Mila::Dnn
 
         TensorType& prefill( const TokenIndexType& input )
         {
+            // POSSIBLE BUG: full history re-prefill always starts from position 0
+            // resetKVCache();
+
             const int64_t B = input.shape()[ 0 ];
             const int64_t T_prompt = input.shape()[ 1 ];
+            
             int64_t offset = 0;
             int64_t T_last = 0;
 
             TensorType* last_block_out = nullptr;
 
+            // Chunked prefill loop — input is sliced into kPrefillChunkSize chunks and fed through the network sequentially to populate the KV cache.
+            // The final chunk output is used to extract the last token representation for LM head inference.
             while ( offset < T_prompt )
             {
                 const int64_t T_actual = std::min( kPrefillChunkSize, T_prompt - offset );

@@ -50,7 +50,14 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         int b = b_nh / NH;
         int nh = b_nh % NH;
 
-        int row_offset = ((b * NH + nh) * chunk_stride + t) * T_stride;
+        // row_offset must use chunk_len (the actual M dimension cuBLASLt used when writing
+        // preatt_), not chunk_stride (kPrefillChunkSize). They are equal for full chunks,
+        // so single-chunk and full-chunk multi-chunk prefill are unaffected. On a partial
+        // final chunk (chunk_len < kPrefillChunkSize), using chunk_stride skips past the
+        // actual data for every head beyond the first (b_nh > 0), producing garbage softmax
+        // input and therefore garbage attention output for the remainder of the sequence.
+        int row_offset = ((b * NH + nh) * chunk_len + t) * T_stride;
+        // WAS: int row_offset = ((b * NH + nh) * chunk_stride + t) * T_stride;
 
         const __nv_bfloat16* preatt_row = preatt + row_offset;
         __nv_bfloat16* att_row = att + row_offset;

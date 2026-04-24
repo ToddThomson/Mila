@@ -1253,6 +1253,7 @@ namespace Mila::Data
             uint32_t pad_id = 0;
             read_u32( pad_id );
             vocab.special_token_ids_[ st.pad_token ] = static_cast<TokenId>(pad_id);
+            
             std::cout << "  PAD: '" << st.pad_token << "' (ID: " << pad_id << ")\n";
         }
 
@@ -1264,6 +1265,7 @@ namespace Mila::Data
             uint32_t unk_id = 0;
             read_u32( unk_id );
             vocab.special_token_ids_[ st.unk_token ] = static_cast<TokenId>(unk_id);
+            
             std::cout << "  UNK: '" << st.unk_token << "' (ID: " << unk_id << ")\n";
         }
 
@@ -1271,20 +1273,7 @@ namespace Mila::Data
         for ( const auto& [token_str, id] : st.extended_special_tokens )
         {
             vocab.special_token_ids_[ token_str ] = static_cast<TokenId>(id);
-            // DEBUG:
-            std::cout << "  EXT: '" << token_str << "' (ID: " << id << ")\n";
-            // END DEBUG
         }
-
-        // DEBUG:
-        for ( const auto& token_str : { "<|start_header_id|>", "<|end_header_id|>", "<|eot_id|>" } )
-        {
-            auto it = vocab.token_to_id_.find( token_str );
-            std::cout << "  VERIFY: '" << token_str << "' in token_to_id_: "
-                << (it != vocab.token_to_id_.end() ? std::to_string( it->second ) : "NOT FOUND")
-                << "\n";
-        }
-        // END DEBUG
 
         vocab.buildSpecialTokenList();
 

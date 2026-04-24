@@ -32,7 +32,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         int nh = b_nh % NH;
 
         // Compute row start for this query
-        int row_offset = ((b * NH + nh) * chunk_stride + t) * T_stride;
+        int row_offset = ((b * NH + nh) * chunk_len + t) * T_stride;
 
         const float* preatt_row = preatt + row_offset;
         float* att_row = att + row_offset;

@@ -6,9 +6,11 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.12.1-alpha.4 | Instruction following and tool calling on Llama 3.2 3B Instruct |
+| In Progress | 0.12.2-alpha.4 | Instruction following and tool calling on Llama 3.2 3B Instruct |
+| Planned | 0.12.x-alpha.4.1 | Prefix caching optimization to be considered |
 | Planned | 0.13.0-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
-| Planned | 0.14.0-alpha.6 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
+| Planned | 0.14.0-alpha.6 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
+| Planned | 0.15.0-alpha.7 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
 
 ---
@@ -38,9 +40,10 @@ end-to-end through the structured message pipeline in the Chat application.
 
 - [x] `ToolDefinition` — name, description, JSON schema parameters
 - [x] `ToolCall` — parsed tool name and arguments extracted from model output
-- [ ] `ToolCallParser` — detects `<|python_tag|>` boundary, extracts and validates JSON
+- [x] `ToolCallParser` — detects `<|python_tag|>` boundary, extracts and validates JSON
 - [x] System prompt builder — injects active `ToolDefinition` list into the system message
 - [x] `ChatConfig` — add optional `system_prompt` and `tools` list
+- [x] `Chat::registerTool()` — bind named handlers; `Chat::run()` dispatches tool call round-trip
 
 ### Phase 3 — Llama 3.2 3B Instruct Validation
 
@@ -64,7 +67,7 @@ is the correctness reference for all FP8 validation.
 Llama 3.2 3B Instruct is the validation target because its BF16 baseline is already
 token-for-token correct, making it the cleanest possible foundation for isolating
 precision regressions. The quantization infrastructure is model-agnostic and will apply
-directly to Ministral in Alpha.6.
+directly to Qwen 3 in Alpha.6.
 
 Success criterion: Greedy decode of Llama 3.2 3B Instruct at FP8 matches the validated
 BF16 baseline token-for-token on identical prompts.
@@ -92,10 +95,66 @@ BF16 baseline token-for-token on identical prompts.
 
 ## Alpha.6 — Planned
 
+**Qwen 3 transformer architecture with thinking mode and model-agnostic tool calling,
+validated on Qwen 3 8B Instruct at BF16 and FP8.**
+
+Alpha.6 adds Qwen 3 as Mila's second supported architecture family. The Qwen 3 dense
+decoder shares Mila's existing building blocks — RMSNorm, SwiGLU, GQA, RoPE — so the
+model component is a thin addition on the established Llama foundation. The primary new
+work is in the Chat layer: the ChatML prompt template, model-agnostic `ToolCallParser`,
+and thinking mode token suppression.
+
+The FP8 quantization infrastructure delivered in Alpha.5 is exercised on Qwen 3 8B,
+providing a second independent architecture validation of the quantization pipeline
+before beta. Qwen 3 8B at FP8 targets approximately 9–10 GB VRAM, within the RTX 4070
+budget established in Alpha.5.
+
+Success criterion: Greedy decode of Qwen 3 8B Instruct at BF8 and FP8 each match
+HuggingFace token-for-token on identical prompts. Tool calling validated end-to-end
+using the model-agnostic pipeline. Thinking mode token suppression confirmed in the
+Chat CLI.
+
+### Phase 1 — Qwen 3 Transformer Component
+
+- [ ] `Qwen3Config` — extends `LlamaConfig`; presets for 8B: embedding=4096, layers=36, heads=32, kv_heads=8, hidden=14336, vocab=151936, rope_theta=1000000
+- [ ] `Qwen3Transformer` — new decoder-only network component, peer to `LlamaTransformer`; reuses `LlamaBlock` unchanged
+- [ ] `Qwen3Model` — `fromPretrained()` + `generate()`; mirrors `LlamaModel`
+- [ ] `Qwen3.Presets.ixx` — `Qwen3_8B()` preset
+
+### Phase 2 — Qwen 3 Tokenizer and Weight Converter
+
+- [ ] `BpeTokenizer::loadQwen3` — tiktoken encoding with Qwen 3 vocabulary (`vocab_size=151936`); registers `<|im_start|>`, `<|im_end|>`, `<think>`, `</think>`, `<tool_call>`, `</tool_call>` as atomic special tokens
+- [ ] `convert_qwen3_weights.py` — HuggingFace Qwen 3 checkpoint key mapping to Mila binary format; always writes BF16
+- [ ] `ChatConfig` — add `ModelType::Qwen3`; wire `BpeTokenizer::loadQwen3` and `Qwen3Model` selection
+
+### Phase 3 — Model-Agnostic Tool Calling and ChatML Template
+
+- [ ] `ToolCallParser` — refactored to support pluggable boundary strategies; `Llama32Strategy` wraps existing `<|python_tag|>` / `<|eom_id|>` logic; `Qwen3Strategy` detects `<tool_call>` / `</tool_call>` boundaries
+- [ ] `MessageFormatter` — add `Qwen3ChatTemplate`; ChatML format: `<|im_start|>{role}\n{content}<|im_end|>`; tool call turns emit `<tool_call>{json}</tool_call>`; tool result turns emit `<|im_start|>tool\n<tool_response>{content}</tool_response><|im_end|>`
+- [ ] Stop token handling — generation halts on `<|im_end|>`
+- [ ] Thinking mode — `ThinkingFilter` streams tokens to the Chat CLI output, suppressing content between `<think>` and `</think>` inclusive; thinking content discarded by default, available via `--show-thinking` flag
+
+### Phase 4 — Qwen 3 8B Instruct BF16 Validation
+
+- [ ] Prefill pipeline validated at BF16 — logits match HuggingFace on identical prompts
+- [ ] Full-network greedy decode validated token-for-token against HuggingFace
+- [ ] Tool calling validated end-to-end using model-agnostic pipeline
+
+### Phase 5 — Qwen 3 8B Instruct FP8 Validation
+
+- [ ] `ChatConfig` — enforce `context_length = 2048` hard cap for Qwen 3 8B FP8 mode
+- [ ] Prefill pipeline validated at FP8 — logits match BF16 baseline on identical prompts
+- [ ] Full-network greedy decode validated token-for-token against BF16 baseline
+- [ ] Tool calling validated end-to-end using model-agnostic pipeline
+
+---
+
+## Alpha.7 — Planned
+
 **Ministral transformer architecture with Sliding Window Attention, validated on Ministral
 3B Instruct at BF16 and Ministral 8B Instruct at FP8.**
 
-Alpha.6 introduces the Ministral transformer as a new first-class component built on the
+Alpha.7 introduces the Ministral transformer as a new first-class component built on the
 Llama 3.2 foundation. The primary architectural addition is Sliding Window Attention (SWA),
 used on interleaved layers in the Ministral 8B model. The FP8 quantization infrastructure
 delivered in Alpha.5 is applied directly to Ministral 8B, bringing it within the 12 GB
@@ -103,11 +162,13 @@ VRAM budget of consumer Ada Lovelace GPUs (validated at context_length = 2048: ~
 total including KV cache and runtime overhead on an RTX 4070).
 
 Ministral 3B has no SWA and uses standard global GQA, making it a clean BF16 validation
-gate before the combined SWA + FP8 work is exercised on the 8B model.
+gate before the combined SWA + FP8 work is exercised on the 8B model. The model-agnostic
+tool calling pipeline and `ToolCallParser` strategy pattern delivered in Alpha.6 apply
+directly here via a `MistralStrategy`.
 
 Success criterion: Greedy decode of Ministral 3B Instruct at BF16 and Ministral 8B Instruct
 at FP8 each match HuggingFace token-for-token on identical prompts. Tool calling validated
-end-to-end on both models using the structured message pipeline from Alpha.4.
+end-to-end on both models using the model-agnostic pipeline from Alpha.6.
 
 ### Phase 1 — Ministral Transformer Component
 
@@ -120,22 +181,22 @@ end-to-end on both models using the structured message pipeline from Alpha.4.
 
 ### Phase 2 — Mistral Tokenizer and Weight Converter
 
-- [ ] Mistral v3 tokenizer support — `vocab_size = 32768`; distinct from Llama tiktoken (128256 tokens)
+- [ ] Mistral v3 tokenizer support — `vocab_size = 32768`; distinct from Llama and Qwen tiktoken vocabularies
 - [ ] `convert_ministral_weights.py` — Mistral HuggingFace checkpoint key mapping; gate/up concatenation follows same pattern as Llama converter; always writes BF16
-- [ ] `ChatConfig` — add `ModelVariant::Ministral3B` and `ModelVariant::Ministral8B`; wire Mistral instruct chat template distinct from Llama 3.2 template
+- [ ] `ChatConfig` — add `ModelType::Ministral`; wire Mistral instruct chat template and `MistralStrategy` for `ToolCallParser`
 
 ### Phase 3 — Ministral 3B Instruct BF16 Validation
 
 - [ ] Prefill pipeline validated at BF16 — logits match HuggingFace on identical prompts
 - [ ] Full-network greedy decode validated token-for-token against HuggingFace
-- [ ] Tool calling validated end-to-end using structured message pipeline from Alpha.4
+- [ ] Tool calling validated end-to-end using model-agnostic pipeline from Alpha.6
 
 ### Phase 4 — Ministral 8B Instruct FP8 Validation
 
 - [ ] `ChatConfig` — add `ModelSize::B8`; enforce `context_length = 2048` hard cap for Ministral 8B FP8 mode
 - [ ] Prefill pipeline validated at FP8 — logits match BF16 baseline on identical prompts
 - [ ] Full-network greedy decode validated token-for-token against BF16 baseline
-- [ ] Tool calling validated end-to-end using structured message pipeline from Alpha.4
+- [ ] Tool calling validated end-to-end using model-agnostic pipeline from Alpha.6
 
 ---
 
@@ -212,14 +273,16 @@ that all subsequent architecture work follows.
 
 **Public release milestone.**
 
-Beta is reached when both GPT-2 and Llama inference are validated across FP32 and BF16,
-and the library is stable enough for external contributors to work with confidently.
+Beta is reached when GPT-2, Llama, and Qwen 3 inference are validated across FP32,
+BF16, and FP8, the tool calling pipeline is model-agnostic, and the library is stable
+enough for external contributors to work with confidently.
 
 | Item | Required |
 |---|---|
 | Llama 3.2 1B FP32 validated against HuggingFace | Yes |
 | Llama 3.2 3B BF16 validated against HuggingFace | Yes |
-| Ministral 8B Instruct FP8 validated against HuggingFace | Yes |
+| Qwen 3 8B Instruct FP8 validated against HuggingFace | Yes |
+| Model-agnostic tool calling validated on Llama 3.2 and Qwen 3 | Yes |
 | API documentation complete and published | Yes |
 | CPU reference implementations for all Alpha.2 components | Yes |
 | Debug instrumentation fully gated or removed | Yes |

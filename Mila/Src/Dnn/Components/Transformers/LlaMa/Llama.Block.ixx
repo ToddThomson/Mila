@@ -204,6 +204,7 @@ namespace Mila::Dnn
 
             int64_t B = input.shape()[ 0 ];
             int64_t T_actual = input.shape()[ 1 ];
+
             const int64_t n_heads = config_.getNumHeads();
             const int64_t n_kv = config_.getNumKVHeads();
             const int64_t head_dim = config_.getModelDim() / n_heads;
