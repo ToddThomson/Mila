@@ -63,7 +63,7 @@ to run within a 12 GB VRAM budget.
 
 ---
 
-## Current Status — Alpha.4
+## Current Status — Alpha.5
 
 Mila is under active development toward a public beta. The alpha phase focuses on
 building and validating the core architecture against known-good reference implementations.
@@ -84,12 +84,12 @@ BF16 compute backend validated token-for-token against HuggingFace. Greedy decod
 Llama 3.2 3B matches HuggingFace LlamaForCausalLM at BF16 using the same methodology
 applied to FP32.
 
-**Alpha.4 — In Progress**
+**Alpha.4 — Complete**
 Instruction following and tool calling, validated on Llama 3.2 3B Instruct at BF16.
 Delivers the structured message and tool calling infrastructure in the Chat application
 layer. No model architecture changes required.
 
-**Alpha.5 — Planned**
+**Alpha.5 — In Progress**
 FP8 load-time quantization pipeline, validated on Llama 3.2 3B Instruct. Weights are
 quantized from BF16 to FP8_E4M3 inside `Linear` at model load time. The existing BF16
 baseline provides the correctness reference for FP8 validation.

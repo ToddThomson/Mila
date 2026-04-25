@@ -10,6 +10,10 @@
 #include <cctype>
 #include <charconv>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 import Mila;
 import Mila.Chat;
 import nlohmann.json;
@@ -341,6 +345,19 @@ static ChatConfig parseArgs( int argc, char* argv[] )
 
 int main( int argc, char* argv[] )
 {
+
+#ifdef _WIN32
+    SetConsoleOutputCP( CP_UTF8 );
+    SetConsoleCP( CP_UTF8 );
+    HANDLE hOut = GetStdHandle( STD_OUTPUT_HANDLE );
+    if ( hOut != INVALID_HANDLE_VALUE )
+    {
+        DWORD mode = 0;
+        if ( GetConsoleMode( hOut, &mode ) )
+            SetConsoleMode( hOut, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING );
+    }
+#endif
+
     Mila::initialize();
 
     try

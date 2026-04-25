@@ -6,54 +6,14 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.12.2-alpha.4 | Instruction following and tool calling on Llama 3.2 3B Instruct |
-| Planned | 0.12.x-alpha.4.1 | Prefix caching optimization to be considered |
-| Planned | 0.13.0-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
+| In Progress | 0.13.0-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
 | Planned | 0.14.0-alpha.6 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.15.0-alpha.7 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
 
 ---
 
-## Alpha.4 — In Progress
-
-**Instruction following and tool calling, validated on Llama 3.2 3B Instruct at BF16.**
-
-Alpha.4 delivers the structured message and tool calling infrastructure in the Chat
-application layer. No model architecture changes are required — Llama 3.2 3B Instruct
-shares the same weight layout as the base model validated in Alpha.3, and the converter
-already supports the instruct variant. The work is entirely in the Chat layer above the
-model.
-
-Success criterion: Llama 3.2 3B Instruct produces correct tool call responses
-end-to-end through the structured message pipeline in the Chat application.
-
-### Phase 1 — Structured Message Infrastructure
-
-- [x] Verify `BpeTokenizer::loadLlama32` encodes Llama 3.2 special tokens as single atomic token IDs (`<|start_header_id|>`, `<|end_header_id|>`, `<|eot_id|>`, `<|eom_id|>`)
-- [x] `ChatMessage` — role (system / user / assistant / tool), content, optional tool calls
-- [x] `MessageFormatter` — applies Llama 3.2 instruct chat template to a message sequence
-- [x] Stop token handling — generation halts on `<|eot_id|>` and `<|eom_id|>`
-- [x] `Chat::run()` — replace raw string history with structured `ChatMessage` history
-
-### Phase 2 — Tool Calling Framework
-
-- [x] `ToolDefinition` — name, description, JSON schema parameters
-- [x] `ToolCall` — parsed tool name and arguments extracted from model output
-- [x] `ToolCallParser` — detects `<|python_tag|>` boundary, extracts and validates JSON
-- [x] System prompt builder — injects active `ToolDefinition` list into the system message
-- [x] `ChatConfig` — add optional `system_prompt` and `tools` list
-- [x] `Chat::registerTool()` — bind named handlers; `Chat::run()` dispatches tool call round-trip
-
-### Phase 3 — Llama 3.2 3B Instruct Validation
-
-- [x] Convert Llama 3.2 3B Instruct weights — `convert_llama_weights.py` already supports the instruct variant, confirm output
-- [x] Instruct format validated — greedy decode with structured prompt matches expected assistant response format
-- [ ] Tool call round-trip validated end-to-end — model issues a tool call, result is fed back, final response is correct
-
----
-
-## Alpha.5 — Planned
+## Alpha.5 — In Progress
 
 **FP8 load-time quantization pipeline, validated on Llama 3.2 3B Instruct.**
 
@@ -197,6 +157,44 @@ end-to-end on both models using the model-agnostic pipeline from Alpha.6.
 - [ ] Prefill pipeline validated at FP8 — logits match BF16 baseline on identical prompts
 - [ ] Full-network greedy decode validated token-for-token against BF16 baseline
 - [ ] Tool calling validated end-to-end using model-agnostic pipeline from Alpha.6
+
+---
+
+## Alpha.4 — In Progress
+
+**Instruction following and tool calling, validated on Llama 3.2 3B Instruct at BF16.**
+
+Alpha.4 delivers the structured message and tool calling infrastructure in the Chat
+application layer. No model architecture changes are required — Llama 3.2 3B Instruct
+shares the same weight layout as the base model validated in Alpha.3, and the converter
+already supports the instruct variant. The work is entirely in the Chat layer above the
+model.
+
+Success criterion: Llama 3.2 3B Instruct produces correct tool call responses
+end-to-end through the structured message pipeline in the Chat application.
+
+### Phase 1 — Structured Message Infrastructure
+
+- [x] Verify `BpeTokenizer::loadLlama32` encodes Llama 3.2 special tokens as single atomic token IDs (`<|start_header_id|>`, `<|end_header_id|>`, `<|eot_id|>`, `<|eom_id|>`)
+- [x] `ChatMessage` — role (system / user / assistant / tool), content, optional tool calls
+- [x] `MessageFormatter` — applies Llama 3.2 instruct chat template to a message sequence
+- [x] Stop token handling — generation halts on `<|eot_id|>` and `<|eom_id|>`
+- [x] `Chat::run()` — replace raw string history with structured `ChatMessage` history
+
+### Phase 2 — Tool Calling Framework
+
+- [x] `ToolDefinition` — name, description, JSON schema parameters
+- [x] `ToolCall` — parsed tool name and arguments extracted from model output
+- [x] `ToolCallParser` — detects `<|python_tag|>` boundary, extracts and validates JSON
+- [x] System prompt builder — injects active `ToolDefinition` list into the system message
+- [x] `ChatConfig` — add optional `system_prompt` and `tools` list
+- [x] `Chat::registerTool()` — bind named handlers; `Chat::run()` dispatches tool call round-trip
+
+### Phase 3 — Llama 3.2 3B Instruct Validation
+
+- [x] Convert Llama 3.2 3B Instruct weights — `convert_llama_weights.py` already supports the instruct variant, confirm output
+- [x] Instruct format validated — greedy decode with structured prompt matches expected assistant response format
+- [x] Tool call round-trip validated end-to-end — model issues a tool call, result is fed back, final response is correct
 
 ---
 

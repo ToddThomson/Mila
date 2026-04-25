@@ -4,7 +4,7 @@
   "precision": "bf16",
   "context_length": 4096,
   "max_new_tokens": 512,
-  "temperature": 1.0,
-  "top_k": 1,
-  "system_prompt_path": "Data/assistant.json"
+  "temperature": 0.2,
+  "top_k": 20,
+  "system_prompt_path": "Data/assistant-tools.json"
 }
