@@ -47,6 +47,9 @@ import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
 import Serialization.Tensor;
 
+// import Compute.LinearOpTraits;
+// import Compute.CudaLinearOpTraits;
+
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;

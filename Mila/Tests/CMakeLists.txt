@@ -196,10 +196,10 @@ add_executable( MilaTests
     #"Dnn/Components/Losses/CrossEntropy.Config.cpp"
 
     #"Dnn/Serialization/ModelArchive.cpp" 
-    "Dnn/Components/Transformers/Gpt/Gpt.Presets.cpp"
-    "Dnn/Components/Transformers/Gpt/GptTransformer.Cpu.cpp"
-    "Dnn/Components/Transformers/Llama/Llama.Cuda.cpp"
-    "Dnn/Components/Transformers/Llama/Llama.Presets.cpp"
+    #"Dnn/Components/Transformers/Gpt/Gpt.Presets.cpp"
+    #"Dnn/Components/Transformers/Gpt/GptTransformer.Cpu.cpp"
+    #"Dnn/Components/Transformers/Llama/Llama.Cuda.cpp"
+    #"Dnn/Components/Transformers/Llama/Llama.Presets.cpp"
     
     #"Data/Tokenizers/Char/CharVocabulary.cpp"
     #"Data/Tokenizers/Char/CharTrainer.cpp"
@@ -212,7 +212,7 @@ add_executable( MilaTests
     
     "Dnn/Data/TokenSequenceLoader.cpp"
     
-    "Dnn/Components/Transformers/Gpt/GptTransformer.Cuda.cpp"
+    #"Dnn/Components/Transformers/Gpt/GptTransformer.Cuda.cpp"
 
     #"Dnn/Components/Attention/GQA/GQA.Config.cpp"
     #"Dnn/Components/Attention/GQA/GQA.Cuda.cpp"

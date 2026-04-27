@@ -19,7 +19,7 @@ module;
 #include <algorithm>
 
 export module Dnn.Components.Linear;
-export import :Config;
+export import Dnn.Components.LinearConfig;
 
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -36,19 +36,17 @@ import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.ExecutionContextFactory;
 import Compute.IExecutionContext;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
+import Compute.LinearOpTypeMap;
+//import Compute.LinearOpTraitsBase;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
-import Compute.IDecode;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Tensor;
 import Serialization.Metadata;
 import nlohmann.json;
 
-// DEBUG:
 import Dnn.TensorOps;
 import Dnn.TensorHelpers;
 import Utils.Logger;
@@ -62,9 +60,15 @@ namespace Mila::Dnn
     /**
      * @brief Device-templated fully connected (linear) component.
      *
-     * Delegates compute to a device-specific UnaryOperation implementation.
+     * Delegates compute to a device-specific operation resolved at compile time via
+     * LinearOpTraits<TDeviceType, TPrecision, TWeight>. TWeight defaults to TPrecision
+     * for standard (non-quantized) paths and is varied for quantized weight storage.
+     *
+     * @tparam TDeviceType  Target device.
+     * @tparam TPrecision   Activation and compute/accumulation precision.
+     * @tparam TWeight      Weight storage type. Defaults to TPrecision.
      */
-    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+    export template<DeviceType TDeviceType, TensorDataType TPrecision, TensorDataType TWeight = TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class Linear : public Component<TDeviceType, TPrecision>
     {
@@ -72,6 +76,7 @@ namespace Mila::Dnn
         using ComponentBase = Component<TDeviceType, TPrecision>;
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TPrecision, MR>;
+        using OperationType = typename Compute::LinearOpTypeMap<TDeviceType, TPrecision, TWeight>::op_type;
 
         /**
          * @brief Construct a Linear component.
@@ -83,11 +88,11 @@ namespace Mila::Dnn
          * ExecutionContext to be provided later via setExecutionContext().
          *
          * @param name Component name.
-         * @param context Layer configuration (validated on construction).
+         * @param config Layer configuration (validated on construction).
          * @param device_id Optional device identifier. When present the component
          *                  creates an owned ExecutionContext for the device.
          *
-         * @throws std::invalid_argument if context is invalid or device type mismatches.
+         * @throws std::invalid_argument if config is invalid or device type mismatches.
          * @throws std::runtime_error if ExecutionContext creation fails.
          */
         explicit Linear( const std::string& name, const LinearConfig& config, std::optional<DeviceId> device_id = std::nullopt )
@@ -119,8 +124,7 @@ namespace Mila::Dnn
          * @param input Input tensor (device-bound).
          * @return Reference to the component-owned output tensor.
          *
-         * @throws std::runtime_error if component not built, backend not initialized,
-         *         or owned output buffer not allocated.
+         * @throws std::runtime_error if component not built or backend not initialized.
          */
         TensorType& forward( const TensorType& input )
         {
@@ -130,20 +134,11 @@ namespace Mila::Dnn
             }
 
             validateInputShape( input.shape() );
-            
-            // REVIEW: This is now a compute operation optimization rather than a decode path.
-            // Fast decode path — single token, inference mode, dedicated kernel.
-            //if ( decode_path_ && isInferenceMode() && input.shape()[ 1 ] == 1 )
-            //{
-            //    decode_path_->decode( input, *owned_output_ );
-            //    
-            //    return *owned_output_;
-            //}
 
             operation_->forward( input, *output_ );
 
             auto input_shape = input.shape();
-            
+
             TensorType* result = nullptr;
             if ( input_shape == leading_shape_ )
             {
@@ -154,7 +149,7 @@ namespace Mila::Dnn
                 auto output_shape = input_shape;
                 output_shape.back() = config_.getOutputFeatures();
                 output_view_ = std::make_unique<TensorType>( output_->view( output_shape ) );
-                
+
                 result = output_view_.get();
             }
 
@@ -171,8 +166,7 @@ namespace Mila::Dnn
          * @param output_grad Gradient with respect to the component output.
          * @return Reference to the component-owned input-gradient tensor.
          *
-         * @throws std::runtime_error if component not built, not in training mode,
-         *         or backend not initialized.
+         * @throws std::runtime_error if component not built or not in training mode.
          */
         TensorType& backward( const TensorType& input, const TensorType& output_grad )
         {
@@ -186,22 +180,9 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Linear::backward: must be in training mode" );
             }
 
-            // Zero input gradient buffer before backward pass. No exeptions.
-            // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed buffers
-            // to prevent gradient buildup across calls. Without this, gradients grow linearly
-            // with each call -> explosion.
+            // Zero before backward: backend ops use accumulation semantics (+=) and
+            // require pre-zeroed buffers to prevent gradient buildup across calls.
             zero( *input_grad_ );
-
-            // DEBUG: Dump W and B and input
-            //debugDumpTensor<TPrecision,MR>( *weight_, "weight" );
-
-            if ( bias_ )
-            {
-                //debugDumpTensor<TPrecision,MR>( *bias_, "bias" );
-            }
-
-            //debugDumpTensor<TPrecision,MR>( input, "input" );
-            //debugDumpTensor<TPrecision,MR>( output_grad, "output_grad" );
 
             operation_->backward( input, output_grad, *input_grad_ );
 
@@ -220,7 +201,6 @@ namespace Mila::Dnn
                 zero( *bias_grad_ );
             }
 
-            // REVIEW: Not strictly necessary, but zero input gradients for safety during testing
             if ( input_grad_ )
             {
                 zero( *input_grad_ );
@@ -233,9 +213,6 @@ namespace Mila::Dnn
 
         /**
          * @brief Save component state to a ModelArchive.
-         *
-         * Writes component-local metadata and parameter tensors into the provided archive.
-         * Callers should scope the archive before invoking this method.
          *
          * @param archive ModelArchive to write to (scoped by caller).
          * @param mode Serialization mode (currently unused).
@@ -261,7 +238,7 @@ namespace Mila::Dnn
             if ( weight_ )
             {
                 TensorMetadata tmeta;
-                tmeta.dtype = weight_->getDataType(); // ->getDataTypeName();
+                tmeta.dtype = weight_->getDataType();
                 tmeta.shape = weight_->shape();
                 tmeta.total_bytes = static_cast<size_t>(weight_->size()) * weight_->elementSize();
 
@@ -288,7 +265,7 @@ namespace Mila::Dnn
                 bmeta.dtype = bias_->getDataType();
                 bmeta.shape = bias_->shape();
                 bmeta.total_bytes = static_cast<size_t>(bias_->size()) * bias_->elementSize();
-                
+
                 if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
                 {
                     const void* data_ptr = bias_->rawData();
@@ -361,21 +338,11 @@ namespace Mila::Dnn
             return oss.str();
         }
 
-        /**
-         * @brief Whether the component contains a bias parameter.
-         *
-         * @return True if bias is enabled in the configuration.
-         */
         bool hasBias() const noexcept
         {
             return config_.hasBias();
         }
 
-        /**
-         * @brief Access the component configuration.
-         *
-         * @return Reference to the LinearConfig.
-         */
         const LinearConfig& getConfig() const noexcept
         {
             return config_;
@@ -400,12 +367,6 @@ namespace Mila::Dnn
 
         std::vector<ITensor*> getGradients() const override
         {
-            // REVIEW:
-            /*if ( !this->isTraining() )
-            {
-                throw std::runtime_error( "Linear: getGradients called when not in training mode" );
-            }*/
-
             std::vector<ITensor*> grads;
 
             if ( weight_grad_ )
@@ -421,8 +382,8 @@ namespace Mila::Dnn
             return grads;
         }
 
-        void loadParameter( 
-            const std::string& name, 
+        void loadParameter(
+            const std::string& name,
             const ITensorBlob& blob ) override
         {
             if ( name == "weight" )
@@ -434,29 +395,18 @@ namespace Mila::Dnn
             {
                 if ( !hasBias() )
                 {
-                    // DEBUG: Revert after testing
-                    /*throw std::runtime_error(
-                        std::format( "Component '{}' was configured without bias", this->getName() )
-                    );*/
-
                     return;
                 }
-                
+
                 const shape_t expected_shape{ config_.getOutputFeatures() };
                 this->loadParameterFromBlob( "bias", blob, *bias_, expected_shape );
             }
             else
             {
-                // REVIEW: Confusing and hidden throw here
-                // Base class loadParameter Throws
-                this->loadParameter( name, blob ); 
+                this->loadParameter( name, blob );
             }
-
         }
 
-        /**
-         * @brief Return memory allocation breakdown for this Linear component.
-         */
         MemoryStats getMemoryStats() const override
         {
             MemoryStats stats;
@@ -491,28 +441,11 @@ namespace Mila::Dnn
 
     protected:
 
-        /**
-         * @brief Lifecycle hook executed after ExecutionContext is set.
-         *
-         * Initializes parameter tensors and creates the backend operation.
-         *
-         * @throws std::runtime_error if initialization fails.
-         */
         void onExecutionContextSet() override
         {
             createOperation();
         }
 
-        /**
-         * @brief Build the component for a given input shape.
-         *
-         * Binds parameters and gradients (if training) to the backend operation,
-         * invokes operation-specific build, and allocates component-owned forward
-         * and input-gradient tensors. Owned tensors use std::unique_ptr to express
-         * exclusive ownership by the component.
-         *
-         * @param input_shape Shape of the incoming tensor.
-         */
         void onBuilding( const BuildContext& context ) override
         {
             validateBuildContext( context );
@@ -520,15 +453,12 @@ namespace Mila::Dnn
             const auto& input_shape = context.inputShape();
 
             initializeParameters( context );
-            
+
             operation_->setParameters( weight_.get(), bias_.get() );
             operation_->build( context );
 
             auto device_id = this->getExecutionContext()->getDeviceId();
 
-            // NOTES:
-            // Output buffer — allocated at the full input shape with the
-            // trailing dimension replaced by output_features.
             shape_t output_shape = input_shape;
             output_shape.back() = config_.getOutputFeatures();
             output_ = std::make_unique<TensorType>( device_id, output_shape, this->getName() + ".output" );
@@ -543,15 +473,6 @@ namespace Mila::Dnn
             }
         }
 
-        /**
-         * @brief Hook invoked when training mode is changing.
-         *
-         * Propagates training mode to the backend operation and allocates or
-         * clears gradient buffers as necessary. Called with the Component's
-         * training mutex held.
-         *
-         * @param is_training New training mode.
-         */
         void onTrainingModeChanging( TrainingMode mode ) override
         {
             operation_->setTrainingMode( mode );
@@ -560,7 +481,6 @@ namespace Mila::Dnn
             {
                 operation_->clearGradients();
 
-                // Retain gradient buffers for next training pass — just zero them.
                 if ( weight_grad_ )
                 {
                     zero( *weight_grad_ );
@@ -573,24 +493,26 @@ namespace Mila::Dnn
             }
             else
             {
-                // Restore gradients on return to training pass.
                 if ( weight_grad_ )
                 {
                     operation_->setGradients( weight_grad_.get(), bias_grad_.get() );
                 }
             }
         }
-        
+
     private:
+
+        // Concrete op type resolved at compile time — no registry, no virtual dispatch.
+        //using OpType = typename LinearOpTraits<TDeviceType, TPrecision, TWeight>::type;
+        //static_assert( LinearOpConcept<OpType, TensorType>,
+        //    "OpType resolved by LinearOpTraits does not satisfy LinearOpConcept." );
 
         LinearConfig config_;
         shape_t leading_shape_;
 
-        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
+        std::shared_ptr<OperationType> operation_{ nullptr };
 
-        // Non-owning; lifetime tied to operation_. Null for when compute backend does not
-        // implement IDecode (e.g. CPU). Resolved once in onBuilding(). decode() uses this to select fast path.
-        IDecode* decode_path_{ nullptr };
+        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
         std::shared_ptr<TensorType> weight_{ nullptr };
         std::shared_ptr<TensorType> bias_{ nullptr };
@@ -598,9 +520,6 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> weight_grad_{ nullptr };
         std::shared_ptr<TensorType> bias_grad_{ nullptr };
 
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
-
-        // Component-owned forward output and input-gradient tensors (exclusive ownership)
         std::unique_ptr<TensorType> output_{ nullptr };
         std::unique_ptr<TensorType> output_view_{ nullptr };
         std::unique_ptr<TensorType> input_grad_{ nullptr };
@@ -624,14 +543,6 @@ namespace Mila::Dnn
             }
         }
 
-        /**
-         * @brief Validate input shape for the linear operation.
-         *
-         * Ensures the last dimension matches the configured input_features.
-         *
-         * @param input_shape Shape to validate.
-         * @throws std::invalid_argument if rank < 1 or feature dim mismatches.
-         */
         void validateInputShape( const shape_t& input_shape ) const
         {
             if ( input_shape.empty() )
@@ -639,54 +550,15 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "Linear: input must have rank >= 1" );
             }
 
-            int64_t input_features = input_shape.back();
-
-            if ( input_features != config_.getInputFeatures() )
+            if ( input_shape.back() != config_.getInputFeatures() )
             {
                 throw std::invalid_argument(
                     std::format( "Linear: input feature dimension mismatch. Expected {}, got {}",
-                        config_.getInputFeatures(), input_features )
+                        config_.getInputFeatures(), input_shape.back() )
                 );
             }
         }
 
-        /**
-         * @brief Validate that an input shape satisfies the decode() contract.
-         *
-         * Combines the feature-dimension check from validateLeadingShape() with an
-         * outer-size check: the product of all dimensions except the last must be
-         * exactly 1.  This matches the cuda_matvec_impl assumption and ensures the
-         * CPU fallback path behaves consistently.
-         *
-         * @param input_shape Shape to validate.
-         * @throws std::invalid_argument if the rank, feature dim, or outer size is wrong.
-         */
-        void validateDecodeShape( const shape_t& input_shape ) const
-        {
-            validateInputShape( input_shape );
-
-            int64_t outer_size = 1;
-            for ( size_t i = 0; i + 1 < input_shape.size(); ++i )
-            {
-                outer_size *= input_shape[ i ];
-            }
-
-            if ( outer_size != 1 )
-            {
-                throw std::invalid_argument(
-                    std::format(
-                        "Linear::decode requires a single-token input (outer size must be 1, got {}). "
-                        "Use forward() for multi-token inputs.",
-                        outer_size )
-                );
-            }
-        }
-
-        /**
-         * @brief Ensure gradient tensors are allocated with correct shapes.
-         *
-         * Allocates weight and bias gradient tensors when needed and zeroes them.
-         */
         void initializeGradients()
         {
             auto device_id = this->getExecutionContext()->getDeviceId();
@@ -706,12 +578,6 @@ namespace Mila::Dnn
             }
         }
 
-        /**
-         * @brief Allocate and initialize weight and optional bias tensors.
-         *
-         * Tensors are created on the ExecutionContext device and weights are
-         * initialized using Xavier initialization. Bias is zero-initialized.
-         */
         void initializeParameters( const BuildContext& context )
         {
             int64_t input_features = config_.getInputFeatures();
@@ -719,16 +585,16 @@ namespace Mila::Dnn
             auto device = this->getExecutionContext()->getDeviceId();
 
             weight_ = std::make_shared<TensorType>( device, shape_t{ output_features, input_features }, this->getName() + ".weight" );
-            
+
             if ( context.shouldInitializeParameters() )
             {
                 // FIXME: xavier<TPrecision, MR>( *weight_, input_features, output_features );
             }
-            
+
             if ( config_.hasBias() )
             {
                 bias_ = std::make_shared<TensorType>( device, shape_t{ output_features }, this->getName() + ".bias" );
-                
+
                 if ( context.shouldInitializeParameters() )
                 {
                     // FIXME: zero( *bias_ );
@@ -737,24 +603,19 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Create the backend compute operation.
+         * @brief Instantiate the backend compute operation via compile-time traits dispatch.
          *
-         * Requests a device-specific UnaryOperation from the OperationRegistry.
-         *
-         * @throws std::runtime_error if operation creation fails.
+         * OpType is resolved by LinearOpTraits at instantiation time — no registry lookup,
+         * no string key, no runtime hash map. A missing specialization is a compile error.
          */
         void createOperation()
         {
-            operation_ = OperationRegistry::instance()
-                .createUnaryOperation<TDeviceType, TPrecision>(
-                    "LinearOp",
-                    this->getExecutionContext(),
-                    config_
-                );
+            operation_ = std::make_shared<OperationType>(
+                this->getExecutionContext(), config_ );
 
             if ( !operation_ )
             {
-                throw std::runtime_error( "Failed to create Linear operation." );
+                throw std::runtime_error( "Linear: failed to create operation." );
             }
         }
     };

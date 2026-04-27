@@ -80,10 +80,6 @@ namespace Mila::Dnn
 
         ~LlamaModel() = default;
 
-        // ====================================================================
-        // Factory — the sole construction path
-        // ====================================================================
-
         /**
          * @brief Load from third-party pretrained weights.
          *

@@ -197,7 +197,13 @@ export import Dnn.Components.Gelu;
 export import Dnn.Components.Swiglu;
 export import Dnn.Components.LayerNorm;
 export import Dnn.Components.RmsNorm;
+
+export import Compute.LinearOpTypeMap;
+//import Compute.CpuLinearOpTraits;
+//import Compute.CudaLinearOpTraits;
+
 export import Dnn.Components.Linear;
+
 export import Dnn.Components.Residual;
 export import Dnn.Components.Softmax;
 //export import Dnn.Components.SoftmaxCrossEntropy;

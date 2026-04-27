@@ -471,7 +471,9 @@ PUBLIC
         "Src/Dnn/Compute/Operations/IPackedKvInference.ixx"
         "Src/Dnn/Core/TokenStreamer.ixx"
         #"Src/Profiling/NvtxRange.ixx"
-)
+        "Src/Dnn/Compute/Operations/LinearOpTypeMap.Template.ixx"
+        "Src/Dnn/Compute/Operations/LinearOpTypeMap.ixx"
+        )
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -505,6 +507,8 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Zero.ixx"
+
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOpTypeMap.ixx"
     )
 
     target_compile_definitions( Mila PUBLIC MILA_HAS_CPU)
@@ -589,6 +593,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Structural.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CublasLt.Utils.ixx"
                 #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Random.h"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOpTypeMap.ixx"
     )
 
     target_link_libraries( Mila PRIVATE 

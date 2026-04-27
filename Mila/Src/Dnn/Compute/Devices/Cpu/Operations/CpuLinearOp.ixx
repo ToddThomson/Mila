@@ -19,7 +19,7 @@ module;
 
 export module Compute.CpuLinearOp;
 
-import Dnn.Components.Linear;
+import Dnn.Components.LinearConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

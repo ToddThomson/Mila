@@ -14,7 +14,7 @@ module;
 #include <sstream>
 #include <ios>
 
-export module Dnn.Components.Linear:Config;
+export module Dnn.Components.LinearConfig;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;
