@@ -80,7 +80,7 @@ namespace Mila::ChatApp
         ModelPrecision        precision{ ModelPrecision::BF16 };
         std::filesystem::path model_path;
         std::filesystem::path tokenizer_path;
-        size_t                max_new_tokens{ 512 };
+        size_t                max_new_tokens{ 2048 };
         float                 temperature{ 0.8f };
         int                   top_k{ 40 };
         size_t                context_length{ 0 };

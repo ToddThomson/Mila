@@ -86,7 +86,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
         using MR = CudaDeviceMemoryResource;
         using TensorType = Tensor<TPrecision, MR>;
-        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
+        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
         using ConfigType = RopeConfig;
         using CacheKey = RopeCacheRegistry::CacheKey;
@@ -321,7 +321,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 static_cast<int>(config_.getHeadDim()),
                 context_->getStream() );
             
-            context_->synchronize();
+            // DEBUG: context_->synchronize();
         }
 
         // ====================================================================
@@ -367,7 +367,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 position_offset,
                 context_->getStream() );
 
-            context_->synchronize();
+            // DEBUG: context_->synchronize();
         }
 
         CacheKey makeCacheKey() const noexcept

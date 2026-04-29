@@ -68,15 +68,18 @@ namespace Mila::Dnn::Compute::Cuda::Linear
      *   weight_grad = output_grad^T * input  (accumulated)
      *   bias_grad   = sum(output_grad, dim=0)
      */
-    export template<TensorDataType TPrecision>
-        requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaLinearOp : public Operation<DeviceType::Cuda, TPrecision>
+    export template<TensorDataType TComputePrecision, TensorDataType TParameterPrecision = TComputePrecision>
+        requires PrecisionSupportedOnDevice<TComputePrecision, DeviceType::Cuda>
+    class CudaLinearOp : public Operation<DeviceType::Cuda, TComputePrecision>
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using TensorType = Tensor<TPrecision, MR>;
-        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
+        using TensorType = Tensor<TComputePrecision, MR>;
+        using ActivationType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TComputePrecision>::device_type;
+        using ParameterType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TParameterPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
+
+        static constexpr bool kIsQuantized = (TParameterPrecision != TComputePrecision);
 
         CudaLinearOp( IExecutionContext* context, const LinearConfig& config )
             : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaLinearOp" ) ), config_( config )
@@ -96,7 +99,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 throw std::invalid_argument( "CudaLinearOp::setParameters - weight must be a CUDA tensor" );
             }
 
-            weight_ = static_cast<const NativeType*>(weight->rawData());
+            weight_ = static_cast<const ActivationType*>(weight->rawData());
 
             const auto& weight_shape = weight->shape();
             if ( weight_shape.size() != 2 )
@@ -119,7 +122,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     throw std::invalid_argument( "CudaLinearOp::setParameters - bias must be a CUDA tensor" );
                 }
 
-                bias_ = static_cast<const NativeType*>(bias->rawData());
+                bias_ = static_cast<const ActivationType*>(bias->rawData());
             }
             else
             {
@@ -139,7 +142,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 throw std::invalid_argument( "CudaLinearOp::setGradients - weight gradient must be a CUDA tensor" );
             }
 
-            weight_grad_ = static_cast<NativeType*>(weight_grad->rawData());
+            weight_grad_ = static_cast<ActivationType*>(weight_grad->rawData());
 
             if ( config_.hasBias() )
             {
@@ -153,7 +156,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     throw std::invalid_argument( "CudaLinearOp::setGradients - bias gradient must be a CUDA tensor" );
                 }
 
-                bias_grad_ = static_cast<NativeType*>(bias_grad->rawData());
+                bias_grad_ = static_cast<ActivationType*>(bias_grad->rawData());
             }
             else
             {
@@ -224,7 +227,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 }
             }
 
-            Operation<DeviceType::Cuda, TPrecision>::build( build_config );
+            Operation<DeviceType::Cuda, TComputePrecision>::build( build_config );
         }
 
         /**
@@ -240,14 +243,14 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         {
             const int outer_size = static_cast<int>(input.size()) / cached_in_features_;
 
-            const NativeType* input_ptr = static_cast<const NativeType*>(input.rawData());
-            NativeType* output_ptr = static_cast<NativeType*>(output.rawData());
+            const ActivationType* input_ptr = static_cast<const ActivationType*>(input.rawData());
+            ActivationType* output_ptr = static_cast<ActivationType*>(output.rawData());
 
             cudaStream_t stream = context_->getStream();
 
             if ( outer_size == 1 )
             {
-                Detail::cuda_matvec_impl<NativeType>::decode(
+                Detail::cuda_matvec_impl<ActivationType>::decode(
                     output_ptr, input_ptr,
                     weight_, bias_,
                     cached_in_features_, cached_out_features_,
@@ -261,7 +264,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 const float alpha = 1.0f;
                 const float beta = 0.0f;
 
-                execute_plan<NativeType>(
+                execute_plan<ActivationType>(
                     cached_cublaslt_handle_,
                     forward_plan_cache_.get( static_cast<int>(outer_size) ),
                     &alpha,
@@ -274,7 +277,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     context_->getCublasLtWorkspaceSize() );
 
                 // DEBUG: remove after stabilization
-                this->context_->synchronize();
+                // this->context_->synchronize();
 
                 return;
             }
@@ -301,9 +304,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             const int outer_size = static_cast<int>(output_grad.size()) / cached_out_features_;
 
-            const NativeType* input_ptr = static_cast<const NativeType*>(input.rawData());
-            const NativeType* output_grad_ptr = static_cast<const NativeType*>(output_grad.rawData());
-            NativeType* input_grad_ptr = static_cast<NativeType*>(input_grad.rawData());
+            const ActivationType* input_ptr = static_cast<const ActivationType*>(input.rawData());
+            const ActivationType* output_grad_ptr = static_cast<const ActivationType*>(output_grad.rawData());
+            ActivationType* input_grad_ptr = static_cast<ActivationType*>(input_grad.rawData());
 
             cudaStream_t stream = context_->getStream();
 
@@ -314,7 +317,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 const float beta_accum = 1.0f;
 
                 // dX[batch, in] = dY[batch, out] @ weight[out, in]
-                execute_plan<NativeType>(
+                execute_plan<ActivationType>(
                     cached_cublaslt_handle_,
                     backward_input_plan_cache_.get( static_cast<int>(outer_size) ),
                     &alpha,
@@ -327,7 +330,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     context_->getCublasLtWorkspaceSize() );
 
                 // dW[out, in] = dY^T @ X  (accumulated across full batch)
-                execute_plan<NativeType>(
+                execute_plan<ActivationType>(
                     cached_cublaslt_handle_,
                     backward_weight_plan_,
                     &alpha,
@@ -375,11 +378,11 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         LinearConfig config_;
         CudaExecutionContext* context_;
 
-        const NativeType* weight_{ nullptr };
-        const NativeType* bias_{ nullptr };
+        const ActivationType* weight_{ nullptr };
+        const ActivationType* bias_{ nullptr };
 
-        NativeType* weight_grad_{ nullptr };
-        NativeType* bias_grad_{ nullptr };
+        ActivationType* weight_grad_{ nullptr };
+        ActivationType* bias_grad_{ nullptr };
 
         int64_t weight_out_features_{ 0 };
         int64_t weight_in_features_{ 0 };
@@ -392,9 +395,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         bool use_cublaslt_{ false };
         ComputePrecision::Policy cached_precision_policy_;
 
-        CublasLtPlanCache<CublasLtMatMulPlan<NativeType>> forward_plan_cache_;
-        CublasLtPlanCache<CublasLtMatMulPlan<NativeType>> backward_input_plan_cache_;
-        CublasLtMatMulPlan<NativeType> backward_weight_plan_;
+        CublasLtPlanCache<CublasLtMatMulPlan<ActivationType>> forward_plan_cache_;
+        CublasLtPlanCache<CublasLtMatMulPlan<ActivationType>> backward_input_plan_cache_;
+        CublasLtMatMulPlan<ActivationType> backward_weight_plan_;
 
         cudaDataType_t cuda_data_type_{};
         cublasComputeType_t compute_type_{};
@@ -402,9 +405,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         constexpr bool supportsCuBLASLt() const
         {
-            return std::is_same_v<NativeType, float> ||
-                std::is_same_v<NativeType, half> ||
-                std::is_same_v<NativeType, nv_bfloat16>;
+            return std::is_same_v<ActivationType, float> ||
+                std::is_same_v<ActivationType, half> ||
+                std::is_same_v<ActivationType, nv_bfloat16>;
         }
 
         void buildCublasLtPlans()
@@ -419,11 +422,11 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             compute_type_ = compute_type;
             scale_type_ = scale_type;
 
-            forward_plan_cache_ = CublasLtPlanCache<CublasLtMatMulPlan<NativeType>>(
+            forward_plan_cache_ = CublasLtPlanCache<CublasLtMatMulPlan<ActivationType>>(
                 cached_outer_size_,
                 [&]( int bucket )
                 {
-                    return Detail::build_forward_plan<NativeType>(
+                    return Detail::build_forward_plan<ActivationType>(
                         cached_cublaslt_handle_,
                         bucket,
                         cached_in_features_,
@@ -434,11 +437,11 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                         scale_type_ );
                 } );
 
-            backward_input_plan_cache_ = CublasLtPlanCache<CublasLtMatMulPlan<NativeType>>(
+            backward_input_plan_cache_ = CublasLtPlanCache<CublasLtMatMulPlan<ActivationType>>(
                 cached_outer_size_,
                 [&]( int bucket )
                 {
-                    return Detail::build_backward_input_plan<NativeType>(
+                    return Detail::build_backward_input_plan<ActivationType>(
                         cached_cublaslt_handle_,
                         bucket,
                         cached_in_features_,
@@ -448,7 +451,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                         scale_type_ );
                 } );
 
-            backward_weight_plan_ = Detail::build_backward_weight_plan<NativeType>(
+            backward_weight_plan_ = Detail::build_backward_weight_plan<ActivationType>(
                 cached_cublaslt_handle_,
                 cached_outer_size_,
                 cached_in_features_,
@@ -461,15 +464,15 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         // REVIEW: delegate to TensorDataTypeMap<NativeType>::cuda_data_type when confirmed available
         cudaDataType_t getCudaDataType() const
         {
-            if constexpr ( std::is_same_v<NativeType, float> )
+            if constexpr ( std::is_same_v<ActivationType, float> )
                 return CUDA_R_32F;
-            else if constexpr ( std::is_same_v<NativeType, half> )
+            else if constexpr ( std::is_same_v<ActivationType, half> )
                 return CUDA_R_16F;
-            else if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
+            else if constexpr ( std::is_same_v<ActivationType, nv_bfloat16> )
                 return CUDA_R_16BF;
-            else if constexpr ( std::is_same_v<NativeType, __nv_fp8_e4m3> )
+            else if constexpr ( std::is_same_v<ActivationType, __nv_fp8_e4m3> )
                 return CUDA_R_8F_E4M3;
-            else if constexpr ( std::is_same_v<NativeType, __nv_fp8_e5m2> )
+            else if constexpr ( std::is_same_v<ActivationType, __nv_fp8_e5m2> )
                 return CUDA_R_8F_E5M2;
         }
 
@@ -481,7 +484,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             {
                 case ComputePrecision::Policy::Native:
                 case ComputePrecision::Policy::Accuracy:
-                    if constexpr ( std::is_same_v<NativeType, half> )
+                    if constexpr ( std::is_same_v<ActivationType, half> )
                         compute_type = CUBLAS_COMPUTE_16F;
                     else
                         compute_type = CUBLAS_COMPUTE_32F;
@@ -490,9 +493,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 case ComputePrecision::Policy::Performance:
                 case ComputePrecision::Policy::Auto:
                 default:
-                    if constexpr ( std::is_same_v<NativeType, half> )
+                    if constexpr ( std::is_same_v<ActivationType, half> )
                         compute_type = CUBLAS_COMPUTE_32F_FAST_16F;
-                    else if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
+                    else if constexpr ( std::is_same_v<ActivationType, nv_bfloat16> )
                         compute_type = CUBLAS_COMPUTE_32F_FAST_16BF;
                     else
                         compute_type = CUBLAS_COMPUTE_32F;

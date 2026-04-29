@@ -50,7 +50,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
+        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
         using ConfigType = ResidualConfig;
 

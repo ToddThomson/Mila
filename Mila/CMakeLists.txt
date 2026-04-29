@@ -473,7 +473,7 @@ PUBLIC
         #"Src/Profiling/NvtxRange.ixx"
         "Src/Dnn/Compute/Operations/LinearOpTypeMap.Template.ixx"
         "Src/Dnn/Compute/Operations/LinearOpTypeMap.ixx"
-        )
+         "Src/Dnn/Core/ModelQuantizationConfig.ixx" "Src/Dnn/Core/ModelConfig.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -509,7 +509,7 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Zero.ixx"
 
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOpTypeMap.ixx"
-    )
+     "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataTypes-CublasLtTypes.ixx")
 
     target_compile_definitions( Mila PUBLIC MILA_HAS_CPU)
     list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cpu_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
@@ -528,7 +528,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTypeTraits.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaError.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaHelpers.ixx"
-                # DEPRECATED "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
+                # DEPRECATED Remove at Beta.1 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaBadAlloc.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CublasLtError.ixx"
                 
@@ -541,7 +541,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/CudaManagedMemoryResource.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/CudaPinnedMemoryResource.ixx"
                 
-                "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTraits.ixx"
+                # DEPRECATED - remove at Beta.1 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTraits.ixx"
 
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Specializations.ixx"
@@ -594,7 +594,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CublasLt.Utils.ixx"
                 #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Random.h"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOpTypeMap.ixx"
-    )
+     "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtLinearPlan.ixx")
 
     target_link_libraries( Mila PRIVATE 
         CUDA::cudart

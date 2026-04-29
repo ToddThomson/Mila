@@ -58,7 +58,7 @@ namespace Mila::Dnn::Compute::Cuda
      */
     template<>
     struct TensorDataTypeMap<TensorDataType::FP32> {
-        using native_type = float;
+        using device_type = float;
     };
 
     /**
@@ -68,7 +68,7 @@ namespace Mila::Dnn::Compute::Cuda
      */
     template<>
     struct TensorDataTypeMap<TensorDataType::FP16> {
-        using native_type = __half;
+        using device_type = __half;
     };
 
     /**
@@ -78,7 +78,7 @@ namespace Mila::Dnn::Compute::Cuda
      */
     template<>
     struct TensorDataTypeMap<TensorDataType::BF16> {
-        using native_type = __nv_bfloat16;
+        using device_type = __nv_bfloat16;
     };
 
     /**
@@ -88,7 +88,7 @@ namespace Mila::Dnn::Compute::Cuda
      */
     template<>
     struct TensorDataTypeMap<TensorDataType::FP8_E4M3> {
-        using native_type = __nv_fp8_e4m3;
+        using device_type = __nv_fp8_e4m3;
     };
 
     /**
@@ -98,7 +98,7 @@ namespace Mila::Dnn::Compute::Cuda
      */
     template<>
     struct TensorDataTypeMap<TensorDataType::FP8_E5M2> {
-        using native_type = __nv_fp8_e5m2;
+        using device_type = __nv_fp8_e5m2;
     };
 
     // ====================================================================
@@ -112,7 +112,7 @@ namespace Mila::Dnn::Compute::Cuda
      */
     template<>
     struct TensorDataTypeMap<TensorDataType::INT8> {
-        using native_type = std::int8_t;
+        using device_type = std::int8_t;
     };
 
     /**
@@ -122,7 +122,7 @@ namespace Mila::Dnn::Compute::Cuda
      */
     template<>
     struct TensorDataTypeMap<TensorDataType::INT16> {
-        using native_type = std::int16_t;
+        using device_type = std::int16_t;
     };
 
     /**
@@ -132,7 +132,7 @@ namespace Mila::Dnn::Compute::Cuda
      */
     template<>
     struct TensorDataTypeMap<TensorDataType::INT32> {
-        using native_type = std::int32_t;
+        using device_type = std::int32_t;
     };
 
     /**
@@ -142,7 +142,7 @@ namespace Mila::Dnn::Compute::Cuda
      */
     template<>
     struct TensorDataTypeMap<TensorDataType::UINT8> {
-        using native_type = std::uint8_t;
+        using device_type = std::uint8_t;
     };
 
     /**
@@ -152,7 +152,7 @@ namespace Mila::Dnn::Compute::Cuda
      */
     template<>
     struct TensorDataTypeMap<TensorDataType::UINT16> {
-        using native_type = std::uint16_t;
+        using device_type = std::uint16_t;
     };
 
     /**
@@ -162,7 +162,7 @@ namespace Mila::Dnn::Compute::Cuda
      */
     template<>
     struct TensorDataTypeMap<TensorDataType::UINT32> {
-        using native_type = std::uint32_t;
+        using device_type = std::uint32_t;
     };
 
     // ====================================================================
@@ -175,5 +175,5 @@ namespace Mila::Dnn::Compute::Cuda
      * @tparam TDataType Abstract tensor data type
      */
     export template<TensorDataType TDataType>
-        using native_type_t = typename TensorDataTypeMap<TDataType>::native_type;
+        using device_type_t = typename TensorDataTypeMap<TDataType>::device_type;
 }

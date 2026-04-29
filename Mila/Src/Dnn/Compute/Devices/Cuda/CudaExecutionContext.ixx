@@ -95,11 +95,11 @@ namespace Mila::Dnn::Compute
          */
         void synchronize() override
         {
+            // DEBUG:
             //cudaCheckLastError();
-
             // FIXME: Cuda::setCurrentDevice( device_id_.index );
-
             //cudaCheckLastError();
+            // END DEBUG
 
             cudaError_t error = cudaStreamSynchronize( stream_ );
 

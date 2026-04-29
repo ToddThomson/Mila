@@ -52,7 +52,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         using MR = CudaDeviceMemoryResource;
         using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
-        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
+        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
         using ConfigType = TokenEmbeddingConfig;
 
@@ -175,9 +175,9 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             Detail::cuda_token_embedding_impl<NativeType>::forward(
                 Y, X, wte_, B, T, embedding_dim_, context_->getStream() );
 
-            context_->synchronize();
-
-            //print_stats( "emb.output", Y, output.shape(), 8, context_->getStream() );
+            // DEBUG: synchronize and print output stats
+            // context_->synchronize();
+            // print_stats( "emb.output", Y, output.shape(), 8, context_->getStream() );
         }
 
         // ====================================================================

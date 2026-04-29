@@ -138,7 +138,7 @@ namespace Mila::Dnn
             operation_->forward( input_a, input_b, *output_ );
 
             // DEBUG: 
-            this->synchronize();
+            //this->synchronize();
 
             auto input_shape = input_a.shape();
 

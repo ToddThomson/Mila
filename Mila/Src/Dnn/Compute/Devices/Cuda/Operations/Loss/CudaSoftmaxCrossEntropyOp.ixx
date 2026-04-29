@@ -162,8 +162,8 @@ namespace Mila::Dnn::Compute::Cuda::SoftmaxCrossEntropy
         using BinaryOperationBase = BinaryOperation<DeviceType::Cuda, TPrecision, TLogits, TTargets>;
         using LogitsTensorType = Tensor<TLogits, MR>;
         using TargetsTensorType = Tensor<TTargets, MR>;
-        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TLogits>::native_type;
-        using TargetsNativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TTargets>::native_type;
+        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TLogits>::device_type;
+        using TargetsNativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TTargets>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
         /**

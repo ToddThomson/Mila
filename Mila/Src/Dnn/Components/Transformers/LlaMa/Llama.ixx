@@ -146,7 +146,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "LlamaTransformer must be built before calling forward()." );
 
             auto& embed_out = token_embedding_->forward( input );
-            this->getExecutionContext()->synchronize();
+            //this->getExecutionContext()->synchronize();
 
             token_embed_out_ptr_ = &embed_out;
 
@@ -158,7 +158,7 @@ namespace Mila::Dnn
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
                 auto& block_out = transformer_blocks_[ i ]->forward( *block_input_ptrs_[ i ] );
-                this->getExecutionContext()->synchronize();
+                //this->getExecutionContext()->synchronize();
 
                 block_output_ptrs_[ i ] = &block_out;
 
@@ -167,19 +167,16 @@ namespace Mila::Dnn
             }
 
             normalized_ptr_ = &final_rmsnorm_->forward( *block_output_ptrs_.back() );
-            this->getExecutionContext()->synchronize();
+            //this->getExecutionContext()->synchronize();
 
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
-            this->getExecutionContext()->synchronize();
+            //this->getExecutionContext()->synchronize();
 
             return *logits_ptr_;
         }
 
         TensorType& prefill( const TokenIndexType& input )
         {
-            // POSSIBLE BUG: full history re-prefill always starts from position 0
-            // resetKVCache();
-
             const int64_t B = input.shape()[ 0 ];
             const int64_t T_prompt = input.shape()[ 1 ];
             
@@ -199,12 +196,12 @@ namespace Mila::Dnn
 
                 // Embed directly — output buffer lives in token_embedding_
                 TensorType* block_input = &token_embedding_->forward( chunk_input );
-                this->getExecutionContext()->synchronize();
+                // DEBUG: this->getExecutionContext()->synchronize();
 
                 for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
                 {
                     auto& block_out = transformer_blocks_[ i ]->prefill( *block_input, static_cast<int>( offset ) );
-                    this->getExecutionContext()->synchronize();
+                    // DEBUG: this->getExecutionContext()->synchronize();
                     block_input = &block_out;
                 }
 
@@ -219,10 +216,10 @@ namespace Mila::Dnn
                 last_pos_offset );
             
             normalized_ptr_ = &final_rmsnorm_->forward( last_pos );
-            this->getExecutionContext()->synchronize();
+            // DEBUG: this->getExecutionContext()->synchronize();
 
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
-            this->getExecutionContext()->synchronize();
+            // DEBUG: this->getExecutionContext()->synchronize();
 
             return *logits_ptr_;
         }
@@ -230,7 +227,7 @@ namespace Mila::Dnn
         TensorType& decode( const TokenIndexType& input, int position )
         {
             auto& embed_out = token_embedding_->forward( input );
-            this->getExecutionContext()->synchronize();
+            // DEBUG: this->getExecutionContext()->synchronize();
 
             token_embed_out_ptr_ = &embed_out;
 
@@ -242,7 +239,7 @@ namespace Mila::Dnn
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
                 auto& block_out = transformer_blocks_[ i ]->decode( *block_input_ptrs_[ i ], position );
-                this->getExecutionContext()->synchronize();
+                // DEBUG: this->getExecutionContext()->synchronize();
 
                 block_output_ptrs_[ i ] = &block_out;
 
@@ -251,10 +248,10 @@ namespace Mila::Dnn
             }
 
             normalized_ptr_ = &final_rmsnorm_->forward( *block_output_ptrs_.back() );
-            this->getExecutionContext()->synchronize();
+            // DEBUG: this->getExecutionContext()->synchronize();
 
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
-            this->getExecutionContext()->synchronize();
+            // DEBUG: this->getExecutionContext()->synchronize();
 
             return *logits_ptr_;
         }

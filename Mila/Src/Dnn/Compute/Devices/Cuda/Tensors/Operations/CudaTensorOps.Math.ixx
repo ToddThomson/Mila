@@ -479,7 +479,7 @@ namespace Mila::Dnn::Compute::Cuda
 
             Cuda::setCurrentDevice( device_id );
 
-            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
             const auto* typed_a = static_cast<const NativeType*>(a_data);
             const auto* typed_b = static_cast<const NativeType*>(b_data);
             auto* typed_result = static_cast<NativeType*>(result_data);
@@ -508,7 +508,7 @@ namespace Mila::Dnn::Compute::Cuda
 
             Cuda::setCurrentDevice( device_id );
 
-            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
             const auto* typed_a = static_cast<const NativeType*>(a_data);
             const auto* typed_b = static_cast<const NativeType*>(b_data);
             auto* typed_result = static_cast<NativeType*>(result_data);
@@ -537,7 +537,7 @@ namespace Mila::Dnn::Compute::Cuda
 
             Cuda::setCurrentDevice( device_id );
 
-            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
             const auto* typed_a = static_cast<const NativeType*>(a_data);
             const auto* typed_b = static_cast<const NativeType*>(b_data);
             auto* typed_result = static_cast<NativeType*>(result_data);
@@ -566,7 +566,7 @@ namespace Mila::Dnn::Compute::Cuda
 
             Cuda::setCurrentDevice( device_id );
 
-            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
             const auto* typed_a = static_cast<const NativeType*>(a_data);
             const auto* typed_b = static_cast<const NativeType*>(b_data);
             auto* typed_result = static_cast<NativeType*>(result_data);
@@ -596,7 +596,7 @@ namespace Mila::Dnn::Compute::Cuda
 
             Cuda::setCurrentDevice( device_id );
 
-            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
             const auto* typed_src = static_cast<const NativeType*>(tensor_data);
 
             constexpr int block = 256;

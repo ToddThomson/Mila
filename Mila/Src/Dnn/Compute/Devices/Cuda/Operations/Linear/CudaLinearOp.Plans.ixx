@@ -23,11 +23,11 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
     namespace Detail
     {
-        template <typename TNative>
-        using CublasLtMatMulPlan = Mila::Dnn::Compute::Cuda::CublasLtMatMulPlan<TNative>;
+        template <typename TComputePrecision>
+        using CublasLtMatMulPlan = Mila::Dnn::Compute::Cuda::CublasLtMatMulPlan<TComputePrecision>;
 
-        template <typename TNative>
-        CublasLtMatMulPlan<TNative> build_forward_plan(
+        template <typename TComputePrecision>
+        CublasLtMatMulPlan<TComputePrecision> build_forward_plan(
             cublasLtHandle_t handle,
             int batch_size,
             int in_features,
@@ -37,7 +37,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             cublasComputeType_t compute_type,
             cudaDataType_t scale_type )
         {
-            auto plan = build_plan<TNative>(
+            auto plan = build_plan<TComputePrecision>(
                 handle,
                 batch_size,
                 in_features,
@@ -60,8 +60,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * Computes dX[batch, in] = dY[batch, out] @ weight[out, in]
          * Row-major layout, opA=N, opB=N, batch_count=1.
          */
-        template <typename TNative>
-        CublasLtMatMulPlan<TNative> build_backward_input_plan(
+        template <typename TComputePrecision>
+        CublasLtMatMulPlan<TComputePrecision> build_backward_input_plan(
             cublasLtHandle_t handle,
             int batch_size,
             int in_features,
@@ -70,7 +70,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             cublasComputeType_t compute_type,
             cudaDataType_t scale_type )
         {
-            auto plan = build_strided_plan<TNative>(
+            auto plan = build_strided_plan<TComputePrecision>(
                 handle,
                 /*A_rows=*/ batch_size,   /*A_cols=*/ out_features, /*ldA=*/ out_features, /*strideA=*/ 0LL,
                 /*B_rows=*/ out_features, /*B_cols=*/ in_features,  /*ldB=*/ in_features,  /*strideB=*/ 0LL,
@@ -97,8 +97,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * Row-major layout, opA=T, opB=N, batch_count=1.
          * Note: always built at max batch_size — weight grad accumulates full batch.
          */
-        template <typename TNative>
-        CublasLtMatMulPlan<TNative> build_backward_weight_plan(
+        template <typename TComputePrecision>
+        CublasLtMatMulPlan<TComputePrecision> build_backward_weight_plan(
             cublasLtHandle_t handle,
             int batch_size,
             int in_features,
@@ -107,7 +107,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             cublasComputeType_t compute_type,
             cudaDataType_t scale_type )
         {
-            auto plan = build_strided_plan<TNative>(
+            auto plan = build_strided_plan<TComputePrecision>(
                 handle,
                 /*A_rows=*/ batch_size,   /*A_cols=*/ out_features, /*ldA=*/ out_features, /*strideA=*/ 0LL,
                 /*B_rows=*/ batch_size,   /*B_cols=*/ in_features,  /*ldB=*/ in_features,  /*strideB=*/ 0LL,
@@ -130,32 +130,32 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * @brief Compute bias gradient via reduction sum across batch dimension.
          * dB[out] = sum(dY[batch, out], dim=0)
          */
-        template <typename TNative>
+        template <typename TComputePrecision>
         void compute_bias_gradient(
-            TNative* bias_grad,
-            const TNative* output_grad,
+            TComputePrecision* bias_grad,
+            const TComputePrecision* output_grad,
             int batch_size,
             int out_features,
             cudaStream_t stream )
         {
-            if constexpr ( std::is_same_v<TNative, float> )
+            if constexpr ( std::is_same_v<TComputePrecision, float> )
             {
                 cuda_reduce_sum_batch_fp32( bias_grad, output_grad, batch_size, out_features, stream );
             }
-            else if constexpr ( std::is_same_v<TNative, half> )
+            else if constexpr ( std::is_same_v<TComputePrecision, half> )
             {
                 throw std::logic_error( "Bias gradient for half not yet implemented" );
             }
-            else if constexpr ( std::is_same_v<TNative, nv_bfloat16> )
+            else if constexpr ( std::is_same_v<TComputePrecision, nv_bfloat16> )
             {
                 throw std::logic_error( "Bias gradient for bfloat16 not yet implemented" );
             }
             else
             {
                 static_assert(
-                    std::is_same_v<TNative, float> ||
-                    std::is_same_v<TNative, half> ||
-                    std::is_same_v<TNative, nv_bfloat16>,
+                    std::is_same_v<TComputePrecision, float> ||
+                    std::is_same_v<TComputePrecision, half> ||
+                    std::is_same_v<TComputePrecision, nv_bfloat16>,
                     "compute_bias_gradient only supports float, half, and nv_bfloat16");
             }
         }

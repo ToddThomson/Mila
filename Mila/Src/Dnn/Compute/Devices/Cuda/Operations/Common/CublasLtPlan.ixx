@@ -29,17 +29,17 @@ export namespace Mila::Dnn::Compute::Cuda
     using namespace Mila::Dnn;
 
     /**
- * @brief RAII wrapper owning cuBLASLt descriptors and the selected heuristic algorithm.
- *
- * Owns:
- *  - matmul_desc: operation descriptor (transpose flags, epilogue, bias pointer)
- *  - layoutA, layoutB, layoutC: matrix memory layouts
- *  - preference: algorithm preference used during heuristic search
- *  - algorithm: selected algorithm (present when has_algorithm is true)
- *
- * Non-copyable; move-only.
- */
-    template <typename TNative>
+     * @brief RAII wrapper owning cuBLASLt descriptors and the selected heuristic algorithm.
+     *
+     * Owns:
+     *  - matmul_desc: operation descriptor (transpose flags, epilogue, bias pointer)
+     *  - layoutA, layoutB, layoutC: matrix memory layouts
+     *  - preference: algorithm preference used during heuristic search
+     *  - algorithm: selected algorithm (present when has_algorithm is true)
+     *
+     * Non-copyable; move-only.
+     */
+    template <typename TComputePrecision>
     struct CublasLtMatMulPlan
     {
         cublasLtMatmulDesc_t   matmul_desc{ nullptr };
@@ -170,8 +170,8 @@ export namespace Mila::Dnn::Compute::Cuda
      *
      * @note CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET expects stride in elements, not bytes.
      */
-    template <typename TNative>
-    CublasLtMatMulPlan<TNative> build_strided_plan(
+    template <typename TComputePrecision>
+    CublasLtMatMulPlan<TComputePrecision> build_strided_plan(
         cublasLtHandle_t handle,
         int A_rows, int A_cols, int ldA, long long strideA_elems,
         int B_rows, int B_cols, int ldB, long long strideB_elems,
@@ -184,7 +184,7 @@ export namespace Mila::Dnn::Compute::Cuda
         cudaDataType_t scale_type = CUDA_R_32F,
         cublasLtOrder_t order = CUBLASLT_ORDER_ROW )
     {
-        CublasLtMatMulPlan<TNative> plan;
+        CublasLtMatMulPlan<TComputePrecision> plan;
         plan.has_bias_epilogue = has_bias;
 
         cublasStatus_t status = cublasLtMatmulDescCreate( &plan.matmul_desc, compute_type, scale_type );
@@ -355,16 +355,16 @@ export namespace Mila::Dnn::Compute::Cuda
      *                     algorithm requires scratch memory (workspaceSize > 0 in heuristic result).
      * @param workspaceSize Size of the workspace buffer in bytes.
      */
-    template <typename TNative>
+    template <typename TComputePrecision>
     void execute_plan(
         cublasLtHandle_t handle,
-        const CublasLtMatMulPlan<TNative>& plan,
+        const CublasLtMatMulPlan<TComputePrecision>& plan,
         const void* alpha,
-        const TNative* A,
-        const TNative* B,
+        const TComputePrecision* A,
+        const TComputePrecision* B,
         const void* beta,
-        TNative* C,
-        const TNative* bias,
+        TComputePrecision* C,
+        const TComputePrecision* bias,
         cudaStream_t stream,
         void* workspace = nullptr,
         size_t workspaceSize = 0 )

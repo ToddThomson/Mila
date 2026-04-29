@@ -51,7 +51,7 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief LLaMA inference model.
+     * @brief LLaMA 3 compatible inference model.
      *
      * Owns a loaded, built LlamaTransformer and exposes generateStreaming()
      * for autoregressive text generation. Supports the prefill + KV-cache

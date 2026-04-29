@@ -126,7 +126,7 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
         using MR = CudaDeviceMemoryResource;
         using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
-        using NativeType = typename Cuda::TensorDataTypeMap<TPrecision>::native_type;
+        using NativeType = typename Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
         CudaSoftmaxOp( IExecutionContext* context, const SoftmaxConfig& config )

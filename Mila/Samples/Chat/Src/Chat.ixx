@@ -157,7 +157,7 @@ namespace Mila::ChatApp
                 history_.push_back( { MessageRole::User, user_input } );
 
                 std::string response;
-                response.reserve( 512 );
+                response.reserve( 4096 );
 
                 generateResponse( response, /*stream=*/false );
 

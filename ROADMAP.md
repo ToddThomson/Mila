@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.2-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
+| In Progress | 0.13.3-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
 | Planned | 0.14.0-alpha.6 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.15.0-alpha.7 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
@@ -35,26 +35,25 @@ BF16 baseline token-for-token on identical prompts.
 ### Phase 1 — Compile-Time Operation Dispatch (All Components)
 
 Replace runtime `OperationRegistry` string-keyed lookup with compile-time traits dispatch
-(`XxxOpTraits<TDeviceType, TPrecision>::op_type`) across all components and operations.
+(`XxxOpTypeMap<TDeviceType, TPrecision>::op_type`) across all components and operations.
 `Linear` and its CUDA specialization are already migrated; the remaining components below
-must follow the same pattern. A missing `XxxOpTraits` specialization is a compile error —
+must follow the same pattern. A missing `XxxOpTypeMap` specialization is a compile error —
 no runtime fallback, no string key, no hash map lookup.
 
-- [x] `LinearOpTraits` — define traits header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Linear` component `createOperation()` to traits dispatch
-- [ ] `GeluOpTraits` — define traits header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Gelu` component `createOperation()` to traits dispatch
-- [ ] `ResidualOpTraits` — define traits header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Residual` component `createOperation()` to traits dispatch
-- [ ] `LayerNormOpTraits` — define traits header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `LayerNorm` component `createOperation()` to traits dispatch
-- [ ] `RmsNormOpTraits` — define traits header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `RmsNorm` component `createOperation()` to traits dispatch
-- [ ] `SoftmaxOpTraits` — define traits header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Softmax` component `createOperation()` to traits dispatch
-- [ ] `SwigluOpTraits` — define traits header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Swiglu` component `createOperation()` to traits dispatch
-- [ ] `MultiHeadAttentionOpTraits` — define traits header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `MultiHeadAttention` component `createOperation()` to traits dispatch
-- [ ] `GroupedQueryAttentionOpTraits` — define traits header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `GroupedQueryAttention` component `createOperation()` to traits dispatch
-- [ ] `RopeOpTraits` — define traits header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Rope` component `createOperation()` to traits dispatch
-- [ ] `LpeOpTraits` — define traits header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Lpe` component `createOperation()` to traits dispatch
-- [ ] `TokenEmbeddingOpTraits` — define traits header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `TokenEmbedding` component `createOperation()` to traits dispatch
-- [ ] `SoftmaxCrossEntropyOpTraits` — define traits header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `SoftmaxCrossEntropy` component `createOperation()` to traits dispatch
+- [x] `LinearOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Linear` component `createOperation()` to TypeMap dispatch
+- [ ] `GeluOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Gelu` component `createOperation()` to TypeMap dispatch
+- [ ] `ResidualOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Residual` component `createOperation()` to TypeMap dispatch
+- [ ] `LayerNormOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `LayerNorm` component `createOperation()` to TypeMap dispatch
+- [ ] `RmsNormOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `RmsNorm` component `createOperation()` to TypeMap dispatch
+- [ ] `SoftmaxOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Softmax` component `createOperation()` to TypeMap dispatch
+- [ ] `SwigluOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Swiglu` component `createOperation()` to TypeMap dispatch
+- [ ] `MultiHeadAttentionOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `MultiHeadAttention` component `createOperation()` to TypeMap dispatch
+- [ ] `GroupedQueryAttentionOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `GroupedQueryAttention` component `createOperation()` to TypeMap dispatch
+- [ ] `RopeOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Rope` component `createOperation()` to TypeMap dispatch
+- [ ] `LpeOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Lpe` component `createOperation()` to TypeMap dispatch
+- [ ] `TokenEmbeddingOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `TokenEmbedding` component `createOperation()` to TypeMap dispatch
+- [ ] `SoftmaxCrossEntropyOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `SoftmaxCrossEntropy` component `createOperation()` to TypeMap dispatch
 - [ ] Remove `OperationRegistry`, `OperationRegistryHelpers`, and all associated registration macros once all components are migrated
-
 
 ### Phase 2 — FP8 Quantization Infrastructure
 

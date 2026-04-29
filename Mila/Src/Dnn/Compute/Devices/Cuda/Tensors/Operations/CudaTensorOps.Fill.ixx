@@ -144,7 +144,7 @@ namespace Mila::Dnn::Compute::Cuda
             
             void* raw_dst = static_cast<ITensor&>(tensor).rawData();
 
-            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
 
             if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type) {
                 Cuda::launch_array_fill_typed<NativeType, int32_t>(
@@ -234,7 +234,7 @@ namespace Mila::Dnn::Compute::Cuda
             // Access raw data through TensorOps helper (which has friend access)
             void* raw_dst = static_cast<ITensor&>(tensor).rawData();
 
-            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
 
             if constexpr ( TensorDataTypeTraits<TDataType>::is_integer_type ) {
                 Cuda::launch_constant_fill_typed<NativeType, int32_t>(

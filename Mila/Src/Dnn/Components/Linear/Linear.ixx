@@ -37,7 +37,6 @@ import Compute.DeviceTypeTraits;
 import Compute.ExecutionContextFactory;
 import Compute.IExecutionContext;
 import Compute.LinearOpTypeMap;
-//import Compute.LinearOpTraitsBase;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
@@ -61,12 +60,17 @@ namespace Mila::Dnn
      * @brief Device-templated fully connected (linear) component.
      *
      * Delegates compute to a device-specific operation resolved at compile time via
-     * LinearOpTraits<TDeviceType, TPrecision, TWeight>. TWeight defaults to TPrecision
-     * for standard (non-quantized) paths and is varied for quantized weight storage.
+     * LinearOpTypeMap<TDeviceType, TPrecision, TWeight>. TWeight defaults to TPrecision
+     * for standard paths. When TWeight differs from TPrecision, weights are stored in
+     * the reduced precision format and quantized from the source blob dtype on load.
+     *
+     * Quantization is performed once at load time (quantize-on-load). The backend
+     * operation receives the quantized weight tensor directly and is responsible for
+     * any dequantization required during the GEMM.
      *
      * @tparam TDeviceType  Target device.
-     * @tparam TPrecision   Activation and compute/accumulation precision.
-     * @tparam TWeight      Weight storage type. Defaults to TPrecision.
+     * @tparam TPrecision   Activation and accumulation precision.
+     * @tparam TWeight      Weight storage precision. Defaults to TPrecision.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision, TensorDataType TWeight = TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -76,7 +80,10 @@ namespace Mila::Dnn
         using ComponentBase = Component<TDeviceType, TPrecision>;
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TPrecision, MR>;
+        using WeightTensorType = Tensor<TWeight, MR>;
         using OperationType = typename Compute::LinearOpTypeMap<TDeviceType, TPrecision, TWeight>::op_type;
+
+        static constexpr bool kIsQuantized = (TWeight != TPrecision);
 
         /**
          * @brief Construct a Linear component.
@@ -140,6 +147,7 @@ namespace Mila::Dnn
             auto input_shape = input.shape();
 
             TensorType* result = nullptr;
+
             if ( input_shape == leading_shape_ )
             {
                 result = output_.get();
@@ -333,6 +341,7 @@ namespace Mila::Dnn
             oss << ", Output features: " << config_.getOutputFeatures() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Has Bias: " << (config_.hasBias() ? "Yes" : "No") << std::endl;
+            oss << "Weight dtype: " << tensorDataTypeToString( TWeight ) << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
 
             return oss.str();
@@ -382,14 +391,34 @@ namespace Mila::Dnn
             return grads;
         }
 
-        void loadParameter(
-            const std::string& name,
-            const ITensorBlob& blob ) override
+        /**
+         * @brief Load a named parameter from a serialized blob.
+         *
+         * For the weight parameter, when TWeight == TPrecision the blob is copied
+         * directly via loadParameterFromBlob. When TWeight != TPrecision (quantized
+         * path) the blob dtype must be TPrecision (the source float type) and the
+         * values are cast element-wise into the TWeight storage tensor via
+         * quantizeFromBlob. Bias is always stored at TPrecision.
+         *
+         * @param name Parameter name: "weight" or "bias".
+         * @param blob Serialized tensor blob from PretrainedModelReader.
+         *
+         * @throws std::invalid_argument on dtype or shape mismatch.
+         */
+        void loadParameter( const std::string& name, const ITensorBlob& blob ) override
         {
             if ( name == "weight" )
             {
                 const shape_t expected_shape{ config_.getOutputFeatures(), config_.getInputFeatures() };
-                this->loadParameterFromBlob( "weight", blob, *weight_, expected_shape );
+
+                if constexpr ( kIsQuantized )
+                {
+                    this->quantizeFromBlob( "weight", blob, *weight_, expected_shape );
+                }
+                else
+                {
+                    this->loadParameterFromBlob( "weight", blob, *weight_, expected_shape );
+                }
             }
             else if ( name == "bias" )
             {
@@ -415,22 +444,27 @@ namespace Mila::Dnn
             {
                 stats.device_parameter_bytes += weight_->getStorageSize();
             }
+
             if ( bias_ != nullptr )
             {
                 stats.device_parameter_bytes += bias_->getStorageSize();
             }
+
             if ( output_ != nullptr )
             {
                 stats.device_state_bytes += output_->getStorageSize();
             }
+
             if ( input_grad_ != nullptr )
             {
                 stats.device_gradient_bytes += input_grad_->getStorageSize();
             }
+
             if ( weight_grad_ != nullptr )
             {
                 stats.device_gradient_bytes += weight_grad_->getStorageSize();
             }
+
             if ( bias_grad_ != nullptr )
             {
                 stats.device_gradient_bytes += bias_grad_->getStorageSize();
@@ -502,11 +536,6 @@ namespace Mila::Dnn
 
     private:
 
-        // Concrete op type resolved at compile time — no registry, no virtual dispatch.
-        //using OpType = typename LinearOpTraits<TDeviceType, TPrecision, TWeight>::type;
-        //static_assert( LinearOpConcept<OpType, TensorType>,
-        //    "OpType resolved by LinearOpTraits does not satisfy LinearOpConcept." );
-
         LinearConfig config_;
         shape_t leading_shape_;
 
@@ -514,7 +543,10 @@ namespace Mila::Dnn
 
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
-        std::shared_ptr<TensorType> weight_{ nullptr };
+        // Weight storage is TWeight — differs from TPrecision on quantized paths.
+        std::shared_ptr<WeightTensorType> weight_{ nullptr };
+
+        // Bias always stored at activation precision.
         std::shared_ptr<TensorType> bias_{ nullptr };
 
         std::shared_ptr<TensorType> weight_grad_{ nullptr };
@@ -554,8 +586,7 @@ namespace Mila::Dnn
             {
                 throw std::invalid_argument(
                     std::format( "Linear: input feature dimension mismatch. Expected {}, got {}",
-                        config_.getInputFeatures(), input_shape.back() )
-                );
+                        config_.getInputFeatures(), input_shape.back() ) );
             }
         }
 
@@ -584,16 +615,18 @@ namespace Mila::Dnn
             int64_t output_features = config_.getOutputFeatures();
             auto device = this->getExecutionContext()->getDeviceId();
 
-            weight_ = std::make_shared<TensorType>( device, shape_t{ output_features, input_features }, this->getName() + ".weight" );
+            weight_ = std::make_shared<WeightTensorType>(
+                device, shape_t{ output_features, input_features }, this->getName() + ".weight" );
 
             if ( context.shouldInitializeParameters() )
             {
-                // FIXME: xavier<TPrecision, MR>( *weight_, input_features, output_features );
+                // FIXME: xavier<TWeight, MR>( *weight_, input_features, output_features );
             }
 
             if ( config_.hasBias() )
             {
-                bias_ = std::make_shared<TensorType>( device, shape_t{ output_features }, this->getName() + ".bias" );
+                bias_ = std::make_shared<TensorType>(
+                    device, shape_t{ output_features }, this->getName() + ".bias" );
 
                 if ( context.shouldInitializeParameters() )
                 {
@@ -605,7 +638,7 @@ namespace Mila::Dnn
         /**
          * @brief Instantiate the backend compute operation via compile-time traits dispatch.
          *
-         * OpType is resolved by LinearOpTraits at instantiation time — no registry lookup,
+         * OpType is resolved by LinearOpTypeMap at instantiation time — no registry lookup,
          * no string key, no runtime hash map. A missing specialization is a compile error.
          */
         void createOperation()

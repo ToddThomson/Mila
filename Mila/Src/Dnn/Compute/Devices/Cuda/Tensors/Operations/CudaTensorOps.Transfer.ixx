@@ -333,6 +333,74 @@ namespace Mila::Dnn::Compute::Cuda
             return;
         }
 
+        /**
+ * @brief Copy a blob into a CUDA device tensor with element-wise type conversion.
+ *
+ * Blob carries TSrcDataType host elements. The converting H2D transfer stages
+ * the source into a temporary device buffer then runs launch_convert_copy_kernel
+ * to cast each element to TDstDataType in-place, avoiding a second pass.
+ *
+ * @tparam TSrcDataType  Blob element dtype (e.g. BF16).
+ * @tparam TDstDataType  Destination tensor dtype (e.g. FP8_E4M3).
+ * @tparam TDstMemoryResource Destination memory resource (CUDA device memory).
+ */
+        template<TensorDataType TSrcDataType,
+            TensorDataType TDstDataType, typename TDstMemoryResource>
+            requires isValidTensor<TDstDataType, TDstMemoryResource>
+        static void copyFromBlobWithConversion(
+            const Serialization::ITensorBlob& blob,
+            Tensor<TDstDataType, TDstMemoryResource>& dst,
+            IExecutionContext* exec_context = nullptr )
+        {
+            if ( blob.getMetadata().shape != dst.shape() )
+            {
+                throw std::invalid_argument( "Blob and destination tensor shapes must match" );
+            }
+
+            const void* src_data = blob.data();
+            void* dst_data = static_cast<ITensor&>(dst).rawData();
+
+            if ( !src_data || !dst_data )
+            {
+                throw std::runtime_error( "Invalid data pointers for copyFromBlobWithConversion" );
+            }
+
+            cudaStream_t stream = nullptr;
+            int device_id = dst.getDeviceId().index;
+            bool needs_sync = false;
+
+            if ( exec_context )
+            {
+                auto* cuda_context = cast_context_<DeviceType::Cuda>( exec_context );
+                stream = cuda_context->getStream();
+                device_id = cuda_context->getDeviceId().index;
+            }
+            else
+            {
+                needs_sync = true;
+            }
+
+            if ( device_id < 0 )
+            {
+                throw std::runtime_error( "Invalid CUDA device id for quantize-on-load transfer" );
+            }
+
+            if constexpr ( TSrcDataType == TDstDataType )
+            {
+                copyHostToDevice<TDstDataType>( src_data, dst_data, dst.size(), stream, device_id );
+            }
+            else
+            {
+                copyHostToDeviceWithConversion<TSrcDataType, TDstDataType>(
+                    src_data, dst_data, dst.size(), stream, device_id );
+            }
+
+            if ( needs_sync )
+            {
+                cudaStreamSynchronize( stream );
+            }
+        }
+
     private:
         
         // ================================================================
@@ -381,7 +449,7 @@ namespace Mila::Dnn::Compute::Cuda
 
             // FIXME: Cuda::setCurrentDevice( device_id );
 
-            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
 
             const auto* typed_src = static_cast<const NativeType*>(src_data);
             auto* typed_dst = static_cast<NativeType*>(dst_data);
@@ -487,8 +555,8 @@ namespace Mila::Dnn::Compute::Cuda
 
             // FIXME: Cuda::setCurrentDevice( device_id );
 
-            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::native_type;
-            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::native_type;
+            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::device_type;
+            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::device_type;
 
             const auto* typed_src = static_cast<const SrcType*>(src_data);
             auto* typed_dst = static_cast<DstType*>(dst_data);
@@ -522,8 +590,8 @@ namespace Mila::Dnn::Compute::Cuda
                 return;
             }
 
-            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::native_type;
-            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::native_type;
+            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::device_type;
+            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::device_type;
 
             constexpr size_t src_element_size = TensorDataTypeTraits<TSrcDataType>::size_in_bytes;
             const size_t src_bytes = count * src_element_size;
@@ -588,8 +656,8 @@ namespace Mila::Dnn::Compute::Cuda
                 return;
             }
 
-            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::native_type;
-            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::native_type;
+            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::device_type;
+            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::device_type;
 
             constexpr size_t dst_element_size = TensorDataTypeTraits<TDstDataType>::size_in_bytes;
             const size_t dst_bytes = count * dst_element_size;
@@ -649,8 +717,8 @@ namespace Mila::Dnn::Compute::Cuda
                 return;
             }
 
-            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::native_type;
-            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::native_type;
+            using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::device_type;
+            using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::device_type;
 
             const auto* typed_src = static_cast<const SrcType*>(src_data);
             auto* typed_dst = static_cast<DstType*>(dst_data);

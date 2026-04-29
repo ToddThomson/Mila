@@ -789,6 +789,59 @@ namespace Mila::Dnn
             copyFromBlob( blob, target );
         }
 
+        /**
+         * @brief Load and quantize a blob into a reduced-precision weight tensor.
+         *
+         * Used by Linear (and any future quantized component) when TWeight != TPrecision.
+         * Validates that the blob carries source-precision data matching TSrcPrecision,
+         * validates the expected shape, then dispatches a converting copy that casts
+         * each element from TSrcPrecision to TDstPrecision on the target device.
+         *
+         * For the BF16 -> FP8_E4M3 path this is an absmax-free element-wise cast:
+         * CUDA's convert_copy kernel handles the narrowing on-device via
+         * copyHostToDeviceWithConversion.
+         *
+         * @tparam TSrcPrecision  Blob (source) dtype — must match the checkpoint dtype.
+         * @tparam TDstPrecision  Weight storage dtype — the quantized target type.
+         * @tparam TMemoryResource Memory resource of the destination tensor.
+         *
+         * @param param_name     Parameter name used in error messages.
+         * @param blob           Source tensor blob from PretrainedModelReader.
+         * @param target         Pre-allocated destination weight tensor.
+         * @param expected_shape Expected logical shape (validated against blob).
+         *
+         * @throws std::invalid_argument if blob dtype != TSrcPrecision.
+         * @throws std::invalid_argument if blob shape != expected_shape.
+         */
+        template<TensorDataType TSrcPrecision, TensorDataType TDstPrecision, typename TMemoryResource>
+        void quantizeFromBlob(
+            const std::string& param_name,
+            const Serialization::ITensorBlob& blob,
+            Tensor<TDstPrecision, TMemoryResource>& target,
+            const shape_t& expected_shape )
+        {
+            if ( blob.getMetadata().dtype != TSrcPrecision )
+            {
+                throw std::invalid_argument(
+                    std::format( "Parameter '{}' dtype mismatch. Expected source dtype {}, got {}",
+                        param_name,
+                        tensorDataTypeToString( TSrcPrecision ),
+                        tensorDataTypeToString( blob.getMetadata().dtype ) ) );
+            }
+
+            if ( blob.getMetadata().shape != expected_shape )
+            {
+                throw std::invalid_argument(
+                    std::format( "Component '{}' parameter '{}' shape mismatch. Expected {}, got {}",
+                        getName(),
+                        param_name,
+                        shapeToString( expected_shape ),
+                        shapeToString( blob.getMetadata().shape ) ) );
+            }
+
+            copyFromBlobWithConversion<TSrcPrecision>( blob, target );
+        }
+
     private:
 
         std::string name_;

@@ -105,7 +105,7 @@ namespace Mila::Dnn::Compute::Cuda
             Dnn::Tensor<TDataType, TMemoryResource>& out2,
             IExecutionContext* exec_context = nullptr )
         {
-            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
 
             const auto& in_shape = input.shape();
             const auto& s0 = out0.shape();

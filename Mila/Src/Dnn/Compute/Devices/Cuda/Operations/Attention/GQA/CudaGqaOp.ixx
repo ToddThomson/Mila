@@ -121,7 +121,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         using MR = CudaDeviceMemoryResource;
         using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
-        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
+        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
         using ConfigType = GroupedQueryAttentionConfig;
 
@@ -198,7 +198,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 NH_, HS_,
                 position_offset, T_,
                 stream );
-            context_->synchronize();
+            //context_->synchronize();
 
             // KvCache write K and V: [B, chunk_len, NKV*HS] → [B, NKV, T_max, HS]
             // Writes into KV cache at rows [start_pos .. start_pos + chunk_len)
@@ -209,7 +209,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 NKV_, HS_,
                 position_offset, T_,
                 stream );
-            context_->synchronize();
+            //context_->synchronize();
 
             // Expand the full KV cache history [0 .. position_offset+chunk_len) so that
             // chunk 1+ tokens can attend to all previously cached keys, not just their own chunk.
@@ -229,7 +229,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 B_, chunk_len, T_, NH_, NKV_, HS_,
                 position_offset,
                 stream );*/
-            context_->synchronize();
+            //context_->synchronize();
 
             // The full-chunk plan is pre-built at build() time. Partial chunk plans are
             // built lazily on first use and cached — each writes tight-packed output with
@@ -270,7 +270,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
 
-            context_->synchronize();
+            //context_->synchronize();
 
             // ----------------------------------------------------------------
             /*if ( !is_full_chunk )
@@ -295,7 +295,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 B_, NH_, T_, kPrefillChunkSize, chunk_len, position_offset,
                 stream );
 
-            context_->synchronize();
+            //context_->synchronize();
 
             // 5. v_out = att @ v_exp  [B,NH,chunk,HS]
             execute_plan<NativeType>(
@@ -306,7 +306,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
             
-            context_->synchronize();
+            //context_->synchronize();
 
             // Unpack v_out [B, NQH, padded_T, HS] → Y [B, actual_T, NQH*HS]
             const int padded_T = is_full_chunk ? static_cast<int>(kPrefillChunkSize): chunk_len;
@@ -321,7 +321,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 HS_,       // head size
                 stream );
 
-            context_->synchronize();
+            //context_->synchronize();
 
             // Update the cached sequence length if we've filled beyond the prior cache boundary.
             cached_seq_len_ = position_offset + chunk_len;
@@ -358,7 +358,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 NH_, HS_,
                 position, T_,
                 stream );
-            context_->synchronize();
+            //context_->synchronize();
 
             // Permute K, V into cache at position.
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
@@ -368,7 +368,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 NKV_, HS_,
                 position, T_,
                 stream );
-            context_->synchronize();
+            //context_->synchronize();
 
             /*if ( debug )
             {
@@ -383,7 +383,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 B_, actual_len, T_, NH_, NKV_, HS_,
                 0,
                 stream );
-            context_->synchronize();
+            //context_->synchronize();
 
  /*           if ( debug )
             {
@@ -401,7 +401,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 stream,
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
-            context_->synchronize();
+            //context_->synchronize();
 
             //if ( debug )
             //    print_stats( "decode.preatt", preatt_decode_, { 1, 1, 1, actual_len }, 8, stream );
@@ -411,7 +411,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 att_decode_, 1.0f, preatt_decode_,
                 B_, NH_, T_, actual_len,
                 stream );
-            context_->synchronize();
+            //context_->synchronize();
             //if ( debug )
             //    print_stats( "decode.att", att_decode_, { 1, 1, 1, actual_len }, 8, stream );
 
@@ -423,7 +423,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 stream,
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
-            context_->synchronize();
+            //context_->synchronize();
             //if ( debug )
             //    print_stats( "decode.v_out", v_out_decode_, { 1, 1, 1, HS_ }, 8, stream );
 
@@ -432,7 +432,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 v_out_decode_, Y,
                 B_, 1, NH_, HS_,
                 stream );
-            context_->synchronize();
+            //context_->synchronize();
             //if ( debug )
             //    print_stats( "decode.Y", Y, { 1, 1, NH_ * HS_ }, 8, stream );
 
