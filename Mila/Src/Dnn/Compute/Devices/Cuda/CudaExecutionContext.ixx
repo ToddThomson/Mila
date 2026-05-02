@@ -368,8 +368,7 @@ namespace Mila::Dnn::Compute
             if ( error != cudaSuccess )
             {
                 throw std::runtime_error(
-                    std::format( "Failed to create CUDA stream: {}",
-                                cudaGetErrorString( error ) )
+                    std::format( "Failed to create CUDA stream: {}", cudaGetErrorString( error ) )
                 );
             }
 

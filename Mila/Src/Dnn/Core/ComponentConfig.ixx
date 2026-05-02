@@ -114,8 +114,10 @@ namespace Mila::Dnn
 
     protected:
 
-        // REVIEW: Should we deprecate the default precision policy?
-        // It is not currently used and is an old development concept.
+        // REVIEW: DEPRECATED: The precision policy has been moved to the model config
+        // and is now injected into BuildContext at build time.
+
+        // TODO: Remove this field and the withPrecisionPolicy() method once all components consume the policy from BuildContext instead of their own config.
 
         /** @brief Precision policy used for computation. */
         ComputePrecision::Policy precision_ = ComputePrecision::Policy::Auto;

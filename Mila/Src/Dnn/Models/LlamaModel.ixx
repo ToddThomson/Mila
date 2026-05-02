@@ -27,6 +27,7 @@ module;
 
 export module Dnn.Models.LlamaModel;
 
+import Dnn.Models.LlamaModelConfig;
 import Dnn.LanguageModel;
 import Dnn.Tensor;
 import Dnn.ITensor;
@@ -85,22 +86,31 @@ namespace Mila::Dnn
          *
          * Reads a Mila-compatible pretrained artifact (e.g. converted from a
          * HuggingFace LLaMA checkpoint) via PretrainedModelReader. The network
-         * is built at max sequence length so RoPE embeddings cover the full range.
+         * is built at the context length specified in model_config so RoPE
+         * embeddings and KV cache buffers cover the full range.
          *
-         * @param path           Path to the pretrained artifact.
-         * @param context_length Maximum sequence length to build for.
-         * @param device_id      Target device; must match TDeviceType.
-         * @param strict         If true, throws on any unrecognized parameter name.
-         * @return               Inference-ready LlamaModel.
+         * The model_config carries all deployment decisions:
+         *   - context_length     — maximum sequence length to build for
+         *   - precision_policy   — cuBLASLt algorithm selection heuristic
+         *   - quantization       — weight storage dtype (none, fp8, fp4)
          *
-         * @throws std::invalid_argument on device type mismatch.
+         * precision_policy and quantization are extracted and injected into
+         * BuildContext as raw values, keeping BuildContext free of any
+         * model-layer dependency.
+         *
+         * @param path          Path to the pretrained Llama model artifact.
+         * @param model_config  Deployment configuration for this load.
+         * @param device_id     Target device; must match TDeviceType.
+         * @return              Inference-ready LlamaModel.
+         *
+         * @throws std::invalid_argument on device type mismatch or zero context length.
          * @throws std::runtime_error    on load or parameter binding failure.
+         * @throws std::runtime_error    if model_config requests unsupported quantization (e.g. FP4).
          */
         static std::unique_ptr<LlamaModel> fromPretrained(
             const std::filesystem::path& path,
-            dim_t context_length,
-            DeviceId device_id = DeviceId{ TDeviceType, 0 },
-            bool strict = true )
+            const LlamaModelConfig& model_config,
+            DeviceId device_id = DeviceId{ TDeviceType, 0 } )
         {
             if ( device_id.type != TDeviceType )
             {
@@ -110,25 +120,57 @@ namespace Mila::Dnn
                     deviceTypeToString( device_id.type ) ) );
             }
 
+            // REVIEW: model context length is now coming from the LlamaModelConfig.
+            // This is a deployment decision, not an architectural one, so it belongs
+            if ( model_config.getContextLength() == 0 )
+            {
+                throw std::invalid_argument(
+                    "LlamaModel::fromPretrained: context_length must be greater than zero" );
+            }
+
+            // Validate quantization policy before doing any expensive work.
+            model_config.getQuantization().assertSupported();
+
             PretrainedModelReader reader( path );
             const auto& metadata = reader.getPretrainedMetadata();
 
-            LlamaConfig config = configFromMetadata( metadata );
+            LlamaConfig network_config = configFromMetadata( metadata );
 
-            auto network = std::make_unique<LlamaTransformerType>( metadata.model_name, config, device_id );
+            // Validate that the requested context length does not exceed the
+            // architectural ceiling established during pretraining.
+            if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
+            {
+                throw std::invalid_argument( std::format(
+                    "LlamaModel::fromPretrained: context_length {} exceeds "
+                    "trained max_seq_len {}",
+                    model_config.getContextLength(),
+                    network_config.getMaxSequenceLength() ) );
+            }
 
-            BuildContext build_context( shape_t{ 1, context_length }, RuntimeMode::Inference, 0, false );
+            auto network = std::make_unique<LlamaTransformerType>( metadata.model_name, network_config, device_id );
+
+            // Extract deployment policy from model_config as raw values —
+            // BuildContext has no dependency on the model layer.
+            auto precision_policy = model_config.getPrecisionPolicy();
+            auto quantization = model_config.getQuantization();
+            auto context_length = model_config.getContextLength();
+
+            BuildContext build_context(
+                shape_t{ 1, context_length },
+                RuntimeMode::Inference,
+                false,
+                precision_policy,
+                quantization );
 
             network->build( build_context );
 
-            auto stats = network->getMemoryStats();
-            std::cout << "\n--- Memory after build() ---\n";
-            std::cout << stats.toString() << std::endl;
+            // Verbose logging of the loaded model's architecture and memory stats after build().
+            std::cout << network->toString() << std::endl;
 
-            network->loadParameters( reader, strict );
+            network->loadParameters( reader );
 
             return std::unique_ptr<LlamaModel>(
-                new LlamaModel( std::move( network ), config, RuntimeMode::Inference ) );
+                new LlamaModel( std::move( network ), network_config, RuntimeMode::Inference ) );
         }
 
         // ====================================================================

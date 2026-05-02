@@ -90,9 +90,26 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
+        /**
+         * @brief Sets the trained maximum sequence length for this model.
+         *
+         * @details This value is sourced from the pretrained model metadata
+         * ( `max_position_embeddings` in HuggingFace configs ) and represents
+         * the architectural ceiling on context length — the furthest position
+         * for which RoPE embeddings were trained.
+         *
+         * This is not a deployment parameter. The runtime context length is a
+         * deployment decision carried by BuildContext, and must not exceed this
+         * value. LlamaModel::fromPretrained() enforces that invariant.
+         *
+         * @tparam Self  Deduced type of the builder ( supports both lvalue and rvalue chains ).
+         * @param max_seq_len  The trained maximum sequence length. Must be > 0.
+         * @throws std::invalid_argument if @p max_seq_len is zero or negative.
+         */
         template <typename Self>
         decltype(auto) withMaxSequenceLength( this Self&& self, dim_t max_seq_len )
         {
+            // REVIEW: RENAME: withTrainedMaxSequenceLength? to clarify this is not a deployment parameter.
             if ( max_seq_len <= 0 )
             {
                 throw std::invalid_argument( "LlamaConfig: max_seq_len must be > 0" );
@@ -320,6 +337,7 @@ namespace Mila::Dnn
         }
 
     private:
+        
         dim_t vocab_size_ = 128256;        // Llama 3/3.1 default (was 32000 for Llama 2)
         dim_t embedding_dim_ = 4096;       // Llama 3 8B default
         dim_t num_layers_ = 32;            // Llama 3 8B default
@@ -333,4 +351,3 @@ namespace Mila::Dnn
         bool use_bias_ = false;
     };
 }
-

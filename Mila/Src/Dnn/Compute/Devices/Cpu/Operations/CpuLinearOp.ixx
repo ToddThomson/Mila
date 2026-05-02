@@ -360,6 +360,7 @@ namespace Mila::Dnn::Compute
         }
 
     private:
+        
         static constexpr int LOOP_UNROLL = 8;
 
         LinearConfig config_;

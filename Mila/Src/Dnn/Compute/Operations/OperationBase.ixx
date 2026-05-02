@@ -18,13 +18,13 @@ import Compute.OperationType;
 
 namespace Mila::Dnn::Compute
 {
-    export template <DeviceType TDeviceType, TensorDataType TPrecision>
+    export template <DeviceType TDeviceType, TensorDataType TComputePrecision>
     class Operation
     {
     public:
         static constexpr DeviceType device_type = TDeviceType;
-        static constexpr TensorDataType data_type = TPrecision;
-        using DataTypeTraits = TensorDataTypeTraits<TPrecision>;
+        static constexpr TensorDataType data_type = TComputePrecision;
+        using DataTypeTraits = TensorDataTypeTraits<TComputePrecision>;
 
         virtual ~Operation() = default;
 
@@ -129,7 +129,20 @@ namespace Mila::Dnn::Compute
          */
         virtual TensorDataType getDataType() const
         {
-            return TPrecision;
+            return TComputePrecision;
+        }
+
+        /**
+         * @brief Returns the number of bytes of state memory allocated by this operation.
+         *
+         * State memory includes build-time buffers such as caches and scratch allocations.
+         * Parameters and gradients are owned at the component level and are not included.
+         *
+         * Override in derived operations that allocate device or host state during build().
+         */
+        virtual std::size_t getStateMemorySize() const
+        {
+            return 0;
         }
 
         /**

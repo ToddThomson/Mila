@@ -274,7 +274,7 @@ PUBLIC
         "Src/Dnn/Compute/IExecutionContext.ixx"
         "Src/Dnn/Compute/ExecutionContextFactory.ixx"
 
-        "Src/Dnn/Compute/ComputeDeviceTraits.ixx"
+        
         "Src/Dnn/Compute/DeviceTypeTraits.ixx"
         "Src/Dnn/Compute/ComputePrecision.ixx"
 
@@ -473,7 +473,7 @@ PUBLIC
         #"Src/Profiling/NvtxRange.ixx"
         "Src/Dnn/Compute/Operations/LinearOpTypeMap.Template.ixx"
         "Src/Dnn/Compute/Operations/LinearOpTypeMap.ixx"
-         "Src/Dnn/Core/ModelQuantizationConfig.ixx" "Src/Dnn/Core/ModelConfig.ixx")
+         "Src/Dnn/Core/ModelQuantizationConfig.ixx" "Src/Dnn/Core/ModelConfig.ixx" "Src/Dnn/Models/LlamaModelConfig.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

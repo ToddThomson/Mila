@@ -72,18 +72,18 @@ namespace Mila::Dnn
      * @tparam TPrecision   Activation and accumulation precision.
      * @tparam TWeight      Weight storage precision. Defaults to TPrecision.
      */
-    export template<DeviceType TDeviceType, TensorDataType TPrecision, TensorDataType TWeight = TPrecision>
-        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class Linear : public Component<TDeviceType, TPrecision>
+    export template<DeviceType TDeviceType, TensorDataType TComputePrecision, TensorDataType TWeight = TComputePrecision>
+        requires PrecisionSupportedOnDevice<TComputePrecision, TDeviceType>
+    class Linear : public Component<TDeviceType, TComputePrecision>
     {
     public:
-        using ComponentBase = Component<TDeviceType, TPrecision>;
+        using ComponentBase = Component<TDeviceType, TComputePrecision>;
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-        using TensorType = Tensor<TPrecision, MR>;
+        using TensorType = Tensor<TComputePrecision, MR>;
         using WeightTensorType = Tensor<TWeight, MR>;
-        using OperationType = typename Compute::LinearOpTypeMap<TDeviceType, TPrecision, TWeight>::op_type;
+        using OperationType = typename Compute::LinearOpTypeMap<TDeviceType, TComputePrecision, TWeight>::op_type;
 
-        static constexpr bool kIsQuantized = (TWeight != TPrecision);
+        static constexpr bool kIsQuantized = (TWeight != TComputePrecision);
 
         /**
          * @brief Construct a Linear component.
@@ -543,8 +543,10 @@ namespace Mila::Dnn
 
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
-        // Weight storage is TWeight — differs from TPrecision on quantized paths.
+        // Weight storage is TWeight — differs from TComputePrecision on quantized paths.
         std::shared_ptr<WeightTensorType> weight_{ nullptr };
+        // TODO: std::unique_ptr<WeightScaleTensorType> weight_scales_{ nullptr };
+
 
         // Bias always stored at activation precision.
         std::shared_ptr<TensorType> bias_{ nullptr };

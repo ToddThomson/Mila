@@ -433,23 +433,26 @@ namespace Mila::ChatApp
                     break;
 
                 case ModelType::Llama:
+                {
+                    LlamaModelConfig llama_config = LlamaModelConfig( config_.context_length );
+
                     if ( config_.precision == ModelPrecision::BF16 )
                     {
                         model_ = LlamaModelBF16Type::fromPretrained(
                             config_.model_path,
-                            config_.context_length,
-                            device,
-                            /*strict=*/true );
+                            llama_config,
+                            device );
                     }
                     else
                     {
                         model_ = LlamaModelFP32Type::fromPretrained(
                             config_.model_path,
-                            config_.context_length,
-                            device,
-                            /*strict=*/true );
+                            llama_config,
+                            device );
                     }
+                    
                     break;
+                }
             }
 
             std::visit(

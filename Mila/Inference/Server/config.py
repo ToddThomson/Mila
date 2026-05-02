@@ -1,5 +1,12 @@
+from enum import Enum
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
+
+
+class ProtocolMode(str, Enum):
+    mila = "mila"
+    openai = "openai"
+    anthropic = "anthropic"
 
 
 class Settings(BaseSettings):
@@ -27,6 +34,9 @@ class Settings(BaseSettings):
     host: str = Field("0.0.0.0")
     port: int = Field(8000)
     log_level: str = Field("info")
+
+    # Protocol
+    protocol: ProtocolMode = Field(ProtocolMode.openai, description="API protocol to expose.")
 
 
 settings = Settings()

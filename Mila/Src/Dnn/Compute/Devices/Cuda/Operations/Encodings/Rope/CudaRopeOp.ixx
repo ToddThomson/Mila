@@ -14,6 +14,7 @@ module;
 #include <cstdint>
 #include <format>
 #include <sstream>
+#include <iostream>
 
 export module Compute.CudaRopeOp;
 import :Dispatch;
@@ -78,15 +79,15 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      *
      * @tparam TPrecision Precision of Q/K tensors (FP32 or FP16).
      */
-    export template<TensorDataType TPrecision>
-        requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaRopeOp : public PairedOperation<DeviceType::Cuda, TPrecision>, public IPositionalPairedOp
+    export template<TensorDataType TComputePrecision>
+        requires PrecisionSupportedOnDevice<TComputePrecision, DeviceType::Cuda>
+    class CudaRopeOp : public PairedOperation<DeviceType::Cuda, TComputePrecision>, public IPositionalPairedOp
     {
     public:
 
         using MR = CudaDeviceMemoryResource;
-        using TensorType = Tensor<TPrecision, MR>;
-        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
+        using TensorType = Tensor<TComputePrecision, MR>;
+        using ComputeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TComputePrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
         using ConfigType = RopeConfig;
         using CacheKey = RopeCacheRegistry::CacheKey;
@@ -164,20 +165,21 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             // NOTE: Cache data type is always float32 regardless of input precision to
             // preserve accuracy of the trigonometric computations.
 
-            const std::size_t cache_bytes =
-                config_.getMaxSequenceLength() * (config_.getHeadDim() / 2) * sizeof( float );
+            const std::size_t cache_bytes = config_.getMaxSequenceLength() * (config_.getHeadDim() / 2) * sizeof( float );
 
             cache_key_ = makeCacheKey();
 
             auto [cos_ptr, sin_ptr, is_new] =
                 RopeCacheRegistry::instance().acquire( cache_key_, cache_bytes );
 
+            owns_cache_ = is_new;
+
             cos_cache_ = static_cast<float*>(cos_ptr);
             sin_cache_ = static_cast<float*>(sin_ptr);
 
             if ( is_new )
             {
-                Detail::cuda_rope_impl<NativeType>::build_cache(
+                Detail::cuda_rope_impl<ComputeType>::build_cache(
                     cos_cache_, sin_cache_,
                     static_cast<int>(config_.getMaxSequenceLength()),
                     static_cast<int>(config_.getHeadDim()),
@@ -185,6 +187,12 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                     context_->getStream() );
 
                 context_->synchronize(); // Ensure cache is ready before any op can use it.
+
+                // DEBUG:
+                std::cout << "CudaRopeOp::build: cache built for max_seq_len=" << config_.getMaxSequenceLength()
+                    << ", head_dim=" << config_.getHeadDim() << ", base=" << config_.getBase() << "\n";
+                std::cout << "Cache size (bytes): " << ( cache_bytes * 2 ) << "\n";
+                // END DEBUG
             }
 
             this->is_built_ = true;
@@ -234,11 +242,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
             validateRuntimeShape( B, T );
 
-            Detail::cuda_rope_impl<NativeType>::backward(
-                static_cast<NativeType*>(dQ_in.rawData()),
-                static_cast<NativeType*>(dK_in.rawData()),
-                static_cast<const NativeType*>(dQ_out.rawData()),
-                static_cast<const NativeType*>(dK_out.rawData()),
+            Detail::cuda_rope_impl<ComputeType>::backward(
+                static_cast<ComputeType*>(dQ_in.rawData()),
+                static_cast<ComputeType*>(dK_in.rawData()),
+                static_cast<const ComputeType*>(dQ_out.rawData()),
+                static_cast<const ComputeType*>(dK_out.rawData()),
                 cos_cache_, sin_cache_,
                 B, T,
                 static_cast<int>(config_.getNumHeads()),
@@ -309,11 +317,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
             int B = static_cast<int>( Q_in.shape()[ 0 ] );
 
-            Detail::cuda_rope_impl<NativeType>::decode(
-                static_cast<NativeType*>( Q_out.rawData() ),
-                static_cast<NativeType*>( K_out.rawData() ),
-                static_cast<const NativeType*>( Q_in.rawData() ),
-                static_cast<const NativeType*>( K_in.rawData() ),
+            Detail::cuda_rope_impl<ComputeType>::decode(
+                static_cast<ComputeType*>( Q_out.rawData() ),
+                static_cast<ComputeType*>( K_out.rawData() ),
+                static_cast<const ComputeType*>( Q_in.rawData() ),
+                static_cast<const ComputeType*>( K_in.rawData() ),
                 cos_cache_, sin_cache_,
                 B, position,
                 static_cast<int>(config_.getNumHeads()),
@@ -338,9 +346,22 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             return "Cuda::RopeOp";
         }
 
+        std::size_t getStateMemorySize() const override
+        {
+            if ( !owns_cache_ )
+                return 0;
+
+            std::size_t cache_bytes = config_.getMaxSequenceLength() * (config_.getHeadDim() / 2) * sizeof( float );
+
+            return cache_bytes * 2; // cos and sin caches
+        }
+
     private:
+        
         RopeConfig config_;
         CudaExecutionContext* context_;
+
+        bool owns_cache_{ false };
 
         float* cos_cache_{ nullptr };
         float* sin_cache_{ nullptr };
@@ -354,11 +375,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             ITensor& Q_out, ITensor& K_out,
             int B, int T, int position_offset ) const
         {
-            Detail::cuda_rope_impl<NativeType>::forward(
-                static_cast<NativeType*>(Q_out.rawData()),
-                static_cast<NativeType*>(K_out.rawData()),
-                static_cast<const NativeType*>(Q_in.rawData()),
-                static_cast<const NativeType*>(K_in.rawData()),
+            Detail::cuda_rope_impl<ComputeType>::forward(
+                static_cast<ComputeType*>(Q_out.rawData()),
+                static_cast<ComputeType*>(K_out.rawData()),
+                static_cast<const ComputeType*>(Q_in.rawData()),
+                static_cast<const ComputeType*>(K_in.rawData()),
                 cos_cache_, sin_cache_,
                 B, T,
                 static_cast<int>(config_.getNumHeads()),

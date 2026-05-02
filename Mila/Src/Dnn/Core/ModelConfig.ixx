@@ -126,23 +126,6 @@ namespace Mila::Dnn
             return self;
         }
 
-        /**
-         * @brief Set strict parameter loading.
-         *
-         * When true, fromPretrained() throws on any unrecognized parameter
-         * name in the checkpoint. When false, unrecognized names are silently
-         * skipped. Defaults to true.
-         *
-         * @param strict  True to enable strict loading.
-         * @return        Reference to the concrete config for chaining.
-         */
-        template<typename Self>
-        Self& withStrict( this Self& self, bool strict )
-        {
-            self.strict_ = strict;
-            return self;
-        }
-
         // ====================================================================
         // Accessors
         // ====================================================================
@@ -160,11 +143,6 @@ namespace Mila::Dnn
         dim_t getContextLength() const noexcept
         {
             return context_length_;
-        }
-
-        bool isStrict() const noexcept
-        {
-            return strict_;
         }
 
         // ====================================================================
@@ -216,7 +194,6 @@ namespace Mila::Dnn
         {
             std::string result;
             result += "  context_length:   " + std::to_string( context_length_ ) + "\n";
-            result += "  strict:           " + std::string( strict_ ? "true" : "false" ) + "\n";
             result += "  precision_policy: " + precisionPolicyToString( precision_policy_ ) + "\n";
             result += "  " + quantization_.toString() + "\n";
             return result;
@@ -227,7 +204,6 @@ namespace Mila::Dnn
         // ====================================================================
 
         dim_t                    context_length_{ 0 };
-        bool                     strict_{ true };
         ComputePrecision::Policy precision_policy_{ ComputePrecision::Policy::Auto };
         QuantizationConfig       quantization_{ QuantizationConfig::none() };
 

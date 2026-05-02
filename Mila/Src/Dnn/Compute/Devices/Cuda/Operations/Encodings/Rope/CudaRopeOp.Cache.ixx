@@ -76,6 +76,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         static RopeCacheRegistry& instance() noexcept
         {
             static RopeCacheRegistry registry;
+            
             return registry;
         }
 
@@ -119,6 +120,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             }
 
             entries_.emplace( key, CacheEntry{ cos_ptr, sin_ptr, 1 } );
+            
             return { cos_ptr, sin_ptr, true };
         }
 

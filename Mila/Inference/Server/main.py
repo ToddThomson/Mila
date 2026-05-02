@@ -1,6 +1,7 @@
 """
-Mila inference server — Llama 3.2 3B Instruct, CUDA BF16.
+Mila inference server.
 Start with: uvicorn main:app --host 0.0.0.0 --port 8000
+Protocol is selected via MILA_PROTOCOL env var: mila | openai | anthropic
 """
 import os
 
@@ -13,12 +14,20 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 
-from config import settings
+from config import settings, ProtocolMode
 from model_worker import worker
-from routes.completions import router as completions_router
-from routes.chat import router as chat_router
+from routes.factory import register_routes
 from routes.models import router as models_router
+from protocols.openai import OpenAIAdapter
+from protocols.anthropic import AnthropicAdapter
+from protocols.mila import MilaAdapter
 
+
+_ADAPTERS = {
+    ProtocolMode.openai: OpenAIAdapter,
+    ProtocolMode.anthropic: AnthropicAdapter,
+    ProtocolMode.mila: MilaAdapter,
+}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -26,16 +35,16 @@ async def lifespan(app: FastAPI):
     yield
     await worker.shutdown()
 
+adapter = _ADAPTERS[settings.protocol]()
 
 app = FastAPI(
     title="Mila Inference Server",
-    description="Llama 3.2 3B Instruct — CUDA BF16",
+    description=f"Protocol: {settings.protocol.value}",
     version="0.1.0",
     lifespan=lifespan,
 )
 
-app.include_router(completions_router)
-app.include_router(chat_router)
+register_routes(app, adapter)
 app.include_router(models_router)
 
 

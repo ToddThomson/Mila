@@ -32,6 +32,12 @@ namespace Mila::Dnn
      */
     export struct MemoryStats
     {
+        // REVIEW: Field names 'device_*' and 'host_*' are misleading. 'device_*' means
+        // compute backend memory (GPU VRAM for CUDA, system RAM for CPU backend), while
+        // 'host_*' is reserved for explicitly host-pinned allocations that accompany
+        // device tensors. Consider renaming to 'compute_*' and 'pinned_*' or similar
+        // to reflect actual intent.
+
         // ----------------------------------------------------------------
         // Device memory (GPU)
         // ----------------------------------------------------------------
@@ -113,6 +119,7 @@ namespace Mila::Dnn
          */
         [[nodiscard]] std::string toString() const
         {
+            // REVIEW: A bit heavy. Keep for now.
             auto fmt_bytes = []( std::size_t bytes ) -> std::string
                 {
                     constexpr std::size_t KB = 1024;

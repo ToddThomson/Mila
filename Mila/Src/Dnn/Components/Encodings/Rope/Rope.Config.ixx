@@ -111,8 +111,13 @@ namespace Mila::Dnn
             return (n_heads_ > 0) ? (channels_ / n_heads_) : 0;
         }
 
+        /**
+         * @brief Returns the training maximum sequence length.
+         * @return The maximum sequence length.
+         */
         size_t getMaxSequenceLength() const noexcept
         {
+            // REVIEW: See LlamaConfig::withMaxSequenceLength() for discussion on naming and semantics of this parameter.
             return max_seq_len_;
         }
 

@@ -103,12 +103,17 @@ namespace Mila::Dnn
 
         ~LlamaTransformer() override = default;
 
-        static std::unique_ptr<LlamaTransformer<TDeviceType, TPrecision>> fromPretrained(
+
+        // REVIEW: DEPRECATED: Is this a deprecated path? 
+        // The LlamaModel::fromPretrained() method is the new standard way to load a pretrained LLaMA model,
+        // and it sources all architectural parameters from checkpoint metadata.
+        // This method is still public and callable, but it doesn't have the same level of deployment configuration
+        // control as the LlamaModel::fromPretrained() method (e.g. no precision policy or quantization settings).
+        /*static std::unique_ptr<LlamaTransformer<TDeviceType, TPrecision>> fromPretrained(
             const std::filesystem::path& model_path,
             std::size_t batch_size,
             std::size_t seq_length,
-            DeviceId device_id = DeviceId{ TDeviceType, 0 },
-            bool strict = true )
+            DeviceId device_id = DeviceId{ TDeviceType, 0 } )
         {
             PretrainedModelReader reader( model_path );
             const auto& metadata = reader.getPretrainedMetadata();
@@ -135,10 +140,10 @@ namespace Mila::Dnn
 
             llama->build( build_config );
 
-            llama->loadParameters( reader, strict );
+            llama->loadParameters( reader );
 
             return llama;
-        }
+        }*/
 
         TensorType& forward( const TokenIndexType& input )
         {
@@ -369,7 +374,7 @@ namespace Mila::Dnn
             return NetworkBase::getExecutionContext();
         }
 
-        void loadParameters( PretrainedModelReader& reader, bool strict )
+        void loadParameters( PretrainedModelReader& reader )
         {
             const int device_index = this->getExecutionContext()->getDeviceId().index;
 
@@ -377,22 +382,7 @@ namespace Mila::Dnn
             {
                 auto [component_path, param_name] = parseParameterPath( full_name );
 
-                ComponentPtr target = nullptr;
-
-                try
-                {
-                    target = this->findComponent( component_path );
-                }
-                catch ( const std::out_of_range& )
-                {
-                    // REVIEW: if a parameter is missing, should we throw, or just skip it? 
-                    // Skipping allows loading from checkpoints that may be missing some parameters (e.g. final lm_head in a prefill-only checkpoint),
-                    // but risks silent errors if the name is wrong or the checkpoint is incompatible.
-                    if ( strict )
-                        throw std::runtime_error( "Component not found: " + component_path );
-
-                    continue;
-                }
+                ComponentPtr target = this->findComponent( component_path );
 
                 if constexpr ( TDeviceType == DeviceType::Cuda )
                 {
@@ -421,14 +411,14 @@ namespace Mila::Dnn
             // Blocks need full context_length so GQA can size the KV cache correctly.
             // LlamaBlock handles the prefill/decode split internally.
             shape_t block_shape = { B, T, config_.getModelDim() };
-            BuildContext block_context( block_shape, context.getRuntimeMode(), context.prefillSize(), context.shouldInitializeParameters() );
+            BuildContext block_context( block_shape, context.getRuntimeMode(), context.shouldInitializeParameters() );
 
             // Inference: final_rmsnorm and lm_head only process the last position.
             // Training: must process full sequence for loss computation.
             shape_t final_shape = context.isInferenceMode() ? 
                 shape_t{ B, 1, config_.getModelDim() } : shape_t{ B, T, config_.getModelDim() };
 
-            BuildContext final_context( final_shape, context.getRuntimeMode(), context.prefillSize(), context.shouldInitializeParameters() );
+            BuildContext final_context( final_shape, context.getRuntimeMode(), context.shouldInitializeParameters() );
 
             transformer_blocks_.clear();
             transformer_blocks_.reserve( static_cast<size_t>(config_.getNumLayers()) );

@@ -392,11 +392,11 @@ namespace Mila::Dnn
                 activation_input_shape.back() *= 2;
             }
 
-            BuildContext activation_context( activation_input_shape, context.getRuntimeMode(), context.prefillSize() );
+            BuildContext activation_context( activation_input_shape, context.getRuntimeMode() ); // , context.getPrefillSize() );
             activation_->build( activation_context );
 
             fc2_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_2" );
-            BuildContext fc2_context( cached_hidden_shape_, context.getRuntimeMode(), context.prefillSize() );
+            BuildContext fc2_context( cached_hidden_shape_, context.getRuntimeMode() ); // , context.getPrefillSize() );
             fc2_->build( fc2_context );
 
             clearForwardCache();

@@ -641,7 +641,13 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             return config_;
         }
 
+        std::size_t getStateMemorySize() const override
+        {
+            return state_memory_size_;
+        }
+
     private:
+        
         GroupedQueryAttentionConfig config_;
         CudaExecutionContext* context_;
 
@@ -765,6 +771,8 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         NativeType* datt_{ nullptr };
         NativeType* dVout_{ nullptr };
 
+        std::size_t state_memory_size_{ 0 }; // Total bytes allocated for state tensors
+
         // ====================================================================
         // Private helpers
         // ====================================================================
@@ -815,6 +823,14 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
 
         void initializeState( const BuildContext& build_context )
         {
+            // REVIEW: GQA gradient tensors (dQ, dK, dV, dK_exp, dV_exp, dpreatt, datt, dVout)
+            // are owned internally by this op rather than at the component level, deviating
+            // from the standard Mila pattern. This was a pragmatic choice driven by the
+            // complexity of the gradient tensor set not fitting a clean setGradients() signature.
+            // Consequently, gradient memory is reported here as state rather than being
+            // tracked separately. Revisit when GQA gradient ownership is migrated to the
+            // component level.
+
             auto device = context_->getDeviceId();
 
             const shape_t q_shape = { B_, NH_,  T_, HS_ };
@@ -826,12 +842,22 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
 
             auto make = [&]( const shape_t& shape, const std::string& name )
                 {
-                    return std::make_shared<TensorType>( device, shape, name );
+                    auto tensor = std::make_shared<TensorType>( device, shape, name );
+                    state_memory_size_ += tensor->getStorageSize();
+                    
+                    return tensor;
                 };
 
             // ====================================================================
             // Always allocated — KV cache and decode path buffers
             // ====================================================================
+
+            // REVIEW: k_exp_tensor_ and v_exp_tensor_ are allocated at full T_ (max_seq_len) because
+            // kvcache_expand_kv materializes the full KV history on every prefill chunk and decode step.
+            // Eliminating these allocations would require a fused GQA kernel that reads directly from
+            // k_tensor_/v_tensor_ and performs the GS head expansion implicitly, avoiding the expanded
+            // materialization entirely. This is a significant architectural change best deferred to a
+            // dedicated optimization pass.
 
             q_tensor_ = make( q_shape, "gqa.q" );
             q_ = raw( q_tensor_ );
@@ -922,6 +948,13 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 dVout_tensor_ = make( vout_shape, "gqa.dVout" );
                 dVout_ = raw( dVout_tensor_ );
             }
+
+            // DEBUG:
+            std::cout << "CudaGQAOp::build: built with batch_size = " << B_
+                << ", num_heads = " << NH_ << ", head_size = " << HS_ << ", max_seq_length = " << T_ << ", kPrefillChunkSize = " << kPrefillChunkSize << "\n";
+            std::cout << "CudaGroupedQueryAttentionOp state memory size: "
+                << (state_memory_size_ / (1024.0 * 1024.0)) << " MiB\n";
+            // END DEBUG
         }
 
         static NativeType* raw( const std::shared_ptr<TensorType>& t )

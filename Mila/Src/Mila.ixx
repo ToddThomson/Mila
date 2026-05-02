@@ -224,7 +224,9 @@ export import Dnn.Components.LlamaTransformer;
 // Models - Open Source Models
 // ============================================================================
 export import Dnn.Models.GptModel;
+
 export import Dnn.Models.LlamaModel;
+export import Dnn.Models.LlamaModelConfig;
 
 // ============================================================================
 // Dnn - Optimizers

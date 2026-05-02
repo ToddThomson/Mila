@@ -236,15 +236,13 @@ namespace Mila::Dnn
         {
             MemoryStats stats;
 
+            stats.device_state_bytes += operation_->getStateMemorySize();
+
             if ( owned_Q_grad_ != nullptr )
-            {
                 stats.device_gradient_bytes += owned_Q_grad_->getStorageSize();
-            }
 
             if ( owned_K_grad_ != nullptr )
-            {
                 stats.device_gradient_bytes += owned_K_grad_->getStorageSize();
-            }
 
             return stats;
         }

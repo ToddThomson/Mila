@@ -98,21 +98,31 @@ static void bind_llama_model( py::module_& m )
             []( const std::string& path,
                 int64_t context_length,
                 int device_index,
-                bool strict ) -> std::unique_ptr<LlamaCudaBf16>
+                bool quantize_fp8 ) -> std::unique_ptr<LlamaCudaBf16>
             {
                 py::gil_scoped_release _;
+
                 DeviceId device_id{ DeviceType::Cuda, device_index };
+
+                LlamaModelConfig model_config = LlamaModelConfig( static_cast<dim_t>(context_length) );
+                model_config.withQuantization( quantize_fp8 ? QuantizationConfig::fp8() : QuantizationConfig::none() );
+
                 return LlamaCudaBf16::fromPretrained(
                     std::filesystem::path( path ),
-                    static_cast<dim_t>( context_length ),
-                    device_id,
-                    strict );
+                    model_config,
+                    device_id );
             },
             py::arg( "path" ),
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
-            py::arg( "strict" ) = true,
-            "Load Llama 3.2 3B Instruct pretrained weights from a Mila artifact." )
+            py::arg( "quantize_fp8" ) = false,
+            "Load Llama 3.2 3B Instruct pretrained weights from a Mila artifact.\n\n"
+            "Args:\n"
+            "    path:          Path to the Mila pretrained artifact.\n"
+            "    context_length: Maximum sequence length to build for.\n"
+            "    device_index:  CUDA device index (default: 0).\n"
+            "    quantize_fp8:  Quantize weights to FP8_E4M3 at load time (default: False).\n"
+            "                   Requires SM >= 8.9 (RTX 40xx / Ada Lovelace)." )
         .def( "generate",
             []( LlamaCudaBf16& self,
                 const std::vector<int32_t>& prompt_tokens,
