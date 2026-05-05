@@ -63,6 +63,10 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
     // TODO: Temporary. To be replaced by tuned chunk size based on empirical perf testing across devices and precisions.
     constexpr int64_t kPrefillChunkSize = 64;
 
+    // TEMP: A/B validation gate. Flip to true to activate the optimized NKV-layout path.
+    // Remove this constant and all legacy/optimized branching once the optimized path is validated.
+    static constexpr bool kUseOptimizedPath = true;
+
     /**
      * @brief CUDA Grouped-Query Attention operation.
      *
@@ -70,44 +74,48 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
      * (num_heads / num_kv_heads) Q heads shares a single K/V head, reducing
      * KV cache memory and bandwidth proportionally to the group size.
      *
-     * The implementation uses cuBLASLt batched matmuls on an expanded layout:
+     * The legacy path uses cuBLASLt batched matmuls on an expanded layout:
      * K and V are stored compactly in [B, NKV, T, HS] and expanded to
      * [B, NH, T, HS] before the matmuls so every cuBLASLt plan operates at
      * batch_count = B * NH.
      *
+     * The optimized path (kUseOptimizedPath) eliminates the expansion buffers
+     * and q_tensor_ by rebuilding cuBLASLt plans against the compact NKV layout
+     * with grouped head strides. See GqaMemory.md Phase 1 and Phase 2.
+     *
      * Forward pass (training):
-     *  1. permute_qkv       → Q[B,NH,T,HS], K[B,NKV,T,HS], V[B,NKV,T,HS]
-     *  2. expand_kv          → k_exp/v_exp [B,NH,T,HS]
-     *  3. qk_score_plan      → preatt [B,NH,T,T]
-     *  4. softmax_forward     → att [B,NH,T,T]
-     *  5. att_value_plan      → v_out [B,NH,T,HS]
-     *  6. unpermute_output    → Y [B,T,NH*HS]
+     *  1. permute_qkv       -> Q[B,NH,T,HS], K[B,NKV,T,HS], V[B,NKV,T,HS]
+     *  2. expand_kv         -> k_exp/v_exp [B,NH,T,HS]
+     *  3. qk_score_plan     -> preatt [B,NH,T,T]
+     *  4. softmax_forward   -> att [B,NH,T,T]
+     *  5. att_value_plan    -> v_out [B,NH,T,HS]
+     *  6. unpermute_output  -> Y [B,T,NH*HS]
      *
      * Prefill pass (inference only, with KV cache):
-     *  1. prefill_permute_qkv      → Q[B,NH,chunk,HS], K/V[B,NKV,chunk,HS] (padded to T)
-     *  2. prefill_expand_kv        → k_exp/v_exp [B,NH,chunk,HS] (padded to T)
-     *  3. prefill_qk_plan          → preatt [B,NH,chunk,T]
-     *  4. prefill_softmax          → att [B,NH,chunk,T]
-     *  5. prefill_att_value_plan   → v_out [B,NH,chunk,HS]
-     *  6. prefill_unpermute_output → Y [B,chunk,C]
-     * 
+     *  1. prefill_permute_qkv      -> Q[B,NH,chunk,HS], K/V[B,NKV,chunk,HS] (padded to T)
+     *  2. prefill_expand_kv        -> k_exp/v_exp [B,NH,chunk,HS] (padded to T)
+     *  3. prefill_qk_plan          -> preatt [B,NH,chunk,T]
+     *  4. prefill_softmax          -> att [B,NH,chunk,T]
+     *  5. prefill_att_value_plan   -> v_out [B,NH,chunk,HS]
+     *  6. prefill_unpermute_output -> Y [B,chunk,C]
+     *
      * Decode pass (decode / KV-cache):
-     *  1. permute_qkv_decode  → single Q token; append K/V to cache
-     *  2. expand_kv           → expand cache slice up to current position
-     *  3. qk_decode_plan      → preatt_decode [B,NH,1,T]
-     *  4. softmax_decode      → att_decode
-     *  5. att_value_decode     → v_out_decode [B,NH,1,HS]
-     *  6. unpermute_output     → Y [B,1,C]
+     *  1. permute_qkv_decode -> single Q token; append K/V to cache
+     *  2. expand_kv          -> expand cache slice up to current position
+     *  3. qk_decode_plan     -> preatt_decode [B,NH,1,T]
+     *  4. softmax_decode     -> att_decode
+     *  5. att_value_decode   -> v_out_decode [B,NH,1,HS]
+     *  6. unpermute_output   -> Y [B,1,C]
      *
      * Backward pass (training only):
-     *  1. unpermute_backward   → dVout [B,NH,T,HS]
-     *  2. backward_v_plan      → dV_exp (expanded)
-     *  3. backward_att_plan    → dAtt
-     *  4. softmax_backward     → dPreatt
-     *  5. backward_q_plan      → dQ
-     *  6. backward_k_plan      → dK_exp (expanded)
-     *  7. reduce_kv_grad       → dK/dV [B,NKV,T,HS] (sum over group)
-     *  8. permute_backward     → dX [B,T,(NH+2*NKV)*HS]
+     *  1. unpermute_backward -> dVout [B,NH,T,HS]
+     *  2. backward_v_plan    -> dV_exp (expanded)
+     *  3. backward_att_plan  -> dAtt
+     *  4. softmax_backward   -> dPreatt
+     *  5. backward_q_plan    -> dQ
+     *  6. backward_k_plan    -> dK_exp (expanded)
+     *  7. reduce_kv_grad     -> dK/dV [B,NKV,T,HS] (sum over group)
+     *  8. permute_backward   -> dX [B,T,(NH+2*NKV)*HS]
      *
      * @tparam TPrecision Tensor element type and cuBLASLt data/compute type.
      */
@@ -126,17 +134,21 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         using ConfigType = GroupedQueryAttentionConfig;
 
         CudaGroupedQueryAttentionOp( IExecutionContext* context, const GroupedQueryAttentionConfig& config )
-            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaGroupedQueryAttentionOp" ) ) , config_( config )
+            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaGroupedQueryAttentionOp" ) )
+            , config_( config )
+            , use_optimized_path_( kUseOptimizedPath )
         {
             config_.validate();
         }
 
         // No learnable parameters — GQA weights live in the projection layers.
         void setParameters( ITensor*, ITensor* ) override
-        {}
-        
+        {
+        }
+
         void setGradients( ITensor*, ITensor* ) override
-        {}
+        {
+        }
 
         void initializeKvCache( int batch_size, int max_seq_length ) override
         {
@@ -168,166 +180,11 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             int position_offset ) override
         {
             ensureKVCacheEnabled();
-            //validatePrefillInputShape( input.shape() );
 
-            const int chunk_len = static_cast<int>(q.shape()[ 1 ]);
-
-            if ( position_offset < 0 || position_offset + chunk_len > active_max_seq_len_ )
-            {
-                throw std::invalid_argument( std::format(
-                    "CudaGroupedQueryAttentionOp::prefill: position_offset {} + chunk_len {} exceeds max_seq_len {}",
-                    position_offset, chunk_len, active_max_seq_len_ ) );
-            }
-
-            const NativeType* Xq = static_cast<const NativeType*>(q.rawData());
-            const NativeType* Xk = static_cast<const NativeType*>(k.rawData());
-            const NativeType* Xv = static_cast<const NativeType*>(v.rawData());
-
-            NativeType* Y = static_cast<NativeType*>(output.rawData());
-            
-            cudaStream_t stream = context_->getStream();
-
-            const float alpha = 1.0f;
-            const float beta = 0.0f;
-            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
-
-            // KvCache Write Q: [B, chunk_len, NH*HS] → [B, NH, T_max, HS]
-            // Writes into KV cache at rows [start_pos .. start_pos + chunk_len)
-            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_q(
-                q_,
-                Xq,
-                B_, chunk_len,
-                NH_, HS_,
-                position_offset, T_,
-                stream );
-            //context_->synchronize();
-
-            // KvCache write K and V: [B, chunk_len, NKV*HS] → [B, NKV, T_max, HS]
-            // Writes into KV cache at rows [start_pos .. start_pos + chunk_len)
-            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
-                k_, v_,
-                Xk, Xv,
-                B_, chunk_len,
-                NKV_, HS_,
-                position_offset, T_,
-                stream );
-            //context_->synchronize();
-
-            // Expand the full KV cache history [0 .. position_offset+chunk_len) so that
-            // chunk 1+ tokens can attend to all previously cached keys, not just their own chunk.
-            const int total_kv_len = position_offset + chunk_len;
-
-            Detail::cuda_gqa_kernels<NativeType>::kvcache_expand_kv(
-                k_exp_, v_exp_,
-                k_, v_,
-                B_, total_kv_len, T_, NH_, NKV_, HS_,
-                0,
-                stream );
-
-            // NOTE: Old code with bug
-            // KvCache Expand K/V from [B,NKV,T,HS] → k_exp/v_exp [B,NH,T,HS]
-            /*Detail::cuda_gqa_kernels<NativeType>::kvcache_expand_kv(
-                k_exp_, v_exp_,
-                k_, v_,
-                B_, chunk_len, T_, NH_, NKV_, HS_,
-                position_offset,
-                stream );*/
-            //context_->synchronize();
-
-            // The full-chunk plan is pre-built at build() time. Partial chunk plans are
-            // built lazily on first use and cached — each writes tight-packed output with
-            // strideC = chunk_len * T into the shared kPrefillChunkSize-row buffers.
-            const bool is_full_chunk = (chunk_len == static_cast<int>(kPrefillChunkSize));
-            const auto& qk_plan = is_full_chunk ? qk_prefill_plan_ : getOrBuildPartialQKPlan( chunk_len );
-            const auto& av_plan = is_full_chunk ? att_value_prefill_plan_ : getOrBuildPartialAVPlan( chunk_len );
-
-            // preatt = Q @ k_exp^T  [B,NH,chunk,T]
-            // Offset into the KV cache Q buffer so the plan reads rows
-            // [position_offset .. position_offset+chunk_len) rather than row 0.
-            const NativeType* q_chunk = q_ + static_cast<int64_t>(position_offset) * HS_;
-
-            // ----------------------------------------------------------------
-            /*if ( !is_full_chunk )
-            {
-                std::cout << std::format(
-                    "[GQA::prefill PARTIAL] chunk_len={} position_offset={} total_kv_len={}\n",
-                    chunk_len, position_offset, total_kv_len );
-
-                print_stats( "q_chunk",
-                    q_chunk,
-                    { (size_t)B_, (size_t)NH_, (size_t)chunk_len, (size_t)HS_ },
-                    8, stream );
-
-                print_stats( "k_exp[0..total_kv_len]",
-                    k_exp_,
-                    { (size_t)B_, (size_t)NH_, (size_t)total_kv_len, (size_t)HS_ },
-                    8, stream );
-            }*/
-            // ----------------------------------------------------------------
-
-            execute_plan<NativeType>(
-                cublaslt_handle_, qk_plan,
-                &scale, q_chunk, k_exp_, &beta, preatt_,
-                nullptr,
-                stream,
-                context_->getCublasLtWorkspace(),
-                context_->getCublasLtWorkspaceSize() );
-
-            //context_->synchronize();
-
-            // ----------------------------------------------------------------
-            /*if ( !is_full_chunk )
-            {
-                print_stats( "preatt_",
-                    preatt_,
-                    { (size_t)B_, (size_t)NH_, (size_t)chunk_len, (size_t)total_kv_len },
-                    8, stream );
-            }*/
-            // ----------------------------------------------------------------
-
-            // DEBUG:
-            //std::cout << std::format(
-            //    "[GQA::prefill_softmax] B={} NH={} T_stride={} chunk_stride={} chunk_len={} position_offset={}\n",
-            //    B_, NH_, T_, static_cast<int>(kPrefillChunkSize), chunk_len, position_offset );
-            // END DEBUG
-
-            // att = softmax(preatt / sqrt(HS)) with causal mask
-            // NOTE: scale is applied in qk_plan step as alpha in the MatMul
-            Detail::cuda_gqa_kernels<NativeType>::prefill_softmax(
-                att_, preatt_,
-                B_, NH_, T_, kPrefillChunkSize, chunk_len, position_offset,
-                stream );
-
-            //context_->synchronize();
-
-            // 5. v_out = att @ v_exp  [B,NH,chunk,HS]
-            execute_plan<NativeType>(
-                cublaslt_handle_, av_plan,
-                &alpha, att_, v_exp_, &beta, v_out_,
-                nullptr,
-                stream,
-                context_->getCublasLtWorkspace(),
-                context_->getCublasLtWorkspaceSize() );
-            
-            //context_->synchronize();
-
-            // Unpack v_out [B, NQH, padded_T, HS] → Y [B, actual_T, NQH*HS]
-            const int padded_T = is_full_chunk ? static_cast<int>(kPrefillChunkSize): chunk_len;
-
-            Detail::cuda_gqa_kernels<NativeType>::prefill_unpermute_output_padded(
-                v_out_,    // [B, NQH, padded_T, HS]
-                Y,         // [B, chunk_len, NQH*HS]
-                B_,        // batch
-                chunk_len, // actual_T (length of the chunk)
-                padded_T,  // WAS: kPrefilChunkSize which looks to be a possible bug
-                NH_,       // NQH (number of *query* heads)
-                HS_,       // head size
-                stream );
-
-            //context_->synchronize();
-
-            // Update the cached sequence length if we've filled beyond the prior cache boundary.
-            cached_seq_len_ = position_offset + chunk_len;
+            if ( use_optimized_path_ )
+                prefill_optimized( q, k, v, output, position_offset );
+            else
+                prefillImpl( q, k, v, output, position_offset );
         }
 
         void decode(
@@ -337,110 +194,10 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         {
             ensureKVCacheEnabled();
 
-            if ( position < 0 || position >= active_max_seq_len_ )
-                throw std::invalid_argument(
-                    "CudaGroupedQueryAttentionOp::decode position out of range" );
-
-            const int actual_len = position + 1;
-
-            const NativeType* Xq = static_cast<const NativeType*>( q.rawData() );
-            const NativeType* Xk = static_cast<const NativeType*>( k.rawData() );
-            const NativeType* Xv = static_cast<const NativeType*>( v.rawData() );
-            NativeType* Y = static_cast<NativeType*>( output.rawData() );
-            cudaStream_t stream = context_->getStream();
-
-            const float alpha = 1.0f;
-            const float beta = 0.0f;
-            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
-
-            // Permute Q into cache at position.
-            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_q(
-                q_,
-                Xq,
-                B_, 1,
-                NH_, HS_,
-                position, T_,
-                stream );
-            //context_->synchronize();
-
-            // Permute K, V into cache at position.
-            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
-                k_, v_,
-                Xk, Xv,
-                B_, 1,
-                NKV_, HS_,
-                position, T_,
-                stream );
-            //context_->synchronize();
-
-            /*if ( debug )
-            {
-                print_stats( "decode.k", k_, { 1, 1, actual_len, HS_ }, 8, stream );
-                print_stats( "decode.v", v_, { 1, 1, actual_len, HS_ }, 8, stream );
-            }*/
-
-            // Expand KV cache up to actual_len into k_exp / v_exp.
-            Detail::cuda_gqa_kernels<NativeType>::kvcache_expand_kv(
-                k_exp_, v_exp_,
-                k_, v_,
-                B_, actual_len, T_, NH_, NKV_, HS_,
-                0,
-                stream );
-            //context_->synchronize();
-
- /*           if ( debug )
-            {
-                print_stats( "decode.k_exp", k_exp_, { 1, 1, actual_len, HS_ }, 8, stream );
-                print_stats( "decode.v_exp", v_exp_, { 1, 1, actual_len, HS_ }, 8, stream );
-            }*/
-
-            // Decode QK: q_decode points at the current token's row.
-            const NativeType* q_decode = q_ + static_cast<int64_t>(position) * HS_;
-
-            execute_plan<NativeType>(
-                cublaslt_handle_, qk_decode_plan_,
-                &scale, q_decode, k_exp_, &beta, preatt_decode_,
-                nullptr,
-                stream,
-                context_->getCublasLtWorkspace(),
-                context_->getCublasLtWorkspaceSize() );
-            //context_->synchronize();
-
-            //if ( debug )
-            //    print_stats( "decode.preatt", preatt_decode_, { 1, 1, 1, actual_len }, 8, stream );
-
-            // Softmax over actual_len positions.
-            Detail::cuda_gqa_kernels<NativeType>::softmax_decode_forward(
-                att_decode_, 1.0f, preatt_decode_,
-                B_, NH_, T_, actual_len,
-                stream );
-            //context_->synchronize();
-            //if ( debug )
-            //    print_stats( "decode.att", att_decode_, { 1, 1, 1, actual_len }, 8, stream );
-
-            // Weighted sum over V.
-            execute_plan<NativeType>(
-                cublaslt_handle_, att_value_decode_plan_,
-                &alpha, att_decode_, v_exp_, &beta, v_out_decode_,
-                nullptr,
-                stream,
-                context_->getCublasLtWorkspace(),
-                context_->getCublasLtWorkspaceSize() );
-            //context_->synchronize();
-            //if ( debug )
-            //    print_stats( "decode.v_out", v_out_decode_, { 1, 1, 1, HS_ }, 8, stream );
-
-            // Unpack single token output.
-            Detail::cuda_gqa_kernels<NativeType>::unpermute_output(
-                v_out_decode_, Y,
-                B_, 1, NH_, HS_,
-                stream );
-            //context_->synchronize();
-            //if ( debug )
-            //    print_stats( "decode.Y", Y, { 1, 1, NH_ * HS_ }, 8, stream );
-
-            if ( actual_len > cached_seq_len_ )
-                cached_seq_len_ = actual_len;
+            if ( use_optimized_path_ )
+                decode_optimized( q, k, v, output, position );
+            else
+                decodeImpl( q, k, v, output, position );
         }
 
         // ====================================================================
@@ -455,21 +212,23 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
 
             B_ = static_cast<int>(input_shape[ 0 ]);
             T_ = static_cast<int>(input_shape[ 1 ]);
-            
+
             NH_ = static_cast<int>(config_.getNumHeads());
             NKV_ = static_cast<int>(config_.getNumKvHeads());
             HS_ = static_cast<int>(config_.getHeadDim());
             C_ = static_cast<int>(config_.getModelDim());
             GS_ = NH_ / NKV_;
-            
+
             prefill_chunk_size_ = static_cast<int>(kPrefillChunkSize);
 
-            // REVIEW: These are just for bookkeeping. They serve no real purpose.
             active_max_seq_len_ = T_;
             cached_seq_len_ = 0;
             kv_cache_enabled_ = false;
 
-            initializeState( context );
+            if ( use_optimized_path_ )
+                initializeState_optimized( context );
+            else
+                initializeState( context );
 
             cublaslt_handle_ = context_->getCublasLtHandle();
 
@@ -479,7 +238,11 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                     "Ensure CUDA 10.1 or newer." );
 
             precision_policy_ = config_.getPrecisionPolicy();
-            buildCublasLtPlans();
+
+            if ( use_optimized_path_ )
+                buildCublasLtPlans_optimized();
+            else
+                buildCublasLtPlans();
 
             UnaryOperationBase::build( context );
         }
@@ -563,7 +326,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             const float beta = 0.0f;
             const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
 
-            // 1. dY [B,T,C] → dVout [B,NH,T,HS]
+            // 1. dY [B,T,C] -> dVout [B,NH,T,HS]
             Detail::cuda_gqa_kernels<NativeType>::unpermute_backward(
                 dVout_, dY,
                 B_, T_, NH_, HS_,
@@ -587,7 +350,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
 
-            // 4. Softmax backward → dPreatt
+            // 4. Softmax backward -> dPreatt
             Detail::cuda_gqa_kernels<NativeType>::softmax_backward(
                 dpreatt_, datt_, att_,
                 1.0f,
@@ -612,14 +375,14 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
 
-            // 7. Reduce expanded gradients → compact KV grad layout [B,NKV,T,HS]
+            // 7. Reduce expanded gradients -> compact KV grad layout [B,NKV,T,HS]
             Detail::cuda_gqa_kernels<NativeType>::reduce_kv_grad(
                 dK_, dV_,
                 dK_exp_, dV_exp_,
                 B_, T_, NH_, NKV_, HS_,
                 stream );
 
-            // 8. Pack dQ[B,NH], dK[B,NKV], dV[B,NKV] → dX [B,T,(NH+2*NKV)*HS]
+            // 8. Pack dQ[B,NH], dK[B,NKV], dV[B,NKV] -> dX [B,T,(NH+2*NKV)*HS]
             Detail::cuda_gqa_kernels<NativeType>::permute_backward(
                 dX,
                 dq_, dK_, dV_,
@@ -652,43 +415,15 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         }
 
     private:
-        
+
         GroupedQueryAttentionConfig config_;
         CudaExecutionContext* context_;
 
-        // --------------------------------------------------------------------
-        
-        // REVIEW: Clarify cached dimensions
-        // Use:
+        // TEMP: Mirrors kUseOptimizedPath. Removed with the gate once the optimized path is validated.
+        bool use_optimized_path_{ false };
 
         // -------- Static model topology (set in build(), never change) --------
 
-        // Model-wide max limits, not dependent on runtime input
-        //int B_{ 0 };     ///< Max batch size supported for this model build
-        //int T_max_{ 0 }; ///< Maximum sequence length for KV cache (was T_)
-        //int C_{ 0 };     ///< Model dimension = NH * HS
-        //int NH_{ 0 };    ///< Number of query heads
-        //int NKV_{ 0 };   ///< Number of key/value heads
-        //int HS_{ 0 };    ///< Head dimension (C / NH)
-        //int GS_{ 0 };    ///< Group size = NH / NKV   (each KV head serves GS Q heads)
-
-        //bool kv_cache_enabled_{ false };  ///< Whether this model/config uses KV caching
-
-
-        // -------- Dynamic, per-forward-pass state (set at runtime) --------
-
-        // Runtime dimensions inferred from actual tensors during prefill or decode
-        //int B_active_{ 0 };       ///< Actual batch size for this forward call
-        //int chunk_len_{ 0 };      ///< Number of new tokens in this pass
-        //int start_pos_{ 0 };      ///< Cursor: where to write into KV cache
-
-        // KV cache state
-        //int cached_seq_len_{ 0 }; ///< How many tokens total are currently in cache
-        //int active_max_seq_len_{ 0 }; ///< Safety clamp: max seq len allowed this run
-        
-        // --------------------------------------------------------------------
-        
-        // Cached dimensions (set in build())
         int B_{ 0 };   ///< Batch size
         int T_{ 0 };   ///< Max sequence length
         int C_{ 0 };   ///< Model dim  = NH * HS
@@ -705,10 +440,12 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         cublasLtHandle_t cublaslt_handle_{ nullptr };
         ComputePrecision::Policy precision_policy_;
 
-        // cuBLASLt plans (all operate on expanded [B,NH,...] layout)
+        // ====================================================================
+        // Legacy path — cuBLASLt plans (expanded [B,NH,...] layout)
+        // ====================================================================
+
         Detail::CublasLtMatMulPlan<NativeType> qk_score_plan_;
         Detail::CublasLtMatMulPlan<NativeType> att_value_plan_;
-        // Pre-built at build() time for the common full-chunk case.
         Detail::CublasLtMatMulPlan<NativeType> qk_prefill_plan_;
         Detail::CublasLtMatMulPlan<NativeType> att_value_prefill_plan_;
         Detail::CublasLtMatMulPlan<NativeType> qk_decode_plan_;
@@ -718,44 +455,71 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         Detail::CublasLtMatMulPlan<NativeType> backward_q_plan_;
         Detail::CublasLtMatMulPlan<NativeType> backward_k_plan_;
 
-        // Partial-chunk prefill plan caches (chunk_len < kPrefillChunkSize).
-        // Built lazily on first use; each plan writes tight-packed output with
-        // strideC = chunk_len * T into the shared kPrefillChunkSize-row buffers.
         std::unordered_map<int, Detail::CublasLtMatMulPlan<NativeType>> qk_partial_prefill_plan_cache_;
         std::unordered_map<int, Detail::CublasLtMatMulPlan<NativeType>> att_value_partial_prefill_plan_cache_;
 
-        // ── Forward state tensors ──────────────────────────────────────────
+        // ====================================================================
+        // Optimized path — cuBLASLt plans (compact NKV layout, grouped head strides)
+        // TEMP: Remove legacy plans and this block once the optimized path is validated.
+        // ====================================================================
 
-        // Compact KV (NKV heads)
-        std::shared_ptr<TensorType> q_tensor_;     // [B, NH,  T, HS]
+        Detail::CublasLtMatMulPlan<NativeType> qk_prefill_plan_optimized_;
+        Detail::CublasLtMatMulPlan<NativeType> att_value_prefill_plan_optimized_;
+        Detail::CublasLtMatMulPlan<NativeType> qk_decode_plan_optimized_;
+        Detail::CublasLtMatMulPlan<NativeType> att_value_decode_plan_optimized_;
+
+        std::unordered_map<int, Detail::CublasLtMatMulPlan<NativeType>> qk_partial_prefill_plan_cache_optimized_;
+        std::unordered_map<int, Detail::CublasLtMatMulPlan<NativeType>> att_value_partial_prefill_plan_cache_optimized_;
+
+        // ====================================================================
+        // Legacy path — forward state tensors
+        // ====================================================================
+
+        // Compact KV cache (NKV heads) — shared by both paths
         std::shared_ptr<TensorType> k_tensor_;     // [B, NKV, T, HS]
         std::shared_ptr<TensorType> v_tensor_;     // [B, NKV, T, HS]
 
-        // Expanded KV (NH heads) — input to cuBLASLt
-        std::shared_ptr<TensorType> k_exp_tensor_; // [B, NH, T, HS]
-        std::shared_ptr<TensorType> v_exp_tensor_; // [B, NH, T, HS]
+        // Legacy-only: persistent Q cache and expanded KV buffers
+        std::shared_ptr<TensorType> q_tensor_;     // [B, NH,  T, HS]
+        std::shared_ptr<TensorType> k_exp_tensor_; // [B, NH,  T, HS]
+        std::shared_ptr<TensorType> v_exp_tensor_; // [B, NH,  T, HS]
 
-        std::shared_ptr<TensorType> preatt_tensor_; // [B, NH, T, T]
-        std::shared_ptr<TensorType> att_tensor_;    // [B, NH, T, T]
-        std::shared_ptr<TensorType> v_out_tensor_;  // [B, NH, T, HS]
+        std::shared_ptr<TensorType> preatt_tensor_; // [B, NH, T|chunk, T]
+        std::shared_ptr<TensorType> att_tensor_;    // [B, NH, T|chunk, T]
+        std::shared_ptr<TensorType> v_out_tensor_;  // [B, NH, T|chunk, HS]
 
-        // Decode-path tensors
+        // Decode path — shared by both paths
         std::shared_ptr<TensorType> preatt_decode_tensor_; // [B, NH, 1, T]
         std::shared_ptr<TensorType> att_decode_tensor_;    // [B, NH, 1, T]
         std::shared_ptr<TensorType> v_out_decode_tensor_;  // [B, NH, 1, HS]
 
-        // ── Backward state tensors ─────────────────────────────────────────
+        // ====================================================================
+        // Optimized path — transient scratch tensors (self-allocated for A/B period)
+        // TEMP: Migrate to shared LlamaTransformer workspace after validation.
+        // ====================================================================
 
-        std::shared_ptr<TensorType> dq_tensor_;     // [B, NH,  T, HS]
-        std::shared_ptr<TensorType> dK_tensor_;     // [B, NKV, T, HS]  (compact)
-        std::shared_ptr<TensorType> dV_tensor_;     // [B, NKV, T, HS]  (compact)
-        std::shared_ptr<TensorType> dK_exp_tensor_; // [B, NH,  T, HS]  (expanded)
-        std::shared_ptr<TensorType> dV_exp_tensor_; // [B, NH,  T, HS]  (expanded)
-        std::shared_ptr<TensorType> dpreatt_tensor_;// [B, NH,  T, T]
-        std::shared_ptr<TensorType> datt_tensor_;   // [B, NH,  T, T]
-        std::shared_ptr<TensorType> dVout_tensor_;  // [B, NH,  T, HS]
+        std::shared_ptr<TensorType> q_permute_tensor_optimized_;      // [B, NH, chunk, HS]
+        std::shared_ptr<TensorType> preatt_tensor_optimized_;         // [B, NH, chunk, T]
+        std::shared_ptr<TensorType> att_tensor_optimized_;            // [B, NH, chunk, T]
+        std::shared_ptr<TensorType> v_out_tensor_optimized_;          // [B, NH, chunk, HS]
 
-        // Raw device pointers (non-owning aliases into the tensors above)
+        // ====================================================================
+        // Backward state tensors (training only, legacy path)
+        // ====================================================================
+
+        std::shared_ptr<TensorType> dq_tensor_;
+        std::shared_ptr<TensorType> dK_tensor_;
+        std::shared_ptr<TensorType> dV_tensor_;
+        std::shared_ptr<TensorType> dK_exp_tensor_;
+        std::shared_ptr<TensorType> dV_exp_tensor_;
+        std::shared_ptr<TensorType> dpreatt_tensor_;
+        std::shared_ptr<TensorType> datt_tensor_;
+        std::shared_ptr<TensorType> dVout_tensor_;
+
+        // ====================================================================
+        // Raw device pointers — legacy path
+        // ====================================================================
+
         NativeType* q_{ nullptr };
         NativeType* k_{ nullptr };
         NativeType* v_{ nullptr };
@@ -764,11 +528,11 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         NativeType* preatt_{ nullptr };
         NativeType* att_{ nullptr };
         NativeType* v_out_{ nullptr };
-        
+
         NativeType* preatt_decode_{ nullptr };
         NativeType* att_decode_{ nullptr };
         NativeType* v_out_decode_{ nullptr };
-        
+
         NativeType* dq_{ nullptr };
         NativeType* dK_{ nullptr };
         NativeType* dV_{ nullptr };
@@ -778,7 +542,22 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         NativeType* datt_{ nullptr };
         NativeType* dVout_{ nullptr };
 
-        std::size_t state_memory_size_{ 0 }; // Total bytes allocated for state tensors
+        // ====================================================================
+        // Raw device pointers — optimized path
+        // TEMP: Remove legacy pointer block above once the optimized path is validated.
+        // ====================================================================
+
+        NativeType* k_opt_{ nullptr };
+        NativeType* v_opt_{ nullptr };
+        NativeType* q_permute_opt_{ nullptr };
+        NativeType* preatt_opt_{ nullptr };
+        NativeType* att_opt_{ nullptr };
+        NativeType* v_out_opt_{ nullptr };
+        NativeType* preatt_decode_opt_{ nullptr };
+        NativeType* att_decode_opt_{ nullptr };
+        NativeType* v_out_decode_opt_{ nullptr };
+
+        std::size_t state_memory_size_{ 0 };
 
         // ====================================================================
         // Private helpers
@@ -828,6 +607,15 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                     "prefill or decode" );
         }
 
+        static NativeType* raw( const std::shared_ptr<TensorType>& t )
+        {
+            return static_cast<NativeType*>(t->rawData());
+        }
+
+        // ====================================================================
+        // Legacy path — initializeState
+        // ====================================================================
+
         void initializeState( const BuildContext& build_context )
         {
             // REVIEW: GQA gradient tensors (dQ, dK, dV, dK_exp, dV_exp, dpreatt, datt, dVout)
@@ -842,8 +630,8 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
 
             const shape_t q_shape = { B_, NH_,  T_, HS_ };
             const shape_t kv_shape = { B_, NKV_, T_, HS_ };
-            const shape_t kv_exp = { B_, NH_, T_, HS_ };
-            
+            const shape_t kv_exp = { B_, NH_,  T_, HS_ };
+
             const shape_t dec_att = { B_, NH_,  1,  T_ };
             const shape_t dec_vout = { B_, NH_,  1,  HS_ };
 
@@ -851,13 +639,13 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 {
                     auto tensor = std::make_shared<TensorType>( device, shape, name );
                     state_memory_size_ += tensor->getStorageSize();
-                    
+
                     return tensor;
                 };
 
-            // ====================================================================
+            // ================================================================
             // Always allocated — KV cache and decode path buffers
-            // ====================================================================
+            // ================================================================
 
             // REVIEW: k_exp_tensor_ and v_exp_tensor_ are allocated at full T_ (max_seq_len) because
             // kvcache_expand_kv materializes the full KV history on every prefill chunk and decode step.
@@ -868,35 +656,34 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
 
             q_tensor_ = make( q_shape, "gqa.q" );
             q_ = raw( q_tensor_ );
-            
+
             k_tensor_ = make( kv_shape, "gqa.k" );
             k_ = raw( k_tensor_ );
-            
+
             v_tensor_ = make( kv_shape, "gqa.v" );
             v_ = raw( v_tensor_ );
-            
+
             k_exp_tensor_ = make( kv_exp, "gqa.k_exp" );
             k_exp_ = raw( k_exp_tensor_ );
-            
+
             v_exp_tensor_ = make( kv_exp, "gqa.v_exp" );
             v_exp_ = raw( v_exp_tensor_ );
 
-            // Decode path — single token attention buffers
             preatt_decode_tensor_ = make( dec_att, "gqa.preatt_decode" );
             preatt_decode_ = raw( preatt_decode_tensor_ );
-            
+
             att_decode_tensor_ = make( dec_att, "gqa.att_decode" );
             att_decode_ = raw( att_decode_tensor_ );
-            
+
             v_out_decode_tensor_ = make( dec_vout, "gqa.v_out_decode" );
             v_out_decode_ = raw( v_out_decode_tensor_ );
 
-            // ====================================================================
+            // ================================================================
             // Inference only — prefill attention buffers
             // Sized to kPrefillChunkSize x context_length. Partial-chunk calls
             // write tight-packed output into the head of this allocation using
             // plans with strideC = chunk_len * T.
-            // ====================================================================
+            // ================================================================
 
             if ( build_context.isInferenceMode() )
             {
@@ -913,9 +700,9 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 v_out_ = raw( v_out_tensor_ );
             }
 
-            // ====================================================================
+            // ================================================================
             // Training only — full attention matrices and gradient buffers
-            // ====================================================================
+            // ================================================================
 
             if ( build_context.isTrainingMode() )
             {
@@ -924,34 +711,34 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
 
                 preatt_tensor_ = make( att_shape, "gqa.preatt" );
                 preatt_ = raw( preatt_tensor_ );
-                
+
                 att_tensor_ = make( att_shape, "gqa.att" );
                 att_ = raw( att_tensor_ );
-                
+
                 v_out_tensor_ = make( vout_shape, "gqa.v_out" );
                 v_out_ = raw( v_out_tensor_ );
 
                 dq_tensor_ = make( q_shape, "gqa.dq" );
                 dq_ = raw( dq_tensor_ );
-                
+
                 dK_tensor_ = make( kv_shape, "gqa.dK" );
                 dK_ = raw( dK_tensor_ );
-                
+
                 dV_tensor_ = make( kv_shape, "gqa.dV" );
                 dV_ = raw( dV_tensor_ );
-                
+
                 dK_exp_tensor_ = make( kv_exp, "gqa.dK_exp" );
                 dK_exp_ = raw( dK_exp_tensor_ );
-                
+
                 dV_exp_tensor_ = make( kv_exp, "gqa.dV_exp" );
                 dV_exp_ = raw( dV_exp_tensor_ );
-                
+
                 dpreatt_tensor_ = make( att_shape, "gqa.dpreatt" );
                 dpreatt_ = raw( dpreatt_tensor_ );
-                
+
                 datt_tensor_ = make( att_shape, "gqa.datt" );
                 datt_ = raw( datt_tensor_ );
-                
+
                 dVout_tensor_ = make( vout_shape, "gqa.dVout" );
                 dVout_ = raw( dVout_tensor_ );
             }
@@ -964,19 +751,87 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             // END DEBUG
         }
 
-        static NativeType* raw( const std::shared_ptr<TensorType>& t )
+        // ====================================================================
+        // Optimized path — initializeState_optimized
+        // Allocates only the KV cache and transient scratch for the NKV-layout path.
+        // TEMP: Remove initializeState() and rename this once the optimized path is validated.
+        // ====================================================================
+
+        void initializeState_optimized( const BuildContext& build_context )
         {
-            return static_cast<NativeType*>(t->rawData());
+            auto device = context_->getDeviceId();
+
+            const shape_t kv_shape = { B_, NKV_, T_, HS_ };
+            const shape_t dec_att = { B_, NH_,  1,  T_ };
+            const shape_t dec_vout = { B_, NH_,  1,  HS_ };
+
+            auto make = [&]( const shape_t& shape, const std::string& name )
+                {
+                    auto tensor = std::make_shared<TensorType>( device, shape, name );
+                    state_memory_size_ += tensor->getStorageSize();
+
+                    return tensor;
+                };
+
+            // KV cache — compact NKV layout, retained across calls
+            k_tensor_ = make( kv_shape, "gqa.k" );
+            k_opt_ = raw( k_tensor_ );
+
+            v_tensor_ = make( kv_shape, "gqa.v" );
+            v_opt_ = raw( v_tensor_ );
+
+            // Decode scratch — minor per-layer allocation, migrated to shared workspace in Phase 3
+            preatt_decode_tensor_ = make( dec_att, "gqa.preatt_decode" );
+            preatt_decode_opt_ = raw( preatt_decode_tensor_ );
+
+            att_decode_tensor_ = make( dec_att, "gqa.att_decode" );
+            att_decode_opt_ = raw( att_decode_tensor_ );
+
+            v_out_decode_tensor_ = make( dec_vout, "gqa.v_out_decode" );
+            v_out_decode_opt_ = raw( v_out_decode_tensor_ );
+
+            if ( build_context.isInferenceMode() )
+            {
+                // Transient Q permute and attention scratch — self-allocated for the A/B period.
+                // Migrated to the shared LlamaTransformer workspace in Phase 2/3.
+                const shape_t q_perm_shape = { B_, NH_, kPrefillChunkSize, HS_ };
+                const shape_t prefill_att_shape = { B_, NH_, kPrefillChunkSize, T_ };
+                const shape_t prefill_vout_shape = { B_, NH_, kPrefillChunkSize, HS_ };
+
+                q_permute_tensor_optimized_ = make( q_perm_shape, "gqa.q_perm_opt" );
+                q_permute_opt_ = raw( q_permute_tensor_optimized_ );
+
+                preatt_tensor_optimized_ = make( prefill_att_shape, "gqa.preatt_opt" );
+                preatt_opt_ = raw( preatt_tensor_optimized_ );
+
+                att_tensor_optimized_ = make( prefill_att_shape, "gqa.att_opt" );
+                att_opt_ = raw( att_tensor_optimized_ );
+
+                v_out_tensor_optimized_ = make( prefill_vout_shape, "gqa.v_out_opt" );
+                v_out_opt_ = raw( v_out_tensor_optimized_ );
+            }
+
+            // DEBUG:
+            std::cout << "CudaGQAOp::build [optimized]: batch_size=" << B_
+                << " num_heads=" << NH_ << " num_kv_heads=" << NKV_
+                << " head_size=" << HS_ << " max_seq_length=" << T_
+                << " kPrefillChunkSize=" << kPrefillChunkSize << "\n";
+            std::cout << "CudaGroupedQueryAttentionOp [optimized] state memory size: "
+                << (state_memory_size_ / (1024.0 * 1024.0)) << " MiB\n";
+            // END DEBUG
         }
+
+        // ====================================================================
+        // Legacy path — buildCublasLtPlans
+        // ====================================================================
 
         void buildCublasLtPlans()
         {
-            const cudaDataType_t    cuda_dt = getCudaDataType();
-            cublasComputeType_t     compute_type;
-            cudaDataType_t          scale_type;
+            const cudaDataType_t cuda_dt = getCudaDataType();
+            cublasComputeType_t compute_type;
+            cudaDataType_t scale_type;
             getComputeTypes( compute_type, scale_type );
 
-            // All plans use batch_count = B * NH because KV is pre-expanded.
             qk_score_plan_ = Detail::build_qk_score_plan<NativeType>(
                 cublaslt_handle_, B_, NH_, T_, HS_,
                 cuda_dt, compute_type, scale_type );
@@ -1020,9 +875,313 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 cuda_dt, compute_type, scale_type );
         }
 
-        // Returns the cached QK plan for the given partial chunk size, building it
-        // on first use. Plans use chunk_rows = chunk_len, writing tight-packed output
-        // (strideC = chunk_len * T) into the head of the shared prefill buffers.
+        // ====================================================================
+        // Optimized path — buildCublasLtPlans_optimized
+        // Builds plans against the compact [B, NKV, T, HS] layout with grouped
+        // head strides. See GqaMemory.md Phase 1.
+        // TEMP: Remove buildCublasLtPlans() and rename this once validated.
+        // ====================================================================
+
+        void buildCublasLtPlans_optimized()
+        {
+            const cudaDataType_t cuda_dt = getCudaDataType();
+            cublasComputeType_t compute_type;
+            cudaDataType_t scale_type;
+            getComputeTypes( compute_type, scale_type );
+
+            // TODO: Replace these calls with NKV-layout plan builders once
+            // Detail::build_qk_prefill_plan_nkv etc. are implemented (Phase 1).
+            // Stubbed to legacy builders so the gate compiles before Phase 1 is complete.
+            qk_prefill_plan_optimized_ = Detail::build_qk_prefill_plan<NativeType>(
+                cublaslt_handle_, B_, NH_,
+                static_cast<int>(kPrefillChunkSize), T_, HS_, prefill_chunk_size_,
+                cuda_dt, compute_type, scale_type );
+
+            att_value_prefill_plan_optimized_ = Detail::build_att_value_prefill_plan<NativeType>(
+                cublaslt_handle_, B_, NH_,
+                prefill_chunk_size_, T_, HS_, prefill_chunk_size_,
+                cuda_dt, compute_type, scale_type );
+
+            qk_decode_plan_optimized_ = Detail::build_qk_decode_plan<NativeType>(
+                cublaslt_handle_, B_, NH_, T_, HS_,
+                cuda_dt, compute_type, scale_type );
+
+            att_value_decode_plan_optimized_ = Detail::build_att_value_decode_plan<NativeType>(
+                cublaslt_handle_, B_, NH_, T_, HS_,
+                cuda_dt, compute_type, scale_type );
+        }
+
+        // ====================================================================
+        // Legacy path — prefillImpl / decodeImpl
+        // Exact original bodies, renamed only to allow gate dispatch.
+        // TEMP: Remove once the optimized path is validated.
+        // ====================================================================
+
+        void prefillImpl(
+            const ITensor& q, const ITensor& k, const ITensor& v,
+            ITensor& output,
+            int position_offset )
+        {
+            const int chunk_len = static_cast<int>(q.shape()[ 1 ]);
+
+            if ( position_offset < 0 || position_offset + chunk_len > active_max_seq_len_ )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaGroupedQueryAttentionOp::prefill: position_offset {} + chunk_len {} exceeds max_seq_len {}",
+                    position_offset, chunk_len, active_max_seq_len_ ) );
+            }
+
+            const NativeType* Xq = static_cast<const NativeType*>(q.rawData());
+            const NativeType* Xk = static_cast<const NativeType*>(k.rawData());
+            const NativeType* Xv = static_cast<const NativeType*>(v.rawData());
+            NativeType* Y = static_cast<NativeType*>(output.rawData());
+            cudaStream_t stream = context_->getStream();
+
+            const float alpha = 1.0f;
+            const float beta = 0.0f;
+            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
+
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_q(
+                q_, Xq, B_, chunk_len, NH_, HS_, position_offset, T_, stream );
+
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
+                k_, v_, Xk, Xv, B_, chunk_len, NKV_, HS_, position_offset, T_, stream );
+
+            const int total_kv_len = position_offset + chunk_len;
+
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_expand_kv(
+                k_exp_, v_exp_, k_, v_,
+                B_, total_kv_len, T_, NH_, NKV_, HS_, 0, stream );
+
+            const bool is_full_chunk = (chunk_len == static_cast<int>(kPrefillChunkSize));
+            const auto& qk_plan = is_full_chunk ? qk_prefill_plan_ : getOrBuildPartialQKPlan( chunk_len );
+            const auto& av_plan = is_full_chunk ? att_value_prefill_plan_ : getOrBuildPartialAVPlan( chunk_len );
+
+            const NativeType* q_chunk = q_ + static_cast<int64_t>(position_offset) * HS_;
+
+            execute_plan<NativeType>(
+                cublaslt_handle_, qk_plan,
+                &scale, q_chunk, k_exp_, &beta, preatt_,
+                nullptr, stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
+
+            Detail::cuda_gqa_kernels<NativeType>::prefill_softmax(
+                att_, preatt_,
+                B_, NH_, T_, kPrefillChunkSize, chunk_len, position_offset, stream );
+
+            execute_plan<NativeType>(
+                cublaslt_handle_, av_plan,
+                &alpha, att_, v_exp_, &beta, v_out_,
+                nullptr, stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
+
+            const int padded_T = is_full_chunk ? static_cast<int>(kPrefillChunkSize) : chunk_len;
+
+            Detail::cuda_gqa_kernels<NativeType>::prefill_unpermute_output_padded(
+                v_out_, Y,
+                B_, chunk_len, padded_T, NH_, HS_, stream );
+
+            cached_seq_len_ = position_offset + chunk_len;
+        }
+
+        void decodeImpl(
+            const ITensor& q, const ITensor& k, const ITensor& v,
+            ITensor& output,
+            int position )
+        {
+            if ( position < 0 || position >= active_max_seq_len_ )
+                throw std::invalid_argument(
+                    "CudaGroupedQueryAttentionOp::decode position out of range" );
+
+            const int actual_len = position + 1;
+
+            const NativeType* Xq = static_cast<const NativeType*>( q.rawData() );
+            const NativeType* Xk = static_cast<const NativeType*>( k.rawData() );
+            const NativeType* Xv = static_cast<const NativeType*>( v.rawData() );
+            NativeType* Y = static_cast<NativeType*>( output.rawData() );
+            cudaStream_t stream = context_->getStream();
+
+            const float alpha = 1.0f;
+            const float beta = 0.0f;
+            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
+
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_q(
+                q_, Xq, B_, 1, NH_, HS_, position, T_, stream );
+
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
+                k_, v_, Xk, Xv, B_, 1, NKV_, HS_, position, T_, stream );
+
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_expand_kv(
+                k_exp_, v_exp_, k_, v_,
+                B_, actual_len, T_, NH_, NKV_, HS_, 0, stream );
+
+            const NativeType* q_decode = q_ + static_cast<int64_t>(position) * HS_;
+
+            execute_plan<NativeType>(
+                cublaslt_handle_, qk_decode_plan_,
+                &scale, q_decode, k_exp_, &beta, preatt_decode_,
+                nullptr, stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
+
+            Detail::cuda_gqa_kernels<NativeType>::softmax_decode_forward(
+                att_decode_, 1.0f, preatt_decode_,
+                B_, NH_, T_, actual_len, stream );
+
+            execute_plan<NativeType>(
+                cublaslt_handle_, att_value_decode_plan_,
+                &alpha, att_decode_, v_exp_, &beta, v_out_decode_,
+                nullptr, stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
+
+            Detail::cuda_gqa_kernels<NativeType>::unpermute_output(
+                v_out_decode_, Y, B_, 1, NH_, HS_, stream );
+
+            if ( actual_len > cached_seq_len_ )
+                cached_seq_len_ = actual_len;
+        }
+
+        // ====================================================================
+        // Optimized path — prefill_optimized / decode_optimized
+        // NKV-layout plans, no q_tensor_, no expansion buffers.
+        // See GqaMemory.md Phase 1 and Phase 2.
+        // TEMP: Bodies are stubs pending Phase 1 plan builder implementation.
+        //       Replace stub bodies with full NKV-layout implementation in Phase 1.
+        // ====================================================================
+
+        void prefill_optimized(
+            const ITensor& q, const ITensor& k, const ITensor& v,
+            ITensor& output,
+            int position_offset )
+        {
+            const int chunk_len = static_cast<int>(q.shape()[ 1 ]);
+
+            if ( position_offset < 0 || position_offset + chunk_len > active_max_seq_len_ )
+            {
+                throw std::invalid_argument( std::format(
+                    "CudaGroupedQueryAttentionOp::prefill_optimized: position_offset {} + chunk_len {} exceeds max_seq_len {}",
+                    position_offset, chunk_len, active_max_seq_len_ ) );
+            }
+
+            const NativeType* Xq = static_cast<const NativeType*>(q.rawData());
+            const NativeType* Xk = static_cast<const NativeType*>(k.rawData());
+            const NativeType* Xv = static_cast<const NativeType*>(v.rawData());
+            NativeType* Y = static_cast<NativeType*>(output.rawData());
+            cudaStream_t stream = context_->getStream();
+
+            const float alpha = 1.0f;
+            const float beta = 0.0f;
+            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
+
+            // Write K/V into compact [B, NKV, T, HS] cache at position_offset
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
+                k_opt_, v_opt_, Xk, Xv, B_, chunk_len, NKV_, HS_, position_offset, T_, stream );
+
+            // Permute Q from [B, chunk, NH*HS] -> [B, NH, chunk, HS] into transient scratch
+            // TODO: Replace with permute_q kernel that writes into q_permute_opt_ (Phase 2)
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_q(
+                q_permute_opt_, Xq, B_, chunk_len, NH_, HS_, 0, T_, stream );
+
+            const int total_kv_len = position_offset + chunk_len;
+            const bool is_full_chunk = (chunk_len == static_cast<int>(kPrefillChunkSize));
+            const auto& qk_plan = is_full_chunk
+                ? qk_prefill_plan_optimized_
+                : getOrBuildPartialQKPlan_optimized( chunk_len );
+            const auto& av_plan = is_full_chunk
+                ? att_value_prefill_plan_optimized_
+                : getOrBuildPartialAVPlan_optimized( chunk_len );
+
+            // TODO: q_permute_opt_ offset and NKV-stride plan usage (Phase 1)
+            execute_plan<NativeType>(
+                cublaslt_handle_, qk_plan,
+                &scale, q_permute_opt_, k_opt_, &beta, preatt_opt_,
+                nullptr, stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
+
+            Detail::cuda_gqa_kernels<NativeType>::prefill_softmax(
+                att_opt_, preatt_opt_,
+                B_, NH_, T_, kPrefillChunkSize, chunk_len, position_offset, stream );
+
+            execute_plan<NativeType>(
+                cublaslt_handle_, av_plan,
+                &alpha, att_opt_, v_opt_, &beta, v_out_opt_,
+                nullptr, stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
+
+            const int padded_T = static_cast<int>(kPrefillChunkSize);
+
+            Detail::cuda_gqa_kernels<NativeType>::prefill_unpermute_output_padded(
+                v_out_opt_, Y,
+                B_, chunk_len, padded_T, NH_, HS_, stream );
+
+            cached_seq_len_ = position_offset + chunk_len;
+        }
+
+        void decode_optimized(
+            const ITensor& q, const ITensor& k, const ITensor& v,
+            ITensor& output,
+            int position )
+        {
+            if ( position < 0 || position >= active_max_seq_len_ )
+                throw std::invalid_argument(
+                    "CudaGroupedQueryAttentionOp::decode_optimized position out of range" );
+
+            const int actual_len = position + 1;
+
+            const NativeType* Xq = static_cast<const NativeType*>( q.rawData() );
+            const NativeType* Xk = static_cast<const NativeType*>( k.rawData() );
+            const NativeType* Xv = static_cast<const NativeType*>( v.rawData() );
+            NativeType* Y = static_cast<NativeType*>( output.rawData() );
+            cudaStream_t stream = context_->getStream();
+
+            const float alpha = 1.0f;
+            const float beta = 0.0f;
+            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
+
+            // Write K/V into compact [B, NKV, T, HS] cache at position
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
+                k_opt_, v_opt_, Xk, Xv, B_, 1, NKV_, HS_, position, T_, stream );
+
+            // Permute single Q token into transient scratch [B, NH, 1, HS]
+            // TODO: Replace with permute_q kernel (Phase 2)
+            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_q(
+                q_permute_opt_, Xq, B_, 1, NH_, HS_, 0, T_, stream );
+
+            // TODO: NKV-stride plan for decode QK (Phase 1)
+            execute_plan<NativeType>(
+                cublaslt_handle_, qk_decode_plan_optimized_,
+                &scale, q_permute_opt_, k_opt_, &beta, preatt_decode_opt_,
+                nullptr, stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
+
+            Detail::cuda_gqa_kernels<NativeType>::softmax_decode_forward(
+                att_decode_opt_, 1.0f, preatt_decode_opt_,
+                B_, NH_, T_, actual_len, stream );
+
+            execute_plan<NativeType>(
+                cublaslt_handle_, att_value_decode_plan_optimized_,
+                &alpha, att_decode_opt_, v_opt_, &beta, v_out_decode_opt_,
+                nullptr, stream,
+                context_->getCublasLtWorkspace(),
+                context_->getCublasLtWorkspaceSize() );
+
+            Detail::cuda_gqa_kernels<NativeType>::unpermute_output(
+                v_out_decode_opt_, Y, B_, 1, NH_, HS_, stream );
+
+            if ( actual_len > cached_seq_len_ )
+                cached_seq_len_ = actual_len;
+        }
+
+        // ====================================================================
+        // Legacy partial-chunk plan cache helpers
+        // ====================================================================
+
         const Detail::CublasLtMatMulPlan<NativeType>& getOrBuildPartialQKPlan( int chunk_len )
         {
             auto it = qk_partial_prefill_plan_cache_.find( chunk_len );
@@ -1044,8 +1203,6 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             return it->second;
         }
 
-        // Returns the cached att@V plan for the given partial chunk size, building
-        // it on first use. Mirrors getOrBuildPartialQKPlan in structure and intent.
         const Detail::CublasLtMatMulPlan<NativeType>& getOrBuildPartialAVPlan( int chunk_len )
         {
             auto it = att_value_partial_prefill_plan_cache_.find( chunk_len );
@@ -1066,6 +1223,59 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
 
             return it->second;
         }
+
+        // ====================================================================
+        // Optimized partial-chunk plan cache helpers
+        // TEMP: Remove legacy helpers above and rename these once validated.
+        // ====================================================================
+
+        const Detail::CublasLtMatMulPlan<NativeType>& getOrBuildPartialQKPlan_optimized( int chunk_len )
+        {
+            auto it = qk_partial_prefill_plan_cache_optimized_.find( chunk_len );
+
+            if ( it == qk_partial_prefill_plan_cache_optimized_.end() )
+            {
+                const cudaDataType_t cuda_dt = getCudaDataType();
+                cublasComputeType_t compute_type;
+                cudaDataType_t scale_type;
+                getComputeTypes( compute_type, scale_type );
+
+                // TODO: Replace with NKV-layout plan builder (Phase 1)
+                it = qk_partial_prefill_plan_cache_optimized_.emplace(
+                    chunk_len,
+                    Detail::build_qk_prefill_plan<NativeType>(
+                        cublaslt_handle_, B_, NH_, chunk_len, T_, HS_, prefill_chunk_size_,
+                        cuda_dt, compute_type, scale_type ) ).first;
+            }
+
+            return it->second;
+        }
+
+        const Detail::CublasLtMatMulPlan<NativeType>& getOrBuildPartialAVPlan_optimized( int chunk_len )
+        {
+            auto it = att_value_partial_prefill_plan_cache_optimized_.find( chunk_len );
+
+            if ( it == att_value_partial_prefill_plan_cache_optimized_.end() )
+            {
+                const cudaDataType_t cuda_dt = getCudaDataType();
+                cublasComputeType_t compute_type;
+                cudaDataType_t scale_type;
+                getComputeTypes( compute_type, scale_type );
+
+                // TODO: Replace with NKV-layout plan builder (Phase 1)
+                it = att_value_partial_prefill_plan_cache_optimized_.emplace(
+                    chunk_len,
+                    Detail::build_att_value_prefill_plan<NativeType>(
+                        cublaslt_handle_, B_, NH_, chunk_len, T_, HS_, prefill_chunk_size_,
+                        cuda_dt, compute_type, scale_type ) ).first;
+            }
+
+            return it->second;
+        }
+
+        // ====================================================================
+        // Precision helpers — shared by both paths
+        // ====================================================================
 
         cudaDataType_t getCudaDataType() const
         {
