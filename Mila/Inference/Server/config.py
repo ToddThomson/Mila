@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     tokenizer_path: str = Field(..., description="Path to the Mila Llama 3.2 tokenizer binary.")
 
     # Model
-    context_length: int = Field(8192, description="Maximum sequence length passed to fromPretrained().")
+    context_length: int = Field(5120, description="Maximum sequence length passed to fromPretrained().")
     device_index: int = Field(0, description="CUDA device ordinal.")
     strict_load: bool = Field(True, description="Raise on unrecognised parameter names during load.")
 

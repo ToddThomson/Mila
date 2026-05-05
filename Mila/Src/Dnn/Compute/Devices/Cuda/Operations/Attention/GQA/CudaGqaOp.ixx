@@ -182,7 +182,9 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             const NativeType* Xq = static_cast<const NativeType*>(q.rawData());
             const NativeType* Xk = static_cast<const NativeType*>(k.rawData());
             const NativeType* Xv = static_cast<const NativeType*>(v.rawData());
+
             NativeType* Y = static_cast<NativeType*>(output.rawData());
+            
             cudaStream_t stream = context_->getStream();
 
             const float alpha = 1.0f;
@@ -222,6 +224,7 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 0,
                 stream );
 
+            // NOTE: Old code with bug
             // KvCache Expand K/V from [B,NKV,T,HS] → k_exp/v_exp [B,NH,T,HS]
             /*Detail::cuda_gqa_kernels<NativeType>::kvcache_expand_kv(
                 k_exp_, v_exp_,
@@ -452,11 +455,13 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
 
             B_ = static_cast<int>(input_shape[ 0 ]);
             T_ = static_cast<int>(input_shape[ 1 ]);
+            
             NH_ = static_cast<int>(config_.getNumHeads());
             NKV_ = static_cast<int>(config_.getNumKvHeads());
             HS_ = static_cast<int>(config_.getHeadDim());
             C_ = static_cast<int>(config_.getModelDim());
             GS_ = NH_ / NKV_;
+            
             prefill_chunk_size_ = static_cast<int>(kPrefillChunkSize);
 
             // REVIEW: These are just for bookkeeping. They serve no real purpose.
@@ -759,9 +764,11 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         NativeType* preatt_{ nullptr };
         NativeType* att_{ nullptr };
         NativeType* v_out_{ nullptr };
+        
         NativeType* preatt_decode_{ nullptr };
         NativeType* att_decode_{ nullptr };
         NativeType* v_out_decode_{ nullptr };
+        
         NativeType* dq_{ nullptr };
         NativeType* dK_{ nullptr };
         NativeType* dV_{ nullptr };
