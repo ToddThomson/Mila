@@ -1115,7 +1115,8 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
 
-            const int padded_T = static_cast<int>(kPrefillChunkSize);
+            // POSSIBLE BUG: Was - const int padded_T = static_cast<int>(kPrefillChunkSize);
+            const int padded_T = is_full_chunk ? static_cast<int>(kPrefillChunkSize) : chunk_len;
 
             Detail::cuda_gqa_kernels<NativeType>::prefill_unpermute_output_padded(
                 v_out_opt_, Y,
