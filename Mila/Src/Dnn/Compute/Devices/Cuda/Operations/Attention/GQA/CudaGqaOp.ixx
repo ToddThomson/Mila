@@ -877,8 +877,9 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
 
         // ====================================================================
         // Optimized path — buildCublasLtPlans_optimized
-        // Builds plans against the compact [B, NKV, T, HS] layout with grouped
-        // head strides. See GqaMemory.md Phase 1.
+        // Builds plans against the compact [B, NKV, T, HS] layout. GS Q heads
+        // are folded into M so batch_count = B * NKV throughout. No expansion
+        // buffers are required. See GqaMemory.md Phase 1.
         // TEMP: Remove buildCublasLtPlans() and rename this once validated.
         // ====================================================================
 
@@ -889,25 +890,28 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             cudaDataType_t scale_type;
             getComputeTypes( compute_type, scale_type );
 
-            // TODO: Replace these calls with NKV-layout plan builders once
-            // Detail::build_qk_prefill_plan_nkv etc. are implemented (Phase 1).
-            // Stubbed to legacy builders so the gate compiles before Phase 1 is complete.
-            qk_prefill_plan_optimized_ = Detail::build_qk_prefill_plan<NativeType>(
-                cublaslt_handle_, B_, NH_,
-                static_cast<int>(kPrefillChunkSize), T_, HS_, prefill_chunk_size_,
+            qk_prefill_plan_optimized_ = Detail::build_qk_prefill_plan_optimized<NativeType>(
+                cublaslt_handle_,
+                B_, NKV_, GS_,
+                prefill_chunk_size_, T_, HS_,
                 cuda_dt, compute_type, scale_type );
 
-            att_value_prefill_plan_optimized_ = Detail::build_att_value_prefill_plan<NativeType>(
-                cublaslt_handle_, B_, NH_,
-                prefill_chunk_size_, T_, HS_, prefill_chunk_size_,
+            att_value_prefill_plan_optimized_ = Detail::build_att_value_prefill_plan_optimized<NativeType>(
+                cublaslt_handle_,
+                B_, NKV_, GS_,
+                prefill_chunk_size_, T_, HS_,
                 cuda_dt, compute_type, scale_type );
 
-            qk_decode_plan_optimized_ = Detail::build_qk_decode_plan<NativeType>(
-                cublaslt_handle_, B_, NH_, T_, HS_,
+            qk_decode_plan_optimized_ = Detail::build_qk_decode_plan_optimized<NativeType>(
+                cublaslt_handle_,
+                B_, NKV_, GS_,
+                T_, HS_,
                 cuda_dt, compute_type, scale_type );
 
-            att_value_decode_plan_optimized_ = Detail::build_att_value_decode_plan<NativeType>(
-                cublaslt_handle_, B_, NH_, T_, HS_,
+            att_value_decode_plan_optimized_ = Detail::build_att_value_decode_plan_optimized<NativeType>(
+                cublaslt_handle_,
+                B_, NKV_, GS_,
+                T_, HS_,
                 cuda_dt, compute_type, scale_type );
         }
 
@@ -1080,12 +1084,11 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
                 k_opt_, v_opt_, Xk, Xv, B_, chunk_len, NKV_, HS_, position_offset, T_, stream );
 
-            // Permute Q from [B, chunk, NH*HS] -> [B, NH, chunk, HS] into transient scratch
-            // TODO: Replace with permute_q kernel that writes into q_permute_opt_ (Phase 2)
-            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_q(
-                q_permute_opt_, Xq, B_, chunk_len, NH_, HS_, 0, T_, stream );
+            // Permute Q from [B, chunk, NH*HS] into compact [B, NH, chunk, HS] scratch.
+            // strideA = chunk*HS between heads — matches the NKV-layout plan geometry.
+            Detail::cuda_gqa_kernels<NativeType>::permute_q_compact(
+                q_permute_opt_, Xq, B_, chunk_len, NH_, HS_, stream );
 
-            const int total_kv_len = position_offset + chunk_len;
             const bool is_full_chunk = (chunk_len == static_cast<int>(kPrefillChunkSize));
             const auto& qk_plan = is_full_chunk
                 ? qk_prefill_plan_optimized_
@@ -1094,7 +1097,6 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 ? att_value_prefill_plan_optimized_
                 : getOrBuildPartialAVPlan_optimized( chunk_len );
 
-            // TODO: q_permute_opt_ offset and NKV-stride plan usage (Phase 1)
             execute_plan<NativeType>(
                 cublaslt_handle_, qk_plan,
                 &scale, q_permute_opt_, k_opt_, &beta, preatt_opt_,
@@ -1147,12 +1149,11 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
                 k_opt_, v_opt_, Xk, Xv, B_, 1, NKV_, HS_, position, T_, stream );
 
-            // Permute single Q token into transient scratch [B, NH, 1, HS]
-            // TODO: Replace with permute_q kernel (Phase 2)
-            Detail::cuda_gqa_kernels<NativeType>::kvcache_write_q(
-                q_permute_opt_, Xq, B_, 1, NH_, HS_, 0, T_, stream );
+            // Permute single Q token from [B, 1, NH*HS] into compact [B, NH, 1, HS] scratch.
+            // strideA = 1*HS = HS between heads — matches the NKV-layout decode plan geometry.
+            Detail::cuda_gqa_kernels<NativeType>::permute_q_compact(
+                q_permute_opt_, Xq, B_, 1, NH_, HS_, stream );
 
-            // TODO: NKV-stride plan for decode QK (Phase 1)
             execute_plan<NativeType>(
                 cublaslt_handle_, qk_decode_plan_optimized_,
                 &scale, q_permute_opt_, k_opt_, &beta, preatt_decode_opt_,
@@ -1177,7 +1178,6 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             if ( actual_len > cached_seq_len_ )
                 cached_seq_len_ = actual_len;
         }
-
         // ====================================================================
         // Legacy partial-chunk plan cache helpers
         // ====================================================================
@@ -1240,11 +1240,12 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 cudaDataType_t scale_type;
                 getComputeTypes( compute_type, scale_type );
 
-                // TODO: Replace with NKV-layout plan builder (Phase 1)
                 it = qk_partial_prefill_plan_cache_optimized_.emplace(
                     chunk_len,
-                    Detail::build_qk_prefill_plan<NativeType>(
-                        cublaslt_handle_, B_, NH_, chunk_len, T_, HS_, prefill_chunk_size_,
+                    Detail::build_qk_prefill_plan_optimized<NativeType>(
+                        cublaslt_handle_,
+                        B_, NKV_, GS_,
+                        chunk_len, T_, HS_,
                         cuda_dt, compute_type, scale_type ) ).first;
             }
 
@@ -1262,11 +1263,12 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 cudaDataType_t scale_type;
                 getComputeTypes( compute_type, scale_type );
 
-                // TODO: Replace with NKV-layout plan builder (Phase 1)
                 it = att_value_partial_prefill_plan_cache_optimized_.emplace(
                     chunk_len,
-                    Detail::build_att_value_prefill_plan<NativeType>(
-                        cublaslt_handle_, B_, NH_, chunk_len, T_, HS_, prefill_chunk_size_,
+                    Detail::build_att_value_prefill_plan_optimized<NativeType>(
+                        cublaslt_handle_,
+                        B_, NKV_, GS_,
+                        chunk_len, T_, HS_,
                         cuda_dt, compute_type, scale_type ) ).first;
             }
 

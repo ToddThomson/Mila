@@ -37,6 +37,20 @@
  *
  * For future optimisation, a custom grouped-batch kernel could avoid the
  * expansion entirely (see NVIDIA FasterTransformer / vLLM PagedAttention).
+ *
+ * Optimized NKV-layout plans (Phase 1)
+ * ──────────────────────────────────────
+ * The _optimized builders below use batch_count = B * NKV and fold the GS
+ * Q heads into the M dimension, avoiding the expanded [B, NH, T, HS] buffers
+ * entirely. K and V are read directly from their compact [B, NKV, T, HS] cache.
+ *
+ *   Q compact buffer        : [B, NH,  chunk, HS]  = [B*NKV, GS*chunk, HS]
+ *   K/V cache (no expand)   : [B, NKV, T,     HS]  = [B*NKV, T,       HS]
+ *   preatt / att            : [B, NH,  chunk, T]   = [B*NKV, GS*chunk, T]
+ *   v_out                   : [B, NH,  chunk, HS]  = [B*NKV, GS*chunk, HS]
+ *
+ * Total shape of each output buffer is identical to the legacy equivalents,
+ * so all downstream kernels (softmax, unpermute) are unchanged.
  */
 
 module;
@@ -512,6 +526,237 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
             if ( !plan.isValid() || !plan.has_algorithm )
                 Utils::Logger::warning(
                     "cuBLASLt GQA backward dK plan built without algorithm (will use default)" );
+
+            return plan;
+        }
+
+        // ====================================================================
+        // Optimized NKV-layout plan builders (Phase 1)
+        //
+        // batch_count = B * NKV. The GS Q heads are folded into the M dimension
+        // so K and V are read directly from their compact [B, NKV, T, HS] cache
+        // without any expansion. Output buffer shapes are identical to the legacy
+        // equivalents so all downstream kernels are unchanged.
+        //
+        // Geometry for Llama 3.2 3B: NH=24, NKV=8, GS=3, chunk=64, T=4096, HS=128
+        //   batch_count = 1*8  = 8
+        //   M (prefill) = 3*64 = 192  (GS * chunk)
+        //   M (decode)  = 3*1  = 3    (GS * 1)
+        //   K           = 128         (HS)
+        //   N           = 4096        (T)
+        //
+        // TEMP: Remove legacy plan builders and these _optimized builders once
+        //       the optimized path is validated and the gate is removed.
+        // ====================================================================
+
+        /**
+         * @brief Q @ K^T prefill plan reading K directly from [B, NKV, T, HS] cache.
+         *
+         * Q compact buffer is [B, NH, chunk, HS] = [B*NKV, GS*chunk, HS].
+         * K cache is          [B, NKV, T,     HS] = [B*NKV, T,       HS].
+         * Output preatt is    [B, NH, chunk,  T]  = [B*NKV, GS*chunk, T].
+         *
+         * strideA = GS * chunk * HS  (compact Q head stride)
+         * strideB = T * HS           (K cache head stride)
+         * strideC = GS * chunk * T   (preatt head stride)
+         *
+         * @param group_size     NH / NKV — number of Q heads per KV head.
+         * @param chunk_rows     Number of Q rows per chunk (kPrefillChunkSize for full chunks).
+         * @param num_kv_heads   Number of KV heads (NKV).
+         */
+        template <typename TNative>
+        CublasLtMatMulPlan<TNative> build_qk_prefill_plan_optimized(
+            cublasLtHandle_t handle,
+            int batch_size,
+            int num_kv_heads,
+            int group_size,
+            int chunk_rows,
+            int max_seq_length,
+            int head_size,
+            cudaDataType_t      cuda_data_type,
+            cublasComputeType_t compute_type,
+            cudaDataType_t      scale_type )
+        {
+            const int batch_count = batch_size * num_kv_heads;
+            const int m_rows = group_size * chunk_rows;
+
+            // Q compact: [B*NKV, GS*chunk, HS] — stride between KV-group slices
+            const long long strideA = static_cast<long long>(m_rows) * head_size;
+            // K cache:   [B*NKV, T, HS]
+            const long long strideB = static_cast<long long>(max_seq_length) * head_size;
+            // preatt:    [B*NKV, GS*chunk, T]
+            const long long strideC = static_cast<long long>(m_rows) * max_seq_length;
+
+            auto plan = build_strided_plan<TNative>(
+                handle,
+                m_rows,         head_size,      head_size,      strideA,
+                max_seq_length, head_size,      head_size,      strideB,
+                m_rows,         max_seq_length, max_seq_length, strideC,
+                CUBLAS_OP_N, CUBLAS_OP_T,
+                batch_count, false,
+                compute_type, cuda_data_type, scale_type );
+
+            if ( !plan.isValid() || !plan.has_algorithm )
+                Utils::Logger::warning(
+                    "cuBLASLt GQA QK prefill optimized plan built without algorithm (will use default)" );
+
+            return plan;
+        }
+
+        /**
+         * @brief Att @ V prefill plan reading V directly from [B, NKV, T, HS] cache.
+         *
+         * att  is [B, NH, chunk, T]  = [B*NKV, GS*chunk, T].
+         * V    is [B, NKV, T,    HS] = [B*NKV, T,        HS].
+         * v_out is [B, NH, chunk, HS] = [B*NKV, GS*chunk, HS].
+         *
+         * strideA = GS * chunk * T   (att head stride)
+         * strideB = T * HS           (V cache head stride)
+         * strideC = GS * chunk * HS  (v_out head stride)
+         *
+         * @param group_size     NH / NKV.
+         * @param chunk_rows     Number of Q rows per chunk (kPrefillChunkSize for full chunks).
+         * @param num_kv_heads   Number of KV heads (NKV).
+         */
+        template <typename TNative>
+        CublasLtMatMulPlan<TNative> build_att_value_prefill_plan_optimized(
+            cublasLtHandle_t handle,
+            int batch_size,
+            int num_kv_heads,
+            int group_size,
+            int chunk_rows,
+            int max_seq_length,
+            int head_size,
+            cudaDataType_t      cuda_data_type,
+            cublasComputeType_t compute_type,
+            cudaDataType_t      scale_type )
+        {
+            const int batch_count = batch_size * num_kv_heads;
+            const int m_rows = group_size * chunk_rows;
+
+            // att:   [B*NKV, GS*chunk, T]
+            const long long strideA = static_cast<long long>(m_rows) * max_seq_length;
+            // V cache: [B*NKV, T, HS]
+            const long long strideB = static_cast<long long>(max_seq_length) * head_size;
+            // v_out: [B*NKV, GS*chunk, HS]
+            const long long strideC = static_cast<long long>(m_rows) * head_size;
+
+            auto plan = build_strided_plan<TNative>(
+                handle,
+                m_rows,         max_seq_length, max_seq_length, strideA,
+                max_seq_length, head_size,      head_size,      strideB,
+                m_rows,         head_size,      head_size,      strideC,
+                CUBLAS_OP_N, CUBLAS_OP_N,
+                batch_count, false,
+                compute_type, cuda_data_type, scale_type );
+
+            if ( !plan.isValid() || !plan.has_algorithm )
+                Utils::Logger::warning(
+                    "cuBLASLt GQA Att-Value prefill optimized plan built without algorithm (will use default)" );
+
+            return plan;
+        }
+
+        /**
+         * @brief Single-token Q @ K^T decode plan reading K from [B, NKV, T, HS] cache.
+         *
+         * Q compact is [B, NH, 1, HS]  = [B*NKV, GS, HS].
+         * K cache is   [B, NKV, T, HS] = [B*NKV, T,  HS].
+         * preatt_decode is [B, NH, 1, T] = [B*NKV, GS, T].
+         *
+         * strideA = GS * HS   (compact Q decode stride)
+         * strideB = T * HS    (K cache head stride)
+         * strideC = GS * T    (preatt_decode head stride)
+         *
+         * @param group_size     NH / NKV.
+         * @param num_kv_heads   Number of KV heads (NKV).
+         */
+        template <typename TNative>
+        CublasLtMatMulPlan<TNative> build_qk_decode_plan_optimized(
+            cublasLtHandle_t handle,
+            int batch_size,
+            int num_kv_heads,
+            int group_size,
+            int max_seq_length,
+            int head_size,
+            cudaDataType_t      cuda_data_type,
+            cublasComputeType_t compute_type,
+            cudaDataType_t      scale_type )
+        {
+            const int batch_count = batch_size * num_kv_heads;
+            const int m_rows = group_size; // GS * 1
+
+            // Q compact decode: [B*NKV, GS, HS]
+            const long long strideA = static_cast<long long>(m_rows) * head_size;
+            // K cache: [B*NKV, T, HS]
+            const long long strideB = static_cast<long long>(max_seq_length) * head_size;
+            // preatt_decode: [B*NKV, GS, T]
+            const long long strideC = static_cast<long long>(m_rows) * max_seq_length;
+
+            auto plan = build_strided_plan<TNative>(
+                handle,
+                m_rows,         head_size,      head_size,      strideA,
+                max_seq_length, head_size,      head_size,      strideB,
+                m_rows,         max_seq_length, max_seq_length, strideC,
+                CUBLAS_OP_N, CUBLAS_OP_T,
+                batch_count, false,
+                compute_type, cuda_data_type, scale_type );
+
+            if ( !plan.isValid() || !plan.has_algorithm )
+                Utils::Logger::warning(
+                    "cuBLASLt GQA QK decode optimized plan built without algorithm (will use default)" );
+
+            return plan;
+        }
+
+        /**
+         * @brief Single-token Att @ V decode plan reading V from [B, NKV, T, HS] cache.
+         *
+         * att_decode is [B, NH, 1, T]  = [B*NKV, GS, T].
+         * V cache is   [B, NKV, T, HS] = [B*NKV, T,  HS].
+         * v_out_decode is [B, NH, 1, HS] = [B*NKV, GS, HS].
+         *
+         * strideA = GS * T    (att_decode head stride)
+         * strideB = T * HS    (V cache head stride)
+         * strideC = GS * HS   (v_out_decode head stride)
+         *
+         * @param group_size     NH / NKV.
+         * @param num_kv_heads   Number of KV heads (NKV).
+         */
+        template <typename TNative>
+        CublasLtMatMulPlan<TNative> build_att_value_decode_plan_optimized(
+            cublasLtHandle_t handle,
+            int batch_size,
+            int num_kv_heads,
+            int group_size,
+            int max_seq_length,
+            int head_size,
+            cudaDataType_t      cuda_data_type,
+            cublasComputeType_t compute_type,
+            cudaDataType_t      scale_type )
+        {
+            const int batch_count = batch_size * num_kv_heads;
+            const int m_rows = group_size; // GS * 1
+
+            // att_decode: [B*NKV, GS, T]
+            const long long strideA = static_cast<long long>(m_rows) * max_seq_length;
+            // V cache: [B*NKV, T, HS]
+            const long long strideB = static_cast<long long>(max_seq_length) * head_size;
+            // v_out_decode: [B*NKV, GS, HS]
+            const long long strideC = static_cast<long long>(m_rows) * head_size;
+
+            auto plan = build_strided_plan<TNative>(
+                handle,
+                m_rows,         max_seq_length, max_seq_length, strideA,
+                max_seq_length, head_size,      head_size,      strideB,
+                m_rows,         head_size,      head_size,      strideC,
+                CUBLAS_OP_N, CUBLAS_OP_N,
+                batch_count, false,
+                compute_type, cuda_data_type, scale_type );
+
+            if ( !plan.isValid() || !plan.has_algorithm )
+                Utils::Logger::warning(
+                    "cuBLASLt GQA Att-Value decode optimized plan built without algorithm (will use default)" );
 
             return plan;
         }

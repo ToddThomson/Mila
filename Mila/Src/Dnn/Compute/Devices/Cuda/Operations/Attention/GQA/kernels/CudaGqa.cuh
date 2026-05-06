@@ -249,8 +249,6 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         int B, int T, int NH, int NKV, int HS,
         cudaStream_t stream );
 
-    
-
     void cuda_gqa_prefill_expand_kv_fp16(
         half* k_exp, half* v_exp,
         const half* k_compact, const half* v_compact,
@@ -397,5 +395,59 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         const half* vaccum, half* out,
         int B, int actual_T, int padded_T,
         int NQH, int HS,
+        cudaStream_t stream );
+
+    // ========================================================================
+    // Optimized path — compact Q permute (Phase 1)
+    //
+    // Writes Q from [B, chunk_len, NH*HS] into a compact [B, NH, chunk_len, HS]
+    // buffer with stride chunk_len*HS between heads. Unlike kvcache_write_q,
+    // the output is NOT indexed into a T_max-row persistent cache — it writes
+    // tight-packed rows starting at row 0, matching the strideA expected by
+    // the NKV-layout cuBLASLt plans.
+    //
+    // TEMP: Remove with legacy path once the optimized path is validated.
+    // ========================================================================
+
+    /**
+     * @brief Permute Q from [B, chunk_len, NH*HS] to compact [B, NH, chunk_len, HS] (FP32).
+     *
+     * Output stride between heads is chunk_len*HS, not T_max*HS.
+     * Used exclusively by the optimized NKV-layout prefill path.
+     *
+     * @param Q         Output buffer [B * NH * chunk_len * HS], device memory.
+     * @param X         Input Q buffer [B * chunk_len * NH * HS], device memory.
+     * @param B         Batch size.
+     * @param chunk_len Number of tokens in this prefill chunk (or 1 for decode).
+     * @param NH        Number of query heads.
+     * @param HS        Head dimension.
+     * @param stream    CUDA stream.
+     */
+    void cuda_gqa_permute_q_compact_fp32(
+        float* Q,
+        const float* X,
+        int B, int chunk_len,
+        int NH, int HS,
+        cudaStream_t stream );
+
+    /**
+     * @brief Permute Q from [B, chunk_len, NH*HS] to compact [B, NH, chunk_len, HS] (BF16).
+     *
+     * Output stride between heads is chunk_len*HS, not T_max*HS.
+     * Used exclusively by the optimized NKV-layout prefill path.
+     *
+     * @param Q         Output buffer [B * NH * chunk_len * HS], device memory.
+     * @param X         Input Q buffer [B * chunk_len * NH * HS], device memory.
+     * @param B         Batch size.
+     * @param chunk_len Number of tokens in this prefill chunk (or 1 for decode).
+     * @param NH        Number of query heads.
+     * @param HS        Head dimension.
+     * @param stream    CUDA stream.
+     */
+    void cuda_gqa_permute_q_compact_bf16(
+        __nv_bfloat16* Q,
+        const __nv_bfloat16* X,
+        int B, int chunk_len,
+        int NH, int HS,
         cudaStream_t stream );
 }

@@ -58,9 +58,15 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 cuda_gqa_kvcache_expand_kv_fp32( k_exp, v_exp, k_compact, v_compact, B, chunk_len, T, NH, NKV, HS, position_offset, stream );
             }
 
-            // ----------------------------------------------------------------
-            // 
-            // ----------------------------------------------------------------
+            // TEMP: Optimized path — compact Q permute (Phase 1).
+            // Remove with legacy path once validated.
+            static void permute_q_compact(
+                float* Q, const float* X,
+                int B, int chunk_len, int NH, int HS,
+                cudaStream_t stream )
+            {
+                cuda_gqa_permute_q_compact_fp32( Q, X, B, chunk_len, NH, HS, stream );
+            }
 
             static void permute_qkv(
                 float* Q, float* K, float* V, const float* X,
@@ -243,6 +249,16 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
                 int B, int chunk_len, int T, int NH, int NKV, int HS, int position_offset, cudaStream_t stream )
             {
                 cuda_gqa_kvcache_expand_kv_bf16( k_exp, v_exp, k_compact, v_compact, B, chunk_len, T, NH, NKV, HS, position_offset, stream );
+            }
+
+            // TEMP: Optimized path — compact Q permute (Phase 1).
+            // Remove with legacy path once validated.
+            static void permute_q_compact(
+                nv_bfloat16* Q, const nv_bfloat16* X,
+                int B, int chunk_len, int NH, int HS,
+                cudaStream_t stream )
+            {
+                cuda_gqa_permute_q_compact_bf16( Q, X, B, chunk_len, NH, HS, stream );
             }
 
             // ----------------------------------------------------------------

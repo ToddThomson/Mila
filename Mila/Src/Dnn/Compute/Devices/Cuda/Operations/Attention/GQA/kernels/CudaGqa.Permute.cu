@@ -27,9 +27,11 @@
  *   expand_kv_*_kernel             — [B,NKV,T,HS] → [B,NH,T,HS] broadcast
  *   reduce_kv_grad_*_kernel        — [B,NH,T,HS]  → [B,NKV,T,HS] sum (backward)
  *   permute_backward_*_kernel      — pack dQ/dK/dV → dX [B,T,(NH+2*NKV)*HS]
+ *   permute_q_compact_*_kernel     — [B,chunk,NH*HS] → [B,NH,chunk,HS] compact (optimized path)
  */
 
 #include <cuda_fp16.h>
+#include <cuda_bf16.h>
 #include <cuda_runtime.h>
 #include "device_launch_parameters.h"
 #include "CudaUtils.h"
@@ -685,6 +687,81 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
     }
 
     // ========================================================================
+    // Optimized path — compact Q permute kernels (Phase 1)
+    //
+    // Reads Q from [B, chunk_len, NH*HS] and writes into [B, NH, chunk_len, HS].
+    // The output stride between heads is chunk_len*HS (compact), not T_max*HS.
+    // This matches the strideA expected by the NKV-layout cuBLASLt plan builders.
+    // Used for both prefill (chunk_len = kPrefillChunkSize) and decode (chunk_len = 1).
+    //
+    // TEMP: Remove with the legacy path once the optimized path is validated.
+    // ========================================================================
+
+    __global__ void permute_q_compact_fp32_kernel(
+        float* Q,
+        const float* X,
+        int B, int chunk_len, int NH, int HS )
+    {
+        const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        const int total = B * NH * chunk_len * HS;
+
+        if ( idx >= total )
+            return;
+
+        const int b = idx / (NH * chunk_len * HS);
+        int rest = idx % (NH * chunk_len * HS);
+        const int nh = rest / (chunk_len * HS);
+        rest = rest % (chunk_len * HS);
+        const int t = rest / HS;
+        const int hs = rest % HS;
+
+        // Source: X is [B, chunk_len, NH*HS] — token-major interleaved heads
+        const int src_idx = b * (chunk_len * NH * HS)
+            + t * (NH * HS)
+            + nh * HS
+            + hs;
+
+        // Dest: Q is [B, NH, chunk_len, HS] — head-major compact output
+        const int dst_idx = b * (NH * chunk_len * HS)
+            + nh * (chunk_len * HS)
+            + t * HS
+            + hs;
+
+        Q[ dst_idx ] = __ldcs( &X[ src_idx ] );
+    }
+
+    __global__ void permute_q_compact_bf16_kernel(
+        __nv_bfloat16* Q,
+        const __nv_bfloat16* X,
+        int B, int chunk_len, int NH, int HS )
+    {
+        const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        const int total = B * NH * chunk_len * HS;
+
+        if ( idx >= total )
+            return;
+
+        const int b = idx / (NH * chunk_len * HS);
+        int rest = idx % (NH * chunk_len * HS);
+        const int nh = rest / (chunk_len * HS);
+        rest = rest % (chunk_len * HS);
+        const int t = rest / HS;
+        const int hs = rest % HS;
+
+        const int src_idx = b * (chunk_len * NH * HS)
+            + t * (NH * HS)
+            + nh * HS
+            + hs;
+
+        const int dst_idx = b * (NH * chunk_len * HS)
+            + nh * (chunk_len * HS)
+            + t * HS
+            + hs;
+
+        Q[ dst_idx ] = __ldcs( &X[ src_idx ] );
+    }
+
+    // ========================================================================
     // Host launchers — FP32
     // ========================================================================
 
@@ -787,6 +864,21 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
         cudaCheck( cudaGetLastError() );
     }
 
+    void cuda_gqa_permute_q_compact_fp32(
+        float* Q,
+        const float* X,
+        int B, int chunk_len,
+        int NH, int HS,
+        cudaStream_t stream )
+    {
+        const int block_size = 256;
+        const int total = B * NH * chunk_len * HS;
+
+        permute_q_compact_fp32_kernel << <ceil_div( total, block_size ), block_size, 0, stream >> > (
+            Q, X, B, chunk_len, NH, HS);
+        cudaCheck( cudaGetLastError() );
+    }
+
     // ========================================================================
     // Host launchers — FP16
     // ========================================================================
@@ -884,6 +976,21 @@ namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
 
         permute_backward_kv_fp16_kernel << <ceil_div( B * NKV * T * HS, block_size ), block_size, 0, stream >> > (
             dX, dK, dV, B, T, NH, NKV, HS);
+        cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_gqa_permute_q_compact_bf16(
+        __nv_bfloat16* Q,
+        const __nv_bfloat16* X,
+        int B, int chunk_len,
+        int NH, int HS,
+        cudaStream_t stream )
+    {
+        const int block_size = 256;
+        const int total = B * NH * chunk_len * HS;
+
+        permute_q_compact_bf16_kernel << <ceil_div( total, block_size ), block_size, 0, stream >> > (
+            Q, X, B, chunk_len, NH, HS);
         cudaCheck( cudaGetLastError() );
     }
 
