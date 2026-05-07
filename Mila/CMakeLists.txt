@@ -478,7 +478,7 @@ PUBLIC
         "Src/Dnn/Models/LlamaModelConfig.ixx"
         "Src/Dnn/Compute/Operations/GqaOpTypeMap.ixx"
         "Src/Dnn/Compute/Operations/GqaOpTypeMap.Template.ixx"
-)
+ "Src/Dnn/Compute/Operations/GqaState.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

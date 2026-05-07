@@ -31,6 +31,7 @@ import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.GqaOpTypeMap;
+import Compute.GqaState;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
@@ -100,10 +101,7 @@ namespace Mila::Dnn
          * @param device_id Optional DeviceId to create an owned ExecutionContext
          *                  (standalone / unit-test mode).
          */
-        explicit GroupedQueryAttention( 
-            const std::string& name,
-            const GqaConfig& config,
-            std::optional<DeviceId> device_id = std::nullopt )
+        explicit GroupedQueryAttention( const std::string& name, const GqaConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), config_( config )
         {
             config_.validate();
@@ -308,6 +306,19 @@ namespace Mila::Dnn
         bool supportsKVCache() const noexcept
         {
             return kv_cache_op_ != nullptr && positional_op_ != nullptr;
+        }
+
+        /**
+         * @brief Forward the shared transient workspace to the underlying operation.
+         *
+         * Must be called after build() and before prefill() or decode().
+         * A no-op on backends that do not implement setState (e.g. CPU stub).
+         *
+         * @param state Non-owning pointers to the shared GQA scratch tensors.
+         */
+        void setState( const GqaState& state )
+        {
+            operation_->setState( state );
         }
 
         // ====================================================================

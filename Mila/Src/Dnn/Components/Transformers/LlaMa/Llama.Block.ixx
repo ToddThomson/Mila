@@ -62,6 +62,7 @@ import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
+import Compute.GqaState;
 import Dnn.Components.RmsNorm;
 import Dnn.Components.Rope;
 import Dnn.Components.Gqa;
@@ -96,13 +97,11 @@ namespace Mila::Dnn
         using LinearType = Linear<TDeviceType, TPrecision>;
         using SwiGLUType = Swiglu<TDeviceType, TPrecision>;
 
-        explicit LlamaBlock(
-            const std::string& name,
-            const LlamaConfig& config,
-            std::optional<DeviceId> device_id = std::nullopt )
+        explicit LlamaBlock( const std::string& name, const LlamaConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : CompositeComponentBase( name ), config_( config )
         {
             config_.validate();
+            
             createGraph();
 
             if ( device_id.has_value() )
@@ -464,6 +463,19 @@ namespace Mila::Dnn
             fc_down_->zeroGradients();
         }
 
+        /**
+         * @brief Forward the shared GQA transient workspace to this block's attention layer.
+         *
+         * Must be called after build() and before prefill() or decode().
+         *
+         * @param state Non-owning pointers to workspace tensors owned by LlamaTransformer.
+         */
+        void setState( const GqaState& state )
+        {
+            if ( attn_ )
+                attn_->setState( state );
+        }
+
         // ====================================================================
         // Serialization
         // ====================================================================
@@ -749,10 +761,6 @@ namespace Mila::Dnn
         TensorType* last_swiglu_out_{ nullptr };
         TensorType* last_ffn_out_{ nullptr };
         TensorType* last_res2_out_{ nullptr };
-
-        // ====================================================================
-        // Graph construction
-        // ====================================================================
 
         void createGraph()
         {

@@ -40,6 +40,8 @@ import Compute.Device;
 import Compute.DeviceType;
 import Compute.DeviceId;
 import Compute.DeviceTypeTraits;
+import Compute.GqaState;
+import Compute.CudaDeviceMemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.ExecutionContext;
@@ -338,6 +340,15 @@ namespace Mila::Dnn
                 stats += child->getMemoryStats();
             }
 
+            // GQA state memory usage
+            for ( auto* t : { gqa_q_permute_.get(), gqa_preatt_.get(), gqa_att_.get(),
+                              gqa_v_out_.get(), gqa_preatt_decode_.get(),
+                              gqa_att_decode_.get(), gqa_v_out_decode_.get() } )
+            {
+                if ( t )
+                    stats.device_state_bytes += t->getStorageSize();
+            }
+
             return stats;
         }
 
@@ -440,6 +451,52 @@ namespace Mila::Dnn
             lm_head_ = this->template getComponentAs<LinearType>( this->getName() + ".lm_head" );
             lm_head_->build( final_context );
 
+            // Allocate one shared GQA transient workspace for inference and wire it
+            // into every block's attention layer. All 28 layers execute sequentially,
+            // so a single allocation is reused across the full forward pass.
+            if ( context.isInferenceMode() )
+            {
+                const int64_t B = input_shape[ 0 ];
+                const int64_t NH = config_.getNumHeads();
+                const int64_t NKV = config_.getNumKVHeads();
+                const int64_t HS = config_.getModelDim() / NH;
+                const int64_t T_ctx = input_shape[ 1 ];
+                auto device = this->getExecutionContext()->getDeviceId();
+
+                gqa_q_permute_ = std::make_unique<TensorType>(
+                    device, shape_t{ B, NH, kPrefillChunkSize, HS }, this->getName() + ".gqa_ws.q_perm" );
+
+                gqa_preatt_ = std::make_unique<TensorType>(
+                    device, shape_t{ B, NH, kPrefillChunkSize, T_ctx }, this->getName() + ".gqa_ws.preatt" );
+
+                gqa_att_ = std::make_unique<TensorType>(
+                    device, shape_t{ B, NH, kPrefillChunkSize, T_ctx }, this->getName() + ".gqa_ws.att" );
+
+                gqa_v_out_ = std::make_unique<TensorType>(
+                    device, shape_t{ B, NH, kPrefillChunkSize, HS }, this->getName() + ".gqa_ws.v_out" );
+
+                gqa_preatt_decode_ = std::make_unique<TensorType>(
+                    device, shape_t{ B, NH, 1, T_ctx }, this->getName() + ".gqa_ws.preatt_dec" );
+
+                gqa_att_decode_ = std::make_unique<TensorType>(
+                    device, shape_t{ B, NH, 1, T_ctx }, this->getName() + ".gqa_ws.att_dec" );
+
+                gqa_v_out_decode_ = std::make_unique<TensorType>(
+                    device, shape_t{ B, NH, 1, HS }, this->getName() + ".gqa_ws.v_out_dec" );
+
+                GqaState gqa_state;
+                gqa_state.q_permute = gqa_q_permute_.get();
+                gqa_state.preatt = gqa_preatt_.get();
+                gqa_state.att = gqa_att_.get();
+                gqa_state.v_out = gqa_v_out_.get();
+                gqa_state.preatt_decode = gqa_preatt_decode_.get();
+                gqa_state.att_decode = gqa_att_decode_.get();
+                gqa_state.v_out_decode = gqa_v_out_decode_.get();
+
+                for ( auto& block : transformer_blocks_ )
+                    block->setState( gqa_state );
+            }
+
             block_input_ptrs_.assign( transformer_blocks_.size(), nullptr );
             block_output_ptrs_.assign( transformer_blocks_.size(), nullptr );
             token_embed_out_ptr_ = nullptr;
@@ -500,6 +557,16 @@ namespace Mila::Dnn
         
         // Inference-only prefill buffer for autoregressive decoding.
         std::unique_ptr<TensorType> prefill_{ nullptr };
+
+        // Shared GQA transient workspace — inference only, owned here, shared across all blocks.
+        // ~26 MB total vs ~352 MB × 28 layers in the per-layer self-owned design.
+        std::unique_ptr<TensorType> gqa_q_permute_{ nullptr };
+        std::unique_ptr<TensorType> gqa_preatt_{ nullptr };
+        std::unique_ptr<TensorType> gqa_att_{ nullptr };
+        std::unique_ptr<TensorType> gqa_v_out_{ nullptr };
+        std::unique_ptr<TensorType> gqa_preatt_decode_{ nullptr };
+        std::unique_ptr<TensorType> gqa_att_decode_{ nullptr };
+        std::unique_ptr<TensorType> gqa_v_out_decode_{ nullptr };
 
         // Activation pointers — valid between forward() and the next backward().
         TensorType* token_embed_out_ptr_{ nullptr };   // rope's input

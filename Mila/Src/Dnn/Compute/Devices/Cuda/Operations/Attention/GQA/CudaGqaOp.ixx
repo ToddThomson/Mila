@@ -48,6 +48,7 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
 import Compute.IKvInference;
+import Compute.GqaState;
 import Compute.CublasLtPlan;
 import CublasLt.Error;
 import Utils.Logger;
@@ -131,7 +132,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         using ConfigType = GqaConfig;
 
         CudaGqaOp( IExecutionContext* context, const GqaConfig& config )
-            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaGroupedQueryAttentionOp" ) )
+            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaGqaOp" ) )
             , config_( config )
             , use_optimized_path_( kUseOptimizedPath )
         {
@@ -145,6 +146,40 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
         void setGradients( ITensor*, ITensor* ) override
         {
+        }
+
+        /**
+         * @brief Wire the shared transient scratch buffers for the optimized inference path.
+         *
+         * Called once per build by LlamaTransformer after all blocks are built. The tensors
+         * are owned by LlamaTransformer and shared across all GQA layers sequentially.
+         * Must be called before prefill() or decode() when use_optimized_path_ is true.
+         *
+         * @param state Non-owning pointers to the shared workspace tensors. All slots must
+         *              be non-null for the optimized inference path.
+         */
+        void setState( const GqaState& state )
+        {
+            if ( state.q_permute )
+                q_permute_opt_ = static_cast<NativeType*>(state.q_permute->rawData());
+
+            if ( state.preatt )
+                preatt_opt_ = static_cast<NativeType*>(state.preatt->rawData());
+
+            if ( state.att )
+                att_opt_ = static_cast<NativeType*>(state.att->rawData());
+
+            if ( state.v_out )
+                v_out_opt_ = static_cast<NativeType*>(state.v_out->rawData());
+
+            if ( state.preatt_decode )
+                preatt_decode_opt_ = static_cast<NativeType*>(state.preatt_decode->rawData());
+
+            if ( state.att_decode )
+                att_decode_opt_ = static_cast<NativeType*>(state.att_decode->rawData());
+
+            if ( state.v_out_decode )
+                v_out_decode_opt_ = static_cast<NativeType*>(state.v_out_decode->rawData());
         }
 
         void initializeKvCache( int batch_size, int max_seq_length ) override
@@ -775,35 +810,35 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             v_opt_ = raw( v_tensor_ );
 
             // Decode scratch — minor per-layer allocation, migrated to shared workspace in Phase 3
-            preatt_decode_tensor_ = make( dec_att, "gqa.preatt_decode" );
-            preatt_decode_opt_ = raw( preatt_decode_tensor_ );
+            //preatt_decode_tensor_ = make( dec_att, "gqa.preatt_decode" );
+            //preatt_decode_opt_ = raw( preatt_decode_tensor_ );
 
-            att_decode_tensor_ = make( dec_att, "gqa.att_decode" );
-            att_decode_opt_ = raw( att_decode_tensor_ );
+            //att_decode_tensor_ = make( dec_att, "gqa.att_decode" );
+            //att_decode_opt_ = raw( att_decode_tensor_ );
 
-            v_out_decode_tensor_ = make( dec_vout, "gqa.v_out_decode" );
-            v_out_decode_opt_ = raw( v_out_decode_tensor_ );
+            //v_out_decode_tensor_ = make( dec_vout, "gqa.v_out_decode" );
+            //v_out_decode_opt_ = raw( v_out_decode_tensor_ );
 
-            if ( build_context.isInferenceMode() )
-            {
-                // Transient Q permute and attention scratch — self-allocated for the A/B period.
-                // Migrated to the shared LlamaTransformer workspace in Phase 2/3.
-                const shape_t q_perm_shape = { B_, NH_, kPrefillChunkSize, HS_ };
-                const shape_t prefill_att_shape = { B_, NH_, kPrefillChunkSize, T_ };
-                const shape_t prefill_vout_shape = { B_, NH_, kPrefillChunkSize, HS_ };
+            //if ( build_context.isInferenceMode() )
+            //{
+            //    // Transient Q permute and attention scratch — self-allocated for the A/B period.
+            //    // Migrated to the shared LlamaTransformer workspace in Phase 2/3.
+            //    const shape_t q_perm_shape = { B_, NH_, kPrefillChunkSize, HS_ };
+            //    const shape_t prefill_att_shape = { B_, NH_, kPrefillChunkSize, T_ };
+            //    const shape_t prefill_vout_shape = { B_, NH_, kPrefillChunkSize, HS_ };
 
-                q_permute_tensor_optimized_ = make( q_perm_shape, "gqa.q_perm_opt" );
-                q_permute_opt_ = raw( q_permute_tensor_optimized_ );
+            //    q_permute_tensor_optimized_ = make( q_perm_shape, "gqa.q_perm_opt" );
+            //    q_permute_opt_ = raw( q_permute_tensor_optimized_ );
 
-                preatt_tensor_optimized_ = make( prefill_att_shape, "gqa.preatt_opt" );
-                preatt_opt_ = raw( preatt_tensor_optimized_ );
+            //    preatt_tensor_optimized_ = make( prefill_att_shape, "gqa.preatt_opt" );
+            //    preatt_opt_ = raw( preatt_tensor_optimized_ );
 
-                att_tensor_optimized_ = make( prefill_att_shape, "gqa.att_opt" );
-                att_opt_ = raw( att_tensor_optimized_ );
+            //    att_tensor_optimized_ = make( prefill_att_shape, "gqa.att_opt" );
+            //    att_opt_ = raw( att_tensor_optimized_ );
 
-                v_out_tensor_optimized_ = make( prefill_vout_shape, "gqa.v_out_opt" );
-                v_out_opt_ = raw( v_out_tensor_optimized_ );
-            }
+            //    v_out_tensor_optimized_ = make( prefill_vout_shape, "gqa.v_out_opt" );
+            //    v_out_opt_ = raw( v_out_tensor_optimized_ );
+            //}
 
             // DEBUG:
             std::cout << "CudaGQAOp::build [optimized]: batch_size=" << B_

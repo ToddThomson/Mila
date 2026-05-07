@@ -281,8 +281,8 @@ New additions for the optimized path:
 - `permute_q_compact` kernel (`CudaGqa.Permute.cu`, dispatched via `CudaGqa.Dispatch.ixx`)
   — permutes Q from `[B, chunk, NH*HS]` into a compact `[B, NH, chunk, HS]` scratch buffer
   with stride `chunk*HS` between heads, replacing `kvcache_write_q` in the optimized path.
-- `initializeState_optimized` — allocates only the KV cache and compact transient scratch;
-  does not allocate `q_tensor_`, `k_exp_tensor_`, or `v_exp_tensor_`.
+- `initializeState_optimized` — allocates only the KV cache; transient scratch is provided
+  externally via `setState(GqaState)` from the shared `LlamaTransformer` workspace.
 - `prefill_optimized` / `decode_optimized` — full implementations wired to the new plans
   and `permute_q_compact`.
 
@@ -295,50 +295,52 @@ Section 4.1 for the corrected analysis.
 
 ---
 
-### Phase 2 — GQA Buffer Surgery (Primary Memory Recovery, ~3.2 GB)
+### Phase 2 — Shared GQA Workspace (Primary Memory Recovery) — COMPLETE
 
-Once Phase 1 plans are validated:
+**Prerequisite:** Phase 1 validated correct.
 
-**Delete `q_tensor_` and `kvcache_write_q`.**
-Remove `q_tensor_`, `q_`, and all calls to `kvcache_write_q` from both `prefill` and
-`decode`. Replace with a transient permute of the incoming `Xq` pointer into the shared
-workspace Q slot (see Phase 2 workspace below).
+**Introduce `GqaState` and `setState(GqaState)`.**
+- New module `Compute.GqaState` — a plain struct of non-owning `ITensor*` pointers covering
+  all seven transient scratch slots (four prefill, three decode).
+- `CudaGqaOp::setState(GqaState)` wires the raw device pointers from the caller-supplied
+  tensors. `initializeState_optimized` no longer allocates any transient scratch.
+- `GroupedQueryAttention::setState` and `LlamaBlock::setState` forward the call down to the
+  concrete op.
 
-**Delete `k_exp_tensor_`, `v_exp_tensor_`, and `kvcache_expand_kv`.**
-Remove both expansion buffers and all calls to `kvcache_expand_kv` from both `prefill`
-and `decode`. The Phase 1 plans read directly from `k_tensor_`/`v_tensor_`.
+**Allocate the shared workspace in `LlamaTransformer::onBuilding`.**
+Seven tensors are allocated once at the transformer level and passed to every block via
+`block->setState(gqa_state)` immediately after the block-build loop. All 28 layers share
+the same allocation because they execute sequentially.
 
-**Retain `k_tensor_` and `v_tensor_` unchanged.**
-These are the KV cache. No changes to their shape, dtype, or ownership.
-
-**Introduce a shared workspace passed in from `LlamaTransformer`.**
-Allocate a single workspace tensor at the `LlamaTransformer` level and pass it into each
-`LlamaBlock` and down into `CudaGroupedQueryAttentionOp` for each forward call. The
-workspace covers all transient GQA buffers:
+The workspace covers all transient GQA buffers:
 
 | Slot | Shape | Size |
 |---|---|---|
-| Q permute (prefill) | `[1, 24, 64, 128]` | 0.4 MB |
-| Q permute (decode) | `[1, 24, 1, 128]` | ~0 MB |
+| `q_permute` (prefill) | `[1, 24, 64, 128]` | 0.4 MB |
 | `preatt` (prefill) | `[1, 24, 64, 4096]` | 12.6 MB |
 | `att` (prefill) | `[1, 24, 64, 4096]` | 12.6 MB |
 | `v_out` (prefill) | `[1, 24, 64, 128]` | 0.4 MB |
+| `preatt_decode` | `[1, 24, 1, 4096]` | 0.2 MB |
+| `att_decode` | `[1, 24, 1, 4096]` | 0.2 MB |
+| `v_out_decode` | `[1, 24, 1, 128]` | ~0 MB |
 
-**GQA workspace total: ~26 MB** — allocated once, reused across all 28 layers sequentially.
+**GQA workspace total: ~26 MB** — allocated once, reused across all 28 layers.
 
-Remove `preatt_tensor_`, `att_tensor_`, and `v_out_tensor_` from `initializeState`.
-`preatt_decode_`, `att_decode_`, and `v_out_decode_` are minor (~10 MB total) and may be
-migrated to the workspace in the same pass or deferred to Phase 3.
+**Validation.** Memory confirmed at 736 MB state / 7.44 GB total for Llama 3.2 3B BF16.
+Token-for-token correctness confirmed by runtime inference traces. Phase 2 is complete.
 
 ---
 
-### Phase 3 — LlamaBlock Buffer Migration (Required Cleanup, ~28 MB)
+### Phase 3 — LlamaBlock Buffer Migration (Deferred to Beta Cleanup, ~28 MB)
 
-**Prerequisite:** Phase 2 complete and validated correct.
+**Prerequisite:** Phase 2 complete and validated correct. ✓
 
-Migrate the `LlamaBlock` per-layer inference buffers into the shared workspace introduced
-in Phase 2. These buffers are only live during one layer's forward pass at a time —
-identical to the GQA prefill scratch buffers — and belong in the same workspace:
+**Status: DEFERRED.** The remaining per-layer `LlamaBlock` inference buffers total ~28 MB
+across 28 layers — less than 0.3% of the 12 GB VRAM budget. The marginal return does not
+justify the disruption prior to the beta milestone. This work is tracked as a beta cleanup
+task.
+
+The buffers to be migrated when this phase is undertaken:
 
 | Buffer | Shape | Per-Layer | × 28 Layers |
 |---|---|---|---|
@@ -347,50 +349,46 @@ identical to the GQA prefill scratch buffers — and belong in the same workspac
 | `k_` | `[1, 64, 8*128]` | 0.1 MB | 3 MB |
 | `v_` | `[1, 64, 8*128]` | 0.1 MB | 3 MB |
 
-**LlamaBlock workspace total: ~28 MB recovered.**
+**LlamaBlock workspace total: ~28 MB recoverable.**
 
-The workspace sizing at `LlamaTransformer` level must account for all slots across both
-GQA and `LlamaBlock` when Phase 3 is complete. For future models with heterogeneous layer
-configurations (e.g. MoE with differing head counts per layer), the workspace must be
-sized to the maximum across all layers — still a single static allocation, requiring a
-max-reduce over layer configs at build time.
+When undertaken, the `GqaState` workspace in `LlamaTransformer` should be extended to
+cover these slots. For future models with heterogeneous layer configurations (e.g. MoE),
+the workspace must be sized to the maximum across all layers — still a single static
+allocation, requiring a max-reduce over layer configs at build time.
 
 ---
 
-## 6. Expected Post-Fix Allocation
+## 6. Confirmed Post-Fix Allocation
 
 For Llama 3.2 3B BF16 (`B=1, NH=24, NKV=8, T=4096, HS=128`, 28 layers):
 
-### After Phase 2 (primary fix)
+### After Phase 2 (current) — CONFIRMED
+
+| Allocation | Owner | Spec | Actual |
+|---|---|---|---|
+| Weights | `LlamaTransformer` | ~6,000 MB | **6,720 MB** |
+| K cache (all layers) | `CudaGqaOp` × 28 | 235 MB | included in state |
+| V cache (all layers) | `CudaGqaOp` × 28 | 235 MB | included in state |
+| RoPE cos/sin table | `CudaRopeOp` (shared) | ~67 MB | included in state |
+| GQA shared workspace | `LlamaTransformer` | ~26 MB | included in state |
+| Component output buffers | various × 28 layers | not modelled | included in state |
+| **State total** | | **~601 MB** | **736 MB** |
+| **Grand total** | | **~6,601 MB** | **7,440 MB** |
+
+The ~135 MB state delta above the spec estimate is accounted for by component output
+buffers (`Linear`, `RmsNorm`, `Residual`, `SwiGLU`) across 28 layers, which were not
+modelled in the original allocation breakdown. These are not candidates for the GQA
+workspace and are correctly owned at the component level.
+
+**Net VRAM recovered from baseline (~10.2 GB): ~2.76 GB — 23% of the 12 GB budget.**
+
+### After Phase 3 (target, deferred)
 
 | Allocation | Owner | Size |
 |---|---|---|
-| Weights | `LlamaTransformer` | ~6,000 MB |
-| K cache (all layers) | `CudaGroupedQueryAttentionOp` × 28 | 235 MB |
-| V cache (all layers) | `CudaGroupedQueryAttentionOp` × 28 | 235 MB |
-| RoPE cos/sin table | `CudaRopeOp` (shared) | ~67 MB |
-| GQA shared workspace | `LlamaTransformer` | ~26 MB |
-| Decode scratch (`preatt`, `att`, `v_out`) | `CudaGroupedQueryAttentionOp` × 28 | ~10 MB |
-| LlamaBlock buffers (Phase 3 pending) | `LlamaBlock` × 28 | ~28 MB |
-| **Total** | | **~6,601 MB ≈ 6.6 GB** |
-
-**Reduction from current: ~3.6 GB — recovering 30% of the 12 GB VRAM budget.**
-
-### After Phase 3 (complete)
-
-| Allocation | Owner | Size |
-|---|---|---|
-| Weights | `LlamaTransformer` | ~6,000 MB |
-| K cache (all layers) | `CudaGroupedQueryAttentionOp` × 28 | 235 MB |
-| V cache (all layers) | `CudaGroupedQueryAttentionOp` × 28 | 235 MB |
-| RoPE cos/sin table | `CudaRopeOp` (shared) | ~67 MB |
-| Shared workspace (GQA + block) | `LlamaTransformer` | ~54 MB |
-| Decode scratch (`preatt`, `att`, `v_out`) | `CudaGroupedQueryAttentionOp` × 28 | ~10 MB |
-| **Total** | | **~6,601 MB ≈ 6.6 GB** |
-
-The Phase 3 saving is ~28 MB — modest in absolute terms but required to complete the
-architectural principle that all transient per-layer inference buffers are owned by a
-single shared workspace at `LlamaTransformer` level.
+| Weights | `LlamaTransformer` | ~6,720 MB |
+| State (KV cache + workspace + components) | various | ~708 MB |
+| **Total** | | **~7,428 MB** |
 
 ---
 
