@@ -551,8 +551,7 @@ namespace Mila::Dnn
 
             // Language model head — projects model_dim → vocab_size, no bias.
             auto lm_head_config = LinearConfig( config_.getModelDim(), config_.getVocabSize() )
-                .withBias( false )
-                .withRowMajor( true );
+                .withBias( false );
 
             auto lm_head = std::make_shared<LinearType>(
                 this->getName() + ".lm_head", lm_head_config, std::nullopt );

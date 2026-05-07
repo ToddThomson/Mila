@@ -20,13 +20,6 @@ namespace Mila::Dnn::Compute
     export template<>
     struct LinearOpTypeMap<DeviceType::Cuda, TensorDataType::BF16, TensorDataType::BF16>
     {
-        // static constexpr TensorDataType data_type = Cuda::Linear::CudaLinearOp<TensorDataType::BF16>;
         using op_type = Cuda::Linear::CudaLinearOp<TensorDataType::BF16>;
     };
-
-    /*export template<>
-        struct LinearOpTypeMap<DeviceType::Cuda, TensorDataType::BF16, TensorDataType::FP8_E4M3>
-    {
-        using op_type = Cuda::Linear::CudaLinearOp<TensorDataType::BF16, TensorDataType::FP8_E4M3>;
-    };*/
 }

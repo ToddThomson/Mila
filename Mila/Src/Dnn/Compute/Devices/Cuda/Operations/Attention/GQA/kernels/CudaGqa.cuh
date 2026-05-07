@@ -11,7 +11,7 @@
  *   cuda_gqa_<operation>_fp32 / _fp16
  *
  * All functions are in namespace:
- *   Mila::Dnn::Compute::Cuda::GroupedQueryAttention
+ *   Mila::Dnn::Compute::Cuda::Gqa
  *
  * Template wrapper
  * ────────────────
@@ -33,7 +33,7 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 
-namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
+namespace Mila::Dnn::Compute::Cuda::Gqa
 {
     // ========================================================================
     // GQA Prefill — BF16

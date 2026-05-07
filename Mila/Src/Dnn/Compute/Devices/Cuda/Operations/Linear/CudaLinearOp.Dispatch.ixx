@@ -57,12 +57,11 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         /**
          * @brief CUDA kernel dispatcher for matrix-vector multiply (M=1 decode path).
          *
-         * Specialized for float, half, bfloat16, and FP8 native CUDA types.
+         * Specialized for float, bfloat16 native CUDA types.
          * Used exclusively for the decode path where batch_size=1.
          */
         template <typename TNative>
             requires std::is_same_v<TNative, float> || std::is_same_v<TNative, nv_bfloat16>
-                // FUTURE: std::is_same_v<TNative, __nv_fp8_e4m3>
         struct cuda_matvec_impl;
 
         template <>
@@ -110,32 +109,13 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             }
         };
 
-        // FUTURE:
-        //template <>
-        //struct cuda_matvec_impl<__nv_fp8_e4m3>
-        //{
-        //    static void decode(
-        //        __nv_fp8_e4m3* y,
-        //        const __nv_fp8_e4m3* x,
-        //        const __nv_fp8_e4m3* weight,
-        //        const __nv_fp8_e4m3* bias,
-        //        int C,
-        //        int OC,
-        //        cudaStream_t stream )
-        //    {
-        //        throw std::logic_error( "cuda_matvec_impl<fp8_e4m3>::decode not yet implemented" );
-        //    }
-        //};
-
         /**
          * @brief CUDA kernel dispatcher for Linear operations.
          *
-         * Specialized for float, half, bfloat16, and FP8 native CUDA types.
+         * Specialized for float, bfloat16 native CUDA types.
          */
         template <typename TNative>
             requires std::is_same_v<TNative, float> || std::is_same_v<TNative, nv_bfloat16>
-                // FUTURE: std::is_same_v<TNative, __nv_fp8_e4m3> ||
-                // FUTURE: std::is_same_v<TNative, __nv_fp8_e5m2>
         struct cuda_matmul_impl;
 
         template <>

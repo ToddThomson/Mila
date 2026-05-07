@@ -7,7 +7,7 @@
 #include "CudaUtils.h"
 #include "CudaGqa.cuh"
 
-namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
+namespace Mila::Dnn::Compute::Cuda::Gqa
 {
     /**
      * @brief Broadcast each KV head to its group of Q heads (FP32).

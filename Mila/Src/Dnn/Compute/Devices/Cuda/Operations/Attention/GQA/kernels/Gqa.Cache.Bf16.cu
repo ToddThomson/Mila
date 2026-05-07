@@ -6,7 +6,7 @@
 #include "CudaUtils.h"
 #include "CudaGqa.cuh"
 
-namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
+namespace Mila::Dnn::Compute::Cuda::Gqa
 {
     /**
      * @brief Permute Q from [B, chunk_len, NH*HS] to [B, NH, T_max, HS].

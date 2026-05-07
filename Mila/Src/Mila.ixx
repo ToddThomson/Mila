@@ -106,9 +106,6 @@ import Compute.OperationsRegistrar;
 export import Compute.OperationRegistry;
 export import Compute.OperationRegistryHelpers;
 
-// Deprecated to be removed later
-// export import Compute.OperationAttributes;
-
 // ====================================================================
 // Compute - CPU Operations ( internal )
 // ====================================================================
@@ -190,7 +187,7 @@ export import Dnn.ApproximationMethod;
 export import Dnn.ConnectionType;
 
 export import Dnn.Components.MultiHeadAttention;
-export import Dnn.Components.GroupedQueryAttention;
+export import Dnn.Components.Gqa;
 export import Dnn.Components.Lpe;
 export import Dnn.Components.Rope;
 export import Dnn.Components.Gelu;
@@ -198,9 +195,9 @@ export import Dnn.Components.Swiglu;
 export import Dnn.Components.LayerNorm;
 export import Dnn.Components.RmsNorm;
 
+export import Compute.GqaOpTypeMap;
 export import Compute.LinearOpTypeMap;
-//import Compute.CpuLinearOpTraits;
-//import Compute.CudaLinearOpTraits;
+
 
 export import Dnn.Components.Linear;
 

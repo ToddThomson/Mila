@@ -50,15 +50,6 @@ namespace Mila::Dnn
         {
         }
 
-        // DEBUG: Temp withRowMajor
-
-        template <typename Self>
-        Self&& withRowMajor( this Self&& self, bool row_major )
-        {
-            self.uses_row_major_ = row_major;
-            return std::forward<Self>( self );
-        }
-
         /**
          * @brief Fluent setter for bias enable flag.
          *

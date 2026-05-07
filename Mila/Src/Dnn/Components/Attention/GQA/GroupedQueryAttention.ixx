@@ -13,8 +13,8 @@ module;
 #include <cstdint>
 #include <optional>
 
-export module Dnn.Components.GroupedQueryAttention;
-export import :Config;
+export module Dnn.Components.Gqa;
+export import Dnn.Components.GqaConfig;
 
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -30,6 +30,7 @@ import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
+import Compute.GqaOpTypeMap;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
@@ -78,15 +79,19 @@ namespace Mila::Dnn
      * to enforce that only the generate() orchestration path may manage the
      * KV cache lifecycle.
      */
-    export template<DeviceType TDeviceType, TensorDataType TPrecision>
-        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class GroupedQueryAttention : public Component<TDeviceType, TPrecision>
+    export template<DeviceType TDeviceType, TensorDataType TComputePrecision, TensorDataType TKvCache = TComputePrecision>
+        requires PrecisionSupportedOnDevice<TComputePrecision, TDeviceType>
+    class GroupedQueryAttention : public Component<TDeviceType, TComputePrecision>
     {
     public:
+        using ComponentBase = Component<TDeviceType, TComputePrecision>;
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-        using TensorType = Tensor<TPrecision, MR>;
-        using ComponentBase = Component<TDeviceType, TPrecision>;
+        using TensorType = Tensor<TComputePrecision, MR>;
+        using KvCacheTensorType = Tensor<TKvCache, MR>;
+        using OperationType = typename Compute::GqaOpTypeMap<TDeviceType, TComputePrecision, TKvCache>::op_type;
 
+        static constexpr bool kIsQuantized = (TKvCache != TComputePrecision);
+    
         /**
          * @brief Construct a GroupedQueryAttention component.
          *
@@ -95,9 +100,9 @@ namespace Mila::Dnn
          * @param device_id Optional DeviceId to create an owned ExecutionContext
          *                  (standalone / unit-test mode).
          */
-        explicit GroupedQueryAttention(
+        explicit GroupedQueryAttention( 
             const std::string& name,
-            const GroupedQueryAttentionConfig& config,
+            const GqaConfig& config,
             std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), config_( config )
         {
@@ -408,7 +413,7 @@ namespace Mila::Dnn
             return config_.getNumKvHeads();
         }
 
-        const GroupedQueryAttentionConfig& getConfig() const noexcept
+        const GqaConfig& getConfig() const noexcept
         {
             return config_;
         }
@@ -490,11 +495,11 @@ namespace Mila::Dnn
         }
 
     private:
-        GroupedQueryAttentionConfig config_;
+        GqaConfig config_;
         shape_t max_input_shape_;
 
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
         std::unique_ptr<IExecutionContext> context_{ nullptr };
+        std::shared_ptr<OperationType> operation_{ nullptr };
 
         // Non-owning capability interface pointers. Lifetime tied to operation_.
         // Resolved once in onBuilding(). Null for backends that do not implement
@@ -564,17 +569,25 @@ namespace Mila::Dnn
 
         void createOperation()
         {
-            operation_ = OperationRegistry::instance()
-                .createUnaryOperation<TDeviceType, TPrecision>(
-                    "GroupedQueryAttentionOp",
-                    this->getExecutionContext(),
-                    config_ );
+            operation_ = std::make_shared<OperationType>(
+                this->getExecutionContext(), config_ );
 
             if ( !operation_ )
             {
-                throw std::runtime_error(
-                    "Failed to create GroupedQueryAttention compute backend operation." );
+                throw std::runtime_error( "GroupedQueryAttention: failed to create operation." );
             }
+            
+            //operation_ = OperationRegistry::instance()
+            //    .createUnaryOperation<TDeviceType, TComputePrecision>(
+            //        "GroupedQueryAttentionOp",
+            //        this->getExecutionContext(),
+            //        config_ );
+
+            //if ( !operation_ )
+            //{
+            //    throw std::runtime_error(
+            //        "Failed to create GroupedQueryAttention compute backend operation." );
+            //}
         }
     };
 }

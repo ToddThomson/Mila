@@ -539,9 +539,8 @@ namespace Mila::Dnn
         LinearConfig config_;
         shape_t leading_shape_;
 
-        std::shared_ptr<OperationType> operation_{ nullptr };
-
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
+        std::shared_ptr<OperationType> operation_{ nullptr };
 
         // Weight storage is TWeight — differs from TComputePrecision on quantized paths.
         std::shared_ptr<WeightTensorType> weight_{ nullptr };

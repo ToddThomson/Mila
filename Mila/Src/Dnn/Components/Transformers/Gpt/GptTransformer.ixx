@@ -808,8 +808,7 @@ namespace Mila::Dnn
             this->addComponent( final_layernorm );
 
             auto lm_head_config = LinearConfig( config_.getEmbeddingSize(), config_.getVocabSize() )
-                .withBias( false )
-                .withRowMajor( true );
+                .withBias( false );
 
             auto lm_head = std::make_shared<LinearType>( this->getName() + ".lm_head", lm_head_config, std::nullopt );
             this->addComponent( lm_head );

@@ -64,7 +64,7 @@ import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
 import Dnn.Components.RmsNorm;
 import Dnn.Components.Rope;
-import Dnn.Components.GroupedQueryAttention;
+import Dnn.Components.Gqa;
 import Dnn.Components.Residual;
 import Dnn.Components.Linear;
 import Dnn.Components.Swiglu;
@@ -792,7 +792,7 @@ namespace Mila::Dnn
             this->addComponent( rope );
 
             // GQA.
-            auto gqa_cfg = GroupedQueryAttentionConfig( model_dim, n_heads, n_kv );
+            auto gqa_cfg = GqaConfig( model_dim, n_heads, n_kv );
             auto attn = std::make_shared<AttentionType>( name + ".gqa", gqa_cfg );
             this->addComponent( attn );
 

@@ -18,7 +18,7 @@ module;
 #include <utility>
 #include <sstream>
 
-export module Dnn.Components.GroupedQueryAttention:Config;
+export module Dnn.Components.GqaConfig;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;
@@ -45,7 +45,7 @@ namespace Mila::Dnn
      * throughout the codebase, enabling value-category-preserving method
      * chaining on both lvalue and rvalue configs.
      */
-    export class GroupedQueryAttentionConfig : public ComponentConfig
+    export class GqaConfig : public ComponentConfig
     {
     public:
         /**
@@ -55,7 +55,7 @@ namespace Mila::Dnn
          * @param num_heads    Number of Q attention heads.
          * @param num_kv_heads Number of K/V attention heads.
          */
-        GroupedQueryAttentionConfig( dim_t model_dim, dim_t num_heads, dim_t num_kv_heads )
+        GqaConfig( dim_t model_dim, dim_t num_heads, dim_t num_kv_heads )
             : model_dim_( model_dim ), num_heads_( num_heads ), num_kv_heads_( num_kv_heads )
         {}
 
@@ -267,7 +267,7 @@ namespace Mila::Dnn
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << "GroupedQueryAttentionConfig: { ";
+            oss << "GQA Config: { ";
             oss << "precision=" << static_cast<int>(precision_) << ", ";
             oss << "model_dim=" << model_dim_ << ", ";
             oss << "num_heads=" << num_heads_ << ", ";

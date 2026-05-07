@@ -37,7 +37,7 @@
 #include "CudaUtils.h"
 #include "CudaGqa.cuh"
 
-namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
+namespace Mila::Dnn::Compute::Cuda::Gqa
 {
     // ========================================================================
     // QKV permute — training / full sequence

@@ -164,9 +164,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             }
         }
 
-        void build( const BuildContext& build_config ) override
+        void build( const BuildContext& build_context ) override
         {
-            const auto& input_shape = build_config.inputShape();
+            const auto& input_shape = build_context.inputShape();
 
             if ( weight_ == nullptr )
             {
@@ -227,7 +227,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 }
             }
 
-            Operation<DeviceType::Cuda, TComputePrecision>::build( build_config );
+            Operation<DeviceType::Cuda, TComputePrecision>::build( build_context );
         }
 
         /**

@@ -9,7 +9,7 @@
 export module Compute.CudaOperations;
 
 export import Compute.CudaMultiHeadAttentionOp;
-export import Compute.CudaGroupedQueryAttentionOp;
+export import Compute.CudaGqaOp;
 export import Compute.CudaTokenEmbeddingOp;
 export import Compute.CudaLpeOp;
 export import Compute.CudaRopeOp;

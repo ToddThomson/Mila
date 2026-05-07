@@ -68,7 +68,7 @@ namespace Mila::Dnn::Compute
 			Cuda::Linear::CudaLinearOpRegistrar::registerOperations();
             Cuda::Rope::CudaRopeOpRegistrar::registerOperations();
 			Cuda::MultiHeadAttention::CudaMultiHeadAttentionOpRegistrar::registerOperations();
-			Cuda::GroupedQueryAttention::CudaGroupedQueryAttentionOpRegistrar::registerOperations();
+			Cuda::Gqa::CudaGroupedQueryAttentionOpRegistrar::registerOperations();
 			Cuda::Residual::CudaResidualOpRegistrar::registerOperations();
 			Cuda::Softmax::CudaSoftmaxOpRegistrar::registerOperations();
 			

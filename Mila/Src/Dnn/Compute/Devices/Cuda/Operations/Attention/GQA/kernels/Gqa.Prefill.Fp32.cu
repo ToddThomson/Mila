@@ -6,7 +6,7 @@
 #include "CudaUtils.h"
 #include "CudaGqa.cuh"
 
-namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
+namespace Mila::Dnn::Compute::Cuda::Gqa
 {
     __global__ void prefill_softmax_fp32_kernel_v2(
         float* att,

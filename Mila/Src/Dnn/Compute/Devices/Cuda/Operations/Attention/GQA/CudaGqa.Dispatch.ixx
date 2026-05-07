@@ -12,9 +12,9 @@ module;
 #include "Kernels/CudaGqa.cuh"
 #include "../Common/Kernels/CudaAttention.cuh"
 
-export module Compute.CudaGroupedQueryAttentionOp:Dispatch;
+export module Compute.CudaGqaOp:Dispatch;
 
-namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
+namespace Mila::Dnn::Compute::Cuda::Gqa
 {
     namespace Detail
     {

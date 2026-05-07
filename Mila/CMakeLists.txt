@@ -473,7 +473,12 @@ PUBLIC
         #"Src/Profiling/NvtxRange.ixx"
         "Src/Dnn/Compute/Operations/LinearOpTypeMap.Template.ixx"
         "Src/Dnn/Compute/Operations/LinearOpTypeMap.ixx"
-         "Src/Dnn/Core/ModelQuantizationConfig.ixx" "Src/Dnn/Core/ModelConfig.ixx" "Src/Dnn/Models/LlamaModelConfig.ixx")
+        "Src/Dnn/Core/ModelQuantizationConfig.ixx"
+        "Src/Dnn/Core/ModelConfig.ixx"
+        "Src/Dnn/Models/LlamaModelConfig.ixx"
+        "Src/Dnn/Compute/Operations/GqaOpTypeMap.ixx"
+        "Src/Dnn/Compute/Operations/GqaOpTypeMap.Template.ixx"
+)
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -509,7 +514,7 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Zero.ixx"
 
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOpTypeMap.ixx"
-     "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataTypes-CublasLtTypes.ixx")
+     "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataTypes-CublasLtTypes.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOpTypeMap.ixx")
 
     target_compile_definitions( Mila PUBLIC MILA_HAS_CPU)
     list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cpu_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
@@ -594,7 +599,8 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CublasLt.Utils.ixx"
                 #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Random.h"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOpTypeMap.ixx"
-     "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtLinearPlan.ixx")
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtLinearPlan.ixx"
+    )
 
     target_link_libraries( Mila PRIVATE 
         CUDA::cudart

@@ -66,12 +66,12 @@ module;
 #include <cassert>
 #include "Kernels/CudaGqa.cuh"
 
-export module Compute.CudaGroupedQueryAttentionOp:Plans;
+export module Compute.CudaGqaOp:Plans;
 
 import Compute.CublasLtPlan;
 import Utils.Logger;
 
-namespace Mila::Dnn::Compute::Cuda::GroupedQueryAttention
+namespace Mila::Dnn::Compute::Cuda::Gqa
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute::Cuda;
