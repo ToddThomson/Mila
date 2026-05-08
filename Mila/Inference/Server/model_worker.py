@@ -86,22 +86,28 @@ class ModelWorker:
     async def generate_streaming(
         self,
         prompt_tokens: list[int],
-        on_token: Callable[[int], None],
+        on_text: Callable[[str], None],
         max_new_tokens: int,
         temperature: float,
         top_k: int,
         stop_ctrl: mila.StopController,
     ) -> None:
         """
-        Runs generate_streaming() on the worker thread. on_token is invoked from
-        that thread for each generated token; callers are responsible for
-        thread-safe delivery (e.g. posting to an asyncio.Queue).
+        Runs generate_streaming() on the worker thread. Each token is decoded
+        on the worker thread and delivered as a string via on_text, avoiding
+        re-entrant calls back into the executor from the asyncio event loop.
+        on_text is called from the worker thread; callers must use
+        thread-safe delivery (e.g. loop.call_soon_threadsafe into an asyncio.Queue).
         """
         loop = asyncio.get_running_loop()
 
+        def _on_token(token_id: int) -> None:
+            text = self._tokenizer.decode([token_id])
+            on_text(text)
+
         def _run() -> None:
             self._model.generate_streaming(
-                prompt_tokens, on_token, max_new_tokens, temperature, top_k, stop_ctrl
+                prompt_tokens, _on_token, max_new_tokens, temperature, top_k, stop_ctrl
             )
 
         await loop.run_in_executor(self._executor, _run)

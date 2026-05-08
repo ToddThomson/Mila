@@ -11,7 +11,7 @@ module;
 
 export module Compute.CublasLtPlanCache;
 
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn::Compute::Cuda
 {
@@ -41,7 +41,7 @@ namespace Mila::Dnn::Compute::Cuda
         else if ( sm >= 75 ) grain = 16;  // Turing
         else if ( sm >= 70 ) grain = 8;   // Volta
 
-        //Utils::Logger::info( std::format(
+        //Logging::Logger::info( std::format(
         //    "CublasLtPlanCache: device='{}' SM={}.{} grain={} max_batch={}",
         //    prop.name, prop.major, prop.minor, grain, max_batch_size ) );
 
@@ -73,7 +73,7 @@ namespace Mila::Dnn::Compute::Cuda
             bucket_str += std::to_string( b ) + " ";
         }
         
-        //Utils::Logger::info( std::format(
+        //Logging::Logger::info( std::format(
         //    "CublasLtPlanCache: {} buckets: [ {}]", buckets.size(), bucket_str ) );
 
         return buckets;

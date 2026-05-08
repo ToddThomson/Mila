@@ -43,7 +43,7 @@ import Serialization.ModelArchive;
 import Serialization.Tensor;
 import Serialization.Mode;
 import Serialization.Metadata;
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn
 {

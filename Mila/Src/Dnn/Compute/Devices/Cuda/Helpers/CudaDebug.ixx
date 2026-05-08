@@ -14,13 +14,13 @@ export module Cuda.Debug;
 
 import Dnn.TensorTypes;
 import CublasLt.Error;
-import Utils.Logger;
+import Logging.Logger;
 
 export namespace Mila::Dnn::Compute::Cuda
 {
     /**
      * @brief Copies a device tensor to host, formats it via dump_tensor, and emits
-     *        the result through Utils::Logger::info.
+     *        the result through Logging::Logger::info.
      *
      * The 3-argument form (name, ptr, shape) is the common call site; max_display
      * and stream have defaults so callers that own a stream can opt in for async copy.
@@ -39,7 +39,7 @@ export namespace Mila::Dnn::Compute::Cuda
             int max_display = 8,
             cudaStream_t stream = nullptr )
     {
-        Utils::Logger::info( dump_tensor<T>( data, shape, name, max_display, stream ) );
+        Logging::Logger::info( dump_tensor<T>( data, shape, name, max_display, stream ) );
     }
 
     /**

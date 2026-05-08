@@ -38,7 +38,7 @@ import Compute.ExecutionContext;
 import Compute.CpuDevice;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn::Compute
 {

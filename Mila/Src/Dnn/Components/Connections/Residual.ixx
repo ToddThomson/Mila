@@ -48,7 +48,7 @@ import Serialization.ModelArchive;
 import Serialization.Mode;
 
 import Dnn.Components.Linear;
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn
 {

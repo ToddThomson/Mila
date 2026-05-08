@@ -176,8 +176,8 @@ PUBLIC
         #---------------------------------------------------------------
         # Top-level Utilities
         #---------------------------------------------------------------
-        "Src/Utils/Logger.ixx"
-        "Src/Utils/DefaultLogger.ixx"
+        "Src/Logging/Logger.ixx"
+        "Src/Logging/ConsoleSink.ixx"
         #"Src/Utils/TrainingLogger.ixx"
         "Src/Utils/RandomGenerator.ixx"
         "Src/Utils/json.ixx"
@@ -478,7 +478,7 @@ PUBLIC
         "Src/Dnn/Models/LlamaModelConfig.ixx"
         "Src/Dnn/Compute/Operations/GqaOpTypeMap.ixx"
         "Src/Dnn/Compute/Operations/GqaOpTypeMap.Template.ixx"
- "Src/Dnn/Compute/Operations/GqaState.ixx")
+ "Src/Dnn/Compute/Operations/GqaState.ixx" "Src/Logging/NullSink.ixx" "Src/Logging/FileSink.ixx")
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 

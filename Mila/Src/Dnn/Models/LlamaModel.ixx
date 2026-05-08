@@ -44,7 +44,7 @@ import Compute.DeviceTypeTraits;
 import Compute.CpuMemoryResource;
 import Compute.ExecutionContextFactory;
 import Serialization.PretrainedReader;
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn
 {
@@ -248,7 +248,7 @@ namespace Mila::Dnn
          * @param top_k          Restrict sampling to the top-k logits; 0 disables.
          * @param stop           Stop token for cooperative cancellation.
          */
-        void generateStreaming(
+        void onGenerating(
             const std::vector<int32_t>& prompt_tokens,
             const std::function<void( int32_t )>& on_token,
             size_t max_new_tokens,
@@ -381,7 +381,7 @@ namespace Mila::Dnn
 
             if ( seq_len > config_.getMaxSequenceLength() )
             {
-                Utils::Logger::warning( std::format(
+                Logging::Logger::warning( std::format(
                     "LlamaModel: sequence length {} exceeds max {}, truncating from start",
                     seq_len, config_.getMaxSequenceLength() ) );
 

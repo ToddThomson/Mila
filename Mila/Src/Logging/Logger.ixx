@@ -4,9 +4,9 @@ module;
 #include <format>
 #include <string_view>
 
-export module Utils.Logger;
+export module Logging.Logger;
 
-namespace Mila::Utils
+namespace Mila::Logging
 {
     export enum class LogLevel {
         Trace,    // Very detailed information, useful for debugging

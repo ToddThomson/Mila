@@ -56,7 +56,7 @@ import Serialization.Mode;
 
 // DEBUG:
 import Dnn.TensorHelpers;
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn
 {

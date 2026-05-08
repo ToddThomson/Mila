@@ -7,7 +7,7 @@ export module Compute.DeviceRegistrar;
 
 import Compute.CpuDevice;
 
-import Utils.Logger;
+import Logging.Logger;
 
 #if defined(MILA_HAS_CUDA)
 // TJT: Workaround for MSVC internal compiler error due to perhaps the cuda runtime support

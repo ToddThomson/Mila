@@ -51,7 +51,7 @@ import Compute.IKvInference;
 import Compute.GqaState;
 import Compute.CublasLtPlan;
 import CublasLt.Error;
-import Utils.Logger;
+import Logging.Logger;
 
 import Cuda.Debug;
 
@@ -841,12 +841,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             //}
 
             // DEBUG:
-            std::cout << "CudaGQAOp::build [optimized]: batch_size=" << B_
-                << " num_heads=" << NH_ << " num_kv_heads=" << NKV_
-                << " head_size=" << HS_ << " max_seq_length=" << T_
-                << " kPrefillChunkSize=" << kPrefillChunkSize << "\n";
-            std::cout << "CudaGroupedQueryAttentionOp [optimized] state memory size: "
-                << (state_memory_size_ / (1024.0 * 1024.0)) << " MiB\n";
+            //std::cout << "CudaGQAOp::build [optimized]: batch_size=" << B_
+            //    << " num_heads=" << NH_ << " num_kv_heads=" << NKV_
+            //    << " head_size=" << HS_ << " max_seq_length=" << T_
+            //    << " kPrefillChunkSize=" << kPrefillChunkSize << "\n";
+            //std::cout << "CudaGroupedQueryAttentionOp [optimized] state memory size: "
+            //    << (state_memory_size_ / (1024.0 * 1024.0)) << " MiB\n";
             // END DEBUG
         }
 

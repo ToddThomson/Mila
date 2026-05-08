@@ -12,7 +12,7 @@ namespace Gpt2Model::Tests
     using namespace Mila::Dnn;
 
     // A mock logger for testing
-    class MockLogger : public Mila::Utils::Logger {
+    class MockLogger : public Mila::Logging::Logger {
     public:
         std::vector<std::string> logs;
 

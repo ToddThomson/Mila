@@ -52,7 +52,7 @@ import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
 import Serialization.Tensor;
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn
 {

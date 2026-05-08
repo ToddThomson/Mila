@@ -20,7 +20,7 @@ import Extensibility.PluginInfo;
 
 import Compute.OperationRegistry;
 
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn::Extensibility
 {
@@ -106,7 +106,7 @@ namespace Mila::Dnn::Extensibility
                     catch (const std::exception& e)
                     {
                         // Log warning but continue loading other plugins
-                        // FIXME: Utils::Logger:: warning_fmt( "Warning: Failed to load plugin {}: {}", entry.path(), e.what() );
+                        // FIXME: Logging::Logger:: warning_fmt( "Warning: Failed to load plugin {}: {}", entry.path(), e.what() );
                     }
                 }
             }

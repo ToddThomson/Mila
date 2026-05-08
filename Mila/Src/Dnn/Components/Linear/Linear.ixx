@@ -48,7 +48,7 @@ import nlohmann.json;
 
 import Dnn.TensorOps;
 import Dnn.TensorHelpers;
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn
 {

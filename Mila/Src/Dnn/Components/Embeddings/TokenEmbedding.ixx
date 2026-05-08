@@ -52,7 +52,7 @@ import Serialization.Mode;
 
 import Dnn.TensorOps;
 import Dnn.TensorHelpers;
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn
 {
@@ -250,7 +250,7 @@ namespace Mila::Dnn
                 //    float max_w = *std::max_element( ptr, ptr + n );
                 //    float mean_w = std::accumulate( ptr, ptr + n, 0.0f ) / static_cast<float>(n);
 
-                //    /*Utils::Logger::info( std::format(
+                //    /*Logging::Logger::info( std::format(
                 //        "TokenEmbedding wte stats: min={:.6f} max={:.6f} mean={:.6f}",
                 //        min_w, max_w, mean_w ) );*/
                 //}

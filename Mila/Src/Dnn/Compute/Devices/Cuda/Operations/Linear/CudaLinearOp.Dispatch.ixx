@@ -44,7 +44,7 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaDevice;
 import Compute.CudaTensorDataType;
 import CublasLt.Error;
-import Utils.Logger;
+import Logging.Logger;
 
 // DEBUG:
 import Dnn.TensorOps;

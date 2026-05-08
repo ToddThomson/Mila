@@ -48,7 +48,7 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
 import Compute.Precision;
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn::Compute::Cuda::LayerNorm
 {
@@ -388,7 +388,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             //    HostTensorType host_output( Device::Cpu(), output.shape() );
             //    host_output.setName( this->getName() + ".dbg.output" );
             //    copy( static_cast<const TensorType&>(output), host_output );
-            //    Utils::Logger::info( this->getName() + ": dbg.output:\n" + host_output.toString( true ) );
+            //    Logging::Logger::info( this->getName() + ": dbg.output:\n" + host_output.toString( true ) );
             //}
         }
 

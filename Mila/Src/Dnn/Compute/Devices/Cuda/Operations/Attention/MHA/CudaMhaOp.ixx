@@ -47,7 +47,7 @@ import Compute.IKvCacheLifecycle;
 import Compute.IPackedKvInference;
 import Compute.CublasLtPlan;
 import CublasLt.Error;
-import Utils.Logger;
+import Logging.Logger;
 
 // DEBUG:
 import Cuda.Debug;
@@ -127,7 +127,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             //// DEBUG: start
             //// Dump batch_size and max_seq_length
-            //Utils::Logger::debug( std::format(
+            //Logging::Logger::debug( std::format(
             //    "initializeKVCache(): B={} max_seq_length={}",
             //    batch_size, max_seq_length ) );
             //// DEBUG: end
@@ -202,7 +202,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             //    shape_t v_out_shape = { B_, NH_, T_, HS_ };
             //    std::string v_out_dump = dump_tensor<NativeType>(
             //        v_out_, v_out_shape, this->getName() + ".dbg.v_out_", 16, stream );
-            //    Utils::Logger::info( this->getName() + ": dbg.v_out_ (before unpermute):\n" + v_out_dump );
+            //    Logging::Logger::info( this->getName() + ": dbg.v_out_ (before unpermute):\n" + v_out_dump );
             //}
             
             Detail::cuda_mha_kernels<NativeType>::unpermute_output_padded(
@@ -217,7 +217,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             //    std::string v_out_dump = dump_tensor<NativeType>(
             //        v_out_, v_out_shape, this->getName() + ".dbg.v_out_", 16, stream );
             //
-            //    Utils::Logger::info( this->getName() + ": dbg.v_out_ (device dump):\n" + v_out_dump );
+            //    Logging::Logger::info( this->getName() + ": dbg.v_out_ (device dump):\n" + v_out_dump );
             //}
 
             cached_seq_len_ = actual_seq_len;
@@ -262,7 +262,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             //        + static_cast<int64_t>(position) * HS_, // position 4
             //        v4_shape,
             //        this->getName() + ".dbg.v_pos4_head0", 8, stream );
-            //    Utils::Logger::info( this->getName() + ": V head0 pos4:\n" + dump );
+            //    Logging::Logger::info( this->getName() + ": V head0 pos4:\n" + dump );
             //}
 
             // DEBUG: Start
@@ -274,7 +274,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             //    std::string v_dump = dump_tensor<NativeType>(
             //        v_ + 1 * T_ * HS_, v_shape, this->getName() + ".dbg.v_", 8, stream );
     
-            //    Utils::Logger::info( this->getName() + ": dbg.v_ (device dump):\n" + v_dump );
+            //    Logging::Logger::info( this->getName() + ": dbg.v_ (device dump):\n" + v_dump );
             //}
 
             const NativeType* q_decode = q_ + static_cast<int64_t>(position) * HS_;
@@ -299,7 +299,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             //    std::string preatt_decode_dump = dump_tensor<NativeType>(
             //        preatt_decode_, preatt_decode_shape, this->getName() + ".dbg.preatt_decode", 16, stream );
             //
-            //    Utils::Logger::info( this->getName() + ": dbg.preatt_decode (device dump):\n" + preatt_decode_dump );
+            //    Logging::Logger::info( this->getName() + ": dbg.preatt_decode (device dump):\n" + preatt_decode_dump );
             //}
             //// DEBUG: End
 
@@ -313,7 +313,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             //    shape_t att_decode_shape = { B_, NH_, 1, T_ };
             //    std::string att_decode_dump = dump_tensor<NativeType>(
             //        att_decode_, att_decode_shape, this->getName() + ".dbg.att_decode", 16, stream );
-            //    Utils::Logger::info( this->getName() + ": dbg.att_decode (device dump):\n" + att_decode_dump );
+            //    Logging::Logger::info( this->getName() + ": dbg.att_decode (device dump):\n" + att_decode_dump );
             //}
 
             execute_plan<NativeType>(
@@ -335,7 +335,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             //    std::string v_out_decode_dump = dump_tensor<NativeType>(
             //        v_out_decode_, v_out_decode_shape, this->getName() + ".dbg.v_out_decode", 16, stream );
             //
-            //    Utils::Logger::info( this->getName() + ": dbg.v_out_decode (device dump):\n" + v_out_decode_dump );
+            //    Logging::Logger::info( this->getName() + ": dbg.v_out_decode (device dump):\n" + v_out_decode_dump );
             //}
 
             //// DEBUG: start
@@ -354,27 +354,27 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             //    for ( int i = 0; i < actual_len; i++ )
             //        att_str += std::format( " {:.6f}", att_h[ i ] );
             //    att_str += " ]";
-            //    Utils::Logger::info( this->getName() + ": " + att_str );
+            //    Logging::Logger::info( this->getName() + ": " + att_str );
 
             //    // Print V elem 0 for each position
             //    std::string v_str = std::format( "v_h elem0 for pos 0..{}: [", actual_len - 1 );
             //    for ( int i = 0; i < actual_len; i++ )
             //        v_str += std::format( " {:.6f}", v_h[ i * HS_ ] );
             //    v_str += " ]";
-            //    Utils::Logger::info( this->getName() + ": " + v_str );
+            //    Logging::Logger::info( this->getName() + ": " + v_str );
 
             //    // Manual dot product
             //    float manual_elem0 = 0.0f;
             //    for ( int i = 0; i < actual_len; i++ )
             //    {
             //        float contrib = att_h[ i ] * v_h[ i * HS_ ];
-            //        Utils::Logger::info( std::format(
+            //        Logging::Logger::info( std::format(
             //            "  pos {}: att={:.6f} * v={:.6f} = {:.6f}",
             //            i, att_h[ i ], v_h[ i * HS_ ], contrib ) );
             //        manual_elem0 += contrib;
             //    }
 
-            //    Utils::Logger::info( std::format(
+            //    Logging::Logger::info( std::format(
             //        "{}: CPU manual v_out[head0,elem0] = {:.6f}",
             //        this->getName(), manual_elem0 ) );
 
@@ -383,7 +383,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             //    cudaMemcpy( &cublas_elem0, v_out_decode_, sizeof( float ),
             //        cudaMemcpyDeviceToHost );
 
-            //    Utils::Logger::info( std::format(
+            //    Logging::Logger::info( std::format(
             //        "{}: CPU manual={:.6f}  cuBLAS={:.6f}  diff={:.6f}",
             //        this->getName(), manual_elem0, cublas_elem0,
             //        manual_elem0 - cublas_elem0 ) );
@@ -468,17 +468,17 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 std::string q_dump = dump_tensor<NativeType>(
                     q_, qkv_shape, this->getName() + ".dbg.Q", 4, stream );
 
-                Utils::Logger::info( this->getName() + ": dbg.Q (device dump):\n" + q_dump );
+                Logging::Logger::info( this->getName() + ": dbg.Q (device dump):\n" + q_dump );
 
                 std::string k_dump = dump_tensor<NativeType>(
                     k_, qkv_shape, this->getName() + ".dbg.K", 4, stream );
 
-                Utils::Logger::info( this->getName() + ": dbg.K (device dump):\n" + k_dump );*/
+                Logging::Logger::info( this->getName() + ": dbg.K (device dump):\n" + k_dump );*/
 
                 /*std::string v_dump = dump_tensor<NativeType>(
                     v_, qkv_shape, this->getName() + ".dbg.V", 4, stream );
 
-                Utils::Logger::info( this->getName() + ": dbg.V (device dump):\n" + v_dump );*/
+                Logging::Logger::info( this->getName() + ": dbg.V (device dump):\n" + v_dump );*/
             }
 
             // Compute attention scores: preatt = Q @ K^T
@@ -500,7 +500,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 std::string preatt_dump = dump_tensor<NativeType>(
                     preatt_, preatt_shape, this->getName() + ".dbg.preatt", 4, stream );
 
-                Utils::Logger::info( this->getName() + ": dbg.preatt (device dump):\n" + preatt_dump );
+                Logging::Logger::info( this->getName() + ": dbg.preatt (device dump):\n" + preatt_dump );
             }*/
 
             // att_: [B, NH, T, T] (after softmax)
@@ -515,7 +515,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 std::string att_dump = dump_tensor<NativeType>(
                     att_, att_shape, this->getName() + ".dbg.att", 4, stream );
 
-                Utils::Logger::info( this->getName() + ": dbg.att (device dump):\n" + att_dump );
+                Logging::Logger::info( this->getName() + ": dbg.att (device dump):\n" + att_dump );
             }*/
 
             // Compute output values: v_out = Att @ V^T
@@ -537,7 +537,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 std::string v_out_dump = dump_tensor<NativeType>(
                     v_out_, v_out_shape, this->getName() + ".dbg.vaccum", 4, stream );
 
-                Utils::Logger::info( this->getName() + ": dbg.vaccum (device dump):\n" + v_out_dump );
+                Logging::Logger::info( this->getName() + ": dbg.vaccum (device dump):\n" + v_out_dump );
             }*/
 
             Detail::cuda_mha_kernels<NativeType>::unpermute_output(

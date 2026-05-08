@@ -22,7 +22,7 @@ export module Compute.CublasLtPlan;
 
 import Dnn.TensorTypes;
 import CublasLt.Error;
-import Utils.Logger;
+import Logging.Logger;
 
 export namespace Mila::Dnn::Compute::Cuda
 {
@@ -190,7 +190,7 @@ export namespace Mila::Dnn::Compute::Cuda
         cublasStatus_t status = cublasLtMatmulDescCreate( &plan.matmul_desc, compute_type, scale_type );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "cublasLtMatmulDescCreate failed with status: " + std::to_string( status ) );
+            Logging::Logger::error( "cublasLtMatmulDescCreate failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -198,7 +198,7 @@ export namespace Mila::Dnn::Compute::Cuda
             plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSA, &opA, sizeof( cublasOperation_t ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set TRANSA failed with status: " + std::to_string( status ) );
+            Logging::Logger::error( "Set TRANSA failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -206,7 +206,7 @@ export namespace Mila::Dnn::Compute::Cuda
             plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSB, &opB, sizeof( cublasOperation_t ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set TRANSB failed with status: " + std::to_string( status ) );
+            Logging::Logger::error( "Set TRANSB failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -220,42 +220,42 @@ export namespace Mila::Dnn::Compute::Cuda
         status = cublasLtMatrixLayoutCreate( &plan.layoutA, cuda_data_type, A_rows, A_cols, ldA );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "cublasLtMatrixLayoutCreate for A failed with status: " + std::to_string( status ) );
+            Logging::Logger::error( "cublasLtMatrixLayoutCreate for A failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
         status = cublasLtMatrixLayoutSetAttribute( plan.layoutA, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set order for A failed with status: " + std::to_string( status ) );
+            Logging::Logger::error( "Set order for A failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
         status = cublasLtMatrixLayoutCreate( &plan.layoutB, cuda_data_type, B_rows, B_cols, ldB );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "cublasLtMatrixLayoutCreate for B failed with status: " + std::to_string( status ) );
+            Logging::Logger::error( "cublasLtMatrixLayoutCreate for B failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
         status = cublasLtMatrixLayoutSetAttribute( plan.layoutB, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set order for B failed with status: " + std::to_string( status ) );
+            Logging::Logger::error( "Set order for B failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
         status = cublasLtMatrixLayoutCreate( &plan.layoutC, cuda_data_type, C_rows, C_cols, ldC );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "cublasLtMatrixLayoutCreate for C failed with status: " + std::to_string( status ) );
+            Logging::Logger::error( "cublasLtMatrixLayoutCreate for C failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
         status = cublasLtMatrixLayoutSetAttribute( plan.layoutC, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set order for C failed with status: " + std::to_string( status ) );
+            Logging::Logger::error( "Set order for C failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -263,7 +263,7 @@ export namespace Mila::Dnn::Compute::Cuda
             plan.layoutA, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideA_elems, sizeof( strideA_elems ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set stride A failed with status: " + std::to_string( status ) );
+            Logging::Logger::error( "Set stride A failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -271,7 +271,7 @@ export namespace Mila::Dnn::Compute::Cuda
             plan.layoutB, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideB_elems, sizeof( strideB_elems ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set stride B failed with status: " + std::to_string( status ) );
+            Logging::Logger::error( "Set stride B failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -279,7 +279,7 @@ export namespace Mila::Dnn::Compute::Cuda
             plan.layoutC, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideC_elems, sizeof( strideC_elems ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set stride C failed with status: " + std::to_string( status ) );
+            Logging::Logger::error( "Set stride C failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -287,7 +287,7 @@ export namespace Mila::Dnn::Compute::Cuda
             plan.layoutA, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &strided_batch_count, sizeof( strided_batch_count ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set batch count A failed with status: " + std::to_string( status ) );
+            Logging::Logger::error( "Set batch count A failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -295,7 +295,7 @@ export namespace Mila::Dnn::Compute::Cuda
             plan.layoutB, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &strided_batch_count, sizeof( strided_batch_count ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set batch count B failed with status: " + std::to_string( status ) );
+            Logging::Logger::error( "Set batch count B failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -303,7 +303,7 @@ export namespace Mila::Dnn::Compute::Cuda
             plan.layoutC, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &strided_batch_count, sizeof( strided_batch_count ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set batch count C failed with status: " + std::to_string( status ) );
+            Logging::Logger::error( "Set batch count C failed with status: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -332,13 +332,13 @@ export namespace Mila::Dnn::Compute::Cuda
         }
         else if ( status == CUBLAS_STATUS_SUCCESS && returned_algo_count == 0 )
         {
-            Utils::Logger::warning( "cuBLASLt heuristic found no algorithms, will use default at execution" );
+            Logging::Logger::warning( "cuBLASLt heuristic found no algorithms, will use default at execution" );
             plan.algorithm = {};
             plan.has_algorithm = false;
         }
         else
         {
-            Utils::Logger::error( "cuBLASLt heuristic failed with error status" );
+            Logging::Logger::error( "cuBLASLt heuristic failed with error status" );
             cublasLtCheckStatus( status );
         }
 

@@ -45,7 +45,6 @@ class AnthropicAdapter(ProtocolAdapter):
         return prompt_str, req
 
     def parse_completions_request(self, body: dict) -> tuple[str, InferenceRequest]:
-        # Treat as a bare user message for simplicity.
         prompt_str = body.get("prompt", "")
         req = InferenceRequest(
             prompt_ids=[],
@@ -79,6 +78,32 @@ class AnthropicAdapter(ProtocolAdapter):
     def format_completions_response(self, response: InferenceResponse) -> dict:
         return self.format_chat_response(response)
 
+    def format_stream_preamble(self, prompt_token_count: int) -> str:
+        message_start = {
+            "type": "message_start",
+            "message": {
+                "id": f"msg_{uuid.uuid4().hex}",
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": "mila",
+                "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {"input_tokens": prompt_token_count, "output_tokens": 0},
+            },
+        }
+        content_block_start = {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""},
+        }
+        ping = {"type": "ping"}
+        return (
+            f"event: message_start\ndata: {json.dumps(message_start)}\n\n"
+            f"event: content_block_start\ndata: {json.dumps(content_block_start)}\n\n"
+            f"event: ping\ndata: {json.dumps(ping)}\n\n"
+        )
+
     def format_stream_chunk(self, text: str, done: bool) -> str:
         if done:
             event_type = "content_block_stop"
@@ -94,6 +119,14 @@ class AnthropicAdapter(ProtocolAdapter):
                 },
             }
         return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+
+    def format_stream_message_delta(self, output_token_count: int) -> str:
+        data = {
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+            "usage": {"output_tokens": output_token_count},
+        }
+        return f"event: message_delta\ndata: {json.dumps(data)}\n\n"
 
     def format_stream_done(self) -> str:
         message_stop = {"type": "message_stop"}

@@ -1,34 +1,10 @@
 ﻿/**
  * @file LanguageModel.ixx
- * @brief Abstract base for Mila language models.
+ * @brief Abstract base for Mila autoregressive language models.
  *
- * Extends Model with the abstract contract and generation helpers
- * common to all autoregressive language models.
- *
- * ## Architecture
- *
- *   Model
- *   └── LanguageModel
- *       ├── GptModel
- *       └── LlamaModel
- *
- * ## Contract
- *
- * Derived classes must implement generateStreaming() — the full prefill
- * + decode loop — plus the pure virtual accessors below. The public
- * generate() and generateAsync() are concrete and delegate to it.
- *
- * ## Helpers
- *
- * Protected helpers are provided for derived classes to use in their
- * generateStreaming() implementation. A model with a fundamentally
- * different generation strategy may ignore them entirely.
- *
- * ## Threading
- *
- * Not thread-safe. External synchronization required if shared.
- * generateAsync() must not be called while a previous call's future
- * is still pending on the same model instance.
+ * Extends Model with blocking and streaming generation APIs common to all
+ * language models. Derived classes implement the prefill + decode loop via
+ * the protected onGenerating() hook.
  */
 module;
 #include <vector>
@@ -45,7 +21,6 @@ module;
 #include <stdexcept>
 #include <format>
 #include <functional>
-#include <future>
 #include <stop_token>
 
 export module Dnn.LanguageModel;
@@ -86,20 +61,17 @@ namespace Mila::Dnn
         virtual ~LanguageModel() = default;
 
         // ====================================================================
-        // Inference API
+        // Public generation API
         // ====================================================================
 
         /**
-         * @brief Blocking wrapper that collects the full token sequence.
-         *
-         * Delegates to generateStreaming() with a collector callback.
-         * Returns the prompt tokens followed by all generated tokens
-         * (EOS excluded).
+         * @brief Blocking generation. Returns the prompt tokens followed by all
+         * generated tokens (EOS excluded).
          *
          * @param prompt_tokens  Input token ids.
          * @param max_new_tokens Maximum tokens to generate beyond the prompt.
-         * @param temperature    Sampling temperature. <= 0 selects argmax.
-         * @param top_k          Top-k filter. 0 disables.
+         * @param temperature    Sampling temperature; <= 0 selects argmax.
+         * @param top_k          Top-k filter; 0 disables.
          * @return               Full token sequence including the prompt.
          */
         std::vector<int32_t> generate(
@@ -119,51 +91,33 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Launch generateStreaming() on a background thread.
+         * @brief Synchronous per-token streaming. Blocks on the caller's thread
+         * until generation completes or stop is requested.
          *
-         * on_token is invoked on the worker thread for every generated token
-         * (EOS excluded). The caller must ensure on_token is safe to call
-         * from a thread other than the caller's.
-         *
-         * Not re-entrant: do not call while a previous generateAsync() future
-         * is still pending on this model instance.
+         * on_token is invoked on the caller's thread for every generated token
+         * (EOS excluded). Callers that own their own threading — such as the
+         * Python ModelWorker's single-thread executor — should use this directly.
          *
          * @param prompt_tokens  Input token ids.
-         * @param on_token       Per-token callback; invoked on the worker thread.
+         * @param on_token       Per-token callback invoked on the caller's thread.
          * @param max_new_tokens Maximum tokens to generate beyond the prompt.
-         * @param temperature    Sampling temperature. <= 0 selects argmax.
-         * @param top_k          Top-k filter. 0 disables.
-         * @param stop           Stop token; stop_requested() aborts generation early.
-         * @return               Future that becomes ready when generation completes
-         *                       or propagates an exception on failure.
+         * @param temperature    Sampling temperature; <= 0 selects argmax.
+         * @param top_k          Top-k filter; 0 disables.
+         * @param stop           Stop token for cooperative cancellation.
          */
-        std::future<void> generateAsync(
-            std::vector<int32_t> prompt_tokens,
+        void generateStreaming(
+            const std::vector<int32_t>& prompt_tokens,
             std::function<void(int32_t)> on_token,
             size_t max_new_tokens = 64,
             float temperature = 1.0f,
             int top_k = 0,
             std::stop_token stop = {} )
         {
-            return std::async( std::launch::async,
-                [this,
-                 prompt = std::move( prompt_tokens ),
-                 cb = std::move( on_token ),
-                 max_new_tokens, temperature, top_k,
-                 stop = std::move( stop )]() mutable
-                {
-                    generateStreaming( prompt, cb, max_new_tokens, temperature, top_k, stop );
-                } );
+            onGenerating( prompt_tokens, on_token, max_new_tokens, temperature, top_k, stop );
         }
 
     protected:
 
-        /**
-         * @brief Construct with a fully built network and runtime mode.
-         *
-         * @param network      Fully built and loaded Network.
-         * @param runtime_mode Inference or Training — immutable after construction.
-         */
         explicit LanguageModel(
             std::unique_ptr<typename Base::NetworkType> network,
             RuntimeMode runtime_mode )
@@ -171,25 +125,25 @@ namespace Mila::Dnn
         {}
 
         // ====================================================================
-        // Streaming hook — derived class implements the full decode loop
+        // Hook — derived class implements the prefill + decode loop
         // ====================================================================
 
         /**
-         * @brief Autoregressively generate tokens, calling on_token for each.
+         * @brief Prefill + decode implementation hook.
          *
-         * Derived classes own the full prefill + decode loop. on_token is
-         * invoked for every generated token except EOS. Implementors must
-         * check stop.stop_requested() on each decode step and break early
-         * when signalled.
+         * Derived classes own the full autoregressive generation loop.
+         * on_token must be called for every generated token except EOS.
+         * stop.stop_requested() must be checked on each decode step and
+         * generation must abort early when signalled.
          *
          * @param prompt_tokens  Input token ids.
-         * @param on_token       Callback invoked once per generated token (not EOS).
+         * @param on_token       Per-token callback.
          * @param max_new_tokens Maximum tokens to generate beyond the prompt.
-         * @param temperature    Sampling temperature. <= 0 selects argmax.
-         * @param top_k          Top-k filter. 0 disables.
+         * @param temperature    Sampling temperature; <= 0 selects argmax.
+         * @param top_k          Top-k filter; 0 disables.
          * @param stop           Stop token for cooperative cancellation.
          */
-        virtual void generateStreaming(
+        virtual void onGenerating(
             const std::vector<int32_t>& prompt_tokens,
             const std::function<void(int32_t)>& on_token,
             size_t max_new_tokens,
@@ -198,50 +152,23 @@ namespace Mila::Dnn
             std::stop_token stop ) = 0;
 
         // ====================================================================
-        // Pure virtual accessors — derived class provides from its config
+        // Pure virtual accessors
         // ====================================================================
 
-        /**
-         * @brief End-of-sequence token id for this model.
-         */
         virtual int32_t eosToken() const noexcept = 0;
 
-        /**
-         * @brief Full set of token ids that terminate generation.
-         *
-         * The default implementation returns a single-element set containing
-         * eosToken(). Models with additional stop tokens (e.g. Llama 3.x
-         * instruct variants that stop on <|eot_id|> and <|eom_id|> as well
-         * as <|end_of_text|>) override this method.
-         *
-         * @return Unordered set of token ids at which generation must halt.
-         */
         virtual std::unordered_set<int32_t> stopTokens() const
         {
             return { eosToken() };
         }
 
-        /**
-         * @brief Maximum sequence length for this model.
-         */
         virtual int64_t maxSequenceLength() const noexcept = 0;
-
-        /**
-         * @brief Vocabulary size for this model.
-         */
         virtual int64_t vocabSize() const noexcept = 0;
 
         // ====================================================================
-        // Generation helpers — available to derived classes, not imposed
+        // Generation helpers
         // ====================================================================
 
-        /**
-         * @brief Truncate token sequence to fit within maxSequenceLength().
-         *
-         * Removes tokens from the start, preserving the most recent context.
-         *
-         * @param tokens Token sequence to truncate in place.
-         */
         void truncateIfNeeded( std::vector<int32_t>& tokens ) const
         {
             int64_t seq_len = static_cast<int64_t>(tokens.size());
@@ -254,12 +181,6 @@ namespace Mila::Dnn
             }
         }
 
-        /**
-         * @brief Create a device token tensor from a vector of token ids.
-         *
-         * @param token_ids Token ids to copy to device.
-         * @return          Device tensor of shape [1, token_ids.size()].
-         */
         TokenIndexType makeTokenTensor( const std::vector<int32_t>& token_ids ) const
         {
             shape_t shape = { 1, static_cast<int64_t>(token_ids.size()) };
@@ -273,19 +194,6 @@ namespace Mila::Dnn
             return device_tensor;
         }
 
-        /**
-         * @brief Sample the next token from logits at a given sequence position.
-         *
-         * Copies logits to host, extracts the row at position, then
-         * delegates to sampleToken().
-         *
-         * @param logits      Device logits tensor of shape [1, seq_len, vocab_size].
-         * @param position    Sequence position to sample from.
-         * @param temperature Sampling temperature.
-         * @param top_k       Top-k filter. 0 disables.
-         * @param rng         Random number generator.
-         * @return            Sampled token id.
-         */
         int32_t sampleFromLogits(
             const TensorType& logits,
             int64_t position,
@@ -307,20 +215,6 @@ namespace Mila::Dnn
                 temperature, top_k, rng );
         }
 
-        /**
-         * @brief Sample a token from a raw logit distribution.
-         *
-         * If temperature <= 0 or top_k == 1, returns the argmax. Otherwise
-         * applies temperature scaling, optional top-k filtering, and samples
-         * from the resulting categorical distribution.
-         *
-         * @param logits      Pointer to vocab_size raw logit values.
-         * @param vocab_size  Number of logit values.
-         * @param temperature Sampling temperature.
-         * @param top_k       Top-k filter. 0 disables.
-         * @param rng         Random number generator.
-         * @return            Sampled token id.
-         */
         static int32_t sampleToken(
             const float* logits,
             size_t vocab_size,
@@ -331,7 +225,7 @@ namespace Mila::Dnn
             if ( temperature <= 0.0f || top_k == 1 )
             {
                 return static_cast<int32_t>(
-                    std::max_element( logits, logits + vocab_size ) - logits);
+                    std::max_element( logits, logits + vocab_size ) - logits );
             }
 
             float max_logit = *std::max_element( logits, logits + vocab_size );

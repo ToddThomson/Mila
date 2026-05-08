@@ -2,7 +2,6 @@
 #include <pybind11/stl.h>
 #include <pybind11/functional.h>
 #include <filesystem>
-#include <future>
 #include <optional>
 #include <stop_token>
 #include <stdexcept>
@@ -147,28 +146,20 @@ static void bind_llama_model( py::module_& m )
                 int top_k,
                 StopController* stop_ctrl )
             {
-                // Callback runs on the generateAsync worker thread; re-acquire the GIL
-                // before invoking the Python callable.
-                auto callback = [on_token]( int32_t tok ) {
-                    py::gil_scoped_acquire _;
-                    on_token( tok );
-                };
-
                 std::stop_token stop = stop_ctrl
                     ? stop_ctrl->get_token()
                     : std::stop_token{};
 
-                std::future<void> fut;
+                py::gil_scoped_release release;
 
-                {
-                    py::gil_scoped_release _;
-                    fut = self.generateAsync(
-                        prompt_tokens, std::move( callback ),
-                        max_new_tokens, temperature, top_k,
-                        std::move( stop ) );
-                }
-
-                fut.get();
+                self.generateStreaming(
+                    prompt_tokens,
+                    [&on_token]( int32_t tok ) {
+                        py::gil_scoped_acquire acquire;
+                        on_token( tok );
+                    },
+                    max_new_tokens, temperature, top_k,
+                    std::move( stop ) );
             },
             py::arg( "prompt_tokens" ),
             py::arg( "on_token" ),
@@ -176,9 +167,9 @@ static void bind_llama_model( py::module_& m )
             py::arg( "temperature" ) = 1.0f,
             py::arg( "top_k" ) = 0,
             py::arg( "stop_controller" ) = py::none(),
-            "Stream generation token by token. on_token(id: int) is called on a "
-            "worker thread for each generated token (EOS excluded). Blocks until "
-            "generation completes or stop_controller.request_stop() is called." )
+            "Stream generation token by token. on_token(id: int) is called for each "
+            "generated token (EOS excluded). Blocks until generation completes or "
+            "stop_controller.request_stop() is called." )
         .def( "get_config",
             []( const LlamaCudaBf16& self ) {
                 const auto& cfg = self.getConfig();

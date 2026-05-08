@@ -30,7 +30,7 @@ import Dnn.ITensor;
 import Dnn.TensorDataTypeTraits;
 import Compute.Precision;
 import CublasLt.Error;
-import Utils.Logger;
+import Logging.Logger;
 
 // Deprecated to be removed later
 //namespace Mila::Dnn::Compute
@@ -189,7 +189,7 @@ import Utils.Logger;
 //            preference, 1, &heuristicResult, &returnedAlgoCount );
 //
 //        if ( status != CUBLAS_STATUS_SUCCESS || returnedAlgoCount == 0 ) {
-//            Utils::Logger::warning( "No cuBLASLt heuristic found. Falling back to default algorithm." );
+//            Logging::Logger::warning( "No cuBLASLt heuristic found. Falling back to default algorithm." );
 //
 //            // Attempt default execution (may still fail if unsupported)
 //            heuristicResult.algo = {};
@@ -222,7 +222,7 @@ import Utils.Logger;
 //        cublasLtMatmulPreferenceDestroy( preference );
 //
 //        if ( status != CUBLAS_STATUS_SUCCESS ) {
-//            Utils::Logger::warning( "[F] cuBLASLt matmul failed!" );
+//            Logging::Logger::warning( "[F] cuBLASLt matmul failed!" );
 //            throw CublasLtError( status );
 //        }
 //    };

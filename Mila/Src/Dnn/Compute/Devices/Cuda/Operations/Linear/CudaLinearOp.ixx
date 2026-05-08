@@ -45,7 +45,7 @@ import Compute.CudaTensorDataType;
 import Compute.CublasLtPlan;
 import Compute.CublasLtPlanCache;
 import CublasLt.Error;
-import Utils.Logger;
+import Logging.Logger;
 
 import Dnn.TensorOps;
 import Dnn.TensorHelpers;
@@ -220,7 +220,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 }
                 catch ( const std::exception& e )
                 {
-                    Utils::Logger::warning(
+                    Logging::Logger::warning(
                         std::string( "Failed to build cuBLASLt plans, falling back to custom kernels: " ) + e.what() );
 
                     use_cublaslt_ = false;

@@ -14,7 +14,7 @@ module;
 export module Compute.CudaMultiHeadAttentionOp:Plans;
 
 import Compute.CublasLtPlan;
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 {
@@ -60,7 +60,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
-                Utils::Logger::warning( "cuBLASLt QK decode plan built without algorithm (will use default)" );
+                Logging::Logger::warning( "cuBLASLt QK decode plan built without algorithm (will use default)" );
             }
 
             return plan;
@@ -97,7 +97,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
-                Utils::Logger::warning( "cuBLASLt Att-Value decode plan built without algorithm (will use default)" );
+                Logging::Logger::warning( "cuBLASLt Att-Value decode plan built without algorithm (will use default)" );
             }
 
             return plan;
@@ -145,7 +145,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
-                Utils::Logger::warning( "cuBLASLt QK score plan built without algorithm (will use default)" );
+                Logging::Logger::warning( "cuBLASLt QK score plan built without algorithm (will use default)" );
             }
 
             return plan;
@@ -191,7 +191,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
-                Utils::Logger::warning( "cuBLASLt Att-Value plan built without algorithm (will use default)" );
+                Logging::Logger::warning( "cuBLASLt Att-Value plan built without algorithm (will use default)" );
             }
 
             return plan;
@@ -238,7 +238,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
-                Utils::Logger::warning( "cuBLASLt backward dV plan built without algorithm (will use default)" );
+                Logging::Logger::warning( "cuBLASLt backward dV plan built without algorithm (will use default)" );
             }
 
             return plan;
@@ -285,7 +285,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
-                Utils::Logger::warning( "cuBLASLt backward dAtt plan built without algorithm (will use default)" );
+                Logging::Logger::warning( "cuBLASLt backward dAtt plan built without algorithm (will use default)" );
             }
 
             return plan;
@@ -330,7 +330,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
-                Utils::Logger::warning( "cuBLASLt backward dQ plan built without algorithm (will use default)" );
+                Logging::Logger::warning( "cuBLASLt backward dQ plan built without algorithm (will use default)" );
             }
 
             return plan;
@@ -377,7 +377,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
-                Utils::Logger::warning( "cuBLASLt backward dK plan built without algorithm (will use default)" );
+                Logging::Logger::warning( "cuBLASLt backward dK plan built without algorithm (will use default)" );
             }
 
             return plan;

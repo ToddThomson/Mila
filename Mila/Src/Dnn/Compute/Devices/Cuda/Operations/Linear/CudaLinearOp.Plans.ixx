@@ -14,7 +14,7 @@ module;
 export module Compute.CudaLinearOp:Plans;
 
 import Compute.CublasLtPlan;
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn::Compute::Cuda::Linear
 {
@@ -49,7 +49,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
-                Utils::Logger::warning( "cuBLASLt forward plan built without algorithm (will use default)" );
+                Logging::Logger::warning( "cuBLASLt forward plan built without algorithm (will use default)" );
             }
             return plan;
         } 
@@ -84,7 +84,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
-                Utils::Logger::warning( "cuBLASLt backward input plan built without algorithm (will use default)" );
+                Logging::Logger::warning( "cuBLASLt backward input plan built without algorithm (will use default)" );
             }
             
             return plan;
@@ -121,7 +121,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             if ( !plan.isValid() || !plan.has_algorithm )
             {
-                Utils::Logger::warning( "cuBLASLt backward weight plan built without algorithm (will use default)" );
+                Logging::Logger::warning( "cuBLASLt backward weight plan built without algorithm (will use default)" );
             }
             return plan;
         }

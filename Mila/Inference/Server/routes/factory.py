@@ -3,6 +3,7 @@ Registers chat and completions routes for whichever protocol adapter is active.
 All streaming/queueing mechanics live here exactly once.
 """
 import asyncio
+import logging
 from typing import AsyncIterator
 
 import mila
@@ -13,6 +14,8 @@ from model_worker import worker
 from protocols.base import ProtocolAdapter
 from schemas.internal import InferenceRequest, InferenceResponse
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def register_routes(app: FastAPI, adapter: ProtocolAdapter) -> None:
@@ -31,7 +34,7 @@ def _register_chat(app: FastAPI, adapter: ProtocolAdapter) -> None:
 
 def _register_completions(app: FastAPI, adapter: ProtocolAdapter) -> None:
 
-    @app.post(adapter.completions_path, response_model=None )
+    @app.post(adapter.completions_path, response_model=None)
     async def completions_endpoint(http_req: Request) -> JSONResponse | StreamingResponse:
         body = await http_req.json()
         prompt_str, inf_req = adapter.parse_completions_request(body)
@@ -46,37 +49,37 @@ async def _dispatch(
     is_chat: bool,
 ) -> JSONResponse | StreamingResponse:
     prompt_ids = await worker.encode(prompt_str)
-    print(f"[dispatch] encoded, token count={len(prompt_ids)}, max_new={inf_req.max_new_tokens}")
 
-    # Clamp max_new_tokens to the remaining context budget.
     remaining = settings.context_length - len(prompt_ids)
     if remaining <= 0:
         return JSONResponse(
             status_code=400,
-            content={"error": f"Prompt length {len(prompt_ids)} exceeds context_length {settings.context_length}"}
+            content={
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": f"Prompt length {len(prompt_ids)} tokens exceeds context_length {settings.context_length}.",
+                },
+            },
         )
     inf_req.max_new_tokens = min(inf_req.max_new_tokens, remaining)
-    print(f"[dispatch] clamped max_new_tokens to {inf_req.max_new_tokens}")
-
     inf_req.prompt_ids = prompt_ids
 
     if inf_req.stream:
-        print(f"[dispatch] streaming mode")
-        stream = _stream(inf_req, http_req, adapter)
-        return StreamingResponse(stream, media_type="text/event-stream")
+        return StreamingResponse(
+            _stream(inf_req, http_req, adapter),
+            media_type="text/event-stream",
+        )
 
-    print(f"[dispatch] starting generate")
     output_ids = await worker.generate(
         inf_req.prompt_ids,
         inf_req.max_new_tokens,
         inf_req.temperature,
         inf_req.top_k,
     )
-    print(f"[dispatch] generate complete, output tokens={len(output_ids)}")
 
     new_ids = output_ids[len(inf_req.prompt_ids):]
     text = await worker.decode(new_ids)
-    print(f"[dispatch] decoded: {text[:80]!r}")
 
     response = InferenceResponse(
         text=text,
@@ -98,12 +101,12 @@ async def _stream(
     http_req: Request,
     adapter: ProtocolAdapter,
 ) -> AsyncIterator[str]:
-    queue: asyncio.Queue[int | None] = asyncio.Queue()
+    queue: asyncio.Queue[str | None] = asyncio.Queue()
     stop_ctrl = mila.StopController()
     loop = asyncio.get_running_loop()
 
-    def on_token(token_id: int) -> None:
-        loop.call_soon_threadsafe(queue.put_nowait, token_id)
+    def on_text(text: str) -> None:
+        loop.call_soon_threadsafe(queue.put_nowait, text)
 
     def on_done() -> None:
         loop.call_soon_threadsafe(queue.put_nowait, None)
@@ -111,7 +114,7 @@ async def _stream(
     generation = asyncio.create_task(
         worker.generate_streaming(
             inf_req.prompt_ids,
-            on_token,
+            on_text,
             inf_req.max_new_tokens,
             inf_req.temperature,
             inf_req.top_k,
@@ -120,26 +123,29 @@ async def _stream(
     )
     generation.add_done_callback(lambda _: on_done())
 
+    if hasattr(adapter, "format_stream_preamble"):
+        yield adapter.format_stream_preamble(len(inf_req.prompt_ids))
+
+    output_token_count = 0
+
     try:
         while True:
             if await http_req.is_disconnected():
-                print("[stream] client disconnected")
+                logger.info("client disconnected")
                 stop_ctrl.request_stop()
                 break
 
             try:
-                token_id = await asyncio.wait_for(queue.get(), timeout=30.0)
+                text = await asyncio.wait_for(queue.get(), timeout=30.0)
             except asyncio.TimeoutError:
-                print("[stream] timeout waiting for token")
+                logger.warning("timeout waiting for token")
                 stop_ctrl.request_stop()
                 break
 
-            if token_id is None:
-                print("[stream] done sentinel received")
+            if text is None:
                 break
 
-            text = await worker.decode([token_id])
-            print(f"[stream] token: {text!r}")
+            output_token_count += 1
             yield adapter.format_stream_chunk(text, done=False)
 
     finally:
@@ -147,4 +153,6 @@ async def _stream(
             stop_ctrl.request_stop()
             await generation
         yield adapter.format_stream_chunk("", done=True)
+        if hasattr(adapter, "format_stream_message_delta"):
+            yield adapter.format_stream_message_delta(output_token_count)
         yield adapter.format_stream_done()

@@ -322,10 +322,10 @@ namespace Mila::ChatApp
 
             stop_src_ = std::stop_source{};
 
-            auto fut = std::visit(
+            std::visit(
                 [&]( auto& m )
                 {
-                    return m->generateAsync(
+                    m->generateStreaming(
                         input_tokens,
                         [&]( int32_t tok )
                         {
@@ -342,8 +342,6 @@ namespace Mila::ChatApp
                         stop_src_.get_token() );
                 },
                 model_ );
-
-            fut.wait();
         }
 
         /**

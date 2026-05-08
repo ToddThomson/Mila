@@ -69,7 +69,7 @@ module;
 export module Compute.CudaGqaOp:Plans;
 
 import Compute.CublasLtPlan;
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn::Compute::Cuda::Gqa
 {
@@ -118,7 +118,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 compute_type, cuda_data_type, scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
-                Utils::Logger::warning(
+                Logging::Logger::warning(
                     "cuBLASLt GQA QK score plan built without algorithm (will use default)" );
 
             return plan;
@@ -157,7 +157,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 compute_type, cuda_data_type, scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
-                Utils::Logger::warning(
+                Logging::Logger::warning(
                     "cuBLASLt GQA Att-Value plan built without algorithm (will use default)" );
 
             return plan;
@@ -223,7 +223,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 compute_type, cuda_data_type, scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
-                Utils::Logger::warning(
+                Logging::Logger::warning(
                     "cuBLASLt GQA QK prefill plan built without algorithm (will use default)" );
 
             return plan;
@@ -279,7 +279,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 compute_type, cuda_data_type, scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
-                Utils::Logger::warning(
+                Logging::Logger::warning(
                     "cuBLASLt GQA Att-Value prefill plan built without algorithm (will use default)" );
 
             return plan;
@@ -323,7 +323,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 compute_type, cuda_data_type, scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
-                Utils::Logger::warning(
+                Logging::Logger::warning(
                     "cuBLASLt GQA QK decode plan built without algorithm (will use default)" );
 
             return plan;
@@ -362,7 +362,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 compute_type, cuda_data_type, scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
-                Utils::Logger::warning(
+                Logging::Logger::warning(
                     "cuBLASLt GQA Att-Value decode plan built without algorithm (will use default)" );
 
             return plan;
@@ -407,7 +407,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 compute_type, cuda_data_type, scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
-                Utils::Logger::warning(
+                Logging::Logger::warning(
                     "cuBLASLt GQA backward dV plan built without algorithm (will use default)" );
 
             return plan;
@@ -445,7 +445,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 compute_type, cuda_data_type, scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
-                Utils::Logger::warning(
+                Logging::Logger::warning(
                     "cuBLASLt GQA backward dAtt plan built without algorithm (will use default)" );
 
             return plan;
@@ -483,7 +483,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 compute_type, cuda_data_type, scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
-                Utils::Logger::warning(
+                Logging::Logger::warning(
                     "cuBLASLt GQA backward dQ plan built without algorithm (will use default)" );
 
             return plan;
@@ -524,7 +524,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 compute_type, cuda_data_type, scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
-                Utils::Logger::warning(
+                Logging::Logger::warning(
                     "cuBLASLt GQA backward dK plan built without algorithm (will use default)" );
 
             return plan;
@@ -597,7 +597,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 compute_type, cuda_data_type, scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
-                Utils::Logger::warning(
+                Logging::Logger::warning(
                     "cuBLASLt GQA QK prefill optimized plan built without algorithm (will use default)" );
 
             return plan;
@@ -651,7 +651,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 compute_type, cuda_data_type, scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
-                Utils::Logger::warning(
+                Logging::Logger::warning(
                     "cuBLASLt GQA Att-Value prefill optimized plan built without algorithm (will use default)" );
 
             return plan;
@@ -703,7 +703,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 compute_type, cuda_data_type, scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
-                Utils::Logger::warning(
+                Logging::Logger::warning(
                     "cuBLASLt GQA QK decode optimized plan built without algorithm (will use default)" );
 
             return plan;
@@ -755,7 +755,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 compute_type, cuda_data_type, scale_type );
 
             if ( !plan.isValid() || !plan.has_algorithm )
-                Utils::Logger::warning(
+                Logging::Logger::warning(
                     "cuBLASLt GQA Att-Value decode optimized plan built without algorithm (will use default)" );
 
             return plan;

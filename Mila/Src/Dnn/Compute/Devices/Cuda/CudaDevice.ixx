@@ -20,7 +20,7 @@ import Compute.DeviceType;
 import Compute.CudaDeviceProps;
 import Compute.DeviceRegistry;
 import Cuda.Error;
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn::Compute
 {
@@ -298,7 +298,7 @@ namespace Mila::Dnn::Compute
 
             if ( count == 0 )
             {
-                Utils::Logger::warning( "CudaDeviceRegistrar: CUDA not available or no usable devices" );
+                Logging::Logger::warning( "CudaDeviceRegistrar: CUDA not available or no usable devices" );
                 return;
             }
 
@@ -306,7 +306,7 @@ namespace Mila::Dnn::Compute
             {
                 if ( !isDeviceUsable( i ) )
                 {
-                    Utils::Logger::warning( std::format( "CudaDeviceRegistrar: CUDA device index '{}' is not useable", i ) );
+                    Logging::Logger::warning( std::format( "CudaDeviceRegistrar: CUDA device index '{}' is not useable", i ) );
                     
                     continue;
                 }
@@ -321,11 +321,11 @@ namespace Mila::Dnn::Compute
                 }
                 catch ( const std::exception& ex )
                 {
-                    Utils::Logger::warning( std::format( "CudaDeviceRegistrar: failed to register CUDA device {}: {}", i, ex.what() ) );
+                    Logging::Logger::warning( std::format( "CudaDeviceRegistrar: failed to register CUDA device {}: {}", i, ex.what() ) );
                 }
                 catch ( ... )
                 {
-                    Utils::Logger::warning( std::format( "CudaDeviceRegistrar: failed to register CUDA device {}", i ) );
+                    Logging::Logger::warning( std::format( "CudaDeviceRegistrar: failed to register CUDA device {}", i ) );
                 }
             }
         }

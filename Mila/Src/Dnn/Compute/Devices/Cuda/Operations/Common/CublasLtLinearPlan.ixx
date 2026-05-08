@@ -39,7 +39,7 @@ export module Compute.Cuda.CublasLtLinearPlan;
 import Dnn.TensorDataType;
 import Compute.CudaTensorDataType;
 import Cuda.Error;
-import Utils.Logger;
+import Logging.Logger;
 
 namespace Mila::Dnn::Compute::Cuda
 {
@@ -191,7 +191,7 @@ namespace Mila::Dnn::Compute::Cuda
         cublasStatus_t status = cublasLtMatmulDescCreate( &plan.matmul_desc, compute_type, scale_type );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "cublasLtMatmulDescCreate failed: " + std::to_string( status ) );
+            Logging::Logger::error( "cublasLtMatmulDescCreate failed: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -202,7 +202,7 @@ namespace Mila::Dnn::Compute::Cuda
             plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSA, &opA, sizeof( opA ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set TRANSA failed: " + std::to_string( status ) );
+            Logging::Logger::error( "Set TRANSA failed: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -210,7 +210,7 @@ namespace Mila::Dnn::Compute::Cuda
             plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSB, &opB, sizeof( opB ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set TRANSB failed: " + std::to_string( status ) );
+            Logging::Logger::error( "Set TRANSB failed: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -226,7 +226,7 @@ namespace Mila::Dnn::Compute::Cuda
         status = cublasLtMatrixLayoutCreate( &plan.layoutA, data_type_A, outer_size, in_features, in_features );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "layoutA create failed: " + std::to_string( status ) );
+            Logging::Logger::error( "layoutA create failed: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -234,7 +234,7 @@ namespace Mila::Dnn::Compute::Cuda
         status = cublasLtMatrixLayoutCreate( &plan.layoutB, data_type_B, out_features, in_features, in_features );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "layoutB create failed: " + std::to_string( status ) );
+            Logging::Logger::error( "layoutB create failed: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -242,7 +242,7 @@ namespace Mila::Dnn::Compute::Cuda
         status = cublasLtMatrixLayoutCreate( &plan.layoutC, data_type_C, outer_size, out_features, out_features );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "layoutC create failed: " + std::to_string( status ) );
+            Logging::Logger::error( "layoutC create failed: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -251,21 +251,21 @@ namespace Mila::Dnn::Compute::Cuda
         status = cublasLtMatrixLayoutSetAttribute( plan.layoutA, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set order for A failed: " + std::to_string( status ) );
+            Logging::Logger::error( "Set order for A failed: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
         status = cublasLtMatrixLayoutSetAttribute( plan.layoutB, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set order for B failed: " + std::to_string( status ) );
+            Logging::Logger::error( "Set order for B failed: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
         status = cublasLtMatrixLayoutSetAttribute( plan.layoutC, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
-            Utils::Logger::error( "Set order for C failed: " + std::to_string( status ) );
+            Logging::Logger::error( "Set order for C failed: " + std::to_string( status ) );
             cublasLtCheckStatus( status );
         }
 
@@ -293,13 +293,13 @@ namespace Mila::Dnn::Compute::Cuda
         }
         else if ( status == CUBLAS_STATUS_SUCCESS && returned_algo_count == 0 )
         {
-            Utils::Logger::warning( "cuBLASLt heuristic found no algorithms, will use default at execution" );
+            Logging::Logger::warning( "cuBLASLt heuristic found no algorithms, will use default at execution" );
             plan.algorithm = {};
             plan.has_algorithm = false;
         }
         else
         {
-            Utils::Logger::error( "cuBLASLt heuristic failed with error status" );
+            Logging::Logger::error( "cuBLASLt heuristic failed with error status" );
             cublasLtCheckStatus( status );
         }
 

@@ -36,10 +36,10 @@ import Mila.Version;
 export import Core.RandomGenerator;
 
 // ====================================================================
-// Utils
+// Logging
 // ====================================================================
-export import Utils.Logger;
-import Utils.DefaultLogger;
+export import Logging.Logger;
+import Logging.ConsoleSink;
 
 // ====================================================================
 // Cuda 
@@ -291,12 +291,12 @@ namespace Mila
 {
     namespace detail
     {
-        std::shared_ptr<Utils::DefaultLogger> g_defaultLogger;
+        std::shared_ptr<Logging::ConsoleSink> g_defaultLogger;
     }
 
-    static void initializeLogger( Utils::LogLevel level = Utils::LogLevel::Info ) {
-        detail::g_defaultLogger = std::make_shared<Utils::DefaultLogger>( level );
-        Utils::Logger::setDefaultLogger( detail::g_defaultLogger.get() );
+    static void initializeLogger( Logging::LogLevel level = Logging::LogLevel::Info ) {
+        detail::g_defaultLogger = std::make_shared<Logging::ConsoleSink>( level );
+        Logging::Logger::setDefaultLogger( detail::g_defaultLogger.get() );
     }
 
     /// <summary>
@@ -320,21 +320,21 @@ namespace Mila
     /// <returns>True if initialization succeeded, false otherwise</returns>
     export bool initialize( unsigned int randomSeed = 0 ) {
         try {
-            initializeLogger( Utils::LogLevel::Debug );
+            initializeLogger( Logging::LogLevel::Debug );
 
             Core::RandomGenerator::getInstance().setSeed( randomSeed );
 
             if (randomSeed != 0) {
-                Utils::Logger::info( "Initialized random generator with seed: " + std::to_string( randomSeed ) );
+                Logging::Logger::info( "Initialized random generator with seed: " + std::to_string( randomSeed ) );
             }
             else {
-                Utils::Logger::info( "Initialized random generator with non-deterministic seed." );
+                Logging::Logger::info( "Initialized random generator with non-deterministic seed." );
             }
 
             Dnn::Compute::DeviceRegistrar::instance();
             Dnn::Compute::OperationsRegistrar::instance();
 
-            Utils::Logger::info( "Mila framework initialized successfully." );
+            Logging::Logger::info( "Mila framework initialized successfully." );
 
             return true;
         }
@@ -346,10 +346,10 @@ namespace Mila
     }
 
     export void shutdown() {
-        Utils::Logger::info( "Shutting down Mila framework" );
+        Logging::Logger::info( "Shutting down Mila framework" );
 
         detail::g_defaultLogger.reset();
-        Utils::Logger::setDefaultLogger( nullptr );
+        Logging::Logger::setDefaultLogger( nullptr );
 
         // TODO: Add other cleanup code here...
     }

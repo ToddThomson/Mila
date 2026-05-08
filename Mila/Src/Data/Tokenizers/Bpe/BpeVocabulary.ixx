@@ -1231,6 +1231,7 @@ namespace Mila::Data
             uint32_t bos_id = 0;
             read_u32( bos_id );
             vocab.special_token_ids_[ st.bos_token ] = static_cast<TokenId>(bos_id);
+            
             std::cout << "  BOS: '" << st.bos_token << "' (ID: " << bos_id << ")\n";
         }
 
@@ -1242,6 +1243,7 @@ namespace Mila::Data
             uint32_t eos_id = 0;
             read_u32( eos_id );
             vocab.special_token_ids_[ st.eos_token ] = static_cast<TokenId>(eos_id);
+            
             std::cout << "  EOS: '" << st.eos_token << "' (ID: " << eos_id << ")\n";
         }
 
