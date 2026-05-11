@@ -111,9 +111,15 @@ namespace Mila::ChatApp
                 {
                     system_content += "\n\nYou have access to the following tools:\n";
                     system_content += serializeTools( active_tools );
-                    system_content += "\n\nWhen a user request requires real-time or external "
-                        "information, call the appropriate tool. Only call a tool when it is "
-                        "relevant. Do not guess at answers that require tool results.";
+
+                    system_content += "\n\nWhen you need to call a tool, respond using ONLY this format and nothing else:\n"
+                        "[tool_name(param_name=param_value)]\n"
+                        "Do not describe what you are doing. Do not include any other text.";
+
+                    //system_content += "\n\nWhen calling a tool, you MUST respond using exactly this format and nothing else:\n"
+                    //    "<|python_tag|>{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}<|eom_id|>\n"
+                    //    "Do not describe what you are doing. Do not include any other text. "
+                    //    "Emit only the tool call token sequence and stop.";
                 }
 
                 history_.push_back( { MessageRole::System, std::move( system_content ) } );
@@ -186,6 +192,7 @@ namespace Mila::ChatApp
             {
                 std::cout << "\nMila: " << response << '\n';
                 history_.push_back( { MessageRole::Assistant, response } );
+                
                 return;
             }
 
@@ -227,6 +234,12 @@ namespace Mila::ChatApp
             final_response.reserve( 512 );
 
             std::cout << "\nMila: ";
+
+            for ( const auto& msg : history_ )
+            {
+                std::cerr << "[DEBUG] role: " << static_cast<int>(msg.role)
+                    << " content: [" << msg.content << "]\n";
+            }
 
             generateResponse( final_response, /*stream=*/true );
 
@@ -366,7 +379,20 @@ namespace Mila::ChatApp
                 prompt = history_.back().content;
             }
 
+            // DEBUG
+            std::cerr << "[PROMPT DEBUG]\n" << prompt << "\n[END PROMPT]\n";
+
             auto token_ids = tokenizer_->encode( prompt );
+
+            // DEBUG: dump token IDs for HF comparison
+            //std::cout << "[TOKEN DEBUG] Prompt token count: " << token_ids.size() << "\n";
+            //std::cout << "[TOKEN DEBUG] Token IDs: ";
+            //for ( const auto& id : token_ids )
+            //{
+            //    std::cout << id << " ";
+            //}
+            //std::cout << "\n";
+            // END DEBUG
 
             return std::vector<int32_t>( token_ids.begin(), token_ids.end() );
         }
@@ -391,7 +417,7 @@ namespace Mila::ChatApp
         {
             try
             {
-                std::cout << "Loading tokenizer from: " << config_.tokenizer_path << "\n";
+                Logging::Logger::info( std::format( "Loading tokenizer from: {}", config_.tokenizer_path.string() ) );
 
                 switch ( config_.model_type )
                 {
@@ -404,19 +430,19 @@ namespace Mila::ChatApp
                         break;
                 }
 
-                std::cout << "Tokenizer loaded. Vocab size: "
-                    << tokenizer_->getVocabSize() << "\n";
+                Logging::Logger::info( std::format( "Tokenizer loaded. Vocab size: {}", tokenizer_->getVocabSize() ) );
             }
             catch ( const std::exception& e )
             {
-                std::cerr << "Error loading tokenizer: " << e.what() << "\n";
+                Logging::Logger::error( std::format( "Failed to load tokenizer: {}", e.what() ) );
+
                 throw;
             }
         }
 
         void loadModel()
         {
-            std::cout << "Loading model from: " << config_.model_path << "\n";
+            //Logging::Logger::info( std::format( "Loading model from: {}", config_.model_path ) );
 
             const DeviceId device{ DeviceType::Cuda, 0 };
 
@@ -458,7 +484,7 @@ namespace Mila::ChatApp
                 {
                     std::cout << m->toString();
                     std::cout << m->getMemoryStats().toString() << "\n";
-                    std::cout << "Model loaded successfully!\n";
+                    std::cout << "Model loaded successfully\n";
                 },
                 model_ );
         }

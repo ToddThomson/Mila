@@ -16,6 +16,7 @@ module;
 export module Chat.MessageFormatter;
 
 import Chat.Message;
+import Chat.Json;
 
 namespace Mila::ChatApp
 {
@@ -131,26 +132,38 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief Render a ToolCall as a <|python_tag|>-bounded JSON block.
+         * @brief Render a ToolCall in the Llama 3.2 3B pythonic format.
          *
-         * Produces the format expected by Llama 3.x for tool invocations:
+         * Produces the zero-shot tool calling format expected by Llama 3.2 1B/3B:
          * @code
-         *   <|python_tag|>{"name": "fn", "arguments": {<args>}}<|eom_id|>
+         *   [tool_name(param_name="value", param_name2="value2")]<|eot_id|>
          * @endcode
+         *
+         * Note: Llama 3.2 1B/3B uses pythonic format terminated with <|eot_id|>,
+         * not the <|python_tag|>/<|eom_id|> format used by built-in tools and
+         * larger Llama models.
          *
          * @param call The tool call to render.
          * @return     Formatted tool call string.
          */
         static std::string formatToolCall( const ToolCall& call )
         {
-            return std::format(
-                "{}"
-                "{{\"name\": \"{}\", \"arguments\": {}}}"
-                "{}",
-                kPythonTag,
-                call.name,
-                call.arguments,
-                kEom );
+            nlohmann::json args = nlohmann::json::parse( call.arguments );
+
+            std::string params;
+
+            for ( auto it = args.begin(); it != args.end(); ++it )
+            {
+                if ( !params.empty() )
+                    params += ", ";
+
+                params += it.key();
+                params += "=\"";
+                params += it.value().get<std::string>();
+                params += "\"";
+            }
+
+            return std::format( "[{}({})]{}", call.name, params, kEot );
         }
 
     private:

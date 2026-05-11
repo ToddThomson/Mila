@@ -48,22 +48,27 @@ no runtime fallback, no string key, no hash map lookup.
 - [ ] `SoftmaxOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Softmax` component `createOperation()` to TypeMap dispatch
 - [ ] `SwigluOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Swiglu` component `createOperation()` to TypeMap dispatch
 - [ ] `MultiHeadAttentionOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `MultiHeadAttention` component `createOperation()` to TypeMap dispatch
-- [ ] `GroupedQueryAttentionOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `GroupedQueryAttention` component `createOperation()` to TypeMap dispatch
+- [ ] `GroupedQueryAttentionOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; add `TKvPolicy` as second template axis; specialize for `<Cuda, NoKvCompression>` and `<Cpu, NoKvCompression>`; migrate `GroupedQueryAttention` component `createOperation()` to TypeMap dispatch
 - [ ] `RopeOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Rope` component `createOperation()` to TypeMap dispatch
 - [ ] `LpeOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Lpe` component `createOperation()` to TypeMap dispatch
 - [ ] `TokenEmbeddingOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `TokenEmbedding` component `createOperation()` to TypeMap dispatch
 - [ ] `SoftmaxCrossEntropyOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `SoftmaxCrossEntropy` component `createOperation()` to TypeMap dispatch
+- [ ] `Dnn/Quantization/KvCache/Policy.ixx` — define `KvCachePolicy` concept; implement `NoKvCompression` identity struct; zero-cost, no behavior change to any existing GQA path
+- [ ] `GroupedQueryAttention` — replace bare `TKvCache` `TensorDataType` parameter with `TKvPolicy` constrained to `KvCachePolicy`; update class template signature and all internal `if constexpr` branches; `NoKvCompression` is the default
 - [ ] Remove `OperationRegistry`, `OperationRegistryHelpers`, and all associated registration macros once all components are migrated
 
 ### Phase 2 — FP8 Quantization Infrastructure
 
+- [ ] `Dnn/Quantization/WeightQuant/Policies.ixx` — `NoWeightQuant` identity struct; `PerChannelFp8<>` policy struct with `kStorageDtype = FP8_E4M3`, `kScaleDtype = Float32`, `kPerChannel = true`; `WeightQuantPolicy` concept
 - [ ] `QuantizationConfig` — model-level policy: `none()` and `fp8()` factory methods; carried into `Linear` via `LinearConfig::withQuantization()`
 - [ ] `LinearConfig::withQuantization()` — fluent setter storing the `QuantizationConfig` policy
-- [ ] `Linear::initializeParameters()` — when policy is `fp8()`: allocate `weight_quantized_` (FP8_E4M3 tensor) and `weight_scale_` (FP32 per-channel tensor); run load-time quantization kernel; pass quantized weight to `CudaLinearOp::setParameters()`
+- [ ] `Linear` — replace bare `TWeight` `TensorDataType` parameter with `TWeightQuant` constrained to `WeightQuantPolicy`; `kIsQuantized = TWeightQuant::kIsQuantized`; `WeightTensorType` derives storage dtype from `TWeightQuant::kStorageDtype`; `NoWeightQuant` is the default
+- [ ] `LinearOpTypeMap` — add `PerChannelFp8<>` specialization: `LinearOpTypeMap<Cuda, BF16, PerChannelFp8<>>`  resolves to `CudaLinearOp<BF16, PerChannelFp8<>>`
+- [ ] `Linear::initializeParameters()` — when `kIsQuantized`: allocate `weight_quantized_` (FP8_E4M3 tensor) and `weight_scale_` (FP32 per-channel tensor); run load-time quantization kernel; pass quantized weight to `CudaLinearOp::setParameters()`
 - [ ] Load-time per-channel quantization kernel — converts BF16 weight tensor to FP8_E4M3 and computes `scale[o] = max(abs(W[o,:])) / 448.0f` for each output channel; runs once at model load, not on the forward hot path
-- [ ] `CudaLinearOp::build()` — detect weight dtype via `ITensor::dataType()` at build time; select mixed-precision cuBLASLt plan when weight is FP8_E4M3
-- [ ] `CudaLinearOp::supportsCuBLASLt()` — extend to include FP8_E4M3 with SM >= 8.9 runtime capability check
-- [ ] `CudaLinearOp::getComputeTypes()` — add FP8_E4M3 branch: `compute_type = CUBLAS_COMPUTE_32F`, `scale_type = CUDA_R_32F`
+- [ ] `CudaLinearOp::build()` — detect weight policy via `TWeightQuant` at build time; select mixed-precision cuBLASLt plan when `TWeightQuant::kStorageDtype == FP8_E4M3`
+- [ ] `CudaLinearOp::supportsCuBLASLt()` — extend to include `PerChannelFp8<>` with SM >= 8.9 runtime capability check
+- [ ] `CudaLinearOp::getComputeTypes()` — add `PerChannelFp8<>` branch: `compute_type = CUBLAS_COMPUTE_32F`, `scale_type = CUDA_R_32F`
 - [ ] `build_strided_plan` — add separate `data_type_A` and `data_type_B` parameters to support mixed-precision layouts (BF16 activation × FP8 weight → BF16 output)
 - [ ] FP8 decode matvec kernel — `cuda_matvec_impl` specialization: BF16 activation × FP8_E4M3 weight + FP32 per-channel scale → BF16 output; single-token decode hot path
 
@@ -79,7 +84,8 @@ no runtime fallback, no string key, no hash map lookup.
 ## Alpha.6 — Planned
 
 **Qwen 3 transformer architecture with thinking mode and model-agnostic tool calling,
-validated on Qwen 3 8B Instruct at BF16 and FP8.**
+validated on Qwen 3 8B Instruct at BF16 and FP8. FP8 KV cache compression introduced
+and validated on both Llama 3.2 3B and Qwen 3 8B.**
 
 Alpha.6 adds Qwen 3 as Mila's second supported architecture family. The Qwen 3 dense
 decoder shares Mila's existing building blocks — RMSNorm, SwiGLU, GQA, RoPE — so the
@@ -92,10 +98,17 @@ providing a second independent architecture validation of the quantization pipel
 before beta. Qwen 3 8B at FP8 targets approximately 9–10 GB VRAM, within the RTX 4070
 budget established in Alpha.5.
 
-Success criterion: Greedy decode of Qwen 3 8B Instruct at BF8 and FP8 each match
+FP8 KV cache compression is introduced in Alpha.6 as a symmetric K/V policy
+(`PerChannelKvFp8<>`). Combined with FP8 weight quantization, this is the primary VRAM
+lever for fitting larger models within the 12 GB budget. KV cache compression is
+validated on both Llama 3.2 3B (against the established BF16 baseline) and Qwen 3 8B
+(where VRAM headroom is tightest).
+
+Success criterion: Greedy decode of Qwen 3 8B Instruct at BF16 and FP8 each match
 HuggingFace token-for-token on identical prompts. Tool calling validated end-to-end
 using the model-agnostic pipeline. Thinking mode token suppression confirmed in the
-Chat CLI.
+Chat CLI. FP8 KV cache compression produces acceptable output quality degradation
+relative to the BF16 baseline on both validation models.
 
 ### Phase 1 — Qwen 3 Transformer Component
 
@@ -117,18 +130,27 @@ Chat CLI.
 - [ ] Stop token handling — generation halts on `<|im_end|>`
 - [ ] Thinking mode — `ThinkingFilter` streams tokens to the Chat CLI output, suppressing content between `<think>` and `</think>` inclusive; thinking content discarded by default, available via `--show-thinking` flag
 
-### Phase 4 — Qwen 3 8B Instruct BF16 Validation
+### Phase 4 — FP8 KV Cache Compression
 
-- [ ] Prefill pipeline validated at BF16 — logits match HuggingFace on identical prompts
-- [ ] Full-network greedy decode validated token-for-token against HuggingFace
-- [ ] Tool calling validated end-to-end using model-agnostic pipeline
+Symmetric per-head per-token FP8 compression of the K and V cache tensors in
+`CudaGqaOp`. The `KvCachePolicy` extension point and `NoKvCompression` identity were
+established in Alpha.5 Phase 1. This phase activates the first real policy.
 
-### Phase 5 — Qwen 3 8B Instruct FP8 Validation
+Scale granularity is per-head per-token (one float32 scale per head per cached token
+for both K and V). This is coarser than per-channel weight quantization but appropriate
+for the dynamic, growing shape of the KV cache. K and V use the same policy
+symmetrically — asymmetric compression is not a current target.
 
-- [ ] `ChatConfig` — enforce `context_length = 2048` hard cap for Qwen 3 8B FP8 mode
-- [ ] Prefill pipeline validated at FP8 — logits match BF16 baseline on identical prompts
-- [ ] Full-network greedy decode validated token-for-token against BF16 baseline
-- [ ] Tool calling validated end-to-end using model-agnostic pipeline
+- [ ] `Dnn/Quantization/KvCache/QuantPolicy.ixx` — `PerChannelKvFp8<>` policy struct: `kStorageDtype = FP8_E4M3`, `kScaleDtype = Float32`, `kPerHeadPerToken = true`; satisfies `KvCachePolicy` concept
+- [ ] `GroupedQueryAttentionOpTypeMap` — add `PerChannelKvFp8<>` specialization: `<Cuda, PerChannelKvFp8<>>` resolves to `CudaGqaOp<BF16, PerChannelKvFp8<>>`
+- [ ] `CudaGqaOp` — extend template signature to `<TComputePrecision, TKvPolicy>`; select quantized vs passthrough cache kernels via `if constexpr (TKvPolicy::kIsActive)`; non-quantized path is unchanged
+- [ ] KV cache scale tensor allocation — `GroupedQueryAttention::build()` allocates `k_scale_` and `v_scale_` tensors (shape `[num_kv_heads, max_seq_len]`, dtype FP32) when `TKvPolicy::kIsActive`; lifetime mirrors the KV cache tensors
+- [ ] KV cache write kernel (prefill) — quantizes K and V from BF16 to FP8_E4M3 on each prefill chunk write; computes `scale[head, token] = max(abs(x[head, token, :])) / 448.0f` per head per token; writes FP8 values and FP32 scales to cache
+- [ ] KV cache write kernel (decode) — same quantization logic for the single-token append on each decode step; scale computation per head for the new token only
+- [ ] KV cache read kernel — dequantizes K and V from FP8_E4M3 back to BF16 before attention score and weighted-sum computation; applies stored per-head per-token scales
+- [ ] `CudaGqaOp::setParameters()` — accept optional `k_scale_` and `v_scale_` tensor pointers when `TKvPolicy::kIsActive`
+- [ ] Validated on Llama 3.2 3B Instruct — FP8 KV cache output quality measured against established BF16 baseline; acceptable degradation criterion: no catastrophic token divergence on standard prompts
+- [ ] Validated on Qwen 3 8B Instruct — confirm VRAM reduction fits within 4070 12 GB budget with both weight FP8 and KV cache FP8 active; measure VRAM at BF16, weight-FP8-only, and weight-FP8 + KV-FP8 configurations
 
 ---
 
@@ -183,7 +205,7 @@ end-to-end on both models using the model-agnostic pipeline from Alpha.6.
 
 ---
 
-## Alpha.4 — In Progress
+## Alpha.4 — Complete
 
 **Instruction following and tool calling, validated on Llama 3.2 3B Instruct at BF16.**
 

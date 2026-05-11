@@ -165,7 +165,7 @@ namespace Mila::Dnn
             network->build( build_context );
 
             // Verbose logging of the loaded model's architecture and memory stats after build().
-            std::cout << network->toString() << std::endl;
+            Logging::Logger::info( network->toString() );
 
             network->loadParameters( reader );
 

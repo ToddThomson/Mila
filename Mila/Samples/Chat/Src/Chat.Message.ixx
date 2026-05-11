@@ -78,7 +78,7 @@ namespace Mila::ChatApp
             case MessageRole::System:    return "system";
             case MessageRole::User:      return "user";
             case MessageRole::Assistant: return "assistant";
-            case MessageRole::Tool:      return "tool";
+            case MessageRole::Tool:      return "ipython";
         }
 
         return "unknown";

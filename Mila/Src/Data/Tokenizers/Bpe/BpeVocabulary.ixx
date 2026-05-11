@@ -586,10 +586,12 @@ namespace Mila::Data
             ++current_id_;
             ++merges_performed;
 
+            // REVIEW: async method with progress?
             if ( merges_performed % 100 == 0 )
             {
                 auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::steady_clock::now() - start_time).count();
+                
                 float progress = static_cast<float>(merges_performed) /
                     static_cast<float>(target_vocab_size) * 100.0f;
 
@@ -1082,7 +1084,9 @@ namespace Mila::Data
             if ( llen > 0 )
             {
                 file.read( left.data(), static_cast<std::streamsize>(llen) );
-                if ( !file ) throw std::runtime_error( "Failed reading merge left at " + std::to_string( i ) );
+                
+                if ( !file )
+                    throw std::runtime_error( "Failed reading merge left at " + std::to_string( i ) );
             }
 
             uint32_t rlen = 0;
@@ -1092,7 +1096,9 @@ namespace Mila::Data
             if ( rlen > 0 )
             {
                 file.read( right.data(), static_cast<std::streamsize>(rlen) );
-                if ( !file ) throw std::runtime_error( "Failed reading merge right at " + std::to_string( i ) );
+                
+                if ( !file )
+                    throw std::runtime_error( "Failed reading merge right at " + std::to_string( i ) );
             }
 
             vocab.merges_.emplace_back( std::move( left ), std::move( right ) );
@@ -1232,7 +1238,7 @@ namespace Mila::Data
             read_u32( bos_id );
             vocab.special_token_ids_[ st.bos_token ] = static_cast<TokenId>(bos_id);
             
-            std::cout << "  BOS: '" << st.bos_token << "' (ID: " << bos_id << ")\n";
+            //std::cout << "  BOS: '" << st.bos_token << "' (ID: " << bos_id << ")\n";
         }
 
         uint32_t has_eos = 0;
@@ -1244,7 +1250,7 @@ namespace Mila::Data
             read_u32( eos_id );
             vocab.special_token_ids_[ st.eos_token ] = static_cast<TokenId>(eos_id);
             
-            std::cout << "  EOS: '" << st.eos_token << "' (ID: " << eos_id << ")\n";
+            // std::cout << "  EOS: '" << st.eos_token << "' (ID: " << eos_id << ")\n";
         }
 
         uint32_t has_pad = 0;
@@ -1256,7 +1262,7 @@ namespace Mila::Data
             read_u32( pad_id );
             vocab.special_token_ids_[ st.pad_token ] = static_cast<TokenId>(pad_id);
             
-            std::cout << "  PAD: '" << st.pad_token << "' (ID: " << pad_id << ")\n";
+            //std::cout << "  PAD: '" << st.pad_token << "' (ID: " << pad_id << ")\n";
         }
 
         uint32_t has_unk = 0;
@@ -1268,7 +1274,7 @@ namespace Mila::Data
             read_u32( unk_id );
             vocab.special_token_ids_[ st.unk_token ] = static_cast<TokenId>(unk_id);
             
-            std::cout << "  UNK: '" << st.unk_token << "' (ID: " << unk_id << ")\n";
+            //std::cout << "  UNK: '" << st.unk_token << "' (ID: " << unk_id << ")\n";
         }
 
         // Register extended special tokens from config (chat template tokens).
@@ -1279,6 +1285,7 @@ namespace Mila::Data
 
         vocab.buildSpecialTokenList();
 
+        // REVIEW: Possible logger Info 
         std::cout << "Loaded Llama 3.2 vocabulary: "
             << vocab_size << " tokens, "
             << vocab.special_token_ids_.size() << " special tokens\n";

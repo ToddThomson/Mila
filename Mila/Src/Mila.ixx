@@ -291,43 +291,61 @@ namespace Mila
 {
     namespace detail
     {
-        std::shared_ptr<Logging::ConsoleSink> g_defaultLogger;
+        std::shared_ptr<Logging::Logger> g_defaultLogger;
     }
 
-    static void initializeLogger( Logging::LogLevel level = Logging::LogLevel::Info ) {
-        detail::g_defaultLogger = std::make_shared<Logging::ConsoleSink>( level );
-        Logging::Logger::setDefaultLogger( detail::g_defaultLogger.get() );
-    }
+    /**
+     * @brief Initializes the Mila framework.
+     *
+     * Must be called before using any other Mila functionality. If no sink is
+     * provided a ConsoleSink at Info level is created automatically, which is
+     * appropriate for CLI and development use. For server deployments pass a
+     * pre-constructed FileSink; for test harnesses pass a NullSink.
+     *
+     * @param randomSeed  Random seed for reproducibility. 0 = non-deterministic.
+     * @param sink        Logging sink to register. nullptr = default ConsoleSink.
+     * @return True if initialization succeeded, false otherwise.
+     *
+     * @code
+     * // Default — ConsoleSink at Info
+     * Mila::initialize();
+     *
+     * // FastAPI server
+     * auto sink = std::make_shared<Mila::Logging::FileSink>( "mila.log" );
+     * Mila::initialize( 0, sink );
+     *
+     * // Test harness
+     * auto sink = std::make_shared<Mila::Logging::NullSink>();
+     * Mila::initialize( 0, sink );
+     * @endcode
+     */
+    export bool initialize(
+        unsigned int randomSeed = 0,
+        std::shared_ptr<Logging::Logger> sink = nullptr )
+    {
+        try
+        {
+            if ( sink )
+            {
+                detail::g_defaultLogger = std::move( sink );
+            }
+            else
+            {
+                detail::g_defaultLogger = std::make_shared<Logging::ConsoleSink>(
+                    Logging::LogLevel::Error );
+            }
 
-    /// <summary>
-    /// Gets the current Mila API version.
-    /// </summary>
-    /// <returns>A Version object containing the version information</returns>
-    export Version getAPIVersion() {
-        return Version{
-                MILA_VERSION_MAJOR,
-                MILA_VERSION_MINOR,
-                MILA_VERSION_PATCH,
-                MILA_VERSION_PRERELEASE_TAG,
-        };
-    }
-
-    /// <summary>
-    /// Initializes the Mila framework.
-    /// Must be called before using any other Mila functionality.
-    /// </summary>
-    /// <param name="randomSeed">Random seed for reproducibility (0 = use non-deterministic seed)</param>
-    /// <returns>True if initialization succeeded, false otherwise</returns>
-    export bool initialize( unsigned int randomSeed = 0 ) {
-        try {
-            initializeLogger( Logging::LogLevel::Debug );
+            Logging::Logger::setDefaultLogger( detail::g_defaultLogger.get() );
 
             Core::RandomGenerator::getInstance().setSeed( randomSeed );
 
-            if (randomSeed != 0) {
-                Logging::Logger::info( "Initialized random generator with seed: " + std::to_string( randomSeed ) );
+            if ( randomSeed != 0 )
+            {
+                auto message = std::format( "Initialized random generator with seed: {}", randomSeed );
+                Logging::Logger::info( message );
             }
-            else {
+            else
+            {
                 Logging::Logger::info( "Initialized random generator with non-deterministic seed." );
             }
 
@@ -338,19 +356,26 @@ namespace Mila
 
             return true;
         }
-        catch (const std::exception& e) {
-            // Fall back to std::cerr if logger isn't initialized yet
-            std::cerr << "Mila initialization failed: " << e.what() << std::endl;
+        catch ( const std::exception& e )
+        {
+            std::cerr << "Mila initialization failed: " << e.what() << '\n';
+            
             return false;
         }
     }
 
-    export void shutdown() {
-        Logging::Logger::info( "Shutting down Mila framework" );
+    /**
+     * @brief Shuts down the Mila framework and releases all resources.
+     *
+     * The shutdown confirmation is logged before the sink is released so the
+     * message is guaranteed to be emitted. After this call no further log
+     * calls should be made until initialize() is called again.
+     */
+    export void shutdown()
+    {
+        Logging::Logger::info( "Shutting down Mila framework." );
 
         detail::g_defaultLogger.reset();
         Logging::Logger::setDefaultLogger( nullptr );
-
-        // TODO: Add other cleanup code here...
     }
 }

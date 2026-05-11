@@ -25,13 +25,43 @@ class AnthropicAdapter(ProtocolAdapter):
         # Anthropic has no separate completions endpoint; alias to messages.
         return "/v1/messages/completions"
 
+    def _extract_text(self, content) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return " ".join(
+                block["text"]
+                for block in content
+                if block.get("type") == "text"
+            )
+        return ""
+
+    def _extract_system(self, system) -> str:
+        if isinstance(system, str):
+            return system
+        if isinstance(system, list):
+            return " ".join(
+                block["text"]
+                for block in system
+                if block.get("type") == "text"
+            )
+        return "You are a helpful assistant."
+
     def parse_chat_request(self, body: dict) -> tuple[str, InferenceRequest]:
+
+        import json
+        print( "[MIS DEBUG] Request: ", json.dumps( body, indent=2))
+
         # Anthropic puts system at the top level, not inside messages.
-        system_prompt = body.get("system", "You are a helpful assistant.")
+        system_prompt = self._extract_system(body.get("system", "You are a helpful assistant."))
         messages = body.get("messages", [])
 
-        history = [{"role": m["role"], "content": m["content"]} for m in messages[:-1]]
-        user_message = messages[-1]["content"] if messages else ""
+        user_message = self._extract_text(messages[-1]["content"]) if messages else ""
+
+        history = [
+            {"role": m["role"], "content": self._extract_text(m["content"])}
+            for m in messages[:-1]
+        ]
 
         prompt_str = build_instruct_prompt(user_message, system_prompt, history)
 

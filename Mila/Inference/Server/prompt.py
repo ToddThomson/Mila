@@ -30,8 +30,12 @@ def build_instruct_prompt(
     """
     parts: list[str] = [_BOS]
 
-    if system_prompt:
-        parts.append(f"{_HEADER_START}system{_HEADER_END}\n\n{system_prompt}{_EOT}")
+    if system_prompt or tools:
+        system_block = system_prompt or ""
+        if tools:
+            tools_str = json.dumps(tools, indent=2)
+            system_block = f"{system_block}\n\nYou have access to the following tools:\n{tools_str}"
+        parts.append(f"{_HEADER_START}system{_HEADER_END}\n\n{system_block}{_EOT}")
 
     for turn in (history or []):
         role = turn["role"]

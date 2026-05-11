@@ -6,5 +6,5 @@
   "max_new_tokens": 2048,
   "temperature": 0.2,
   "top_k": 20,
-  "system_prompt_path": "Data/assistant-chat.json"
+  "system_prompt_path": "Data/assistant-tools.json"
 }
