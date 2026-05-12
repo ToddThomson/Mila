@@ -144,8 +144,8 @@ namespace Mila::Dnn
         SerializationMetadata toMetadata() const override
         {
             SerializationMetadata meta;
-            meta.set( "precision", static_cast<int64_t>(precision_) )
-                .set( "input_features", static_cast<int64_t>(input_features_) )
+
+            meta.set( "input_features", static_cast<int64_t>(input_features_) )
                 .set( "hidden_size", static_cast<int64_t>(hidden_size_) )
                 .set( "has_bias", has_bias_ )
                 .set( "activation", static_cast<int64_t>(activation_type_) );
@@ -163,11 +163,6 @@ namespace Mila::Dnn
          */
         void fromMetadata( const SerializationMetadata& meta ) override
         {
-            if ( auto p = meta.tryGetInt( "precision" ) )
-            {
-                precision_ = static_cast<decltype( precision_ )>( *p );
-            }
-
             if ( auto in = meta.tryGetInt( "input_features" ) )
             {
                 input_features_ = static_cast<dim_t>( *in );

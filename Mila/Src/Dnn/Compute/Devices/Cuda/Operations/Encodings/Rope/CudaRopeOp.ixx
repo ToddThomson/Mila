@@ -26,7 +26,6 @@ import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
-import Compute.Precision;
 import Compute.PairedOperation;
 import Compute.IPositionalPairedOp;
 import Compute.DeviceType;

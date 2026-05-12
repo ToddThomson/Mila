@@ -39,7 +39,6 @@ export module Dnn.Models.LlamaModelConfig;
 import Dnn.ModelConfig;
 import Dnn.QuantizationConfig;
 import Dnn.TensorTypes;
-import Compute.Precision;
 
 namespace Mila::Dnn
 {

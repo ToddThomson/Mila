@@ -179,8 +179,7 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "precision", static_cast<int64_t>(precision_) )
-                .set( "has_bias", has_bias_ )
+            meta.set( "has_bias", has_bias_ )
                 .set( "epsilon", epsilon_ );
 
             if ( !normalized_shape_.empty() )
@@ -197,11 +196,6 @@ namespace Mila::Dnn
 
         void fromMetadata( const SerializationMetadata& meta ) override
         {
-            if ( auto v = meta.tryGetInt( "precision" ) )
-            {
-                precision_ = static_cast<decltype(precision_)>(*v);
-            }
-
             const bool has_ns = meta.has( "normalized_shape" );
             const bool has_ax = meta.has( "axis" );
 

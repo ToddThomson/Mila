@@ -15,12 +15,10 @@ module;
 export module Dnn.ComponentConfig;
 
 import Serialization.Metadata;
-import Compute.Precision;
 
 namespace Mila::Dnn
 {
     using Serialization::SerializationMetadata;
-    using namespace Mila::Dnn::Compute;
 
     /**
      * @brief Abstract base for component configuration objects.
@@ -76,33 +74,6 @@ namespace Mila::Dnn
         virtual void validate() const = 0;
 
         /**
-         * @brief Fluent setter for the compute precision policy.
-         *
-         * Sets the precision policy used during component construction and
-         * returns the concrete configuration object for chaining.
-         *
-         * @tparam Self CRTP/self type (deduced via C++23 `this` parameter)
-         * @param policy Precision policy to set.
-         * @return Self&& Reference to the concrete config for chaining.
-         */
-        template <typename Self>
-        Self&& withPrecisionPolicy( this Self&& self, ComputePrecision::Policy policy )
-        {
-            self.precision_ = policy;
-            return std::forward<Self>( self );
-        }
-
-        /**
-         * @brief Get the configured precision policy.
-         *
-         * @return ComputePrecision::Policy The configured precision policy.
-         */
-        ComputePrecision::Policy getPrecisionPolicy() const
-        {
-            return precision_;
-        }
-
-        /**
          * @brief Produce a short, human-readable summary of the configuration.
          *
          * Implementations should return a compact, single-line description
@@ -112,14 +83,5 @@ namespace Mila::Dnn
          */
         virtual std::string toString() const = 0;
 
-    protected:
-
-        // REVIEW: DEPRECATED: The precision policy has been moved to the model config
-        // and is now injected into BuildContext at build time.
-
-        // TODO: Remove this field and the withPrecisionPolicy() method once all components consume the policy from BuildContext instead of their own config.
-
-        /** @brief Precision policy used for computation. */
-        ComputePrecision::Policy precision_ = ComputePrecision::Policy::Auto;
     };
 }

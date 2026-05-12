@@ -79,8 +79,8 @@ namespace Mila::Dnn
         SerializationMetadata toMetadata() const override
         {
             SerializationMetadata meta;
-            meta.set( "precision", static_cast<int64_t>( precision_ ) )
-                .set( "approximation_method", std::string( ApproximationMethodToString( approximation_method_ ) ) );
+
+            meta.set( "approximation_method", std::string( ApproximationMethodToString( approximation_method_ ) ) );
 
             return meta;
         }
@@ -95,11 +95,6 @@ namespace Mila::Dnn
          */
         void fromMetadata( const SerializationMetadata& meta ) override
         {
-            if ( auto prec = meta.tryGetInt( "precision" ) )
-            {
-                precision_ = static_cast<decltype( precision_ )>( *prec );
-            }
-
             if ( auto method = meta.tryGetString( "approximation_method" ) )
             {
                 const std::string m = *method;
@@ -135,7 +130,6 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "GeluConfig: { ";
-            oss << "precision=" << static_cast<int>( precision_ ) << ", ";
             oss << "approximation_method=" << static_cast<std::string_view>( ApproximationMethodToString( approximation_method_ ) );
             oss << " }";
 

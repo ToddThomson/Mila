@@ -113,8 +113,8 @@ namespace Mila::Dnn
         SerializationMetadata toMetadata() const
         {
             SerializationMetadata meta;
-            meta.set( "precision", static_cast<int64_t>(precision_) )
-                .set( "model_dim", static_cast<int64_t>(model_dim_) )
+            
+            meta.set( "model_dim", static_cast<int64_t>(model_dim_) )
                 .set( "num_heads", static_cast<int64_t>(num_heads_) );
 
             return meta;
@@ -128,11 +128,6 @@ namespace Mila::Dnn
          */
         void fromMetadata( const SerializationMetadata& meta )
         {
-            if ( auto prec = meta.tryGetInt( "precision" ) )
-            {
-                precision_ = static_cast<decltype(precision_)>(*prec);
-            }
-
             if ( auto md = meta.tryGetInt( "model_dim" ) )
             {
                 model_dim_ = static_cast<dim_t>(*md);
@@ -153,7 +148,6 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "MultiHeadAttentionConfig: { ";
-            oss << "precision=" << static_cast<int>(precision_) << ", ";
             oss << "model_dim=" << model_dim_ << ", ";
             oss << "num_heads=" << num_heads_ << " }";
 

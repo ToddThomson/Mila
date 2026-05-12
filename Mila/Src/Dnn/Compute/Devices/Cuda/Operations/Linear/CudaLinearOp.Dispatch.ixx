@@ -32,7 +32,6 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
-import Compute.Precision;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
@@ -58,32 +57,23 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * @brief CUDA kernel dispatcher for matrix-vector multiply (M=1 decode path).
          *
          * Specialized for float, bfloat16 native CUDA types.
-         * Used exclusively for the decode path where batch_size=1.
+         * Used exclusively for the decode path where batch_size=1 and T=1.
          */
-        template <typename TNative>
-            requires std::is_same_v<TNative, float> || std::is_same_v<TNative, nv_bfloat16>
+        template <typename TComputeType, typename TWeightType = TComputeType>
+            requires std::is_same_v<TComputeType, float> || std::is_same_v<TComputeType, nv_bfloat16>
         struct cuda_matvec_impl;
 
         template <>
-        struct cuda_matvec_impl<float>
+        struct cuda_matvec_impl<float,float>
         {
             /**
-             * @brief Dispatches M=1 matrix-vector decode pass.
-             *
-             * Computes y[OC] = weight[OC, C] @ x[C] + bias[OC]
-             *
-             * @param y       Output vector [OC]
-             * @param x       Input vector [C]
-             * @param weight  Weight matrix [OC, C] row-major
-             * @param bias    Optional bias vector [OC], may be nullptr
-             * @param C       Input features
-             * @param OC      Output features
-             * @param stream  CUDA stream
+             * @brief Dispatches M=1 matrix-vector decode pass for unquantized weights.
              */
             static void decode(
                 float* y,
                 const float* x,
                 const float* weight,
+                const float* scales, // Unused for FP32 path, present for API consistency with quantized decode
                 const float* bias,
                 int C,
                 int OC,
@@ -94,18 +84,36 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         };
 
         template <>
-        struct cuda_matvec_impl<nv_bfloat16>
+        struct cuda_matvec_impl<nv_bfloat16,nv_bfloat16>
         {
+            /**
+             * @brief Dispatches M=1 matrix-vector decode pass for unquantized weights.
+             */
             static void decode(
                 nv_bfloat16* y,
                 const nv_bfloat16* x,
                 const nv_bfloat16* weight,
+                const float* scales, // Unused for FP32 path, present for API consistency with quantized decode
                 const nv_bfloat16* bias,
                 int C,
                 int OC,
                 cudaStream_t stream )
             {
                 cuda_matvec_decode_bf16( y, x, weight, bias, C, OC, stream );
+            }
+        };
+
+        // BF16 activation with FP8 weight — Alpha.5 quantized decode path
+        template<>
+        struct cuda_matvec_impl<nv_bfloat16, __nv_fp8_e4m3>
+        {
+            static void decode(
+                nv_bfloat16* y, const nv_bfloat16* x,
+                const __nv_fp8_e4m3* weight, const float* scales,
+                const nv_bfloat16* bias,
+                int C, int OC, cudaStream_t stream )
+            {
+                cuda_matvec_decode_bf16_qfp8( y, x, weight, scales, bias, C, OC, stream );
             }
         };
 

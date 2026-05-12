@@ -35,7 +35,6 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
-import Compute.Precision;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
@@ -238,22 +237,6 @@ namespace Mila::Dnn
             if ( name == "wte" )
             {
                 this->loadParameterFromBlob( "wte", blob, *wte_, wte_->shape() );
-
-                // Diagnostics
-                //auto host_wte = toHost<TensorDataType::FP32>( *wte_ );
-                //const float* ptr = host_wte.data();
-                //const size_t n = host_wte.size();
-
-                //if ( n > 0 )
-                //{
-                //    float min_w = *std::min_element( ptr, ptr + n );
-                //    float max_w = *std::max_element( ptr, ptr + n );
-                //    float mean_w = std::accumulate( ptr, ptr + n, 0.0f ) / static_cast<float>(n);
-
-                //    /*Logging::Logger::info( std::format(
-                //        "TokenEmbedding wte stats: min={:.6f} max={:.6f} mean={:.6f}",
-                //        min_w, max_w, mean_w ) );*/
-                //}
             }
             else
             {

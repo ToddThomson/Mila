@@ -54,7 +54,6 @@ import Dnn.TensorOps;
 import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.CompositeComponent;
-import Compute.Precision;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;

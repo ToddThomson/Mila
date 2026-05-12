@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.15-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
+| In Progress | 0.13.16-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
 | Planned | 0.14.0-alpha.6 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.15.0-alpha.7 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
@@ -17,12 +17,14 @@
 
 **FP8 load-time quantization pipeline, validated on Llama 3.2 3B Instruct.**
 
-Quantization in Mila is a load-time weight compression policy. When a `QuantizationConfig`
-is supplied, the `Linear` component quantizes its weights from BF16 to FP8_E4M3 during
-`initializeParameters()`, computing per-channel FP32 scales in the same pass. No
-quantized checkpoint format is required — the converter always writes BF16, and
-quantization is entirely Mila's concern. The existing BF16 baseline validated in Alpha.3
-is the correctness reference for all FP8 validation.
+Quantization in Mila is a compile-time deployment decision, not a runtime configuration
+concern. Weight precision is encoded as a template parameter `TWeightQuant` on `Linear`
+and `CudaLinearOp`. When `TWeightQuant = PerChannelFp8<>`, the `Linear` component
+quantizes its weights from BF16 to FP8_E4M3 during `loadParameter()`, computing
+per-channel FP32 scales via `CudaLinearOp::quantize()`. No quantized checkpoint format
+is required — the converter always writes BF16, and quantization is entirely Mila's
+concern. The existing BF16 baseline validated in Alpha.3 is the correctness reference
+for all FP8 validation.
 
 Llama 3.2 3B Instruct is the validation target because its BF16 baseline is already
 token-for-token correct, making it the cleanest possible foundation for isolating
@@ -36,9 +38,10 @@ BF16 baseline token-for-token on identical prompts.
 
 Replace runtime `OperationRegistry` string-keyed lookup with compile-time traits dispatch
 (`XxxOpTypeMap<TDeviceType, TPrecision>::op_type`) across all components and operations.
-`Linear` and its CUDA specialization are already migrated; the remaining components below
-must follow the same pattern. A missing `XxxOpTypeMap` specialization is a compile error —
-no runtime fallback, no string key, no hash map lookup.
+The `LinearOpTypeMap` primary template is defined; CPU and CUDA partition specializations
+are pending as part of Phase 2. All remaining components below must follow the same
+pattern. A missing `XxxOpTypeMap` specialization is a compile error — no runtime
+fallback, no string key, no hash map lookup.
 
 - [x] `LinearOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Linear` component `createOperation()` to TypeMap dispatch
 - [ ] `GeluOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Gelu` component `createOperation()` to TypeMap dispatch
@@ -48,33 +51,46 @@ no runtime fallback, no string key, no hash map lookup.
 - [ ] `SoftmaxOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Softmax` component `createOperation()` to TypeMap dispatch
 - [ ] `SwigluOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Swiglu` component `createOperation()` to TypeMap dispatch
 - [ ] `MultiHeadAttentionOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `MultiHeadAttention` component `createOperation()` to TypeMap dispatch
-- [ ] `GroupedQueryAttentionOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; add `TKvPolicy` as second template axis; specialize for `<Cuda, NoKvCompression>` and `<Cpu, NoKvCompression>`; migrate `GroupedQueryAttention` component `createOperation()` to TypeMap dispatch
+- [ ] `GroupedQueryAttentionOpTypeMap` — define TypeMap header; three template axes `<TDeviceType, TPrecision, TKvPolicy>`; specialize for `<Cuda, BF16, NoKvCompression>` and `<Cpu, FP32, NoKvCompression>`; migrate `GroupedQueryAttention` component `createOperation()` to TypeMap dispatch
 - [ ] `RopeOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Rope` component `createOperation()` to TypeMap dispatch
 - [ ] `LpeOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Lpe` component `createOperation()` to TypeMap dispatch
 - [ ] `TokenEmbeddingOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `TokenEmbedding` component `createOperation()` to TypeMap dispatch
 - [ ] `SoftmaxCrossEntropyOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `SoftmaxCrossEntropy` component `createOperation()` to TypeMap dispatch
-- [ ] `Dnn/Quantization/KvCache/Policy.ixx` — define `KvCachePolicy` concept; implement `NoKvCompression` identity struct; zero-cost, no behavior change to any existing GQA path
-- [ ] `GroupedQueryAttention` — replace bare `TKvCache` `TensorDataType` parameter with `TKvPolicy` constrained to `KvCachePolicy`; update class template signature and all internal `if constexpr` branches; `NoKvCompression` is the default
+- [ ] `GroupedQueryAttention` — replace bare `TKvCache TensorDataType` parameter with `TKvPolicy` constrained to `KvCachePolicy`; `kKvCompressed = TKvPolicy::kIsActive`; `kCacheDtype` derived from policy; `NoKvCompression` is the default
 - [ ] Remove `OperationRegistry`, `OperationRegistryHelpers`, and all associated registration macros once all components are migrated
 
 ### Phase 2 — FP8 Quantization Infrastructure
 
-- [ ] `Dnn/Quantization/WeightQuant/Policies.ixx` — `NoWeightQuant` identity struct; `PerChannelFp8<>` policy struct with `kStorageDtype = FP8_E4M3`, `kScaleDtype = Float32`, `kPerChannel = true`; `WeightQuantPolicy` concept
-- [ ] `QuantizationConfig` — model-level policy: `none()` and `fp8()` factory methods; carried into `Linear` via `LinearConfig::withQuantization()`
-- [ ] `LinearConfig::withQuantization()` — fluent setter storing the `QuantizationConfig` policy
-- [ ] `Linear` — replace bare `TWeight` `TensorDataType` parameter with `TWeightQuant` constrained to `WeightQuantPolicy`; `kIsQuantized = TWeightQuant::kIsQuantized`; `WeightTensorType` derives storage dtype from `TWeightQuant::kStorageDtype`; `NoWeightQuant` is the default
-- [ ] `LinearOpTypeMap` — add `PerChannelFp8<>` specialization: `LinearOpTypeMap<Cuda, BF16, PerChannelFp8<>>`  resolves to `CudaLinearOp<BF16, PerChannelFp8<>>`
-- [ ] `Linear::initializeParameters()` — when `kIsQuantized`: allocate `weight_quantized_` (FP8_E4M3 tensor) and `weight_scale_` (FP32 per-channel tensor); run load-time quantization kernel; pass quantized weight to `CudaLinearOp::setParameters()`
-- [ ] Load-time per-channel quantization kernel — converts BF16 weight tensor to FP8_E4M3 and computes `scale[o] = max(abs(W[o,:])) / 448.0f` for each output channel; runs once at model load, not on the forward hot path
-- [ ] `CudaLinearOp::build()` — detect weight policy via `TWeightQuant` at build time; select mixed-precision cuBLASLt plan when `TWeightQuant::kStorageDtype == FP8_E4M3`
-- [ ] `CudaLinearOp::supportsCuBLASLt()` — extend to include `PerChannelFp8<>` with SM >= 8.9 runtime capability check
-- [ ] `CudaLinearOp::getComputeTypes()` — add `PerChannelFp8<>` branch: `compute_type = CUBLAS_COMPUTE_32F`, `scale_type = CUDA_R_32F`
-- [ ] `build_strided_plan` — add separate `data_type_A` and `data_type_B` parameters to support mixed-precision layouts (BF16 activation × FP8 weight → BF16 output)
-- [ ] FP8 decode matvec kernel — `cuda_matvec_impl` specialization: BF16 activation × FP8_E4M3 weight + FP32 per-channel scale → BF16 output; single-token decode hot path
+Weight quantization is a compile-time template parameter `TWeightQuant` on `Linear` and
+`CudaLinearOp`. `NoWeightQuant` is the default for all non-quantized paths; `PerChannelFp8<>`
+activates the FP8 path. There is no runtime quantization config object — `kIsQuantized` is
+`TWeightQuant::kIsQuantized`, a compile-time constant. `QuantizationConfig` and
+`LinearConfig::withQuantization()` are explicitly not part of this design.
+
+The quantization pipeline:
+1. `Linear` is instantiated with `TWeightQuant = PerChannelFp8<>`
+2. `loadParameter("weight", blob)` delegates to `operation_->quantize(blob, *weight_, *weight_scales_, shape)`
+3. `quantize()` runs host-side: computes per-channel scales (`max(abs(W[o,:])) / 448.0f`), uploads FP8 weights and FP32 scales to device
+4. `operation_->setWeightScales(weight_scales_.get())` binds the scale tensor to the cuBLASLt plan descriptor
+5. On each forward pass, cuBLASLt executes the mixed-precision GEMM natively — no dequantization on the hot path
+
+`quantize()` and `setWeightScales()` are concrete methods on `CudaLinearOp` only — not
+on the operation base class. Non-quantized operations are entirely unaware they exist.
+
+- [x] `Dnn/Quantization/Weight/Policies.ixx` — `NoWeightQuant` identity struct; `PerChannelFp8<>` policy struct with `kStorageDtype = FP8_E4M3`, `kScaleDtype = Float32`, `kPerChannel = true`; `WeightQuantPolicy` concept; both policies verified with `static_assert` at definition time
+- [x] `Dnn/Quantization/KvCache/Policy.ixx` — `KvCachePolicy` concept; `NoKvCompression` identity struct; zero-cost, no behavior change to any existing GQA path
+- [x] `Dnn/Quantization/KvCache/QuantPolicy.ixx` — `QuantKvPolicy` concept refinement; `PerChannelKvFp8<>` policy struct; both verified with `static_assert` at definition time
+- [ ] `LinearOpTypeMap.Template.ixx` — update primary template signature from bare `TensorDataType TWeight` to `WeightQuantPolicy TWeightQuant = NoWeightQuant`; add import of `Dnn.Quantization.Weight.Policies`
+- [ ] `LinearOpTypeMap.Cpu.ixx` — add `<Cpu, FP32, NoWeightQuant>` specialization resolving to `CpuLinearOp`
+- [ ] `CudaLinearOp.ixx` — implement non-quantized BF16 cuBLASLt path; add `TWeightQuant` template parameter; add `quantize()` and `setWeightScales()` concrete methods on the `PerChannelFp8<>` path; `supportsCuBLASLt()` extended with SM >= 8.9 capability check for FP8; `getComputeTypes()` FP8 branch: `compute_type = CUBLAS_COMPUTE_32F`, `typeA = CUDA_R_BF16`, `typeB = CUDA_R_FP8_E4M3`; `build_strided_plan` with separate `data_type_A` / `data_type_B` parameters for mixed-precision descriptor; `build()` selects FP8 cuBLASLt plan via `if constexpr (kIsQuantized)`
+- [ ] `LinearOpTypeMap.Cuda.ixx` — add `<Cuda, BF16, NoWeightQuant>` specialization resolving to `CudaLinearOp<BF16, NoWeightQuant>`; add `<Cuda, BF16, PerChannelFp8<>>` specialization resolving to `CudaLinearOp<BF16, PerChannelFp8<>>`
+- [ ] `Linear.ixx` — replace bare `TWeight = TComputePrecision` parameter with `TWeightQuant = NoWeightQuant` constrained to `WeightQuantPolicy`; `kIsQuantized = TWeightQuant::kIsQuantized`; `kWeightDtype` derived from policy (`kIsQuantized ? TWeightQuant::kStorageDtype : TComputePrecision`); allocate `weight_scales_` (`Tensor<Float32, MR>`, shape `[output_features]`) in `initializeParameters()` when `kIsQuantized`; update `loadParameter()` to call `operation_->quantize(blob, *weight_, *weight_scales_, shape)` and `operation_->setWeightScales(weight_scales_.get())` on the quantized path
+- [ ] FP8 decode matvec kernel — single-token decode hot path: BF16 activation `[1, I]` × FP8_E4M3 weight `[O, I]` + FP32 per-channel scale `[O]` → BF16 output `[1, O]`; used when batch size = 1; cuBLASLt plan handles prefill (batch > 1)
 
 ### Phase 3 — Llama 3.2 3B Instruct @ FP8
 
 - [ ] `ChatConfig` — add `ModelPrecision::FP8`; enforce `context_length = 2048` as hard cap for FP8 mode
+- [ ] Wire FP8 through `LlamaModel::fromPretrained()` — instantiate `Linear<Cuda, BF16, PerChannelFp8<>>` for all projection layers when `ModelPrecision::FP8`; compile-time only, no runtime config object
 - [ ] Prefill pipeline validated at FP8 — logits match BF16 baseline on identical prompts
 - [ ] Full-network greedy decode validated token-for-token against BF16 baseline
 - [ ] Tool calling validated end-to-end using structured message pipeline from Alpha.4

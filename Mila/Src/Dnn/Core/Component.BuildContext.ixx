@@ -15,12 +15,9 @@ export module Dnn.Component:BuildContext;
 import Dnn.RuntimeMode;
 import Dnn.TensorTypes;
 import Dnn.QuantizationConfig;
-import Compute.Precision;
 
 namespace Mila::Dnn
 {
-    using namespace Mila::Dnn::Compute;
-
     /**
      * @brief Build-time context for Component::build().
      *
@@ -44,11 +41,6 @@ namespace Mila::Dnn
      *                                   computing initializers (Xavier, normal, zeros)
      *                                   that are immediately overwritten by loadParameter().
      *                                   Defaults to true (training from scratch).
-     *
-     * 5. **Precision policy**        — cuBLASLt algorithm selection heuristic applied
-     *                                  uniformly to all compute components (Linear, GQA,
-     *                                  MHA). Replaces the precision_ field previously on
-     *                                  ComponentConfig. Defaults to Auto.
      *
      * 6. **Quantization config**     — weight storage dtype and scale allocation policy.
      *                                  Currently consumed by Linear only. All other
@@ -84,9 +76,7 @@ namespace Mila::Dnn
         BuildContext()
             : input_shape_{ 1 }
             , runtime_mode_( RuntimeMode::Training )
-            // REVIEW - REMOVE, prefill_size_( 0 )
             , initialize_parameters_( true )
-            , precision_policy_( ComputePrecision::Policy::Auto )
             , quantization_( QuantizationConfig::none() )
         {
         }
@@ -103,8 +93,6 @@ namespace Mila::Dnn
          * @param runtime_mode           Allocation policy: Inference or Training.
          * @param initialize_parameters  When false, components allocate parameter
          *                               tensors but skip value initialization.
-         * @param precision_policy       cuBLASLt algorithm selection heuristic.
-         *                               Extracted from ModelConfig::getPrecisionPolicy().
          * @param quantization           Weight storage dtype and scale policy.
          *                               Extracted from ModelConfig::getQuantization().
          *
@@ -115,13 +103,11 @@ namespace Mila::Dnn
             RuntimeMode runtime_mode,
             // int64_t prefill_size = 0,
             bool initialize_parameters = true,
-            ComputePrecision::Policy precision_policy = ComputePrecision::Policy::Auto,
             QuantizationConfig quantization = QuantizationConfig::none() )
             : input_shape_( std::move( input_shape ) )
             , runtime_mode_( runtime_mode )
             //, prefill_size_( prefill_size )
             , initialize_parameters_( initialize_parameters )
-            , precision_policy_( precision_policy )
             , quantization_( quantization )
         {
             if ( input_shape_.empty() )
@@ -157,31 +143,11 @@ namespace Mila::Dnn
             return BuildContext(
                 std::move( new_shape ),
                 runtime_mode_,
-                //prefill_size_,
                 initialize_parameters_,
-                precision_policy_,
                 quantization_ );
         }
 
-        /**
-         * @brief Return a copy of this context with a different precision policy.
-         *
-         * All other parameters are preserved. Provided for sub-graphs that
-         * operate at a different precision than the parent context.
-         *
-         * @param policy  Replacement precision policy.
-         * @return New BuildContext with policy and all other fields unchanged.
-         */
-        [[nodiscard]] BuildContext withPrecisionPolicy( ComputePrecision::Policy policy ) const
-        {
-            return BuildContext(
-                input_shape_,
-                runtime_mode_,
-                //prefill_size_,
-                initialize_parameters_,
-                policy,
-                quantization_ );
-        }
+        
 
         /**
          * @brief Return a copy of this context with a different quantization config.
@@ -199,7 +165,6 @@ namespace Mila::Dnn
                 runtime_mode_,
                 //prefill_size_,
                 initialize_parameters_,
-                precision_policy_,
                 quantization );
         }
 
@@ -265,21 +230,6 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // Precision policy
-        // ====================================================================
-
-        /**
-         * @brief The cuBLASLt algorithm selection heuristic.
-         *
-         * Consumed by Linear, GQA, and MHA via getComputeTypes().
-         * All other components ignore this field.
-         */
-        ComputePrecision::Policy getPrecisionPolicy() const noexcept
-        {
-            return precision_policy_;
-        }
-
-        // ====================================================================
         // Quantization
         // ====================================================================
 
@@ -298,9 +248,8 @@ namespace Mila::Dnn
 
         shape_t                  input_shape_;
         RuntimeMode              runtime_mode_;
-        //int64_t                  prefill_size_{ 0 };
+        //int64_t                prefill_size_{ 0 };
         bool                     initialize_parameters_{ true };
-        ComputePrecision::Policy precision_policy_{ ComputePrecision::Policy::Auto };
         QuantizationConfig       quantization_{ QuantizationConfig::none() };
     };
 }

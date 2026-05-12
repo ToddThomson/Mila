@@ -1,40 +1,48 @@
 /**
- * @file LinearOpDispatch.Template.ixx
- * @brief Compile-time dispatch mapping (DeviceType, TPrecision, TWeight) to the concrete LinearOp type.
+ * @file LinearOpTypeMap.Template.ixx
+ * @brief Primary compile-time dispatch template mapping (DeviceType, TPrecision, TWeightQuant)
+ *        to a concrete LinearOp type.
  *
- * Backend specializations live co-located with their concrete op and import this primary template.
+ * Backend specializations live in LinearOpTypeMap.Cpu.ixx and LinearOpTypeMap.Cuda.ixx and
+ * import this primary template. A missing specialization is a hard compile error.
  */
 export module Compute.LinearOpTypeMap.Template;
 
 import Compute.DeviceType;
 import Dnn.TensorDataType;
-import Dnn.Tensor;
-import Dnn.ITensor;
+import Dnn.Quantization.Weight.Policies;
 
 namespace Mila::Dnn::Compute
 {
+    using namespace Mila::Dnn::Quant::Weight;
+
     /**
-     * @brief Primary traits template for Linear operation dispatch.
+     * @brief Primary traits template for compile-time Linear operation dispatch.
      *
-     * Specializations must provide a nested `type` alias naming the concrete op class.
-     * An unspecialized instantiation is a hard compile error — the correct diagnostic
-     * for an unsupported (DeviceType, TPrecision, TWeight) combination.
+     * Each specialization must provide a nested `op_type` alias naming the concrete op class
+     * for the given (DeviceType, compute precision, weight quantization policy) combination.
+     * An unspecialized instantiation is a hard compile error — the correct diagnostic for an
+     * unsupported combination.
      *
-     * @tparam TDeviceType  Target device.
-     * @tparam TPrecision   Activation and compute precision.
-     * @tparam TWeight      Weight storage type. Defaults to TPrecision for non-quantized paths.
+     * @tparam TDeviceType   Target device.
+     * @tparam TPrecision    Activation and accumulation precision.
+     * @tparam TWeightQuant  Weight quantization policy. Defaults to NoWeightQuant for all
+     *                       standard non-quantized paths.
      */
-    export template<DeviceType TDeviceType, TensorDataType TPrecision, TensorDataType TWeight = TPrecision>
+    export template<DeviceType TDeviceType, TensorDataType TPrecision, WeightQuantPolicy TWeightQuant = NoWeightQuant>
     class LinearOpTypeMap;
 
     /**
      * @brief Concept enforcing the forward/backward signature contract for Linear ops.
      *
-     * Satisfied by any type that exposes forward(in, out) and backward(in, grad, in_grad).
-     * Works with both ITensor-based and typed-tensor signatures since TTensor derives from ITensor.
+     * Satisfied by any type exposing forward(in, out) and backward(in, grad, in_grad).
+     * Compatible with both ITensor-based and typed-tensor signatures.
+     *
+     * @tparam TOp     Candidate op type.
+     * @tparam TTensor Tensor type used at the call site.
      */
     export template<typename TOp, typename TTensor>
-        concept LinearOpConcept = requires(const TOp & op, const TTensor & in, TTensor & out)
+    concept LinearOpConcept = requires(const TOp& op, const TTensor& in, TTensor& out)
     {
         op.forward( in, out );
         op.backward( in, in, out );

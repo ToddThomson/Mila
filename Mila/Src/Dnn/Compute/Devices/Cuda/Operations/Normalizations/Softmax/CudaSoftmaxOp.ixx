@@ -27,13 +27,11 @@ import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
-// DEPRECATED: import Compute.CudaDeviceResources;
 import Compute.OperationType;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
-import Compute.Precision;
 
 namespace Mila::Dnn::Compute::Cuda::Softmax
 {

@@ -39,7 +39,6 @@ import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;
 import Compute.CpuDevice;
-import Compute.Precision;
 
 namespace Mila::Dnn::Compute
 {

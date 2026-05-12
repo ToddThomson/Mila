@@ -41,7 +41,6 @@ import Dnn.Components.GptBlock;
 import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.ActivationType;
-import Compute.Precision;
 import Compute.Device;
 import Compute.DeviceType;
 import Compute.DeviceId;

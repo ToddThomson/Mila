@@ -145,8 +145,8 @@ namespace Mila::Dnn
         SerializationMetadata toMetadata() const
         {
             SerializationMetadata meta;
-            meta.set( "precision", static_cast<int64_t>(precision_) )
-                .set( "model_dim", static_cast<int64_t>(model_dim_) )
+
+            meta.set( "model_dim", static_cast<int64_t>(model_dim_) )
                 .set( "num_heads", static_cast<int64_t>(num_heads_) )
                 .set( "hidden_dim", static_cast<int64_t>(hidden_dim_) )
                 .set( "use_bias", use_bias_ )
@@ -159,8 +159,6 @@ namespace Mila::Dnn
 
         void fromMetadata( const SerializationMetadata& meta )
         {
-            if ( auto p = meta.tryGetInt( "precision" ) )
-                precision_ = static_cast<decltype(precision_)>(*p);
             if ( auto md = meta.tryGetInt( "model_dim" ) )
                 model_dim_ = static_cast<dim_t>(*md);
             if ( auto nh = meta.tryGetInt( "num_heads" ) )

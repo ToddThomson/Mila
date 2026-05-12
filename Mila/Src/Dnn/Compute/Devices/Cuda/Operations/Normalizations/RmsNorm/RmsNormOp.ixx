@@ -47,7 +47,6 @@ import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
-import Compute.Precision;
 import Logging.Logger;
 
 namespace Mila::Dnn::Compute::Cuda::RmsNorm

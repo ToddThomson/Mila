@@ -35,7 +35,6 @@ import Dnn.TensorOps;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
-import Compute.Precision;
 import Compute.OperationRegistry;
 import Compute.Device;
 import Compute.DeviceType;
@@ -269,8 +268,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     "CudaGroupedQueryAttentionOp requires cuBLASLt. "
                     "Ensure CUDA 10.1 or newer." );
 
-            precision_policy_ = config_.getPrecisionPolicy();
-
             if ( use_optimized_path_ )
                 buildCublasLtPlans_optimized();
             else
@@ -467,7 +464,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         bool kv_cache_enabled_{ false };
 
         cublasLtHandle_t cublaslt_handle_{ nullptr };
-        ComputePrecision::Policy precision_policy_;
 
         // ====================================================================
         // Legacy path — cuBLASLt plans (expanded [B,NH,...] layout)
@@ -1323,40 +1319,17 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         {
             scale_type = CUDA_R_32F;
 
-            switch ( precision_policy_ )
+            if constexpr ( std::is_same_v<NativeType, half> )
             {
-                case ComputePrecision::Policy::Native:
-                case ComputePrecision::Policy::Accuracy:
-                    if constexpr ( std::is_same_v<NativeType, half> )
-                    {
-                        compute_type = CUBLAS_COMPUTE_16F;
-                    }
-                    else if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
-                    {
-                        compute_type = CUBLAS_COMPUTE_32F;
-                    }
-                    else
-                    {
-                        compute_type = CUBLAS_COMPUTE_32F;
-                    }
-                    break;
-
-                case ComputePrecision::Policy::Performance:
-                case ComputePrecision::Policy::Auto:
-                default:
-                    if constexpr ( std::is_same_v<NativeType, half> )
-                    {
-                        compute_type = CUBLAS_COMPUTE_32F_FAST_16F;
-                    }
-                    else if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
-                    {
-                        compute_type = CUBLAS_COMPUTE_32F_FAST_16BF;
-                    }
-                    else
-                    {
-                        compute_type = CUBLAS_COMPUTE_32F;
-                    }
-                    break;
+                compute_type = CUBLAS_COMPUTE_32F_FAST_16F;
+            }
+            else if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
+            {
+                compute_type = CUBLAS_COMPUTE_32F_FAST_16BF;
+            }
+            else
+            {
+                compute_type = CUBLAS_COMPUTE_32F;
             }
         }
     };

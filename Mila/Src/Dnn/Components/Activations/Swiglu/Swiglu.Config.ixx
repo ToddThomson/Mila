@@ -68,24 +68,17 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "precision", static_cast<int64_t>(precision_) );
-
             return meta;
         }
 
         void fromMetadata( const SerializationMetadata& meta ) override
         {
-            if ( auto v = meta.tryGetInt( "precision" ) )
-            {
-                precision_ = static_cast<decltype(precision_)>(*v);
-            }
         }
 
         std::string toString() const override
         {
             std::ostringstream oss;
             oss << "SwigluConfig( "
-                << ", precision=" << static_cast<int>(precision_)
                 << " )";
             return oss.str();
         }

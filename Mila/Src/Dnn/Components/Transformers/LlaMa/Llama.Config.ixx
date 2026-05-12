@@ -239,8 +239,8 @@ namespace Mila::Dnn
         SerializationMetadata toMetadata() const
         {
             SerializationMetadata meta;
-            meta.set( "precision", static_cast<int64_t>(precision_) )
-                .set( "vocab_size", static_cast<int64_t>(vocab_size_) )
+
+            meta.set( "vocab_size", static_cast<int64_t>(vocab_size_) )
                 .set( "num_layers", static_cast<int64_t>(num_layers_) )
                 .set( "embedding_dim", static_cast<int64_t>(embedding_dim_) )
                 .set( "max_seq_len", static_cast<int64_t>(max_seq_len_) )
@@ -257,11 +257,6 @@ namespace Mila::Dnn
 
         void fromMetadata( const SerializationMetadata& meta )
         {
-            if ( auto p = meta.tryGetInt( "precision" ) )
-            {
-                precision_ = static_cast<decltype(precision_)>(*p);
-            }
-
             if ( auto vs = meta.tryGetInt( "vocab_size" ) )
             {
                 vocab_size_ = static_cast<dim_t>(*vs);

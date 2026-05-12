@@ -11,8 +11,6 @@ module;
 
 export module CublasLt.Utils;
 
-import Compute.Precision;
-
 namespace Mila::Dnn::Compute::Cuda
 {
     export template <typename NativeType>
@@ -32,34 +30,17 @@ namespace Mila::Dnn::Compute::Cuda
 
     export template <typename NativeType>
     void cublaslt_compute_types(
-        ComputePrecision::Policy policy,
         cublasComputeType_t& compute_type,
         cudaDataType_t& scale_type )
     {
         scale_type = CUDA_R_32F;
 
-        switch ( policy )
-        {
-            case ComputePrecision::Policy::Native:
-            case ComputePrecision::Policy::Accuracy:
-                if constexpr ( std::is_same_v<NativeType, half> )
-                    compute_type = CUBLAS_COMPUTE_16F;
-                else if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
-                    compute_type = CUBLAS_COMPUTE_32F;
-                else
-                    compute_type = CUBLAS_COMPUTE_32F;
-                break;
+        if constexpr ( std::is_same_v<NativeType, half> )
+            compute_type = CUBLAS_COMPUTE_32F_FAST_16F;
+        else if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
+            compute_type = CUBLAS_COMPUTE_32F_FAST_16BF;
+        else
+            compute_type = CUBLAS_COMPUTE_32F;
 
-            case ComputePrecision::Policy::Performance:
-            case ComputePrecision::Policy::Auto:
-            default:
-                if constexpr ( std::is_same_v<NativeType, half> )
-                    compute_type = CUBLAS_COMPUTE_32F_FAST_16F;
-                else if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
-                    compute_type = CUBLAS_COMPUTE_32F_FAST_16BF;
-                else
-                    compute_type = CUBLAS_COMPUTE_32F;
-                break;
-        }
     }
 }

@@ -21,7 +21,7 @@ framework enforces this statically. There is no runtime dispatch on quantization
 
 ```
 Src/Dnn/Quantization/
-    WeightQuant/
+    Weight/
         Policies.ixx        — NoWeightQuant, PerChannelFp8<>; WeightQuantPolicy concept
         Quantizer.ixx       — IWeightQuantizer concept (future: pluggable host-side quantizers)
     KvCache/

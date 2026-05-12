@@ -31,7 +31,6 @@ import Dnn.TensorOps;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
-import Compute.Precision;
 import Compute.OperationRegistry;
 import Compute.Device;
 import Compute.DeviceType;
@@ -436,8 +435,6 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                     "Ensure CUDA 10.1 or newer is installed." );
             }
 
-            precision_policy_ = config_.getPrecisionPolicy();
-
             buildCublasLtPlans();
 
             UnaryOperationBase::build( config );
@@ -671,7 +668,6 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         bool kv_cache_enabled_{ false };
 
         cublasLtHandle_t cublaslt_handle_{ nullptr };
-        ComputePrecision::Policy precision_policy_;
 
         Detail::CublasLtMatMulPlan<NativeType> qk_score_plan_;
         Detail::CublasLtMatMulPlan<NativeType> att_value_plan_;
@@ -920,32 +916,13 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         {
             scale_type = CUDA_R_32F;
 
-            switch ( precision_policy_ )
+            if constexpr ( std::is_same_v<NativeType, half> )
             {
-                case ComputePrecision::Policy::Native:
-                case ComputePrecision::Policy::Accuracy:
-                    if constexpr ( std::is_same_v<NativeType, half> )
-                    {
-                        compute_type = CUBLAS_COMPUTE_16F;
-                    }
-                    else
-                    {
-                        compute_type = CUBLAS_COMPUTE_32F;
-                    }
-                    break;
-
-                case ComputePrecision::Policy::Performance:
-                case ComputePrecision::Policy::Auto:
-                default:
-                    if constexpr ( std::is_same_v<NativeType, half> )
-                    {
-                        compute_type = CUBLAS_COMPUTE_32F_FAST_16F;
-                    }
-                    else
-                    {
-                        compute_type = CUBLAS_COMPUTE_32F;
-                    }
-                    break;
+                compute_type = CUBLAS_COMPUTE_32F_FAST_16F;
+            }
+            else
+            {
+                compute_type = CUBLAS_COMPUTE_32F;
             }
         }
     };

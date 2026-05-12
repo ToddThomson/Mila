@@ -202,8 +202,7 @@ namespace Mila::Dnn
         {
             SerializationMetadata meta;
 
-            meta.set( "precision", static_cast<int64_t>(precision_) )
-                .set( "channels", static_cast<int64_t>(channels_) )
+            meta.set( "channels", static_cast<int64_t>(channels_) )
                 .set( "n_heads", static_cast<int64_t>(n_heads_) )
                 .set( "n_kv_heads", static_cast<int64_t>(n_kv_heads_) )
                 .set( "max_sequence_length", static_cast<int64_t>(max_seq_len_) )
@@ -219,11 +218,6 @@ namespace Mila::Dnn
 
         void fromMetadata( const SerializationMetadata& meta ) override
         {
-            if ( auto v = meta.tryGetInt( "precision" ) )
-            {
-                precision_ = static_cast<decltype(precision_)>(*v);
-            }
-
             if ( auto v = meta.tryGetInt( "channels" ) )
             {
                 channels_ = static_cast<size_t>(*v);

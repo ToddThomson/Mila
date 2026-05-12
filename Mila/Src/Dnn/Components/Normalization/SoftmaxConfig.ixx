@@ -63,8 +63,7 @@ namespace Mila::Dnn
         SerializationMetadata toMetadata() const
         {
             SerializationMetadata meta;
-            meta.set( "precision", static_cast<int64_t>( precision_ ) )
-                .set( "axis", axis_ );
+            meta.set( "axis", axis_ );
 
             return meta;
         }
@@ -78,11 +77,6 @@ namespace Mila::Dnn
          */
         void fromMetadata( const SerializationMetadata& meta )
         {
-            if ( meta.has( "precision" ) )
-            {
-                precision_ = static_cast<decltype( precision_ )>( meta.getInt( "precision" ) );
-            }
-
             if ( meta.has( "axis" ) )
             {
                 axis_ = meta.getInt( "axis" );
@@ -96,8 +90,7 @@ namespace Mila::Dnn
          */
         std::string toString() const override
         {
-            return "SoftmaxConfig( precision=" + std::to_string( static_cast<int>( precision_ ) ) +
-                   ", axis=" + std::to_string( axis_ ) + ")";
+            return "SoftmaxConfig( axis = " + std::to_string( axis_ ) + ")";
         }
 
     private:

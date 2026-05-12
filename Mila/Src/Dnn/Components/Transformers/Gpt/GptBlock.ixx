@@ -35,7 +35,6 @@ import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.CompositeComponent;
 import Dnn.ActivationType;
-import Compute.Precision;
 import Compute.MemoryResource;
 import Compute.Device;
 import Compute.DeviceId;

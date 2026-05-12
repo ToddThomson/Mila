@@ -28,7 +28,6 @@ export module Compute.CublasLtMatMulBias;
 
 import Dnn.ITensor;
 import Dnn.TensorDataTypeTraits;
-import Compute.Precision;
 import CublasLt.Error;
 import Logging.Logger;
 

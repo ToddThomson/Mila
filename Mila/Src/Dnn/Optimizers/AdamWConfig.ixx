@@ -139,7 +139,6 @@ namespace Mila::Dnn::Optimizers
          * @brief Convert configuration into SerializationMetadata.
          *
          * Keys produced:
-         * - "precision" : integer
          * - "learning_rate" : double
          * - "beta1" : double
          * - "beta2" : double
@@ -149,8 +148,8 @@ namespace Mila::Dnn::Optimizers
         SerializationMetadata toMetadata() const override
         {
             SerializationMetadata meta;
-            meta.set( "precision", static_cast<int64_t>( precision_ ) )
-                .set( "learning_rate", learning_rate_ )
+
+            meta.set( "learning_rate", learning_rate_ )
                 .set( "beta1", beta1_ )
                 .set( "beta2", beta2_ )
                 .set( "epsilon", epsilon_ )
@@ -167,11 +166,6 @@ namespace Mila::Dnn::Optimizers
          */
         void fromMetadata( const SerializationMetadata& meta ) override
         {
-            if ( auto p = meta.tryGetInt( "precision" ) )
-            {
-                precision_ = static_cast<decltype( precision_ )>( *p );
-            }
-
             if ( auto v = meta.tryGetFloat( "learning_rate" ) )
             {
                 learning_rate_ = *v;

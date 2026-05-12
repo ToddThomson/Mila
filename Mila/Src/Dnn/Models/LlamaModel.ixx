@@ -36,7 +36,6 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.Component;
 import Dnn.Components.LlamaTransformer;
-import Compute.Precision;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
@@ -151,7 +150,6 @@ namespace Mila::Dnn
 
             // Extract deployment policy from model_config as raw values —
             // BuildContext has no dependency on the model layer.
-            auto precision_policy = model_config.getPrecisionPolicy();
             auto quantization = model_config.getQuantization();
             auto context_length = model_config.getContextLength();
 
@@ -159,7 +157,6 @@ namespace Mila::Dnn
                 shape_t{ 1, context_length },
                 RuntimeMode::Inference,
                 false,
-                precision_policy,
                 quantization );
 
             network->build( build_context );

@@ -104,8 +104,8 @@ namespace Mila::Dnn
         SerializationMetadata toMetadata() const override
         {
             SerializationMetadata meta;
-            meta.set( "precision", static_cast<int64_t>( precision_ ) )
-                .set( "vocab_size", static_cast<int64_t>( vocab_size_ ) );
+
+            meta.set( "vocab_size", static_cast<int64_t>( vocab_size_ ) );
 
             return meta;
         }
@@ -120,11 +120,6 @@ namespace Mila::Dnn
          */
         void fromMetadata( const SerializationMetadata& meta ) override
         {
-            if ( auto p = meta.tryGetInt( "precision" ) )
-            {
-                precision_ = static_cast<decltype( precision_ )>( *p );
-            }
-
             if ( auto v = meta.tryGetInt( "vocab_size" ) )
             {
                 vocab_size_ = *v;

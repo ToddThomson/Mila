@@ -40,14 +40,11 @@ module;
 
 export module Dnn.ModelConfig;
 
-import Compute.Precision;
 import Dnn.QuantizationConfig;
 import Dnn.TensorTypes;
 
 namespace Mila::Dnn
 {
-    using namespace Mila::Dnn::Compute;
-
     /**
      * @brief Abstract base configuration for all deployable Mila models.
      *
@@ -70,23 +67,6 @@ namespace Mila::Dnn
         // ====================================================================
         // Fluent setters
         // ====================================================================
-
-        /**
-         * @brief Set the compute precision policy.
-         *
-         * Controls cuBLASLt algorithm selection heuristics across all compute
-         * components. Applied uniformly — per-component precision override
-         * is not supported.
-         *
-         * @param policy  Precision policy to apply.
-         * @return        Reference to the concrete config for chaining.
-         */
-        template<typename Self>
-        Self& withPrecisionPolicy( this Self& self, ComputePrecision::Policy policy )
-        {
-            self.precision_policy_ = policy;
-            return self;
-        }
 
         /**
          * @brief Set the weight quantization policy.
@@ -129,11 +109,6 @@ namespace Mila::Dnn
         // ====================================================================
         // Accessors
         // ====================================================================
-
-        ComputePrecision::Policy getPrecisionPolicy() const noexcept
-        {
-            return precision_policy_;
-        }
 
         const QuantizationConfig& getQuantization() const noexcept
         {
@@ -194,8 +169,8 @@ namespace Mila::Dnn
         {
             std::string result;
             result += "  context_length:   " + std::to_string( context_length_ ) + "\n";
-            result += "  precision_policy: " + precisionPolicyToString( precision_policy_ ) + "\n";
             result += "  " + quantization_.toString() + "\n";
+
             return result;
         }
 
@@ -204,21 +179,7 @@ namespace Mila::Dnn
         // ====================================================================
 
         dim_t                    context_length_{ 0 };
-        ComputePrecision::Policy precision_policy_{ ComputePrecision::Policy::Auto };
         QuantizationConfig       quantization_{ QuantizationConfig::none() };
 
-    private:
-
-        static std::string precisionPolicyToString( ComputePrecision::Policy policy )
-        {
-            switch ( policy )
-            {
-                case ComputePrecision::Policy::Native:      return "Native";
-                case ComputePrecision::Policy::Performance: return "Performance";
-                case ComputePrecision::Policy::Accuracy:    return "Accuracy";
-                case ComputePrecision::Policy::Auto:        return "Auto";
-                default:                                    return "Unknown";
-            }
-        }
     };
 }

@@ -29,7 +29,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
-import Compute.Precision;
+import Dnn.Quantization.Weight.Policies;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
@@ -40,6 +40,7 @@ import Compute.LinearOpTypeMap;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
+
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Tensor;
@@ -54,6 +55,7 @@ namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
+    using namespace Mila::Dnn::Quant::Weight;
     using json = nlohmann::json;
 
     /**
@@ -72,7 +74,7 @@ namespace Mila::Dnn
      * @tparam TPrecision   Activation and accumulation precision.
      * @tparam TWeight      Weight storage precision. Defaults to TPrecision.
      */
-    export template<DeviceType TDeviceType, TensorDataType TComputePrecision, TensorDataType TWeight = TComputePrecision>
+    export template<DeviceType TDeviceType, TensorDataType TComputePrecision, WeightQuantPolicy TWeightQuant = NoWeightQuant>
         requires PrecisionSupportedOnDevice<TComputePrecision, TDeviceType>
     class Linear : public Component<TDeviceType, TComputePrecision>
     {
@@ -80,10 +82,15 @@ namespace Mila::Dnn
         using ComponentBase = Component<TDeviceType, TComputePrecision>;
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TComputePrecision, MR>;
-        using WeightTensorType = Tensor<TWeight, MR>;
-        using OperationType = typename Compute::LinearOpTypeMap<TDeviceType, TComputePrecision, TWeight>::op_type;
+        using OperationType = typename Compute::LinearOpTypeMap<TDeviceType, TComputePrecision, TWeightQuant>::op_type;
 
-        static constexpr bool kIsQuantized = (TWeight != TComputePrecision);
+        static constexpr bool kIsQuantized = TWeightQuant::kIsQuantized;
+
+        static constexpr TensorDataType kWeightDtype = kIsQuantized
+            ? TWeightQuant::kStorageDtype
+            : TComputePrecision;
+
+        using WeightTensorType = Tensor<kWeightDtype, MR>;
 
         /**
          * @brief Construct a Linear component.
@@ -341,7 +348,7 @@ namespace Mila::Dnn
             oss << ", Output features: " << config_.getOutputFeatures() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Has Bias: " << (config_.hasBias() ? "Yes" : "No") << std::endl;
-            oss << "Weight dtype: " << tensorDataTypeToString( TWeight ) << std::endl;
+            //oss << "Weight dtype: " << tensorDataTypeToString( TWeight ) << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
 
             return oss.str();

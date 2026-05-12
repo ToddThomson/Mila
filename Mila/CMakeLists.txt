@@ -46,8 +46,8 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaLinearGelu.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaReduction.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/CudaMatVecBias.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/CudaMatVecBias.Bf16.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatVec/CudaMatVecBias.Fp32.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatVec/CudaMatVecBias.Bf16.cu"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp32.cu"
@@ -276,7 +276,7 @@ PUBLIC
 
         
         "Src/Dnn/Compute/DeviceTypeTraits.ixx"
-        "Src/Dnn/Compute/ComputePrecision.ixx"
+        
 
         # Dnn / Compute / Memory Resources
         "Src/Dnn/Compute/MemoryResource.ixx"
