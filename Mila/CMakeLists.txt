@@ -478,7 +478,16 @@ PUBLIC
         "Src/Dnn/Models/LlamaModelConfig.ixx"
         "Src/Dnn/Compute/Operations/GqaOpTypeMap.ixx"
         "Src/Dnn/Compute/Operations/GqaOpTypeMap.Template.ixx"
- "Src/Dnn/Compute/Operations/GqaState.ixx" "Src/Logging/NullSink.ixx" "Src/Logging/FileSink.ixx" "Src/Dnn/Quantization/Primitives.ixx")
+        "Src/Dnn/Compute/Operations/GqaState.ixx"
+        
+        "Src/Logging/NullSink.ixx"
+        "Src/Logging/FileSink.ixx"
+        
+        "Src/Dnn/Quantization/Weight/Policies.ixx"
+        "Src/Dnn/Quantization/KvCache/Policy.ixx"
+        "Src/Dnn/Quantization/KvCache/QuantPolicy.ixx"
+        "Src/Dnn/Quantization/Quantization.ixx"
+)
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
