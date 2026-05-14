@@ -2,9 +2,9 @@
  * @file Chat.ToolCallParser.ixx
  * @brief Detects and parses Llama 3.x tool call output into a ToolCall value.
  *
- * Scans a generated response string for a <|python_tag|>-bounded JSON block
- * and extracts the tool name and arguments. Falls back to bare JSON detection
- * for models that emit tool calls without boundary tokens.
+ * Scans a generated response string for a <|python_tag|>-prefixed block and
+ * extracts a pythonic call or JSON tool call. Falls back to bare bracket or
+ * JSON detection for models that omit the prefix token.
  */
 
 module;
@@ -23,18 +23,17 @@ import Chat.Json;
 namespace Mila::ChatApp
 {
     /**
-     * @brief Parses Llama 3.x tool call output into a ToolCall value.
+     * @brief Parses Llama 3.x tool call output from a raw generated response string.
      *
-     * Primary path: scans for a <|python_tag|>-bounded JSON block:
-     * @code
-     *   <|python_tag|>{"name": "get_weather", "arguments": {"location": "Vancouver, CA"}}<|eom_id|>
-     * @endcode
+     * The generation loop strips stop tokens before they reach the callback, so the
+     * response string never contains a literal <|eot_id|> or <|eom_id|> terminator.
+     * parseTagged therefore treats end-of-string as an implicit terminator when the
+     * <|python_tag|> prefix is present.
      *
-     * Fallback path: scans for a bare JSON object containing "name" and
-     * "arguments" fields, for models that omit boundary tokens:
-     * @code
-     *   {"name": "get_weather", "arguments": {"location": "Vancouver, CA"}}
-     * @endcode
+     * Detection order:
+     *   1. <|python_tag|> prefix  -> parseTagged  (pythonic or JSON content)
+     *   2. Leading '['            -> parsePythonicCall
+     *   3. Fallback               -> parseBareJson
      *
      * Thread safety: parse() is stateless except for the call_id counter,
      * which uses a relaxed atomic increment. Concurrent calls produce unique
@@ -47,13 +46,12 @@ namespace Mila::ChatApp
         /**
          * @brief Attempt to parse a tool call from a raw generated response.
          *
-         * Tries the tagged path first, then falls back to bare JSON detection.
-         * Returns std::nullopt when neither path finds a valid tool call.
+         * Returns std::nullopt when no tool call pattern is detected.
          *
          * @param response Raw text produced by the model's generation step.
          * @return         Populated ToolCall on success, std::nullopt otherwise.
-         * @throws std::runtime_error if a <|python_tag|> boundary is found but
-         *         the JSON is malformed, missing required fields, or unterminated.
+         * @throws std::runtime_error if a <|python_tag|> prefix is found but the
+         *         content is malformed or contains no recognisable call structure.
          */
         static std::optional<ToolCall> parse( const std::string& response )
         {
@@ -73,24 +71,45 @@ namespace Mila::ChatApp
     private:
 
         static constexpr std::string_view kPythonTag = "<|python_tag|>";
+        static constexpr std::string_view kEot = "<|eot_id|>";
         static constexpr std::string_view kEom = "<|eom_id|>";
 
         static inline std::atomic<uint32_t> next_id_{ 1 };
 
+        /**
+         * @brief Parse a <|python_tag|>-prefixed tool call block.
+         *
+         * The generation loop consumes stop tokens without forwarding them to the
+         * on_token callback, so <|eot_id|> and <|eom_id|> are never present in the
+         * response string. End-of-string is therefore a valid implicit terminator
+         * and is tried last after the explicit token search.
+         */
         static std::optional<ToolCall> parseTagged( const std::string& response, size_t tag_pos )
         {
-            const auto json_start = tag_pos + kPythonTag.size();
-            const auto eom_pos = response.find( kEom, json_start );
+            const auto content_start = tag_pos + kPythonTag.size();
 
-            if ( eom_pos == std::string::npos )
-            {
-                throw std::runtime_error(
-                    "ToolCallParser: <|python_tag|> boundary found but <|eom_id|> terminator is missing" );
-            }
+            // Prefer an explicit terminator when present; accept end-of-string as an
+            // implicit terminator because the generation loop strips stop tokens.
+            auto end_pos = response.find( kEot, content_start );
 
-            const std::string json_str = response.substr( json_start, eom_pos - json_start );
+            if ( end_pos == std::string::npos )
+                end_pos = response.find( kEom, content_start );
 
-            return parseJson( json_str, /*throws_on_error=*/true );
+            const std::string content = (end_pos != std::string::npos)
+                ? response.substr( content_start, end_pos - content_start )
+                : response.substr( content_start );
+
+            const auto trim_start = content.find_first_not_of( " \t\n\r" );
+
+            if ( trim_start == std::string::npos )
+                return std::nullopt;
+
+            const std::string trimmed = content.substr( trim_start );
+
+            if ( trimmed.front() == '[' )
+                return parsePythonicCall( trimmed, 0 );
+
+            return parseJson( trimmed, /*throws_on_error=*/true );
         }
 
         static std::optional<ToolCall> parseBareJson( const std::string& response )
@@ -166,7 +185,6 @@ namespace Mila::ChatApp
 
             nlohmann::json arguments = nlohmann::json::object();
 
-            // Parse key=value pairs
             std::string param = params_str;
 
             while ( !param.empty() )
@@ -179,7 +197,6 @@ namespace Mila::ChatApp
                 std::string key = param.substr( 0, eq_pos );
                 param = param.substr( eq_pos + 1 );
 
-                // Trim whitespace from key
                 key.erase( 0, key.find_first_not_of( " \t" ) );
                 key.erase( key.find_last_not_of( " \t" ) + 1 );
 
@@ -187,7 +204,6 @@ namespace Mila::ChatApp
 
                 if ( !param.empty() && param.front() == '"' )
                 {
-                    // Quoted string value
                     const auto close_quote = param.find( '"', 1 );
 
                     if ( close_quote == std::string::npos )
@@ -196,13 +212,11 @@ namespace Mila::ChatApp
                     value = param.substr( 1, close_quote - 1 );
                     param = param.substr( close_quote + 1 );
 
-                    // Skip trailing comma and whitespace
                     const auto next = param.find_first_not_of( ", \t" );
                     param = (next == std::string::npos) ? "" : param.substr( next );
                 }
                 else
                 {
-                    // Unquoted value — read until comma or end
                     const auto comma_pos = param.find( ',' );
 
                     if ( comma_pos == std::string::npos )

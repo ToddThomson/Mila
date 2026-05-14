@@ -14,6 +14,6 @@ namespace Mila::Dnn
 {
 	using namespace Mila::Dnn::Compute::Cuda;
 
-	export template<>
+	template<>
 	struct TensorOps<Compute::DeviceType::Cuda> : ZeroOps, FillOps, MathOps, TransferOps, StructuralOps, RandomOps {};
 }

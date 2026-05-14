@@ -38,7 +38,6 @@ class ModelWorker:
             settings.model_path,
             settings.context_length,
             settings.device_index,
-            settings.strict_load,
         )
 
     # ------------------------------------------------------------------
@@ -71,6 +70,7 @@ class ModelWorker:
         max_new_tokens: int,
         temperature: float,
         top_k: int,
+        top_p: float = 1.0,
     ) -> list[int]:
         loop = asyncio.get_running_loop()
 
@@ -90,20 +90,29 @@ class ModelWorker:
         max_new_tokens: int,
         temperature: float,
         top_k: int,
-        stop_ctrl: mila.StopController,
+        top_p: float = 1.0,
+        stop_ctrl: mila.StopController | None = None,
     ) -> None:
         """
         Runs generate_streaming() on the worker thread. Each token is decoded
         on the worker thread and delivered as a string via on_text, avoiding
         re-entrant calls back into the executor from the asyncio event loop.
-        on_text is called from the worker thread; callers must use
-        thread-safe delivery (e.g. loop.call_soon_threadsafe into an asyncio.Queue).
+        on_text is called from the worker thread; callers must use thread-safe
+        delivery (e.g. loop.call_soon_threadsafe into an asyncio.Queue).
+        Token IDs are buffered until they form a valid UTF-8 sequence to handle
+        tokens that carry only a partial multi-byte code point.
         """
         loop = asyncio.get_running_loop()
+        token_buffer: list[int] = []
 
         def _on_token(token_id: int) -> None:
-            text = self._tokenizer.decode([token_id])
-            on_text(text)
+            token_buffer.append(token_id)
+            try:
+                text = self._tokenizer.decode(token_buffer)
+                token_buffer.clear()
+                on_text(text)
+            except UnicodeDecodeError:
+                pass
 
         def _run() -> None:
             self._model.generate_streaming(

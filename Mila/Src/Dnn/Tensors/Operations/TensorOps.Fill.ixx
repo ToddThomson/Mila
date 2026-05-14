@@ -47,7 +47,7 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps.Base;
-import Compute.DeviceTraits;
+//import Compute.DeviceTraits;
 import Compute.ExecutionContext;
 import Compute.DeviceType;
 

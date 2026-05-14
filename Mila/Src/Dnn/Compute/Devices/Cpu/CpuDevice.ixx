@@ -6,7 +6,6 @@
 module;
 #include <string>
 #include <memory>
-#include <thread>
 
 export module Compute.CpuDevice;
 
@@ -73,29 +72,32 @@ namespace Mila::Dnn::Compute
             return Device::Cpu();
         }
 
-        /**
-         * @brief Gets the number of logical CPU cores available.
-         *
-         * Returns the number of hardware threads available on the system.
-         *
-         * @return Number of logical CPU cores/threads available
-         */
-        static unsigned int getLogicalCoreCount()
-        {
-            unsigned int coreCount = std::thread::hardware_concurrency();
+        // REVIEW: the getLogicalCoreCount and getAvailableMemory methods are not strictly necessary for basic device functionality
 
-            return (coreCount > 0) ? coreCount : 1;
-        }
+        // NOTE: the 
+        ///**
+        // * @brief Gets the number of logical CPU cores available.
+        // *
+        // * Returns the number of hardware threads available on the system.
+        // *
+        // * @return Number of logical CPU cores/threads available
+        // */
+        //static unsigned int getLogicalCoreCount()
+        //{
+        //    unsigned int coreCount = std::thread::hardware_concurrency();
 
-        /**
-         * @brief Gets system memory information for CPU operations.
-         *
-         * @return Available system memory in bytes, or 0 if detection not implemented
-         */
-        static size_t getAvailableMemory()
-        {
-            return 0;
-        }
+        //    return (coreCount > 0) ? coreCount : 1;
+        //}
+
+        ///**
+        // * @brief Gets system memory information for CPU operations.
+        // *
+        // * @return Available system memory in bytes, or 0 if detection not implemented
+        // */
+        //static size_t getAvailableMemory()
+        //{
+        //    return 0;
+        //}
     };
 
     /**

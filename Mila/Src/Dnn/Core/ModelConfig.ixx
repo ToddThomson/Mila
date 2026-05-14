@@ -40,7 +40,6 @@ module;
 
 export module Dnn.ModelConfig;
 
-import Dnn.QuantizationConfig;
 import Dnn.TensorTypes;
 
 namespace Mila::Dnn
@@ -77,12 +76,12 @@ namespace Mila::Dnn
          * @param quantization  Quantization policy to apply.
          * @return              Reference to the concrete config for chaining.
          */
-        template<typename Self>
+        /*template<typename Self>
         Self& withQuantization( this Self& self, QuantizationConfig quantization )
         {
             self.quantization_ = quantization;
             return self;
-        }
+        }*/
 
         /**
          * @brief Set the maximum sequence length.
@@ -110,10 +109,10 @@ namespace Mila::Dnn
         // Accessors
         // ====================================================================
 
-        const QuantizationConfig& getQuantization() const noexcept
+        /*const QuantizationConfig& getQuantization() const noexcept
         {
             return quantization_;
-        }
+        }*/
 
         dim_t getContextLength() const noexcept
         {
@@ -169,7 +168,6 @@ namespace Mila::Dnn
         {
             std::string result;
             result += "  context_length:   " + std::to_string( context_length_ ) + "\n";
-            result += "  " + quantization_.toString() + "\n";
 
             return result;
         }
@@ -178,8 +176,6 @@ namespace Mila::Dnn
         // Data members — accessible to subclasses
         // ====================================================================
 
-        dim_t                    context_length_{ 0 };
-        QuantizationConfig       quantization_{ QuantizationConfig::none() };
-
+        dim_t context_length_{ 0 };
     };
 }

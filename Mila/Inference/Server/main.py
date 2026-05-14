@@ -4,6 +4,7 @@ Start with: uvicorn main:app --host 0.0.0.0 --port 8000
 Protocol is selected via MILA_PROTOCOL env var: mila | openai | anthropic
 """
 import os
+import logging
 
 cuda_path = os.environ.get("CUDA_PATH")
 if cuda_path:
@@ -11,6 +12,7 @@ if cuda_path:
 
 from contextlib import asynccontextmanager
 
+import mila
 import uvicorn
 from fastapi import FastAPI
 
@@ -22,6 +24,13 @@ from protocols.openai import OpenAIAdapter
 from protocols.anthropic import AnthropicAdapter
 from protocols.mila import MilaAdapter
 
+_LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s - %(message)s"
+logging.basicConfig(
+    level=logging.getLevelName(settings.log_level.upper()),
+    format=_LOG_FORMAT,
+    datefmt="%H:%M:%S",
+    force=True,
+)
 
 _ADAPTERS = {
     ProtocolMode.openai: OpenAIAdapter,
@@ -31,6 +40,7 @@ _ADAPTERS = {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    mila.initialize(log_level=settings.log_level.lower())
     await worker.startup()
     yield
     await worker.shutdown()

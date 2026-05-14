@@ -163,7 +163,7 @@ namespace Mila::ChatApp
                 params += "\"";
             }
 
-            return std::format( "[{}({})]{}", call.name, params, kEot );
+            return std::format( "{}[{}({})]{}", kPythonTag, call.name, params, kEot );
         }
 
     private:
@@ -172,7 +172,7 @@ namespace Mila::ChatApp
         static constexpr std::string_view kHeaderOpen = "<|start_header_id|>";
         static constexpr std::string_view kHeaderClose = "<|end_header_id|>\n\n";
         static constexpr std::string_view kEot = "<|eot_id|>";
-        static constexpr std::string_view kEom = "<|eom_id|>";
+        //static constexpr std::string_view kEom = "<|eom_id|>";
         static constexpr std::string_view kPythonTag = "<|python_tag|>";
         static constexpr std::string_view kAssistantPrimer = "<|start_header_id|>assistant<|end_header_id|>\n\n";
 
@@ -193,7 +193,7 @@ namespace Mila::ChatApp
 
                 for ( const auto& call : m.tool_calls )
                 {
-                    total += kPythonTag.size() + kEom.size();
+                    total += kPythonTag.size() + kEot.size();
                     total += call.name.size() + call.arguments.size() + 32;
                 }
             }

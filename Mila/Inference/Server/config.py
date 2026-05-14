@@ -21,14 +21,19 @@ class Settings(BaseSettings):
     tokenizer_path: str = Field(..., description="Path to the Mila Llama 3.2 tokenizer binary.")
 
     # Model
+    model_name: str = Field("llama-3.2-3b-instruct", description="Model identifier returned in API responses.")
     context_length: int = Field(5120, description="Maximum sequence length passed to fromPretrained().")
     device_index: int = Field(0, description="CUDA device ordinal.")
-    strict_load: bool = Field(True, description="Raise on unrecognised parameter names during load.")
 
     # Generation defaults
-    default_max_new_tokens: int = Field(256)
-    default_temperature: float = Field(1.0)
-    default_top_k: int = Field(0)
+    default_max_new_tokens: int = Field(1024)
+    default_temperature: float = Field(0.6)
+    default_top_k: int = Field(40)
+    default_top_p: float = Field(0.9)
+
+    # Streaming timeouts
+    keepalive_interval: float = Field(15.0, description="Seconds between SSE keepalive pings during prefill.")
+    decode_timeout: float = Field(30.0, description="Seconds to wait for each subsequent token during decode.")
 
     # Server
     host: str = Field("0.0.0.0")

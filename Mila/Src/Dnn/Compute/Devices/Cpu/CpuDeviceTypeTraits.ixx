@@ -27,7 +27,7 @@ namespace Mila::Dnn::Compute
      * using MR = DeviceTypeTraits<DeviceType::Cpu>::memory_resource;
      * @endcode
      */
-    export template <>
+    template <>
     struct DeviceTypeTraits<DeviceType::Cpu> {
         using memory_resource = CpuMemoryResource;
     };

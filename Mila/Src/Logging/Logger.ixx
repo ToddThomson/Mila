@@ -44,7 +44,8 @@ namespace Mila::Logging
         Info,     ///< Normal operational milestones (model loaded, server ready).
         Warning,  ///< Unexpected conditions that do not prevent continued operation.
         Error,    ///< Failures that may allow the application to continue.
-        Critical  ///< Severe failures likely to cause process termination.
+        Critical, ///< Severe failures likely to cause process termination.
+        None      ///< Special sentinal level indicating no logging; not a valid record level. Always last.
     };
 
     /**

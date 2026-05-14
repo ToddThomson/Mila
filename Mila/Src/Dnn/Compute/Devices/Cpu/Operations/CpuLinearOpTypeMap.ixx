@@ -11,7 +11,7 @@ import Compute.DeviceType;
 
 namespace Mila::Dnn::Compute
 {
-    export template<>
+    template<>
     struct LinearOpTypeMap<DeviceType::Cpu, TensorDataType::FP32>
     {
         using op_type = Mila::Dnn::Compute::CpuLinearOp;

@@ -161,3 +161,6 @@ class AnthropicAdapter(ProtocolAdapter):
     def format_stream_done(self) -> str:
         message_stop = {"type": "message_stop"}
         return f"event: message_stop\ndata: {json.dumps(message_stop)}\n\n"
+
+    def format_responses_stream_keepalive(self, response_id: str) -> str:
+        return "event: ping\ndata: {}\n\n"

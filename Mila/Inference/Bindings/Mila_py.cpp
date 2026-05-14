@@ -104,7 +104,6 @@ static void bind_llama_model( py::module_& m )
                 DeviceId device_id{ DeviceType::Cuda, device_index };
 
                 LlamaModelConfig model_config = LlamaModelConfig( static_cast<dim_t>(context_length) );
-                model_config.withQuantization( quantize_fp8 ? QuantizationConfig::fp8() : QuantizationConfig::none() );
 
                 return LlamaCudaBf16::fromPretrained(
                     std::filesystem::path( path ),
@@ -206,9 +205,24 @@ static void bind_stop_controller( py::module_& m )
 
 PYBIND11_MODULE( mila, m )
 {
-    Mila::initialize();
-
     m.doc() = "Mila inference bindings — Llama 3.2 3B Instruct on CUDA BF16.";
+
+    m.def( "initialize",
+        []( const std::string& level )
+        {
+            static const std::unordered_map<std::string, Mila::Logging::LogLevel> map = {
+                { "trace",   Mila::Logging::LogLevel::Trace   },
+                { "info",    Mila::Logging::LogLevel::Info    },
+                { "warning", Mila::Logging::LogLevel::Warning },
+                { "error",   Mila::Logging::LogLevel::Error   },
+            };
+            auto it = map.find( level );
+            auto log_level = (it != map.end()) ? it->second : Mila::Logging::LogLevel::Warning;
+            auto sink = std::make_shared<Mila::Logging::ConsoleSink>( log_level );
+            return Mila::initialize( 0, std::move( sink ) );
+        },
+        py::arg( "log_level" ) = "warning",
+        "Initialize the Mila framework. log_level: trace | info | warning | error." );
 
     bind_stop_controller( m );
     bind_tokenizer( m );

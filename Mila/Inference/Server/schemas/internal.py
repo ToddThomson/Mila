@@ -13,6 +13,7 @@ class InferenceRequest:
     temperature: float
     top_k: int
     stream: bool
+    top_p: float = 1.0
 
 
 @dataclass

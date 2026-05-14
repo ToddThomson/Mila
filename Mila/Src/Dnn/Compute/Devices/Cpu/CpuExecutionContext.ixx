@@ -26,7 +26,7 @@ namespace Mila::Dnn::Compute
      * require streams or library handles, so this implementation provides
      * the interface without additional overhead.
      */
-    export template<>
+    template<>
     class ExecutionContext<DeviceType::Cpu> : public IExecutionContext
     {
     public:

@@ -473,7 +473,7 @@ PUBLIC
         #"Src/Profiling/NvtxRange.ixx"
         "Src/Dnn/Compute/Operations/LinearOpTypeMap.Template.ixx"
         "Src/Dnn/Compute/Operations/LinearOpTypeMap.ixx"
-        "Src/Dnn/Core/ModelQuantizationConfig.ixx"
+        #"Src/Dnn/Core/ModelQuantizationConfig.ixx"
         "Src/Dnn/Core/ModelConfig.ixx"
         "Src/Dnn/Models/LlamaModelConfig.ixx"
         "Src/Dnn/Compute/Operations/GqaOpTypeMap.ixx"

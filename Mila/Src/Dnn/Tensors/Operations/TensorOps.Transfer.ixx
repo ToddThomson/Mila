@@ -25,7 +25,7 @@ import Dnn.TensorOps.Base;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
-import Compute.DeviceTraits;
+//import Compute.DeviceTraits;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 

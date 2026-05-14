@@ -392,8 +392,19 @@ int main( int argc, char* argv[] )
         chat.registerTool( "get_weather", []( const std::string& args ) -> std::string {
             auto j = nlohmann::json::parse( args );
             std::string location = j.value( "location", "unknown" );
+            std::string units = j.value( "units", "celsius" );
 
-            return std::format( "The current weather in {} is 22C and sunny.", location );
+            // Return a structured JSON object matching the tool's parameter schema.
+            // The model's ipython turn was trained on structured data values, not prose;
+            // a flat sentence prevents reliable value extraction on the final summary turn.
+            nlohmann::json result = {
+                { "location",    location },
+                { "temperature", "22" },
+                { "units",       units },
+                { "conditions",  "sunny" }
+            };
+
+            return result.dump();
             } );
 
         chat.run();

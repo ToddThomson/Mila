@@ -21,7 +21,7 @@ import Dnn.TensorDataTypeMap;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.DeviceType;
-import Compute.DeviceTraits;
+//import Compute.DeviceTraits;
 import Compute.DeviceId;
 import Compute.CudaTensorDataType;
 //import Cuda.Helpers;

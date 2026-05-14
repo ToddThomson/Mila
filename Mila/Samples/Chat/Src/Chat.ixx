@@ -109,17 +109,15 @@ namespace Mila::ChatApp
 
                 if ( !active_tools.empty() )
                 {
-                    system_content += "\n\nYou have access to the following tools:\n";
+                    // Instruction text precedes the tool list per the Llama 3.2 zero-shot
+                    // tool-calling format the model was fine-tuned on.
+                    system_content +=
+                        "\n\nIf you decide to invoke any of the function(s), you MUST put it in the "
+                        "format of [func_name1(params_name1=params_value1, params_name2=params_value2...), "
+                        "func_name2(params)]\n"
+                        "You SHOULD NOT include any other text in the response.\n\n"
+                        "Here is a list of functions in JSON format that you can invoke:\n";
                     system_content += serializeTools( active_tools );
-
-                    system_content += "\n\nWhen you need to call a tool, respond using ONLY this format and nothing else:\n"
-                        "[tool_name(param_name=param_value)]\n"
-                        "Do not describe what you are doing. Do not include any other text.";
-
-                    //system_content += "\n\nWhen calling a tool, you MUST respond using exactly this format and nothing else:\n"
-                    //    "<|python_tag|>{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}<|eom_id|>\n"
-                    //    "Do not describe what you are doing. Do not include any other text. "
-                    //    "Emit only the tool call token sequence and stop.";
                 }
 
                 history_.push_back( { MessageRole::System, std::move( system_content ) } );
@@ -191,8 +189,7 @@ namespace Mila::ChatApp
             if ( tool_handlers_.empty() )
             {
                 std::cout << "\nMila: " << response << '\n';
-                history_.push_back( { MessageRole::Assistant, response } );
-                
+                history_.push_back( { MessageRole::Assistant, stripSpecialTokens( response ) } );
                 return;
             }
 
@@ -206,14 +203,14 @@ namespace Mila::ChatApp
             {
                 std::cerr << "\n[tool call parse error: " << e.what() << "]\n";
                 std::cout << "\nMila: " << response << '\n';
-                history_.push_back( { MessageRole::Assistant, response } );
+                history_.push_back( { MessageRole::Assistant, stripSpecialTokens( response ) } );
                 return;
             }
 
             if ( !tool_call.has_value() )
             {
                 std::cout << "\nMila: " << response << '\n';
-                history_.push_back( { MessageRole::Assistant, response } );
+                history_.push_back( { MessageRole::Assistant, stripSpecialTokens( response ) } );
                 return;
             }
 
@@ -235,17 +232,48 @@ namespace Mila::ChatApp
 
             std::cout << "\nMila: ";
 
-            for ( const auto& msg : history_ )
-            {
-                std::cerr << "[DEBUG] role: " << static_cast<int>(msg.role)
-                    << " content: [" << msg.content << "]\n";
-            }
-
             generateResponse( final_response, /*stream=*/true );
 
             std::cout << '\n';
 
-            history_.push_back( { MessageRole::Assistant, final_response } );
+            history_.push_back( { MessageRole::Assistant, stripSpecialTokens( final_response ) } );
+        }
+
+        /**
+         * @brief Remove Llama special tokens from a generated response before
+         *        storing it in the conversation history.
+         *
+         * The streaming decoder may include <|eot_id|> or <|eom_id|> at the tail
+         * of the generated text. Storing these verbatim causes them to be re-emitted
+         * literally into the next formatted prompt, corrupting the token boundary
+         * structure and confusing the model on subsequent turns.
+         */
+        static std::string stripSpecialTokens( const std::string& text )
+        {
+            static constexpr std::string_view kTokens[] = {
+                "<|eot_id|>", "<|eom_id|>", "<|python_tag|>",
+                "<|begin_of_text|>", "<|end_of_text|>"
+            };
+
+            std::string result = text;
+
+            for ( const auto token : kTokens )
+            {
+                std::string::size_type pos = 0;
+
+                while ( (pos = result.find( token, pos )) != std::string::npos )
+                    result.erase( pos, token.size() );
+            }
+
+            // Trim trailing whitespace left after token removal.
+            const auto last = result.find_last_not_of( " \t\n\r" );
+
+            if ( last != std::string::npos )
+                result.erase( last + 1 );
+            else
+                result.clear();
+
+            return result;
         }
 
         /**

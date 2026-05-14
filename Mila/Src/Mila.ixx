@@ -39,7 +39,9 @@ export import Core.RandomGenerator;
 // Logging
 // ====================================================================
 export import Logging.Logger;
-import Logging.ConsoleSink;
+export import Logging.ConsoleSink;
+export import Logging.FileSink;
+export import Logging.NullSink;
 
 // ====================================================================
 // Cuda 
@@ -297,24 +299,26 @@ namespace Mila
      * @brief Initializes the Mila framework.
      *
      * Must be called before using any other Mila functionality. If no sink is
-     * provided a ConsoleSink at Info level is created automatically, which is
-     * appropriate for CLI and development use. For server deployments pass a
-     * pre-constructed FileSink; for test harnesses pass a NullSink.
+     * provided a NullSink is used, suppressing all log output — appropriate for
+     * applications linking Mila as a static library that manage their own logging.
+     * Pass an explicit sink to opt in to Mila log output.
      *
      * @param randomSeed  Random seed for reproducibility. 0 = non-deterministic.
-     * @param sink        Logging sink to register. nullptr = default ConsoleSink.
+     * @param sink        Logging sink to register. nullptr = NullSink (silent).
      * @return True if initialization succeeded, false otherwise.
+     * @throws            Any exception thrown during initialization is propagated
+     *                    to the caller; the application is responsible for handling it.
      *
      * @code
-     * // Default — ConsoleSink at Info
+     * // Silent — appropriate default for apps linking Mila as a library
      * Mila::initialize();
      *
-     * // FastAPI server
-     * auto sink = std::make_shared<Mila::Logging::FileSink>( "mila.log" );
+     * // Development / CLI tool — opt in to Info-level console output
+     * auto sink = std::make_shared<Mila::Logging::ConsoleSink>( Logging::LogLevel::Info );
      * Mila::initialize( 0, sink );
      *
-     * // Test harness
-     * auto sink = std::make_shared<Mila::Logging::NullSink>();
+     * // FastAPI server — structured file logging at Warning+
+     * auto sink = std::make_shared<Mila::Logging::FileSink>( "mila.log", Logging::LogLevel::Warning );
      * Mila::initialize( 0, sink );
      * @endcode
      */
@@ -322,53 +326,45 @@ namespace Mila
         unsigned int randomSeed = 0,
         std::shared_ptr<Logging::Logger> sink = nullptr )
     {
-        try
+        if ( sink )
         {
-            if ( sink )
-            {
-                detail::g_defaultLogger = std::move( sink );
-            }
-            else
-            {
-                detail::g_defaultLogger = std::make_shared<Logging::ConsoleSink>(
-                    Logging::LogLevel::Error );
-            }
-
-            Logging::Logger::setDefaultLogger( detail::g_defaultLogger.get() );
-
-            Core::RandomGenerator::getInstance().setSeed( randomSeed );
-
-            if ( randomSeed != 0 )
-            {
-                auto message = std::format( "Initialized random generator with seed: {}", randomSeed );
-                Logging::Logger::info( message );
-            }
-            else
-            {
-                Logging::Logger::info( "Initialized random generator with non-deterministic seed." );
-            }
-
-            Dnn::Compute::DeviceRegistrar::instance();
-            Dnn::Compute::OperationsRegistrar::instance();
-
-            Logging::Logger::info( "Mila framework initialized successfully." );
-
-            return true;
+            detail::g_defaultLogger = std::move( sink );
         }
-        catch ( const std::exception& e )
+        else
         {
-            std::cerr << "Mila initialization failed: " << e.what() << '\n';
-            
-            return false;
+            detail::g_defaultLogger = std::make_shared<Logging::NullSink>();
         }
+
+        Logging::Logger::setDefaultLogger( detail::g_defaultLogger.get() );
+
+        Core::RandomGenerator::getInstance().setSeed( randomSeed );
+
+        if ( randomSeed != 0 )
+        {
+            auto message = std::format( "Initialized random generator with seed: {}", randomSeed );
+            Logging::Logger::info( message );
+        }
+        else
+        {
+            Logging::Logger::info( "Initialized random generator with non-deterministic seed." );
+        }
+
+        Dnn::Compute::DeviceRegistrar::instance();
+        Dnn::Compute::OperationsRegistrar::instance();
+
+        Logging::Logger::info( "Mila framework initialized successfully." );
+
+        return true;
     }
 
     /**
      * @brief Shuts down the Mila framework and releases all resources.
      *
-     * The shutdown confirmation is logged before the sink is released so the
-     * message is guaranteed to be emitted. After this call no further log
-     * calls should be made until initialize() is called again.
+     * Flushes any pending log output through the registered sink before
+     * releasing it. After this call no further log calls should be made
+     * until initialize() is called again.
+     *
+     * @throws Any exception thrown during shutdown is propagated to the caller.
      */
     export void shutdown()
     {

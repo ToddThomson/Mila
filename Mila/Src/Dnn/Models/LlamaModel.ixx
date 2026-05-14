@@ -128,7 +128,7 @@ namespace Mila::Dnn
             }
 
             // Validate quantization policy before doing any expensive work.
-            model_config.getQuantization().assertSupported();
+            //model_config.getQuantization().assertSupported();
 
             PretrainedModelReader reader( path );
             const auto& metadata = reader.getPretrainedMetadata();
@@ -150,14 +150,12 @@ namespace Mila::Dnn
 
             // Extract deployment policy from model_config as raw values —
             // BuildContext has no dependency on the model layer.
-            auto quantization = model_config.getQuantization();
             auto context_length = model_config.getContextLength();
 
             BuildContext build_context(
                 shape_t{ 1, context_length },
                 RuntimeMode::Inference,
-                false,
-                quantization );
+                false );
 
             network->build( build_context );
 

@@ -14,7 +14,6 @@ export module Dnn.Component:BuildContext;
 
 import Dnn.RuntimeMode;
 import Dnn.TensorTypes;
-import Dnn.QuantizationConfig;
 
 namespace Mila::Dnn
 {
@@ -41,10 +40,6 @@ namespace Mila::Dnn
      *                                   computing initializers (Xavier, normal, zeros)
      *                                   that are immediately overwritten by loadParameter().
      *                                   Defaults to true (training from scratch).
-     *
-     * 6. **Quantization config**     — weight storage dtype and scale allocation policy.
-     *                                  Currently consumed by Linear only. All other
-     *                                  components ignore it. Defaults to none().
      *
      * ## Caller responsibility
      *
@@ -74,10 +69,7 @@ namespace Mila::Dnn
          * guards all access paths.
          */
         BuildContext()
-            : input_shape_{ 1 }
-            , runtime_mode_( RuntimeMode::Training )
-            , initialize_parameters_( true )
-            , quantization_( QuantizationConfig::none() )
+            : input_shape_{ 1 }, runtime_mode_( RuntimeMode::Training ), initialize_parameters_( true )
         {
         }
 
@@ -93,22 +85,16 @@ namespace Mila::Dnn
          * @param runtime_mode           Allocation policy: Inference or Training.
          * @param initialize_parameters  When false, components allocate parameter
          *                               tensors but skip value initialization.
-         * @param quantization           Weight storage dtype and scale policy.
-         *                               Extracted from ModelConfig::getQuantization().
-         *
          * @throws std::invalid_argument if input_shape is empty.
          */
         explicit BuildContext(
             shape_t input_shape,
             RuntimeMode runtime_mode,
             // int64_t prefill_size = 0,
-            bool initialize_parameters = true,
-            QuantizationConfig quantization = QuantizationConfig::none() )
-            : input_shape_( std::move( input_shape ) )
-            , runtime_mode_( runtime_mode )
+            bool initialize_parameters = true )
+            : input_shape_( std::move( input_shape ) ), runtime_mode_( runtime_mode )
             //, prefill_size_( prefill_size )
             , initialize_parameters_( initialize_parameters )
-            , quantization_( quantization )
         {
             if ( input_shape_.empty() )
             {
@@ -143,11 +129,8 @@ namespace Mila::Dnn
             return BuildContext(
                 std::move( new_shape ),
                 runtime_mode_,
-                initialize_parameters_,
-                quantization_ );
+                initialize_parameters_ );
         }
-
-        
 
         /**
          * @brief Return a copy of this context with a different quantization config.
@@ -158,15 +141,16 @@ namespace Mila::Dnn
          * @param quantization  Replacement quantization config.
          * @return New BuildContext with quantization and all other fields unchanged.
          */
-        [[nodiscard]] BuildContext withQuantization( QuantizationConfig quantization ) const
-        {
-            return BuildContext(
-                input_shape_,
-                runtime_mode_,
-                //prefill_size_,
-                initialize_parameters_,
-                quantization );
-        }
+        // DEPRECATED:
+        //[[nodiscard]] BuildContext withQuantization( QuantizationConfig quantization ) const
+        //{
+        //    return BuildContext(
+        //        input_shape_,
+        //        runtime_mode_,
+        //        //prefill_size_,
+        //        initialize_parameters_,
+        //        quantization );
+        //}
 
         // ====================================================================
         // RuntimeMode
@@ -239,10 +223,11 @@ namespace Mila::Dnn
          * Consumed by Linear::build() and Linear::loadParameters() only.
          * All other components ignore this field.
          */
-        const QuantizationConfig& getQuantization() const noexcept
+         // DEPRECATED:
+        /*const QuantizationConfig& getQuantization() const noexcept
         {
             return quantization_;
-        }
+        }*/
 
     private:
 
@@ -250,6 +235,5 @@ namespace Mila::Dnn
         RuntimeMode              runtime_mode_;
         //int64_t                prefill_size_{ 0 };
         bool                     initialize_parameters_{ true };
-        QuantizationConfig       quantization_{ QuantizationConfig::none() };
     };
 }

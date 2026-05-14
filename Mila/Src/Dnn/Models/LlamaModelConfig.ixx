@@ -37,7 +37,6 @@ module;
 export module Dnn.Models.LlamaModelConfig;
 
 import Dnn.ModelConfig;
-import Dnn.QuantizationConfig;
 import Dnn.TensorTypes;
 
 namespace Mila::Dnn
