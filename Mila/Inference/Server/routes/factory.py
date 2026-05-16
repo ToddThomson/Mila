@@ -21,9 +21,10 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
-def register_routes(app: FastAPI, adapter: ProtocolAdapter) -> None:
-    _register_chat(app, adapter)
-    _register_completions(app, adapter)
+def register_routes(app: FastAPI, adapter) -> None:
+    if isinstance(adapter, ProtocolAdapter):
+        _register_chat(app, adapter)
+        _register_completions(app, adapter)
 
     if isinstance(adapter, ResponsesCapable):
         _register_responses(app, adapter)
@@ -223,7 +224,6 @@ async def _stream_responses(
     loop = asyncio.get_running_loop()
     accumulated: list[str] = []
     t_start = time.time()
-    item_id = f"msg-{uuid.uuid4().hex}"
 
     def _elapsed() -> str:
         return f"{time.time() - t_start:.2f}s"
@@ -250,9 +250,6 @@ async def _stream_responses(
 
     print(f"[{_elapsed()}] {response_id}: yielding response.created", flush=True)
     yield adapter.format_responses_stream_created(response_id)
-    yield adapter.format_responses_stream_output_item_added(response_id, item_id)
-    yield adapter.format_responses_stream_content_part_added(response_id)
-    print(f"[{_elapsed()}] {response_id}: entering token loop", flush=True)
 
     first_token = True
     token_count = 0
@@ -271,7 +268,7 @@ async def _stream_responses(
                 text = await asyncio.wait_for(queue.get(), timeout=timeout)
             except asyncio.TimeoutError:
                 if first_token:
-                    print(f"[{_elapsed()}] {response_id}: keepalive ping (waiting for first token)", flush=True)
+                    print(f"[{_elapsed()}] {response_id}: keepalive ping", flush=True)
                     yield adapter.format_responses_stream_keepalive(response_id)
                     continue
                 print(f"[{_elapsed()}] {response_id}: decode_timeout after {token_count} tokens", flush=True)
@@ -279,7 +276,7 @@ async def _stream_responses(
                 break
 
             if text is None:
-                print(f"[{_elapsed()}] {response_id}: generation signalled done after {token_count} tokens", flush=True)
+                print(f"[{_elapsed()}] {response_id}: generation done after {token_count} tokens", flush=True)
                 break
 
             if first_token:
@@ -287,21 +284,31 @@ async def _stream_responses(
                 first_token = False
 
             token_count += 1
-            yield adapter.format_responses_stream_chunk(text, done=False, response_id=response_id)
 
     finally:
         if not generation.done():
             stop_ctrl.request_stop()
             await generation
-        print(f"[{_elapsed()}] {response_id}: finally — sending done events, accumulated={len(accumulated)} tokens", flush=True)
+
         full_text = "".join(accumulated)
         print(f"[{_elapsed()}] {response_id}: full_text preview: {repr(full_text[:200])}", flush=True)
-        yield adapter.format_responses_stream_chunk(full_text, done=True, response_id=response_id)
-        print(f"[{_elapsed()}] {response_id}: yielded output_text.done", flush=True)
-        yield adapter.format_responses_stream_content_part_done(response_id, full_text)
-        yield adapter.format_responses_stream_output_item_done(response_id, item_id, full_text)
-        yield adapter.format_responses_stream_done(response_id, output_text=full_text)
-        print(f"[{_elapsed()}] {response_id}: yielded response.completed — stream closed", flush=True)
+
+        tool_call_item = adapter.parse_tool_call_from_text(full_text) if hasattr(adapter, "parse_tool_call_from_text") else None
+
+        if tool_call_item:
+            print(f"[{_elapsed()}] {response_id}: tool call detected — {tool_call_item['name']}", flush=True)
+            yield adapter.format_responses_stream_function_call(response_id, tool_call_item)
+            yield adapter.format_responses_stream_done_with_tool_call(response_id, tool_call_item)
+        else:
+            item_id = f"msg-{uuid.uuid4().hex}"
+            yield adapter.format_responses_stream_output_item_added(response_id, item_id)
+            yield adapter.format_responses_stream_content_part_added(response_id)
+            yield adapter.format_responses_stream_chunk(full_text, done=True, response_id=response_id)
+            yield adapter.format_responses_stream_content_part_done(response_id, full_text)
+            yield adapter.format_responses_stream_output_item_done(response_id, item_id, full_text)
+            yield adapter.format_responses_stream_done(response_id, output_text=full_text)
+
+        print(f"[{_elapsed()}] {response_id}: stream closed", flush=True)
 
 def _prompt_too_long_error(prompt_length: int, context_length: int) -> JSONResponse:
     return JSONResponse(

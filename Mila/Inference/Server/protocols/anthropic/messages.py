@@ -14,7 +14,7 @@ from prompt import build_instruct_prompt
 from config import settings
 
 
-class AnthropicAdapter(ProtocolAdapter):
+class AnthropicMessagesAdapter(ProtocolAdapter):
 
     @property
     def chat_path(self) -> str:
@@ -164,3 +164,4 @@ class AnthropicAdapter(ProtocolAdapter):
 
     def format_responses_stream_keepalive(self, response_id: str) -> str:
         return "event: ping\ndata: {}\n\n"
+

@@ -12,7 +12,7 @@ from protocols.base import ProtocolAdapter
 from prompt import build_instruct_prompt
 
 
-class MilaAdapter(ProtocolAdapter):
+class MilaChatAdapter(ProtocolAdapter):
 
     @property
     def chat_path(self) -> str:

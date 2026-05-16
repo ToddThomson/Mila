@@ -20,9 +20,9 @@ from config import settings, ProtocolMode
 from model_worker import worker
 from routes.factory import register_routes
 from routes.models import router as models_router
-from protocols.openai import OpenAIAdapter
-from protocols.anthropic import AnthropicAdapter
-from protocols.mila import MilaAdapter
+from protocols.openai import OpenAIResponsesAdapter
+from protocols.anthropic import AnthropicMessagesAdapter
+from protocols.mila import MilaChatAdapter
 
 _LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s - %(message)s"
 logging.basicConfig(
@@ -33,9 +33,9 @@ logging.basicConfig(
 )
 
 _ADAPTERS = {
-    ProtocolMode.openai: OpenAIAdapter,
-    ProtocolMode.anthropic: AnthropicAdapter,
-    ProtocolMode.mila: MilaAdapter,
+    ProtocolMode.openai: OpenAIResponsesAdapter,
+    ProtocolMode.anthropic: AnthropicMessagesAdapter,
+    ProtocolMode.mila: MilaChatAdapter,
 }
 
 @asynccontextmanager
