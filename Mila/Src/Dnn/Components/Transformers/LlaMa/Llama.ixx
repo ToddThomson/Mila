@@ -33,6 +33,8 @@ import Dnn.ComponentType;
 import Dnn.Components.TokenEmbedding;
 import Dnn.Components.Linear;
 import Dnn.Components.RmsNorm;
+import Dnn.Quantization.Weight.Policies;
+import Dnn.Quantization.KvCache.Policy;
 import Dnn.Components.Rope;
 import Dnn.ActivationType;
 import Compute.Device;
@@ -55,6 +57,8 @@ namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
+    using namespace Mila::Dnn::Quant::Weight;
+    using namespace Mila::Dnn::Quant::KvCache;
 
     //export constexpr int64_t kPrefillChunkSize = 64;
 
@@ -69,7 +73,9 @@ namespace Mila::Dnn
      *  - TDeviceType: device type (Cpu/Cuda)
      *  - TPrecision: tensor precision
      */
-    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+    export template<DeviceType TDeviceType, TensorDataType TPrecision,
+        WeightQuantPolicy TWeightQuant = NoWeightQuant,
+        KvCachePolicy TKvPolicy = NoKvCompression>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class LlamaTransformer : public Network<TDeviceType, TPrecision>
     {
@@ -78,9 +84,10 @@ namespace Mila::Dnn
         using NetworkBase = Network<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using TokenEmbeddingType = TokenEmbedding<TDeviceType, dtype_t::INT32, TPrecision>;
-        using LinearType = Linear<TDeviceType, TPrecision>;
+        using LinearType = Linear<TDeviceType, TPrecision, TWeightQuant>;
+        using LmHeadLinearType = Linear<TDeviceType, TPrecision>;
         using RmsNormType = RmsNorm<TDeviceType, TPrecision>;
-        using TransformerBlockType = LlamaBlock<TDeviceType, TPrecision>;
+        using TransformerBlockType = LlamaBlock<TDeviceType, TPrecision, TWeightQuant, TKvPolicy>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
 
@@ -447,7 +454,7 @@ namespace Mila::Dnn
             final_rmsnorm_ = this->template getComponentAs<RmsNormType>( this->getName() + ".rmsn_final" );
             final_rmsnorm_->build( final_context );
 
-            lm_head_ = this->template getComponentAs<LinearType>( this->getName() + ".lm_head" );
+            lm_head_ = this->template getComponentAs<LmHeadLinearType>( this->getName() + ".lm_head" );
             lm_head_->build( final_context );
 
             // Allocate one shared GQA transient workspace for inference and wire it
@@ -552,7 +559,7 @@ namespace Mila::Dnn
         std::shared_ptr<TokenEmbeddingType> token_embedding_{ nullptr };
         std::vector<std::shared_ptr<TransformerBlockType>> transformer_blocks_;
         std::shared_ptr<RmsNormType> final_rmsnorm_{ nullptr };
-        std::shared_ptr<LinearType>  lm_head_{ nullptr };
+        std::shared_ptr<LmHeadLinearType> lm_head_{ nullptr };
         
         // Inference-only prefill buffer for autoregressive decoding.
         std::unique_ptr<TensorType> prefill_{ nullptr };
@@ -619,7 +626,7 @@ namespace Mila::Dnn
             auto lm_head_config = LinearConfig( config_.getModelDim(), config_.getVocabSize() )
                 .withBias( false );
 
-            auto lm_head = std::make_shared<LinearType>(
+            auto lm_head = std::make_shared<LmHeadLinearType>(
                 this->getName() + ".lm_head", lm_head_config, std::nullopt );
 
             this->addComponent( lm_head );

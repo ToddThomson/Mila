@@ -21,9 +21,9 @@
  * Module dependency graph (no cycles):
  * @code
  * Dnn.Quantization
- *   ??? Dnn.Quantization.WeightQuant.Policies
- *   ??? Dnn.Quantization.KvCache.Policy
- *         ??? Dnn.Quantization.KvCache.QuantPolicy
+ *   Dnn.Quantization.WeightQuant.Policies
+ *   Dnn.Quantization.KvCache.Policy
+ *      Dnn.Quantization.KvCache.QuantPolicy
  * @endcode
  */
 

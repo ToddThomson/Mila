@@ -42,8 +42,8 @@ namespace Mila::ChatApp
     using namespace Mila::Data;
 
     using GptModelFP32Type   = GptModel<DeviceType::Cuda, TensorDataType::FP32>;
-    using LlamaModelFP32Type = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>;
-    using LlamaModelBF16Type = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
+    using LlamaModelFP32Type = LanguageModel<DeviceType::Cuda, TensorDataType::FP32>;
+    using LlamaModelBF16Type = LanguageModel<DeviceType::Cuda, TensorDataType::BF16>;
 
     using ModelVariant = std::variant<
         std::unique_ptr<GptModelFP32Type>,
@@ -470,51 +470,39 @@ namespace Mila::ChatApp
 
         void loadModel()
         {
-            //Logging::Logger::info( std::format( "Loading model from: {}", config_.model_path ) );
-
             const DeviceId device{ DeviceType::Cuda, 0 };
 
             switch ( config_.model_type )
             {
                 case ModelType::Gpt:
-                    model_ = GptModelFP32Type::fromPretrained(
+                {
+                    auto gpt = GptModelFP32Type::fromPretrained(
                         config_.model_path,
                         config_.context_length,
                         device,
                         /*strict=*/true );
+                    std::cout << gpt->toString();
+                    std::cout << gpt->getMemoryStats().toString() << "\n";
+                    std::cout << "Model loaded successfully\n";
+                    model_ = std::move( gpt );
                     break;
+                }
 
                 case ModelType::Llama:
                 {
                     LlamaModelConfig llama_config = LlamaModelConfig( config_.context_length );
 
                     if ( config_.precision == ModelPrecision::BF16 )
-                    {
-                        model_ = LlamaModelBF16Type::fromPretrained(
-                            config_.model_path,
-                            llama_config,
-                            device );
-                    }
+                        model_ = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
+                            config_.model_path, llama_config, device );
                     else
-                    {
-                        model_ = LlamaModelFP32Type::fromPretrained(
-                            config_.model_path,
-                            llama_config,
-                            device );
-                    }
-                    
+                        model_ = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>::fromPretrained(
+                            config_.model_path, llama_config, device );
+
+                    std::cout << "Model loaded successfully\n";
                     break;
                 }
             }
-
-            std::visit(
-                []( auto& m )
-                {
-                    std::cout << m->toString();
-                    std::cout << m->getMemoryStats().toString() << "\n";
-                    std::cout << "Model loaded successfully\n";
-                },
-                model_ );
         }
 
         /**

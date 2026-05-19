@@ -70,6 +70,8 @@ import Dnn.Components.Linear;
 import Dnn.Components.Swiglu;
 import Serialization.ModelArchive;
 import Serialization.Mode;
+import Dnn.Quantization.Weight.Policies;
+import Dnn.Quantization.KvCache.Policy;
 
 import Cuda.Debug;
 
@@ -77,11 +79,15 @@ namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
+    using namespace Mila::Dnn::Quant::Weight;
+    using namespace Mila::Dnn::Quant::KvCache;
 
     // TODO: Temporary. To be replaced by tuned chunk size based on empirical perf testing across devices and precisions.
     export constexpr int64_t kPrefillChunkSize = 64;
 
-    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+    export template<DeviceType TDeviceType, TensorDataType TPrecision,
+        WeightQuantPolicy TWeightQuant = NoWeightQuant,
+        KvCachePolicy TKvPolicy = NoKvCompression>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class LlamaBlock : public CompositeComponent<TDeviceType, TPrecision>
     {
@@ -91,9 +97,9 @@ namespace Mila::Dnn
         using TensorType = Tensor<TPrecision, MR>;
         using RmsNormType = RmsNorm<TDeviceType, TPrecision>;
         using RopeType = Rope<TDeviceType, TPrecision>;
-        using AttentionType = GroupedQueryAttention<TDeviceType, TPrecision>;
+        using AttentionType = GroupedQueryAttention<TDeviceType, TPrecision, TKvPolicy>;
         using ResidualType = Residual<TDeviceType, TPrecision>;
-        using LinearType = Linear<TDeviceType, TPrecision>;
+        using LinearType = Linear<TDeviceType, TPrecision, TWeightQuant>;
         using SwiGLUType = Swiglu<TDeviceType, TPrecision>;
 
         explicit LlamaBlock( const std::string& name, const LlamaConfig& config, std::optional<DeviceId> device_id = std::nullopt )

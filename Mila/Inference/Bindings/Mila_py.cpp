@@ -105,10 +105,16 @@ static void bind_llama_model( py::module_& m )
 
                 LlamaModelConfig model_config = LlamaModelConfig( static_cast<dim_t>(context_length) );
 
-                return LlamaCudaBf16::fromPretrained(
+                auto base = LlamaCudaBf16::fromPretrained(
                     std::filesystem::path( path ),
                     model_config,
                     device_id );
+
+                // Safe downcast: fromPretrainedImpl<NoWeightQuant, NoKvCompression>
+                // always constructs LlamaModel<Cuda, BF16>. Revisit when FP8 quant
+                // binding is added — a quantized model requires its own Python class.
+                return std::unique_ptr<LlamaCudaBf16>(
+                    static_cast<LlamaCudaBf16*>( base.release() ) );
             },
             py::arg( "path" ),
             py::arg( "context_length" ),

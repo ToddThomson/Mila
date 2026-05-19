@@ -40,11 +40,13 @@ import Compute.IKvInference;
 import Compute.IKvCacheLifecycle;
 import Serialization.ModelArchive;
 import Serialization.Mode;
+import Dnn.Quantization.KvCache.Policy;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
+    using namespace Mila::Dnn::Quant::KvCache;
 
     constexpr int64_t kPrefillChunkSize = 64;
 
@@ -79,7 +81,7 @@ namespace Mila::Dnn
      * to enforce that only the generate() orchestration path may manage the
      * KV cache lifecycle.
      */
-    export template<DeviceType TDeviceType, TensorDataType TComputePrecision, TensorDataType TKvCache = TComputePrecision>
+    export template<DeviceType TDeviceType, TensorDataType TComputePrecision, KvCachePolicy TKvPolicy = NoKvCompression>
         requires PrecisionSupportedOnDevice<TComputePrecision, TDeviceType>
     class GroupedQueryAttention : public Component<TDeviceType, TComputePrecision>
     {
@@ -87,10 +89,18 @@ namespace Mila::Dnn
         using ComponentBase = Component<TDeviceType, TComputePrecision>;
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TComputePrecision, MR>;
-        using KvCacheTensorType = Tensor<TKvCache, MR>;
-        using OperationType = typename Compute::GqaOpTypeMap<TDeviceType, TComputePrecision, TKvCache>::op_type;
 
-        static constexpr bool kIsQuantized = (TKvCache != TComputePrecision);
+        static constexpr bool kKvCompressed = TKvPolicy::kIsActive;
+
+        static constexpr TensorDataType kCacheDtype = [] {
+            if constexpr ( requires { TKvPolicy::kStorageDtype; } )
+                return TKvPolicy::kStorageDtype;
+            else
+                return TComputePrecision;
+        }();
+
+        using KvCacheTensorType = Tensor<kCacheDtype, MR>;
+        using OperationType = typename Compute::GqaOpTypeMap<TDeviceType, TComputePrecision, kCacheDtype>::op_type;
     
         /**
          * @brief Construct a GroupedQueryAttention component.

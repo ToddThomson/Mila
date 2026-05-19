@@ -29,6 +29,8 @@ export module Dnn.Models.LlamaModel;
 
 import Dnn.Models.LlamaModelConfig;
 import Dnn.LanguageModel;
+import Dnn.Quantization.Weight.Policies;
+import Dnn.Quantization.KvCache.Policy;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -49,6 +51,8 @@ namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
+    using namespace Mila::Dnn::Quant::Weight;
+    using namespace Mila::Dnn::Quant::KvCache;
 
     /**
      * @brief LLaMA 3 compatible inference model.
@@ -89,7 +93,7 @@ namespace Mila::Dnn
          * embeddings and KV cache buffers cover the full range.
          *
          * The model_config carries all deployment decisions:
-         *   - context_length     — maximum sequence length to build for
+         *   - context_length     ï¿½ maximum sequence length to build for
          *
          * precision_policy and quantization are extracted and injected into
          * BuildContext as raw values, keeping BuildContext free of any
@@ -104,7 +108,7 @@ namespace Mila::Dnn
          * @throws std::runtime_error    on load or parameter binding failure.
          * @throws std::runtime_error    if model_config requests unsupported quantization (e.g. FP4).
          */
-        static std::unique_ptr<LlamaModel> fromPretrained(
+        static std::unique_ptr<LanguageModel<TDeviceType, TPrecision>> fromPretrained(
             const std::filesystem::path& path,
             const LlamaModelConfig& model_config,
             DeviceId device_id = DeviceId{ TDeviceType, 0 } )
@@ -117,24 +121,29 @@ namespace Mila::Dnn
                     deviceTypeToString( device_id.type ) ) );
             }
 
-            // REVIEW: model context length is now coming from the LlamaModelConfig.
-            // This is a deployment decision, not an architectural one, so it belongs
             if ( model_config.getContextLength() == 0 )
             {
                 throw std::invalid_argument(
                     "LlamaModel::fromPretrained: context_length must be greater than zero" );
             }
 
-            // Validate quantization policy before doing any expensive work.
-            //model_config.getQuantization().assertSupported();
+            // Runtime â†’ compile-time bridge: dispatch on ModelConfig quantization settings.
+            return fromPretrainedImpl<NoWeightQuant, NoKvCompression>( path, model_config, device_id );
+        }
 
+    private:
+
+        template<WeightQuantPolicy TWeightQuant, KvCachePolicy TKvPolicy>
+        static std::unique_ptr<LanguageModel<TDeviceType, TPrecision>> fromPretrainedImpl(
+            const std::filesystem::path& path,
+            const LlamaModelConfig& model_config,
+            DeviceId device_id )
+        {
             PretrainedModelReader reader( path );
             const auto& metadata = reader.getPretrainedMetadata();
 
             LlamaConfig network_config = configFromMetadata( metadata );
 
-            // Validate that the requested context length does not exceed the
-            // architectural ceiling established during pretraining.
             if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
             {
                 throw std::invalid_argument( std::format(
@@ -144,10 +153,9 @@ namespace Mila::Dnn
                     network_config.getMaxSequenceLength() ) );
             }
 
-            auto network = std::make_unique<LlamaTransformerType>( metadata.model_name, network_config, device_id );
+            using ConcreteTransformerType = LlamaTransformer<TDeviceType, TPrecision, TWeightQuant, TKvPolicy>;
+            auto network = std::make_unique<ConcreteTransformerType>( metadata.model_name, network_config, device_id );
 
-            // Extract deployment policy from model_config as raw values —
-            // BuildContext has no dependency on the model layer.
             auto context_length = model_config.getContextLength();
 
             BuildContext build_context(
@@ -162,9 +170,11 @@ namespace Mila::Dnn
 
             network->loadParameters( reader );
 
-            return std::unique_ptr<LlamaModel>(
+            return std::unique_ptr<LanguageModel<TDeviceType, TPrecision>>(
                 new LlamaModel( std::move( network ), network_config, RuntimeMode::Inference ) );
         }
+
+    public:
 
         // ====================================================================
         // Accessors
@@ -305,7 +315,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Training loop — not yet implemented for LlamaModel.
+         * @brief Training loop ï¿½ not yet implemented for LlamaModel.
          *
          * @throws std::runtime_error always.
          */

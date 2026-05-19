@@ -1,106 +1,88 @@
 /**
  * @file LlamaModelConfig.ixx
- * @brief Deployment configuration for LlamaModel.
+ * @brief Deployment configuration for Llama language models.
  *
- * LlamaModelConfig is the concrete ModelConfig for LlamaModel. It carries
- * all model-wide deployment concerns via ModelConfig (context_length, strict,
- * precision_policy, quantization) with no additional Llama-specific fields
- * at this stage.
+ * LlamaModelConfig is the concrete configuration type passed to
+ * LlamaModel::fromPretrained(). It inherits all universal language model
+ * deployment concerns from LanguageModelConfig<LlamaModelConfig>:
  *
- * All Llama architectural parameters (embedding_dim, num_heads, num_kv_heads,
- * hidden_dim, vocab_size, max_seq_length, rope_theta, use_bias) are sourced
- * from checkpoint metadata at load time and flow into LlamaConfig — they are
- * not deployment decisions and do not belong here.
+ *   - context_length        — maximum sequence length
+ *   - weight_quantization   — Linear weight storage strategy
+ *   - kv_cache_compression  — GroupedQueryAttention cache strategy
  *
- * ## Intended usage
+ * All Llama architectural parameters (num_layers, num_heads, hidden_dim,
+ * rope_theta, vocab_size, etc.) are read from checkpoint metadata at load
+ * time and are not deployment concerns. LlamaModelConfig carries no
+ * architecture-specific fields beyond what the base provides.
  *
- *   auto model_config = LlamaModelConfig( 4096 )
- *       .withQuantization( QuantizationConfig::fp8() )
- *       .withPrecisionPolicy( ComputePrecision::Policy::Performance )
- *       .withStrict( true );
+ * ## Usage
  *
- *   auto model = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>
- *       ::fromPretrained( path, model_config, device_id );
+ * @code
+ * // Standard BF16 inference
+ * auto config = LlamaModelConfig( context_length );
  *
- * ## Relationship to LlamaConfig
+ * // FP8 weights + FP8 KV cache
+ * auto config = LlamaModelConfig( context_length )
+ *     .withFP8Quantization();
  *
- * LlamaConfig     — architectural config for LlamaTransformer (dims, heads, layers).
- *                   Populated from checkpoint metadata. Not a deployment concern.
- * LlamaModelConfig — deployment config for LlamaModel (precision, quantization,
- *                   context_length). Set by the caller at load time.
+ * // FP8 weights only — no KV compression
+ * auto config = LlamaModelConfig( context_length )
+ *     .withWeightQuantization( WeightQuantization::FP8 );
+ * @endcode
  */
-
-module;
-#include <string>
-#include <cstdint>
 
 export module Dnn.Models.LlamaModelConfig;
 
-import Dnn.ModelConfig;
+import Dnn.LanguageModelConfig;
 import Dnn.TensorTypes;
 
 namespace Mila::Dnn
 {
     /**
-     * @brief Deployment configuration for LlamaModel.
+     * @brief Deployment configuration for Llama language models.
      *
-     * Concrete instantiation of ModelConfig for the Llama model family
-     * (Llama 3.1, 3.2, and future variants). Provides type safety at the
-     * fromPretrained() call site — a Qwen3ModelConfig cannot be passed
-     * to LlamaModel::fromPretrained() and vice versa.
-     *
-     * Llama-specific deployment concerns will be added here as needed.
-     * Architectural parameters always come from checkpoint metadata.
+     * Inherits all fluent setters and accessors from
+     * LanguageModelConfig<LlamaModelConfig>. Chains work across base
+     * and derived methods without casting.
      */
-    export class LlamaModelConfig : public ModelConfig
+    export struct LlamaModelConfig : LanguageModelConfig<LlamaModelConfig>
     {
-    public:
-
-        // ====================================================================
+        // =====================================================================
         // Construction
-        // ====================================================================
-
-        /**
-         * @brief Construct with required context length.
-         *
-         * context_length is the only required deployment parameter —
-         * everything else has a sensible default.
-         *
-         * @param context_length  Maximum sequence length in tokens. Must be > 0.
-         */
-        explicit LlamaModelConfig( dim_t context_length )
-            : ModelConfig( context_length )
-        {
-        }
+        // =====================================================================
 
         /**
          * @brief Default constructor.
          *
-         * context_length defaults to zero. Caller must invoke
-         * withContextLength() before passing to fromPretrained().
-         * Provided for cases where context_length is not known at
-         * construction time.
+         * context_length defaults to zero. Call withContextLength() before
+         * passing to fromPretrained(), or use the explicit constructor.
          */
         LlamaModelConfig() = default;
 
-        ~LlamaModelConfig() override = default;
+        /**
+         * @brief Construct with a required context length.
+         *
+         * @param context_length  Maximum sequence length in tokens. Must be > 0.
+         * @throws std::invalid_argument if context_length is zero.
+         */
+        explicit LlamaModelConfig( dim_t context_length )
+            : LanguageModelConfig<LlamaModelConfig>( context_length )
+        {
+        }
 
-        // ====================================================================
+        // =====================================================================
         // Diagnostics
-        // ====================================================================
+        // =====================================================================
 
         /**
-         * @brief Produce a human-readable summary of the Llama model config.
-         *
-         * Prepends a Llama-specific header and delegates base field
-         * formatting to ModelConfig::baseToString().
+         * @brief Produce a human-readable summary of the Llama model configuration.
          */
-        std::string toString() const override
+        std::string toString() const
         {
-            std::string result;
-            result += "LlamaModelConfig\n";
+            std::string result = "LlamaModelConfig:\n";
             result += baseToString();
             return result;
         }
     };
+
 }
