@@ -1,7 +1,7 @@
 """
 Registers chat, completions, and (when the adapter supports it) responses
-routes for whichever protocol adapter is active. All streaming/queueing
-mechanics live here exactly once.
+and models routes for whichever protocol adapter is active. All
+streaming/queueing mechanics live here exactly once.
 """
 import asyncio
 import logging
@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from model_worker import worker
-from protocols.base import ProtocolAdapter, ResponsesCapable
+from protocols.base import ProtocolAdapter, ResponsesCapable, ModelsCapable
 from schemas.internal import InferenceRequest, InferenceResponse
 from config import settings
 
@@ -28,6 +28,9 @@ def register_routes(app: FastAPI, adapter) -> None:
 
     if isinstance(adapter, ResponsesCapable):
         _register_responses(app, adapter)
+
+    if isinstance(adapter, ModelsCapable):
+        _register_models(app, adapter)
 
 
 def _register_chat(app: FastAPI, adapter: ProtocolAdapter) -> None:
@@ -55,6 +58,14 @@ def _register_responses(app: FastAPI, adapter: ResponsesCapable) -> None:
         body = await http_req.json()
         prompt_str, inf_req = adapter.parse_responses_request(body)
         return await _dispatch_responses(prompt_str, inf_req, http_req, adapter)
+
+
+def _register_models(app: FastAPI, adapter: ModelsCapable) -> None:
+
+    @app.get(adapter.models_path, response_model=None)
+    async def list_models() -> JSONResponse:
+        logger.info("GET %s called", adapter.models_path)
+        return JSONResponse(content=adapter.format_models_response())
 
 
 async def _dispatch(
@@ -309,6 +320,7 @@ async def _stream_responses(
             yield adapter.format_responses_stream_done(response_id, output_text=full_text)
 
         print(f"[{_elapsed()}] {response_id}: stream closed", flush=True)
+
 
 def _prompt_too_long_error(prompt_length: int, context_length: int) -> JSONResponse:
     return JSONResponse(

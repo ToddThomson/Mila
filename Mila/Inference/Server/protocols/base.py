@@ -59,6 +59,26 @@ class ProtocolAdapter(ABC):
         """Final SSE line(s) sent when the stream closes cleanly."""
         ...
 
+class ModelsCapable(ABC):
+    """
+    Optional mixin for adapters that support GET /v1/models.
+    The route factory registers the endpoint only when the adapter
+    inherits from this class.
+    """
+
+    @property
+    @abstractmethod
+    def models_path(self) -> str:
+        """URL path for the models list endpoint."""
+        ...
+
+    @abstractmethod
+    def format_models_response(self) -> dict:
+        """
+        Return the protocol's model list payload.
+        No InferenceResponse involved — this is pure metadata.
+        """
+        ...
 
 class ResponsesCapable(ABC):
     """

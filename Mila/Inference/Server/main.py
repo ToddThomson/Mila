@@ -19,8 +19,8 @@ from fastapi import FastAPI
 from config import settings, ProtocolMode
 from model_worker import worker
 from routes.factory import register_routes
-from routes.models import router as models_router
-from protocols.openai import OpenAIResponsesAdapter
+from routes.health import router as health_router
+from protocols.openai import OpenAIAdapter
 from protocols.anthropic import AnthropicMessagesAdapter
 from protocols.mila import MilaChatAdapter
 
@@ -33,7 +33,7 @@ logging.basicConfig(
 )
 
 _ADAPTERS = {
-    ProtocolMode.openai: OpenAIResponsesAdapter,
+    ProtocolMode.openai: OpenAIAdapter,
     ProtocolMode.anthropic: AnthropicMessagesAdapter,
     ProtocolMode.mila: MilaChatAdapter,
 }
@@ -55,7 +55,7 @@ app = FastAPI(
 )
 
 register_routes(app, adapter)
-app.include_router(models_router)
+app.include_router(health_router)
 
 
 if __name__ == "__main__":

@@ -104,7 +104,7 @@ class OpenAIResponsesAdapter(ResponsesCapable):
         # DEBUG: print("[MIS DEBUG] user_message:", user_message)
 
         prompt_str = build_instruct_prompt(user_message, instructions, history, None)
-        # DEBUG: print("[MIS DEBUG] prompt_str:\n", prompt_str[:500])
+        print("[MIS DEBUG] prompt_str:\n", prompt_str)
 
         req = InferenceRequest(
             prompt_ids=[],

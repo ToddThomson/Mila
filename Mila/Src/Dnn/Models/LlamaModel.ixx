@@ -90,8 +90,6 @@ namespace Mila::Dnn
          *
          * The model_config carries all deployment decisions:
          *   - context_length     — maximum sequence length to build for
-         *   - precision_policy   — cuBLASLt algorithm selection heuristic
-         *   - quantization       — weight storage dtype (none, fp8, fp4)
          *
          * precision_policy and quantization are extracted and injected into
          * BuildContext as raw values, keeping BuildContext free of any
