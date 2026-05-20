@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /d D:\\\\Repos\\\\Mila)",
+      "Bash(Get-ChildItem -Path \".\\\\Src\\\\Dnn\\\\Compute\\\\Operations\\\\\" -Directory | Select-Object -ExpandProperty Name)"
+    ]
+  }
+}

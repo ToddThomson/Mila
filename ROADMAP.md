@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.22-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
+| In Progress | 0.13.23-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
 | Planned | 0.14.0-alpha.6 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.15.0-alpha.7 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
@@ -36,28 +36,25 @@ BF16 baseline token-for-token on identical prompts.
 
 ### Phase 1 — Compile-Time Operation Dispatch (All Components)
 
-Replace runtime `OperationRegistry` string-keyed lookup with compile-time traits dispatch
-(`XxxOpTypeMap<TDeviceType, TPrecision>::op_type`) across all components and operations.
-The `LinearOpTypeMap` primary template is defined; CPU and CUDA partition specializations
-are pending as part of Phase 2. All remaining components below must follow the same
-pattern. A missing `XxxOpTypeMap` specialization is a compile error — no runtime
-fallback, no string key, no hash map lookup.
+Replace runtime `OperationRegistry` string-keyed lookup with unified compile-time traits
+dispatch via `OperationTraits<OperationType, TDeviceType, TPrecision, TPolicy>`. The
+`Linear` component is the completed reference implementation. A missing `OperationTraits`
+specialization is a compile error — no runtime fallback, no string key, no hash map.
 
-- [x] `LinearOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Linear` component `createOperation()` to TypeMap dispatch
-- [ ] `GeluOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Gelu` component `createOperation()` to TypeMap dispatch
-- [ ] `ResidualOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Residual` component `createOperation()` to TypeMap dispatch
-- [ ] `LayerNormOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `LayerNorm` component `createOperation()` to TypeMap dispatch
-- [ ] `RmsNormOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `RmsNorm` component `createOperation()` to TypeMap dispatch
-- [ ] `SoftmaxOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Softmax` component `createOperation()` to TypeMap dispatch
-- [ ] `SwigluOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Swiglu` component `createOperation()` to TypeMap dispatch
-- [ ] `MultiHeadAttentionOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `MultiHeadAttention` component `createOperation()` to TypeMap dispatch
-- [ ] `GroupedQueryAttentionOpTypeMap` — define TypeMap header; three template axes `<TDeviceType, TPrecision, TKvPolicy>`; specialize for `<Cuda, BF16, NoKvCompression>` and `<Cpu, FP32, NoKvCompression>`; migrate `GroupedQueryAttention` component `createOperation()` to TypeMap dispatch
-- [ ] `RopeOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Rope` component `createOperation()` to TypeMap dispatch
-- [ ] `LpeOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `Lpe` component `createOperation()` to TypeMap dispatch
-- [ ] `TokenEmbeddingOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `TokenEmbedding` component `createOperation()` to TypeMap dispatch
-- [ ] `SoftmaxCrossEntropyOpTypeMap` — define TypeMap header; specialize for `DeviceType::Cpu` and `DeviceType::Cuda`; migrate `SoftmaxCrossEntropy` component `createOperation()` to TypeMap dispatch
+The unified `OperationTraits` primary template (keyed on the `OperationType` enum) supersedes
+the earlier per-component `XxxOpTypeMap` design. All remaining components migrate to
+`OperationTraits` specializations in `OperationTraits.Cuda.ixx` and `OperationTraits.Cpu.ixx`.
+
+- [x] `OperationTraits.Template.ixx` — unified primary template `OperationTraits<OperationType TOp, DeviceType, TPrecision, TPolicy = void>`; `LinearOpConcept` defined for contract documentation; `export import` on `DeviceType`, `OperationType`, `TensorDataType` so all consumers get them transitively
+- [x] `OperationTraits.Cuda.ixx` — `:Cuda` partition; `LinearOp` specializations for `<Cuda, FP32, NoWeightQuant>`, `<Cuda, BF16, NoWeightQuant>`, `<Cuda, BF16, PerChannelFp8<>>`
+- [x] `Linear.ixx` — `using OpType = OperationTraits<LinearOp, TDeviceType, TComputePrecision, TWeightQuant>::type`; `createOperation()` uses `std::make_shared<OpType>`; dead `LinearOpTypeMap` import removed
+- [x] `CudaLinearOpRegistrar` — removed (dead code, registration approach fully retired)
+- [ ] `OperationTraits.Cuda.ixx` — add `GroupedQueryAttentionOp` specializations: `<Cuda, BF16, NoKvCompression>` and `<Cuda, BF16, PerChannelKvFp8<>>`; migrate `GroupedQueryAttention` component to `OperationTraits` dispatch
+- [ ] `OperationTraits.Cuda.ixx` — add `SamplingOp` specializations: `<Cuda, FP32>` and `<Cuda, BF16>`; implement `TokenSampler` component and `CudaSamplingOp` per `TokenSampling.md`
+- [ ] `OperationTraits.Cuda.ixx` — remaining policy-free ops: `GeluOp`, `ResidualOp`, `RmsNormOp`, `SoftmaxOp`, `SwiGluOp`, `MultiHeadAttentionOp`, `RopeOp`, `LpeOp`, `TokenEmbeddingOp`, `SoftmaxCrossEntropyOp`; migrate each component's `createOperation()` to `OperationTraits` dispatch
+- [ ] `OperationTraits.Cpu.ixx` — `:Cpu` partition; matching specializations for all ops above; migrate CPU component paths
 - [ ] `GroupedQueryAttention` — replace bare `TKvCache TensorDataType` parameter with `TKvPolicy` constrained to `KvCachePolicy`; `kKvCompressed = TKvPolicy::kIsActive`; `kCacheDtype` derived from policy; `NoKvCompression` is the default
-- [ ] Remove `OperationRegistry`, `OperationRegistryHelpers`, and all associated registration macros once all components are migrated
+- [ ] Remove `OperationRegistry`, `OperationRegistryHelpers`, `LinearOpTypeMap`, `GqaOpTypeMap`, and all legacy registrar files once all components are migrated
 
 ### Phase 2 — FP8 Quantization Infrastructure
 
@@ -80,12 +77,12 @@ on the operation base class. Non-quantized operations are entirely unaware they 
 - [x] `Dnn/Quantization/Weight/Policies.ixx` — `NoWeightQuant` identity struct; `PerChannelFp8<>` policy struct with `kStorageDtype = FP8_E4M3`, `kScaleDtype = Float32`, `kPerChannel = true`; `WeightQuantPolicy` concept; both policies verified with `static_assert` at definition time
 - [x] `Dnn/Quantization/KvCache/Policy.ixx` — `KvCachePolicy` concept; `NoKvCompression` identity struct; zero-cost, no behavior change to any existing GQA path
 - [x] `Dnn/Quantization/KvCache/QuantPolicy.ixx` — `QuantKvPolicy` concept refinement; `PerChannelKvFp8<>` policy struct; both verified with `static_assert` at definition time
-- [ ] `LinearOpTypeMap.Template.ixx` — update primary template signature from bare `TensorDataType TWeight` to `WeightQuantPolicy TWeightQuant = NoWeightQuant`; add import of `Dnn.Quantization.Weight.Policies`
-- [ ] `LinearOpTypeMap.Cpu.ixx` — add `<Cpu, FP32, NoWeightQuant>` specialization resolving to `CpuLinearOp`
-- [ ] `CudaLinearOp.ixx` — implement non-quantized BF16 cuBLASLt path; add `TWeightQuant` template parameter; add `quantize()` and `setWeightScales()` concrete methods on the `PerChannelFp8<>` path; `supportsCuBLASLt()` extended with SM >= 8.9 capability check for FP8; `getComputeTypes()` FP8 branch: `compute_type = CUBLAS_COMPUTE_32F`, `typeA = CUDA_R_BF16`, `typeB = CUDA_R_FP8_E4M3`; `build_strided_plan` with separate `data_type_A` / `data_type_B` parameters for mixed-precision descriptor; `build()` selects FP8 cuBLASLt plan via `if constexpr (kIsQuantized)`
-- [ ] `LinearOpTypeMap.Cuda.ixx` — add `<Cuda, BF16, NoWeightQuant>` specialization resolving to `CudaLinearOp<BF16, NoWeightQuant>`; add `<Cuda, BF16, PerChannelFp8<>>` specialization resolving to `CudaLinearOp<BF16, PerChannelFp8<>>`
-- [ ] `Linear.ixx` — replace bare `TWeight = TComputePrecision` parameter with `TWeightQuant = NoWeightQuant` constrained to `WeightQuantPolicy`; `kIsQuantized = TWeightQuant::kIsQuantized`; `kWeightDtype` derived from policy (`kIsQuantized ? TWeightQuant::kStorageDtype : TComputePrecision`); allocate `weight_scales_` (`Tensor<Float32, MR>`, shape `[output_features]`) in `initializeParameters()` when `kIsQuantized`; update `loadParameter()` to call `operation_->quantize(blob, *weight_, *weight_scales_, shape)` and `operation_->setWeightScales(weight_scales_.get())` on the quantized path
-- [ ] FP8 decode matvec kernel — single-token decode hot path: BF16 activation `[1, I]` × FP8_E4M3 weight `[O, I]` + FP32 per-channel scale `[O]` → BF16 output `[1, O]`; used when batch size = 1; cuBLASLt plan handles prefill (batch > 1)
+- [x] `OperationTraits.Cuda.ixx` — `<Cuda, BF16, NoWeightQuant>` and `<Cuda, BF16, PerChannelFp8<>>` Linear specializations (replaces `LinearOpTypeMap.Cuda.ixx` for the quantized path)
+- [x] `Linear.ixx` — `TWeightQuant = NoWeightQuant` parameter constrained to `WeightQuantPolicy`; `kIsQuantized`, `kWeightDtype` derived from policy; `WeightTensorType` alias; `loadParameter()` delegates to `operation_->quantize()` and `operation_->setWeightScales()` on the quantized path
+- [x] `CudaLinearOp.ixx` — `TWeightQuant` template parameter; `quantize()` and `setWeightScales()` gated on `requires kIsQuantized`; `supportsCuBLASLt()` SM ≥ 8.9 check for FP8; `getComputeTypes()` FP8 branch; FP8 decode matvec kernel (BF16 activation × FP8_E4M3 weight + FP32 scale → BF16 output)
+- [ ] `OperationTraits.Cpu.ixx` — `<Cpu, FP32, NoWeightQuant>` Linear specialization (replaces `LinearOpTypeMap.Cpu.ixx`)
+- [ ] `CudaLinearOp.ixx` — FP8 cuBLASLt prefill plan: `Plans.ixx` mixed-precision descriptor support (`data_type_A` / `data_type_B` split) pending; currently falls back to decode matvec on prefill for the FP8 path
+- [ ] FP8 prefill kernel — `Plans.ixx` update: `build_forward_plan` and `build_strided_plan` with separate `data_type_A` (BF16 activation) and `data_type_B` (FP8_E4M3 weight) parameters for mixed-precision cuBLASLt descriptor
 
 ### Phase 3 — Llama 3.2 3B Instruct @ FP8
 

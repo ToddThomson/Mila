@@ -65,7 +65,7 @@ namespace Mila::Dnn::Compute
             Cuda::Swiglu::CudaSwigluOpRegistrar::registerOperations();
 			Cuda::LayerNorm::CudaLayerNormOpRegistrar::registerOperations();
             Cuda::RmsNorm::CudaRmsNormOpRegistrar::registerOperations();
-			Cuda::Linear::CudaLinearOpRegistrar::registerOperations();
+			// DEPRECATED: Cuda::Linear::CudaLinearOpRegistrar::registerOperations();
             Cuda::Rope::CudaRopeOpRegistrar::registerOperations();
 			Cuda::MultiHeadAttention::CudaMultiHeadAttentionOpRegistrar::registerOperations();
 			Cuda::Gqa::CudaGroupedQueryAttentionOpRegistrar::registerOperations();

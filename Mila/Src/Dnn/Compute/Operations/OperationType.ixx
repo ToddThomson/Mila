@@ -32,7 +32,8 @@ namespace Mila::Dnn::Compute
 		MultiHeadAttentionOp,		///< Multi-head attention operation (MHA) for transformers
 		GroupedQueryAttentionOp,	///< Groupted Query Attention (GQA)
 		ResidualOp,					///< Residual connection operation
-		SoftmaxOp					///< Softmax activation function
+		SoftmaxOp,					///< Softmax activation function
+		SamplingOp					///< Device-side token sampling from logits
 	};
 
 	// string_view constants, no magic strings at call sites
@@ -51,6 +52,7 @@ namespace Mila::Dnn::Compute
 		constexpr std::string_view GroupedQueryAttention = "GroupedQueryAttentionOp";
 		constexpr std::string_view Residual = "ResidualOp";
 		constexpr std::string_view Softmax = "SoftmaxOp";
+		constexpr std::string_view Sampling = "SamplingOp";
 	}
 
 	export std::string_view operationTypeToString( OperationType op )
@@ -70,6 +72,7 @@ namespace Mila::Dnn::Compute
 			case OperationType::GroupedQueryAttentionOp: return OperationNames::GroupedQueryAttention;
 			case OperationType::ResidualOp:              return OperationNames::Residual;
 			case OperationType::SoftmaxOp:               return OperationNames::Softmax;
+			case OperationType::SamplingOp:              return OperationNames::Sampling;
 			default:
 				throw std::runtime_error( "operationTypeToString: unrecognized OperationType" );
 		}

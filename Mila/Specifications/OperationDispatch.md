@@ -5,7 +5,7 @@
 This document specifies the compile-time operation dispatch system that replaces
 the `OperationRegistry` singleton. All components that call into a device-specific
 compute operation follow the pattern described here. `Linear` is the canonical
-reference implementation.
+reference implementation — fully migrated and building as of May 2026.
 
 ---
 
@@ -124,83 +124,117 @@ class template parameter.
 
 ---
 
-## 5. Per-Component Traits
+## 5. Unified Operation Traits
 
-Each component defines a primary traits template and one specialization per
-backend/precision combination. Traits files are co-located with the op they name.
+Rather than one traits primary template per component, Mila uses a **single**
+`OperationTraits` template keyed on the `OperationType` enum. All backend
+specializations live in two partition files — one per device family.
 
 ### Primary template
 
-Lives with the component, not with any backend:
-
 ```cpp
-// Components/Linear/LinearOpTraits.ixx
-export module Compute.LinearOpTraits;
+// Compute/Operations/OperationTraits.Template.ixx
+export module Compute.OperationTraits.Template;
+
+export import Compute.DeviceType;
+export import Compute.OperationType;
+export import Dnn.TensorDataType;
 
 namespace Mila::Dnn::Compute
 {
-    export template<DeviceType TDeviceType, TensorDataType TPrecision,
-                    TensorDataType TWeight = TPrecision>
-    struct LinearOpTraits
-    {
-        static_assert(
-            sizeof(TDeviceType) == 0,
-            "No LinearOp for this (DeviceType, TPrecision, TWeight) combination."
-        );
-    };
+    /// Primary template — no default definition.
+    /// A missing specialization is a hard compile error on ::type.
+    export template<OperationType TOp,
+                    DeviceType   TDeviceType,
+                    TensorDataType TPrecision,
+                    typename     TPolicy = void>
+    struct OperationTraits;
 }
 ```
 
-### Backend specialization
+`TPolicy` carries the quantization or cache policy for ops that need it
+(`WeightQuantPolicy` for Linear, `KvCachePolicy` for GQA, `void` for all others).
+No op needs both simultaneously — the scope table in `Quantization.V2.md` bounds this.
 
-Lives with the concrete op:
+### CUDA specializations — OperationTraits.Cuda.ixx
+
+All CUDA mappings live in the `:Cuda` partition of `Compute.OperationTraits`.
+Adding a new backend or weight format is purely additive — one new specialization
+block, no existing file is modified:
 
 ```cpp
-// Devices/Cpu/Operations/CpuLinearOpTraits.ixx
-export module Compute.CpuLinearOpTraits;
+export module Compute.OperationTraits:Cuda;
 
-import Compute.LinearOpTraits;
-import Compute.CpuLinearOp;
+import Compute.OperationTraits.Template;
+import Compute.CudaLinearOp;
+import Dnn.Quantization.Weight.Policies;
 
 namespace Mila::Dnn::Compute
 {
+    using namespace Mila::Dnn::Quant::Weight;
+    using namespace Mila::Dnn::Compute::Cuda::Linear;
+
+    // LinearOp
     export template<>
-    struct LinearOpTraits<DeviceType::Cpu, TensorDataType::FP32>
-    {
-        using type = CpuLinearOp;
-    };
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda,
+                           TensorDataType::BF16, NoWeightQuant>
+    { using type = CudaLinearOp<TensorDataType::BF16, NoWeightQuant>; };
+
+    export template<>
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda,
+                           TensorDataType::BF16, PerChannelFp8<>>
+    { using type = CudaLinearOp<TensorDataType::BF16, PerChannelFp8<>>; };
+
+    // GQA, SamplingOp, and policy-free ops added here as components migrate.
 }
 ```
 
-### Quantized weight specialization
-
-Adding INT8 weight support is purely additive — no existing file is modified:
+### Component integration
 
 ```cpp
-// Devices/Cuda/Operations/CudaLinearOpInt8Traits.ixx
-export template<>
-struct LinearOpTraits<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::INT8>
-{
-    using type = CudaLinearOpInt8;
-};
+// In Linear<TDeviceType, TComputePrecision, TWeightQuant>:
+using OpType = typename Compute::OperationTraits<
+    Compute::OperationType::LinearOp,
+    TDeviceType, TComputePrecision, TWeightQuant>::type;
+
+std::shared_ptr<OpType> operation_{ nullptr };
+
+void createOperation() {
+    operation_ = std::make_shared<OpType>(
+        this->getExecutionContext(), config_ );
+}
 ```
+
+### Why not static_assert(Concept) in the class body?
+
+`LinearOpConcept<OpType, TensorType>` is defined for documentation and test use,
+but is **not** placed as a `static_assert` inside the `Linear` class template.
+MSVC eagerly instantiates all member function bodies when a concept is evaluated
+inside a class template body, forcing `CudaLinearOp::build()` to compile before the
+full `ExecutionContext<Cuda>` definition is in scope. A missing `OperationTraits`
+specialization already produces a hard error on `::type` — that is the practical
+compile-time guard.
 
 ---
 
 ## 6. Component Integration
 
-The component adds a defaulted `TWeight` parameter and derives the op type from
-traits. The `operation_` field and `createOperation()` change; everything else
-is untouched.
+The component imports `Compute.OperationTraits` (which re-exports the template and
+all active backend partitions) and derives the op type directly. The `operation_`
+field and `createOperation()` change; everything else is untouched.
 
 ```cpp
-export template<DeviceType TDeviceType, TensorDataType TPrecision,
-                TensorDataType TWeight = TPrecision>
-    requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-class Linear : public Component<TDeviceType, TPrecision>
+export template<DeviceType TDeviceType, TensorDataType TComputePrecision,
+                WeightQuantPolicy TWeightQuant = NoWeightQuant>
+    requires PrecisionSupportedOnDevice<TComputePrecision, TDeviceType>
+class Linear : public Component<TDeviceType, TComputePrecision>
 {
+public:
+    using OpType = typename Compute::OperationTraits<
+        Compute::OperationType::LinearOp,
+        TDeviceType, TComputePrecision, TWeightQuant>::type;
+
 private:
-    using OpType = typename LinearOpTraits<TDeviceType, TPrecision, TWeight>::type;
     std::shared_ptr<OpType> operation_{ nullptr };
 
     void createOperation()
@@ -212,31 +246,32 @@ private:
 ```
 
 `import Compute.OperationRegistry` is removed.
-`import Compute.CpuLinearOpTraits` (or the CUDA variant) replaces it, selected
-by the build configuration.
+`import Compute.OperationTraits` replaces it — no per-backend import selection,
+no build-system guards.
 
 ---
 
 ## 7. Signature Contract Enforcement
 
-Without a pure virtual base, the `forward`/`backward` contract is enforced by a
-C++20 concept at the traits specialization site:
+Without a pure virtual base, the `forward`/`backward` contract is documented by a
+C++20 concept defined in `OperationTraits.Template.ixx`:
 
 ```cpp
 template<typename TOp, typename TTensor>
-concept LinearOpConcept = requires( const TOp& op, const TTensor& in, TTensor& out )
+concept LinearOpConcept = requires( TOp& op, const TTensor& in, TTensor& out )
 {
     op.forward( in, out );
     op.backward( in, out, out );
 };
-
-// Validated in the component:
-static_assert( LinearOpConcept<OpType, TensorType> );
 ```
 
-An unsupported `(DeviceType, TPrecision, TWeight)` combination is a hard compile
-error with a `static_assert` message, not a runtime exception thrown from a hash
-map lookup.
+This concept is available for use in tests and for documentation purposes.
+It is **not** placed as a `static_assert` inside the component class template —
+see §5 for the MSVC eager-instantiation constraint that prevents this.
+
+An unsupported `(OperationType, DeviceType, TPrecision, TPolicy)` combination
+produces a hard compile error at the `::type` access site — no runtime exception,
+no hash map lookup. The error message identifies the exact missing specialization.
 
 ---
 
@@ -260,24 +295,23 @@ are deleted once all components are migrated.
 ## 9. File Layout
 
 ```
+Compute/Operations/
+  OperationTraits.ixx              aggregator — export import Template + :Cuda + :Cpu
+  OperationTraits.Template.ixx     unified primary template; concepts
+  OperationTraits.Cuda.ixx         :Cuda partition — all CUDA specializations
+  OperationTraits.Cpu.ixx          :Cpu partition — all CPU specializations (pending)
+
 Components/Linear/
-  Linear.ixx                       component — imports LinearOpTraits
+  Linear.ixx                       component — import Compute.OperationTraits
   LinearConfig.ixx
-  LinearOpTraits.ixx               primary template + static_assert
 
-Devices/Cpu/Operations/
-  CpuLinearOp.ixx                  concrete op
-  CpuLinearOpTraits.ixx            specialization for <Cpu, FP32>
-
-Devices/Cuda/Operations/
-  CudaLinearOp.ixx
-  CudaLinearOpTraits.ixx           specialization for <Cuda, FP32>
-  CudaLinearOpInt8.ixx             quantized weight variant
-  CudaLinearOpInt8Traits.ixx       specialization for <Cuda, FP32, INT8>
+Devices/Cuda/Operations/Linear/
+  CudaLinearOp.ixx                 concrete op — derives from Operation<Cuda, P> only
 ```
 
-Each file has a single clear responsibility. Adding a new backend or weight format
-is self-contained — no shared file is modified.
+Adding a new weight format or backend: one new specialization block in
+`OperationTraits.Cuda.ixx` or `OperationTraits.Cpu.ixx`. No shared file is
+modified. No registrar file is created.
 
 ---
 
@@ -285,29 +319,28 @@ is self-contained — no shared file is modified.
 
 When adding a new component with its own compute operation:
 
-- [ ] `ComponentOpTraits.ixx` — primary template with `static_assert` diagnostic
-- [ ] `BackendComponentOp.ixx` — concrete op deriving from `Operation<D, P>` only,
+- [ ] `BackendComponentOp.ixx` — concrete op deriving from `Operation<D, P>` only;
       non-virtual `forward`/`backward` with typed tensor parameters
-- [ ] `BackendComponentOpTraits.ixx` — specialization naming the concrete type
-- [ ] `Component.ixx` — `using OpType = typename ComponentOpTraits<...>::type;`
-      field and `createOperation()` using `std::make_shared<OpType>`
-- [ ] `static_assert( ComponentOpConcept<OpType, TensorType> )` in component
+- [ ] `OperationTraits.Cuda.ixx` — add specialization block for the new `OperationType`
+      enum value; one specialization per (precision, policy) combination
+- [ ] `OperationType.ixx` — add the new enum entry and `OperationNames::` string constant
+- [ ] `Component.ixx` — `using OpType = typename Compute::OperationTraits<OperationType::NewOp, ...>::type;`
+      and `createOperation()` using `std::make_shared<OpType>`
+- [ ] `ComponentOpConcept` defined in `OperationTraits.Template.ixx` for documentation
 
 ---
 
-## 11. Adding a Quantized Weight Variant — Checklist
+## 11. Adding a Quantized Variant — Checklist
 
-When adding quantized weight support to an existing op (e.g. INT8 weights for Linear):
+When adding a new policy dimension to an existing op (e.g. FP4 weights for Linear):
 
-- [ ] `BackendOpQuantized.ixx` — concrete op for the quantized path,
-      derives from `Operation<D, P>`, owns dequantization and scale application
-- [ ] `BackendOpQuantizedTraits.ixx` — specialization for `<Device, TPrecision, TWeight>`
-- [ ] No existing file is modified — the default `TWeight = TPrecision` path is untouched
-- [ ] `QuantizationConfig` nested in the component config carries scale tensors,
-      zero-points, and granularity (per-tensor vs per-channel) for dynamic quantization;
-      the op reads these at construction
+- [ ] New policy struct satisfying the relevant concept (`WeightQuantPolicy` or `KvCachePolicy`)
+- [ ] `OperationTraits.Cuda.ixx` — one new specialization: `<OperationType, Cuda, Precision, NewPolicy>`
+- [ ] Concrete op handles the new policy path via `if constexpr (TPolicy::kIsActive)` or
+      a separate op class if the implementation diverges significantly
+- [ ] No existing specialization is modified — all default paths are untouched
 
 ---
 
-*This document reflects design decisions made through April 2026.*
+*This document reflects design decisions made through May 2026.*
 *Update when new operations, weight formats, or backend devices are added.*

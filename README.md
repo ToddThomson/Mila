@@ -58,7 +58,7 @@ matches FP32's exponent range, avoiding overflow and underflow without loss scal
 native Tensor Core support on Ada Lovelace and newer. FP16 is not a Mila target; BF16
 supersedes it for all current use cases. FP8 quantization is applied at model load time
 as a weight compression strategy: weights are quantized from BF16 to FP8_E4M3 inside the
-`Linear` component according to a `QuantizationConfig` policy, enabling 8B-class models
+`Linear` component via a compile-time `TWeightQuant` policy, enabling 8B-class models
 to run within a 12 GB VRAM budget.
 
 ---
@@ -95,9 +95,9 @@ quantized from BF16 to FP8_E4M3 inside `Linear` at model load time. The existing
 baseline provides the correctness reference for FP8 validation.
 
 **Alpha.6 — Planned**
-Ministral transformer architecture with Sliding Window Attention, validated on Ministral
-3B Instruct at BF16 and Ministral 8B Instruct at FP8. FP8 quantization brings Ministral
-8B within the 12 GB VRAM budget of consumer Ada Lovelace GPUs.
+Qwen 3 transformer architecture with thinking mode and model-agnostic tool calling,
+validated on Qwen 3 8B Instruct at BF16 and FP8. FP8 KV cache compression introduced
+alongside weight quantization.
 
 See [ROADMAP.md](ROADMAP.md) for the full task breakdown.
 
@@ -113,8 +113,8 @@ See [ROADMAP.md](ROADMAP.md) for the full task breakdown.
 | Two-phase KV-cache — prefill + decode | Complete |
 | HuggingFace GPT-2 weight converter | Complete |
 | HuggingFace Llama weight converter | Complete |
-| Instruction following — Llama 3.2 3B Instruct | In Progress |
-| Tool calling framework | In Progress |
+| Instruction following — Llama 3.2 3B Instruct | Validated |
+| Tool calling framework | Complete |
 | Chat CLI | Complete |
 | MNIST training — 97.5% test accuracy | Complete |
 | AdamW optimizer | Complete |

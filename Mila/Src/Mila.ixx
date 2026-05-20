@@ -196,9 +196,10 @@ export import Dnn.Components.Swiglu;
 export import Dnn.Components.LayerNorm;
 export import Dnn.Components.RmsNorm;
 
+// TODO: Alpha.5 OperationTraits supercedes individual operation OpTypeMaps 
 export import Compute.GqaOpTypeMap;
 export import Compute.LinearOpTypeMap;
-
+export import Compute.OperationTraits;
 
 export import Dnn.Components.Linear;
 
@@ -243,7 +244,6 @@ export import Dnn.Optimizers.AdamWConfig;
 export import Data.DataLoader;
 export import Data.Tokenizer;
 export import Data.TokenizerType;
-// DEPRECATED: export import Data.Gpt2Tokenizer;
 
 // ============================================================================
 // Serialization
@@ -254,13 +254,6 @@ export import Serialization.Metadata;
 export import Serialization.ModelArchive;
 export import Serialization.ArchiveSerializer;
 export import Serialization.ZipSerializer;
-
-// ============================================================================
-// Modeling
-// NOTE: Moved to Dev/Training
-// ============================================================================
-//export import Dnn.Model;
-//export import Dnn.ModelConfig;
 
 // ============================================================================
 // Data - Core

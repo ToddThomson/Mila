@@ -43,6 +43,7 @@ import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.CpuMemoryResource;
+import Compute.CudaPinnedMemoryResource;
 import Compute.ExecutionContextFactory;
 import Serialization.PretrainedReader;
 import Logging.Logger;
@@ -76,6 +77,9 @@ namespace Mila::Dnn
         using TensorType = Tensor<TPrecision, MR>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using LlamaTransformerType = LlamaTransformer<TDeviceType, TPrecision>;
+        using StagingMR = std::conditional_t<TDeviceType == DeviceType::Cuda,
+            CudaPinnedMemoryResource,
+            CpuMemoryResource>;
 
         LlamaModel( const LlamaModel& ) = delete;
         LlamaModel& operator=( const LlamaModel& ) = delete;
@@ -265,11 +269,14 @@ namespace Mila::Dnn
             std::mt19937 rng( std::chrono::high_resolution_clock::now()
                 .time_since_epoch().count() );
 
+            // Truncate from the front to preserve the most recent context; warns via Logger.
             truncateIfNeeded( prefill_tokens );
             int64_t seq_len = static_cast<int64_t>(prefill_tokens.size());
 
             auto prefill_input = makeTokenTensor( prefill_tokens );
+
             auto& logits = getNetwork().prefill( prefill_input );
+            
             getNetwork().getExecutionContext()->synchronize();
 
             int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
@@ -283,10 +290,13 @@ namespace Mila::Dnn
 
             for ( size_t step = 1; step < max_new_tokens; ++step )
             {
-                if ( stop.stop_requested() ) break;
+                if ( stop.stop_requested() )
+                    break;
 
-                auto decode_input = makeTokenTensor( { next_token } );
-                auto& decode_logits = getNetwork().decode( decode_input, position );
+                decode_token_staging_.data()[ 0 ] = next_token;
+                copy( decode_token_staging_, decode_token_device_ );
+
+                auto& decode_logits = getNetwork().decode( decode_token_device_, position );
                 getNetwork().getExecutionContext()->synchronize();
 
                 next_token = sampleFromLogits( decode_logits, 0, temperature, top_k, rng );
@@ -331,7 +341,11 @@ namespace Mila::Dnn
             std::unique_ptr<LlamaTransformerType> network,
             const LlamaConfig& config,
             RuntimeMode runtime_mode )
-            : ModelBase( std::move( network ), runtime_mode ), config_( config )
+            : ModelBase( std::move( network ), runtime_mode )
+            , config_( config )
+            , decode_token_staging_( TDeviceType == DeviceType::Cuda ? getDeviceId() : Device::Cpu(), shape_t{ 1, 1 } )
+            , decode_token_device_( getDeviceId(), shape_t{ 1, 1 } )
+            , logits_staging_( TDeviceType == DeviceType::Cuda ? getDeviceId() : Device::Cpu(), shape_t{ 1, 1, static_cast<int64_t>( config.getVocabSize() ) } )
         {}
 
         LlamaTransformerType& getNetwork() noexcept
@@ -345,13 +359,9 @@ namespace Mila::Dnn
         }
 
         LlamaConfig config_;
-        std::unique_ptr<TensorType> prefill_scratch_;
-        dim_t context_length_;
-        int64_t prefill_chunk_size_{ 64 };
-
-        // LLaMA 2 </s> = 2; LLaMA 3 <|end_of_text|> = 128001.
-        // Should be sourced from tokenizer metadata once tokenizer integration is added.
-        // DEPRECATED: static constexpr int32_t eos_token_ = 128001;
+        Tensor<dtype_t::INT32, StagingMR> decode_token_staging_;
+        TokenIndexType decode_token_device_;
+        Tensor<TensorDataType::FP32, StagingMR> logits_staging_;
 
         /**
          * @brief LLaMA 3.x end-of-sequence token.
@@ -397,9 +407,11 @@ namespace Mila::Dnn
         {
             shape_t shape = { 1, static_cast<int64_t>(token_ids.size()) };
             TokenIndexType device_tensor( getDeviceId(), shape );
+            
             Tensor<dtype_t::INT32, CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
-            std::memcpy( cpu_tensor.data(), token_ids.data(),
-                token_ids.size() * sizeof( int32_t ) );
+            
+            std::memcpy( cpu_tensor.data(), token_ids.data(), token_ids.size() * sizeof( int32_t ) );
+            
             copy( cpu_tensor, device_tensor );
 
             return device_tensor;
@@ -410,14 +422,11 @@ namespace Mila::Dnn
             int64_t position,
             float temperature,
             int top_k,
-            std::mt19937& rng ) const
+            std::mt19937& rng )
         {
-            int64_t seq_len = logits.shape()[ 1 ];
-            shape_t shape = { 1, seq_len, config_.getVocabSize() };
-            Tensor<TensorDataType::FP32, CpuMemoryResource> cpu( Device::Cpu(), shape );
-            copy( logits, cpu );
+            copy( logits, logits_staging_ );
 
-            const float* row = cpu.data()
+            const float* row = logits_staging_.data()
                 + static_cast<size_t>(position) * static_cast<size_t>(config_.getVocabSize());
 
             return sampleToken(

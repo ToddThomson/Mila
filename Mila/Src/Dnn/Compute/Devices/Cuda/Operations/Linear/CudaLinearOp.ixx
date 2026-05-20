@@ -692,4 +692,5 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             return true;
             }();
     };
+
 }

@@ -294,6 +294,8 @@ PUBLIC
         #---------------------------------------------------------------
         "Src/Dnn/Compute/Operations/OperationBase.ixx"
         "Src/Dnn/Compute/Operations/OperationType.ixx"
+        "Src/Dnn/Compute/Operations/OperationTraits.ixx"
+        "Src/Dnn/Compute/Operations/OperationTraits.Template.ixx"
         
         "Src/Dnn/Compute/Operations/UnaryOperation.ixx"
         "Src/Dnn/Compute/Operations/BinaryOperation.ixx"
@@ -487,7 +489,9 @@ PUBLIC
         "Src/Dnn/Quantization/KvCache/Policy.ixx"
         "Src/Dnn/Quantization/KvCache/QuantPolicy.ixx"
         "Src/Dnn/Quantization/Quantization.ixx"
- "Src/Dnn/Core/LanguageModelConfig.ixx")
+        "Src/Dnn/Core/LanguageModelConfig.ixx"
+        
+)
 
 set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
@@ -566,6 +570,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/OperationTraits.Cuda.ixx"
                 
                 # CUDA Attention Ops
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOp.ixx"

@@ -36,7 +36,7 @@ import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.ExecutionContextFactory;
 import Compute.IExecutionContext;
-import Compute.LinearOpTypeMap;
+import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
@@ -62,9 +62,9 @@ namespace Mila::Dnn
      * @brief Device-templated fully connected (linear) component.
      *
      * Delegates compute to a device-specific operation resolved at compile time via
-     * LinearOpTypeMap<TDeviceType, TPrecision, TWeight>. TWeight defaults to TPrecision
-     * for standard paths. When TWeight differs from TPrecision, weights are stored in
-     * the reduced precision format and quantized from the source blob dtype on load.
+     * OperationTraits<LinearOp, TDeviceType, TPrecision, TWeightQuant>. TWeightQuant
+     * defaults to NoWeightQuant for standard paths. When quantized, weights are stored
+     * in the reduced precision format and quantized from the source blob dtype on load.
      *
      * Quantization is performed once at load time (quantize-on-load). The backend
      * operation receives the quantized weight tensor directly and is responsible for
@@ -82,7 +82,13 @@ namespace Mila::Dnn
         using ComponentBase = Component<TDeviceType, TComputePrecision>;
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TComputePrecision, MR>;
-        using OperationType = typename Compute::LinearOpTypeMap<TDeviceType, TComputePrecision, TWeightQuant>::op_type;
+        using OpType = typename Compute::OperationTraits<Compute::OperationType::LinearOp, TDeviceType, TComputePrecision, TWeightQuant>::type;
+
+        // LinearOpConcept<OpType, TensorType> is intentionally NOT enforced via static_assert
+        // here. Placing a static_assert in the class template body forces MSVC to fully
+        // instantiate OpType (including all member function bodies) before the CUDA execution
+        // context is complete. A missing OperationTraits specialization already produces a hard
+        // compile error on ::type — that is the practical guard.
 
         static constexpr bool kIsQuantized = TWeightQuant::kIsQuantized;
 
@@ -547,7 +553,7 @@ namespace Mila::Dnn
         shape_t leading_shape_;
 
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
-        std::shared_ptr<OperationType> operation_{ nullptr };
+        std::shared_ptr<OpType> operation_{ nullptr };
 
         // Weight storage is TWeight — differs from TComputePrecision on quantized paths.
         std::shared_ptr<WeightTensorType> weight_{ nullptr };
@@ -646,12 +652,12 @@ namespace Mila::Dnn
         /**
          * @brief Instantiate the backend compute operation via compile-time traits dispatch.
          *
-         * OpType is resolved by LinearOpTypeMap at instantiation time — no registry lookup,
+         * OpType is resolved by OperationTraits at instantiation time — no registry lookup,
          * no string key, no runtime hash map. A missing specialization is a compile error.
          */
         void createOperation()
         {
-            operation_ = std::make_shared<OperationType>(
+            operation_ = std::make_shared<OpType>(
                 this->getExecutionContext(), config_ );
 
             if ( !operation_ )
