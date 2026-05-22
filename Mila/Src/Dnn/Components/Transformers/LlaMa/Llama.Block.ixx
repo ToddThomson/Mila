@@ -86,8 +86,7 @@ namespace Mila::Dnn
     export constexpr int64_t kPrefillChunkSize = 64;
 
     export template<DeviceType TDeviceType, TensorDataType TPrecision,
-        WeightQuantPolicy TWeightQuant = NoWeightQuant,
-        KvCachePolicy TKvPolicy = NoKvCompression>
+        WeightQuantPolicy TWeightQuant = NoWeightQuant, KvCachePolicy TKvPolicy = NoKvCompression>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class LlamaBlock : public CompositeComponent<TDeviceType, TPrecision>
     {
@@ -359,10 +358,10 @@ namespace Mila::Dnn
                 throw std::runtime_error( "LlamaBlock must be built before backward()." );
             }
 
-            if ( !this->isTraining() )
+            /*if ( !this->isTraining() )
             {
                 throw std::runtime_error( "LlamaBlock must be in training mode to call backward()." );
-            }
+            }*/
 
             if ( !forward_executed_ )
             {

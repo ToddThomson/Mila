@@ -10,9 +10,9 @@
 module;
 #include <string>
 #include <string_view>
-#include <compare>
+//#include <compare>
 #include <stdexcept>
-#include <functional>
+//#include <functional>
 
 export module Compute.DeviceId;
 

@@ -47,7 +47,7 @@ module;
 #include <memory>
 #include <string>
 #include <stdexcept>
-//#include <format>
+#include <format>
 
 export module Dnn.Model;
 
@@ -134,6 +134,7 @@ namespace Mila::Dnn
         void train()
         {
             ensureTrainingMode( "train" );
+            
             onTraining();
         }
 
@@ -188,7 +189,7 @@ namespace Mila::Dnn
          */
         DeviceId getDeviceId() const noexcept
         {
-            return network_->getExecutionContext()->getDeviceId();
+            return network_->getDeviceId();
         }
 
         /**
@@ -257,9 +258,8 @@ namespace Mila::Dnn
         {
             if ( runtime_mode_ != RuntimeMode::Training )
             {
-                throw std::runtime_error( "Model::{}: only valid in Training mode" );
-                    //std::format(
-                    //    , method ) );
+                throw std::runtime_error(
+                    std::format( "Model::{}: only valid in Training mode", method ) );
             }
         }
     };

@@ -386,14 +386,14 @@ namespace Components_Layers_Linear_Tests
     }
 
     // ====================================================================
-// Decode (inference) tests
-//
-// decode() dispatches to CudaLinearOp::decode() via IDecode, which uses
-// cuda_matvec_impl -- a single-vector (M=1) kernel optimized for
-// auto-regressive token generation. Tests must build and run with an
-// outer batch size of 1 to match the matvec semantics.
-// On CPU, decode() falls back to operation_->forward().
-// ====================================================================
+    // Decode (inference) tests
+    //
+    // decode() dispatches to CudaLinearOp::decode() via IDecode, which uses
+    // cuda_matvec_impl -- a single-vector (M=1) kernel optimized for
+    // auto-regressive token generation. Tests must build and run with an
+    // outer batch size of 1 to match the matvec semantics.
+    // On CPU, decode() falls back to operation_->forward().
+    // ====================================================================
 
     TYPED_TEST( LinearCudaTests, Decode_BeforeBuild_Throws )
     {

@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(cd /d D:\\\\Repos\\\\Mila)",
-      "Bash(Get-ChildItem -Path \".\\\\Src\\\\Dnn\\\\Compute\\\\Operations\\\\\" -Directory | Select-Object -ExpandProperty Name)"
+      "Bash(Get-ChildItem -Path \".\\\\Src\\\\Dnn\\\\Compute\\\\Operations\\\\\" -Directory | Select-Object -ExpandProperty Name)",
+      "Bash(git log *)",
+      "Bash(Remove-Item \"D:\\\\Repos\\\\Mila\\\\Mila\\\\Src\\\\Dnn\\\\Compute\\\\IDecode.ixx\")"
     ]
   }
 }

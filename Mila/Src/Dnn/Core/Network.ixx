@@ -137,6 +137,12 @@ namespace Mila::Dnn
 
         ~Network() override = default;
 
+        // Network.ixx — add alongside synchronize()
+        DeviceId getDeviceId() const noexcept
+        {
+            return this->getExecutionContext()->getDeviceId();
+        }
+
         /**
          * @brief Synchronize all child components.
          *

@@ -1,11 +1,8 @@
 #include <pybind11/pybind11.h>
-#include <pybind11/stl.h>
-#include <pybind11/functional.h>
 #include <filesystem>
-#include <optional>
 #include <stop_token>
-#include <stdexcept>
 #include <vector>
+#include <string>
 
 import Mila;
 
@@ -105,16 +102,10 @@ static void bind_llama_model( py::module_& m )
 
                 LlamaModelConfig model_config = LlamaModelConfig( static_cast<dim_t>(context_length) );
 
-                auto base = LlamaCudaBf16::fromPretrained(
+                return LlamaCudaBf16::fromPretrained(
                     std::filesystem::path( path ),
                     model_config,
                     device_id );
-
-                // Safe downcast: fromPretrainedImpl<NoWeightQuant, NoKvCompression>
-                // always constructs LlamaModel<Cuda, BF16>. Revisit when FP8 quant
-                // binding is added — a quantized model requires its own Python class.
-                return std::unique_ptr<LlamaCudaBf16>(
-                    static_cast<LlamaCudaBf16*>( base.release() ) );
             },
             py::arg( "path" ),
             py::arg( "context_length" ),

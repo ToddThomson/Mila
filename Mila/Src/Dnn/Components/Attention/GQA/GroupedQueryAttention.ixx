@@ -29,10 +29,8 @@ import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
-import Compute.GqaOpTypeMap;
+import Compute.OperationTraits;
 import Compute.GqaState;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
@@ -100,7 +98,7 @@ namespace Mila::Dnn
         }();
 
         using KvCacheTensorType = Tensor<kCacheDtype, MR>;
-        using OperationType = typename Compute::GqaOpTypeMap<TDeviceType, TComputePrecision, kCacheDtype>::op_type;
+        using OpType = typename Compute::OperationTraits<Compute::OperationType::GroupedQueryAttentionOp, TDeviceType, TComputePrecision, TKvPolicy>::type;
     
         /**
          * @brief Construct a GroupedQueryAttention component.
@@ -201,7 +199,7 @@ namespace Mila::Dnn
                     "GroupedQueryAttention must be built before calling backward." );
             }
 
-            if ( !this->isTraining() )
+            if ( !this->isTrainingMode() )
             {
                 throw std::runtime_error(
                     "GroupedQueryAttention must be in training mode to call backward. "
@@ -519,7 +517,7 @@ namespace Mila::Dnn
         shape_t max_input_shape_;
 
         std::unique_ptr<IExecutionContext> context_{ nullptr };
-        std::shared_ptr<OperationType> operation_{ nullptr };
+        std::shared_ptr<OpType> operation_{ nullptr };
 
         // Non-owning capability interface pointers. Lifetime tied to operation_.
         // Resolved once in onBuilding(). Null for backends that do not implement
@@ -589,7 +587,7 @@ namespace Mila::Dnn
 
         void createOperation()
         {
-            operation_ = std::make_shared<OperationType>(
+            operation_ = std::make_shared<OpType>(
                 this->getExecutionContext(), config_ );
 
             if ( !operation_ )

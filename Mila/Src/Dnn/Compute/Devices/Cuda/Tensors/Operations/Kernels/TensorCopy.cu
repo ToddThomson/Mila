@@ -254,6 +254,12 @@ namespace Mila::Dnn::Compute::Cuda
     template void launch_convert_copy_kernel<__half, __nv_bfloat16>( const __half*, __nv_bfloat16*, size_t, cudaStream_t );
     template void launch_convert_copy_kernel<__nv_bfloat16, __half>( const __nv_bfloat16*, __half*, size_t, cudaStream_t );
 
+    // FP8 E4M3 conversions
+    template void launch_convert_copy_kernel<float, __nv_fp8_e4m3>( const float*, __nv_fp8_e4m3*, size_t, cudaStream_t );
+    template void launch_convert_copy_kernel<__nv_fp8_e4m3, float>( const __nv_fp8_e4m3*, float*, size_t, cudaStream_t );
+    template void launch_convert_copy_kernel<__nv_bfloat16, __nv_fp8_e4m3>( const __nv_bfloat16*, __nv_fp8_e4m3*, size_t, cudaStream_t );
+    template void launch_convert_copy_kernel<__nv_fp8_e4m3, __nv_bfloat16>( const __nv_fp8_e4m3*, __nv_bfloat16*, size_t, cudaStream_t );
+
     // Integer conversions
     template void launch_convert_copy_kernel<float, int32_t>( const float*, int32_t*, size_t, cudaStream_t );
     template void launch_convert_copy_kernel<int32_t, float>( const int32_t*, float*, size_t, cudaStream_t );

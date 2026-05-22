@@ -10,10 +10,7 @@ module;
 #include <vector>
 #include <string>
 #include <sstream>
-#include <type_traits>
 #include <cstdint>
-#include <optional>
-#include <iostream>
 #include <stdexcept>
 #include <filesystem>
 #include <format>
@@ -21,16 +18,19 @@ module;
 #include <chrono>
 #include <algorithm>
 #include <numeric>
-#include <cstring>
 #include <functional>
 #include <stop_token>
+#include <cstring>
+#include <type_traits>
 
 export module Dnn.Models.LlamaModel;
 
 import Dnn.Models.LlamaModelConfig;
 import Dnn.LanguageModel;
+import Dnn.LanguageNetwork;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
+import Dnn.Quantization.KvCache.QuantPolicy;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -76,10 +76,8 @@ namespace Mila::Dnn
         using ModelBase = LanguageModel<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
-        using LlamaTransformerType = LlamaTransformer<TDeviceType, TPrecision>;
         using StagingMR = std::conditional_t<TDeviceType == DeviceType::Cuda,
-            CudaPinnedMemoryResource,
-            CpuMemoryResource>;
+            CudaPinnedMemoryResource, CpuMemoryResource>;
 
         LlamaModel( const LlamaModel& ) = delete;
         LlamaModel& operator=( const LlamaModel& ) = delete;
@@ -97,11 +95,9 @@ namespace Mila::Dnn
          * embeddings and KV cache buffers cover the full range.
          *
          * The model_config carries all deployment decisions:
-         *   - context_length     � maximum sequence length to build for
-         *
-         * precision_policy and quantization are extracted and injected into
-         * BuildContext as raw values, keeping BuildContext free of any
-         * model-layer dependency.
+         *   - context_length     — maximum sequence length to build for
+         *   - weight_quantization — compile-time dispatch to quantized or BF16 path
+         *   - kv_cache_compression — compile-time dispatch to KV cache policy
          *
          * @param path          Path to the pretrained Llama model artifact.
          * @param model_config  Deployment configuration for this load.
@@ -112,7 +108,7 @@ namespace Mila::Dnn
          * @throws std::runtime_error    on load or parameter binding failure.
          * @throws std::runtime_error    if model_config requests unsupported quantization (e.g. FP4).
          */
-        static std::unique_ptr<LanguageModel<TDeviceType, TPrecision>> fromPretrained(
+        static std::unique_ptr<LlamaModel<TDeviceType, TPrecision>> fromPretrained(
             const std::filesystem::path& path,
             const LlamaModelConfig& model_config,
             DeviceId device_id = DeviceId{ TDeviceType, 0 } )
@@ -132,53 +128,46 @@ namespace Mila::Dnn
             }
 
             // Runtime → compile-time bridge: dispatch on ModelConfig quantization settings.
-            return fromPretrainedImpl<NoWeightQuant, NoKvCompression>( path, model_config, device_id );
-        }
-
-    private:
-
-        template<WeightQuantPolicy TWeightQuant, KvCachePolicy TKvPolicy>
-        static std::unique_ptr<LanguageModel<TDeviceType, TPrecision>> fromPretrainedImpl(
-            const std::filesystem::path& path,
-            const LlamaModelConfig& model_config,
-            DeviceId device_id )
-        {
-            PretrainedModelReader reader( path );
-            const auto& metadata = reader.getPretrainedMetadata();
-
-            LlamaConfig network_config = configFromMetadata( metadata );
-
-            if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
+            switch ( model_config.getWeightQuantization() )
             {
-                throw std::invalid_argument( std::format(
-                    "LlamaModel::fromPretrained: context_length {} exceeds "
-                    "trained max_seq_len {}",
-                    model_config.getContextLength(),
-                    network_config.getMaxSequenceLength() ) );
+                case WeightQuantization::FP4:
+                    throw std::runtime_error(
+                        "LlamaModel::fromPretrained: FP4 weight quantization is not yet supported" );
+
+                case WeightQuantization::FP8:
+                    switch ( model_config.getKvCacheCompression() )
+                    {
+                        case KvCacheCompression::FP8:
+                            // FP8 KV cache compression requires CudaGqaOp FP8 support — not yet implemented.
+                        case KvCacheCompression::None:
+                            if constexpr ( TPrecision == TensorDataType::BF16 )
+                            {
+                                return fromPretrainedImpl<PerChannelFp8<>, NoKvCompression>( path, model_config, device_id );
+                            }
+                            else
+                            {
+                                throw std::runtime_error(
+                                    "LlamaModel::fromPretrained: FP8 weight quantization requires BF16 compute precision" );
+                            }
+                    }
+                    break;
+
+                case WeightQuantization::None:
+                default:
+                    switch ( model_config.getKvCacheCompression() )
+                    {
+                        case KvCacheCompression::FP8:
+                            throw std::runtime_error(
+                                "LlamaModel::fromPretrained: FP8 KV cache compression is not yet supported" );
+                        case KvCacheCompression::None:
+                            return fromPretrainedImpl<NoWeightQuant, NoKvCompression>( path, model_config, device_id );
+                    }
+                    break;
             }
 
-            using ConcreteTransformerType = LlamaTransformer<TDeviceType, TPrecision, TWeightQuant, TKvPolicy>;
-            auto network = std::make_unique<ConcreteTransformerType>( metadata.model_name, network_config, device_id );
-
-            auto context_length = model_config.getContextLength();
-
-            BuildContext build_context(
-                shape_t{ 1, context_length },
-                RuntimeMode::Inference,
-                false );
-
-            network->build( build_context );
-
-            // Verbose logging of the loaded model's architecture and memory stats after build().
-            Logging::Logger::info( network->toString() );
-
-            network->loadParameters( reader );
-
-            return std::unique_ptr<LanguageModel<TDeviceType, TPrecision>>(
-                new LlamaModel( std::move( network ), network_config, RuntimeMode::Inference ) );
+            // Unreachable — all enum cases handled above.
+            throw std::runtime_error( "LlamaModel::fromPretrained: unhandled quantization configuration" );
         }
-
-    public:
 
         // ====================================================================
         // Accessors
@@ -189,25 +178,15 @@ namespace Mila::Dnn
             return config_;
         }
 
-        DeviceId getDeviceId() const noexcept
-        {
-            return getNetwork().getExecutionContext()->getDeviceId();
-        }
-
-        MemoryStats getMemoryStats() const
-        {
-            return getNetwork().getMemoryStats();
-        }
-
         // ====================================================================
         // Diagnostics
         // ====================================================================
 
-        std::string toString() const
+        std::string toString() const override
         {
             std::ostringstream oss;
             oss << "LlamaModel\n";
-            oss << "Device: " << getDeviceId().toString() << "\n";
+            oss << "Device: " << this->getDeviceId().toString() << "\n";
             oss << "Vocabulary: " << config_.getVocabSize() << " tokens\n";
             oss << "Max sequence length: " << config_.getMaxSequenceLength() << "\n";
             oss << "Embedding dim: " << config_.getModelDim() << "\n";
@@ -227,8 +206,8 @@ namespace Mila::Dnn
         void profilePrefill( const std::vector<int32_t>& token_ids )
         {
             auto input = makeTokenTensor( token_ids );
-            getNetwork().prefill( input );
-            getNetwork().getExecutionContext()->synchronize();
+            this->getLanguageNetwork().prefill( input );
+            this->getLanguageNetwork().getExecutionContext()->synchronize();
         }
 
     protected:
@@ -269,15 +248,13 @@ namespace Mila::Dnn
             std::mt19937 rng( std::chrono::high_resolution_clock::now()
                 .time_since_epoch().count() );
 
-            // Truncate from the front to preserve the most recent context; warns via Logger.
             truncateIfNeeded( prefill_tokens );
             int64_t seq_len = static_cast<int64_t>(prefill_tokens.size());
 
             auto prefill_input = makeTokenTensor( prefill_tokens );
 
-            auto& logits = getNetwork().prefill( prefill_input );
-            
-            getNetwork().getExecutionContext()->synchronize();
+            auto& logits = this->getLanguageNetwork().prefill( prefill_input );
+            this->getLanguageNetwork().synchronize();
 
             int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
 
@@ -296,8 +273,8 @@ namespace Mila::Dnn
                 decode_token_staging_.data()[ 0 ] = next_token;
                 copy( decode_token_staging_, decode_token_device_ );
 
-                auto& decode_logits = getNetwork().decode( decode_token_device_, position );
-                getNetwork().getExecutionContext()->synchronize();
+                auto& decode_logits = this->getLanguageNetwork().decode( decode_token_device_, position );
+                this->getLanguageNetwork().synchronize();
 
                 next_token = sampleFromLogits( decode_logits, 0, temperature, top_k, rng );
 
@@ -306,6 +283,17 @@ namespace Mila::Dnn
                 on_token( next_token );
                 ++position;
             }
+        }
+
+        /**
+         * @brief Training loop — not yet implemented for LlamaModel.
+         *
+         * @throws std::runtime_error always.
+         */
+        void onTraining() override
+        {
+            throw std::runtime_error(
+                "LlamaModel::onTraining: training not yet implemented" );
         }
 
         /**
@@ -324,38 +312,58 @@ namespace Mila::Dnn
             return static_cast<int64_t>(config_.getVocabSize());
         }
 
-        /**
-         * @brief Training loop � not yet implemented for LlamaModel.
-         *
-         * @throws std::runtime_error always.
-         */
-        void onTraining() override
-        {
-            throw std::runtime_error(
-                "LlamaModel::onTraining: training not yet implemented" );
-        }
-
     private:
 
         explicit LlamaModel(
-            std::unique_ptr<LlamaTransformerType> network,
+            std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
             const LlamaConfig& config,
             RuntimeMode runtime_mode )
             : ModelBase( std::move( network ), runtime_mode )
             , config_( config )
-            , decode_token_staging_( TDeviceType == DeviceType::Cuda ? getDeviceId() : Device::Cpu(), shape_t{ 1, 1 } )
-            , decode_token_device_( getDeviceId(), shape_t{ 1, 1 } )
-            , logits_staging_( TDeviceType == DeviceType::Cuda ? getDeviceId() : Device::Cpu(), shape_t{ 1, 1, static_cast<int64_t>( config.getVocabSize() ) } )
+            , decode_token_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1 } )
+            , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
+            , logits_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1, static_cast<int64_t>( config.getVocabSize() ) } )
         {}
 
-        LlamaTransformerType& getNetwork() noexcept
+        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
+        static std::unique_ptr<LlamaModel<TDeviceType, TPrecision>> fromPretrainedImpl(
+            const std::filesystem::path& path,
+            const LlamaModelConfig& model_config,
+            DeviceId device_id )
         {
-            return static_cast<LlamaTransformerType&>(*ModelBase::network_);
-        }
+            PretrainedModelReader reader( path );
+            const auto& metadata = reader.getPretrainedMetadata();
 
-        const LlamaTransformerType& getNetwork() const noexcept
-        {
-            return static_cast<const LlamaTransformerType&>(*ModelBase::network_);
+            LlamaConfig network_config = configFromMetadata( metadata );
+
+            if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
+            {
+                throw std::invalid_argument( std::format(
+                    "LlamaModel::fromPretrained: context_length {} exceeds "
+                    "trained max_seq_len {}",
+                    model_config.getContextLength(),
+                    network_config.getMaxSequenceLength() ) );
+            }
+
+            using ConcreteTransformerType = LlamaTransformer<TDeviceType, TPrecision, TWeightQuantization, TKvCachePolicy>;
+            auto network = std::make_unique<ConcreteTransformerType>( metadata.model_name, network_config, device_id );
+
+            auto context_length = model_config.getContextLength();
+
+            BuildContext build_context(
+                shape_t{ 1, context_length },
+                RuntimeMode::Inference,
+                false );
+
+            network->build( build_context );
+
+            Logging::Logger::info( network->toString() );
+
+            network->loadParameters( reader );
+
+            return std::unique_ptr<LlamaModel<TDeviceType, TPrecision>>(
+                new LlamaModel<TDeviceType, TPrecision>(
+                    std::move( network ), network_config, RuntimeMode::Inference ) );
         }
 
         LlamaConfig config_;
@@ -406,12 +414,12 @@ namespace Mila::Dnn
         TokenIndexType makeTokenTensor( const std::vector<int32_t>& token_ids ) const
         {
             shape_t shape = { 1, static_cast<int64_t>(token_ids.size()) };
-            TokenIndexType device_tensor( getDeviceId(), shape );
-            
+            TokenIndexType device_tensor( this->getDeviceId(), shape );
+
             Tensor<dtype_t::INT32, CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
-            
+
             std::memcpy( cpu_tensor.data(), token_ids.data(), token_ids.size() * sizeof( int32_t ) );
-            
+
             copy( cpu_tensor, device_tensor );
 
             return device_tensor;

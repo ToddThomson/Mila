@@ -179,7 +179,7 @@ namespace Mila::Dnn
             if ( !this->isBuilt() )
                 throw std::runtime_error( "TokenEmbedding must be built before calling backward()." );
 
-            if ( !this->isTraining() )
+            if ( !this->isTrainingMode() )
                 throw std::runtime_error( "TokenEmbedding must be in training mode to call backward(). "
                     "Call setTraining(true) first." );
 

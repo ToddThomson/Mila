@@ -1,6 +1,12 @@
 add_executable( tokenize
-	"Tokenize.cpp"
-)
+	"Src/main.cpp" )
+
+target_sources( tokenize
+PUBLIC
+	FILE_SET module_files
+       TYPE CXX_MODULES FILES
+        "Src/Commands.ixx"
+        "Src/Args.ixx")
 
 # Output directly to the Data/Tools directory where it's used
 set_target_properties( tokenize PROPERTIES

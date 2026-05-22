@@ -14,10 +14,10 @@
  */
 
 module;
-#include <memory>
+//#include <memory>
 #include <stdexcept>
-#include <source_location>
-#include <cmath>
+//#include <source_location>
+//#include <cmath>
 #include <algorithm>
 #include <execution>
 
@@ -29,9 +29,8 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorHostTypeMap;
 import Compute.DeviceType;
-//import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
-import Compute.ExecutionContext;
+import Compute.IExecutionContext;
 
 namespace Mila::Dnn::Compute::Cpu
 {

@@ -15,8 +15,6 @@ module;
 #include <cstring>
 #include <format>
 #include <optional>
-#include <numeric>
-#include <algorithm>
 
 export module Dnn.Components.Linear;
 export import Dnn.Components.LinearConfig;
@@ -36,6 +34,7 @@ import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.ExecutionContextFactory;
 import Compute.IExecutionContext;
+import Compute.OperationType;
 import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -62,17 +61,23 @@ namespace Mila::Dnn
      * @brief Device-templated fully connected (linear) component.
      *
      * Delegates compute to a device-specific operation resolved at compile time via
-     * OperationTraits<LinearOp, TDeviceType, TPrecision, TWeightQuant>. TWeightQuant
-     * defaults to NoWeightQuant for standard paths. When quantized, weights are stored
-     * in the reduced precision format and quantized from the source blob dtype on load.
+     * OperationTraits<LinearOp, TDeviceType, TComputePrecision, TWeightQuant>. TWeightQuant
+     * defaults to NoWeightQuant for unquantized paths.
      *
-     * Quantization is performed once at load time (quantize-on-load). The backend
-     * operation receives the quantized weight tensor directly and is responsible for
-     * any dequantization required during the GEMM.
+     * When TWeightQuant::kIsQuantized is true, the weight tensor is allocated at the
+     * reduced-precision storage dtype (kWeightDtype = TWeightQuant::kStorageDtype) rather
+     * than TComputePrecision. Per-channel FP32 scale factors (weight_scales_) are allocated
+     * alongside the weight tensor and bound to the backend operation via setWeightScales()
+     * before the first forward pass. The backend operation receives both the quantized weight
+     * tensor and its scales and is responsible for dequantization during the GEMM.
      *
-     * @tparam TDeviceType  Target device.
-     * @tparam TPrecision   Activation and accumulation precision.
-     * @tparam TWeight      Weight storage precision. Defaults to TPrecision.
+     * Weight quantization is performed once at model load time (quantize-on-load) during
+     * loadParameter(). The source checkpoint blob is always at TComputePrecision.
+     *
+     * @tparam TDeviceType        Target device.
+     * @tparam TComputePrecision  Activation and accumulation precision.
+     * @tparam TWeightQuant       Weight quantization policy. Must satisfy WeightQuantPolicy.
+     *                            Defaults to NoWeightQuant (identity — no quantization).
      */
     export template<DeviceType TDeviceType, TensorDataType TComputePrecision, WeightQuantPolicy TWeightQuant = NoWeightQuant>
         requires PrecisionSupportedOnDevice<TComputePrecision, TDeviceType>
@@ -82,7 +87,7 @@ namespace Mila::Dnn
         using ComponentBase = Component<TDeviceType, TComputePrecision>;
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TComputePrecision, MR>;
-        using OpType = typename Compute::OperationTraits<Compute::OperationType::LinearOp, TDeviceType, TComputePrecision, TWeightQuant>::type;
+        using OpType = typename OperationTraits<OperationType::LinearOp, TDeviceType, TComputePrecision, TWeightQuant>::type;
 
         // LinearOpConcept<OpType, TensorType> is intentionally NOT enforced via static_assert
         // here. Placing a static_assert in the class template body forces MSVC to fully
@@ -93,10 +98,10 @@ namespace Mila::Dnn
         static constexpr bool kIsQuantized = TWeightQuant::kIsQuantized;
 
         static constexpr TensorDataType kWeightDtype = kIsQuantized
-            ? TWeightQuant::kStorageDtype
-            : TComputePrecision;
+            ? TWeightQuant::kStorageDtype : TComputePrecision;
 
-        using WeightTensorType = Tensor<kWeightDtype, MR>;
+        using WeightTensorType      = Tensor<kWeightDtype, MR>;
+        using WeightScaleTensorType = Tensor<TWeightQuant::kScaleDtype, MR>;
 
         /**
          * @brief Construct a Linear component.
@@ -136,15 +141,20 @@ namespace Mila::Dnn
         ~Linear() override = default;
 
         /**
-         * @brief Perform forward pass.
+         * @brief Perform forward pass: output = input * weight^T + bias.
          *
-         * Uses a component-owned output buffer (allocated in onBuilding()) and
-         * delegates computation to the backend operation.
+         * Delegates to the backend operation using the component-owned output buffer
+         * allocated at build time. When the runtime input shape differs from the
+         * build-time shape (e.g. a shorter decode sequence vs. the prefill shape),
+         * a lightweight view over the output buffer is returned that reflects the
+         * true output shape without reallocating device memory.
          *
-         * @param input Input tensor (device-bound).
-         * @return Reference to the component-owned output tensor.
+         * @param input Input tensor (device-bound, rank >= 2). The last dimension
+         *              must equal the configured input feature count.
+         * @return      Reference to the output tensor or a shape-adjusted view of it.
          *
-         * @throws std::runtime_error if component not built or backend not initialized.
+         * @throws std::runtime_error    if the component has not been built.
+         * @throws std::invalid_argument if the input feature dimension does not match the config.
          */
         TensorType& forward( const TensorType& input )
         {
@@ -180,14 +190,20 @@ namespace Mila::Dnn
         /**
          * @brief Perform backward pass.
          *
-         * Uses a component-owned input-gradient buffer (allocated in onBuilding())
-         * and delegates computation to the backend operation.
+         * Pre-zeros the component-owned input gradient buffer, then delegates to the
+         * backend operation. The backend accumulates weight and bias gradients into the
+         * buffers bound via setGradients() using += semantics; pre-zeroing ensures
+         * clean gradient state across calls.
          *
-         * @param input Original forward input tensor.
-         * @param output_grad Gradient with respect to the component output.
-         * @return Reference to the component-owned input-gradient tensor.
+         * Not supported on quantized paths (kIsQuantized == true) — the backend
+         * operation will throw std::logic_error if backward is attempted.
          *
-         * @throws std::runtime_error if component not built or not in training mode.
+         * @param input       Original forward-pass input tensor.
+         * @param output_grad Upstream gradient tensor (same shape as the forward output).
+         * @return            Reference to the component-owned input gradient tensor.
+         *
+         * @throws std::runtime_error if the component has not been built.
+         * @throws std::runtime_error if called while in inference (eval) mode.
          */
         TensorType& backward( const TensorType& input, const TensorType& output_grad )
         {
@@ -235,8 +251,16 @@ namespace Mila::Dnn
         /**
          * @brief Save component state to a ModelArchive.
          *
+         * Writes a "meta.json" blob with component type and name, a "config.json"
+         * blob with input/output feature dimensions and bias flag, and raw tensor
+         * blobs for the weight and (if present) bias parameters under "tensors/".
+         *
+         * On CUDA devices, each tensor is copied to a temporary host buffer before
+         * writing. Weight is serialized at its storage dtype (kWeightDtype), which
+         * equals kWeightDtype = TWeightQuant::kStorageDtype on the quantized path.
+         *
          * @param archive ModelArchive to write to (scoped by caller).
-         * @param mode Serialization mode (currently unused).
+         * @param mode    Serialization mode (currently unused; reserved for future use).
          */
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
@@ -354,7 +378,8 @@ namespace Mila::Dnn
             oss << ", Output features: " << config_.getOutputFeatures() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Has Bias: " << (config_.hasBias() ? "Yes" : "No") << std::endl;
-            //oss << "Weight dtype: " << tensorDataTypeToString( TWeight ) << std::endl;
+            oss << "Weight dtype: " << tensorDataTypeToString( kWeightDtype ) << std::endl;
+            oss << "Quantized: " << (kIsQuantized ? "Yes" : "No") << std::endl;
             oss << "Parameter count: " << parameterCount() << std::endl;
 
             return oss.str();
@@ -407,16 +432,28 @@ namespace Mila::Dnn
         /**
          * @brief Load a named parameter from a serialized blob.
          *
-         * For the weight parameter, when TWeight == TPrecision the blob is copied
-         * directly via loadParameterFromBlob. When TWeight != TPrecision (quantized
-         * path) the blob dtype must be TPrecision (the source float type) and the
-         * values are cast element-wise into the TWeight storage tensor via
-         * quantizeFromBlob. Bias is always stored at TPrecision.
+         * Weight loading dispatches at compile time on kIsQuantized:
+         *
+         *   - Unquantized path (kIsQuantized == false): the blob is validated against
+         *     TComputePrecision and copied directly into the weight tensor via
+         *     loadParameterFromBlob.
+         *
+         *   - Quantized path (kIsQuantized == true): the blob dtype must be
+         *     TComputePrecision (the full-precision source type). The backend operation's
+         *     quantize() method performs per-channel absmax scale computation, quantizes
+         *     weights from TComputePrecision to kWeightDtype (e.g. BF16 → FP8_E4M3),
+         *     and uploads both the quantized weights and FP32 scales to device.
+         *     The weight_scales_ tensor was pre-allocated in initializeParameters() and
+         *     its device pointer was already bound to the operation in onBuilding() via
+         *     setWeightScales() — quantize() writes directly into that allocation.
+         *
+         * Bias is always stored and loaded at TComputePrecision regardless of TWeightQuant.
          *
          * @param name Parameter name: "weight" or "bias".
          * @param blob Serialized tensor blob from PretrainedModelReader.
          *
-         * @throws std::invalid_argument on dtype or shape mismatch.
+         * @throws std::invalid_argument if the blob dtype does not match the expected
+         *         source precision, or if the blob shape does not match the config.
          */
         void loadParameter( const std::string& name, const ITensorBlob& blob ) override
         {
@@ -426,7 +463,7 @@ namespace Mila::Dnn
 
                 if constexpr ( kIsQuantized )
                 {
-                    this->quantizeFromBlob( "weight", blob, *weight_, expected_shape );
+                    operation_->quantize( blob, *weight_, *weight_scales_, expected_shape );
                 }
                 else
                 {
@@ -456,6 +493,11 @@ namespace Mila::Dnn
             if ( weight_ != nullptr )
             {
                 stats.device_parameter_bytes += weight_->getStorageSize();
+            }
+
+            if ( weight_scales_ != nullptr )
+            {
+                stats.device_parameter_bytes += weight_scales_->getStorageSize();
             }
 
             if ( bias_ != nullptr )
@@ -502,6 +544,12 @@ namespace Mila::Dnn
             initializeParameters( context );
 
             operation_->setParameters( weight_.get(), bias_.get() );
+
+            if constexpr ( kIsQuantized )
+            {
+                operation_->setWeightScales( weight_scales_.get() );
+            }
+
             operation_->build( context );
 
             auto device_id = this->getExecutionContext()->getDeviceId();
@@ -555,10 +603,15 @@ namespace Mila::Dnn
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
         std::shared_ptr<OpType> operation_{ nullptr };
 
-        // Weight storage is TWeight — differs from TComputePrecision on quantized paths.
+        // Weight storage dtype is kWeightDtype — equals TComputePrecision on the unquantized
+        // path; equals TWeightQuant::kStorageDtype (e.g. FP8_E4M3) on the quantized path.
         std::shared_ptr<WeightTensorType> weight_{ nullptr };
-        // TODO: std::unique_ptr<WeightScaleTensorType> weight_scales_{ nullptr };
 
+        // Per-channel FP32 absmax scales [output_features]. Non-null only on the quantized
+        // path (kIsQuantized == true). Allocated in initializeParameters(), bound to the
+        // backend operation in onBuilding() via setWeightScales(), and filled at load time
+        // by operation_->quantize() inside loadParameter().
+        std::unique_ptr<WeightScaleTensorType> weight_scales_{ nullptr };
 
         // Bias always stored at activation precision.
         std::shared_ptr<TensorType> bias_{ nullptr };
@@ -632,9 +685,15 @@ namespace Mila::Dnn
             weight_ = std::make_shared<WeightTensorType>(
                 device, shape_t{ output_features, input_features }, this->getName() + ".weight" );
 
+            if constexpr ( kIsQuantized )
+            {
+                weight_scales_ = std::make_unique<WeightScaleTensorType>(
+                    device, shape_t{ output_features }, this->getName() + ".weight.scales" );
+            }
+
             if ( context.shouldInitializeParameters() )
             {
-                // FIXME: xavier<TWeight, MR>( *weight_, input_features, output_features );
+                // FIXME: xavier<WeightTensorType, MR>( *weight_, input_features, output_features );
             }
 
             if ( config_.hasBias() )

@@ -117,11 +117,6 @@ namespace Mila::Dnn
             return has_bias_;
         }
 
-        bool getRowMajor() const noexcept
-        {
-            return uses_row_major_;
-        }
-
         /**
          * @brief Validate the configuration values.
          *
@@ -206,8 +201,5 @@ namespace Mila::Dnn
 
         /** Whether the layer has a bias term. Default is true. */
         bool has_bias_{ true };
-
-        // DEBUG: Temp row-major flag (not yet used in LinearConfig or Linear)
-        bool uses_row_major_{ false };
     };
 }

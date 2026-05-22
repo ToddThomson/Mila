@@ -27,7 +27,7 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.Network;
+import Dnn.LanguageNetwork;
 import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.Components.TokenEmbedding;
@@ -74,20 +74,19 @@ namespace Mila::Dnn
      *  - TPrecision: tensor precision
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision,
-        WeightQuantPolicy TWeightQuant = NoWeightQuant,
-        KvCachePolicy TKvPolicy = NoKvCompression>
+        WeightQuantPolicy TWeightQuantization = NoWeightQuant, KvCachePolicy TKvCachePolicy = NoKvCompression>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class LlamaTransformer : public Network<TDeviceType, TPrecision>
+    class LlamaTransformer : public LanguageNetwork<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-        using NetworkBase = Network<TDeviceType, TPrecision>;
+        using NetworkBase = LanguageNetwork<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using TokenEmbeddingType = TokenEmbedding<TDeviceType, dtype_t::INT32, TPrecision>;
-        using LinearType = Linear<TDeviceType, TPrecision, TWeightQuant>;
+        using LinearType = Linear<TDeviceType, TPrecision, TWeightQuantization>;
         using LmHeadLinearType = Linear<TDeviceType, TPrecision>;
         using RmsNormType = RmsNorm<TDeviceType, TPrecision>;
-        using TransformerBlockType = LlamaBlock<TDeviceType, TPrecision, TWeightQuant, TKvPolicy>;
+        using TransformerBlockType = LlamaBlock<TDeviceType, TPrecision, TWeightQuantization, TKvCachePolicy>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;
 
@@ -110,7 +109,6 @@ namespace Mila::Dnn
         }
 
         ~LlamaTransformer() override = default;
-
 
         // REVIEW: DEPRECATED: Is this a deprecated path? 
         // The LlamaModel::fromPretrained() method is the new standard way to load a pretrained LLaMA model,
@@ -153,7 +151,7 @@ namespace Mila::Dnn
             return llama;
         }*/
 
-        TensorType& forward( const TokenIndexType& input )
+        TensorType& forward( const TokenIndexType& input ) override
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "LlamaTransformer must be built before calling forward()." );
@@ -188,7 +186,7 @@ namespace Mila::Dnn
             return *logits_ptr_;
         }
 
-        TensorType& prefill( const TokenIndexType& input )
+        TensorType& prefill( const TokenIndexType& input ) override
         {
             const int64_t B = input.shape()[ 0 ];
             const int64_t T_prompt = input.shape()[ 1 ];
@@ -237,7 +235,7 @@ namespace Mila::Dnn
             return *logits_ptr_;
         }
 
-        TensorType& decode( const TokenIndexType& input, int position )
+        TensorType& decode( const TokenIndexType& input, int position ) override
         {
             auto& embed_out = token_embedding_->forward( input );
             // DEBUG: this->getExecutionContext()->synchronize();
@@ -269,13 +267,14 @@ namespace Mila::Dnn
             return *logits_ptr_;
         }
 
-        TokenIndexType& backward( const TokenIndexType& input, const TensorType& output_grad )
+        TokenIndexType& backward( const TokenIndexType& input, const TensorType& output_grad ) override
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "LlamaTransformer must be built before calling backward()." );
 
-            if ( !this->isTraining() )
-                throw std::runtime_error( "LlamaTransformer: backward requires training mode (setTraining(true))." );
+            // FIXME: isTraining should be a member function or use isTraingMode?
+            // if ( !this->isTraining() )
+            //    throw std::runtime_error( "LlamaTransformer: backward requires training mode (setTraining(true))." );
 
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
@@ -304,7 +303,7 @@ namespace Mila::Dnn
                 this->getExecutionContext()->synchronize();
             }
 
-            auto& input_grad = token_embedding_->backward( input, curr_grad );
+            auto& input_grad = token_embedding_->backward( input, *curr_grad );
             this->getExecutionContext()->synchronize();
 
             return input_grad;

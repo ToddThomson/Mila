@@ -131,7 +131,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "RmsNorm: must be built before calling backward." );
             }
 
-            if ( !this->isTraining() )
+            if ( !this->isTrainingMode() )
             {
                 throw std::runtime_error( "RmsNorm: must be in training mode to call backward." );
             }

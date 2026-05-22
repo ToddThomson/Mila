@@ -48,6 +48,7 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaReduction.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatVec/CudaMatVecBias.Fp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatVec/CudaMatVecBias.Bf16.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cu"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp32.cu"
@@ -447,13 +448,12 @@ PUBLIC
         "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.Dispatch.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Dispatch.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Plans.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Quantize.ixx"
         "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlanCache.ixx"
         
         "Src/Dnn/Models/GptModel.ixx"
         "Src/Dnn/Models/LlamaModel.ixx"
 
-        "Src/Dnn/Compute/IDecode.ixx"
-        
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
         
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.ixx"
@@ -463,6 +463,7 @@ PUBLIC
         "Src/Dnn/Core/Component.MemoryStats.ixx"
         "Src/Dnn/Core/Model.RuntimeMode.ixx"
         "Src/Dnn/Core/Model.ixx"
+        "Src/Dnn/Core/LanguageNetwork.ixx"
         "Src/Dnn/Core/LanguageModel.ixx"
         "Src/Dnn/Core/Comonent.TrainingMode.ixx"
         "Src/Dnn/Compute/Operations/IPositionalPairedOp.ixx"
@@ -473,13 +474,13 @@ PUBLIC
         "Src/Dnn/Compute/Operations/IPackedKvInference.ixx"
         "Src/Dnn/Core/TokenStreamer.ixx"
         #"Src/Profiling/NvtxRange.ixx"
-        "Src/Dnn/Compute/Operations/LinearOpTypeMap.Template.ixx"
-        "Src/Dnn/Compute/Operations/LinearOpTypeMap.ixx"
+        #"Src/Dnn/Compute/Operations/LinearOpTypeMap.Template.ixx"
+        #"Src/Dnn/Compute/Operations/LinearOpTypeMap.ixx"
         #"Src/Dnn/Core/ModelQuantizationConfig.ixx"
         "Src/Dnn/Core/ModelConfig.ixx"
         "Src/Dnn/Models/LlamaModelConfig.ixx"
-        "Src/Dnn/Compute/Operations/GqaOpTypeMap.ixx"
-        "Src/Dnn/Compute/Operations/GqaOpTypeMap.Template.ixx"
+        #"Src/Dnn/Compute/Operations/GqaOpTypeMap.ixx"
+        #"Src/Dnn/Compute/Operations/GqaOpTypeMap.Template.ixx"
         "Src/Dnn/Compute/Operations/GqaState.ixx"
         
         "Src/Logging/NullSink.ixx"
@@ -526,8 +527,10 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Zero.ixx"
 
-                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOpTypeMap.ixx"
-     "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataTypes-CublasLtTypes.ixx" "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOpTypeMap.ixx")
+                #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOpTypeMap.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataTypes-CublasLtTypes.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOpTypeMap.ixx"
+    )
 
     target_compile_definitions( Mila PUBLIC MILA_HAS_CPU)
     list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cpu_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
@@ -571,7 +574,7 @@ if(MILA_HAS_CUDA)
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/OperationTraits.Cuda.ixx"
-                
+
                 # CUDA Attention Ops
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqa.Plans.ixx"
@@ -612,7 +615,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Structural.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CublasLt.Utils.ixx"
                 #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Random.h"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOpTypeMap.ixx"
+                #"Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOpTypeMap.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtLinearPlan.ixx"
     )
 

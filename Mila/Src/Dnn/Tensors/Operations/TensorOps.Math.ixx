@@ -88,7 +88,7 @@ namespace Mila::Dnn
         IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        TensorOps<device>::add( a, b, result, exec_context );
+        // FIXME: TensorOps<device>::add( a, b, result, exec_context );
     }
 
     /**
@@ -112,7 +112,7 @@ namespace Mila::Dnn
         IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        TensorOps<device>::subtract( a, b, result, exec_context );
+        // FIXME: TensorOps<device>::subtract( a, b, result, exec_context );
     }
 
     /**
@@ -136,7 +136,7 @@ namespace Mila::Dnn
         IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        TensorOps<device>::multiply( a, b, result, exec_context );
+        // FIXME: TensorOps<device>::multiply( a, b, result, exec_context );
     }
 
     /**
@@ -160,7 +160,7 @@ namespace Mila::Dnn
         IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        TensorOps<device>::divide( a, b, result, exec_context );
+        // FIXME: TensorOps<device>::divide( a, b, result, exec_context );
     }
 
     /**

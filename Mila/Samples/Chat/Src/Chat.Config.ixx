@@ -33,6 +33,12 @@ namespace Mila::ChatApp
         BF16
     };
 
+    export enum class QuantizationMode
+    {
+        None,  ///< BF16 weights, no KV cache compression — default.
+        FP8    ///< FP8 weights + FP8 KV cache (PerChannelFp8 + PerChannelKvFp8).
+    };
+
     /**
      * @brief Runtime configuration for a Chat session.
      *
@@ -78,6 +84,7 @@ namespace Mila::ChatApp
         ModelType             model_type{ ModelType::Llama };
         ModelSize             model_size{ ModelSize::B3 };
         ModelPrecision        precision{ ModelPrecision::BF16 };
+        QuantizationMode      quantization_mode{ QuantizationMode::None };
         std::filesystem::path model_path;
         std::filesystem::path tokenizer_path;
         size_t                max_new_tokens{ 2048 };

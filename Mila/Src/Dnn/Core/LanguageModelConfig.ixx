@@ -220,6 +220,7 @@ namespace Mila::Dnn
         {
             weight_quantization_ = WeightQuantization::None;
             kv_cache_compression_ = KvCacheCompression::None;
+            
             return static_cast<TDerived&>(*this);
         }
 
@@ -234,6 +235,7 @@ namespace Mila::Dnn
         {
             weight_quantization_ = WeightQuantization::FP8;
             kv_cache_compression_ = KvCacheCompression::FP8;
+            
             return static_cast<TDerived&>(*this);
         }
 
@@ -248,6 +250,7 @@ namespace Mila::Dnn
         {
             weight_quantization_ = WeightQuantization::FP4;
             kv_cache_compression_ = KvCacheCompression::FP8;
+            
             return static_cast<TDerived&>(*this);
         }
 
@@ -307,6 +310,7 @@ namespace Mila::Dnn
             result += "  context_length:      " + std::to_string( context_length_ ) + "\n";
             result += "  weight_quantization: " + weightQuantStr( weight_quantization_ ) + "\n";
             result += "  kv_cache_compression:" + kvCacheStr( kv_cache_compression_ ) + "\n";
+            
             return result;
         }
 
@@ -320,5 +324,4 @@ namespace Mila::Dnn
         WeightQuantization weight_quantization_{ WeightQuantization::None };
         KvCacheCompression kv_cache_compression_{ KvCacheCompression::None };
     };
-
-}  // namespace Mila::Dnn
+}

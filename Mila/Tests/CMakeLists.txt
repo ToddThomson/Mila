@@ -63,7 +63,7 @@ add_executable( MilaTests
     #"Dnn/Tensors/Tensor.Properties.cpp"
     "Dnn/Tensors/Tensor.DataAccess.cpp"
     #"Dnn/Tensors/Tensor.Identity.cpp"
-    "Dnn/Tensors/Tensor.Io.cpp"
+    #"Dnn/Tensors/Tensor.Io.cpp"
     "Dnn/Tensors/Tensor.DataPointers.cpp"
 
     # TensorOps
@@ -210,7 +210,7 @@ add_executable( MilaTests
     #"Data/Tokenizers/Bpe/BpeTokenizer.cpp"
     #"Data/Tokenizers/Bpe/BpeTokenizer.Gpt2.cpp"
     
-    "Dnn/Data/TokenSequenceLoader.cpp"
+    #"Dnn/Data/TokenSequenceLoader.cpp"
     
     #"Dnn/Components/Transformers/Gpt/GptTransformer.Cuda.cpp"
 

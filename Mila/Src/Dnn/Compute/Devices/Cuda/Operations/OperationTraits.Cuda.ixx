@@ -8,8 +8,8 @@
  * legacy *OpTypeMap to the unified OperationTraits dispatch.
  *
  * Migration status:
- *   LinearOp            complete
- *   GroupedQueryAttentionOp  pending
+ *   LinearOp                 complete
+ *   GroupedQueryAttentionOp  pending (importing CudaGqaOp here creates a module dependency cycle — needs architectural resolution)
  *   SamplingOp               pending
  *   policy-free ops          pending (Softmax, RmsNorm, RoPE, Residual, ...)
  */
@@ -17,36 +17,61 @@ export module Compute.OperationTraits:Cuda;
 
 import Compute.OperationTraits.Template;
 import Compute.CudaLinearOp;
+import Compute.CudaGqaOp;
 import Dnn.Quantization.Weight.Policies;
+import Dnn.Quantization.KvCache.Policy;
 
 namespace Mila::Dnn::Compute
 {
     using namespace Mila::Dnn::Quant::Weight;
+    using namespace Mila::Dnn::Quant::KvCache;
     using namespace Mila::Dnn::Compute::Cuda::Linear;
+    using namespace Mila::Dnn::Compute::Cuda::Gqa;
 
     // -------------------------------------------------------------------------
     // LinearOp — CUDA specializations
     // -------------------------------------------------------------------------
 
     /// Unquantized FP32 path. Retained for validation and reference.
-    export template<>
+    template<>
     struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::FP32, NoWeightQuant>
     {
         using type = CudaLinearOp<TensorDataType::FP32, NoWeightQuant>;
     };
 
     /// Unquantized BF16 path. Standard inference precision.
-    export template<>
+    template<>
     struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, NoWeightQuant>
     {
         using type = CudaLinearOp<TensorDataType::BF16, NoWeightQuant>;
     };
 
     /// FP8 per-channel quantized BF16 path. Requires SM >= 8.9.
-    export template<>
+    template<>
     struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerChannelFp8<>>
     {
         using type = CudaLinearOp<TensorDataType::BF16, PerChannelFp8<>>;
+    };
+
+    // -------------------------------------------------------------------------
+    // GroupedQueryAttentionOp — CUDA specializations
+    //
+    // TPolicy = NoKvCompression: uncompressed BF16/FP32 KV cache.
+    // TPolicy = PerChannelKvFp8<>: pending CudaGqaOp FP8 cache support.
+    // -------------------------------------------------------------------------
+
+    /// Unquantized FP32 path. No KV cache compression.
+    template<>
+    struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::FP32, NoKvCompression>
+    {
+        using type = CudaGqaOp<TensorDataType::FP32>;
+    };
+
+    /// Unquantized BF16 path. No KV cache compression. Standard inference precision.
+    template<>
+        struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::BF16, NoKvCompression>
+    {
+        using type = CudaGqaOp<TensorDataType::BF16>;
     };
 
 }  // namespace Mila::Dnn::Compute

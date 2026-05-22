@@ -7,10 +7,10 @@
  *
  * Two loading paths:
  *
- *  fromPretrained() — third-party weights (e.g. HuggingFace GPT-2) via
+ *  fromPretrained() â€” third-party weights (e.g. HuggingFace GPT-2) via
  *                     PretrainedModelReader. Primary path for Mila chat.
  *
- *  fromCheckpoint() — Mila-native artifact produced by GptTransformer::save()
+ *  fromCheckpoint() â€” Mila-native artifact produced by GptTransformer::save()
  *                     via ModelArchive. Round-trip path after training.
  */
 
@@ -27,12 +27,14 @@ module;
 #include <algorithm>
 #include <numeric>
 #include <cstring>
+#include <cmath>
 #include <functional>
 #include <stop_token>
 
 export module Dnn.Models.GptModel;
 
 import Dnn.LanguageModel;
+import Dnn.LanguageNetwork;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -86,7 +88,7 @@ namespace Mila::Dnn
         ~GptModel() = default;
 
         // ====================================================================
-        // Factory — the sole construction paths
+        // Factory â€” the sole construction paths
         // ====================================================================
 
         /**
@@ -175,25 +177,14 @@ namespace Mila::Dnn
             return config_;
         }
 
-        DeviceId getDeviceId() const noexcept
-        {
-            return getNetwork().getExecutionContext()->getDeviceId();
-        }
-
-        MemoryStats getMemoryStats() const
-        {
-            return getNetwork().getMemoryStats();
-        }
-
         // ====================================================================
         // Diagnostics
         // ====================================================================
 
-        std::string toString() const
+        std::string toString() const override
         {
             std::ostringstream oss;
             oss << "GptModel\n";
-            // FIXME: oss << "Device: " << getDeviceId().toString() << "\n";
             oss << "Vocabulary: " << config_.getVocabSize() << " tokens\n";
             oss << "Max sequence length: " << config_.getMaxSequenceLength() << "\n";
             oss << "Embedding dim: " << config_.getEmbeddingSize() << "\n";
@@ -212,21 +203,6 @@ namespace Mila::Dnn
 
         /**
          * @brief Prefill + KV-cache decode loop with per-token streaming.
-         *
-         * Phase 1 (prefill): runs the full prompt through forward() to populate
-         * the KV cache and samples the first new token from the last position.
-         * Phase 2 (decode): iterates one token at a time until max_new_tokens
-         * is reached, EOS is emitted, or stop is requested.
-         *
-         * on_token is called for every generated token except EOS.
-         *
-         * @param prompt_tokens  Input token ids; truncated from the start if
-         *                       they exceed the model's max sequence length.
-         * @param on_token       Callback invoked once per generated token (not EOS).
-         * @param max_new_tokens Maximum number of tokens to generate beyond the prompt.
-         * @param temperature    Sampling temperature; <= 0 selects the argmax.
-         * @param top_k          Restrict sampling to the top-k logits; 0 disables.
-         * @param stop           Stop token for cooperative cancellation.
          */
         void onGenerating(
             const std::vector<int32_t>& prompt_tokens,
@@ -244,8 +220,8 @@ namespace Mila::Dnn
             int64_t seq_len = static_cast<int64_t>(prefill_tokens.size());
 
             auto prefill_input = makeTokenTensor( prefill_tokens );
-            auto& logits = getNetwork().prefill( prefill_input );
-            getNetwork().getExecutionContext()->synchronize();
+            auto& logits = this->getLanguageNetwork().prefill( prefill_input );
+            this->getLanguageNetwork().synchronize();
 
             int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
 
@@ -261,8 +237,8 @@ namespace Mila::Dnn
                 if ( stop.stop_requested() ) break;
 
                 auto decode_input = makeTokenTensor( { next_token } );
-                auto& decode_logits = getNetwork().decode( decode_input, position );
-                getNetwork().getExecutionContext()->synchronize();
+                auto& decode_logits = this->getLanguageNetwork().decode( decode_input, position );
+                this->getLanguageNetwork().synchronize();
 
                 next_token = sampleFromLogits( decode_logits, 0, temperature, top_k, rng );
 
@@ -275,9 +251,6 @@ namespace Mila::Dnn
 
         /**
          * @brief GPT-2 end-of-text token id.
-         *
-         * Should be sourced from tokenizer metadata once tokenizer
-         * integration is complete.
          */
         int32_t eosToken() const noexcept override
         {
@@ -301,7 +274,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Training loop — not yet implemented for GptModel.
+         * @brief Training loop â€” not yet implemented for GptModel.
          *
          * @throws std::runtime_error always.
          */
@@ -325,16 +298,6 @@ namespace Mila::Dnn
             const GptConfig& config )
             : ModelBase( std::move( network ), RuntimeMode::Inference ), config_( config )
         {}
-
-        GptTransformerType& getNetwork() noexcept
-        {
-            return static_cast<GptTransformerType&>(*ModelBase::network_);
-        }
-
-        const GptTransformerType& getNetwork() const noexcept
-        {
-            return static_cast<const GptTransformerType&>(*ModelBase::network_);
-        }
 
         GptConfig config_;
 
@@ -363,7 +326,7 @@ namespace Mila::Dnn
         TokenIndexType makeTokenTensor( const std::vector<int32_t>& token_ids ) const
         {
             shape_t shape = { 1, static_cast<int64_t>(token_ids.size()) };
-            TokenIndexType device_tensor( getDeviceId(), shape );
+            TokenIndexType device_tensor( this->getDeviceId(), shape );
             Tensor<dtype_t::INT32, CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
             std::memcpy( cpu_tensor.data(), token_ids.data(),
                 token_ids.size() * sizeof( int32_t ) );

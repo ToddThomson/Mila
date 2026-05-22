@@ -42,8 +42,8 @@ namespace Mila::ChatApp
     using namespace Mila::Data;
 
     using GptModelFP32Type   = GptModel<DeviceType::Cuda, TensorDataType::FP32>;
-    using LlamaModelFP32Type = LanguageModel<DeviceType::Cuda, TensorDataType::FP32>;
-    using LlamaModelBF16Type = LanguageModel<DeviceType::Cuda, TensorDataType::BF16>;
+    using LlamaModelFP32Type = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>;
+    using LlamaModelBF16Type = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
 
     using ModelVariant = std::variant<
         std::unique_ptr<GptModelFP32Type>,
@@ -491,6 +491,9 @@ namespace Mila::ChatApp
                 case ModelType::Llama:
                 {
                     LlamaModelConfig llama_config = LlamaModelConfig( config_.context_length );
+
+                    if ( config_.quantization_mode == QuantizationMode::FP8 )
+                        llama_config.withFP8Quantization();
 
                     if ( config_.precision == ModelPrecision::BF16 )
                         model_ = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(

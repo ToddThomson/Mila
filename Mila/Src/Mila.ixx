@@ -21,8 +21,9 @@
 
 module;
 #include <string>
-#include <iostream>
+//#include <iostream>
 #include <memory>
+#include <format>
 #include "Version.h"
 #include <exception>
 
@@ -155,6 +156,7 @@ export import Dnn.NetworkFactory;
 // Dnn - Core Model
 // ============================================================================
 export import Dnn.Model;
+export import Dnn.LanguageNetwork;
 export import Dnn.LanguageModel;
 export import Dnn.RuntimeMode;
 
@@ -197,8 +199,8 @@ export import Dnn.Components.LayerNorm;
 export import Dnn.Components.RmsNorm;
 
 // TODO: Alpha.5 OperationTraits supercedes individual operation OpTypeMaps 
-export import Compute.GqaOpTypeMap;
-export import Compute.LinearOpTypeMap;
+//export import Compute.GqaOpTypeMap;
+//export import Compute.LinearOpTypeMap;
 export import Compute.OperationTraits;
 
 export import Dnn.Components.Linear;

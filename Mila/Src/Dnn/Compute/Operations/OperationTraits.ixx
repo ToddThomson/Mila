@@ -7,7 +7,7 @@
  * component is migrated from its legacy *OpTypeMap to OperationTraits.
  *
  * Migration status:
- *   :Cuda  -- pending (LinearOp, GqaOp, SamplingOp, policy-free ops)
+ *   :Cuda  -- LinearOp complete; SamplingOp pending; policy-free ops pending
  *   :Cpu   -- pending
  */
 export module Compute.OperationTraits;

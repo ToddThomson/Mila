@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file LanguageModel.ixx
  * @brief Abstract base for Mila autoregressive language models.
  *
@@ -8,16 +8,9 @@
  */
 module;
 #include <vector>
-#include <span>
 #include <unordered_set>
 #include <memory>
 #include <string>
-#include <random>
-#include <chrono>
-#include <algorithm>
-#include <numeric>
-#include <cmath>
-#include <cstring>
 #include <stdexcept>
 #include <format>
 #include <functional>
@@ -26,17 +19,10 @@ module;
 export module Dnn.LanguageModel;
 
 import Dnn.Model;
-import Dnn.Tensor;
-import Dnn.TensorTypes;
+import Dnn.LanguageNetwork;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.TokenStreamer;
-import Compute.Device;
 import Compute.DeviceType;
-import Compute.DeviceId;
-import Compute.DeviceTypeTraits;
-import Compute.MemoryResource;
-import Compute.CpuMemoryResource;
 
 namespace Mila::Dnn
 {
@@ -49,9 +35,6 @@ namespace Mila::Dnn
     public:
 
         using Base = Model<TDeviceType, TPrecision>;
-        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-        using TensorType = Tensor<TPrecision, MR>;
-        using TokenIndexType = Tensor<TensorDataType::INT32, MR>;
 
         LanguageModel( const LanguageModel& ) = delete;
         LanguageModel& operator=( const LanguageModel& ) = delete;
@@ -119,10 +102,24 @@ namespace Mila::Dnn
     protected:
 
         explicit LanguageModel(
-            std::unique_ptr<typename Base::NetworkType> network,
+            std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
             RuntimeMode runtime_mode )
             : Base( std::move( network ), runtime_mode )
         {}
+
+        // ====================================================================
+        // Network accessor
+        // ====================================================================
+
+        LanguageNetwork<TDeviceType, TPrecision>& getLanguageNetwork() noexcept
+        {
+            return static_cast<LanguageNetwork<TDeviceType, TPrecision>&>( *this->network_ );
+        }
+
+        const LanguageNetwork<TDeviceType, TPrecision>& getLanguageNetwork() const noexcept
+        {
+            return static_cast<const LanguageNetwork<TDeviceType, TPrecision>&>( *this->network_ );
+        }
 
         // ====================================================================
         // Hook — derived class implements the prefill + decode loop
@@ -164,119 +161,5 @@ namespace Mila::Dnn
 
         virtual int64_t maxSequenceLength() const noexcept = 0;
         virtual int64_t vocabSize() const noexcept = 0;
-
-        // ====================================================================
-        // Generation helpers
-        // ====================================================================
-
-        void truncateIfNeeded( std::vector<int32_t>& tokens ) const
-        {
-            int64_t seq_len = static_cast<int64_t>(tokens.size());
-
-            if ( seq_len > maxSequenceLength() )
-            {
-                tokens.erase(
-                    tokens.begin(),
-                    tokens.begin() + (seq_len - maxSequenceLength()) );
-            }
-        }
-
-        TokenIndexType makeTokenTensor( const std::vector<int32_t>& token_ids ) const
-        {
-            shape_t shape = { 1, static_cast<int64_t>(token_ids.size()) };
-            TokenIndexType device_tensor( Base::getDeviceId(), shape );
-            Tensor<TensorDataType::INT32, CpuMemoryResource> cpu_tensor(
-                Device::Cpu(), shape );
-            std::memcpy( cpu_tensor.data(), token_ids.data(),
-                token_ids.size() * sizeof( int32_t ) );
-            copy( cpu_tensor, device_tensor );
-
-            return device_tensor;
-        }
-
-        int32_t sampleFromLogits(
-            const TensorType& logits,
-            int64_t position,
-            float temperature,
-            int top_k,
-            std::mt19937& rng ) const
-        {
-            int64_t seq_len = logits.shape()[ 1 ];
-            shape_t shape = { 1, seq_len, vocabSize() };
-            Tensor<TPrecision, CpuMemoryResource> cpu( Device::Cpu(), shape );
-            copy( logits, cpu );
-
-            const float* row = cpu.data()
-                + static_cast<size_t>(position)
-                * static_cast<size_t>(vocabSize());
-
-            return sampleToken( row,
-                static_cast<size_t>(vocabSize()),
-                temperature, top_k, rng );
-        }
-
-        static int32_t sampleToken(
-            const float* logits,
-            size_t vocab_size,
-            float temperature,
-            int top_k,
-            std::mt19937& rng )
-        {
-            if ( temperature <= 0.0f || top_k == 1 )
-            {
-                return static_cast<int32_t>(
-                    std::max_element( logits, logits + vocab_size ) - logits );
-            }
-
-            float max_logit = *std::max_element( logits, logits + vocab_size );
-
-            std::vector<float> probs( vocab_size );
-            double sum = 0.0;
-
-            for ( size_t i = 0; i < vocab_size; ++i )
-            {
-                float v = std::exp( (logits[ i ] - max_logit) / temperature );
-                probs[ i ] = v;
-                sum += v;
-            }
-
-            for ( size_t i = 0; i < vocab_size; ++i )
-                probs[ i ] /= static_cast<float>( sum );
-
-            if ( top_k > 0 && top_k < static_cast<int>( vocab_size ) )
-            {
-                std::vector<size_t> indices( vocab_size );
-                std::iota( indices.begin(), indices.end(), 0 );
-                std::partial_sort(
-                    indices.begin(), indices.begin() + top_k, indices.end(),
-                    [&]( size_t a, size_t b ) { return probs[ a ] > probs[ b ]; } );
-
-                std::vector<float> filtered( vocab_size, 0.0f );
-                double filtered_sum = 0.0;
-
-                for ( int i = 0; i < top_k; ++i )
-                {
-                    filtered[ indices[ i ] ] = probs[ indices[ i ] ];
-                    filtered_sum += probs[ indices[ i ] ];
-                }
-
-                for ( size_t i = 0; i < vocab_size; ++i )
-                    probs[ i ] = filtered[ i ] / static_cast<float>( filtered_sum );
-            }
-
-            std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
-            float r = dist( rng );
-            float cumsum = 0.0f;
-
-            for ( size_t i = 0; i < vocab_size; ++i )
-            {
-                cumsum += probs[ i ];
-
-                if ( r < cumsum )
-                    return static_cast<int32_t>( i );
-            }
-
-            return static_cast<int32_t>( vocab_size - 1 );
-        }
     };
 }

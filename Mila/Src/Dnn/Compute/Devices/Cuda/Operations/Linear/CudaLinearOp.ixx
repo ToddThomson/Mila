@@ -31,6 +31,7 @@ module;
 export module Compute.CudaLinearOp;
 import :Plans;
 import :Dispatch;
+import :Quantize;
 
 import Dnn.Components.LinearConfig;
 import Dnn.Tensor;
@@ -96,8 +97,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         static constexpr bool kIsQuantized = TWeightQuant::kIsQuantized;
 
         static constexpr TensorDataType kWeightDtype = kIsQuantized
-            ? TWeightQuant::kStorageDtype
-            : TComputePrecision;
+            ? TWeightQuant::kStorageDtype : TComputePrecision;
 
         using WeightType = typename TensorDataTypeMap<kWeightDtype>::device_type;
 
@@ -179,13 +179,14 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         /**
          * @brief Quantize a BF16 host blob to FP8_E4M3 with per-channel FP32 scales.
          *
-         * Runs once at model load time. Computes scale[o] = max(abs(W[o,:])) / 448.0f
-         * per output channel on the host, then uploads the FP8 weight tensor and FP32
-         * scale tensor to device. The BF16 source is never retained on device.
+         * Runs once at model load time. Delegates to Detail::quantize_fp8_per_channel()
+         * (pre-compiled by NVCC in the :Quantize partition), which performs per-channel
+         * absmax scaling and uploads both the FP8 weight tensor and the FP32 scale tensor
+         * to device. The BF16 source blob is never retained on device.
          *
-         * @param blob          Host BF16 weight blob from the model archive.
-         * @param weight_out    Device FP8_E4M3 tensor [out_features, in_features].
-         * @param scales_out    Device Float32 tensor [out_features].
+         * @param blob           Host BF16 weight blob from the model archive.
+         * @param weight_out     Device FP8_E4M3 tensor [out_features, in_features].
+         * @param scales_out     Device Float32 tensor [out_features].
          * @param expected_shape Expected weight shape for validation.
          */
         void quantize(
@@ -194,69 +195,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             ITensor& scales_out,
             const shape_t& expected_shape ) requires kIsQuantized
         {
-            const auto& meta = blob.getMetadata();
-
-            if ( meta.shape != expected_shape )
-            {
-                throw std::invalid_argument( std::format(
-                    "CudaLinearOp::quantize - shape mismatch: expected [{},{}], got [{},{}]",
-                    expected_shape[ 0 ], expected_shape[ 1 ],
-                    meta.shape[ 0 ], meta.shape[ 1 ] ) );
-            }
-
-            const int64_t out_features = expected_shape[ 0 ];
-            const int64_t in_features = expected_shape[ 1 ];
-            const int64_t n_weights = out_features * in_features;
-
-            const auto* src = static_cast<const nv_bfloat16*>(blob.data());
-
-            std::vector<float> host_scales( static_cast<size_t>(out_features) );
-            std::vector<__nv_fp8_e4m3> host_fp8( static_cast<size_t>(n_weights) );
-
-            for ( int64_t o = 0; o < out_features; ++o )
-            {
-                const nv_bfloat16* row = src + o * in_features;
-
-                float max_abs = 0.0f;
-
-                for ( int64_t i = 0; i < in_features; ++i )
-                {
-                    float val = std::abs( __bfloat162float( row[ i ] ) );
-
-                    if ( val > max_abs )
-                        max_abs = val;
-                }
-
-                const float scale = (max_abs > 0.0f) ? (max_abs / 448.0f) : 1.0f;
-                host_scales[ static_cast<size_t>(o) ] = scale;
-
-                const float inv_scale = 1.0f / scale;
-
-                for ( int64_t i = 0; i < in_features; ++i )
-                {
-                    float val = __bfloat162float( row[ i ] ) * inv_scale;
-                    host_fp8[ static_cast<size_t>(o * in_features + i) ] = __nv_fp8_e4m3( val );
-                }
-            }
-
-            const size_t weight_bytes = static_cast<size_t>(n_weights) * sizeof( __nv_fp8_e4m3 );
-            const size_t scale_bytes = static_cast<size_t>(out_features) * sizeof( float );
-
-            cudaError_t err = cudaMemcpy( weight_out.rawData(), host_fp8.data(), weight_bytes, cudaMemcpyHostToDevice );
-
-            if ( err != cudaSuccess )
-            {
-                throw std::runtime_error( std::format(
-                    "CudaLinearOp::quantize - FP8 weight upload failed: {}", cudaGetErrorString( err ) ) );
-            }
-
-            err = cudaMemcpy( scales_out.rawData(), host_scales.data(), scale_bytes, cudaMemcpyHostToDevice );
-
-            if ( err != cudaSuccess )
-            {
-                throw std::runtime_error( std::format(
-                    "CudaLinearOp::quantize - scale upload failed: {}", cudaGetErrorString( err ) ) );
-            }
+            Detail::quantize_fp8_per_channel( blob, weight_out, scales_out, expected_shape );
         }
 
         void setGradients( ITensor* weight_grad, ITensor* bias_grad ) override
@@ -364,10 +303,12 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         /**
          * @brief Forward pass: output = input * weight^T + bias
          *
-         * Outer_size == 1 (single-token decode) dispatches to the fused matvec kernel.
-         * Outer_size > 1 (prefill) uses the cached cuBLASLt plan.
-         * On the FP8 path, decode dispatches to the FP8 matvec kernel; prefill uses
-         * the mixed-precision cuBLASLt plan (BF16 activation x FP8 weight -> BF16 output).
+         * Dispatch priority:
+         *   1. outer_size == 1 (decode): fused matvec kernel — both FP32/BF16 and FP8 paths.
+         *   2. outer_size > 1, kIsQuantized (FP8 prefill, Phase 1): token-by-token matvec loop.
+         *      TODO(Phase 2): Replace with cuBLASLt FP8 mixed-precision GEMM once Plans.ixx
+         *      supports separate dataTypeA / dataTypeB descriptors.
+         *   3. outer_size > 1, !kIsQuantized: cuBLASLt GEMM (BF16/FP32).
          */
         void forward( const TensorType& input, TensorType& output ) const
         {
@@ -389,27 +330,49 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 return;
             }
 
-            if ( use_cublaslt_ )
+            // FP8 prefill fallback: no cuBLASLt FP8 mixed-precision plan yet.
+            // Dispatch the single-token matvec kernel once per input token.
+            // Each launch is async on the same stream so the GPU stays busy; the
+            // kernel launch overhead (~3-5 µs each) is acceptable for Phase 1 validation.
+            if constexpr ( kIsQuantized )
             {
-                const float alpha = 1.0f;
-                const float beta = 0.0f;
-
-                execute_plan<ComputeType>(
-                    cached_cublaslt_handle_,
-                    forward_plan_cache_.get( static_cast<int>(outer_size) ),
-                    &alpha,
-                    input_ptr, weight_,
-                    &beta,
-                    output_ptr,
-                    bias_,
-                    stream,
-                    context_->getCublasLtWorkspace(),
-                    context_->getCublasLtWorkspaceSize() );
+                for ( int t = 0; t < outer_size; ++t )
+                {
+                    Detail::cuda_matvec_impl<ComputeType, WeightType>::decode(
+                        output_ptr + static_cast<ptrdiff_t>(t) * out_features_,
+                        input_ptr  + static_cast<ptrdiff_t>(t) * cached_in_features_,
+                        weight_, weight_scales_,
+                        bias_,
+                        cached_in_features_, out_features_,
+                        stream );
+                }
 
                 return;
             }
+            else
+            {
+                if ( use_cublaslt_ )
+                {
+                    const float alpha = 1.0f;
+                    const float beta = 0.0f;
 
-            throw std::runtime_error( "CudaLinearOp: no valid forward execution path available" );
+                    execute_plan<ComputeType>(
+                        cached_cublaslt_handle_,
+                        forward_plan_cache_.get( static_cast<int>(outer_size) ),
+                        &alpha,
+                        input_ptr, weight_,
+                        &beta,
+                        output_ptr,
+                        bias_,
+                        stream,
+                        context_->getCublasLtWorkspace(),
+                        context_->getCublasLtWorkspaceSize() );
+
+                    return;
+                }
+
+                throw std::runtime_error( "CudaLinearOp: no valid forward execution path available" );
+            }
         }
 
         /**
@@ -425,63 +388,65 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             {
                 throw std::logic_error( "CudaLinearOp: backward is not supported on the FP8 quantized path" );
             }
-
-            if ( this->isEvalMode() )
+            else
             {
-                throw std::runtime_error( "CudaLinearOp::backward: not available in eval mode" );
-            }
-
-            const int outer_size = static_cast<int>(output_grad.size()) / out_features_;
-
-            const ComputeType* input_ptr = static_cast<const ComputeType*>(input.rawData());
-            const ComputeType* output_grad_ptr = static_cast<const ComputeType*>(output_grad.rawData());
-            ComputeType* input_grad_ptr = static_cast<ComputeType*>(input_grad.rawData());
-            cudaStream_t stream = context_->getStream();
-
-            if ( use_cublaslt_ )
-            {
-                const float alpha = 1.0f;
-                const float beta = 0.0f;
-                const float beta_accum = 1.0f;
-
-                execute_plan<ComputeType>(
-                    cached_cublaslt_handle_,
-                    backward_input_plan_cache_.get( static_cast<int>(outer_size) ),
-                    &alpha,
-                    output_grad_ptr, weight_,
-                    &beta,
-                    input_grad_ptr,
-                    nullptr,
-                    stream,
-                    context_->getCublasLtWorkspace(),
-                    context_->getCublasLtWorkspaceSize() );
-
-                execute_plan<ComputeType>(
-                    cached_cublaslt_handle_,
-                    backward_weight_plan_,
-                    &alpha,
-                    output_grad_ptr, input_ptr,
-                    &beta_accum,
-                    weight_grad_,
-                    nullptr,
-                    stream,
-                    context_->getCublasLtWorkspace(),
-                    context_->getCublasLtWorkspaceSize() );
-
-                if ( bias_grad_ != nullptr )
+                if ( this->isEvalMode() )
                 {
-                    Detail::compute_bias_gradient(
-                        bias_grad_,
-                        output_grad_ptr,
-                        static_cast<int>(outer_size),
-                        out_features_,
-                        stream );
+                    throw std::runtime_error( "CudaLinearOp::backward: not available in eval mode" );
                 }
 
-                return;
-            }
+                const int outer_size = static_cast<int>(output_grad.size()) / out_features_;
 
-            throw std::runtime_error( "CudaLinearOp: no valid backward execution path available" );
+                const ComputeType* input_ptr = static_cast<const ComputeType*>(input.rawData());
+                const ComputeType* output_grad_ptr = static_cast<const ComputeType*>(output_grad.rawData());
+                ComputeType* input_grad_ptr = static_cast<ComputeType*>(input_grad.rawData());
+                cudaStream_t stream = context_->getStream();
+
+                if ( use_cublaslt_ )
+                {
+                    const float alpha = 1.0f;
+                    const float beta = 0.0f;
+                    const float beta_accum = 1.0f;
+
+                    execute_plan<ComputeType>(
+                        cached_cublaslt_handle_,
+                        backward_input_plan_cache_.get( static_cast<int>(outer_size) ),
+                        &alpha,
+                        output_grad_ptr, weight_,
+                        &beta,
+                        input_grad_ptr,
+                        nullptr,
+                        stream,
+                        context_->getCublasLtWorkspace(),
+                        context_->getCublasLtWorkspaceSize() );
+
+                    execute_plan<ComputeType>(
+                        cached_cublaslt_handle_,
+                        backward_weight_plan_,
+                        &alpha,
+                        output_grad_ptr, input_ptr,
+                        &beta_accum,
+                        weight_grad_,
+                        nullptr,
+                        stream,
+                        context_->getCublasLtWorkspace(),
+                        context_->getCublasLtWorkspaceSize() );
+
+                    if ( bias_grad_ != nullptr )
+                    {
+                        Detail::compute_bias_gradient(
+                            bias_grad_,
+                            output_grad_ptr,
+                            static_cast<int>(outer_size),
+                            out_features_,
+                            stream );
+                    }
+
+                    return;
+                }
+
+                throw std::runtime_error( "CudaLinearOp: no valid backward execution path available" );
+            }
         }
 
         OperationType getOperationType() const override

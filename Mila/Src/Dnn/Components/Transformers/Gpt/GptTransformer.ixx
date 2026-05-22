@@ -33,7 +33,7 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.Network;
+import Dnn.LanguageNetwork;
 import Dnn.Components.Linear;
 import Dnn.Components.LayerNorm;
 import Dnn.Components.Lpe;
@@ -67,11 +67,11 @@ namespace Mila::Dnn
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
-    class GptTransformer : public Network<TDeviceType, TPrecision>
+    class GptTransformer : public LanguageNetwork<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-        using NetworkBase = Network<TDeviceType, TPrecision>;
+        using NetworkBase = LanguageNetwork<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using LinearType = Linear<TDeviceType, TPrecision>;
         using LayerNormType = LayerNorm<TDeviceType, TPrecision>;
@@ -164,7 +164,7 @@ namespace Mila::Dnn
         // Compute API (component-owned outputs)
         // ====================================================================
 
-        TensorType& forward( const TokenIndexType& input )
+        TensorType& forward( const TokenIndexType& input ) override
         {
             if ( !this->isBuilt() )
             {
@@ -203,7 +203,7 @@ namespace Mila::Dnn
             return *logits_ptr_;
         }
 
-        TokenIndexType& backward( const TokenIndexType& input, const TensorType& output_grad )
+        TokenIndexType& backward( const TokenIndexType& input, const TensorType& output_grad ) override
         {
             if ( !this->isBuilt() )
             {
@@ -273,7 +273,7 @@ namespace Mila::Dnn
          * @param input  Full prompt token indices [B, T].
          * @return        Logits for the last token [B, 1, vocab_size].
          */
-        TensorType& prefill( const TokenIndexType& input )
+        TensorType& prefill( const TokenIndexType& input ) override
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error(
@@ -347,7 +347,7 @@ namespace Mila::Dnn
          * @param position Current sequence position (0-based).
          * @return         Reference to logits tensor [B, 1, vocab_size].
          */
-        TensorType& decode( const TokenIndexType& input, int position )
+        TensorType& decode( const TokenIndexType& input, int position ) override
         {
             if ( !this->isBuilt() )
             {
@@ -657,71 +657,6 @@ namespace Mila::Dnn
 
         TensorType* normalized_ptr_{ nullptr };
         TensorType* logits_ptr_{ nullptr };
-
-        /**
-         * @brief Sample a token from logits using temperature and optional top-k filtering.
-         */
-        static int32_t sampleToken(
-            const float* logits,
-            size_t vocab_size,
-            float temperature,
-            int top_k,
-            std::mt19937& rng )
-        {
-            if ( temperature <= 0.0f || top_k == 1 )
-            {
-                return static_cast<int32_t>(
-                    std::max_element( logits, logits + vocab_size ) - logits );
-            }
-
-            float max_logit = *std::max_element( logits, logits + vocab_size );
-
-            std::vector<float> probs( vocab_size );
-            double sum = 0.0;
-
-            for ( size_t i = 0; i < vocab_size; ++i )
-            {
-                float exp_val = std::exp( (logits[ i ] - max_logit) / temperature );
-                probs[ i ] = exp_val;
-                sum += exp_val;
-            }
-
-            for ( size_t i = 0; i < vocab_size; ++i )
-                probs[ i ] /= static_cast<float>( sum );
-
-            if ( top_k > 0 && top_k < static_cast<int>( vocab_size ) )
-            {
-                std::vector<size_t> indices( vocab_size );
-                std::iota( indices.begin(), indices.end(), 0 );
-                std::partial_sort( indices.begin(), indices.begin() + top_k, indices.end(),
-                    [&]( size_t a, size_t b ) { return probs[ a ] > probs[ b ]; } );
-
-                std::vector<float> top_k_probs( vocab_size, 0.0f );
-                double top_k_sum = 0.0;
-
-                for ( int i = 0; i < top_k; ++i )
-                {
-                    top_k_probs[ indices[ i ] ] = probs[ indices[ i ] ];
-                    top_k_sum += probs[ indices[ i ] ];
-                }
-
-                for ( size_t i = 0; i < vocab_size; ++i )
-                    probs[ i ] = top_k_probs[ i ] / static_cast<float>( top_k_sum );
-            }
-
-            std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
-            float r = dist( rng );
-            float cumsum = 0.0f;
-
-            for ( size_t i = 0; i < vocab_size; ++i )
-            {
-                cumsum += probs[ i ];
-                if ( r < cumsum )
-                    return static_cast<int32_t>( i );
-            }
-
-            return static_cast<int32_t>( vocab_size - 1 );
-        }
 
         std::pair<std::string, std::string> parseParameterPath( const std::string& full_name ) const
         {

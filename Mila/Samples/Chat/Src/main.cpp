@@ -53,6 +53,8 @@ static void printUsage( const char* prog_name )
         << "                    Inferred from model_path if not specified.\n"
         << "  --precision       Weight dtype: fp32 or bf16. Default: bf16.\n"
         << "                    Inferred from model_path if not specified.\n"
+        << "  --quantization    Weight quantization: none or fp8. Default: none.\n"
+        << "                    fp8 enables FP8 weights and FP8 KV cache compression.\n"
         << "  --tokenizer       Path to the tokenizer file.\n"
         << "  --context-length  Maximum sequence length for inference.\n"
         << "                    Defaults to 1024 for GPT-2, 4096 for Llama.\n"
@@ -72,6 +74,7 @@ static void applyConfigFile(
     ModelType& model_type, bool& explicit_type,
     ModelSize& model_size, bool& explicit_size,
     ModelPrecision& precision, bool& explicit_precision,
+    QuantizationMode& quantization_mode, bool& explicit_quantization,
     std::optional<std::filesystem::path>& model_path,
     std::optional<std::filesystem::path>& tokenizer_path,
     std::optional<std::size_t>& context_length,
@@ -130,6 +133,16 @@ static void applyConfigFile(
             precision = ModelPrecision::BF16;
     }
 
+    if ( !explicit_quantization && j.contains( "quantization" ) && j[ "quantization" ].is_string() )
+    {
+        auto v = j[ "quantization" ].get<std::string>();
+
+        if ( v == "none" )
+            quantization_mode = QuantizationMode::None;
+        else if ( v == "fp8" )
+            quantization_mode = QuantizationMode::FP8;
+    }
+
     if ( !model_path && j.contains( "model_path" ) && j[ "model_path" ].is_string() )
         model_path = j[ "model_path" ].get<std::string>();
 
@@ -165,9 +178,11 @@ static ChatConfig parseArgs( int argc, char* argv[] )
     std::optional<std::size_t> max_new_tokens;
     std::optional<float> temperature;
     std::optional<int> top_k;
-    bool explicit_type      = false;
-    bool explicit_size      = false;
-    bool explicit_precision = false;
+    QuantizationMode quantization_mode = QuantizationMode::FP8; // DEBUG: Set to FP8 to test linear compression, but default is None
+    bool explicit_type         = false;
+    bool explicit_size         = false;
+    bool explicit_precision    = false;
+    bool explicit_quantization = false;
 
     // Default config — overridden by --config on the command line.
     std::filesystem::path config_path = "Data/session.json";
@@ -230,6 +245,22 @@ static ChatConfig parseArgs( int argc, char* argv[] )
 
             explicit_precision = true;
         }
+        else if ( arg == "--quantization" )
+        {
+            if ( i + 1 >= argc )
+                throw std::invalid_argument( "--quantization requires a value" );
+            std::string_view qmode = argv[ ++i ];
+
+            if ( qmode == "none" )
+                quantization_mode = QuantizationMode::None;
+            else if ( qmode == "fp8" )
+                quantization_mode = QuantizationMode::FP8;
+            else
+                throw std::invalid_argument(
+                    std::format( "Unknown --quantization: '{}'. Expected none or fp8.", qmode ) );
+
+            explicit_quantization = true;
+        }
         else if ( arg == "--tokenizer" )
         {
             if ( i + 1 >= argc )
@@ -275,6 +306,7 @@ static ChatConfig parseArgs( int argc, char* argv[] )
             model_type, explicit_type,
             model_size, explicit_size,
             precision, explicit_precision,
+            quantization_mode, explicit_quantization,
             model_path, tokenizer_path,
             context_length, system_prompt_path,
             max_new_tokens, temperature, top_k );
@@ -317,6 +349,7 @@ static ChatConfig parseArgs( int argc, char* argv[] )
     config.model_type         = model_type;
     config.model_size         = model_size;
     config.precision          = precision;
+    config.quantization_mode  = quantization_mode;
     config.model_path         = std::move( *model_path );
     config.tokenizer_path     = std::move( *tokenizer_path );
     config.config_path        = config_path;
