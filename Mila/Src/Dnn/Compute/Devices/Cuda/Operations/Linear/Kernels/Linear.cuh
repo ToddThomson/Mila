@@ -93,4 +93,35 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         const half* weight, const half* bias,
         int outer_size, int C, int OC,
         cudaStream_t stream );
+
+    // ========================================================================
+    // FP8 Prefill Kernels
+    // ========================================================================
+
+    /**
+     * @brief Apply per-channel scales to a BF16 output matrix in-place.
+     *
+     * Computes output[t, out] *= scales[out] for all t in [0, outer_size).
+     * Post-GEMM correction for the native FP8 cuBLASLt path.
+     */
+    void cuda_fp8_apply_per_channel_scales(
+        __nv_bfloat16* output,
+        const float* scales,
+        int outer_size,
+        int out_features,
+        cudaStream_t stream );
+
+    /**
+     * @brief Dequantize FP8-E4M3 weights to BF16 using per-channel scales.
+     *
+     * Computes output[out, k] = float(input[out, k]) * scales[out].
+     * Produces a temporary BF16 weight copy for the BF16 fallback GEMM path.
+     */
+    void cuda_fp8_dequantize_to_bf16(
+        __nv_bfloat16* output,
+        const __nv_fp8_e4m3* input,
+        const float* scales,
+        int out_features,
+        int in_features,
+        cudaStream_t stream );
 }

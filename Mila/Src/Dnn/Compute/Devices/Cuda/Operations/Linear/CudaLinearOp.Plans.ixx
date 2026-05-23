@@ -51,6 +51,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             {
                 Logging::Logger::warning( "cuBLASLt forward plan built without algorithm (will use default)" );
             }
+            
             return plan;
         } 
 

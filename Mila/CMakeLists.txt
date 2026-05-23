@@ -42,6 +42,7 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Fp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Bf16.cu"
 
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Fp8Prefill/CudaFp8Prefill.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp32.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaLinearGelu.cu"
@@ -105,7 +106,7 @@ add_library( Mila STATIC
     CUDA_STANDARD 20
     CUDA_STANDARD_REQUIRED ON
     CUDA_SEPARABLE_COMPILATION ON
-    CUDA_ARCHITECTURES 75 # For Turing GPUs (T4, V100, A100, H100, etc.)
+    CUDA_ARCHITECTURES 75 80 86 89 90
 )
 
 target_compile_features( Mila PUBLIC cxx_std_23 )
@@ -473,7 +474,7 @@ PUBLIC
         "Src/Dnn/Compute/Operations/IKvInference.ixx"
         "Src/Dnn/Compute/Operations/IPackedKvInference.ixx"
         "Src/Dnn/Core/TokenStreamer.ixx"
-        #"Src/Profiling/NvtxRange.ixx"
+        "Src/Dnn/Compute/Devices/Cuda/Profiling/NvtxRange.ixx"
         #"Src/Dnn/Compute/Operations/LinearOpTypeMap.Template.ixx"
         #"Src/Dnn/Compute/Operations/LinearOpTypeMap.ixx"
         #"Src/Dnn/Core/ModelQuantizationConfig.ixx"
@@ -557,6 +558,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/CudaDevice.ixx"
 
                 "Src/Dnn/Compute/Devices/Cuda/CudaExecutionContext.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Profiling/CudaTimer.ixx"
 
                 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceMemoryResource.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/CudaManagedMemoryResource.ixx"

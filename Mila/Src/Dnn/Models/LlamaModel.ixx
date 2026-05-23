@@ -76,8 +76,7 @@ namespace Mila::Dnn
         using ModelBase = LanguageModel<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
-        using StagingMR = std::conditional_t<TDeviceType == DeviceType::Cuda,
-            CudaPinnedMemoryResource, CpuMemoryResource>;
+        using StagingMR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaPinnedMemoryResource, CpuMemoryResource>;
 
         LlamaModel( const LlamaModel& ) = delete;
         LlamaModel& operator=( const LlamaModel& ) = delete;
@@ -253,17 +252,41 @@ namespace Mila::Dnn
 
             auto prefill_input = makeTokenTensor( prefill_tokens );
 
+            // ---- Phase 1: Prefill — measure to first token ----
+            // synchronize() is called after prefill(), so the wall-clock measurement
+            // accurately captures GPU prefill time plus first token sampling overhead.
+
+            const auto prefill_start = std::chrono::high_resolution_clock::now();
+
             auto& logits = this->getLanguageNetwork().prefill( prefill_input );
             this->getLanguageNetwork().synchronize();
 
             int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
 
+            const auto prefill_end = std::chrono::high_resolution_clock::now();
+
+            // Reset statistics for this generation run.
+            this->last_generation_statistics_.prompt_tokens    = prefill_tokens.size();
+            this->last_generation_statistics_.tokens_generated = 0;
+            this->last_generation_statistics_.prefill_time_ms  =
+                std::chrono::duration<float, std::milli>( prefill_end - prefill_start ).count();
+            this->last_generation_statistics_.decode_time_ms               = 0.0f;
+            this->last_generation_statistics_.decode_tokens_per_second     = 0.0f;
+
             if ( stop_ids.contains( next_token ) )
                 return;
 
             on_token( next_token );
+            this->last_generation_statistics_.tokens_generated = 1;
 
             int position = static_cast<int>(seq_len);
+
+            // ---- Phase 2: Autoregressive decode ----
+            // Each decode step calls synchronize(), so wall-clock time correctly
+            // reflects GPU decode latency per token.
+
+            const auto decode_start = std::chrono::high_resolution_clock::now();
+            std::size_t decode_token_count = 0;
 
             for ( size_t step = 1; step < max_new_tokens; ++step )
             {
@@ -282,7 +305,19 @@ namespace Mila::Dnn
 
                 on_token( next_token );
                 ++position;
+                ++decode_token_count;
             }
+
+            const auto decode_end = std::chrono::high_resolution_clock::now();
+            const float decode_ms =
+                std::chrono::duration<float, std::milli>( decode_end - decode_start ).count();
+
+            this->last_generation_statistics_.tokens_generated            = 1 + decode_token_count;
+            this->last_generation_statistics_.decode_time_ms              = decode_ms;
+            this->last_generation_statistics_.decode_tokens_per_second    =
+                (decode_ms > 0.0f && decode_token_count > 0)
+                ? static_cast<float>( decode_token_count ) / (decode_ms / 1000.0f)
+                : 0.0f;
         }
 
         /**

@@ -166,6 +166,8 @@ namespace Mila::ChatApp
                 generateResponse( response, /*stream=*/false );
 
                 handleResponse( response );
+
+                printGenerationStatistics();
             }
         }
 
@@ -408,7 +410,7 @@ namespace Mila::ChatApp
             }
 
             // DEBUG
-            std::cerr << "[PROMPT DEBUG]\n" << prompt << "\n[END PROMPT]\n";
+            //std::cerr << "[PROMPT DEBUG]\n" << prompt << "\n[END PROMPT]\n";
 
             auto token_ids = tokenizer_->encode( prompt );
 
@@ -546,6 +548,43 @@ namespace Mila::ChatApp
                 std::cerr << "Error loading system prompt: " << e.what() << "\n";
                 throw;
             }
+        }
+
+        /**
+         * @brief Print generation statistics from the most recent response.
+         *
+         * Displays time to first token (TTFT) and autoregressive decode throughput
+         * (tokens per second) after each completed generation run. Only printed
+         * when the statistics are valid (i.e. at least one generation has run).
+         */
+        void printGenerationStatistics() const
+        {
+            std::visit(
+                []( const auto& model )
+                {
+                    const auto& stats = model->getLastGenerationStatistics();
+
+                    if ( !stats.valid() )
+                        return;
+
+                    if ( stats.decode_tokens_per_second > 0.0f )
+                    {
+                        std::cout << std::format(
+                            "\n  [ TTFT: {:.0f} ms | Decode: {:.1f} tok/s | {} tokens ]\n",
+                            stats.prefill_time_ms,
+                            stats.decode_tokens_per_second,
+                            stats.tokens_generated );
+                    }
+                    else
+                    {
+                        // Single-token response (e.g. stop token hit immediately after prefill).
+                        std::cout << std::format(
+                            "\n  [ TTFT: {:.0f} ms | {} token ]\n",
+                            stats.prefill_time_ms,
+                            stats.tokens_generated );
+                    }
+                },
+                model_ );
         }
 
         void printWelcome() const

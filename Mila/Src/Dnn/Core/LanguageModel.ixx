@@ -15,6 +15,7 @@ module;
 #include <format>
 #include <functional>
 #include <stop_token>
+#include <cstddef>
 
 export module Dnn.LanguageModel;
 
@@ -27,6 +28,37 @@ import Compute.DeviceType;
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
+
+    /**
+     * @brief Statistics captured during a single generateStreaming() call.
+     *
+     * Populated by the derived model's onGenerating() implementation after each
+     * generation run. Retrieve via getLastGenerationStatistics() once
+     * generateStreaming() returns.
+     */
+    export struct GenerationStatistics
+    {
+        /// Number of input prompt tokens processed during prefill.
+        std::size_t prompt_tokens{ 0 };
+
+        /// Total tokens generated including the first token produced by prefill.
+        std::size_t tokens_generated{ 0 };
+
+        /// Time to first token: prefill forward pass + synchronization + first token sampling (ms).
+        float prefill_time_ms{ 0.0f };
+
+        /// Total time spent in the autoregressive decode loop (ms); 0 when only one token was generated.
+        float decode_time_ms{ 0.0f };
+
+        /// Decode throughput in tokens per second; 0 when decode loop produced no tokens.
+        float decode_tokens_per_second{ 0.0f };
+
+        /// Returns true when at least one generation run has been recorded.
+        [[nodiscard]] bool valid() const noexcept
+        {
+            return prefill_time_ms > 0.0f;
+        }
+    };
 
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -74,6 +106,19 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Returns statistics from the most recent generateStreaming() call.
+         *
+         * Only valid after at least one generateStreaming() call has returned.
+         * Check GenerationStatistics::valid() before using the values.
+         *
+         * @return Reference to the last captured generation statistics.
+         */
+        [[nodiscard]] const GenerationStatistics& getLastGenerationStatistics() const noexcept
+        {
+            return last_generation_statistics_;
+        }
+
+        /**
          * @brief Synchronous per-token streaming. Blocks on the caller's thread
          * until generation completes or stop is requested.
          *
@@ -100,6 +145,9 @@ namespace Mila::Dnn
         }
 
     protected:
+
+        /// Statistics populated by onGenerating() for each completed generation run.
+        GenerationStatistics last_generation_statistics_{};
 
         explicit LanguageModel(
             std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,

@@ -203,6 +203,47 @@ namespace Mila::Dnn::Compute
         }
 
         /**
+         * @brief Gets or grows a general-purpose device scratch buffer.
+         *
+         * Used by operations that need a temporary device buffer during forward passes
+         * (e.g. FP8→BF16 weight dequantization before a cuBLASLt GEMM). Grown on demand,
+         * never shrunk. Because all operations on this context share a single stream, the
+         * buffer can be safely reused across sequential ops — each op finishes before the
+         * next one writes to the buffer.
+         *
+         * Freed in releaseResources().
+         *
+         * @param required_bytes Minimum number of bytes required.
+         * @return void* Device buffer of at least required_bytes.
+         * @throws std::runtime_error If allocation fails.
+         */
+        [[nodiscard]] void* getDeviceScratchBuffer( size_t required_bytes ) const
+        {
+            if ( required_bytes <= device_scratch_size_ )
+                return device_scratch_buf_;
+
+            if ( device_scratch_buf_ )
+            {
+                cudaFree( device_scratch_buf_ );
+                device_scratch_buf_ = nullptr;
+                device_scratch_size_ = 0;
+            }
+
+            cudaError_t err = cudaMalloc( &device_scratch_buf_, required_bytes );
+
+            if ( err != cudaSuccess )
+            {
+                throw std::runtime_error(
+                    std::format( "Failed to allocate device scratch buffer: {}",
+                        cudaGetErrorString( err ) ) );
+            }
+
+            device_scratch_size_ = required_bytes;
+
+            return device_scratch_buf_;
+        }
+
+        /**
          * @brief Gets or grows the pinned host staging buffer for Host->Device transfers.
          *
          * Page-locked via cudaHostAlloc so cudaMemcpyAsync from it to device memory
@@ -270,6 +311,9 @@ namespace Mila::Dnn::Compute
     private:
 
         DeviceId device_id_;
+
+        mutable void* device_scratch_buf_{ nullptr };
+        mutable size_t device_scratch_size_{ 0 };
 
         mutable void* pinned_staging_buf_{ nullptr };
         mutable size_t pinned_staging_size_{ 0 };
@@ -359,6 +403,13 @@ namespace Mila::Dnn::Compute
                 cudaFree( cublaslt_workspace_ );
                 cublaslt_workspace_ = nullptr;
                 cublaslt_workspace_size_ = 0;
+            }
+
+            if ( device_scratch_buf_ )
+            {
+                cudaFree( device_scratch_buf_ );
+                device_scratch_buf_ = nullptr;
+                device_scratch_size_ = 0;
             }
 
             if ( pinned_staging_buf_ )

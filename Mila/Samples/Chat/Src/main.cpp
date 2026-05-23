@@ -391,7 +391,8 @@ int main( int argc, char* argv[] )
     }
 #endif
 
-    Mila::initialize();
+    auto sink = std::make_shared<Mila::Logging::ConsoleSink>( Mila::Logging::LogLevel::Info );
+    Mila::initialize( 0, std::move( sink ) );
 
     try
     {

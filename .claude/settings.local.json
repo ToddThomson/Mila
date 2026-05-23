@@ -4,7 +4,17 @@
       "Bash(cd /d D:\\\\Repos\\\\Mila)",
       "Bash(Get-ChildItem -Path \".\\\\Src\\\\Dnn\\\\Compute\\\\Operations\\\\\" -Directory | Select-Object -ExpandProperty Name)",
       "Bash(git log *)",
-      "Bash(Remove-Item \"D:\\\\Repos\\\\Mila\\\\Mila\\\\Src\\\\Dnn\\\\Compute\\\\IDecode.ixx\")"
+      "Bash(Remove-Item \"D:\\\\Repos\\\\Mila\\\\Mila\\\\Src\\\\Dnn\\\\Compute\\\\IDecode.ixx\")",
+      "Bash(Get-ChildItem -Path \"D:\\\\Repos\\\\Mila\\\\src\" -Recurse -Directory)",
+      "Bash(Select-Object -First 20)",
+      "Bash(grep -i \"ixx\\\\|h$\")",
+      "Bash(cat \"C:\\\\Users\\\\ToddT\\\\.claude\\\\settings.json\" 2>/dev/null || echo \"not found\")",
+      "Bash(mkdir -p \"D:\\\\Repos\\\\Mila\\\\Mila\\\\Src\\\\Dnn\\\\Compute\\\\Devices\\\\Cuda\\\\Operations\\\\Linear\\\\Kernels\\\\Fp8Prefill\")",
+      "PowerShell(Get-ChildItem -Path \"D:\\\\Repos\\\\Mila\\\\Src\\\\Dnn\\\\Compute\\\\Devices\\\\Cuda\" -Recurse -File | Select-Object @{Name=\"RelativePath\"; Expression={$_.FullName.Replace\\(\"D:\\\\Repos\\\\Mila\\\\\", \"\"\\)}} | Sort-Object RelativePath | ForEach-Object { $_.RelativePath })",
+      "Bash(Get-ChildItem -Path \"D:\\\\Repos\\\\Mila\\\\Mila\\\\Benchmarks\" -Recurse)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(Sort-Object FullName)",
+      "Bash(Format-Table -AutoSize)"
     ]
   }
 }

@@ -216,6 +216,7 @@ PYBIND11_MODULE( mila, m )
             auto it = map.find( level );
             auto log_level = (it != map.end()) ? it->second : Mila::Logging::LogLevel::Warning;
             auto sink = std::make_shared<Mila::Logging::ConsoleSink>( log_level );
+            
             return Mila::initialize( 0, std::move( sink ) );
         },
         py::arg( "log_level" ) = "warning",

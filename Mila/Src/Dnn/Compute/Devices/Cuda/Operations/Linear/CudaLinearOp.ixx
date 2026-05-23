@@ -27,6 +27,7 @@ module;
 #include <algorithm>
 #include <cmath>
 #include "Kernels/Linear.cuh"
+#include "Kernels/Fp8Prefill/CudaFp8Prefill.cuh"
 
 export module Compute.CudaLinearOp;
 import :Plans;
@@ -305,10 +306,11 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          *
          * Dispatch priority:
          *   1. outer_size == 1 (decode): fused matvec kernel — both FP32/BF16 and FP8 paths.
-         *   2. outer_size > 1, kIsQuantized (FP8 prefill, Phase 1): token-by-token matvec loop.
-         *      TODO(Phase 2): Replace with cuBLASLt FP8 mixed-precision GEMM once Plans.ixx
-         *      supports separate dataTypeA / dataTypeB descriptors.
-         *   3. outer_size > 1, !kIsQuantized: cuBLASLt GEMM (BF16/FP32).
+         *   2. outer_size > 1, kIsQuantized, use_fp8_bf16_prefill_ (FP8 prefill fast path):
+         *      cuda_fp8_dequantize_to_bf16 → BF16 cuBLASLt GEMM → cuda_add_bias.
+         *   3. outer_size > 1, kIsQuantized, fallback: token-by-token matvec loop.
+         *      Used when the plan could not be built or outer_size != cached_outer_size_.
+         *   4. outer_size > 1, !kIsQuantized: cuBLASLt GEMM (BF16/FP32).
          */
         void forward( const TensorType& input, TensorType& output ) const
         {
@@ -330,12 +332,65 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 return;
             }
 
-            // FP8 prefill fallback: no cuBLASLt FP8 mixed-precision plan yet.
-            // Dispatch the single-token matvec kernel once per input token.
-            // Each launch is async on the same stream so the GPU stays busy; the
-            // kernel launch overhead (~3-5 µs each) is acceptable for Phase 1 validation.
             if constexpr ( kIsQuantized )
             {
+                // FP8 prefill: dequantize FP8 weights → temporary BF16 buffer, then
+                // run a single BF16 cuBLASLt GEMM, then add bias manually.
+                // Only valid when outer_size matches the shape the plan was built for.
+                if ( use_fp8_bf16_prefill_ && outer_size == cached_outer_size_ )
+                {
+                    // Dequantize FP8 weights into the context's shared device scratch
+                    // buffer. The scratch buffer is grown once to the largest weight
+                    // matrix in the model. Stream serialization guarantees the previous
+                    // layer's GEMM has finished before this dequantization begins.
+                    const size_t bf16_weight_bytes =
+                        static_cast<size_t>( out_features_ ) *
+                        static_cast<size_t>( cached_in_features_ ) *
+                        sizeof( nv_bfloat16 );
+
+                    nv_bfloat16* bf16_weight = static_cast<nv_bfloat16*>(
+                        context_->getDeviceScratchBuffer( bf16_weight_bytes ) );
+
+                    cuda_fp8_dequantize_to_bf16(
+                        bf16_weight,
+                        weight_,
+                        weight_scales_,
+                        out_features_,
+                        cached_in_features_,
+                        stream );
+
+                    const float alpha = 1.0f;
+                    const float beta  = 0.0f;
+
+                    execute_plan<ComputeType>(
+                        cached_cublaslt_handle_,
+                        fp8_bf16_prefill_plan_,
+                        &alpha,
+                        input_ptr,
+                        reinterpret_cast<const ComputeType*>( bf16_weight ),
+                        &beta,
+                        output_ptr,
+                        nullptr,
+                        stream,
+                        context_->getCublasLtWorkspace(),
+                        context_->getCublasLtWorkspaceSize() );
+
+                    if ( bias_ != nullptr )
+                    {
+                        cuda_add_bias(
+                            output_ptr,
+                            reinterpret_cast<const nv_bfloat16*>( bias_ ),
+                            outer_size,
+                            out_features_,
+                            stream );
+                    }
+
+                    return;
+                }
+
+                // Fallback: token-by-token matvec loop.
+                // Handles outer_size == 1, outer_size != cached_outer_size_, or when
+                // the cuBLASLt plan could not be built.
                 for ( int t = 0; t < outer_size; ++t )
                 {
                     Detail::cuda_matvec_impl<ComputeType, WeightType>::decode(
@@ -494,6 +549,14 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         CublasLtPlanCache<CublasLtMatMulPlan<ComputeType>> backward_input_plan_cache_;
         CublasLtMatMulPlan<ComputeType> backward_weight_plan_;
 
+        // FP8 prefill BF16-fallback resources (kIsQuantized only).
+        // Dequantizes FP8 weights to the context's shared device scratch buffer
+        // and runs a standard BF16 cuBLASLt GEMM (has_bias=false), then adds bias manually.
+        // No per-layer allocation — the scratch buffer is grown once to the largest
+        // weight matrix in the model and reused across all layers on the stream.
+        CublasLtMatMulPlan<ComputeType> fp8_bf16_prefill_plan_;
+        bool use_fp8_bf16_prefill_{ false };
+
         cudaDataType_t cuda_data_type_{};
         cudaDataType_t cuda_weight_data_type_{};
         cublasComputeType_t compute_type_{};
@@ -572,15 +635,43 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             getComputeTypes( compute_type_, scale_type_ );
 
-            // TODO(Alpha.5): build_forward_plan / build_strided_plan require separate
-            // data_type_A (activation) and data_type_B (weight) parameters to support
-            // the mixed-precision FP8 descriptor. Plans.ixx must be updated before
-            // the FP8 prefill cuBLASLt path is activated.
             if constexpr ( kIsQuantized )
             {
-                Logging::Logger::warning(
-                    "CudaLinearOp: FP8 cuBLASLt prefill plan pending Plans.ixx mixed-precision support" );
+                // BF16 dequantize-fallback prefill plan.
+                // Build a standard BF16 × BF16 → BF16 GEMM plan with has_bias=false.
+                // The bias epilogue flag causes CUBLAS_STATUS_INVALID_VALUE for multi-row
+                // GEMMs on Ada (SM 8.9) with certain algorithm variants, so we skip it
+                // here and add bias manually via cuda_add_bias after the GEMM.
+                // cuda_data_type_ is CUDA_R_16BF (BF16 activation type) — correct for
+                // a temporary BF16 weight buffer produced by cuda_fp8_dequantize_to_bf16.
+
+                use_fp8_bf16_prefill_ = false;
                 use_cublaslt_ = false;
+
+                auto plan = Detail::build_forward_plan<ComputeType>(
+                    cached_cublaslt_handle_,
+                    cached_outer_size_,
+                    cached_in_features_,
+                    out_features_,
+                    /*has_bias=*/ false,
+                    cuda_data_type_,
+                    compute_type_,
+                    scale_type_ );
+
+                if ( !plan.isValid() || !plan.has_algorithm )
+                {
+                    Logging::Logger::warning(
+                        "CudaLinearOp: FP8 prefill BF16 plan has no valid algorithm; using matvec loop" );
+                    return;
+                }
+
+                fp8_bf16_prefill_plan_ = std::move( plan );
+                use_fp8_bf16_prefill_ = true;
+
+                Logging::Logger::info( std::format(
+                    "CudaLinearOp: FP8 prefill BF16 plan ready — {} tokens × {} in → {} out",
+                    cached_outer_size_, cached_in_features_, out_features_ ) );
+
                 return;
             }
 

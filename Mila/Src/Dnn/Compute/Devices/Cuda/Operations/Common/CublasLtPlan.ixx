@@ -1,6 +1,6 @@
 /**
- * @file CublasLtHelpers.ixx
- * @brief Shared cuBLASLt helpers for building and executing matmul plans (RAII + builders).
+ * @file CublasLtPlan.ixx
+ * @brief Shared cuBLASLt plans for building and executing matmul plans (RAII + builders).
  *
  * Provides templated utilities to build cuBLASLt matmul plans (including strided-batched)
  * and execute them. Designed to be reused by CUDA Linear and Attention operations.
@@ -127,7 +127,7 @@ export namespace Mila::Dnn::Compute::Cuda
      * Computes C[outer_size, out_features] = A[outer_size, in_features] @ B^T[in_features, out_features]
      * Row-major layout, opA=N, opB=T, strided_batch_count=1.
      *
-     * @param outer_size  Bucket-aligned row count for A and C (B*T for transformers).
+     * @param outer_size  Bucket-aligned row count for A and C (C=B*T for transformers).
      */
     template <typename TNative>
     CublasLtMatMulPlan<TNative> build_plan(
