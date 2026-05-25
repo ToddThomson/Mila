@@ -71,7 +71,10 @@ namespace Mila::Dnn
 		 * @return Optimal alignment boundary in bytes for the given configuration
 		 */
 		template<TensorDataType TDataType, typename MR>
-		constexpr size_t get_alignment() {
+		constexpr size_t get_alignment() 
+		{
+			// REVIEW: Update for packed types. We now support FP4 packed types
+
 			if constexpr (std::is_same_v<MR, Compute::CudaDeviceMemoryResource>) {
 				return CUDA_WARP_SIZE * TensorDataTypeTraits<TDataType>::size_in_bytes;
 			}
@@ -92,14 +95,22 @@ namespace Mila::Dnn
 		 * @throws std::overflow_error If calculation would overflow
 		 */
 		template<TensorDataType TDataType>
-		constexpr size_t getStorageSize( size_t logical_size ) {
-			constexpr size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
+		constexpr size_t getStorageSize( size_t logical_size )
+		{
+			// For sub-byte packed types use bits_per_element; all other types use size_in_bytes * 8.
+			constexpr size_t bits = []() constexpr {
+				if constexpr ( requires { TensorDataTypeTraits<TDataType>::bits_per_element; } )
+					return TensorDataTypeTraits<TDataType>::bits_per_element;
+				else
+					return TensorDataTypeTraits<TDataType>::size_in_bytes * size_t( 8 );
+				}();
 
-			if (logical_size > std::numeric_limits<size_t>::max() / element_size) {
+			if ( logical_size > (std::numeric_limits<size_t>::max() - 7) / bits )
+			{
 				throw std::overflow_error( "Storage size calculation would overflow." );
 			}
 
-			return logical_size * element_size;
+			return (logical_size * bits + 7) / 8;
 		}
 
 		inline std::string formatBytes( size_t bytes )

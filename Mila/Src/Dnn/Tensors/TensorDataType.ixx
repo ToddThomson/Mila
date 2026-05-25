@@ -38,10 +38,9 @@ namespace Mila::Dnn
         BF16,     ///< 16-bit brain floating point, device-only
         FP8_E4M3, ///< 8-bit floating point with 4-bit exponent and 3-bit mantissa, device-only
         FP8_E5M2, ///< 8-bit floating point with 5-bit exponent and 2-bit mantissa, device-only
+        FP4_E2M1, ///< 4-bit floating point with 2-bit exponent and 1-bit mantissa, packed, device-only
+        FP4_E3M0, ///< 4-bit floating point with 3-bit exponent and 0-bit mantissa, packed, device-only
         
-        // Future packed types (not yet implemented)
-        // FP4_E2M1, ///< 4-bit floating point with 2-bit exponent and 1-bit mantissa, packed - FUTURE
-        // FP4_E3M0, ///< 4-bit floating point with 3-bit exponent and 0-bit mantissa, packed - FUTURE
         // INT4,     ///< 4-bit signed integer, packed - FUTURE
         // UINT4,    ///< 4-bit unsigned integer, packed - FUTURE
         
@@ -65,17 +64,20 @@ namespace Mila::Dnn
             case TensorDataType::BF16: return "BF16";
             case TensorDataType::FP8_E4M3: return "FP8_E4M3";
             case TensorDataType::FP8_E5M2: return "FP8_E5M2";
-                // FUTURE: packed types commented out
-                // case TensorDataType::FP4_E2M1: return "FP4_E2M1";
-                // case TensorDataType::FP4_E3M0: return "FP4_E3M0";
-                // case TensorDataType::INT4: return "INT4";
-                // case TensorDataType::UINT4: return "UINT4";
+            case TensorDataType::FP4_E2M1: return "FP4_E2M1";
+            case TensorDataType::FP4_E3M0: return "FP4_E3M0";
+            
+            // FUTURE: packed types commented out
+            // case TensorDataType::INT4: return "INT4";
+            // case TensorDataType::UINT4: return "UINT4";
+            
             case TensorDataType::INT8: return "INT8";
             case TensorDataType::INT16: return "INT16";
             case TensorDataType::INT32: return "INT32";
             case TensorDataType::UINT8: return "UINT8";
             case TensorDataType::UINT16: return "UINT16";
             case TensorDataType::UINT32: return "UINT32";
+            
             default: return "Unknown";
         }
     };
@@ -92,16 +94,18 @@ namespace Mila::Dnn
             return TensorDataType::FP8_E4M3;
         if (type_str == "FP8_E5M2")
             return TensorDataType::FP8_E5M2;
-        // FUTURE: packed types commented out
-        // if (type_str == "FP4_E2M1")
-        // return TensorDataType::FP4_E2M1;
-        // if (type_str == "FP4_E3M0")
-        // return TensorDataType::FP4_E3M0;
+         if (type_str == "FP4_E2M1")
+             return TensorDataType::FP4_E2M1;
+         if (type_str == "FP4_E3M0")
+             return TensorDataType::FP4_E3M0;
+        
+         // FUTURE: packed types commented out        
         // if (type_str == "INT4")
         // return TensorDataType::INT4;
         // if (type_str == "UINT4")
         // return TensorDataType::UINT4;
-        if (type_str == "INT8")
+        
+         if (type_str == "INT8")
             return TensorDataType::INT8;
         if (type_str == "INT16")
             return TensorDataType::INT16;

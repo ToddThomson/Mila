@@ -682,8 +682,15 @@ namespace Mila::Dnn
             int64_t output_features = config_.getOutputFeatures();
             auto device = this->getExecutionContext()->getDeviceId();
 
+            // Packed nibble formats (INT4, FP4 E2M1) store 2 elements per UINT8 byte,
+            // so the physical column count is input_features/2.
+            // FP8 and unquantized formats store one element per storage byte — full width.
+            const int64_t weight_cols = ( kIsQuantized && !TWeightQuant::kPerChannel )
+                ? input_features / 2
+                : input_features;
+
             weight_ = std::make_shared<WeightTensorType>(
-                device, shape_t{ output_features, input_features }, this->getName() + ".weight" );
+                device, shape_t{ output_features, weight_cols }, this->getName() + ".weight" );
 
             if constexpr ( kIsQuantized )
             {

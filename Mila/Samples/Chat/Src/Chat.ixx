@@ -500,8 +500,13 @@ namespace Mila::ChatApp
                         llama_config.withFP4Quantization();
 
                     if ( config_.precision == ModelPrecision::BF16 )
-                        model_ = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
+                    {
+                        auto llama_bf16 = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
                             config_.model_path, llama_config, device );
+                        std::cout << llama_bf16->toString();
+                        std::cout << llama_bf16->getMemoryStats().toString() << "\n";
+                        model_ = std::move( llama_bf16 );
+                    }
                     else
                         model_ = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>::fromPretrained(
                             config_.model_path, llama_config, device );

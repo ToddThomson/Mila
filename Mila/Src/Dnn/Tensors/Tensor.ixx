@@ -77,14 +77,24 @@ namespace Mila::Dnn
          * @throws std::overflow_error If calculation would overflow
          */
         template<TensorDataType TDataType>
-        constexpr size_t getStorageSize( size_t logical_size ) {
-            constexpr size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
+        constexpr size_t getStorageSize( size_t logical_size )
+        {
+            // REVIEW: Why is this function duplicated here instead of using the one in TensorBuffer?
 
-            if (logical_size > std::numeric_limits<size_t>::max() / element_size) {
+            // For sub-byte packed types use bits_per_element; all other types use size_in_bytes * 8.
+            constexpr size_t bits = []() constexpr {
+                if constexpr ( requires { TensorDataTypeTraits<TDataType>::bits_per_element; } )
+                    return TensorDataTypeTraits<TDataType>::bits_per_element;
+                else
+                    return TensorDataTypeTraits<TDataType>::size_in_bytes * size_t( 8 );
+                }();
+
+            if ( logical_size > (std::numeric_limits<size_t>::max() - 7) / bits )
+            {
                 throw std::overflow_error( "Storage size calculation would overflow." );
             }
 
-            return logical_size * element_size;
+            return (logical_size * bits + 7) / 8;
         }
     }
 
@@ -249,6 +259,9 @@ namespace Mila::Dnn
          */
         size_t elementSize() const override
         {
+            // REVIEW:  How should we handle sub-byte types here by returning bits instead of bytes?
+            // For now we return the size in bytes, and the caller can use getStorageSize() for the actual storage size.
+
             return DataTypeTraits::size_in_bytes;
         }
 
