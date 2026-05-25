@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.25-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
+| In Progress | 0.13.26-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
 | Planned | 0.14.0-alpha.6 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.15.0-alpha.7 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
@@ -81,16 +81,36 @@ on the operation base class. Non-quantized operations are entirely unaware they 
 - [x] `Linear.ixx` — `TWeightQuant = NoWeightQuant` parameter constrained to `WeightQuantPolicy`; `kIsQuantized`, `kWeightDtype` derived from policy; `WeightTensorType` alias; `loadParameter()` delegates to `operation_->quantize()` and `operation_->setWeightScales()` on the quantized path
 - [x] `CudaLinearOp.ixx` — `TWeightQuant` template parameter; `quantize()` and `setWeightScales()` gated on `requires kIsQuantized`; `supportsCuBLASLt()` SM ≥ 8.9 check for FP8; `getComputeTypes()` FP8 branch; FP8 decode matvec kernel (BF16 activation × FP8_E4M3 weight + FP32 scale → BF16 output)
 - [ ] `OperationTraits.Cpu.ixx` — `<Cpu, FP32, NoWeightQuant>` Linear specialization (replaces `LinearOpTypeMap.Cpu.ixx`)
-- [ ] `CudaLinearOp.ixx` — FP8 cuBLASLt prefill plan: `Plans.ixx` mixed-precision descriptor support (`data_type_A` / `data_type_B` split) pending; currently falls back to decode matvec on prefill for the FP8 path
-- [ ] FP8 prefill kernel — `Plans.ixx` update: `build_forward_plan` and `build_strided_plan` with separate `data_type_A` (BF16 activation) and `data_type_B` (FP8_E4M3 weight) parameters for mixed-precision cuBLASLt descriptor
+- [x] `CudaLinearOp.ixx` — FP8 batch prefill path: 2-phase dequantize (`cuda_fp8_dequantize_to_bf16` → BF16 staging buffer) followed by standard BF16×BF16 cuBLASLt NT GEMM; bias added post-GEMM by `cuda_add_bias` to avoid Ada epilogue constraint; staging buffer allocated once in `buildCublasLtPlans()`. Native FP8 cuBLASLt (separate `data_type_A`/`data_type_B` descriptor) deferred — 2-phase is the validated production path.
+- [x] W8A16 fused GEMM A/B test path — `kUseW8A16Gemm` compile-time toggle in `CudaLinearOp`; single kernel reads FP8 weights once, dequantizes per-channel inline in shared memory, accumulates in float32, writes BF16 output; eliminates BF16 staging buffer. Benchmarked: 2–3× slower than 2-phase at target batch sizes (scalar float CUDA cores vs cuBLASLt tensor cores); `kUseW8A16Gemm = false` is the default. Kernel retained as correctness reference; tensor-core WMMA upgrade is the path to a real win.
 
 ### Phase 3 — Llama 3.2 3B Instruct @ FP8
 
-- [ ] `ChatConfig` — add `ModelPrecision::FP8`; enforce `context_length = 2048` as hard cap for FP8 mode
-- [ ] Wire FP8 through `LlamaModel::fromPretrained()` — instantiate `Linear<Cuda, BF16, PerChannelFp8<>>` for all projection layers when `ModelPrecision::FP8`; compile-time only, no runtime config object
-- [ ] Prefill pipeline validated at FP8 — logits match BF16 baseline on identical prompts
+- [x] `ChatConfig` — `QuantizationMode` enum (`None`, `FP8`, `FP4`) orthogonal to `ModelPrecision`; FP8 mode enforces 2048 context-length cap; `QuantizationMode` is the runtime quantization selector, `ModelPrecision` remains the compute-type selector
+- [x] Wire FP8 through `LlamaModel::fromPretrained()` — `WeightQuantization::FP8` dispatches to `fromPretrainedImpl<PerChannelFp8<>, NoKvCompression>`; compile-time only, no runtime config object
+- [x] Prefill pipeline validated at FP8 — 2-phase dequant+cuBLASLt path produces coherent generation on Llama 3.2 3B Instruct; Chat CLI demo confirmed correct; TTFT ~2× faster than W8A16 fused path at target batch sizes
 - [ ] Full-network greedy decode validated token-for-token against BF16 baseline
 - [ ] Tool calling validated end-to-end using structured message pipeline from Alpha.4
+
+### Phase 4 — FP4 E2M1 Weight Quantization (Storage)
+
+FP4 E2M1 (2-exponent, 1-mantissa) weight quantization for a 4× VRAM reduction vs BF16.
+Native FP4 compute requires Blackwell (SM 10.0); this phase is storage-only — weights are
+packed as nibbles (2 per byte) and dequantized to BF16 at inference time on the existing
+W4A16 GEMM path. The per-group float32 scale infrastructure from `PerGroupInt4` carries
+over directly. The dequant step in the tile load changes from INT4 unpacking to E2M1
+decode; all other kernel and dispatch plumbing is reused.
+
+`QuantizationMode::FP4` in `ChatConfig` already maps to `PerGroupInt4<128>`. This phase
+replaces that INT4 backing with true FP4 E2M1 storage for better weight-distribution
+fidelity, while keeping the same kernel path and VRAM footprint.
+
+- [ ] `Dnn/Quantization/Weight/Policies.ixx` — `PerGroupFp4<GroupSize=128>` policy: `kStorageDtype = FP4_E2M1`, `kScaleDtype = Float32`, `kPerChannel = false`, `kQuantizationGroupSize = GroupSize`; satisfies `WeightQuantPolicy` concept; `WeightQuantization::FP4` in `LlamaModelConfig` redirected from `PerGroupInt4` to `PerGroupFp4`
+- [ ] FP4 E2M1 quantization kernel — BF16 → packed FP4 nibbles with per-group absmax scales; `scale[g] = max(|W[g,:]|) / 6.0f` (E2M1 max representable = 6); two FP4 values packed per byte (upper/lower nibble); mirrors `CudaFp8WeightQuantization.cu` structure
+- [ ] W4A16 tile dequant — extend tile load in `CudaW4A16Gemm.cu` with E2M1 decode path: unpack nibble → look up E2M1 value (representable set: `±{0, 0.5, 1, 1.5, 2, 3, 4, 6}`) → multiply by group scale; INT4 and FP4 paths selected via policy tag dispatch
+- [ ] `OperationTraits.Cuda.ixx` — `<Cuda, BF16, PerGroupFp4<128>>` LinearOp specialization
+- [ ] `LlamaModel::fromPretrained()` — `WeightQuantization::FP4` dispatch updated to `PerGroupFp4<128>`
+- [ ] Validated on Llama 3.2 3B Instruct — FP4 E2M1 quantized model produces coherent generation; Chat CLI demo confirmed; VRAM reduction vs FP8 measured
 
 ---
 

@@ -120,6 +120,90 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 row_dst[ i ] = __nv_fp8_e4m3( __bfloat162float( row_src[ i ] ) * inv_scale );
         }
 
+        /**
+         * @brief Pass 1 — find the global absmax of a BF16 weight matrix.
+         *
+         * Grid: (out_features) blocks — one block per output channel.
+         * Block: kBlockSize threads.
+         * Smem:  (kBlockSize / 32) floats for the inter-warp absmax reduction.
+         *
+         * Each block reduces its row to a single per-channel absmax, then performs
+         * an unsigned-integer atomicMax on global_max_bits to fold all channels into
+         * a single global maximum. Positive IEEE 754 floats have the same ordering as
+         * their unsigned bit representations, so atomicMax on float bits is valid here.
+         */
+        __global__ void find_global_absmax_kernel(
+            const __nv_bfloat16* __restrict__ src,
+            unsigned int*        __restrict__ global_max_bits,
+            int                              in_features )
+        {
+            const int channel = static_cast<int>( blockIdx.x );
+            const __nv_bfloat16* row = src + static_cast<int64_t>( channel ) * in_features;
+
+            float local_max = 0.0f;
+            for ( int i = threadIdx.x; i < in_features; i += blockDim.x )
+                local_max = fmaxf( local_max, fabsf( __bfloat162float( row[ i ] ) ) );
+
+            for ( int mask = 16; mask > 0; mask >>= 1 )
+                local_max = fmaxf( local_max, __shfl_xor_sync( 0xffffffff, local_max, mask ) );
+
+            extern __shared__ float smem[];
+
+            const int lane = threadIdx.x & 31;
+            const int warp = threadIdx.x >> 5;
+
+            if ( lane == 0 )
+                smem[ warp ] = local_max;
+
+            __syncthreads();
+
+            const int num_warps = ( blockDim.x + 31 ) >> 5;
+
+            if ( warp == 0 )
+            {
+                local_max = ( lane < num_warps ) ? smem[ lane ] : 0.0f;
+
+                for ( int mask = 16; mask > 0; mask >>= 1 )
+                    local_max = fmaxf( local_max, __shfl_xor_sync( 0xffffffff, local_max, mask ) );
+
+                if ( lane == 0 )
+                    atomicMax( global_max_bits, __float_as_uint( local_max ) );
+            }
+        }
+
+        /**
+         * @brief Pass 2 — quantize BF16→FP8 using the global scale and fill scales[].
+         *
+         * Grid:  (out_features) blocks.
+         * Block: kBlockSize threads.
+         *
+         * Reads global_max_bits (written by find_global_absmax_kernel), derives
+         * global_scale = global_absmax / 448.0f, and:
+         *   - Writes global_scale to scales[channel] (same value for every channel).
+         *   - Converts each row element: dst[channel, i] = FP8_E4M3(src[channel, i] / global_scale).
+         */
+        __global__ void quantize_fp8_global_scale_kernel(
+            const __nv_bfloat16*  __restrict__ src,
+            __nv_fp8_e4m3*        __restrict__ dst,
+            float*                __restrict__ scales,
+            const unsigned int*   __restrict__ global_max_bits,
+            int                               in_features )
+        {
+            const float global_absmax = __uint_as_float( *global_max_bits );
+            const float global_scale  = ( global_absmax > 0.0f ) ? ( global_absmax / kFp8E4M3Max ) : 1.0f;
+            const float inv_scale     = 1.0f / global_scale;
+
+            const int channel = static_cast<int>( blockIdx.x );
+            const __nv_bfloat16* row_src = src + static_cast<int64_t>( channel ) * in_features;
+            __nv_fp8_e4m3*       row_dst = dst + static_cast<int64_t>( channel ) * in_features;
+
+            if ( threadIdx.x == 0 )
+                scales[ channel ] = global_scale;
+
+            for ( int i = threadIdx.x; i < in_features; i += blockDim.x )
+                row_dst[ i ] = __nv_fp8_e4m3( __bfloat162float( row_src[ i ] ) * inv_scale );
+        }
+
     } // anonymous namespace
 
     void cuda_quantize_fp8_per_channel(
@@ -182,6 +266,113 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         }
 
         cudaFree( dev_src );
+    }
+
+    void cuda_quantize_fp8_per_tensor(
+        const void* src_bf16,
+        void*       dst_fp8,
+        float*      dst_scales,
+        int64_t     out_features,
+        int64_t     in_features )
+    {
+        const size_t src_bytes = static_cast<size_t>( out_features * in_features ) * sizeof( __nv_bfloat16 );
+
+        // Upload BF16 source to a temporary device buffer.
+        void* dev_src = nullptr;
+        cudaError_t err = cudaMalloc( &dev_src, src_bytes );
+        if ( err != cudaSuccess )
+        {
+            throw std::runtime_error( std::format(
+                "cuda_quantize_fp8_per_tensor - failed to allocate staging buffer: {}",
+                cudaGetErrorString( err ) ) );
+        }
+
+        err = cudaMemcpy( dev_src, src_bf16, src_bytes, cudaMemcpyHostToDevice );
+        if ( err != cudaSuccess )
+        {
+            cudaFree( dev_src );
+            throw std::runtime_error( std::format(
+                "cuda_quantize_fp8_per_tensor - source upload failed: {}",
+                cudaGetErrorString( err ) ) );
+        }
+
+        // Allocate and zero-initialise the global max accumulator.
+        // Stored as unsigned int for integer atomicMax over IEEE 754 float bits.
+        unsigned int* dev_global_max = nullptr;
+        err = cudaMalloc( &dev_global_max, sizeof( unsigned int ) );
+        if ( err != cudaSuccess )
+        {
+            cudaFree( dev_src );
+            throw std::runtime_error( std::format(
+                "cuda_quantize_fp8_per_tensor - failed to allocate global max buffer: {}",
+                cudaGetErrorString( err ) ) );
+        }
+
+        err = cudaMemset( dev_global_max, 0, sizeof( unsigned int ) );
+        if ( err != cudaSuccess )
+        {
+            cudaFree( dev_src );
+            cudaFree( dev_global_max );
+            throw std::runtime_error( std::format(
+                "cuda_quantize_fp8_per_tensor - failed to zero global max buffer: {}",
+                cudaGetErrorString( err ) ) );
+        }
+
+        const int smem_bytes = ( kBlockSize / 32 ) * static_cast<int>( sizeof( float ) );
+
+        // Pass 1: find global absmax (one block per channel, atomic fold across channels).
+        find_global_absmax_kernel<<<
+            static_cast<unsigned int>( out_features ),
+            kBlockSize,
+            smem_bytes >>>(
+                static_cast<const __nv_bfloat16*>( dev_src ),
+                dev_global_max,
+                static_cast<int>( in_features ) );
+
+        err = cudaGetLastError();
+        if ( err != cudaSuccess )
+        {
+            cudaFree( dev_src );
+            cudaFree( dev_global_max );
+            throw std::runtime_error( std::format(
+                "cuda_quantize_fp8_per_tensor - find_global_absmax_kernel launch failed: {}",
+                cudaGetErrorString( err ) ) );
+        }
+
+        // Pass 2: quantize using global scale and fill scales[].
+        // Kernel 1 and 2 are on the same (default) stream; kernel 2 sees the
+        // fully-reduced global_max because sequential kernel launches are ordered.
+        quantize_fp8_global_scale_kernel<<<
+            static_cast<unsigned int>( out_features ),
+            kBlockSize >>>(
+                static_cast<const __nv_bfloat16*>( dev_src ),
+                static_cast<__nv_fp8_e4m3*>( dst_fp8 ),
+                dst_scales,
+                dev_global_max,
+                static_cast<int>( in_features ) );
+
+        err = cudaGetLastError();
+        if ( err != cudaSuccess )
+        {
+            cudaFree( dev_src );
+            cudaFree( dev_global_max );
+            throw std::runtime_error( std::format(
+                "cuda_quantize_fp8_per_tensor - quantize_fp8_global_scale_kernel launch failed: {}",
+                cudaGetErrorString( err ) ) );
+        }
+
+        err = cudaDeviceSynchronize();
+        if ( err != cudaSuccess )
+        {
+            cudaFree( dev_src );
+            cudaFree( dev_global_max );
+            throw std::runtime_error( std::format(
+                "cuda_quantize_fp8_per_tensor - kernel execution failed: {}",
+                cudaGetErrorString( err ) ) );
+        }
+
+        cudaFree( dev_src );
+        cudaFree( dev_global_max );
     }
 
 } // namespace Mila::Dnn::Compute::Cuda::Linear

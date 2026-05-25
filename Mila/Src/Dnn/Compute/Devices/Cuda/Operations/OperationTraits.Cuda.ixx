@@ -46,11 +46,25 @@ namespace Mila::Dnn::Compute
         using type = CudaLinearOp<TensorDataType::BF16, NoWeightQuant>;
     };
 
-    /// FP8 per-channel quantized BF16 path. Requires SM >= 8.9.
+    /// FP8 per-channel quantized BF16 path. Requires SM >= 8.0 (Ampere+).
     template<>
     struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerChannelFp8<>>
     {
         using type = CudaLinearOp<TensorDataType::BF16, PerChannelFp8<>>;
+    };
+
+    /// INT4 per-group quantized BF16 path. W4A16 fused GEMM, group_size=128. Requires SM >= 8.0.
+    template<>
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerGroupInt4<128>>
+    {
+        using type = CudaLinearOp<TensorDataType::BF16, PerGroupInt4<128>>;
+    };
+
+    /// INT4 per-group quantized BF16 path. W4A16 fused GEMM, group_size=64. Requires SM >= 8.0.
+    template<>
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerGroupInt4<64>>
+    {
+        using type = CudaLinearOp<TensorDataType::BF16, PerGroupInt4<64>>;
     };
 
     // -------------------------------------------------------------------------

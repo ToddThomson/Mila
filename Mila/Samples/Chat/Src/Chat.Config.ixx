@@ -36,7 +36,8 @@ namespace Mila::ChatApp
     export enum class QuantizationMode
     {
         None,  ///< BF16 weights, no KV cache compression — default.
-        FP8    ///< FP8 weights + FP8 KV cache (PerChannelFp8 + PerChannelKvFp8).
+        FP8,   ///< FP8 weights + FP8 KV cache (PerChannelFp8 + PerChannelKvFp8).
+        FP4,   ///< INT4 weights + FP8 KV cache (PerGroupInt4 + PerChannelKvFp8). W4A16 kernel path.
     };
 
     /**

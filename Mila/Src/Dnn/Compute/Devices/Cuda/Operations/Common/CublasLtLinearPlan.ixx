@@ -39,6 +39,7 @@ export module Compute.Cuda.CublasLtLinearPlan;
 import Dnn.TensorDataType;
 import Compute.CudaTensorDataType;
 import Cuda.Error;
+import CublasLt.Error;
 import Logging.Logger;
 
 namespace Mila::Dnn::Compute::Cuda
@@ -47,13 +48,26 @@ namespace Mila::Dnn::Compute::Cuda
      * @brief RAII wrapper owning cuBLASLt descriptors for a Linear matmul.
      *
      * Owns:
-     *   matmul_desc              - operation descriptor (transpose flags, epilogue, bias/scale pointers)
-     *   layoutA, layoutB, layoutC - matrix memory layouts (B may differ from A/C when quantized)
+     *   matmul_desc              - operation descriptor (transpose flags, epilogue, scale pointers)
+     *   layoutA, layoutB, layoutC - matrix memory layouts
      *   preference               - algorithm preference used during heuristic search
      *   algorithm                - selected heuristic algorithm
      *   has_algorithm            - true when heuristic returned a valid algorithm
      *   has_bias_epilogue        - true when CUBLASLT_EPILOGUE_BIAS is active
-     *   has_per_channel_scale    - true when TParameterPrecision != TComputePrecision (FP8 path)
+     *   has_weight_scale         - true when TParameterPrecision != TComputePrecision (FP8 path)
+     *
+     * Layout convention (compile-time, driven by kIsQuantized):
+     *
+     *   Non-quantized (NT row-major):
+     *     A = activations [outer_size × in_features],  opA = N
+     *     B = weights     [out_features × in_features], opB = T
+     *     C = output      [outer_size × out_features]
+     *
+     *   Quantized (TN column-major, Ada SM 8.9+):
+     *     A = weights (FP8) [in_features × out_features], opA = T  → op(A) = W[out_features, in_features]
+     *     B = activations   [in_features × outer_size],   opB = N  → op(B) = X^T[in_features, outer_size]
+     *     C = output        [out_features × outer_size]             (col-major ≡ row-major Y[outer_size, out_features])
+     *     A_SCALE_POINTER = per-tensor weight scale
      *
      * Non-copyable; move-only.
      */
@@ -74,7 +88,7 @@ namespace Mila::Dnn::Compute::Cuda
         cublasLtMatmulAlgo_t       algorithm{};
         bool has_algorithm{ false };
         bool has_bias_epilogue{ false };
-        bool has_per_channel_scale{ kIsQuantized };
+        bool has_weight_scale{ kIsQuantized };  ///< true when a weight scale pointer is needed (FP8 path)
 
         CublasLtLinearPlan() = default;
 
@@ -99,7 +113,7 @@ namespace Mila::Dnn::Compute::Cuda
             , algorithm( other.algorithm )
             , has_algorithm( other.has_algorithm )
             , has_bias_epilogue( other.has_bias_epilogue )
-            , has_per_channel_scale( other.has_per_channel_scale )
+            , has_weight_scale( other.has_weight_scale )
         {
             other.matmul_desc = nullptr;
             other.layoutA = nullptr;
@@ -108,7 +122,7 @@ namespace Mila::Dnn::Compute::Cuda
             other.preference = nullptr;
             other.has_algorithm = false;
             other.has_bias_epilogue = false;
-            other.has_per_channel_scale = false;
+            other.has_weight_scale = false;
         }
 
         CublasLtLinearPlan& operator=( CublasLtLinearPlan&& other ) noexcept
@@ -129,7 +143,7 @@ namespace Mila::Dnn::Compute::Cuda
                 algorithm = other.algorithm;
                 has_algorithm = other.has_algorithm;
                 has_bias_epilogue = other.has_bias_epilogue;
-                has_per_channel_scale = other.has_per_channel_scale;
+                has_weight_scale = other.has_weight_scale;
 
                 other.matmul_desc = nullptr;
                 other.layoutA = nullptr;
@@ -138,7 +152,7 @@ namespace Mila::Dnn::Compute::Cuda
                 other.preference = nullptr;
                 other.has_algorithm = false;
                 other.has_bias_epilogue = false;
-                other.has_per_channel_scale = false;
+                other.has_weight_scale = false;
             }
 
             return *this;
@@ -153,22 +167,32 @@ namespace Mila::Dnn::Compute::Cuda
     /**
      * @brief Build a cuBLASLt plan for a Linear matmul.
      *
-     * Computes:
-     *   C[outer_size, out_features] = A[outer_size, in_features] @ B^T[in_features, out_features]
+     * Layout is selected at compile time based on kIsQuantized:
      *
-     * Row-major layout, opA=N, opB=T, single matmul instance (no strided batch).
+     *   Non-quantized (TComputePrecision == TParameterPrecision):
+     *     NT row-major — A = activations, B = weights, opA=N, opB=T
+     *     C[outer_size, out_features] = A[outer_size, in_features] × B^T[in_features, out_features]
      *
-     * cudaDataType_t values for A, B, C are derived at compile time from the
-     * template parameters via cuda_data_type_v. compute_type and scale_type are
-     * supplied by the caller via CudaLinearOp::getComputeTypes() so that the
-     * active ComputePrecision::Policy is respected.
+     *   Quantized (Ada SM 8.9+, TParameterPrecision = FP8_E4M3):
+     *     TN column-major — A = weights (FP8), B = activations (BF16), opA=T, opB=N
+     *     Exploits the row-major / column-major duality:
+     *       row-major W[N, K] ≡ col-major W^T[K, N]   (same bytes, lda = K)
+     *       row-major X[M, K] ≡ col-major X^T[K, M]   (same bytes, ldb = K)
+     *       op(A) = (W^T)^T = W[N, K],  op(B) = X^T[K, M]
+     *       D = W × X^T = Y^T[N, M] col-major ≡ row-major Y[M, N]  (ldc = N)
+     *     A_SCALE_POINTER = per-tensor weight scale (weight_scales_[0]).
      *
-     * @param outer_size    Row count for A and C (B * T for transformers).
-     * @param in_features   Inner dimension (columns of A, columns of B).
-     * @param out_features  Output dimension (rows of B, columns of C).
-     * @param has_bias      When true, activates CUBLASLT_EPILOGUE_BIAS.
+     * @param outer_size    Token count (M = B * T for transformers).
+     * @param in_features   Inner dimension K.
+     * @param out_features  Output channels N.
+     * @param has_bias      Activates CUBLASLT_EPILOGUE_BIAS (non-quantized path only).
      * @param compute_type  Supplied by CudaLinearOp::getComputeTypes().
-     * @param scale_type    Supplied by CudaLinearOp::getComputeTypes(); always CUDA_R_32F.
+     * @param scale_type    Always CUDA_R_32F.
+     * @param weight_scale  Quantized path only: device pointer to the per-tensor weight scale
+     *                      (weight_scales_[0]). Must be non-null when kIsQuantized because
+     *                      CUBLASLT_MATMUL_DESC_A_SCALE_POINTER must be set in the descriptor
+     *                      *before* cublasLtMatmulAlgoGetHeuristic for FP8 algorithms to be
+     *                      returned. Ignored on the non-quantized path (default nullptr).
      */
     export template<TensorDataType TComputePrecision, TensorDataType TParameterPrecision = TComputePrecision>
         CublasLtLinearPlan<TComputePrecision, TParameterPrecision> build_linear_plan(
@@ -178,16 +202,20 @@ namespace Mila::Dnn::Compute::Cuda
             int out_features,
             bool has_bias,
             cublasComputeType_t compute_type,
-            cudaDataType_t scale_type )
+            cudaDataType_t scale_type,
+            const float* weight_scale = nullptr )
     {
-        constexpr cudaDataType_t data_type_A = cuda_data_type_v<TComputePrecision>;
-        constexpr cudaDataType_t data_type_B = cuda_data_type_v<TParameterPrecision>;
-        constexpr cudaDataType_t data_type_C = cuda_data_type_v<TComputePrecision>;
+        constexpr bool kIsQuantized = (TParameterPrecision != TComputePrecision);
+
+        // Activation type (A non-quantized / B quantized), weight type (B non-quantized / A quantized)
+        constexpr cudaDataType_t data_type_activation = cuda_data_type_v<TComputePrecision>;
+        constexpr cudaDataType_t data_type_weight      = cuda_data_type_v<TParameterPrecision>;
+        constexpr cudaDataType_t data_type_output      = cuda_data_type_v<TComputePrecision>;
 
         CublasLtLinearPlan<TComputePrecision, TParameterPrecision> plan;
-        plan.has_bias_epilogue = has_bias;
+        plan.has_bias_epilogue = has_bias && !kIsQuantized;  // bias is added manually on quantized path
 
-        // --- descriptor ---
+        // --- matmul descriptor ---
         cublasStatus_t status = cublasLtMatmulDescCreate( &plan.matmul_desc, compute_type, scale_type );
         if ( status != CUBLAS_STATUS_SUCCESS )
         {
@@ -195,78 +223,167 @@ namespace Mila::Dnn::Compute::Cuda
             cublasLtCheckStatus( status );
         }
 
-        const cublasOperation_t opA = CUBLAS_OP_N;
-        const cublasOperation_t opB = CUBLAS_OP_T;
-
-        status = cublasLtMatmulDescSetAttribute(
-            plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSA, &opA, sizeof( opA ) );
-        if ( status != CUBLAS_STATUS_SUCCESS )
+        if constexpr ( kIsQuantized )
         {
-            Logging::Logger::error( "Set TRANSA failed: " + std::to_string( status ) );
-            cublasLtCheckStatus( status );
+            // TN column-major: A = weight (FP8, transposed), B = activation (BF16, no-transpose)
+            const cublasOperation_t opA = CUBLAS_OP_T;
+            const cublasOperation_t opB = CUBLAS_OP_N;
+
+            status = cublasLtMatmulDescSetAttribute(
+                plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSA, &opA, sizeof( opA ) );
+            if ( status != CUBLAS_STATUS_SUCCESS )
+            {
+                Logging::Logger::error( "Set TRANSA failed: " + std::to_string( status ) );
+                cublasLtCheckStatus( status );
+            }
+
+            status = cublasLtMatmulDescSetAttribute(
+                plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSB, &opB, sizeof( opB ) );
+            if ( status != CUBLAS_STATUS_SUCCESS )
+            {
+                Logging::Logger::error( "Set TRANSB failed: " + std::to_string( status ) );
+                cublasLtCheckStatus( status );
+            }
+
+            // Column-major layouts (default order — do not set CUBLASLT_ORDER_ROW).
+            // A = weight:      col-major [K × N], lda = K   (row-major W[N, K] same bytes)
+            // B = activation:  col-major [K × M], ldb = K   (row-major X[M, K] same bytes)
+            // C = output:      col-major [N × M], ldc = N   (row-major Y[M, N] same bytes)
+            status = cublasLtMatrixLayoutCreate(
+                &plan.layoutA, data_type_weight,      in_features,  out_features, in_features );
+            if ( status != CUBLAS_STATUS_SUCCESS )
+            {
+                Logging::Logger::error( "layoutA (weight) create failed: " + std::to_string( status ) );
+                cublasLtCheckStatus( status );
+            }
+
+            status = cublasLtMatrixLayoutCreate(
+                &plan.layoutB, data_type_activation,  in_features,  outer_size,   in_features );
+            if ( status != CUBLAS_STATUS_SUCCESS )
+            {
+                Logging::Logger::error( "layoutB (activation) create failed: " + std::to_string( status ) );
+                cublasLtCheckStatus( status );
+            }
+
+            status = cublasLtMatrixLayoutCreate(
+                &plan.layoutC, data_type_output,      out_features, outer_size,   out_features );
+            if ( status != CUBLAS_STATUS_SUCCESS )
+            {
+                Logging::Logger::error( "layoutC (output) create failed: " + std::to_string( status ) );
+                cublasLtCheckStatus( status );
+            }
+
+            // A_SCALE_POINTER must be set before cublasLtMatmulAlgoGetHeuristic so the
+            // planner can enumerate FP8 tensor-core algorithms. The same pointer is also
+            // re-set at execution time by execute_linear_plan.
+            if ( weight_scale != nullptr )
+            {
+                status = cublasLtMatmulDescSetAttribute(
+                    plan.matmul_desc,
+                    CUBLASLT_MATMUL_DESC_A_SCALE_POINTER,
+                    &weight_scale, sizeof( weight_scale ) );
+                if ( status != CUBLAS_STATUS_SUCCESS )
+                {
+                    Logging::Logger::error( "Set A_SCALE_POINTER failed: " + std::to_string( status ) );
+                    cublasLtCheckStatus( status );
+                }
+            }
+
+            // Fast accumulation enables the FP8 tensor-core algorithm path on Ada.
+            // Without this the heuristic returns no valid algorithms.
+            const int8_t fast_accum = 1;
+            status = cublasLtMatmulDescSetAttribute(
+                plan.matmul_desc,
+                CUBLASLT_MATMUL_DESC_FAST_ACCUM,
+                &fast_accum, sizeof( fast_accum ) );
+            if ( status != CUBLAS_STATUS_SUCCESS )
+            {
+                Logging::Logger::error( "Set FAST_ACCUM failed: " + std::to_string( status ) );
+                cublasLtCheckStatus( status );
+            }
         }
-
-        status = cublasLtMatmulDescSetAttribute(
-            plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSB, &opB, sizeof( opB ) );
-        if ( status != CUBLAS_STATUS_SUCCESS )
+        else
         {
-            Logging::Logger::error( "Set TRANSB failed: " + std::to_string( status ) );
-            cublasLtCheckStatus( status );
-        }
+            // NT row-major: A = activation (no-transpose), B = weight (transposed)
+            const cublasOperation_t opA = CUBLAS_OP_N;
+            const cublasOperation_t opB = CUBLAS_OP_T;
 
-        if ( has_bias )
-        {
-            const int epilogue = CUBLASLT_EPILOGUE_BIAS;
-            cublasLtCheckStatus( cublasLtMatmulDescSetAttribute(
-                plan.matmul_desc, CUBLASLT_MATMUL_DESC_EPILOGUE, &epilogue, sizeof( epilogue ) ) );
-        }
+            status = cublasLtMatmulDescSetAttribute(
+                plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSA, &opA, sizeof( opA ) );
+            if ( status != CUBLAS_STATUS_SUCCESS )
+            {
+                Logging::Logger::error( "Set TRANSA failed: " + std::to_string( status ) );
+                cublasLtCheckStatus( status );
+            }
 
-        // --- layouts ---
-        // A: [outer_size, in_features] - activations, TComputePrecision
-        status = cublasLtMatrixLayoutCreate( &plan.layoutA, data_type_A, outer_size, in_features, in_features );
-        if ( status != CUBLAS_STATUS_SUCCESS )
-        {
-            Logging::Logger::error( "layoutA create failed: " + std::to_string( status ) );
-            cublasLtCheckStatus( status );
-        }
+            status = cublasLtMatmulDescSetAttribute(
+                plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSB, &opB, sizeof( opB ) );
+            if ( status != CUBLAS_STATUS_SUCCESS )
+            {
+                Logging::Logger::error( "Set TRANSB failed: " + std::to_string( status ) );
+                cublasLtCheckStatus( status );
+            }
 
-        // B: [out_features, in_features] - weights, TParameterPrecision (may differ from A)
-        status = cublasLtMatrixLayoutCreate( &plan.layoutB, data_type_B, out_features, in_features, in_features );
-        if ( status != CUBLAS_STATUS_SUCCESS )
-        {
-            Logging::Logger::error( "layoutB create failed: " + std::to_string( status ) );
-            cublasLtCheckStatus( status );
-        }
+            if ( has_bias )
+            {
+                const int epilogue = CUBLASLT_EPILOGUE_BIAS;
+                cublasLtCheckStatus( cublasLtMatmulDescSetAttribute(
+                    plan.matmul_desc, CUBLASLT_MATMUL_DESC_EPILOGUE, &epilogue, sizeof( epilogue ) ) );
+            }
 
-        // C: [outer_size, out_features] - output, TComputePrecision
-        status = cublasLtMatrixLayoutCreate( &plan.layoutC, data_type_C, outer_size, out_features, out_features );
-        if ( status != CUBLAS_STATUS_SUCCESS )
-        {
-            Logging::Logger::error( "layoutC create failed: " + std::to_string( status ) );
-            cublasLtCheckStatus( status );
-        }
+            // Row-major layouts.
+            // A = activation:  [M × K], lda = K
+            // B = weight:      [N × K], ldb = K
+            // C = output:      [M × N], ldc = N
+            status = cublasLtMatrixLayoutCreate(
+                &plan.layoutA, data_type_activation, outer_size,   in_features,  in_features );
+            if ( status != CUBLAS_STATUS_SUCCESS )
+            {
+                Logging::Logger::error( "layoutA (activation) create failed: " + std::to_string( status ) );
+                cublasLtCheckStatus( status );
+            }
 
-        const cublasLtOrder_t order = CUBLASLT_ORDER_ROW;
+            status = cublasLtMatrixLayoutCreate(
+                &plan.layoutB, data_type_weight,     out_features, in_features,  in_features );
+            if ( status != CUBLAS_STATUS_SUCCESS )
+            {
+                Logging::Logger::error( "layoutB (weight) create failed: " + std::to_string( status ) );
+                cublasLtCheckStatus( status );
+            }
 
-        status = cublasLtMatrixLayoutSetAttribute( plan.layoutA, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
-        if ( status != CUBLAS_STATUS_SUCCESS )
-        {
-            Logging::Logger::error( "Set order for A failed: " + std::to_string( status ) );
-            cublasLtCheckStatus( status );
-        }
+            status = cublasLtMatrixLayoutCreate(
+                &plan.layoutC, data_type_output,     outer_size,   out_features, out_features );
+            if ( status != CUBLAS_STATUS_SUCCESS )
+            {
+                Logging::Logger::error( "layoutC (output) create failed: " + std::to_string( status ) );
+                cublasLtCheckStatus( status );
+            }
 
-        status = cublasLtMatrixLayoutSetAttribute( plan.layoutB, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
-        if ( status != CUBLAS_STATUS_SUCCESS )
-        {
-            Logging::Logger::error( "Set order for B failed: " + std::to_string( status ) );
-            cublasLtCheckStatus( status );
-        }
+            const cublasLtOrder_t order = CUBLASLT_ORDER_ROW;
 
-        status = cublasLtMatrixLayoutSetAttribute( plan.layoutC, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
-        if ( status != CUBLAS_STATUS_SUCCESS )
-        {
-            Logging::Logger::error( "Set order for C failed: " + std::to_string( status ) );
-            cublasLtCheckStatus( status );
+            status = cublasLtMatrixLayoutSetAttribute(
+                plan.layoutA, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
+            if ( status != CUBLAS_STATUS_SUCCESS )
+            {
+                Logging::Logger::error( "Set row order for A failed: " + std::to_string( status ) );
+                cublasLtCheckStatus( status );
+            }
+
+            status = cublasLtMatrixLayoutSetAttribute(
+                plan.layoutB, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
+            if ( status != CUBLAS_STATUS_SUCCESS )
+            {
+                Logging::Logger::error( "Set row order for B failed: " + std::to_string( status ) );
+                cublasLtCheckStatus( status );
+            }
+
+            status = cublasLtMatrixLayoutSetAttribute(
+                plan.layoutC, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
+            if ( status != CUBLAS_STATUS_SUCCESS )
+            {
+                Logging::Logger::error( "Set row order for C failed: " + std::to_string( status ) );
+                cublasLtCheckStatus( status );
+            }
         }
 
         // --- heuristic ---
@@ -309,34 +426,41 @@ namespace Mila::Dnn::Compute::Cuda
     /**
      * @brief Execute a previously-built CublasLtLinearPlan.
      *
-     * Computes: C = alpha * op(A) * op(B) + beta * C
-     * with optional bias epilogue and optional per-channel weight scale.
+     * Computes: D = alpha * op(A) * op(B) + beta * C
+     * with optional bias epilogue (non-quantized path) and optional weight scale (FP8 path).
      *
-     * @param A                 Device pointer to activations (TComputePrecision).
-     * @param B                 Device pointer to weights (TParameterPrecision).
-     * @param C                 Device pointer to output (TComputePrecision).
-     * @param bias              Device pointer to bias vector (TComputePrecision).
-     *                          Applied only when plan.has_bias_epilogue is true.
-     * @param per_channel_scale Device pointer to per-channel weight scales (float).
-     *                          Applied only when plan.has_per_channel_scale is true.
-     *                          Set via CUBLASLT_MATMUL_DESC_B_SCALE_POINTER.
-     * @param workspace         Optional device scratch buffer.
-     * @param workspace_size    Size of workspace in bytes.
+     * Pointer semantics match the layout built by build_linear_plan:
+     *   Non-quantized (NT row-major): A = activations, B = weights
+     *   Quantized (TN col-major):     A = weights (FP8), B = activations (BF16)
+     *
+     * Both A and B are passed as const void* to accommodate the pointer-swap between
+     * the two layouts without template type conflicts. Type safety is enforced at the
+     * plan-build level via the layout descriptors.
+     *
+     * @param A             Device pointer to matrix A (see layout note above).
+     * @param B             Device pointer to matrix B (see layout note above).
+     * @param C             Device pointer to output (TComputePrecision).
+     * @param bias          Device pointer to bias vector; used only when has_bias_epilogue.
+     * @param weight_scale  Device pointer to per-tensor weight scale (float);
+     *                      applied as A_SCALE_POINTER when has_weight_scale is true.
+     *                      For the TN path weight_scales_[0] is the global per-tensor scale.
+     * @param workspace     Optional device scratch buffer.
+     * @param workspace_size Size of workspace in bytes.
      */
     export template<TensorDataType TComputePrecision, TensorDataType TParameterPrecision = TComputePrecision>
         void execute_linear_plan(
             cublasLtHandle_t handle,
-            const CublasLtLinearPlan<TComputePrecision, TParameterPrecision>&plan,
+            const CublasLtLinearPlan<TComputePrecision, TParameterPrecision>& plan,
             const float* alpha,
-            const typename CublasLtLinearPlan<TComputePrecision, TParameterPrecision>::ActivationType * A,
-            const typename CublasLtLinearPlan<TComputePrecision, TParameterPrecision>::ParameterType * B,
+            const void*  A,
+            const void*  B,
             const float* beta,
-            typename CublasLtLinearPlan<TComputePrecision, TParameterPrecision>::ActivationType * C,
-            const typename CublasLtLinearPlan<TComputePrecision, TParameterPrecision>::ActivationType * bias,
-            const float* per_channel_scale,
+            typename CublasLtLinearPlan<TComputePrecision, TParameterPrecision>::ActivationType* C,
+            const typename CublasLtLinearPlan<TComputePrecision, TParameterPrecision>::ActivationType* bias,
+            const float* weight_scale,
             cudaStream_t stream,
-            void* workspace = nullptr,
-            size_t workspace_size = 0 )
+            void*   workspace      = nullptr,
+            size_t  workspace_size = 0 )
     {
         if ( !plan.isValid() )
         {
@@ -349,10 +473,12 @@ namespace Mila::Dnn::Compute::Cuda
                 plan.matmul_desc, CUBLASLT_MATMUL_DESC_BIAS_POINTER, &bias, sizeof( bias ) ) );
         }
 
-        if ( plan.has_per_channel_scale && per_channel_scale != nullptr )
+        if ( plan.has_weight_scale && weight_scale != nullptr )
         {
+            // Quantized TN path: A = weights (FP8), so scale goes to A_SCALE_POINTER.
+            // weight_scale points to a device float holding the per-tensor scale value.
             cublasLtCheckStatus( cublasLtMatmulDescSetAttribute(
-                plan.matmul_desc, CUBLASLT_MATMUL_DESC_B_SCALE_POINTER, &per_channel_scale, sizeof( per_channel_scale ) ) );
+                plan.matmul_desc, CUBLASLT_MATMUL_DESC_A_SCALE_POINTER, &weight_scale, sizeof( weight_scale ) ) );
         }
 
         const cublasLtMatmulAlgo_t* algo_ptr = plan.has_algorithm ? &plan.algorithm : nullptr;

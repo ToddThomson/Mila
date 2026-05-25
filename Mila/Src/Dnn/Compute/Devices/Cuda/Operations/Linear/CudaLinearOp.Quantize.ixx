@@ -80,6 +80,51 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 in_features );
         }
 
+        /**
+         * @brief Validate, quantize and upload a BF16 weight blob to FP8_E4M3 with a
+         *        single per-tensor scale — for the Ada (SM 8.9+) cuBLASLt TN path.
+         *
+         * Folds all per-channel scales into one global scale:
+         *   global_scale = max(|W[o, i]|, for all o, i) / 448.0f
+         *
+         * Every slot of scales_out is filled with global_scale so that scales_out[0]
+         * can be passed directly as CUBLASLT_MATMUL_DESC_A_SCALE_POINTER.
+         *
+         * @param blob           Host BF16 weight blob from the model archive.
+         * @param weight_out     Device FP8_E4M3 tensor of shape [out_features, in_features].
+         * @param scales_out     Device float32 tensor of shape [out_features].
+         * @param expected_shape Expected weight shape for validation.
+         *
+         * @throws std::invalid_argument if the blob shape does not match expected_shape.
+         * @throws std::runtime_error    if any CUDA call fails.
+         */
+        export void quantize_fp8_per_tensor(
+            const Mila::Dnn::Serialization::ITensorBlob& blob,
+            Mila::Dnn::ITensor&                          weight_out,
+            Mila::Dnn::ITensor&                          scales_out,
+            const Mila::Dnn::shape_t&                    expected_shape )
+        {
+            const auto& meta = blob.getMetadata();
+
+            if ( meta.shape != expected_shape )
+            {
+                throw std::invalid_argument( std::format(
+                    "quantize_fp8_per_tensor - shape mismatch: expected [{},{}], got [{},{}]",
+                    expected_shape[ 0 ], expected_shape[ 1 ],
+                    meta.shape[ 0 ],     meta.shape[ 1 ] ) );
+            }
+
+            const int64_t out_features = static_cast<int64_t>( expected_shape[ 0 ] );
+            const int64_t in_features  = static_cast<int64_t>( expected_shape[ 1 ] );
+
+            cuda_quantize_fp8_per_tensor(
+                blob.data(),
+                weight_out.rawData(),
+                static_cast<float*>( scales_out.rawData() ),
+                out_features,
+                in_features );
+        }
+
     } // namespace Detail
 
 } // namespace Mila::Dnn::Compute::Cuda::Linear

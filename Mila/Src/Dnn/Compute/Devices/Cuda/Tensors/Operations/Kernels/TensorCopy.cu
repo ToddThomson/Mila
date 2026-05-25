@@ -272,6 +272,14 @@ namespace Mila::Dnn::Compute::Cuda
     template void launch_convert_copy_kernel<__half, uint32_t>( const __half*, uint32_t*, size_t, cudaStream_t );
     template void launch_convert_copy_kernel<uint32_t, __half>( const uint32_t*, __half*, size_t, cudaStream_t );
 
+    // UINT8 conversions — required for PerGroupInt4 packed-weight tensors (UINT8 storage)
+    template void launch_convert_copy_kernel<uint8_t, float>( const uint8_t*, float*, size_t, cudaStream_t );
+    template void launch_convert_copy_kernel<float, uint8_t>( const float*, uint8_t*, size_t, cudaStream_t );
+    template void launch_convert_copy_kernel<uint8_t, __half>( const uint8_t*, __half*, size_t, cudaStream_t );
+    template void launch_convert_copy_kernel<__half, uint8_t>( const __half*, uint8_t*, size_t, cudaStream_t );
+    template void launch_convert_copy_kernel<uint8_t, __nv_bfloat16>( const uint8_t*, __nv_bfloat16*, size_t, cudaStream_t );
+    template void launch_convert_copy_kernel<__nv_bfloat16, uint8_t>( const __nv_bfloat16*, uint8_t*, size_t, cudaStream_t );
+
     // Fast copy kernels (same type)
     template void launch_fast_copy_kernel<float>( const float*, float*, size_t, cudaStream_t );
     template void launch_fast_copy_kernel<__half>( const __half*, __half*, size_t, cudaStream_t );

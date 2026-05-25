@@ -130,8 +130,26 @@ namespace Mila::Dnn
             switch ( model_config.getWeightQuantization() )
             {
                 case WeightQuantization::FP4:
-                    throw std::runtime_error(
-                        "LlamaModel::fromPretrained: FP4 weight quantization is not yet supported" );
+                    // PerGroupInt4<128>: packed INT4 weights, per-group float32 scales,
+                    // optional INT4 zero points. W4A16 kernel path (cuda_w4a16_gemm).
+                    // KV cache compression is not paired with INT4 weights — it is handled
+                    // independently; only None is supported for now.
+                    switch ( model_config.getKvCacheCompression() )
+                    {
+                        case KvCacheCompression::FP8:
+                            // FP8 KV cache with INT4 weights — not yet supported.
+                        case KvCacheCompression::None:
+                            if constexpr ( TPrecision == TensorDataType::BF16 )
+                            {
+                                return fromPretrainedImpl<PerGroupInt4<128>, NoKvCompression>( path, model_config, device_id );
+                            }
+                            else
+                            {
+                                throw std::runtime_error(
+                                    "LlamaModel::fromPretrained: FP4 weight quantization requires BF16 compute precision" );
+                            }
+                    }
+                    break;
 
                 case WeightQuantization::FP8:
                     switch ( model_config.getKvCacheCompression() )

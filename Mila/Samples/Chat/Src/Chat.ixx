@@ -496,6 +496,8 @@ namespace Mila::ChatApp
 
                     if ( config_.quantization_mode == QuantizationMode::FP8 )
                         llama_config.withFP8Quantization();
+                    else if ( config_.quantization_mode == QuantizationMode::FP4 )
+                        llama_config.withFP4Quantization();
 
                     if ( config_.precision == ModelPrecision::BF16 )
                         model_ = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(

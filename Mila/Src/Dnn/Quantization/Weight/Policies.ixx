@@ -53,6 +53,31 @@ namespace Mila::Dnn::Quant::Weight
     };
 
     // -------------------------------------------------------------------------
+    // PerGroupInt4<kGroupSize>
+    //
+    // Per-group INT4 weight quantization (W4A16). Weights are stored as packed
+    // uint8: two INT4 nibbles per byte (low nibble = even column, high nibble =
+    // odd column). One float32 scale and one INT4 zero point per group of
+    // kGroupSize input channels. Supports symmetric quantization (zero_points =
+    // nullptr, implicit zero = 8) and asymmetric (explicit INT4 zero points).
+    //
+    // kGroupSize defaults to 128, matching the most common GPTQ checkpoint format.
+    // 64 is also supported by the cuda_w4a16_gemm kernel.
+    //
+    // kPerChannel = false distinguishes this policy from PerChannelFp8 at
+    // compile time — CudaLinearOp uses kPerChannel as a dispatch discriminator.
+    // -------------------------------------------------------------------------
+    export template<int kGroupSize = 128>
+        struct PerGroupInt4
+    {
+        static constexpr bool            kIsQuantized          = true;
+        static constexpr TensorDataType  kStorageDtype         = TensorDataType::UINT8;  // packed INT4 in uint8 bytes
+        static constexpr TensorDataType  kScaleDtype           = TensorDataType::FP32;
+        static constexpr bool            kPerChannel           = false;  // per-group, not per-channel
+        static constexpr int             kQuantizationGroupSize = kGroupSize;
+    };
+
+    // -------------------------------------------------------------------------
     // WeightQuantPolicy concept
     //
     // Any type satisfying this concept may be used as the TWeightQuant parameter
@@ -77,8 +102,10 @@ namespace Mila::Dnn::Quant::Weight
         } -> std::convertible_to<bool>;
     };
 
-    // Verify both concrete policies satisfy the concept at definition time.
+    // Verify all concrete policies satisfy the concept at definition time.
     static_assert(WeightQuantPolicy<NoWeightQuant>);
     static_assert(WeightQuantPolicy<PerChannelFp8<>>);
+    static_assert(WeightQuantPolicy<PerGroupInt4<>>);
+    static_assert(WeightQuantPolicy<PerGroupInt4<64>>);
 
-}  // namespace Mila::Dnn::Quant::Weight
+}

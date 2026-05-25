@@ -53,8 +53,9 @@ static void printUsage( const char* prog_name )
         << "                    Inferred from model_path if not specified.\n"
         << "  --precision       Weight dtype: fp32 or bf16. Default: bf16.\n"
         << "                    Inferred from model_path if not specified.\n"
-        << "  --quantization    Weight quantization: none or fp8. Default: none.\n"
+        << "  --quantization    Weight quantization: none, fp8, or fp4. Default: none.\n"
         << "                    fp8 enables FP8 weights and FP8 KV cache compression.\n"
+        << "                    fp4 enables INT4 weights (W4A16) and FP8 KV cache compression.\n"
         << "  --tokenizer       Path to the tokenizer file.\n"
         << "  --context-length  Maximum sequence length for inference.\n"
         << "                    Defaults to 1024 for GPT-2, 4096 for Llama.\n"
@@ -141,6 +142,8 @@ static void applyConfigFile(
             quantization_mode = QuantizationMode::None;
         else if ( v == "fp8" )
             quantization_mode = QuantizationMode::FP8;
+        else if ( v == "fp4" )
+            quantization_mode = QuantizationMode::FP4;
     }
 
     if ( !model_path && j.contains( "model_path" ) && j[ "model_path" ].is_string() )
@@ -255,9 +258,11 @@ static ChatConfig parseArgs( int argc, char* argv[] )
                 quantization_mode = QuantizationMode::None;
             else if ( qmode == "fp8" )
                 quantization_mode = QuantizationMode::FP8;
+            else if ( qmode == "fp4" )
+                quantization_mode = QuantizationMode::FP4;
             else
                 throw std::invalid_argument(
-                    std::format( "Unknown --quantization: '{}'. Expected none or fp8.", qmode ) );
+                    std::format( "Unknown --quantization: '{}'. Expected none, fp8, or fp4.", qmode ) );
 
             explicit_quantization = true;
         }

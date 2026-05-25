@@ -14,7 +14,18 @@
       "Bash(Get-ChildItem -Path \"D:\\\\Repos\\\\Mila\\\\Mila\\\\Benchmarks\" -Recurse)",
       "Bash(Select-Object FullName, PSIsContainer)",
       "Bash(Sort-Object FullName)",
-      "Bash(Format-Table -AutoSize)"
+      "Bash(Format-Table -AutoSize)",
+      "WebSearch",
+      "WebFetch(domain:docs.nvidia.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.math.cmu.edu)",
+      "WebFetch(domain:forums.developer.nvidia.com)",
+      "WebFetch(domain:developer.nvidia.com)",
+      "WebFetch(domain:gitlab.com)",
+      "Bash(dir /s /b \"D:\\\\Repos\\\\Mila\\\\*.vcxproj\")",
+      "Bash(Get-ChildItem -Path \"D:\\\\Repos\\\\Mila\" -Recurse -Filter \"*.vcxproj\")",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(find /mnt/d/Repos/Mila -name \"*.vcxproj\" 2>/dev/null | head -20)"
     ]
   }
 }
