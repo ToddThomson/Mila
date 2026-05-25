@@ -687,8 +687,19 @@ namespace Mila::Dnn
 
             if constexpr ( kIsQuantized )
             {
-                weight_scales_ = std::make_unique<WeightScaleTensorType>(
-                    device, shape_t{ output_features }, this->getName() + ".weight.scales" );
+                if constexpr ( TWeightQuant::kPerChannel )
+                {
+                    // Per-channel: one scale per output channel — shape [out_features].
+                    weight_scales_ = std::make_unique<WeightScaleTensorType>(
+                        device, shape_t{ output_features }, this->getName() + ".weight.scales" );
+                }
+                else
+                {
+                    // Per-group: one scale per (output channel, K-group) — shape [out_features, K/group_size].
+                    const int64_t num_groups = input_features / TWeightQuant::kQuantizationGroupSize;
+                    weight_scales_ = std::make_unique<WeightScaleTensorType>(
+                        device, shape_t{ output_features, num_groups }, this->getName() + ".weight.scales" );
+                }
             }
 
             if ( context.shouldInitializeParameters() )

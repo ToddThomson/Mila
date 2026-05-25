@@ -70,11 +70,46 @@ namespace Mila::Dnn::Quant::Weight
     export template<int kGroupSize = 128>
         struct PerGroupInt4
     {
-        static constexpr bool            kIsQuantized          = true;
-        static constexpr TensorDataType  kStorageDtype         = TensorDataType::UINT8;  // packed INT4 in uint8 bytes
-        static constexpr TensorDataType  kScaleDtype           = TensorDataType::FP32;
-        static constexpr bool            kPerChannel           = false;  // per-group, not per-channel
+        static constexpr bool            kIsQuantized           = true;
+        static constexpr TensorDataType  kStorageDtype          = TensorDataType::UINT8;  // packed INT4 in uint8 bytes
+        static constexpr TensorDataType  kScaleDtype            = TensorDataType::FP32;
+        static constexpr bool            kPerChannel            = false;  // per-group, not per-channel
         static constexpr int             kQuantizationGroupSize = kGroupSize;
+        static constexpr bool            kIsFp4E2M1             = false;
+    };
+
+    // -------------------------------------------------------------------------
+    // PerGroupFp4<kGroupSize>
+    //
+    // Per-group FP4 E2M1 weight quantization (W4A16). Weights are stored as
+    // packed uint8: two FP4_E2M1 nibbles per byte (low nibble = even column,
+    // high nibble = odd column). One float32 scale per group of kGroupSize input
+    // channels; scale[g] = max(|W[g,:]|) / 6.0f (6.0 = max E2M1 representable).
+    //
+    // Dequantization per element:
+    //   nibble = low nibble if k even, high nibble if k odd
+    //   W_f32  = fp4_e2m1_lut[nibble] * scale[k / kGroupSize]
+    //
+    // The E2M1 representable positive values (nibbles 0..7):
+    //   {0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0}
+    // Negative values (nibbles 8..15): sign-magnitude mirror.
+    //
+    // No zero-points — sign is encoded directly in the nibble (bit 3).
+    // Symmetric quantization only.
+    //
+    // kGroupSize defaults to 128. VRAM reduction vs BF16: 4x.
+    // Native FP4 compute (Blackwell SM 10.0+) can consume this format directly
+    // when available; the storage layout is forward-compatible.
+    // -------------------------------------------------------------------------
+    export template<int kGroupSize = 128>
+        struct PerGroupFp4
+    {
+        static constexpr bool            kIsQuantized           = true;
+        static constexpr TensorDataType  kStorageDtype          = TensorDataType::UINT8;  // packed FP4 E2M1 in uint8 bytes
+        static constexpr TensorDataType  kScaleDtype            = TensorDataType::FP32;
+        static constexpr bool            kPerChannel            = false;  // per-group, not per-channel
+        static constexpr int             kQuantizationGroupSize = kGroupSize;
+        static constexpr bool            kIsFp4E2M1             = true;
     };
 
     // -------------------------------------------------------------------------
@@ -107,5 +142,7 @@ namespace Mila::Dnn::Quant::Weight
     static_assert(WeightQuantPolicy<PerChannelFp8<>>);
     static_assert(WeightQuantPolicy<PerGroupInt4<>>);
     static_assert(WeightQuantPolicy<PerGroupInt4<64>>);
+    static_assert(WeightQuantPolicy<PerGroupFp4<>>);
+    static_assert(WeightQuantPolicy<PerGroupFp4<64>>);
 
 }

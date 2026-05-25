@@ -69,7 +69,21 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * Inner loop: acc += smem_A[ty][kk] * smem_W[tx][kk]
          *   smem_W[tx][kk] — tx varies across warp — 2-way bank conflict (see file comment).
          */
-        template <int kGroupSize>
+        /**
+         * @brief Decode a 4-bit FP4 E2M1 nibble to float32.
+         *
+         * Nibble layout: bit3=sign, bits[2:1]=exponent, bit0=mantissa.
+         * Positive representable values (nibbles 0-7): {0, 0.5, 1, 1.5, 2, 3, 4, 6}
+         * Negative values (nibbles 8-15): sign-magnitude mirror.
+         */
+        __device__ __forceinline__ float fp4_e2m1_decode( uint8_t nibble )
+        {
+            static constexpr float kLut[8] = { 0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f };
+            const float mag  = kLut[ nibble & 0x7u ];
+            return ( nibble & 0x8u ) ? -mag : mag;
+        }
+
+        template <int kGroupSize, bool kIsFp4E2M1 = false>
         __global__ void fused_w4a16_gemm_kernel(
             __nv_bfloat16* __restrict__       output,
             const __nv_bfloat16* __restrict__ activations,
@@ -115,37 +129,42 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
                 if ( w_row < N && k_w < K )
                 {
-                    // Unpack the INT4 nibble for column k_w.
+                    // Unpack the nibble for column k_w.
                     //   Even k_w: low  nibble (bits [3:0])
                     //   Odd  k_w: high nibble (bits [7:4])
-                    const uint8_t w_byte = weights_packed[ static_cast<int64_t>( w_row ) * half_K + k_w / 2 ];
-                    const float   w_int4 = ( k_w % 2 == 0 )
-                        ? static_cast<float>( w_byte & 0xFu )
-                        : static_cast<float>( w_byte >> 4 );
+                    const uint8_t w_byte   = weights_packed[ static_cast<int64_t>( w_row ) * half_K + k_w / 2 ];
+                    const uint8_t nibble   = ( k_w % 2 == 0 ) ? ( w_byte & 0xFu ) : ( w_byte >> 4 );
 
-                    // Per-group scale: one float32 per kGroupSize columns.
                     const int   group_index = k_w / kGroupSize;
                     const float scale       = scales[ static_cast<int64_t>( w_row ) * num_groups + group_index ];
 
-                    // Per-group zero point: two INT4 zeros packed per byte.
-                    //   Even group_index: low  nibble (bits [3:0])
-                    //   Odd  group_index: high nibble (bits [7:4])
-                    //   nullptr -> symmetric quantization, canonical zero = 8.
-                    float zero;
-                    if ( zero_points != nullptr )
+                    if constexpr ( kIsFp4E2M1 )
                     {
-                        const uint8_t zp_byte = zero_points[
-                            static_cast<int64_t>( w_row ) * half_num_groups + group_index / 2 ];
-                        zero = ( group_index % 2 == 0 )
-                            ? static_cast<float>( zp_byte & 0xFu )
-                            : static_cast<float>( zp_byte >> 4 );
+                        // FP4 E2M1: sign encoded in nibble bit 3, look up float value directly.
+                        // No zero-point — symmetric format.
+                        smem_W[ty][tx] = fp4_e2m1_decode( nibble ) * scale;
                     }
                     else
                     {
-                        zero = 8.0f;  // symmetric: mid-point of [0, 15]
-                    }
+                        // INT4: unsigned nibble in [0, 15], de-bias by zero point.
+                        const float w_int4 = static_cast<float>( nibble );
 
-                    smem_W[ty][tx] = ( w_int4 - zero ) * scale;
+                        float zero;
+                        if ( zero_points != nullptr )
+                        {
+                            const uint8_t zp_byte = zero_points[
+                                static_cast<int64_t>( w_row ) * half_num_groups + group_index / 2 ];
+                            zero = ( group_index % 2 == 0 )
+                                ? static_cast<float>( zp_byte & 0xFu )
+                                : static_cast<float>( zp_byte >> 4 );
+                        }
+                        else
+                        {
+                            zero = 8.0f;  // symmetric: mid-point of [0, 15]
+                        }
+
+                        smem_W[ty][tx] = ( w_int4 - zero ) * scale;
+                    }
                 }
                 else
                 {
@@ -212,6 +231,42 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             default:
                 // Unsupported group_size — caller must validate before dispatch.
+                break;
+        }
+    }
+
+    void cuda_fp4a16_gemm(
+        __nv_bfloat16*       output,
+        const __nv_bfloat16* activations,
+        const uint8_t*       weights_packed,
+        const float*         scales,
+        const __nv_bfloat16* bias,
+        int                  outer_size,
+        int                  in_features,
+        int                  out_features,
+        int                  group_size,
+        cudaStream_t         stream )
+    {
+        const dim3 block( kTileSize, kTileSize );
+        const dim3 grid(
+            ( static_cast<unsigned>( out_features ) + kTileSize - 1u ) / kTileSize,
+            ( static_cast<unsigned>( outer_size    ) + kTileSize - 1u ) / kTileSize );
+
+        switch ( group_size )
+        {
+            case 64:
+                fused_w4a16_gemm_kernel<64, true><<<grid, block, 0, stream>>>(
+                    output, activations, weights_packed, scales, nullptr, bias,
+                    outer_size, out_features, in_features );
+                break;
+
+            case 128:
+                fused_w4a16_gemm_kernel<128, true><<<grid, block, 0, stream>>>(
+                    output, activations, weights_packed, scales, nullptr, bias,
+                    outer_size, out_features, in_features );
+                break;
+
+            default:
                 break;
         }
     }

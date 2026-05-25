@@ -246,13 +246,25 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             ITensor& scales_out,
             const shape_t& expected_shape ) requires kIsQuantized
         {
-            // Per-channel quantization is used on all hardware:
-            //   scale[o] = max(|W[o,:]|) / 448.0f,  W_fp8[o,i] = FP8(W[o,i] / scale[o])
-            //
-            // The per-channel scales are consumed by both paths:
-            //   Single vector — fused matvec applies scales per-channel inline.
-            //   Batch         — fused W8A16 GEMM applies scales per-channel during tile load.
-            Detail::quantize_fp8_per_channel( blob, weight_out, scales_out, expected_shape );
+            if constexpr ( kIsPerChannelQuantized )
+            {
+                // FP8 per-channel: scale[o] = max(|W[o,:]|) / 448.0f
+                Detail::quantize_fp8_per_channel( blob, weight_out, scales_out, expected_shape );
+            }
+            else if constexpr ( kIsPerGroupQuantized && TWeightQuant::kIsFp4E2M1 )
+            {
+                // FP4 E2M1 per-group: scale[n,g] = max(|W[n,g*gs..(g+1)*gs)|) / 6.0f
+                Detail::quantize_fp4_per_group(
+                    blob, weight_out, scales_out, expected_shape,
+                    TWeightQuant::kQuantizationGroupSize );
+            }
+            else
+            {
+                // INT4 per-group: weights must come from a pre-quantized GPTQ checkpoint.
+                // On-the-fly BF16->INT4 quantization is not supported here.
+                static_assert( !sizeof( TWeightQuant ),
+                    "CudaLinearOp::quantize() is not implemented for PerGroupInt4." );
+            }
         }
 
         void setGradients( ITensor* weight_grad, ITensor* bias_grad ) override
@@ -393,17 +405,25 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             {
                 if constexpr ( kIsPerGroupQuantized )
                 {
-                    // INT4 decode path: no dedicated W4A16 matvec yet — use the tiled GEMM
-                    // with M=1. Less optimal than a dedicated decode matvec but fully correct.
-                    cuda_w4a16_gemm(
-                        output_ptr, input_ptr,
-                        weight_,
-                        weight_scales_,
-                        weight_zero_points_,
-                        bias_,
-                        1, cached_in_features_, out_features_,
-                        weight_group_size_,
-                        stream );
+                    if constexpr ( TWeightQuant::kIsFp4E2M1 )
+                    {
+                        // Dedicated FP4 E2M1 decode matvec: all threads useful, warp shuffle
+                        // reduction, one per-group scale per 8-element chunk. ~6x faster than
+                        // the M=1 tiled GEMM for this path.
+                        cuda_matvec_decode_bf16_qfp4(
+                            output_ptr, input_ptr,
+                            weight_, weight_scales_, bias_,
+                            cached_in_features_, out_features_,
+                            weight_group_size_, stream );
+                    }
+                    else
+                    {
+                        cuda_w4a16_gemm(
+                            output_ptr, input_ptr,
+                            weight_, weight_scales_, weight_zero_points_, bias_,
+                            1, cached_in_features_, out_features_,
+                            weight_group_size_, stream );
+                    }
                 }
                 else
                 {
@@ -472,18 +492,35 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 }
                 else if constexpr ( kIsPerGroupQuantized )
                 {
-                    // INT4 W4A16 fused GEMM: packed INT4 weights are loaded and dequantized
-                    // per-group inline in shared memory. Bias is added inside the kernel.
-                    cuda_w4a16_gemm(
-                        output_ptr,
-                        input_ptr,
-                        weight_,
-                        weight_scales_,
-                        weight_zero_points_,
-                        bias_,
-                        outer_size, cached_in_features_, out_features_,
-                        weight_group_size_,
-                        stream );
+                    if constexpr ( TWeightQuant::kIsFp4E2M1 )
+                    {
+                        // FP4 E2M1 W4A16 fused GEMM: packed FP4 nibbles dequantized per-group
+                        // inline via E2M1 lookup. No zero-points — sign is in the nibble.
+                        cuda_fp4a16_gemm(
+                            output_ptr,
+                            input_ptr,
+                            weight_,
+                            weight_scales_,
+                            bias_,
+                            outer_size, cached_in_features_, out_features_,
+                            weight_group_size_,
+                            stream );
+                    }
+                    else
+                    {
+                        // INT4 W4A16 fused GEMM: packed INT4 weights dequantized per-group
+                        // inline. Optional asymmetric zero-points via weight_zero_points_.
+                        cuda_w4a16_gemm(
+                            output_ptr,
+                            input_ptr,
+                            weight_,
+                            weight_scales_,
+                            weight_zero_points_,
+                            bias_,
+                            outer_size, cached_in_features_, out_features_,
+                            weight_group_size_,
+                            stream );
+                    }
                 }
                 else
                 {
@@ -529,19 +566,28 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             }
             else if constexpr ( kIsPerGroupQuantized )
             {
-                // Fallback: drive the tiled GEMM one row at a time.
+                // Fallback: drive the matvec / tiled GEMM one row at a time.
                 for ( int t = 0; t < outer_size; ++t )
                 {
-                    cuda_w4a16_gemm(
-                        output_ptr + static_cast<ptrdiff_t>(t) * out_features_,
-                        input_ptr  + static_cast<ptrdiff_t>(t) * cached_in_features_,
-                        weight_,
-                        weight_scales_,
-                        weight_zero_points_,
-                        bias_,
-                        1, cached_in_features_, out_features_,
-                        weight_group_size_,
-                        stream );
+                    const auto* in_row  = input_ptr  + static_cast<ptrdiff_t>(t) * cached_in_features_;
+                    auto*       out_row = output_ptr + static_cast<ptrdiff_t>(t) * out_features_;
+
+                    if constexpr ( TWeightQuant::kIsFp4E2M1 )
+                    {
+                        cuda_matvec_decode_bf16_qfp4(
+                            out_row, in_row,
+                            weight_, weight_scales_, bias_,
+                            cached_in_features_, out_features_,
+                            weight_group_size_, stream );
+                    }
+                    else
+                    {
+                        cuda_w4a16_gemm(
+                            out_row, in_row,
+                            weight_, weight_scales_, weight_zero_points_, bias_,
+                            1, cached_in_features_, out_features_,
+                            weight_group_size_, stream );
+                    }
                 }
 
                 return;

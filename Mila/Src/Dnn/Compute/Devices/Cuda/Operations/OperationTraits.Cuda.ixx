@@ -67,6 +67,20 @@ namespace Mila::Dnn::Compute
         using type = CudaLinearOp<TensorDataType::BF16, PerGroupInt4<64>>;
     };
 
+    /// FP4 E2M1 per-group quantized BF16 path. W4A16 fused GEMM with E2M1 decode, group_size=128. Requires SM >= 8.0.
+    template<>
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerGroupFp4<128>>
+    {
+        using type = CudaLinearOp<TensorDataType::BF16, PerGroupFp4<128>>;
+    };
+
+    /// FP4 E2M1 per-group quantized BF16 path. W4A16 fused GEMM with E2M1 decode, group_size=64. Requires SM >= 8.0.
+    template<>
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, PerGroupFp4<64>>
+    {
+        using type = CudaLinearOp<TensorDataType::BF16, PerGroupFp4<64>>;
+    };
+
     // -------------------------------------------------------------------------
     // GroupedQueryAttentionOp — CUDA specializations
     //

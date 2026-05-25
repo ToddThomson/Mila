@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.26-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
+| In Progress | 0.13.27-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
 | Planned | 0.14.0-alpha.6 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.15.0-alpha.7 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
@@ -105,12 +105,13 @@ decode; all other kernel and dispatch plumbing is reused.
 replaces that INT4 backing with true FP4 E2M1 storage for better weight-distribution
 fidelity, while keeping the same kernel path and VRAM footprint.
 
-- [ ] `Dnn/Quantization/Weight/Policies.ixx` — `PerGroupFp4<GroupSize=128>` policy: `kStorageDtype = FP4_E2M1`, `kScaleDtype = Float32`, `kPerChannel = false`, `kQuantizationGroupSize = GroupSize`; satisfies `WeightQuantPolicy` concept; `WeightQuantization::FP4` in `LlamaModelConfig` redirected from `PerGroupInt4` to `PerGroupFp4`
-- [ ] FP4 E2M1 quantization kernel — BF16 → packed FP4 nibbles with per-group absmax scales; `scale[g] = max(|W[g,:]|) / 6.0f` (E2M1 max representable = 6); two FP4 values packed per byte (upper/lower nibble); mirrors `CudaFp8WeightQuantization.cu` structure
-- [ ] W4A16 tile dequant — extend tile load in `CudaW4A16Gemm.cu` with E2M1 decode path: unpack nibble → look up E2M1 value (representable set: `±{0, 0.5, 1, 1.5, 2, 3, 4, 6}`) → multiply by group scale; INT4 and FP4 paths selected via policy tag dispatch
-- [ ] `OperationTraits.Cuda.ixx` — `<Cuda, BF16, PerGroupFp4<128>>` LinearOp specialization
-- [ ] `LlamaModel::fromPretrained()` — `WeightQuantization::FP4` dispatch updated to `PerGroupFp4<128>`
-- [ ] Validated on Llama 3.2 3B Instruct — FP4 E2M1 quantized model produces coherent generation; Chat CLI demo confirmed; VRAM reduction vs FP8 measured
+- [x] `Dnn/Quantization/Weight/Policies.ixx` — `PerGroupFp4<GroupSize=128>` policy: `kStorageDtype = UINT8`, `kScaleDtype = Float32`, `kPerChannel = false`, `kQuantizationGroupSize = GroupSize`, `kIsFp4E2M1 = true`; satisfies `WeightQuantPolicy` concept; `PerGroupInt4` updated with `kIsFp4E2M1 = false` for dispatch disambiguation; `PerGroupFp4<64>` variant added; both verified with `static_assert`
+- [x] FP4 E2M1 quantization kernel — `CudaFp4WeightQuantization.cu`; BF16 → packed FP4 nibbles with per-group absmax scales; `scale[n,g] = max(|W[n,g*gs..(g+1)*gs)|) / 6.0f`; two FP4 nibbles per byte (low=even col, high=odd col); grid `(K/group_size, N)`; phase 1 parallel absmax reduction, phase 2 E2M1 encode + nibble packing; `quantize_fp4_per_group()` bridge function in `CudaLinearOp.Quantize.ixx`
+- [x] W4A16 tile dequant — `fused_w4a16_gemm_kernel` extended with `kIsFp4E2M1` template bool; `if constexpr (kIsFp4E2M1)` branch: unpack nibble → `fp4_e2m1_decode()` LUT lookup (`±{0, 0.5, 1, 1.5, 2, 3, 4, 6}`) → multiply by group scale; `cuda_fp4a16_gemm()` host function dispatches `<G, true>` instantiation; `Linear.ixx` scale allocation corrected to 2D `[N, K/group_size]` for all per-group paths
+- [x] `OperationTraits.Cuda.ixx` — `<Cuda, BF16, PerGroupFp4<128>>` and `<Cuda, BF16, PerGroupFp4<64>>` LinearOp specializations added
+- [x] `LlamaModel::fromPretrained()` — `WeightQuantization::FP4` dispatch updated from `PerGroupInt4<128>` to `PerGroupFp4<128>`
+- [x] Validated on Llama 3.2 3B Instruct — FP4 E2M1 quantized model produces coherent generation; Chat CLI demo confirmed; FP4 weights are 2× smaller than FP8 weights (4-bit vs 8-bit storage)
+- [x] FP4 E2M1 decode matvec — dedicated `matvec_decode_bf16_qfp4_kernel<kGroupSize>` in `CudaMatVecBias.Bf16.cu` for the outer_size==1 decode path; 32 threads per output channel, 8 nibbles (4 packed bytes) per iteration, one per-group scale per 8-element chunk (guaranteed by `kGroupSize % 8 == 0`), warp shuffle reduction; replaces M=1 tiled GEMM fallback; 44–48 tok/s measured vs 6–7 tok/s with the tiled GEMM (~7× improvement)
 
 ---
 

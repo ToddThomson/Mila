@@ -181,7 +181,7 @@ static ChatConfig parseArgs( int argc, char* argv[] )
     std::optional<std::size_t> max_new_tokens;
     std::optional<float> temperature;
     std::optional<int> top_k;
-    QuantizationMode quantization_mode = QuantizationMode::FP8; // DEBUG: Set to FP8 to test linear compression, but default is None
+    QuantizationMode quantization_mode = QuantizationMode::FP4; // DEBUG: Set to FP8 to test linear compression, but default is None
     bool explicit_type         = false;
     bool explicit_size         = false;
     bool explicit_precision    = false;

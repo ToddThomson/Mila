@@ -22,6 +22,7 @@ module;
 #include <stdexcept>
 #include <format>
 #include "Kernels/Quantization/CudaFp8WeightQuantization.cuh"
+#include "Kernels/Quantization/CudaFp4WeightQuantization.cuh"
 
 export module Compute.CudaLinearOp:Quantize;
 
@@ -123,6 +124,54 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 static_cast<float*>( scales_out.rawData() ),
                 out_features,
                 in_features );
+        }
+
+        /**
+         * @brief Validate, quantize and upload a BF16 weight blob to packed FP4_E2M1
+         *        with per-group float32 scales.
+         *
+         * For each output channel and each group of group_size input channels:
+         *   scale[n, g] = max(|W[n, g*gs..(g+1)*gs)|) / 6.0f
+         *   packed[n, k/2] = fp4_e2m1(W[n,k]/scale) nibble-packed (low=even, high=odd)
+         *
+         * This function is the non-template CL.EXE/NVCC boundary crossing point for
+         * the FP4 quantize-on-load path. CudaLinearOp::quantize() (template body,
+         * CL.EXE) passes the compile-time group_size as a runtime int; this function
+         * dispatches to the correct NVCC-compiled kernel instantiation.
+         *
+         * @param blob           Host BF16 weight blob [out_features, in_features].
+         * @param weight_out     Device UINT8 tensor [out_features, in_features/2].
+         * @param scales_out     Device FP32 tensor [out_features, in_features/group_size].
+         * @param expected_shape Expected weight shape [out_features, in_features].
+         * @param group_size     Quantization group size (64 or 128).
+         */
+        export void quantize_fp4_per_group(
+            const Mila::Dnn::Serialization::ITensorBlob& blob,
+            Mila::Dnn::ITensor&                          weight_out,
+            Mila::Dnn::ITensor&                          scales_out,
+            const Mila::Dnn::shape_t&                    expected_shape,
+            int                                          group_size )
+        {
+            const auto& meta = blob.getMetadata();
+
+            if ( meta.shape != expected_shape )
+            {
+                throw std::invalid_argument( std::format(
+                    "quantize_fp4_per_group - shape mismatch: expected [{},{}], got [{},{}]",
+                    expected_shape[ 0 ], expected_shape[ 1 ],
+                    meta.shape[ 0 ],     meta.shape[ 1 ] ) );
+            }
+
+            const int64_t out_features = static_cast<int64_t>( expected_shape[ 0 ] );
+            const int64_t in_features  = static_cast<int64_t>( expected_shape[ 1 ] );
+
+            cuda_quantize_fp4_per_group(
+                blob.data(),
+                weight_out.rawData(),
+                static_cast<float*>( scales_out.rawData() ),
+                out_features,
+                in_features,
+                group_size );
         }
 
     } // namespace Detail

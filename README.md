@@ -56,10 +56,13 @@ matters. Vectorized memory access throughout — float4 for FP32, uint4 for BF16
 **Precision is deliberate.** BF16 is the primary reduced-precision compute target — it
 matches FP32's exponent range, avoiding overflow and underflow without loss scaling, with
 native Tensor Core support on Ada Lovelace and newer. FP16 is not a Mila target; BF16
-supersedes it for all current use cases. FP8 quantization is applied at model load time
-as a weight compression strategy: weights are quantized from BF16 to FP8_E4M3 inside the
-`Linear` component via a compile-time `TWeightQuant` policy, enabling 8B-class models
-to run within a 12 GB VRAM budget.
+supersedes it for all current use cases. Weight quantization is applied at model load time
+as a pure compile-time decision via a `TWeightQuant` policy on `Linear` — no runtime
+dispatch, no quantized checkpoint format. FP8 (`PerChannelFp8<>`) enables 8B-class models
+within a 12 GB VRAM budget via per-channel BF16→FP8_E4M3 quantization with cuBLASLt
+mixed-precision GEMM. FP4 E2M1 (`PerGroupFp4<>`) halves weight storage again — packed
+nibbles dequantized per-group inline at inference time, forward-compatible with Blackwell
+native FP4 compute when it becomes available.
 
 ---
 
@@ -90,9 +93,12 @@ Delivers the structured message and tool calling infrastructure in the Chat appl
 layer. No model architecture changes required.
 
 **Alpha.5 — In Progress**
-FP8 load-time quantization pipeline, validated on Llama 3.2 3B Instruct. Weights are
-quantized from BF16 to FP8_E4M3 inside `Linear` at model load time. The existing BF16
-baseline provides the correctness reference for FP8 validation.
+FP8 and FP4 E2M1 load-time weight quantization, validated on Llama 3.2 3B Instruct.
+Weights are quantized from BF16 at model load time inside `Linear` via a compile-time
+`TWeightQuant` policy — no quantized checkpoint format required. FP8 uses per-channel
+absmax scaling with cuBLASLt mixed-precision GEMM; FP4 E2M1 uses per-group absmax scaling
+with a dedicated decode matvec kernel (44–48 tok/s on Llama 3.2 3B). Both paths are
+validated on the existing BF16 baseline.
 
 **Alpha.6 — Planned**
 Qwen 3 transformer architecture with thinking mode and model-agnostic tool calling,
@@ -110,6 +116,8 @@ See [ROADMAP.md](ROADMAP.md) for the full task breakdown.
 | GPT-2 inference — greedy and sampled | Validated against HuggingFace |
 | Llama 3.2 1B inference — greedy decode at FP32 | Validated against HuggingFace |
 | Llama 3.2 3B inference — greedy decode at BF16 | Validated against HuggingFace |
+| Llama 3.2 3B inference — FP8 E4M3 per-channel quantization | Validated — coherent generation, ~41 tok/s decode |
+| Llama 3.2 3B inference — FP4 E2M1 per-group quantization | Validated — coherent generation, 44–48 tok/s decode |
 | Two-phase KV-cache — prefill + decode | Complete |
 | HuggingFace GPT-2 weight converter | Complete |
 | HuggingFace Llama weight converter | Complete |

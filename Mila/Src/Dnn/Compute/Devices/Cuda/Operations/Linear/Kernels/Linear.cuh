@@ -4,6 +4,7 @@
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
 #include <cuda_fp8.h>
+#include <cstdint>
 
 namespace Mila::Dnn::Compute::Cuda::Linear
 {
@@ -54,6 +55,30 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         int C,
         int OC,
         cudaStream_t stream );
+
+    /**
+     * @brief BF16 activation x FP4-E2M1 weight decode-path matvec with per-group dequantization.
+     *
+     * Computes y[oc] = sum_c( x[c] * fp4_decode(W[oc,c]) * scale[oc, c/group_size] ) + bias[oc].
+     * Weights are stored as packed FP4-E2M1 nibbles (2 per byte: low=even col, high=odd col).
+     * Scales are float32 [OC, C/group_size] — one scale per group along K.
+     *
+     * Requires C % 8 == 0. group_size must be 64 or 128.
+     *
+     * @param weights_packed  Device uint8 packed FP4 weights [OC x C/2].
+     * @param scales          Device float32 per-group scales [OC x C/group_size].
+     * @param group_size      Quantization group size along C (64 or 128).
+     */
+    void cuda_matvec_decode_bf16_qfp4(
+        __nv_bfloat16*       y,
+        const __nv_bfloat16* x,
+        const uint8_t*       weights_packed,
+        const float*         scales,
+        const __nv_bfloat16* bias,
+        int                  C,
+        int                  OC,
+        int                  group_size,
+        cudaStream_t         stream );
 
     // TODO: Enable these functions when implemented
     //void cuda_reduce_sum_batch_fp16(

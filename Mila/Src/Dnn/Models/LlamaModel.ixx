@@ -130,18 +130,17 @@ namespace Mila::Dnn
             switch ( model_config.getWeightQuantization() )
             {
                 case WeightQuantization::FP4:
-                    // PerGroupInt4<128>: packed INT4 weights, per-group float32 scales,
-                    // optional INT4 zero points. W4A16 kernel path (cuda_w4a16_gemm).
-                    // KV cache compression is not paired with INT4 weights — it is handled
-                    // independently; only None is supported for now.
+                    // PerGroupFp4<128>: BF16 weights quantized on-load to packed FP4 E2M1 nibbles
+                    // with per-group float32 scales. W4A16 kernel with E2M1 decode inline.
+                    // KV cache compression is not yet paired with FP4 weights.
                     switch ( model_config.getKvCacheCompression() )
                     {
                         case KvCacheCompression::FP8:
-                            // FP8 KV cache with INT4 weights — not yet supported.
+                            // FP8 KV cache with FP4 weights — not yet supported.
                         case KvCacheCompression::None:
                             if constexpr ( TPrecision == TensorDataType::BF16 )
                             {
-                                return fromPretrainedImpl<PerGroupInt4<128>, NoKvCompression>( path, model_config, device_id );
+                                return fromPretrainedImpl<PerGroupFp4<128>, NoKvCompression>( path, model_config, device_id );
                             }
                             else
                             {

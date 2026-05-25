@@ -82,4 +82,49 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         int                  group_size,
         cudaStream_t         stream );
 
+    /**
+     * @brief Fused per-group FP4_E2M1 W4A16 GEMM.
+     *
+     * Identical tiled GEMM structure to cuda_w4a16_gemm but uses FP4 E2M1 nibble
+     * decode instead of INT4 arithmetic during the tile load. No zero-points —
+     * sign is encoded directly in the nibble (bit 3).
+     *
+     * Dequantization per element:
+     *   nibble  = low nibble if k even, high nibble if k odd
+     *   W_f32   = fp4_e2m1_lut[nibble] * scales[n, k/group_size]
+     *
+     * FP4 E2M1 representable values (nibble → float):
+     *   0→0.0, 1→0.5, 2→1.0, 3→1.5, 4→2.0, 5→3.0, 6→4.0, 7→6.0
+     *   8→−0.0, 9→−0.5, 10→−1.0, 11→−1.5, 12→−2.0, 13→−3.0, 14→−4.0, 15→−6.0
+     *
+     * Layout (all row-major):
+     *   activations    : [outer_size x in_features]              BF16
+     *   weights_packed : [out_features x in_features/2]          uint8  (2 FP4 per byte)
+     *   scales         : [out_features x in_features/group_size] float32
+     *   bias           : [out_features]                          BF16 (optional, nullptr ok)
+     *   output         : [outer_size x out_features]             BF16
+     *
+     * @param output         Device BF16 output [outer_size x out_features].
+     * @param activations    Device BF16 activations [outer_size x in_features].
+     * @param weights_packed Device uint8 packed FP4 weights [out_features x in_features/2].
+     * @param scales         Device float32 per-group scales [out_features x in_features/group_size].
+     * @param bias           Device BF16 bias [out_features], or nullptr.
+     * @param outer_size     M — number of input/output rows.
+     * @param in_features    K — inner dimension (must be divisible by group_size).
+     * @param out_features   N — number of output channels.
+     * @param group_size     Quantization group size along K (64 or 128).
+     * @param stream         CUDA stream.
+     */
+    void cuda_fp4a16_gemm(
+        __nv_bfloat16*       output,
+        const __nv_bfloat16* activations,
+        const uint8_t*       weights_packed,
+        const float*         scales,
+        const __nv_bfloat16* bias,
+        int                  outer_size,
+        int                  in_features,
+        int                  out_features,
+        int                  group_size,
+        cudaStream_t         stream );
+
 } // namespace Mila::Dnn::Compute::Cuda::Linear
