@@ -31,7 +31,8 @@ static std::filesystem::path gpt2_weights_path()
 
 static std::filesystem::path llama_weights_path( ModelSize size, ModelPrecision precision )
 {
-    const char* size_str = (size == ModelSize::B1) ? "1b" : "3b";
+    const char* size_str = (size == ModelSize::B1) ? "1b"
+                         : (size == ModelSize::B8) ? "8b" : "3b";
     const char* prec_str = (precision == ModelPrecision::BF16) ? "bf16" : "fp32";
 
     return std::filesystem::path( MODELS_DIR ) / "llama"
@@ -42,17 +43,19 @@ static void printUsage( const char* prog_name )
 {
     std::cerr
         << "Usage: " << prog_name
-        << " [--config <path>] [--model-type gpt|llama] [--model-size 1b|3b]\n"
-        << "       [--precision fp32|bf16] [--tokenizer <path>]\n"
-        << "       [--context-length <n>] [--system-prompt <path>] [model_path]\n"
+        << " [--config <path>] [--model <alias>] [--quantization none|fp8|fp4]\n"
+        << "       [--tokenizer <path>] [--context-length <n>]\n"
+        << "       [--system-prompt <path>] [model_path]\n"
         << "\n"
         << "  --config          JSON session config file. CLI args override file values.\n"
-        << "  --model-type      Model architecture: gpt or llama. Default: llama.\n"
-        << "                    Inferred from model_path if not specified.\n"
-        << "  --model-size      Llama parameter count: 1b or 3b. Default: 3b.\n"
-        << "                    Inferred from model_path if not specified.\n"
-        << "  --precision       Weight dtype: fp32 or bf16. Default: bf16.\n"
-        << "                    Inferred from model_path if not specified.\n"
+        << "  --model           Model alias (recommended). Available aliases:\n"
+        << "                      gpt2          GPT-2 small, FP32\n"
+        << "                      llama-1b      Llama 3.2 1B Instruct, BF16\n"
+        << "                      llama-3b      Llama 3.2 3B Instruct, BF16  (default)\n"
+        << "                      llama-8b      Llama 3.1 8B Instruct, BF16\n"
+        << "                      llama-1b-fp32 Llama 3.2 1B Instruct, FP32\n"
+        << "                      llama-3b-fp32 Llama 3.2 3B Instruct, FP32\n"
+        << "                      llama-8b-fp32 Llama 3.1 8B Instruct, FP32\n"
         << "  --quantization    Weight quantization: none, fp8, or fp4. Default: none.\n"
         << "                    fp8 enables FP8 weights and FP8 KV cache compression.\n"
         << "                    fp4 enables INT4 weights (W4A16) and FP8 KV cache compression.\n"
@@ -61,7 +64,62 @@ static void printUsage( const char* prog_name )
         << "                    Defaults to 1024 for GPT-2, 4096 for Llama.\n"
         << "                    Reduce to lower GPU memory usage.\n"
         << "  --system-prompt   JSON file with system_prompt string and optional tools array.\n"
-        << "  model_path        Path to the pretrained weights file.\n";
+        << "  model_path        Path to the pretrained weights file (overrides --model path).\n"
+        << "\n"
+        << "Advanced (use when model_path is provided without --model):\n"
+        << "  --model-type      gpt or llama. Inferred from model_path if not specified.\n"
+        << "  --model-size      1b or 3b.     Inferred from model_path if not specified.\n"
+        << "  --precision       fp32 or bf16. Inferred from model_path if not specified.\n";
+}
+
+/**
+ * @brief Resolve a short model alias to type/size/precision/is_instruct fields.
+ *
+ * Sets the four output fields and marks all four explicit flags true on success.
+ * Returns false (and leaves all outputs unchanged) for an unrecognised alias.
+ */
+static bool resolveModelAlias(
+    const std::string& alias,
+    ModelType& type,      bool& explicit_type,
+    ModelSize& size,      bool& explicit_size,
+    ModelPrecision& prec, bool& explicit_prec,
+    bool& is_instruct,    bool& explicit_instruct )
+{
+    if ( alias == "gpt2" )
+    {
+        type = ModelType::Gpt;   size = ModelSize::B3; prec = ModelPrecision::FP32; is_instruct = false;
+    }
+    else if ( alias == "llama-1b" )
+    {
+        type = ModelType::Llama; size = ModelSize::B1; prec = ModelPrecision::BF16; is_instruct = true;
+    }
+    else if ( alias == "llama-3b" )
+    {
+        type = ModelType::Llama; size = ModelSize::B3; prec = ModelPrecision::BF16; is_instruct = true;
+    }
+    else if ( alias == "llama-8b" )
+    {
+        type = ModelType::Llama; size = ModelSize::B8; prec = ModelPrecision::BF16; is_instruct = true;
+    }
+    else if ( alias == "llama-1b-fp32" )
+    {
+        type = ModelType::Llama; size = ModelSize::B1; prec = ModelPrecision::FP32; is_instruct = true;
+    }
+    else if ( alias == "llama-3b-fp32" )
+    {
+        type = ModelType::Llama; size = ModelSize::B3; prec = ModelPrecision::FP32; is_instruct = true;
+    }
+    else if ( alias == "llama-8b-fp32" )
+    {
+        type = ModelType::Llama; size = ModelSize::B8; prec = ModelPrecision::FP32; is_instruct = true;
+    }
+    else
+    {
+        return false;
+    }
+
+    explicit_type = explicit_size = explicit_prec = explicit_instruct = true;
+    return true;
 }
 
 /**
@@ -76,6 +134,7 @@ static void applyConfigFile(
     ModelSize& model_size, bool& explicit_size,
     ModelPrecision& precision, bool& explicit_precision,
     QuantizationMode& quantization_mode, bool& explicit_quantization,
+    bool& is_instruct, bool& explicit_instruct,
     std::optional<std::filesystem::path>& model_path,
     std::optional<std::filesystem::path>& tokenizer_path,
     std::optional<std::size_t>& context_length,
@@ -122,6 +181,8 @@ static void applyConfigFile(
             model_size = ModelSize::B1;
         else if ( v == "3b" )
             model_size = ModelSize::B3;
+        else if ( v == "8b" )
+            model_size = ModelSize::B8;
     }
 
     if ( !explicit_precision && j.contains( "precision" ) && j[ "precision" ].is_string() )
@@ -166,6 +227,12 @@ static void applyConfigFile(
 
     if ( !top_k && j.contains( "top_k" ) && j[ "top_k" ].is_number_integer() )
         top_k = j[ "top_k" ].get<int>();
+
+    if ( !explicit_instruct && j.contains( "is_instruct" ) && j[ "is_instruct" ].is_boolean() )
+    {
+        is_instruct = j[ "is_instruct" ].get<bool>();
+        explicit_instruct = true;
+    }
 }
 
 static ChatConfig parseArgs( int argc, char* argv[] )
@@ -181,11 +248,13 @@ static ChatConfig parseArgs( int argc, char* argv[] )
     std::optional<std::size_t> max_new_tokens;
     std::optional<float> temperature;
     std::optional<int> top_k;
-    QuantizationMode quantization_mode = QuantizationMode::FP4; // DEBUG: Set to FP8 to test linear compression, but default is None
+    QuantizationMode quantization_mode = QuantizationMode::None;
+    bool is_instruct           = false;
     bool explicit_type         = false;
     bool explicit_size         = false;
     bool explicit_precision    = false;
     bool explicit_quantization = false;
+    bool explicit_instruct     = false;
 
     // Default config — overridden by --config on the command line.
     std::filesystem::path config_path = "Data/session.json";
@@ -199,6 +268,19 @@ static ChatConfig parseArgs( int argc, char* argv[] )
             if ( i + 1 >= argc )
                 throw std::invalid_argument( "--config requires a value" );
             config_path = argv[ ++i ];
+        }
+        else if ( arg == "--model" )
+        {
+            if ( i + 1 >= argc )
+                throw std::invalid_argument( "--model requires a value" );
+            std::string alias = argv[ ++i ];
+            if ( !resolveModelAlias( alias,
+                     model_type, explicit_type,
+                     model_size, explicit_size,
+                     precision,  explicit_precision,
+                     is_instruct, explicit_instruct ) )
+                throw std::invalid_argument( std::format(
+                    "Unknown --model alias: '{}'. Run with --help to see available aliases.", alias ) );
         }
         else if ( arg == "--model-type" )
         {
@@ -226,9 +308,11 @@ static ChatConfig parseArgs( int argc, char* argv[] )
                 model_size = ModelSize::B1;
             else if ( size == "3b" )
                 model_size = ModelSize::B3;
+            else if ( size == "8b" )
+                model_size = ModelSize::B8;
             else
                 throw std::invalid_argument(
-                    std::format( "Unknown --model-size: '{}'. Expected 1b or 3b.", size ) );
+                    std::format( "Unknown --model-size: '{}'. Expected 1b, 3b, or 8b.", size ) );
 
             explicit_size = true;
         }
@@ -312,6 +396,7 @@ static ChatConfig parseArgs( int argc, char* argv[] )
             model_size, explicit_size,
             precision, explicit_precision,
             quantization_mode, explicit_quantization,
+            is_instruct, explicit_instruct,
             model_path, tokenizer_path,
             context_length, system_prompt_path,
             max_new_tokens, temperature, top_k );
@@ -343,6 +428,14 @@ static ChatConfig parseArgs( int argc, char* argv[] )
             : llama_weights_path( model_size, precision );
     }
 
+    if ( !explicit_instruct )
+    {
+        std::string lower = model_path->string();
+        std::ranges::transform( lower, lower.begin(),
+            []( unsigned char c ) { return static_cast<char>(std::tolower( c )); } );
+        is_instruct = lower.find( "instruct" ) != std::string::npos;
+    }
+
     if ( !tokenizer_path )
     {
         tokenizer_path = (model_type == ModelType::Gpt)
@@ -355,6 +448,8 @@ static ChatConfig parseArgs( int argc, char* argv[] )
     config.model_size         = model_size;
     config.precision          = precision;
     config.quantization_mode  = quantization_mode;
+    config.is_instruct        = is_instruct;
+    config.models_dir         = models_dir;
     config.model_path         = std::move( *model_path );
     config.tokenizer_path     = std::move( *tokenizer_path );
     config.config_path        = config_path;
@@ -427,24 +522,6 @@ int main( int argc, char* argv[] )
         }
 
         Chat chat( std::move( config ) );
-
-        chat.registerTool( "get_weather", []( const std::string& args ) -> std::string {
-            auto j = nlohmann::json::parse( args );
-            std::string location = j.value( "location", "unknown" );
-            std::string units = j.value( "units", "celsius" );
-
-            // Return a structured JSON object matching the tool's parameter schema.
-            // The model's ipython turn was trained on structured data values, not prose;
-            // a flat sentence prevents reliable value extraction on the final summary turn.
-            nlohmann::json result = {
-                { "location",    location },
-                { "temperature", "22" },
-                { "units",       units },
-                { "conditions",  "sunny" }
-            };
-
-            return result.dump();
-            } );
 
         chat.run();
 

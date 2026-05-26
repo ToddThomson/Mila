@@ -24,7 +24,8 @@ namespace Mila::ChatApp
     export enum class ModelSize
     {
         B1,  // 1B parameters (Llama 3.2 1B)
-        B3   // 3B parameters (Llama 3.2 3B)
+        B3,  // 3B parameters (Llama 3.2 3B)
+        B8   // 8B parameters (Llama 3.1 8B)
     };
 
     export enum class ModelPrecision
@@ -86,6 +87,7 @@ namespace Mila::ChatApp
         ModelSize             model_size{ ModelSize::B3 };
         ModelPrecision        precision{ ModelPrecision::BF16 };
         QuantizationMode      quantization_mode{ QuantizationMode::None };
+        bool                  is_instruct{ false };
         std::filesystem::path model_path;
         std::filesystem::path tokenizer_path;
         size_t                max_new_tokens{ 2048 };
@@ -93,6 +95,7 @@ namespace Mila::ChatApp
         int                   top_k{ 40 };
         size_t                context_length{ 0 };
 
+        std::filesystem::path                 models_dir;
         std::optional<std::filesystem::path> config_path;
         std::optional<std::filesystem::path> system_prompt_path;
     };

@@ -25,7 +25,8 @@
       "Bash(dir /s /b \"D:\\\\Repos\\\\Mila\\\\*.vcxproj\")",
       "Bash(Get-ChildItem -Path \"D:\\\\Repos\\\\Mila\" -Recurse -Filter \"*.vcxproj\")",
       "Bash(Select-Object -ExpandProperty FullName)",
-      "Bash(find /mnt/d/Repos/Mila -name \"*.vcxproj\" 2>/dev/null | head -20)"
+      "Bash(find /mnt/d/Repos/Mila -name \"*.vcxproj\" 2>/dev/null | head -20)",
+      "Bash(grep -E \"\\\\.\\(js|ts|py|cpp|cs|h\\)$\")"
     ]
   }
 }

@@ -11,6 +11,7 @@ PUBLIC
 	FILE_SET module_files
        TYPE CXX_MODULES FILES
         "Src/Chat.ixx"
+        "Src/Chat.Renderer.ixx"
 	    "Src/Chat.Config.ixx"
         "Src/Chat.Message.ixx"
         "Src/Chat.MessageFormatter.ixx"

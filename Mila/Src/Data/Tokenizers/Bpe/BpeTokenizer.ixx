@@ -198,8 +198,9 @@ namespace Mila::Data
             const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - start_time).count();
 
-            std::cout << "\nEncoding completed in " << ms << "ms"
-                << " (" << text.size() << " chars -> " << out.size() << " tokens)\n";
+            // TODO: Use Mila logging here
+            //std::cout << "\nEncoding completed in " << ms << "ms"
+            //    << " (" << text.size() << " chars -> " << out.size() << " tokens)\n";
 
             return out;
         }

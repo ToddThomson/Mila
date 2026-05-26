@@ -33,6 +33,7 @@ export import Chat.Message;
 export import Chat.MessageFormatter;
 export import Chat.SystemPrompt;
 export import Chat.ToolCallParser;
+import Chat.Renderer;
 import Mila;
 
 namespace Mila::ChatApp
@@ -92,69 +93,75 @@ namespace Mila::ChatApp
         void run()
         {
             printWelcome();
-
-            if ( !system_prompt_config_.system_prompt.empty() )
-            {
-                std::string system_content = system_prompt_config_.system_prompt;
-
-                // Only advertise tools that have a registered handler.
-                // Describing unhandled tools primes the model to emit tool calls
-                // it will never get a result for.
-                std::vector<ToolDefinition> active_tools;
-                for ( const auto& tool : system_prompt_config_.tools )
-                {
-                    if ( tool_handlers_.contains( tool.name ) )
-                        active_tools.push_back( tool );
-                }
-
-                if ( !active_tools.empty() )
-                {
-                    // Instruction text precedes the tool list per the Llama 3.2 zero-shot
-                    // tool-calling format the model was fine-tuned on.
-                    system_content +=
-                        "\n\nIf you decide to invoke any of the function(s), you MUST put it in the "
-                        "format of [func_name1(params_name1=params_value1, params_name2=params_value2...), "
-                        "func_name2(params)]\n"
-                        "You SHOULD NOT include any other text in the response.\n\n"
-                        "Here is a list of functions in JSON format that you can invoke:\n";
-                    system_content += serializeTools( active_tools );
-                }
-
-                history_.push_back( { MessageRole::System, std::move( system_content ) } );
-            }
+            clearHistory();
 
             std::string user_input;
 
             while ( true )
             {
-                std::cout << "\nYou: ";
+                renderer_.printUserPrompt();
                 std::getline( std::cin, user_input );
 
                 if ( user_input.empty() )
                     continue;
 
-                if ( user_input == "exit" || user_input == "quit" )
+                if ( user_input.starts_with( '/' ) )
                 {
-                    std::cout << "Goodbye!\n";
-                    break;
-                }
+                    std::string_view cmd{ user_input };
+                    cmd.remove_prefix( 1 );
 
-                if ( user_input == "clear" )
-                {
-                    history_.clear();
-
-                    if ( !system_prompt_config_.system_prompt.empty() )
+                    if ( cmd == "exit" )
                     {
-                        history_.push_back( { MessageRole::System, system_prompt_config_.system_prompt } );
+                        break;
+                    }
+                    if ( cmd == "clear" )
+                    {
+                        clearHistory();
+                        renderer_.printInfo( "Conversation history cleared." );
+                        continue;
+                    }
+                    if ( cmd == "help" )
+                    {
+                        printHelp();
+                        continue;
                     }
 
-                    std::cout << "Conversation history cleared.\n";
-                    continue;
-                }
+                    if ( cmd == "model" || cmd.starts_with( "model " ) )
+                    {
+                        if ( cmd == "model" )
+                        {
+                            printModelInfo();
+                            continue;
+                        }
 
-                if ( user_input == "help" )
-                {
-                    printHelp();
+                        std::string_view args = cmd.substr( 6 );
+
+                        const auto space = args.find( ' ' );
+                        const std::string_view alias    = (space == std::string_view::npos) ? args : args.substr( 0, space );
+                        const std::string_view quant_sv = (space == std::string_view::npos) ? std::string_view{} : args.substr( space + 1 );
+
+                        const auto desc = resolveAlias( alias );
+                        if ( !desc )
+                        {
+                            renderer_.printInfo( std::format(
+                                "Unknown model alias '{}'. Type /help for available aliases.", alias ) );
+                            continue;
+                        }
+
+                        const auto quant = parseQuantization( quant_sv );
+                        if ( !quant )
+                        {
+                            renderer_.printInfo( std::format(
+                                "Unknown quantization '{}'. Use none, fp8, or fp4.", quant_sv ) );
+                            continue;
+                        }
+
+                        switchModel( *desc, *quant );
+                        continue;
+                    }
+
+                    renderer_.printInfo( std::format(
+                        "Unknown command: {}. Type /help for available commands.", user_input ) );
                     continue;
                 }
 
@@ -163,7 +170,7 @@ namespace Mila::ChatApp
                 std::string response;
                 response.reserve( 4096 );
 
-                generateResponse( response, /*stream=*/false );
+                generateResponse( response );
 
                 handleResponse( response );
 
@@ -190,8 +197,9 @@ namespace Mila::ChatApp
         {
             if ( tool_handlers_.empty() )
             {
-                std::cout << "\nMila: " << response << '\n';
-                history_.push_back( { MessageRole::Assistant, stripSpecialTokens( response ) } );
+                const std::string clean = stripSpecialTokens( response );
+                renderer_.printMilaResponse( clean );
+                history_.push_back( { MessageRole::Assistant, clean } );
                 return;
             }
 
@@ -203,16 +211,18 @@ namespace Mila::ChatApp
             }
             catch ( const std::runtime_error& e )
             {
-                std::cerr << "\n[tool call parse error: " << e.what() << "]\n";
-                std::cout << "\nMila: " << response << '\n';
-                history_.push_back( { MessageRole::Assistant, stripSpecialTokens( response ) } );
+                renderer_.printError( std::format( "[tool call parse error: {}]", e.what() ) );
+                const std::string clean_err = stripSpecialTokens( response );
+                renderer_.printMilaResponse( clean_err );
+                history_.push_back( { MessageRole::Assistant, clean_err } );
                 return;
             }
 
             if ( !tool_call.has_value() )
             {
-                std::cout << "\nMila: " << response << '\n';
-                history_.push_back( { MessageRole::Assistant, stripSpecialTokens( response ) } );
+                const std::string clean = stripSpecialTokens( response );
+                renderer_.printMilaResponse( clean );
+                history_.push_back( { MessageRole::Assistant, clean } );
                 return;
             }
 
@@ -232,13 +242,11 @@ namespace Mila::ChatApp
             std::string final_response;
             final_response.reserve( 512 );
 
-            std::cout << "\nMila: ";
+            generateResponse( final_response );
 
-            generateResponse( final_response, /*stream=*/true );
-
-            std::cout << '\n';
-
-            history_.push_back( { MessageRole::Assistant, stripSpecialTokens( final_response ) } );
+            const std::string clean_final = stripSpecialTokens( final_response );
+            renderer_.printMilaResponse( clean_final );
+            history_.push_back( { MessageRole::Assistant, clean_final } );
         }
 
         /**
@@ -349,18 +357,10 @@ namespace Mila::ChatApp
             return arr.dump( 2 );
         }
 
-        /**
-         * @brief Format history, tokenize, generate, and optionally stream the response.
-         *
-         * When stream is true each decoded token is printed to stdout as it is produced.
-         * When stream is false generation runs silently; the caller inspects the response
-         * string to decide whether to display it (plain text) or discard it (tool call).
-         *
-         * @param response String to accumulate the generated response into.
-         * @param stream   When true, decoded tokens are printed to stdout as generated.
-         */
-        void generateResponse( std::string& response, bool stream )
+        void generateResponse( std::string& response )
         {
+            renderer_.beginThinking();
+
             std::vector<int32_t> input_tokens = buildInputTokens();
 
             stop_src_ = std::stop_source{};
@@ -372,12 +372,8 @@ namespace Mila::ChatApp
                         input_tokens,
                         [&]( int32_t tok )
                         {
-                            auto text = tokenizer_->decode(
+                            response += tokenizer_->decode(
                                 std::vector<TokenId>{ static_cast<TokenId>(tok) } );
-                            response += text;
-
-                            if ( stream )
-                                std::cout << text << std::flush;
                         },
                         config_.max_new_tokens,
                         config_.temperature,
@@ -385,6 +381,8 @@ namespace Mila::ChatApp
                         stop_src_.get_token() );
                 },
                 model_ );
+
+            renderer_.endThinking();
         }
 
         /**
@@ -400,47 +398,115 @@ namespace Mila::ChatApp
         {
             std::string prompt;
 
-            if ( config_.model_type == ModelType::Llama && isInstructModel() )
-            {
+            if ( config_.model_type == ModelType::Llama && config_.is_instruct )
                 prompt = MessageFormatter::format( history_ );
-            }
             else
-            {
                 prompt = history_.back().content;
-            }
-
-            // DEBUG
-            //std::cerr << "[PROMPT DEBUG]\n" << prompt << "\n[END PROMPT]\n";
 
             auto token_ids = tokenizer_->encode( prompt );
-
-            // DEBUG: dump token IDs for HF comparison
-            //std::cout << "[TOKEN DEBUG] Prompt token count: " << token_ids.size() << "\n";
-            //std::cout << "[TOKEN DEBUG] Token IDs: ";
-            //for ( const auto& id : token_ids )
-            //{
-            //    std::cout << id << " ";
-            //}
-            //std::cout << "\n";
-            // END DEBUG
 
             return std::vector<int32_t>( token_ids.begin(), token_ids.end() );
         }
 
-        /**
-         * @brief Returns true when the loaded model is an instruct variant.
-         *
-         * Inferred from the model path filename — instruct models contain
-         * "instruct" (case-insensitive). Consistent with the naming convention
-         * used by the Llama weight converter.
-         */
-        bool isInstructModel() const
+        struct ModelDescriptor
         {
-            std::string lower = config_.model_path.string();
-            std::ranges::transform( lower, lower.begin(),
-                []( unsigned char c ) { return static_cast<char>(std::tolower( c )); } );
+            ModelType      type;
+            ModelSize      size;
+            ModelPrecision precision;
+            bool           is_instruct;
+        };
 
-            return lower.find( "instruct" ) != std::string::npos;
+        static std::optional<ModelDescriptor> resolveAlias( std::string_view alias )
+        {
+            if ( alias == "gpt2" )          return ModelDescriptor{ ModelType::Gpt,   ModelSize::B3, ModelPrecision::FP32, false };
+            if ( alias == "llama-1b" )      return ModelDescriptor{ ModelType::Llama, ModelSize::B1, ModelPrecision::BF16, true  };
+            if ( alias == "llama-3b" )      return ModelDescriptor{ ModelType::Llama, ModelSize::B3, ModelPrecision::BF16, true  };
+            if ( alias == "llama-8b" )      return ModelDescriptor{ ModelType::Llama, ModelSize::B8, ModelPrecision::BF16, true  };
+            if ( alias == "llama-1b-fp32" ) return ModelDescriptor{ ModelType::Llama, ModelSize::B1, ModelPrecision::FP32, true  };
+            if ( alias == "llama-3b-fp32" ) return ModelDescriptor{ ModelType::Llama, ModelSize::B3, ModelPrecision::FP32, true  };
+            if ( alias == "llama-8b-fp32" ) return ModelDescriptor{ ModelType::Llama, ModelSize::B8, ModelPrecision::FP32, true  };
+            return std::nullopt;
+        }
+
+        static std::optional<QuantizationMode> parseQuantization( std::string_view s )
+        {
+            if ( s.empty() || s == "none" ) return QuantizationMode::None;
+            if ( s == "fp8" )               return QuantizationMode::FP8;
+            if ( s == "fp4" )               return QuantizationMode::FP4;
+            return std::nullopt;
+        }
+
+        void switchModel( const ModelDescriptor& desc, QuantizationMode quant )
+        {
+            const ModelType prev_type = config_.model_type;
+
+            config_.model_type        = desc.type;
+            config_.model_size        = desc.size;
+            config_.precision         = desc.precision;
+            config_.is_instruct       = desc.is_instruct;
+            config_.quantization_mode = quant;
+
+            // Preserve context_length across same-architecture switches; reset on arch change.
+            if ( prev_type != config_.model_type )
+                config_.context_length = (config_.model_type == ModelType::Gpt) ? 1024 : 4096;
+
+            if ( config_.model_type == ModelType::Gpt )
+            {
+                config_.model_path     = config_.models_dir / "gpt2" / "gpt2_small_fp32.bin";
+                config_.tokenizer_path = config_.models_dir / "gpt2" / "gpt2_tokenizer.bin";
+            }
+            else
+            {
+                const char* size_str = (config_.model_size == ModelSize::B1) ? "1b"
+                                     : (config_.model_size == ModelSize::B8) ? "8b" : "3b";
+                const char* prec_str = (config_.precision  == ModelPrecision::BF16) ? "bf16" : "fp32";
+                config_.model_path     = config_.models_dir / "llama" /
+                    std::format( "llama32_{}_instruct_{}.bin", size_str, prec_str );
+                config_.tokenizer_path = config_.models_dir / "llama" / "llama32_tokenizer.bin";
+            }
+
+            renderer_.printInfo( std::format( "Loading: {}", config_.model_path.filename().string() ) );
+
+            initializeTokenizer();
+            loadModel();
+            clearHistory();
+
+            renderer_.printInfo( "Model switched. Conversation history cleared." );
+        }
+
+        void printModelInfo() const
+        {
+            const char* quant_str;
+            switch ( config_.quantization_mode )
+            {
+                case QuantizationMode::FP8: quant_str = "fp8"; break;
+                case QuantizationMode::FP4: quant_str = "fp4"; break;
+                default:                    quant_str = "none"; break;
+            }
+
+            std::string alias;
+            if ( config_.model_type == ModelType::Gpt )
+            {
+                alias = "gpt2";
+            }
+            else
+            {
+                const char* size_str = (config_.model_size == ModelSize::B1) ? "1b"
+                                     : (config_.model_size == ModelSize::B8) ? "8b" : "3b";
+                alias = (config_.precision == ModelPrecision::FP32)
+                    ? std::format( "llama-{}-fp32", size_str )
+                    : std::format( "llama-{}",      size_str );
+            }
+
+            std::cout << std::format(
+                "  Model:        {}\n"
+                "  Precision:    {}\n"
+                "  Quantization: {}\n"
+                "  Instruct:     {}\n",
+                alias,
+                (config_.precision == ModelPrecision::BF16) ? "bf16" : "fp32",
+                quant_str,
+                config_.is_instruct ? "yes" : "no" );
         }
 
         void initializeTokenizer()
@@ -567,77 +633,94 @@ namespace Mila::ChatApp
         void printGenerationStatistics() const
         {
             std::visit(
-                []( const auto& model )
+                [this]( const auto& model )
                 {
                     const auto& stats = model->getLastGenerationStatistics();
 
                     if ( !stats.valid() )
                         return;
 
-                    if ( stats.decode_tokens_per_second > 0.0f )
-                    {
-                        std::cout << std::format(
-                            "\n  [ TTFT: {:.0f} ms | Decode: {:.1f} tok/s | {} tokens ]\n",
-                            stats.prefill_time_ms,
-                            stats.decode_tokens_per_second,
-                            stats.tokens_generated );
-                    }
-                    else
-                    {
-                        // Single-token response (e.g. stop token hit immediately after prefill).
-                        std::cout << std::format(
-                            "\n  [ TTFT: {:.0f} ms | {} token ]\n",
-                            stats.prefill_time_ms,
-                            stats.tokens_generated );
-                    }
+                    renderer_.printStats(
+                        stats.prefill_time_ms,
+                        stats.decode_tokens_per_second,
+                        static_cast<int>( stats.tokens_generated ) );
                 },
                 model_ );
         }
 
+        static constexpr const char* kVersion = "v0.1";
+
+        std::string modelAlias() const
+        {
+            if ( config_.model_type == ModelType::Gpt )
+                return "gpt2";
+            const char* size_str = (config_.model_size == ModelSize::B1) ? "1b"
+                                  : (config_.model_size == ModelSize::B8) ? "8b" : "3b";
+            return (config_.precision == ModelPrecision::FP32)
+                ? std::format( "llama-{}-fp32", size_str )
+                : std::format( "llama-{}", size_str );
+        }
+
         void printWelcome() const
         {
-            const char* backend   = (config_.model_type == ModelType::Gpt) ? "GPT" : "LLaMA";
-            const char* precision = (config_.precision == ModelPrecision::BF16) ? "BF16" : "FP32";
-            const char* mode      = isInstructModel() ? " Instruct" : "";
-
-            std::cout << R"(
-+--------------------------------------+
-|         Mila Chat CLI v1.0           |
-|      Powered by Mila DNN Library     |
-+--------------------------------------+
-
-Type 'help' for commands, 'exit' to quit.
-)" << "\n";
-
-            std::cout << "Backend: " << backend << mode << " (" << precision << ")\n";
-
-            if ( !system_prompt_config_.system_prompt.empty() )
-            {
-                std::cout << "System prompt: active";
-
-                if ( !system_prompt_config_.tools.empty() )
-                {
-                    std::cout << std::format(
-                        " ({} tool{})",
-                        system_prompt_config_.tools.size(),
-                        system_prompt_config_.tools.size() == 1 ? "" : "s" );
-                }
-
-                std::cout << "\n";
-            }
+            renderer_.printWelcomeBox( std::format( "Mila Chat {}", kVersion ) );
+            renderer_.printInfo( std::format( "  Model: {}", modelAlias() ) );
+            std::cout << "  Type /help for commands, /exit to quit.\n\n";
         }
 
         void printHelp() const
         {
             std::cout << R"(
-Available Commands:
-  help   - Show this help message
-  clear  - Clear conversation history
-  exit   - Exit the application
-  quit   - Exit the application
+Available commands:
+  /help                      Show this help message
+  /clear                     Clear conversation history
+  /model                     Show current model and quantization
+  /model <alias> [quant]     Switch model (clears history)
+  /exit                      Exit the application
 
-Just type your message to chat with Mila AI.
+Model aliases:  llama-3b (default), llama-1b, llama-8b, llama-3b-fp32, llama-1b-fp32, llama-8b-fp32, gpt2
+Quantization:   none (default), fp8, fp4
+
+Examples:
+  /model llama-3b
+  /model llama-3b fp8
+  /model llama-8b fp4
 )" << "\n";
+        }
+
+        void clearHistory()
+        {
+            history_.clear();
+
+            if ( system_prompt_config_.system_prompt.empty() )
+                return;
+
+            std::string system_content = system_prompt_config_.system_prompt;
+
+            // Only advertise tools that have a registered handler.
+            // Describing unhandled tools primes the model to emit tool calls
+            // it will never get a result for.
+            std::vector<ToolDefinition> active_tools;
+            for ( const auto& tool : system_prompt_config_.tools )
+            {
+                if ( tool_handlers_.contains( tool.name ) )
+                    active_tools.push_back( tool );
+            }
+
+            if ( !active_tools.empty() )
+            {
+                // Instruction text precedes the tool list per the Llama 3.2 zero-shot
+                // tool-calling format the model was fine-tuned on.
+                system_content +=
+                    "\n\nIf you decide to invoke any of the function(s), you MUST put it in the "
+                    "format of [func_name1(params_name1=params_value1, params_name2=params_value2...), "
+                    "func_name2(params)]\n"
+                    "You SHOULD NOT include any other text in the response.\n\n"
+                    "Here is a list of functions in JSON format that you can invoke:\n";
+                system_content += serializeTools( active_tools );
+            }
+
+            history_.push_back( { MessageRole::System, std::move( system_content ) } );
         }
 
         ChatConfig config_;
@@ -647,5 +730,6 @@ Just type your message to chat with Mila AI.
         std::vector<ChatMessage> history_;
         std::stop_source stop_src_;
         std::unordered_map<std::string, std::function<std::string( const std::string& )>> tool_handlers_;
+        ConsoleRenderer renderer_;
     };
 }
