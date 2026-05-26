@@ -105,7 +105,7 @@ namespace Mila::Dnn::Quant::Weight
         struct PerGroupFp4
     {
         static constexpr bool            kIsQuantized           = true;
-        static constexpr TensorDataType  kStorageDtype          = TensorDataType::UINT8;  // packed FP4 E2M1 in uint8 bytes
+        static constexpr TensorDataType  kStorageDtype          = TensorDataType::UINT8;  // packed FP4 E2M1: 2 nibbles per byte, physically uint8
         static constexpr TensorDataType  kScaleDtype            = TensorDataType::FP32;
         static constexpr bool            kPerChannel            = false;  // per-group, not per-channel
         static constexpr int             kQuantizationGroupSize = kGroupSize;

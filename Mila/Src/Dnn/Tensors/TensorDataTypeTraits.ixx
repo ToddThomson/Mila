@@ -146,7 +146,6 @@ namespace Mila::Dnn
         static constexpr bool is_float_type = true;          ///< Floating-point type classification
         static constexpr bool is_integer_type = false;       ///< Not an integer type
         static constexpr bool is_device_only = true;         ///< Requires device-accessible memory
-        static constexpr size_t bits_per_element = 4;        ///< Logical element width in bits
         static constexpr size_t size_in_bytes = 1;           ///< Memory footprint per element
         static constexpr size_t alignment = 1;               ///< Required memory alignment
         static constexpr const char* type_name = "FP8_E5M2"; ///< Human-readable type identifier
@@ -156,12 +155,12 @@ namespace Mila::Dnn
     };
 
     /**
- * @brief Traits specialization for 4-bit floating point with E2M1 format
- *
- * Packed sub-byte format with 2-bit exponent and 1-bit mantissa.
- * Two values are packed per byte. Requires Blackwell (SM 100+) or later CUDA
- * hardware. Used for extreme memory compression in weight quantization.
- */
+     * @brief Traits specialization for 4-bit floating point with E2M1 format
+     *
+     * Packed sub-byte format with 2-bit exponent and 1-bit mantissa.
+     * Two values are packed per byte. Requires Blackwell (SM 100+) or later CUDA
+     * hardware. Used for extreme memory compression in weight quantization.
+     */
     template<>
     struct TensorDataTypeTraits<TensorDataType::FP4_E2M1>
     {
@@ -190,7 +189,8 @@ namespace Mila::Dnn
         static constexpr bool is_float_type = true;
         static constexpr bool is_integer_type = false;
         static constexpr bool is_device_only = true;
-        static constexpr size_t size_in_bytes = 1; ///< Two FP4 values packed per byte
+        static constexpr size_t bits_per_element = 4;        ///< Logical element width in bits
+        static constexpr size_t size_in_bytes = 1;           ///< Two FP4 values packed per byte
         static constexpr size_t alignment = 1;
         static constexpr const char* type_name = "FP4_E3M0";
         static constexpr bool supported_on_cpu = false;

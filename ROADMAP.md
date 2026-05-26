@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.28-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
+| In Progress | 0.13.29-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
 | Planned | 0.14.0-alpha.6 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.15.0-alpha.7 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
@@ -87,6 +87,7 @@ on the operation base class. Non-quantized operations are entirely unaware they 
 ### Phase 3 — Llama 3.2 3B Instruct @ FP8
 
 - [x] `ChatConfig` — `QuantizationMode` enum (`None`, `FP8`, `FP4`) orthogonal to `ModelPrecision`; FP8 mode enforces 2048 context-length cap; `QuantizationMode` is the runtime quantization selector, `ModelPrecision` remains the compute-type selector
+- [ ] `ChatConfig` — enforce 2048 context-length cap for `QuantizationMode::FP4` (parallel to the existing FP8 cap); prevents excess KV-cache allocation at the default 4096-token context length
 - [x] Wire FP8 through `LlamaModel::fromPretrained()` — `WeightQuantization::FP8` dispatches to `fromPretrainedImpl<PerChannelFp8<>, NoKvCompression>`; compile-time only, no runtime config object
 - [x] Prefill pipeline validated at FP8 — 2-phase dequant+cuBLASLt path produces coherent generation on Llama 3.2 3B Instruct; Chat CLI demo confirmed correct; TTFT ~2× faster than W8A16 fused path at target batch sizes
 - [ ] Full-network greedy decode validated token-for-token against BF16 baseline
@@ -110,7 +111,7 @@ fidelity, while keeping the same kernel path and VRAM footprint.
 - [x] W4A16 tile dequant — `fused_w4a16_gemm_kernel` extended with `kIsFp4E2M1` template bool; `if constexpr (kIsFp4E2M1)` branch: unpack nibble → `fp4_e2m1_decode()` LUT lookup (`±{0, 0.5, 1, 1.5, 2, 3, 4, 6}`) → multiply by group scale; `cuda_fp4a16_gemm()` host function dispatches `<G, true>` instantiation; `Linear.ixx` scale allocation corrected to 2D `[N, K/group_size]` for all per-group paths
 - [x] `OperationTraits.Cuda.ixx` — `<Cuda, BF16, PerGroupFp4<128>>` and `<Cuda, BF16, PerGroupFp4<64>>` LinearOp specializations added
 - [x] `LlamaModel::fromPretrained()` — `WeightQuantization::FP4` dispatch updated from `PerGroupInt4<128>` to `PerGroupFp4<128>`
-- [x] Validated on Llama 3.2 3B Instruct — FP4 E2M1 quantized model produces coherent generation; Chat CLI demo confirmed; FP4 weights are 2× smaller than FP8 weights (4-bit vs 8-bit storage)
+- [x] Validated on Llama 3.2 3B Instruct — FP4 E2M1 quantized model produces coherent generation; Chat CLI demo confirmed; ~4 GB total VRAM; FP4 weights are 2× smaller than FP8 weights (4-bit vs 8-bit storage)
 - [x] FP4 E2M1 decode matvec — dedicated `matvec_decode_bf16_qfp4_kernel<kGroupSize>` in `CudaMatVecBias.Bf16.cu` for the outer_size==1 decode path; 32 threads per output channel, 8 nibbles (4 packed bytes) per iteration, one per-group scale per 8-element chunk (guaranteed by `kGroupSize % 8 == 0`), warp shuffle reduction; replaces M=1 tiled GEMM fallback; 44–48 tok/s measured vs 6–7 tok/s with the tiled GEMM (~7× improvement)
 
 ---

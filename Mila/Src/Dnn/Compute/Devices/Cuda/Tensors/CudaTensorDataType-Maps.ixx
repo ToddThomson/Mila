@@ -101,6 +101,29 @@ namespace Mila::Dnn::Compute::Cuda
         using device_type = __nv_fp8_e5m2;
     };
 
+    /**
+     * @brief Maps `TensorDataType::FP4_E2M1` to `std::uint8_t`
+     *
+     * Pre-Blackwell (SM < 10.0) has no native FP4 CUDA type. Two FP4_E2M1 nibbles are
+     * packed per byte, so the physical pointer type is uint8_t. Tensor shape `{N, K/2}`
+     * represents N rows of K/2 packed bytes (K logical FP4 values per row).
+     * SM 10.0+ (Blackwell) natively supports FP4 compute; this layout is forward-compatible.
+     */
+    template<>
+    struct TensorDataTypeMap<TensorDataType::FP4_E2M1> {
+        using device_type = std::uint8_t;  // packed: 2 nibbles per byte
+    };
+
+    /**
+     * @brief Maps `TensorDataType::FP4_E3M0` to `std::uint8_t`
+     *
+     * Same packing convention as FP4_E2M1 — two nibbles per byte, uint8_t physical pointer.
+     */
+    template<>
+    struct TensorDataTypeMap<TensorDataType::FP4_E3M0> {
+        using device_type = std::uint8_t;  // packed: 2 nibbles per byte
+    };
+
     // ====================================================================
     // Integer Type Specializations
     // ====================================================================

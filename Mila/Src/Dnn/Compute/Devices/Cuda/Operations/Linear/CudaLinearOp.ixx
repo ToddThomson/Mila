@@ -155,7 +155,15 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             weight_ = static_cast<const WeightType*>(weight->rawData());
             weight_out_features_ = weight_shape[ 0 ];
-            weight_in_features_ = weight_shape[ 1 ];
+
+            // Per-group quantized weights (INT4, FP4) are packed: 2 nibbles per byte.
+            // initializeParameters() allocates shape {N, K/2} for these types, so
+            // weight_shape[1] == K/2. Multiply by 2 to recover the logical K so that
+            // build()'s validation against cached_in_features_ (= logical K) passes.
+            if constexpr ( kIsPerGroupQuantized )
+                weight_in_features_ = weight_shape[ 1 ] * 2;
+            else
+                weight_in_features_ = weight_shape[ 1 ];
 
             if ( config_.hasBias() )
             {
