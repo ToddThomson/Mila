@@ -6,16 +6,16 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.29-alpha.5 | FP8 quantization pipeline — Llama 3.2 3B Instruct |
-| Planned | 0.14.0-alpha.6 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
-| Planned | 0.15.0-alpha.7 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
+| In Progress | 0.13.30-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
+| Planned | 0.2.2-beta.1 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
+| Planned | 0.2.3-beta.2 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
 
 ---
 
 ## Alpha.5 — In Progress
 
-**FP8 load-time quantization pipeline, validated on Llama 3.2 3B Instruct.**
+**FP8/FP4 load-time quantization pipeline, validated on Llama 3.2 3B and 3.1 8B Instruct.**
 
 Quantization in Mila is a compile-time deployment decision, not a runtime configuration
 concern. Weight precision is encoded as a template parameter `TWeightQuant` on `Linear`
@@ -26,13 +26,17 @@ is required — the converter always writes BF16, and quantization is entirely M
 concern. The existing BF16 baseline validated in Alpha.3 is the correctness reference
 for all FP8 validation.
 
-Llama 3.2 3B Instruct is the validation target because its BF16 baseline is already
-token-for-token correct, making it the cleanest possible foundation for isolating
-precision regressions. The quantization infrastructure is model-agnostic and will apply
-directly to Qwen 3 in Alpha.6.
+Llama 3.2 3B Instruct is the initial validation target because its BF16 baseline is
+already token-for-token correct, making it the cleanest possible foundation for
+isolating precision regressions. Llama 3.1 8B Instruct extends validation to a scale
+where FP8 is practically required — at BF16 the model exceeds the RTX 4070 12 GB VRAM
+budget; at FP8 it fits comfortably at ~8 GB. The quantization infrastructure is
+model-agnostic and carries forward to Qwen 3 in Beta.1.
 
-Success criterion: Greedy decode of Llama 3.2 3B Instruct at FP8 matches the validated
-BF16 baseline token-for-token on identical prompts.
+Success criterion: Greedy decode of Llama 3.2 3B Instruct at FP8 produces no catastrophic
+divergence from the BF16 baseline on standard prompts. Llama 3.1 8B Instruct at FP8 fits
+within the RTX 4070 12 GB VRAM budget and produces output quality consistent with its
+BF16 baseline.
 
 ### Phase 1 — Compile-Time Operation Dispatch (All Components)
 
@@ -86,12 +90,11 @@ on the operation base class. Non-quantized operations are entirely unaware they 
 
 ### Phase 3 — Llama 3.2 3B Instruct @ FP8
 
-- [x] `ChatConfig` — `QuantizationMode` enum (`None`, `FP8`, `FP4`) orthogonal to `ModelPrecision`; FP8 mode enforces 2048 context-length cap; `QuantizationMode` is the runtime quantization selector, `ModelPrecision` remains the compute-type selector
-- [ ] `ChatConfig` — enforce 2048 context-length cap for `QuantizationMode::FP4` (parallel to the existing FP8 cap); prevents excess KV-cache allocation at the default 4096-token context length
+- [x] `ChatConfig` — `QuantizationMode` enum (`None`, `FP8`, `FP4`) orthogonal to `ModelPrecision`; `QuantizationMode` is the runtime quantization selector, `ModelPrecision` remains the compute-type selector
+- [ ] `ChatConfig` — remove FP8 context-length cap; context-length is uncapped and caller-controlled
 - [x] Wire FP8 through `LlamaModel::fromPretrained()` — `WeightQuantization::FP8` dispatches to `fromPretrainedImpl<PerChannelFp8<>, NoKvCompression>`; compile-time only, no runtime config object
 - [x] Prefill pipeline validated at FP8 — 2-phase dequant+cuBLASLt path produces coherent generation on Llama 3.2 3B Instruct; Chat CLI demo confirmed correct; TTFT ~2× faster than W8A16 fused path at target batch sizes
-- [ ] Full-network greedy decode validated token-for-token against BF16 baseline
-- [ ] Tool calling validated end-to-end using structured message pipeline from Alpha.4
+- [ ] Greedy decode validated on standard prompts — no catastrophic divergence vs BF16 baseline
 
 ### Phase 4 — FP4 E2M1 Weight Quantization (Storage)
 
@@ -114,36 +117,53 @@ fidelity, while keeping the same kernel path and VRAM footprint.
 - [x] Validated on Llama 3.2 3B Instruct — FP4 E2M1 quantized model produces coherent generation; Chat CLI demo confirmed; ~4 GB total VRAM; FP4 weights are 2× smaller than FP8 weights (4-bit vs 8-bit storage)
 - [x] FP4 E2M1 decode matvec — dedicated `matvec_decode_bf16_qfp4_kernel<kGroupSize>` in `CudaMatVecBias.Bf16.cu` for the outer_size==1 decode path; 32 threads per output channel, 8 nibbles (4 packed bytes) per iteration, one per-group scale per 8-element chunk (guaranteed by `kGroupSize % 8 == 0`), warp shuffle reduction; replaces M=1 tiled GEMM fallback; 44–48 tok/s measured vs 6–7 tok/s with the tiled GEMM (~7× improvement)
 
+### Phase 5 — Llama 3.1 8B Instruct @ FP8
+
+Llama 3.1 8B Instruct is the first validation target where FP8 weight quantization is
+practically necessary rather than an optimization. At BF16 the model requires ~16 GB
+VRAM, exceeding the RTX 4070 12 GB budget. At FP8 it fits comfortably at ~8 GB,
+validating the quantization pipeline at a scale that reflects real-world deployment
+constraints. The transformer architecture is identical to Llama 3.2 3B — no new
+components are required, only the config preset and weight converter mapping need
+verification at the 8B parameter scale.
+
+- [ ] `LlamaConfig` — `Llama31_8B()` preset: embedding=4096, layers=32, heads=32, kv_heads=8, hidden=14336, rope_theta=500000, vocab=128256
+- [ ] `convert_llama_weights.py` — verify key mapping at Llama 3.1 8B scale; confirm gate/up concatenation pattern holds
+- [ ] `ChatConfig` — add `ModelSize::B8`; wire `Llama31_8B()` preset selection
+- [ ] Prefill pipeline validated at FP8 — logits match BF16 reference on identical prompts
+- [ ] Greedy decode validated on standard prompts — no catastrophic divergence vs BF16 baseline
+
 ---
 
-## Alpha.6 — Planned
+## Beta.1 — 0.2.2 — Planned
 
 **Qwen 3 transformer architecture with thinking mode and model-agnostic tool calling,
 validated on Qwen 3 8B Instruct at BF16 and FP8. FP8 KV cache compression introduced
-and validated on both Llama 3.2 3B and Qwen 3 8B.**
+and validated on Qwen 3 8B.**
 
-Alpha.6 adds Qwen 3 as Mila's second supported architecture family. The Qwen 3 dense
+Beta.1 adds Qwen 3 as Mila's second supported architecture family. The Qwen 3 dense
 decoder shares Mila's existing building blocks — RMSNorm, SwiGLU, GQA, RoPE — so the
 model component is a thin addition on the established Llama foundation. The primary new
 work is in the Chat layer: the ChatML prompt template, model-agnostic `ToolCallParser`,
 and thinking mode token suppression.
 
 The FP8 quantization infrastructure delivered in Alpha.5 is exercised on Qwen 3 8B,
-providing a second independent architecture validation of the quantization pipeline
-before beta. Qwen 3 8B at FP8 targets approximately 9–10 GB VRAM, within the RTX 4070
-budget established in Alpha.5.
+providing a second independent architecture validation at a scale where VRAM constraints
+are meaningful. Qwen 3 8B at FP8 targets approximately 9–10 GB VRAM, within the RTX
+4070 12 GB budget.
 
-FP8 KV cache compression is introduced in Alpha.6 as a symmetric K/V policy
-(`PerChannelKvFp8<>`). Combined with FP8 weight quantization, this is the primary VRAM
-lever for fitting larger models within the 12 GB budget. KV cache compression is
-validated on both Llama 3.2 3B (against the established BF16 baseline) and Qwen 3 8B
-(where VRAM headroom is tightest).
+FP8 KV cache compression is introduced in Beta.1 as a symmetric K/V policy
+(`PerChannelKvFp8<>`). The `KvCachePolicy` extension point and `PerChannelKvFp8<>`
+policy struct are already in place from Alpha.5. Qwen 3 8B is the appropriate
+validation target — at this scale and context length the KV cache is large enough for
+compression to be practically meaningful. Combined with FP8 weight quantization, this
+is the primary VRAM lever for fitting larger models at longer contexts.
 
 Success criterion: Greedy decode of Qwen 3 8B Instruct at BF16 and FP8 each match
 HuggingFace token-for-token on identical prompts. Tool calling validated end-to-end
 using the model-agnostic pipeline. Thinking mode token suppression confirmed in the
 Chat CLI. FP8 KV cache compression produces acceptable output quality degradation
-relative to the BF16 baseline on both validation models.
+relative to the BF16 baseline on Qwen 3 8B.
 
 ### Phase 1 — Qwen 3 Transformer Component
 
@@ -176,25 +196,24 @@ for both K and V). This is coarser than per-channel weight quantization but appr
 for the dynamic, growing shape of the KV cache. K and V use the same policy
 symmetrically — asymmetric compression is not a current target.
 
-- [ ] `Dnn/Quantization/KvCache/QuantPolicy.ixx` — `PerChannelKvFp8<>` policy struct: `kStorageDtype = FP8_E4M3`, `kScaleDtype = Float32`, `kPerHeadPerToken = true`; satisfies `KvCachePolicy` concept
-- [ ] `GroupedQueryAttentionOpTypeMap` — add `PerChannelKvFp8<>` specialization: `<Cuda, PerChannelKvFp8<>>` resolves to `CudaGqaOp<BF16, PerChannelKvFp8<>>`
+- [x] `Dnn/Quantization/KvCache/QuantPolicy.ixx` — `PerChannelKvFp8<>` policy struct: `kStorageDtype = FP8_E4M3`, `kScaleDtype = Float32`, `kPerHeadPerToken = true`; satisfies `KvCachePolicy` concept (completed in Alpha.5 Phase 2)
+- [ ] `OperationTraits.Cuda.ixx` — `<Cuda, BF16, PerChannelKvFp8<>>` GQA specialization is already in place from Alpha.5 Phase 1; confirm dispatch wires through to `CudaGqaOp<BF16, PerChannelKvFp8<>>`
 - [ ] `CudaGqaOp` — extend template signature to `<TComputePrecision, TKvPolicy>`; select quantized vs passthrough cache kernels via `if constexpr (TKvPolicy::kIsActive)`; non-quantized path is unchanged
 - [ ] KV cache scale tensor allocation — `GroupedQueryAttention::build()` allocates `k_scale_` and `v_scale_` tensors (shape `[num_kv_heads, max_seq_len]`, dtype FP32) when `TKvPolicy::kIsActive`; lifetime mirrors the KV cache tensors
 - [ ] KV cache write kernel (prefill) — quantizes K and V from BF16 to FP8_E4M3 on each prefill chunk write; computes `scale[head, token] = max(abs(x[head, token, :])) / 448.0f` per head per token; writes FP8 values and FP32 scales to cache
 - [ ] KV cache write kernel (decode) — same quantization logic for the single-token append on each decode step; scale computation per head for the new token only
 - [ ] KV cache read kernel — dequantizes K and V from FP8_E4M3 back to BF16 before attention score and weighted-sum computation; applies stored per-head per-token scales
 - [ ] `CudaGqaOp::setParameters()` — accept optional `k_scale_` and `v_scale_` tensor pointers when `TKvPolicy::kIsActive`
-- [ ] Validated on Llama 3.2 3B Instruct — FP8 KV cache output quality measured against established BF16 baseline; acceptable degradation criterion: no catastrophic token divergence on standard prompts
-- [ ] Validated on Qwen 3 8B Instruct — confirm VRAM reduction fits within 4070 12 GB budget with both weight FP8 and KV cache FP8 active; measure VRAM at BF16, weight-FP8-only, and weight-FP8 + KV-FP8 configurations
+- [ ] Validated on Qwen 3 8B Instruct — confirm VRAM reduction fits within 4070 12 GB budget with both weight FP8 and KV cache FP8 active; measure VRAM at BF16, weight-FP8-only, and weight-FP8 + KV-FP8 configurations; acceptable degradation criterion: no catastrophic token divergence on standard prompts
 
 ---
 
-## Alpha.7 — Planned
+## Beta.2 — 0.2.3 — Planned
 
 **Ministral transformer architecture with Sliding Window Attention, validated on Ministral
 3B Instruct at BF16 and Ministral 8B Instruct at FP8.**
 
-Alpha.7 introduces the Ministral transformer as a new first-class component built on the
+Beta.2 introduces the Ministral transformer as a new first-class component built on the
 Llama 3.2 foundation. The primary architectural addition is Sliding Window Attention (SWA),
 used on interleaved layers in the Ministral 8B model. The FP8 quantization infrastructure
 delivered in Alpha.5 is applied directly to Ministral 8B, bringing it within the 12 GB
@@ -203,12 +222,12 @@ total including KV cache and runtime overhead on an RTX 4070).
 
 Ministral 3B has no SWA and uses standard global GQA, making it a clean BF16 validation
 gate before the combined SWA + FP8 work is exercised on the 8B model. The model-agnostic
-tool calling pipeline and `ToolCallParser` strategy pattern delivered in Alpha.6 apply
+tool calling pipeline and `ToolCallParser` strategy pattern delivered in Beta.1 apply
 directly here via a `MistralStrategy`.
 
 Success criterion: Greedy decode of Ministral 3B Instruct at BF16 and Ministral 8B Instruct
 at FP8 each match HuggingFace token-for-token on identical prompts. Tool calling validated
-end-to-end on both models using the model-agnostic pipeline from Alpha.6.
+end-to-end on both models using the model-agnostic pipeline from Beta.1.
 
 ### Phase 1 — Ministral Transformer Component
 
@@ -229,14 +248,13 @@ end-to-end on both models using the model-agnostic pipeline from Alpha.6.
 
 - [ ] Prefill pipeline validated at BF16 — logits match HuggingFace on identical prompts
 - [ ] Full-network greedy decode validated token-for-token against HuggingFace
-- [ ] Tool calling validated end-to-end using model-agnostic pipeline from Alpha.6
+- [ ] Tool calling validated end-to-end using model-agnostic pipeline from Beta.1
 
 ### Phase 4 — Ministral 8B Instruct FP8 Validation
 
-- [ ] `ChatConfig` — add `ModelSize::B8`; enforce `context_length = 2048` hard cap for Ministral 8B FP8 mode
 - [ ] Prefill pipeline validated at FP8 — logits match BF16 baseline on identical prompts
 - [ ] Full-network greedy decode validated token-for-token against BF16 baseline
-- [ ] Tool calling validated end-to-end using model-agnostic pipeline from Alpha.6
+- [ ] Tool calling validated end-to-end using model-agnostic pipeline from Beta.1
 
 ---
 
@@ -351,16 +369,16 @@ that all subsequent architecture work follows.
 
 **Public release milestone.**
 
-Beta is reached when GPT-2, Llama, and Qwen 3 inference are validated across FP32,
-BF16, and FP8, the tool calling pipeline is model-agnostic, and the library is stable
-enough for external contributors to work with confidently.
+Beta is reached when GPT-2 and Llama inference are validated across FP32, BF16, FP8,
+and FP4, tool calling is validated on Llama 3.2 3B and 3.1 8B Instruct, and the
+library is stable enough for external contributors to work with confidently.
 
 | Item | Required |
 |---|---|
 | Llama 3.2 1B FP32 validated against HuggingFace | Yes |
 | Llama 3.2 3B BF16 validated against HuggingFace | Yes |
-| Qwen 3 8B Instruct FP8 validated against HuggingFace | Yes |
-| Model-agnostic tool calling validated on Llama 3.2 and Qwen 3 | Yes |
+| Llama 3.1 8B Instruct FP8 validated against BF16 baseline | Yes |
+| Tool calling validated on Llama 3.2 3B and 3.1 8B Instruct | Yes |
 | API documentation complete and published | Yes |
 | CPU reference implementations for all Alpha.2 components | Yes |
 | Debug instrumentation fully gated or removed | Yes |
