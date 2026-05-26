@@ -6,6 +6,17 @@
 # Local development scratch directory - not tracked in source control
 /Dev/
 
+# =============================================================================
+# Data — local artifacts (directory structure and READMEs are tracked)
+# =============================================================================
+
+# Encoded dataset artifacts — derived from raw; regenerate with the tokenize tool
+Data/Datasets/**/encoded/
+
+# Mila tokenizer vocabulary artifacts
+Data/Datasets/**/*.mila
+Data/Datasets/**/*.tokens
+
 # User-specific files
 *.bin
 *.rsuser

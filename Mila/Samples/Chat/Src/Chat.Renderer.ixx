@@ -207,7 +207,10 @@ namespace Mila::ChatApp
             std::vector<std::string> lines;
             std::string current;
             std::string word;
+            bool at_line_start = true;
 
+            // Append word to current, inserting a space separator only when the last
+            // character of current is not already a space (i.e. not a leading-indent run).
             auto flush = [&]()
             {
                 if ( word.empty() )
@@ -224,9 +227,9 @@ namespace Mila::ChatApp
                     word = word.substr( max_width );
                 }
 
-                if ( current.empty() )
+                if ( current.empty() || current.back() == ' ' )
                 {
-                    current = word;
+                    current += word;  // no separator: empty line or following indent spaces
                 }
                 else if ( static_cast<int>( current.size() ) + 1 + static_cast<int>( word.size() ) <= max_width )
                 {
@@ -249,13 +252,18 @@ namespace Mila::ChatApp
                     flush();
                     lines.push_back( current );
                     current.clear();
+                    at_line_start = true;
                 }
                 else if ( c == ' ' )
                 {
-                    flush();
+                    if ( at_line_start )
+                        current += ' ';  // preserve leading indentation
+                    else
+                        flush();
                 }
                 else
                 {
+                    at_line_start = false;
                     word += c;
                 }
             }

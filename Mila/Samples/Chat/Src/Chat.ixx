@@ -457,11 +457,12 @@ namespace Mila::ChatApp
             }
             else
             {
-                const char* size_str = (config_.model_size == ModelSize::B1) ? "1b"
-                                     : (config_.model_size == ModelSize::B8) ? "8b" : "3b";
-                const char* prec_str = (config_.precision  == ModelPrecision::BF16) ? "bf16" : "fp32";
+                const char* family_str = (config_.model_size == ModelSize::B8) ? "llama31" : "llama32";
+                const char* size_str   = (config_.model_size == ModelSize::B1) ? "1b"
+                                       : (config_.model_size == ModelSize::B8) ? "8b" : "3b";
+                const char* prec_str   = (config_.precision  == ModelPrecision::BF16) ? "bf16" : "fp32";
                 config_.model_path     = config_.models_dir / "llama" /
-                    std::format( "llama32_{}_instruct_{}.bin", size_str, prec_str );
+                    std::format( "{}_{}_instruct_{}.bin", family_str, size_str, prec_str );
                 config_.tokenizer_path = config_.models_dir / "llama" / "llama32_tokenizer.bin";
             }
 

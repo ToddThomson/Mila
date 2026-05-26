@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.31-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
+| In Progress | 0.13.32-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
 | Planned | 0.2.2-beta.1 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.2.3-beta.2 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
@@ -91,8 +91,10 @@ on the operation base class. Non-quantized operations are entirely unaware they 
 ### Phase 3 — Llama 3.2 3B Instruct @ FP8
 
 - [x] `ChatConfig` — `QuantizationMode` enum (`None`, `FP8`, `FP4`) orthogonal to `ModelPrecision`; `QuantizationMode` is the runtime quantization selector, `ModelPrecision` remains the compute-type selector
-- [ ] `ChatConfig` — remove FP8 context-length cap; context-length is uncapped and caller-controlled
+- [x] `ChatConfig` — `context_length` uncapped; no FP8-specific ceiling; `ModelSize::B8` added to enum; caller sets context length directly
 - [x] Wire FP8 through `LlamaModel::fromPretrained()` — `WeightQuantization::FP8` dispatches to `fromPretrainedImpl<PerChannelFp8<>, NoKvCompression>`; compile-time only, no runtime config object
+- [x] `ConsoleRenderer` (`Chat.Renderer.ixx`) — standalone non-exported module; braille dot spinner (⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏) with cursor hide/show (`\x1b[?25l/h`) to suppress blink flicker; solid color response blocks (`bg(40,44,60)` / `fg(200,215,240)`) with uniform right-fill and word-wrap preserving leading indentation (tabs expanded, `at_line_start` tracking, spaces at line-start bypass `flush()`); Unicode welcome box (╭─╮/│/╰─╯); dim ANSI generation stats line (`\x1b[2m`, format: `ms │ tok/s │ tokens`); `printInfo()` / `printError()` for system messages; dynamic console width via `GetConsoleScreenBufferInfo`; ANSI RGB helpers (`fg`, `bg`, `reset`) as private statics
+- [x] `Chat.ixx` — `/model <alias> [quant]` command for hot model switching; `resolveAlias()` covers `gpt2`, `llama-1b`, `llama-3b`, `llama-8b`, and `-fp32` variants; `parseQuantization()` dispatches `none`/`fp8`/`fp4`; context length preserved across same-architecture switches, reset on architecture change; all responses fully buffered before display (streaming removed from hot path); `printGenerationStatistics()` delegates to `ConsoleRenderer::printStats()`; `/model` with no args prints current model, precision, quantization, and instruct flag
 - [x] Prefill pipeline validated at FP8 — 2-phase dequant+cuBLASLt path produces coherent generation on Llama 3.2 3B Instruct; Chat CLI demo confirmed correct; TTFT ~2× faster than W8A16 fused path at target batch sizes
 - [ ] Greedy decode validated on standard prompts — no catastrophic divergence vs BF16 baseline
 
@@ -127,9 +129,9 @@ constraints. The transformer architecture is identical to Llama 3.2 3B — no ne
 components are required, only the config preset and weight converter mapping need
 verification at the 8B parameter scale.
 
-- [ ] `LlamaConfig` — `Llama31_8B()` preset: embedding=4096, layers=32, heads=32, kv_heads=8, hidden=14336, rope_theta=500000, vocab=128256
-- [ ] `convert_llama_weights.py` — verify key mapping at Llama 3.1 8B scale; confirm gate/up concatenation pattern holds
-- [ ] `ChatConfig` — add `ModelSize::B8`; wire `Llama31_8B()` preset selection
+- [x] `Llama.Presets.ixx` — `Llama3_1_8B()` preset: embedding=4096, layers=32, heads=32, kv_heads=8, hidden=14336, rope_theta=500000; `LlamaModel::fromPretrained` reads all architecture dimensions from checkpoint metadata so no preset wiring is required in the load path
+- [x] `convert_llama_weights.py` — extended to support `meta-llama/Llama-3.1-8B` and `meta-llama/Llama-3.1-8B-Instruct`; key mapping and gate/up concatenation confirmed identical to Llama 3.2; `tie_word_embeddings=False` on 8B handled by existing lm_head fallback; `rope_scaling` (`rope_type="llama3"`) printed for reference but not written — standard RoPE with `rope_theta=500000` is accurate at context lengths ≤ 4096; output: `llama31_8b_instruct_bf16.bin`
+- [x] `ChatConfig` — `ModelSize::B8` added; `Chat.ixx` `switchModel()` path generation fixed: `family_str` derives `llama31` for B8 and `llama32` for 1B/3B so the correct binary filename is constructed; `llama-8b` and `llama-8b-fp32` aliases wired in `resolveAlias()`
 - [ ] Prefill pipeline validated at FP8 — logits match BF16 reference on identical prompts
 - [ ] Greedy decode validated on standard prompts — no catastrophic divergence vs BF16 baseline
 

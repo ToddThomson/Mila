@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # ============================================================================
-# File: convert_llama_tokenizer.py
-# Convert Llama 3.2 tokenizer to Mila binary format
+# File: convert_tokenizer.py
+# Convert Llama tokenizer to Mila binary format
 # ============================================================================
 
 """
@@ -23,9 +23,27 @@ Usage:
     python convert_llama_tokenizer.py --model meta-llama/Llama-3.2-1B --output ../Tokenizers/llama32_tokenizer.bin
 """
 
+import sys
+from pathlib import Path
+sys.path.insert( 0, str( Path( __file__ ).parent.parent ) )
+
 import argparse
 import struct
 from transformers import AutoTokenizer
+
+def _check_hf_error( model_name: str, e: Exception ):
+    name = type( e ).__name__
+    msg  = str( e )
+    if 'GatedRepo' in name or ('403' in msg and 'gated' in msg.lower()):
+        print( f"\nError: '{model_name}' is a gated model." )
+        print( f"  1. Accept Meta's license at https://huggingface.co/{model_name}" )
+        print(  "  2. Authenticate: hf auth login" )
+        sys.exit( 1 )
+    if 'RepositoryNotFound' in name or '404' in msg:
+        print( f"\nError: '{model_name}' not found on HuggingFace." )
+        print(  "  Check the model name and your network connection." )
+        sys.exit( 1 )
+    raise e
 
 # Supported Llama 3.2 text model variants (TikToken BPE, 128K vocab)
 SUPPORTED_MODELS = [
@@ -75,7 +93,11 @@ def convert_llama_tokenizer(model_name: str, output_path: str):
     """
 
     print(f"Loading {model_name} tokenizer from HuggingFace...")
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+    try:
+        tokenizer = AutoTokenizer.from_pretrained( model_name )
+    except Exception as e:
+        _check_hf_error( model_name, e )
 
     vocab_size = len(tokenizer)
     print(f"Vocabulary size: {vocab_size}")

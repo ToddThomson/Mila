@@ -1,5 +1,5 @@
 # ============================================================================
-# File: convert_gpt2.py
+# File: convert_weights.py
 # Convert GPT-2 weights to Mila format
 # ============================================================================
 
@@ -12,6 +12,10 @@ Usage:
     python convert_gpt2.py --model gpt2-large --output ../Weights/gpt2/gpt2_large.bin
     python convert_gpt2.py --model gpt2-xl --output ../Weights/gpt2/gpt2_xl.bin
 """
+
+import sys
+from pathlib import Path
+sys.path.insert( 0, str( Path( __file__ ).parent.parent ) )
 
 import argparse
 from transformers import GPT2LMHeadModel

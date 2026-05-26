@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ============================================================================
-# File: convert_gpt2_tokenizer.py
+# File: convert_tokenizer.py
 # Convert GPT-2 tokenizer to Mila binary format
 # ============================================================================
 
@@ -10,6 +10,10 @@ Convert GPT-2 tokenizer from HuggingFace to Mila binary format.
 Usage:
     python convert_gpt2_tokenizer.py --model gpt2 --output ../Tokenizers/gpt2_tokenizer.bin
 """
+
+import sys
+from pathlib import Path
+sys.path.insert( 0, str( Path( __file__ ).parent.parent ) )
 
 import argparse
 import struct

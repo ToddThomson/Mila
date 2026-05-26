@@ -1,26 +1,31 @@
 #!/usr/bin/env python3
 # ============================================================================
-# File: convert_llama_weights.py
-# Convert Llama 3.2 weights to Mila format
+# File: convert_weights.py
+# Convert Llama weights to Mila format
 # ============================================================================
 
 """
-Convert Llama 3.2 weights from HuggingFace to Mila binary format.
+Convert Llama 3.x weights from HuggingFace to Mila binary format.
 
-Mila alpha.4:
-    float32 and bfloat16 are validated against Mila's TPrecision template
-    instantiations.
-    Models are loaded directly in the target dtype to minimise peak memory
-    usage — important for the 3B variant under BF16.
+Supports Llama 3.2 (1B, 3B) and Llama 3.1 (8B) text model variants.
+All share the same weight layout; dimensions are read from the model config
+so no code changes are needed when adding new variants.
+
+Models are loaded directly in the target dtype to minimise peak memory usage —
+critical for the 8B variant under BF16 (~16 GB).
 
 Usage:
-    python convert_llama_weights.py --model meta-llama/Llama-3.2-1B --output ../Weights/llama32/llama32_1b_bf16.bin
-    python convert_llama_weights.py --model meta-llama/Llama-3.2-3B --output ../Weights/llama32/llama32_3b_bf16.bin
-    python convert_llama_weights.py --model meta-llama/Llama-3.2-3B-Instruct --output ../Weights/llama32/llama32_3b_instruct_bf16.bin
+    # Llama 3.2
+    python convert_llama_weights.py --model meta-llama/Llama-3.2-1B --output ../Weights/llama/llama32_1b_bf16.bin
+    python convert_llama_weights.py --model meta-llama/Llama-3.2-3B --output ../Weights/llama/llama32_3b_bf16.bin
+    python convert_llama_weights.py --model meta-llama/Llama-3.2-3B-Instruct --output ../Weights/llama/llama32_3b_instruct_bf16.bin
+    python convert_llama_weights.py --model meta-llama/Llama-3.2-1B --dtype float32 --output ../Weights/llama/llama32_1b_fp32.bin
+    python convert_llama_weights.py --model meta-llama/Llama-3.2-3B --dtype float32 --output ../Weights/llama/llama32_3b_fp32.bin
 
-    python convert_llama_weights.py --model meta-llama/Llama-3.2-1B --dtype float32 --output ../Weights/llama32/llama32_1b_fp32.bin
-    python convert_llama_weights.py --model meta-llama/Llama-3.2-3B --dtype float32 --output ../Weights/llama32/llama32_3b_fp32.bin
-    
+    # Llama 3.1 8B
+    python convert_llama_weights.py --model meta-llama/Llama-3.1-8B --output ../Weights/llama/llama31_8b_bf16.bin
+    python convert_llama_weights.py --model meta-llama/Llama-3.1-8B-Instruct --output ../Weights/llama/llama31_8b_instruct_bf16.bin
+
 
 Mila component name mnemonics (2-4 chars):
     fc   = Linear (fully-connected)
@@ -79,19 +84,47 @@ HuggingFace -> Mila weight mapping:
           with Mila's component path separator '.'.
         - bfloat16 tensors are stored as raw uint16 bytes (IEEE 754 BF16
           bit pattern) as expected by MilaWeightWriter and Mila's loader.
+        - Llama 3.1 8B does not tie word embeddings (tie_word_embeddings=False);
+          lm_head.weight is a separate tensor in the state_dict. The 3.2 1B/3B
+          variants tie embeddings; the converter handles both cases.
+        - Llama 3.1 8B uses rope_scaling with rope_type="llama3" for extended
+          context (up to 131072 tokens). Mila uses standard RoPE with
+          rope_theta=500000, which is accurate at context lengths <= 4096.
+          The rope_scaling dict is printed for reference but not written to the
+          Mila binary -- no Mila change required for Phase 5 validation.
 """
+
+import sys
+from pathlib import Path
+sys.path.insert( 0, str( Path( __file__ ).parent.parent ) )
 
 import argparse
 import torch
 from transformers import AutoModelForCausalLM
 from common import MilaWeightWriter
 
-# Supported Llama 3.2 text model variants
+def _check_hf_error( model_name: str, e: Exception ):
+    name = type( e ).__name__
+    msg  = str( e )
+    if 'GatedRepo' in name or ('403' in msg and 'gated' in msg.lower()):
+        print( f"\nError: '{model_name}' is a gated model." )
+        print( f"  1. Accept Meta's license at https://huggingface.co/{model_name}" )
+        print(  "  2. Authenticate: hf auth login" )
+        sys.exit( 1 )
+    if 'RepositoryNotFound' in name or '404' in msg:
+        print( f"\nError: '{model_name}' not found on HuggingFace." )
+        print(  "  Check the model name and your network connection." )
+        sys.exit( 1 )
+    raise e
+
+# Supported Llama 3.x text model variants
 SUPPORTED_MODELS = [
     'meta-llama/Llama-3.2-1B',
     'meta-llama/Llama-3.2-3B',
     'meta-llama/Llama-3.2-1B-Instruct',
     'meta-llama/Llama-3.2-3B-Instruct',
+    'meta-llama/Llama-3.1-8B',
+    'meta-llama/Llama-3.1-8B-Instruct',
 ]
 
 TORCH_DTYPE_MAP = {
@@ -118,11 +151,16 @@ def _tensor_to_numpy( tensor: torch.Tensor, dtype: str ):
         return tensor.to( torch.float32 ).numpy()
 
 
-def convert_llama32( model_name: str, output_path: str, dtype: str = 'float32' ):
+def convert_llama( model_name: str, output_path: str, dtype: str = 'float32' ):
 
     torch_dtype = TORCH_DTYPE_MAP[dtype]
     print( f"Loading {model_name} from HuggingFace (dtype={dtype})..." )
-    model = AutoModelForCausalLM.from_pretrained( model_name, torch_dtype=torch_dtype )
+
+    try:
+        model = AutoModelForCausalLM.from_pretrained( model_name, torch_dtype=torch_dtype )
+    except Exception as e:
+        _check_hf_error( model_name, e )
+
     config = model.config
 
     print( f"Model config:" )
@@ -137,7 +175,7 @@ def convert_llama32( model_name: str, output_path: str, dtype: str = 'float32' )
 
     # rope_theta moved into rope_scaling/rope_parameters in newer transformers versions.
     # Handle all three locations defensively.
-    rope_theta = 500000.0  # Llama 3.2 default fallback
+    rope_theta = 500000.0  # Llama 3.x default (all validated variants use 500000)
     if hasattr( config, 'rope_theta' ):
         rope_theta = config.rope_theta
     elif hasattr( config, 'rope_scaling' ) and isinstance( config.rope_scaling, dict ):
@@ -276,9 +314,11 @@ def convert_llama32( model_name: str, output_path: str, dtype: str = 'float32' )
 
     # -------------------------------------------------------------------------
     # LM head
-    # Tied with embed_tokens in Llama 3.2 -- written explicitly so Mila's
-    # weight loader needs no tying logic. The metadata flag tie_word_embeddings
-    # is set for reference only.
+    # Llama 3.2 1B/3B: tied with embed_tokens (tie_word_embeddings=True);
+    #   lm_head.weight may not be a separate key in the state_dict.
+    # Llama 3.1 8B: separate tensor (tie_word_embeddings=False);
+    #   lm_head.weight is always present.
+    # Written explicitly in both cases so Mila's loader needs no tying logic.
     # -------------------------------------------------------------------------
     lm_head_key = 'lm_head.weight'
     if lm_head_key in state_dict:
@@ -302,7 +342,7 @@ def convert_llama32( model_name: str, output_path: str, dtype: str = 'float32' )
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description='Convert Llama 3.2 weights to Mila format' )
+        description='Convert Llama 3.x weights to Mila format' )
     parser.add_argument(
         '--model',
         type=str,
@@ -321,9 +361,9 @@ if __name__ == '__main__':
         type=str,
         default='bfloat16',
         choices=['float32', 'bfloat16'],
-        help='Target dtype for weights (default: bfloat16; float32 and bfloat16 validated in Mila alpha.3)'
+        help='Target dtype for weights (default: bfloat16)'
     )
 
     args = parser.parse_args()
 
-    convert_llama32( args.model, args.output, args.dtype )
+    convert_llama( args.model, args.output, args.dtype )
