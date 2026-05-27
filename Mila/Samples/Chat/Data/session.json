@@ -1,7 +1,8 @@
 {
   "model_type": "llama",
-  "model_size": "3b",
+  "model_size": "8b",
   "precision": "bf16",
+  "quantization": "fp4",
   "context_length": 8192,
   "max_new_tokens": 2048,
   "temperature": 0.2,

@@ -157,7 +157,7 @@ def convert_llama( model_name: str, output_path: str, dtype: str = 'float32' ):
     print( f"Loading {model_name} from HuggingFace (dtype={dtype})..." )
 
     try:
-        model = AutoModelForCausalLM.from_pretrained( model_name, torch_dtype=torch_dtype )
+        model = AutoModelForCausalLM.from_pretrained( model_name, dtype=torch_dtype )
     except Exception as e:
         _check_hf_error( model_name, e )
 

@@ -464,12 +464,26 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     else
                     {
                         // 2-phase baseline path:
-                        //   Phase 1 — dequantize FP8 weights to the pre-allocated BF16 staging buffer.
+                        //   Phase 1 — dequantize FP8 weights to the shared BF16 staging buffer.
                         //   Phase 2 — standard BF16 cuBLASLt NT row-major GEMM using the staging buffer.
                         //   Phase 3 — add bias post-GEMM (plan built with has_bias=false to avoid
                         //              the Ada multi-row epilogue INVALID_VALUE constraint).
+                        //
+                        // The staging buffer is fetched from the context on every forward call rather
+                        // than cached at build time. getDeviceScratchBuffer() is O(1) when the buffer
+                        // is already large enough. Fetching here avoids stale pointers: the buffer
+                        // grows during buildCublasLtPlans() as larger layers build their plans, so
+                        // any pointer captured at build time may point to freed memory by the time
+                        // forward() is called.
+                        const size_t staging_bytes = static_cast<size_t>( out_features_ )
+                            * static_cast<size_t>( cached_in_features_ )
+                            * sizeof( __nv_bfloat16 );
+
+                        auto* staging = static_cast<__nv_bfloat16*>(
+                            context_->getDeviceScratchBuffer( staging_bytes ) );
+
                         cuda_fp8_dequantize_to_bf16(
-                            dequant_weight_buffer_,
+                            staging,
                             weight_,
                             weight_scales_,
                             out_features_, cached_in_features_,
@@ -483,7 +497,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                             forward_plan_cache_.get( outer_size ),
                             &alpha,
                             input_ptr,
-                            dequant_weight_buffer_,
+                            staging,
                             &beta,
                             output_ptr,
                             nullptr,
@@ -680,13 +694,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             }
         }
 
-        ~CudaLinearOp()
-        {
-            if ( dequant_weight_buffer_ != nullptr )
-            {
-                cudaFree( dequant_weight_buffer_ );
-            }
-        }
+        ~CudaLinearOp() = default;
 
         OperationType getOperationType() const override
         {
@@ -722,10 +730,6 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         // INT4 quantization group size along K — set from TWeightQuant::kQuantizationGroupSize at build.
         int weight_group_size_{ 128 };
 
-        // BF16 staging buffer for the 2-phase FP8 batch path (kIsPerChannelQuantized, !kUseW8A16Gemm).
-        // Allocated once in buildCublasLtPlans(); size = out_features * in_features * sizeof(BF16).
-        // nullptr when kUseW8A16Gemm=true or on the non-quantized / decode paths.
-        __nv_bfloat16* dequant_weight_buffer_{ nullptr };
 
         const ComputeType* bias_{ nullptr };
 
@@ -844,20 +848,6 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     //   Allocate BF16 staging buffer — filled per-forward by cuda_fp8_dequantize_to_bf16
                     //   then fed into a standard BF16×BF16 NT row-major cuBLASLt plan.
                     // has_bias=false: bias applied post-GEMM by cuda_add_bias (Ada epilogue constraint).
-                    const size_t buffer_bytes = static_cast<size_t>( out_features_ )
-                        * static_cast<size_t>( cached_in_features_ )
-                        * sizeof( __nv_bfloat16 );
-
-                    const cudaError_t alloc_err = cudaMalloc(
-                        reinterpret_cast<void**>( &dequant_weight_buffer_ ), buffer_bytes );
-
-                    if ( alloc_err != cudaSuccess )
-                    {
-                        throw std::runtime_error( std::format(
-                            "CudaLinearOp: failed to allocate FP8 dequantization staging buffer "
-                            "({} bytes): {}", buffer_bytes, cudaGetErrorString( alloc_err ) ) );
-                    }
-
                     forward_plan_cache_ = CublasLtPlanCache<CublasLtLinearPlan<TComputePrecision>>(
                         cached_outer_size_,
                         [&]( int bucket )

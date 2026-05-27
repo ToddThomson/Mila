@@ -91,7 +91,7 @@ namespace Mila::Dnn
         using ComponentPtr = typename NetworkBase::ComponentPtr;
 
         explicit LlamaTransformer( const std::string& name, const LlamaConfig& config, DeviceId device_id )
-            : NetworkBase( name ), exec_context_( createExecutionContext( device_id ) ), config_( config )
+            : NetworkBase( name ), config_( config ), exec_context_( createExecutionContext( device_id ) )
         {
             config_.validate();
 
@@ -545,8 +545,6 @@ namespace Mila::Dnn
 
     private:
 
-        std::unique_ptr<IExecutionContext> exec_context_{ nullptr };
-
         LlamaConfig config_;
 
         shape_t input_shape_;
@@ -580,6 +578,10 @@ namespace Mila::Dnn
         std::vector<TensorType*> block_output_ptrs_;
         TensorType* normalized_ptr_{ nullptr };
         TensorType* logits_ptr_{ nullptr };
+
+        // Declared last so it is destroyed first — cudaStreamSynchronize() fires in
+        // releaseResources() before any tensor cudaFree() calls from members above.
+        std::unique_ptr<IExecutionContext> exec_context_{ nullptr };
 
         // ====================================================================
         // Graph construction

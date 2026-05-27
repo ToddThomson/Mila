@@ -20,9 +20,10 @@ import nlohmann.json;
 
 using namespace Mila::ChatApp;
 
-constexpr ModelType      kDefaultModelType = ModelType::Llama;
-constexpr ModelSize      kDefaultModelSize = ModelSize::B3;
-constexpr ModelPrecision kDefaultPrecision = ModelPrecision::BF16;
+constexpr ModelType        kDefaultModelType        = ModelType::Llama;
+constexpr ModelSize        kDefaultModelSize        = ModelSize::B8;
+constexpr ModelPrecision   kDefaultPrecision        = ModelPrecision::BF16;
+constexpr QuantizationMode kDefaultQuantizationMode = QuantizationMode::FP4;
 
 static std::filesystem::path gpt2_weights_path()
 {
@@ -31,12 +32,13 @@ static std::filesystem::path gpt2_weights_path()
 
 static std::filesystem::path llama_weights_path( ModelSize size, ModelPrecision precision )
 {
-    const char* size_str = (size == ModelSize::B1) ? "1b"
-                         : (size == ModelSize::B8) ? "8b" : "3b";
-    const char* prec_str = (precision == ModelPrecision::BF16) ? "bf16" : "fp32";
+    const char* family_str = (size == ModelSize::B8) ? "llama31" : "llama32";
+    const char* size_str   = (size == ModelSize::B1) ? "1b"
+                           : (size == ModelSize::B8) ? "8b" : "3b";
+    const char* prec_str   = (precision == ModelPrecision::BF16) ? "bf16" : "fp32";
 
     return std::filesystem::path( MODELS_DIR ) / "llama"
-        / std::format( "llama32_{}_instruct_{}.bin", size_str, prec_str );
+        / std::format( "{}_{}_instruct_{}.bin", family_str, size_str, prec_str );
 }
 
 static void printUsage( const char* prog_name )
@@ -51,12 +53,12 @@ static void printUsage( const char* prog_name )
         << "  --model           Model alias (recommended). Available aliases:\n"
         << "                      gpt2          GPT-2 small, FP32\n"
         << "                      llama-1b      Llama 3.2 1B Instruct, BF16\n"
-        << "                      llama-3b      Llama 3.2 3B Instruct, BF16  (default)\n"
+        << "                      llama-8b      Llama 3.1 8B Instruct, BF16  (default)\n"
         << "                      llama-8b      Llama 3.1 8B Instruct, BF16\n"
         << "                      llama-1b-fp32 Llama 3.2 1B Instruct, FP32\n"
         << "                      llama-3b-fp32 Llama 3.2 3B Instruct, FP32\n"
         << "                      llama-8b-fp32 Llama 3.1 8B Instruct, FP32\n"
-        << "  --quantization    Weight quantization: none, fp8, or fp4. Default: none.\n"
+        << "  --quantization    Weight quantization: none, fp8, or fp4. Default: fp4.\n"
         << "                    fp8 enables FP8 weights and FP8 KV cache compression.\n"
         << "                    fp4 enables INT4 weights (W4A16) and FP8 KV cache compression.\n"
         << "  --tokenizer       Path to the tokenizer file.\n"
@@ -248,7 +250,7 @@ static ChatConfig parseArgs( int argc, char* argv[] )
     std::optional<std::size_t> max_new_tokens;
     std::optional<float> temperature;
     std::optional<int> top_k;
-    QuantizationMode quantization_mode = QuantizationMode::None;
+    QuantizationMode quantization_mode = kDefaultQuantizationMode;
     bool is_instruct           = false;
     bool explicit_type         = false;
     bool explicit_size         = false;

@@ -468,6 +468,12 @@ namespace Mila::ChatApp
 
             renderer_.printInfo( std::format( "Loading: {}", config_.model_path.filename().string() ) );
 
+            // Destroy the current model before allocating the replacement.
+            // This returns VRAM to the CUDA pool before the new model is loaded,
+            // avoiding a transient old+new peak that overflows the VRAM budget
+            // and forces WDDM to spill into shared system memory.
+            std::visit( []( auto& m ) { m.reset(); }, model_ );
+
             initializeTokenizer();
             loadModel();
             clearHistory();

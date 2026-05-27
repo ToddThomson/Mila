@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.32-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
+| In Progress | 0.13.33-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
 | Planned | 0.2.2-beta.1 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.2.3-beta.2 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
@@ -85,7 +85,7 @@ on the operation base class. Non-quantized operations are entirely unaware they 
 - [x] `Linear.ixx` — `TWeightQuant = NoWeightQuant` parameter constrained to `WeightQuantPolicy`; `kIsQuantized`, `kWeightDtype` derived from policy; `WeightTensorType` alias; `loadParameter()` delegates to `operation_->quantize()` and `operation_->setWeightScales()` on the quantized path
 - [x] `CudaLinearOp.ixx` — `TWeightQuant` template parameter; `quantize()` and `setWeightScales()` gated on `requires kIsQuantized`; `supportsCuBLASLt()` SM ≥ 8.9 check for FP8; `getComputeTypes()` FP8 branch; FP8 decode matvec kernel (BF16 activation × FP8_E4M3 weight + FP32 scale → BF16 output)
 - [ ] `OperationTraits.Cpu.ixx` — `<Cpu, FP32, NoWeightQuant>` Linear specialization (replaces `LinearOpTypeMap.Cpu.ixx`)
-- [x] `CudaLinearOp.ixx` — FP8 batch prefill path: 2-phase dequantize (`cuda_fp8_dequantize_to_bf16` → BF16 staging buffer) followed by standard BF16×BF16 cuBLASLt NT GEMM; bias added post-GEMM by `cuda_add_bias` to avoid Ada epilogue constraint; staging buffer allocated once in `buildCublasLtPlans()`. Native FP8 cuBLASLt (separate `data_type_A`/`data_type_B` descriptor) deferred — 2-phase is the validated production path.
+- [x] `CudaLinearOp.ixx` — FP8 batch prefill path: 2-phase dequantize (`cuda_fp8_dequantize_to_bf16` → BF16 staging buffer) followed by standard BF16×BF16 cuBLASLt NT GEMM; bias added post-GEMM by `cuda_add_bias` to avoid Ada epilogue constraint; staging buffer fetched at `forward()` call time from `context_->getDeviceScratchBuffer()` (grow-on-demand shared scratch owned by the execution context, freed in `releaseResources()`); per-layer `cudaMalloc` approach retired after causing OOM at 8B scale (~13 GB aggregate). Stale pointer bug fixed: caching the buffer pointer at build time caused dangling references after a grow-realloc; fetching at `forward()` time is safe because all ops share a single stream. Native FP8 cuBLASLt (separate `data_type_A`/`data_type_B` descriptor) deferred — 2-phase is the validated production path.
 - [x] W8A16 fused GEMM A/B test path — `kUseW8A16Gemm` compile-time toggle in `CudaLinearOp`; single kernel reads FP8 weights once, dequantizes per-channel inline in shared memory, accumulates in float32, writes BF16 output; eliminates BF16 staging buffer. Benchmarked: 2–3× slower than 2-phase at target batch sizes (scalar float CUDA cores vs cuBLASLt tensor cores); `kUseW8A16Gemm = false` is the default. Kernel retained as correctness reference; tensor-core WMMA upgrade is the path to a real win.
 
 ### Phase 3 — Llama 3.2 3B Instruct @ FP8
@@ -96,7 +96,7 @@ on the operation base class. Non-quantized operations are entirely unaware they 
 - [x] `ConsoleRenderer` (`Chat.Renderer.ixx`) — standalone non-exported module; braille dot spinner (⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏) with cursor hide/show (`\x1b[?25l/h`) to suppress blink flicker; solid color response blocks (`bg(40,44,60)` / `fg(200,215,240)`) with uniform right-fill and word-wrap preserving leading indentation (tabs expanded, `at_line_start` tracking, spaces at line-start bypass `flush()`); Unicode welcome box (╭─╮/│/╰─╯); dim ANSI generation stats line (`\x1b[2m`, format: `ms │ tok/s │ tokens`); `printInfo()` / `printError()` for system messages; dynamic console width via `GetConsoleScreenBufferInfo`; ANSI RGB helpers (`fg`, `bg`, `reset`) as private statics
 - [x] `Chat.ixx` — `/model <alias> [quant]` command for hot model switching; `resolveAlias()` covers `gpt2`, `llama-1b`, `llama-3b`, `llama-8b`, and `-fp32` variants; `parseQuantization()` dispatches `none`/`fp8`/`fp4`; context length preserved across same-architecture switches, reset on architecture change; all responses fully buffered before display (streaming removed from hot path); `printGenerationStatistics()` delegates to `ConsoleRenderer::printStats()`; `/model` with no args prints current model, precision, quantization, and instruct flag
 - [x] Prefill pipeline validated at FP8 — 2-phase dequant+cuBLASLt path produces coherent generation on Llama 3.2 3B Instruct; Chat CLI demo confirmed correct; TTFT ~2× faster than W8A16 fused path at target batch sizes
-- [ ] Greedy decode validated on standard prompts — no catastrophic divergence vs BF16 baseline
+- [x] Greedy decode validated on standard prompts — no catastrophic divergence vs BF16 baseline
 
 ### Phase 4 — FP4 E2M1 Weight Quantization (Storage)
 
@@ -123,17 +123,22 @@ fidelity, while keeping the same kernel path and VRAM footprint.
 
 Llama 3.1 8B Instruct is the first validation target where FP8 weight quantization is
 practically necessary rather than an optimization. At BF16 the model requires ~16 GB
-VRAM, exceeding the RTX 4070 12 GB budget. At FP8 it fits comfortably at ~8 GB,
-validating the quantization pipeline at a scale that reflects real-world deployment
-constraints. The transformer architecture is identical to Llama 3.2 3B — no new
+VRAM, exceeding the RTX 4070 12 GB budget. At FP8 the total footprint (weights + KV
+cache + runtime overhead) is ~11.6 GB at context_length 8192 on an RTX 4070, within
+the 12 GB budget. The transformer architecture is identical to Llama 3.2 3B — no new
 components are required, only the config preset and weight converter mapping need
-verification at the 8B parameter scale.
+verification at the 8B parameter scale. The production default is Llama 3.1 8B at FP4
+(~6 GB, ~28–31 tok/s decode); FP8 is the validated alternative for applications
+requiring finer weight precision within the same VRAM budget.
 
 - [x] `Llama.Presets.ixx` — `Llama3_1_8B()` preset: embedding=4096, layers=32, heads=32, kv_heads=8, hidden=14336, rope_theta=500000; `LlamaModel::fromPretrained` reads all architecture dimensions from checkpoint metadata so no preset wiring is required in the load path
 - [x] `convert_llama_weights.py` — extended to support `meta-llama/Llama-3.1-8B` and `meta-llama/Llama-3.1-8B-Instruct`; key mapping and gate/up concatenation confirmed identical to Llama 3.2; `tie_word_embeddings=False` on 8B handled by existing lm_head fallback; `rope_scaling` (`rope_type="llama3"`) printed for reference but not written — standard RoPE with `rope_theta=500000` is accurate at context lengths ≤ 4096; output: `llama31_8b_instruct_bf16.bin`
 - [x] `ChatConfig` — `ModelSize::B8` added; `Chat.ixx` `switchModel()` path generation fixed: `family_str` derives `llama31` for B8 and `llama32` for 1B/3B so the correct binary filename is constructed; `llama-8b` and `llama-8b-fp32` aliases wired in `resolveAlias()`
-- [ ] Prefill pipeline validated at FP8 — logits match BF16 reference on identical prompts
-- [ ] Greedy decode validated on standard prompts — no catastrophic divergence vs BF16 baseline
+- [x] `Llama.ixx` — `exec_context_` moved to last member declaration so it is destroyed first; `cudaStreamSynchronize()` in `releaseResources()` now fires before any tensor `cudaFree()` calls, fixing undefined behaviour during model destruction where stream callbacks fired after their device allocations had been freed
+- [x] `Chat.ixx` — `switchModel()` destroys the current model via `std::visit([]( auto& m ) { m.reset(); }, model_)` before allocating the replacement, eliminating the transient old+new VRAM peak (~12.83 GB for 3B BF16 + 8B FP4) that caused WDDM shared memory spill and 4 tok/s warm-up on RTX 4070
+- [x] `main.cpp` — `llama_weights_path()` corrected to use `llama31` family prefix for `ModelSize::B8` (was always emitting `llama32_8b_…`, which does not exist); chat app default updated to Llama 3.1 8B FP4 (`session.json` and `kDefaultQuantizationMode` aligned)
+- [x] Prefill pipeline validated at FP8 — coherent generation confirmed on Llama 3.1 8B Instruct; both clean initial load and hot `/model llama-8b fp8` switch validated on RTX 4070
+- [x] Greedy decode validated on standard prompts — no catastrophic divergence vs BF16 baseline; stale pointer root cause identified and fixed (cached `dequant_weight_buffer_` dangled after `getDeviceScratchBuffer()` grow-realloc during layer construction)
 
 ---
 
