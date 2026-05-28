@@ -157,7 +157,8 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             uint8_t*             dst_packed,
             float*               dst_scales,
             int64_t              out_features,
-            int64_t              in_features )
+            int64_t              in_features,
+            cudaStream_t         stream )
         {
             const int64_t num_groups = in_features / kGroupSize;
 
@@ -167,7 +168,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             const dim3 block( kGroupSize );
             const int  smem_bytes = kGroupSize * static_cast<int>( sizeof( float ) );
 
-            quantize_fp4_per_group_kernel<kGroupSize><<<grid, block, smem_bytes>>>(
+            quantize_fp4_per_group_kernel<kGroupSize><<<grid, block, smem_bytes, stream>>>(
                 dev_src, dst_packed, dst_scales, static_cast<int>( in_features ) );
 
             const cudaError_t err = cudaGetLastError();
@@ -181,29 +182,22 @@ namespace Mila::Dnn::Compute::Cuda::Linear
     }
 
     void cuda_quantize_fp4_per_group(
-        const void* src_bf16,
-        void*       dst_packed,
-        float*      dst_scales,
-        int64_t     out_features,
-        int64_t     in_features,
-        int         group_size )
+        const void*  src_bf16,
+        void*        dst_packed,
+        float*       dst_scales,
+        int64_t      out_features,
+        int64_t      in_features,
+        int          group_size,
+        void*        dev_staging,
+        cudaStream_t stream )
     {
         const size_t src_bytes = static_cast<size_t>( out_features * in_features )
                                  * sizeof( __nv_bfloat16 );
 
-        void* dev_src = nullptr;
-        cudaError_t err = cudaMalloc( &dev_src, src_bytes );
+        cudaError_t err = cudaMemcpyAsync( dev_staging, src_bf16, src_bytes,
+                                           cudaMemcpyHostToDevice, stream );
         if ( err != cudaSuccess )
         {
-            throw std::runtime_error( std::format(
-                "cuda_quantize_fp4_per_group: failed to allocate staging buffer: {}",
-                cudaGetErrorString( err ) ) );
-        }
-
-        err = cudaMemcpy( dev_src, src_bf16, src_bytes, cudaMemcpyHostToDevice );
-        if ( err != cudaSuccess )
-        {
-            cudaFree( dev_src );
             throw std::runtime_error( std::format(
                 "cuda_quantize_fp4_per_group: source upload failed: {}",
                 cudaGetErrorString( err ) ) );
@@ -213,32 +207,20 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         {
             case 64:
                 launch_quantize_fp4_per_group<64>(
-                    static_cast<const __nv_bfloat16*>( dev_src ),
+                    static_cast<const __nv_bfloat16*>( dev_staging ),
                     static_cast<uint8_t*>( dst_packed ),
-                    dst_scales, out_features, in_features );
+                    dst_scales, out_features, in_features, stream );
                 break;
             case 128:
                 launch_quantize_fp4_per_group<128>(
-                    static_cast<const __nv_bfloat16*>( dev_src ),
+                    static_cast<const __nv_bfloat16*>( dev_staging ),
                     static_cast<uint8_t*>( dst_packed ),
-                    dst_scales, out_features, in_features );
+                    dst_scales, out_features, in_features, stream );
                 break;
             default:
-                cudaFree( dev_src );
                 throw std::runtime_error( std::format(
                     "cuda_quantize_fp4_per_group: unsupported group_size={}", group_size ) );
         }
-
-        err = cudaDeviceSynchronize();
-        if ( err != cudaSuccess )
-        {
-            cudaFree( dev_src );
-            throw std::runtime_error( std::format(
-                "cuda_quantize_fp4_per_group: kernel execution failed: {}",
-                cudaGetErrorString( err ) ) );
-        }
-
-        cudaFree( dev_src );
     }
 
 } // namespace Mila::Dnn::Compute::Cuda::Linear

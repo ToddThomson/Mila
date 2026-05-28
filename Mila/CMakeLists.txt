@@ -51,6 +51,7 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatVec/CudaMatVecBias.Bf16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W8A16Gemm/CudaW8A16Gemm.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cu"
 
@@ -109,7 +110,7 @@ add_library( Mila STATIC
     CUDA_STANDARD 20
     CUDA_STANDARD_REQUIRED ON
     CUDA_SEPARABLE_COMPILATION ON
-    CUDA_ARCHITECTURES 75 80 86 89 90
+    CUDA_ARCHITECTURES "75;80;86;89;90"
 )
 
 target_compile_features( Mila PUBLIC cxx_std_23 )
@@ -117,10 +118,11 @@ target_compile_features( Mila PUBLIC cxx_std_23 )
 #find_package(miniz REQUIRED)  
 #find_package(nlohmann_json REQUIRED)
 
-target_include_directories( Mila 
-    PRIVATE 
+target_include_directories( Mila
+    PRIVATE
         ${miniz_SOURCE_DIR}
-        ${sentencepiece_SOURCE_DIR}/src )
+        ${sentencepiece_SOURCE_DIR}/src
+        $<$<BOOL:${cutlass_ADDED}>:${cutlass_SOURCE_DIR}/include> )
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   target_compile_options(Mila PRIVATE 

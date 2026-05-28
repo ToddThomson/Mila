@@ -411,6 +411,11 @@ namespace Mila::Dnn
                     target->loadParameter( param_name, blob );
                 }
             }
+
+            if constexpr ( TDeviceType == DeviceType::Cuda )
+            {
+                this->getExecutionContext()->synchronize();
+            }
         }
 
     protected:

@@ -168,6 +168,19 @@ if(MILA_ENABLE_PYTHON_BINDINGS)
     )
 endif()
 
+if( MILA_HAS_CUDA )
+    CPMAddPackage(
+        NAME cutlass
+        GITHUB_REPOSITORY NVIDIA/cutlass
+        GIT_TAG v4.5.1
+        OPTIONS
+            "CUTLASS_ENABLE_TESTS OFF"
+            "CUTLASS_ENABLE_EXAMPLES OFF"
+            "CUTLASS_ENABLE_LIBRARY OFF"
+            "CUTLASS_ENABLE_CUBLAS OFF"
+    )
+endif()
+
 find_package(CUDAToolkit REQUIRED)  
 find_package(miniz REQUIRED)
 find_package(nlohmann_json REQUIRED)

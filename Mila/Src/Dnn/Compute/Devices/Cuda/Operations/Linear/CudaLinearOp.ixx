@@ -30,6 +30,7 @@ module;
 #include "Kernels/Fp8Prefill/CudaFp8Prefill.cuh"
 #include "Kernels/W8A16Gemm/CudaW8A16Gemm.cuh"
 #include "Kernels/W4A16Gemm/CudaW4A16Gemm.cuh"
+#include "Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cuh"
 
 export module Compute.CudaLinearOp;
 import :Plans;
@@ -254,17 +255,30 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             ITensor& scales_out,
             const shape_t& expected_shape ) requires kIsQuantized
         {
+            const int64_t out_features = static_cast<int64_t>( expected_shape[ 0 ] );
+            const int64_t in_features  = static_cast<int64_t>( expected_shape[ 1 ] );
+            const size_t  src_bytes    = static_cast<size_t>( out_features * in_features )
+                                         * sizeof( __nv_bfloat16 );
+
+            cudaStream_t stream = context_->getStream();
+
             if constexpr ( kIsPerChannelQuantized )
             {
                 // FP8 per-channel: scale[o] = max(|W[o,:]|) / 448.0f
-                Detail::quantize_fp8_per_channel( blob, weight_out, scales_out, expected_shape );
+                // per_tensor needs 4 extra bytes for the atomicMax scratch — allocate the
+                // larger size so the same scratch buffer covers both variants.
+                void* staging = context_->getDeviceScratchBuffer( src_bytes + sizeof( unsigned int ) );
+                Detail::quantize_fp8_per_channel( blob, weight_out, scales_out, expected_shape,
+                                                  staging, stream );
             }
             else if constexpr ( kIsPerGroupQuantized && TWeightQuant::kIsFp4E2M1 )
             {
                 // FP4 E2M1 per-group: scale[n,g] = max(|W[n,g*gs..(g+1)*gs)|) / 6.0f
+                void* staging = context_->getDeviceScratchBuffer( src_bytes );
                 Detail::quantize_fp4_per_group(
                     blob, weight_out, scales_out, expected_shape,
-                    TWeightQuant::kQuantizationGroupSize );
+                    TWeightQuant::kQuantizationGroupSize,
+                    staging, stream );
             }
             else
             {
@@ -366,6 +380,17 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             }
             cached_cublaslt_handle_ = context_->getCublasLtHandle();
             use_cublaslt_ = (cached_cublaslt_handle_ != nullptr) && supportsCuBLASLt();
+
+            if constexpr ( kIsPerGroupQuantized )
+            {
+                if constexpr ( TWeightQuant::kIsFp4E2M1 )
+                {
+                    int device = 0, major = 0;
+                    cudaGetDevice( &device );
+                    cudaDeviceGetAttribute( &major, cudaDevAttrComputeCapabilityMajor, device );
+                    use_wmma_fp4_gemm_ = ( major >= 8 ); // BF16 tensor-core WMMA requires SM 8.0+
+                }
+            }
 
             if ( use_cublaslt_ )
             {
@@ -516,17 +541,20 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 {
                     if constexpr ( TWeightQuant::kIsFp4E2M1 )
                     {
-                        // FP4 E2M1 W4A16 fused GEMM: packed FP4 nibbles dequantized per-group
-                        // inline via E2M1 lookup. No zero-points — sign is in the nibble.
-                        cuda_fp4a16_gemm(
-                            output_ptr,
-                            input_ptr,
-                            weight_,
-                            weight_scales_,
-                            bias_,
-                            outer_size, cached_in_features_, out_features_,
-                            weight_group_size_,
-                            stream );
+                        if ( use_wmma_fp4_gemm_ )
+                        {
+                            cuda_fp4a16_gemm_wmma(
+                                output_ptr, input_ptr, weight_, weight_scales_, bias_,
+                                outer_size, cached_in_features_, out_features_,
+                                weight_group_size_, stream );
+                        }
+                        else
+                        {
+                            cuda_fp4a16_gemm(
+                                output_ptr, input_ptr, weight_, weight_scales_, bias_,
+                                outer_size, cached_in_features_, out_features_,
+                                weight_group_size_, stream );
+                        }
                     }
                     else
                     {
@@ -745,6 +773,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         cublasLtHandle_t cached_cublaslt_handle_{ nullptr };
         bool use_cublaslt_{ false };
+        bool use_wmma_fp4_gemm_{ false };
         
         // cuBLASLt plan cache — forward path.
         // kIsPerChannelQuantized + !kUseW8A16Gemm: BF16×BF16 NT plan fed by the FP8->BF16 staging buffer.

@@ -20,32 +20,43 @@
  */
 
 #pragma once
+#include <cuda_runtime.h>
 #include <cstdint>
 
 namespace Mila::Dnn::Compute::Cuda::Linear
 {
     /**
-     * @brief Per-group BF16->FP4_E2M1 quantization with device upload.
+     * @brief Per-group BF16->FP4_E2M1 quantization with async device upload.
      *
      * For each output channel and each group of kGroupSize input channels:
      *   scale[n, g] = max(|W[n, g*gs..(g+1)*gs)|) / 6.0f
      *   packed[n, k/2] = fp4_e2m1(W[n,k]/scale[n,k/gs]) nibble-packed
      *
+     * All device operations are issued on stream. The caller must synchronize
+     * after all weight tensors have been quantized — no synchronization is
+     * performed inside this function.
+     *
      * @param src_bf16      Host pointer to BF16 weight blob [out_features * in_features].
+     *                      Must be in pinned (page-locked) memory for async DMA.
      * @param dst_packed    Device pointer to packed uint8 output [out_features * in_features/2].
      * @param dst_scales    Device pointer to float32 scales [out_features * in_features/group_size].
      * @param out_features  Number of output channels (rows).
      * @param in_features   Number of input channels (columns). Must be divisible by group_size.
      * @param group_size    Quantization group size (64 or 128).
+     * @param dev_staging   Pre-allocated device buffer of at least
+     *                      out_features * in_features * sizeof(bfloat16) bytes.
+     * @param stream        CUDA stream for all async operations.
      *
      * @throws std::runtime_error if any CUDA call fails or group_size is unsupported.
      */
     void cuda_quantize_fp4_per_group(
-        const void* src_bf16,
-        void*       dst_packed,
-        float*      dst_scales,
-        int64_t     out_features,
-        int64_t     in_features,
-        int         group_size );
+        const void*  src_bf16,
+        void*        dst_packed,
+        float*       dst_scales,
+        int64_t      out_features,
+        int64_t      in_features,
+        int          group_size,
+        void*        dev_staging,
+        cudaStream_t stream );
 
 } // namespace Mila::Dnn::Compute::Cuda::Linear

@@ -11,12 +11,12 @@
  * compiles against the CUDA runtime headers only.
  *
  * Algorithm (GPU):
- *   1. Upload BF16 source blob to a temporary device buffer.
+ *   1. Upload BF16 source blob asynchronously into the caller-supplied device staging buffer.
  *   2. Launch quantize_fp8_per_channel_kernel: one block per output channel.
  *      Each block does a two-phase pass over its row:
  *        Phase 1 — parallel warp + shared-memory reduction to find per-channel absmax.
  *        Phase 2 — parallel element-wise BF16→FP8 conversion using the channel scale.
- *   3. Synchronize and free the temporary device buffer.
+ *   3. All operations are issued on the caller-supplied stream; the caller synchronizes.
  *
  * This replaces the previous single-threaded CPU loop, giving O(out_features)
  * parallel work on GPU vs O(out_features * in_features) sequential work on CPU.
@@ -207,112 +207,75 @@ namespace Mila::Dnn::Compute::Cuda::Linear
     } // anonymous namespace
 
     void cuda_quantize_fp8_per_channel(
-        const void* src_bf16,
-        void*       dst_fp8,
-        float*      dst_scales,
-        int64_t     out_features,
-        int64_t     in_features )
+        const void*  src_bf16,
+        void*        dst_fp8,
+        float*       dst_scales,
+        int64_t      out_features,
+        int64_t      in_features,
+        void*        dev_staging,
+        cudaStream_t stream )
     {
         const size_t src_bytes = static_cast<size_t>( out_features * in_features )
                                  * sizeof( __nv_bfloat16 );
 
-        // Upload BF16 source to a temporary device buffer.
-        void* dev_src = nullptr;
-        cudaError_t err = cudaMalloc( &dev_src, src_bytes );
+        cudaError_t err = cudaMemcpyAsync( dev_staging, src_bf16, src_bytes,
+                                           cudaMemcpyHostToDevice, stream );
         if ( err != cudaSuccess )
         {
-            throw std::runtime_error( std::format(
-                "cuda_quantize_fp8_per_channel - failed to allocate device staging buffer: {}",
-                cudaGetErrorString( err ) ) );
-        }
-
-        err = cudaMemcpy( dev_src, src_bf16, src_bytes, cudaMemcpyHostToDevice );
-        if ( err != cudaSuccess )
-        {
-            cudaFree( dev_src );
             throw std::runtime_error( std::format(
                 "cuda_quantize_fp8_per_channel - BF16 source upload failed: {}",
                 cudaGetErrorString( err ) ) );
         }
 
-        // Launch: one block per output channel.
         const int smem_bytes = ( kBlockSize / 32 ) * static_cast<int>( sizeof( float ) );
 
         quantize_fp8_per_channel_kernel<<<
             static_cast<unsigned int>( out_features ),
             kBlockSize,
-            smem_bytes >>>(
-                static_cast<const __nv_bfloat16*>( dev_src ),
+            smem_bytes,
+            stream >>>(
+                static_cast<const __nv_bfloat16*>( dev_staging ),
                 static_cast<__nv_fp8_e4m3*>( dst_fp8 ),
                 dst_scales,
                 static_cast<int>( in_features ) );
 
-        err = cudaGetLastError();
-        if ( err != cudaSuccess )
+        const cudaError_t launch_err = cudaGetLastError();
+        if ( launch_err != cudaSuccess )
         {
-            cudaFree( dev_src );
             throw std::runtime_error( std::format(
                 "cuda_quantize_fp8_per_channel - kernel launch failed: {}",
-                cudaGetErrorString( err ) ) );
+                cudaGetErrorString( launch_err ) ) );
         }
-
-        err = cudaDeviceSynchronize();
-        if ( err != cudaSuccess )
-        {
-            cudaFree( dev_src );
-            throw std::runtime_error( std::format(
-                "cuda_quantize_fp8_per_channel - kernel execution failed: {}",
-                cudaGetErrorString( err ) ) );
-        }
-
-        cudaFree( dev_src );
     }
 
     void cuda_quantize_fp8_per_tensor(
-        const void* src_bf16,
-        void*       dst_fp8,
-        float*      dst_scales,
-        int64_t     out_features,
-        int64_t     in_features )
+        const void*  src_bf16,
+        void*        dst_fp8,
+        float*       dst_scales,
+        int64_t      out_features,
+        int64_t      in_features,
+        void*        dev_staging,
+        cudaStream_t stream )
     {
         const size_t src_bytes = static_cast<size_t>( out_features * in_features ) * sizeof( __nv_bfloat16 );
 
-        // Upload BF16 source to a temporary device buffer.
-        void* dev_src = nullptr;
-        cudaError_t err = cudaMalloc( &dev_src, src_bytes );
-        if ( err != cudaSuccess )
-        {
-            throw std::runtime_error( std::format(
-                "cuda_quantize_fp8_per_tensor - failed to allocate staging buffer: {}",
-                cudaGetErrorString( err ) ) );
-        }
+        // dev_staging layout: [0, src_bytes) = BF16 source; [src_bytes, +4) = atomicMax scratch.
+        auto* dev_src        = static_cast<__nv_bfloat16*>( dev_staging );
+        auto* dev_global_max = reinterpret_cast<unsigned int*>(
+            static_cast<char*>( dev_staging ) + src_bytes );
 
-        err = cudaMemcpy( dev_src, src_bf16, src_bytes, cudaMemcpyHostToDevice );
+        cudaError_t err = cudaMemcpyAsync( dev_src, src_bf16, src_bytes,
+                                           cudaMemcpyHostToDevice, stream );
         if ( err != cudaSuccess )
         {
-            cudaFree( dev_src );
             throw std::runtime_error( std::format(
                 "cuda_quantize_fp8_per_tensor - source upload failed: {}",
                 cudaGetErrorString( err ) ) );
         }
 
-        // Allocate and zero-initialise the global max accumulator.
-        // Stored as unsigned int for integer atomicMax over IEEE 754 float bits.
-        unsigned int* dev_global_max = nullptr;
-        err = cudaMalloc( &dev_global_max, sizeof( unsigned int ) );
+        err = cudaMemsetAsync( dev_global_max, 0, sizeof( unsigned int ), stream );
         if ( err != cudaSuccess )
         {
-            cudaFree( dev_src );
-            throw std::runtime_error( std::format(
-                "cuda_quantize_fp8_per_tensor - failed to allocate global max buffer: {}",
-                cudaGetErrorString( err ) ) );
-        }
-
-        err = cudaMemset( dev_global_max, 0, sizeof( unsigned int ) );
-        if ( err != cudaSuccess )
-        {
-            cudaFree( dev_src );
-            cudaFree( dev_global_max );
             throw std::runtime_error( std::format(
                 "cuda_quantize_fp8_per_tensor - failed to zero global max buffer: {}",
                 cudaGetErrorString( err ) ) );
@@ -324,55 +287,40 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         find_global_absmax_kernel<<<
             static_cast<unsigned int>( out_features ),
             kBlockSize,
-            smem_bytes >>>(
-                static_cast<const __nv_bfloat16*>( dev_src ),
+            smem_bytes,
+            stream >>>(
+                dev_src,
                 dev_global_max,
                 static_cast<int>( in_features ) );
 
-        err = cudaGetLastError();
-        if ( err != cudaSuccess )
+        cudaError_t launch_err = cudaGetLastError();
+        if ( launch_err != cudaSuccess )
         {
-            cudaFree( dev_src );
-            cudaFree( dev_global_max );
             throw std::runtime_error( std::format(
                 "cuda_quantize_fp8_per_tensor - find_global_absmax_kernel launch failed: {}",
-                cudaGetErrorString( err ) ) );
+                cudaGetErrorString( launch_err ) ) );
         }
 
         // Pass 2: quantize using global scale and fill scales[].
-        // Kernel 1 and 2 are on the same (default) stream; kernel 2 sees the
-        // fully-reduced global_max because sequential kernel launches are ordered.
+        // Both kernels are on the same stream so kernel 2 sees the fully-reduced global_max.
         quantize_fp8_global_scale_kernel<<<
             static_cast<unsigned int>( out_features ),
-            kBlockSize >>>(
-                static_cast<const __nv_bfloat16*>( dev_src ),
+            kBlockSize,
+            0,
+            stream >>>(
+                dev_src,
                 static_cast<__nv_fp8_e4m3*>( dst_fp8 ),
                 dst_scales,
                 dev_global_max,
                 static_cast<int>( in_features ) );
 
-        err = cudaGetLastError();
-        if ( err != cudaSuccess )
+        launch_err = cudaGetLastError();
+        if ( launch_err != cudaSuccess )
         {
-            cudaFree( dev_src );
-            cudaFree( dev_global_max );
             throw std::runtime_error( std::format(
                 "cuda_quantize_fp8_per_tensor - quantize_fp8_global_scale_kernel launch failed: {}",
-                cudaGetErrorString( err ) ) );
+                cudaGetErrorString( launch_err ) ) );
         }
-
-        err = cudaDeviceSynchronize();
-        if ( err != cudaSuccess )
-        {
-            cudaFree( dev_src );
-            cudaFree( dev_global_max );
-            throw std::runtime_error( std::format(
-                "cuda_quantize_fp8_per_tensor - kernel execution failed: {}",
-                cudaGetErrorString( err ) ) );
-        }
-
-        cudaFree( dev_src );
-        cudaFree( dev_global_max );
     }
 
 } // namespace Mila::Dnn::Compute::Cuda::Linear

@@ -4,6 +4,12 @@
  *
  * Provides direct access to pretrained model weights stored in Mila's
  * flat binary format. Used by fromPretrained() factory methods.
+ *
+ * TODO (Alpha.5 Phase 6): Replace the per-tensor fstream read loop with
+ * CreateFileMapping/MapViewOfFile. The current approach issues one read per
+ * tensor blob (224+ for Llama 3.1 8B), capping throughput at ~2 GB/s against
+ * a PCIe 4.0 NVMe floor of ~7 GB/s (~8s load vs ~2s target). TensorBlob::data()
+ * should return a pointer into the mapped view; the ITensorBlob interface is stable.
  */
 
 module;

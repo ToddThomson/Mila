@@ -58,7 +58,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             const Mila::Dnn::Serialization::ITensorBlob& blob,
             Mila::Dnn::ITensor&                          weight_out,
             Mila::Dnn::ITensor&                          scales_out,
-            const Mila::Dnn::shape_t&                    expected_shape )
+            const Mila::Dnn::shape_t&                    expected_shape,
+            void*                                        dev_staging,
+            cudaStream_t                                 stream )
         {
             const auto& meta = blob.getMetadata();
 
@@ -78,7 +80,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 weight_out.rawData(),
                 static_cast<float*>( scales_out.rawData() ),
                 out_features,
-                in_features );
+                in_features,
+                dev_staging,
+                stream );
         }
 
         /**
@@ -103,7 +107,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             const Mila::Dnn::Serialization::ITensorBlob& blob,
             Mila::Dnn::ITensor&                          weight_out,
             Mila::Dnn::ITensor&                          scales_out,
-            const Mila::Dnn::shape_t&                    expected_shape )
+            const Mila::Dnn::shape_t&                    expected_shape,
+            void*                                        dev_staging,
+            cudaStream_t                                 stream )
         {
             const auto& meta = blob.getMetadata();
 
@@ -123,7 +129,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 weight_out.rawData(),
                 static_cast<float*>( scales_out.rawData() ),
                 out_features,
-                in_features );
+                in_features,
+                dev_staging,
+                stream );
         }
 
         /**
@@ -150,7 +158,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             Mila::Dnn::ITensor&                          weight_out,
             Mila::Dnn::ITensor&                          scales_out,
             const Mila::Dnn::shape_t&                    expected_shape,
-            int                                          group_size )
+            int                                          group_size,
+            void*                                        dev_staging,
+            cudaStream_t                                 stream )
         {
             const auto& meta = blob.getMetadata();
 
@@ -171,7 +181,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 static_cast<float*>( scales_out.rawData() ),
                 out_features,
                 in_features,
-                group_size );
+                group_size,
+                dev_staging,
+                stream );
         }
 
     } // namespace Detail

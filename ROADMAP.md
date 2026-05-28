@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.34-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
+| In Progress | 0.13.35-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
 | Planned | 0.2.2-beta.1 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.2.3-beta.2 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
@@ -142,6 +142,22 @@ requiring finer weight precision within the same VRAM budget.
 - [x] `main.cpp` — `llama_weights_path()` corrected to use `llama31` family prefix for `ModelSize::B8` (was always emitting `llama32_8b_…`, which does not exist); chat app default updated to Llama 3.1 8B FP4 (`session.json` and `kDefaultQuantizationMode` aligned)
 - [x] Prefill pipeline validated at FP8 — coherent generation confirmed on Llama 3.1 8B Instruct; both clean initial load and hot `/model llama-8b fp8` switch validated on RTX 4070
 - [x] Greedy decode validated on standard prompts — no catastrophic divergence vs BF16 baseline; stale pointer root cause identified and fixed (cached `dequant_weight_buffer_` dangled after `getDeviceScratchBuffer()` grow-realloc during layer construction)
+
+### Phase 6 — PretrainedModelReader Bulk I/O
+
+The serialized per-tensor `fstream` read loop in `PretrainedReader.ixx` issues one read
+call per tensor blob (224+ for Llama 3.1 8B), capping effective throughput at ~2 GB/s
+against a PCIe 4.0 NVMe floor of ~7 GB/s. Llama 3.1 8B (~15.7 GB) loads in ~8s; the
+hardware minimum is ~2.2s. The fix applies to all models.
+
+Replace with `CreateFileMapping` / `MapViewOfFile` (Windows primary target): tensor blobs
+become zero-copy pointers into the mapped region with no seek-per-tensor overhead. The
+`ITensorBlob` interface (`blob.data()`, `blob.getMetadata()`) must remain stable; only the
+reader implementation changes.
+
+- [ ] `PretrainedReader.ixx` — replace `std::fstream` per-tensor read loop with `CreateFileMapping` + `MapViewOfFile`; `TensorBlob::data()` returns a pointer into the mapped view; no heap allocation per tensor
+- [ ] `CudaPinnedMemoryResource` path — confirm pinned host staging is still used for the async H2D DMA path; mapped memory itself need not be pinned if a single async `cudaMemcpyAsync` from the view is issued in `loadParameter()`
+- [ ] Validated on Llama 3.1 8B FP4 — load time target: < 3s on PCIe 4.0 NVMe; no regression on 3B models
 
 ---
 

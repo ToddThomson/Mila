@@ -31,7 +31,29 @@
       "Bash(xargs grep -l \"SamplingOp\\\\|GeluOp\")",
       "Bash(Get-ChildItem -Path \"D:\\\\Repos\\\\Mila\\\\Src\\\\Dnn\\\\Compute\\\\Devices\\\\Cuda\" -Filter \"Cuda*.ixx\" -File)",
       "Bash(ls /mnt/c/Users/ToddT/.claude/projects/D--Repos-Mila/memory/)",
-      "Bash(git -C \"D:\\\\Repos\\\\Mila\" diff --stat HEAD -- Mila/Src/Dnn/Components/ Mila/Src/Dnn/Compute/Operations/OperationTraits*)"
+      "Bash(git -C \"D:\\\\Repos\\\\Mila\" diff --stat HEAD -- Mila/Src/Dnn/Components/ Mila/Src/Dnn/Compute/Operations/OperationTraits*)",
+      "Bash(dir /s /b \"D:\\\\Repos\\\\Mila\\\\*.md\")",
+      "Bash(xargs grep -l \"cuda_matvec_decode_bf16_qfp4\")",
+      "Bash(xargs grep -l \"kIsFp4E2M1\")",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:research.colfax-intl.com)",
+      "WebFetch(domain:deepwiki.com)",
+      "Bash(curl -s \"https://api.github.com/repos/NVIDIA/TensorRT-LLM/contents/cpp/tensorrt_llm/kernels/cutlass_kernels/fpA_intB_gemm\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/NVIDIA/TensorRT-LLM/main/CMakeLists.txt\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/NVIDIA/TensorRT-LLM/main/cpp/tensorrt_llm/kernels/cutlass_kernels/fpA_intB_gemm/fpA_intB_gemm.h\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/NVIDIA/TensorRT-LLM/main/cpp/tensorrt_llm/kernels/cutlass_kernels/fpA_intB_gemm/fpA_intB_gemm_template.h\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/NVIDIA/TensorRT-LLM/main/cpp/tensorrt_llm/kernels/cutlass_kernels/cutlass_preprocessors.h\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/NVIDIA/TensorRT-LLM/main/3rdparty/cutlass/CMakeLists.txt\")",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s \"https://raw.githubusercontent.com/NVIDIA/TensorRT-LLM/main/cpp/tensorrt_llm/kernels/cutlass_kernels/fpA_intB_gemm/fpA_intB_gemm_template_sm90.h\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/NVIDIA/TensorRT-LLM/main/cpp/tensorrt_llm/kernels/cutlass_kernels/fpA_intB_gemm/fpA_intB_gemm_template_sm100.h\")",
+      "Bash(curl -s \"https://api.github.com/repos/NVIDIA/TensorRT-LLM/contents/cpp/tensorrt_llm/kernels/cutlass_kernels/fpA_intB_gemm?per_page=200\")",
+      "Bash(python3)",
+      "Bash(nvidia-smi --query-gpu=name,compute_cap --format=csv)",
+      "Bash(cuobjdump --list-elf --list-ptx CudaW4A16Gemm.Wmma.cu.obj)",
+      "Bash(cuobjdump --list-elf --list-ptx CudaW4A16Gemm.cu.obj)",
+      "Read(//d/d/Repos/Mila/out/build/x64-debug/**)",
+      "Bash(awk '/CudaW4A16Gemm\\\\.Wmma\\\\.cu\\\\.obj: CUDA_COMPILER/{found=1} found{print; if\\(/^$/\\) exit}' build.ninja)"
     ]
   }
 }
