@@ -14,7 +14,7 @@ module;
 #include <optional>
 
 export module Dnn.Components.Rope;
-export import :Config;
+export import Dnn.Components.RopeConfig;
 
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -32,7 +32,7 @@ import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.PairedOperation;
 import Compute.IPositionalPairedOp;
-import Compute.OperationRegistry;
+import Compute.OperationTraits;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
@@ -291,9 +291,11 @@ namespace Mila::Dnn
         }
 
     private:
+        using OpType = typename OperationTraits<OperationType::RopeOp, TDeviceType, TPrecision>::type;
+
         RopeConfig config_;
 
-        std::shared_ptr<PairedOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<OpType> operation_{ nullptr };
         IPositionalPairedOp* positional_op_{ nullptr };
 
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
@@ -312,11 +314,7 @@ namespace Mila::Dnn
 
         void createOperation()
         {
-            operation_ = OperationRegistry::instance()
-                .createPairedOperation<TDeviceType, TPrecision>(
-                    "RopeOp",
-                    this->getExecutionContext(),
-                    config_ );
+            operation_ = std::make_shared<OpType>( this->getExecutionContext(), config_ );
 
             if ( !operation_ )
                 throw std::runtime_error( "Rope: failed to create RopeOp backend." );

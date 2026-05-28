@@ -27,7 +27,11 @@
       "Bash(Select-Object -ExpandProperty FullName)",
       "Bash(find /mnt/d/Repos/Mila -name \"*.vcxproj\" 2>/dev/null | head -20)",
       "Bash(grep -E \"\\\\.\\(js|ts|py|cpp|cs|h\\)$\")",
-      "PowerShell(Get-ChildItem -Path \"D:\\\\Repos\\\\Mila\\\\Mila\\\\\" -Recurse -Force | Select-Object @{N='Path';E={$_.FullName -replace [regex]::Escape\\(\"D:\\\\Repos\\\\Mila\\\\Mila\\\\\"\\), ''}} | Sort-Object Path | ForEach-Object { $_.Path })"
+      "PowerShell(Get-ChildItem -Path \"D:\\\\Repos\\\\Mila\\\\Mila\\\\\" -Recurse -Force | Select-Object @{N='Path';E={$_.FullName -replace [regex]::Escape\\(\"D:\\\\Repos\\\\Mila\\\\Mila\\\\\"\\), ''}} | Sort-Object Path | ForEach-Object { $_.Path })",
+      "Bash(xargs grep -l \"SamplingOp\\\\|GeluOp\")",
+      "Bash(Get-ChildItem -Path \"D:\\\\Repos\\\\Mila\\\\Src\\\\Dnn\\\\Compute\\\\Devices\\\\Cuda\" -Filter \"Cuda*.ixx\" -File)",
+      "Bash(ls /mnt/c/Users/ToddT/.claude/projects/D--Repos-Mila/memory/)",
+      "Bash(git -C \"D:\\\\Repos\\\\Mila\" diff --stat HEAD -- Mila/Src/Dnn/Components/ Mila/Src/Dnn/Compute/Operations/OperationTraits*)"
     ]
   }
 }

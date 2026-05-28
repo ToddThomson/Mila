@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.33-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
+| In Progress | 0.13.34-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
 | Planned | 0.2.2-beta.1 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.2.3-beta.2 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
@@ -53,11 +53,14 @@ the earlier per-component `XxxOpTypeMap` design. All remaining components migrat
 - [x] `OperationTraits.Cuda.ixx` — `:Cuda` partition; `LinearOp` specializations for `<Cuda, FP32, NoWeightQuant>`, `<Cuda, BF16, NoWeightQuant>`, `<Cuda, BF16, PerChannelFp8<>>`
 - [x] `Linear.ixx` — `using OpType = OperationTraits<LinearOp, TDeviceType, TComputePrecision, TWeightQuant>::type`; `createOperation()` uses `std::make_shared<OpType>`; dead `LinearOpTypeMap` import removed
 - [x] `CudaLinearOpRegistrar` — removed (dead code, registration approach fully retired)
-- [ ] `OperationTraits.Cuda.ixx` — add `GroupedQueryAttentionOp` specializations: `<Cuda, BF16, NoKvCompression>` and `<Cuda, BF16, PerChannelKvFp8<>>`; migrate `GroupedQueryAttention` component to `OperationTraits` dispatch
-- [ ] `OperationTraits.Cuda.ixx` — add `SamplingOp` specializations: `<Cuda, FP32>` and `<Cuda, BF16>`; implement `TokenSampler` component and `CudaSamplingOp` per `TokenSampling.md`
-- [ ] `OperationTraits.Cuda.ixx` — remaining policy-free ops: `GeluOp`, `ResidualOp`, `RmsNormOp`, `SoftmaxOp`, `SwiGluOp`, `MultiHeadAttentionOp`, `RopeOp`, `LpeOp`, `TokenEmbeddingOp`, `SoftmaxCrossEntropyOp`; migrate each component's `createOperation()` to `OperationTraits` dispatch
-- [ ] `OperationTraits.Cpu.ixx` — `:Cpu` partition; matching specializations for all ops above; migrate CPU component paths
-- [ ] `GroupedQueryAttention` — replace bare `TKvCache TensorDataType` parameter with `TKvPolicy` constrained to `KvCachePolicy`; `kKvCompressed = TKvPolicy::kIsActive`; `kCacheDtype` derived from policy; `NoKvCompression` is the default
+- [x] `OperationTraits.Cuda.ixx` — `GroupedQueryAttentionOp` specializations added: `<Cuda, FP32, NoKvCompression>` and `<Cuda, BF16, NoKvCompression>`; `GroupedQueryAttention` component migrated to `OperationTraits` dispatch; `TKvPolicy` template parameter wired with `kKvCompressed = TKvPolicy::kIsActive` and `kCacheDtype` derived from policy; `NoKvCompression` is the default
+- [ ] `OperationTraits.Cuda.ixx` — `<Cuda, BF16, PerChannelKvFp8<>>` GQA specialization pending `CudaGqaOp` FP8 KV cache support (deferred to Beta.1 Phase 4)
+- [ ] `OperationTraits.Cuda.ixx` — `SamplingOp` specializations: `<Cuda, FP32>` and `<Cuda, BF16>`; implement `TokenSampler` component and `CudaSamplingOp` per `TokenSampling.md`
+- [x] `OperationTraits.Cuda.ixx` — CUDA policy-free op specializations added (FP32 + BF16 each): `GeluOp`, `ResidualOp`, `RmsNormOp`, `SoftmaxOp`, `SwigluOp`, `MultiHeadAttentionOp`, `RopeOp`, `LpeOp`, `TokenEmbeddingOp`, `CrossEntropyOp`; all 9 active components' `createOperation()` migrated to `OperationTraits` dispatch; fixed latent `CudaTokenEmbeddingOp::setGradients` signature bug (non-virtual 1-arg was hiding base class 2-arg virtual)
+- [ ] `SoftmaxCrossEntropy` component — pending lifecycle API modernization before `OperationTraits` dispatch can be applied (`onBuilding(shape_t)`, raw `exec_context_*` member, and 4-param `BinaryOperation` do not match current `Component` API)
+- [x] `OperationTraits.Cpu.ixx` — `:Cpu` partition created; active CPU op specializations added (FP32): `GeluOp`, `ResidualOp`, `SoftmaxOp`, `MultiHeadAttentionOp`, `LpeOp`; corresponding CPU component paths migrated
+- [ ] `OperationTraits.Cpu.ixx` — remaining CPU specializations pending (no CPU ops currently exist): `RmsNormOp`, `SwigluOp`, `RopeOp`, `TokenEmbeddingOp`; `CrossEntropyOp` CPU path also pending
+- [ ] `LayerNorm`, `Dropout`, `MLP` components — `LayerNormOp` has CPU/CUDA registrars but no `OperationTraits` entries yet; `DropoutOp` same; `MLP` has stale `OperationRegistry` import to remove (before Beta.1)
 - [ ] Remove `OperationRegistry`, `OperationRegistryHelpers`, `LinearOpTypeMap`, `GqaOpTypeMap`, and all legacy registrar files once all components are migrated
 
 ### Phase 2 — FP8 Quantization Infrastructure

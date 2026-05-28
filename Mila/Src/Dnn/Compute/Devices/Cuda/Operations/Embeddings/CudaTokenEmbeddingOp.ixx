@@ -21,7 +21,7 @@ module;
 export module Compute.CudaTokenEmbeddingOp;
 import :Dispatch;
 
-import Dnn.Components.TokenEmbedding;
+import Dnn.Components.TokenEmbeddingConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -108,7 +108,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
          *
          * @throws std::invalid_argument on null or non-CUDA tensor.
          */
-        void setGradients( ITensor* wte_grad )
+        void setGradients( ITensor* wte_grad, ITensor* ) override
         {
             if ( !wte_grad )
                 throw std::invalid_argument( "CudaTokenEmbeddingOp::setGradients - wte_grad is required" );

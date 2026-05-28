@@ -16,7 +16,7 @@ module;
 export module Compute.CudaLpeOp;
 import :Dispatch;
 
-import Dnn.Components.Lpe;
+import Dnn.Components.LpeConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

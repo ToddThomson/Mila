@@ -20,7 +20,7 @@ module;
 #include <algorithm>
 
 export module Dnn.Components.Lpe;
-export import :Config;
+export import Dnn.Components.LpeConfig;
 
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -36,7 +36,7 @@ import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.UnaryOperation;
-import Compute.OperationRegistry;
+import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
@@ -515,7 +515,9 @@ namespace Mila::Dnn
         std::unique_ptr<EmbeddingsTensorType> output_{ nullptr };
         std::unique_ptr<EmbeddingsTensorType> current_output_view_{ nullptr };
 
-        std::shared_ptr<UnaryOperation<TDeviceType, TIndex, TPrecision>> operation_{ nullptr };
+        using OpType = typename OperationTraits<OperationType::LpeOp, TDeviceType, TPrecision>::type;
+
+        std::shared_ptr<OpType> operation_{ nullptr };
         IPositionalDecode* decode_path_{ nullptr };  // non-owning, resolved at build time.
         
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
@@ -585,11 +587,7 @@ namespace Mila::Dnn
 
         void createOperation()
         {
-            operation_ = OperationRegistry::instance()
-                .createUnaryOperation<TDeviceType, TIndex, TPrecision>(
-                    "LpeOp",
-                    this->getExecutionContext(),
-                    config_ );
+            operation_ = std::make_shared<OpType>( this->getExecutionContext(), config_ );
 
             if ( !operation_ )
             {

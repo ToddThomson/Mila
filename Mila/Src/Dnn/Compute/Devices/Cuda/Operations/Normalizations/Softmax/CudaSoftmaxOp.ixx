@@ -15,7 +15,7 @@ module;
 
 export module Compute.CudaSoftmaxOp;
 
-import Dnn.Components.Softmax;
+import Dnn.Components.SoftmaxConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

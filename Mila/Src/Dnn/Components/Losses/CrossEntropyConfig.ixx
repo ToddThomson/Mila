@@ -13,7 +13,7 @@ module;
 #include <ostream>
 #include <sstream>
 
-export module Dnn.Components.SoftmaxCrossEntropy:Config;
+export module Dnn.Components.CrossEntropyConfig;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;

@@ -9,15 +9,25 @@
  *
  * Migration status:
  *   LinearOp                 complete
- *   GroupedQueryAttentionOp  pending (importing CudaGqaOp here creates a module dependency cycle — needs architectural resolution)
+ *   GroupedQueryAttentionOp  complete (NoKvCompression; PerChannelKvFp8 pending CudaGqaOp support)
  *   SamplingOp               pending
- *   policy-free ops          pending (Softmax, RmsNorm, RoPE, Residual, ...)
+ *   policy-free ops          complete
  */
 export module Compute.OperationTraits:Cuda;
 
 import Compute.OperationTraits.Template;
 import Compute.CudaLinearOp;
 import Compute.CudaGqaOp;
+import Compute.CudaGeluOp;
+import Compute.CudaResidualOp;
+import Compute.CudaRmsNormOp;
+import Compute.CudaSoftmaxOp;
+import Compute.CudaSwigluOp;
+import Compute.CudaMultiHeadAttentionOp;
+import Compute.CudaRopeOp;
+import Compute.CudaLpeOp;
+import Compute.CudaTokenEmbeddingOp;
+import Compute.CudaSoftmaxCrossEntropyOp;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 
@@ -100,6 +110,169 @@ namespace Mila::Dnn::Compute
         struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::BF16, NoKvCompression>
     {
         using type = CudaGqaOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // GeluOp — CUDA specializations
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::GeluOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::Gelu::CudaGeluOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::GeluOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::Gelu::CudaGeluOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // ResidualOp — CUDA specializations
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::ResidualOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::Residual::CudaResidualOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::ResidualOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::Residual::CudaResidualOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // RmsNormOp — CUDA specializations
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::RmsNormOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::RmsNorm::CudaRmsNormOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::RmsNormOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::RmsNorm::CudaRmsNormOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // SoftmaxOp — CUDA specializations
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::SoftmaxOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::Softmax::CudaSoftmaxOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::SoftmaxOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::Softmax::CudaSoftmaxOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // SwigluOp — CUDA specializations
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::SwigluOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::Swiglu::CudaSwigluOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::SwigluOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::Swiglu::CudaSwigluOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // MultiHeadAttentionOp — CUDA specializations
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::MultiHeadAttentionOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::MultiHeadAttention::CudaMultiHeadAttentionOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::MultiHeadAttentionOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::MultiHeadAttention::CudaMultiHeadAttentionOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // RopeOp — CUDA specializations
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::RopeOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::Rope::CudaRopeOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::RopeOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::Rope::CudaRopeOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // LpeOp — CUDA specializations
+    // Index type is always INT32 (token position indices).
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::LpeOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::Lpe::CudaLpeOp<TensorDataType::INT32, TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::LpeOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::Lpe::CudaLpeOp<TensorDataType::INT32, TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // TokenEmbeddingOp — CUDA specializations
+    // Index type is always INT32 (vocabulary token indices).
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::TokenEmbedding::CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::TokenEmbedding::CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // CrossEntropyOp — CUDA specializations
+    // Logits precision matches compute precision; target type is always INT32.
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::CrossEntropyOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::SoftmaxCrossEntropy::CudaSoftmaxCrossEntropyOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::CrossEntropyOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::SoftmaxCrossEntropy::CudaSoftmaxCrossEntropyOp<TensorDataType::BF16>;
     };
 
 }  // namespace Mila::Dnn::Compute

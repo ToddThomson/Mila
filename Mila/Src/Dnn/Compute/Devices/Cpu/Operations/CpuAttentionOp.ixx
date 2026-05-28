@@ -21,7 +21,7 @@ module;
 
 export module Compute.CpuAttention;
 
-import Dnn.Components.MultiHeadAttention;
+import Dnn.Components.MultiHeadAttentionConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

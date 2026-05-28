@@ -21,7 +21,7 @@ export module Compute.CudaMultiHeadAttentionOp;
 import :Plans;
 import :Dispatch;
 
-import Dnn.Components.MultiHeadAttention;
+import Dnn.Components.MultiHeadAttentionConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

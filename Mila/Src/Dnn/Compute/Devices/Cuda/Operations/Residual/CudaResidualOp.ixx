@@ -22,7 +22,7 @@ module;
 export module Compute.CudaResidualOp;
 import :Dispatch;
 
-import Dnn.Components.Residual;
+import Dnn.Components.ResidualConfig;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.ComponentConfig;

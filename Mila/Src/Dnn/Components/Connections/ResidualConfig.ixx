@@ -13,7 +13,7 @@ module;
 #include <cstdint>
 #include <utility>
 
-export module Dnn.Components.Residual:Config;
+export module Dnn.Components.ResidualConfig;
 
 import Dnn.ComponentConfig;
 import Dnn.ConnectionType;

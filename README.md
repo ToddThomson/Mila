@@ -100,6 +100,13 @@ absmax scaling with cuBLASLt mixed-precision GEMM; FP4 E2M1 uses per-group absma
 with a dedicated decode matvec kernel (44–48 tok/s on Llama 3.2 3B). Both paths are
 validated on the existing BF16 baseline.
 
+Alpha.5 also introduces compile-time operation dispatch via `OperationTraits<OperationType,
+TDeviceType, TPrecision, TPolicy>`. `Linear` is the reference implementation — a missing
+specialization is a compile error, not a registry miss. All remaining components migrate
+to `OperationTraits` dispatch as part of this alpha. The component type system
+(`ComponentType`, `OperationType`) has been audited for completeness and consistency
+across all leaf components.
+
 **Alpha.6 — Planned**
 Qwen 3 transformer architecture with thinking mode and model-agnostic tool calling,
 validated on Qwen 3 8B Instruct at BF16 and FP8. FP8 KV cache compression introduced

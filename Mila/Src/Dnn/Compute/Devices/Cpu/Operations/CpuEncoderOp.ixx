@@ -19,7 +19,7 @@ module;
 
 export module Compute.CpuEncoderOp;
 
-import Dnn.Components.Lpe;
+import Dnn.Components.LpeConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

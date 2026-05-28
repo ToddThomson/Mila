@@ -875,9 +875,10 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 // INT4 W4A16 batch path: cuda_w4a16_gemm reads packed INT4 weights and
                 // dequantizes per-group inline — no staging buffer or cuBLASLt plan needed.
                 // SM >= 8.0 is already guaranteed by supportsCuBLASLt() gating this path.
-                Logging::Logger::info( std::format(
-                    "CudaLinearOp: W4A16 fused GEMM ready — {} in -> {} out (group_size={})",
-                    cached_in_features_, out_features_, weight_group_size_ ) );
+                // FIXME: Comment out for now. Revisit
+                // Logging::Logger::info( std::format(
+                //    "CudaLinearOp: W4A16 fused GEMM ready — {} in -> {} out (group_size={})",
+                //    cached_in_features_, out_features_, weight_group_size_ ) );
 
                 return;
             }

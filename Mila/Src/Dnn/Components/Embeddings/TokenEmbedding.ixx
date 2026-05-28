@@ -25,7 +25,7 @@ module;
 #include <nvtx3/nvtx3.hpp>
 
 export module Dnn.Components.TokenEmbedding;
-export import :Config;
+export import Dnn.Components.TokenEmbeddingConfig;
 
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -42,7 +42,7 @@ import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.UnaryOperation;
-import Compute.OperationRegistry;
+import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
@@ -371,6 +371,7 @@ namespace Mila::Dnn
             if ( build_context.isTrainingMode() )
             {
                 initializeParameterGradients();
+                
                 operation_->setGradients( wte_grad_.get(), nullptr );
                 
                 auto device = this->getExecutionContext()->getDeviceId();
@@ -408,7 +409,9 @@ namespace Mila::Dnn
         std::unique_ptr<EmbeddingTensorType> output_{ nullptr };
         std::unique_ptr<EmbeddingTensorType> current_output_view_{ nullptr };
 
-        std::shared_ptr<UnaryOperation<TDeviceType, TIndex, TPrecision>> operation_{ nullptr };
+        using OpType = typename OperationTraits<OperationType::TokenEmbeddingOp, TDeviceType, TPrecision>::type;
+
+        std::shared_ptr<OpType> operation_{ nullptr };
 
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
@@ -463,11 +466,7 @@ namespace Mila::Dnn
 
         void createOperation()
         {
-            operation_ = OperationRegistry::instance()
-                .createUnaryOperation<TDeviceType, TIndex, TPrecision>(
-                    "TokenEmbeddingOp",
-                    this->getExecutionContext(),
-                    config_ );
+            operation_ = std::make_shared<OpType>( this->getExecutionContext(), config_ );
 
             if ( !operation_ )
                 throw std::runtime_error( "TokenEmbedding: failed to create compute backend operation." );

@@ -1,6 +1,14 @@
 /**
  * @file OperationType.ixx
  * @brief Defines the operation types supported by the compute framework.
+ *
+ * ARCHITECTURAL NOTE (TODO):
+ * OperationType is an internal dispatch key used by the compute layer. It is not
+ * part of the public Mila API — ComponentType (Dnn.ComponentType) is the user-facing
+ * component identity. OperationType should be moved to Dnn::Core and removed from
+ * the public Mila.ixx re-exports so it is inaccessible to library consumers.
+ * Operations are an implementation detail of Components; users should never need
+ * to reference OperationType directly.
  */
 
 module;
@@ -19,7 +27,7 @@ namespace Mila::Dnn::Compute
 	 * a specific neural network function or layer.
 	 */
 	export enum class OperationType {
-		CrossEntropyOp,				///< Cross entropy loss operation
+		CrossEntropyOp,				///< Cross entropy loss operation (host-based; used by GPT reference implementation)
 		TokenEmbeddingOp,			///< Token embedding operation
 		LpeOp,						///< Learned Positional Embedding operation for transformer architecture
         RopeOp,						///< Rotary Position Embedding operation for transformer architecture
@@ -30,29 +38,34 @@ namespace Mila::Dnn::Compute
 		LayerNormOp,				///< Layer normalization operation
         RmsNormOp,					///< RMS normalization operation
 		MultiHeadAttentionOp,		///< Multi-head attention operation (MHA) for transformers
-		GroupedQueryAttentionOp,	///< Groupted Query Attention (GQA)
+		GroupedQueryAttentionOp,	///< Grouped Query Attention (GQA)
 		ResidualOp,					///< Residual connection operation
 		SoftmaxOp,					///< Softmax activation function
-		SamplingOp					///< Device-side token sampling from logits
+		DropoutOp,					///< Dropout regularization operation
+		SamplingOp,					///< Device-side token sampling from logits
+		SoftmaxCrossEntropyOp		///< WIP: Fused softmax + cross-entropy loss — targeted for Llama training
 	};
 
 	// string_view constants, no magic strings at call sites
 	export namespace OperationNames
 	{
-		constexpr std::string_view CrossEntropy = "CrossEntropyOp";
-		constexpr std::string_view Lpe = "LpeOp";
-		constexpr std::string_view Rope = "RopeOp";
-		constexpr std::string_view Fused = "FusedOp";
-		constexpr std::string_view Linear = "LinearOp";
-		constexpr std::string_view Gelu = "GeluOp";
-		constexpr std::string_view Swiglu = "SwigluOp";
-		constexpr std::string_view LayerNorm = "LayerNormOp";
-		constexpr std::string_view RmsNorm = "RmsNormOp";
-		constexpr std::string_view MultiHeadAttention = "MultiHeadAttentionOp";
+		constexpr std::string_view CrossEntropy         = "CrossEntropyOp";
+		constexpr std::string_view TokenEmbedding       = "TokenEmbeddingOp";
+		constexpr std::string_view Lpe                  = "LpeOp";
+		constexpr std::string_view Rope                 = "RopeOp";
+		constexpr std::string_view Fused                = "FusedOp";
+		constexpr std::string_view Linear               = "LinearOp";
+		constexpr std::string_view Gelu                 = "GeluOp";
+		constexpr std::string_view Swiglu               = "SwigluOp";
+		constexpr std::string_view LayerNorm            = "LayerNormOp";
+		constexpr std::string_view RmsNorm              = "RmsNormOp";
+		constexpr std::string_view MultiHeadAttention   = "MultiHeadAttentionOp";
 		constexpr std::string_view GroupedQueryAttention = "GroupedQueryAttentionOp";
-		constexpr std::string_view Residual = "ResidualOp";
-		constexpr std::string_view Softmax = "SoftmaxOp";
-		constexpr std::string_view Sampling = "SamplingOp";
+		constexpr std::string_view Residual             = "ResidualOp";
+		constexpr std::string_view Softmax              = "SoftmaxOp";
+		constexpr std::string_view Dropout              = "DropoutOp";
+		constexpr std::string_view Sampling             = "SamplingOp";
+		constexpr std::string_view SoftmaxCrossEntropy  = "SoftmaxCrossEntropyOp"; ///< WIP — targeted for Llama training
 	}
 
 	export std::string_view operationTypeToString( OperationType op )
@@ -60,6 +73,7 @@ namespace Mila::Dnn::Compute
 		switch ( op )
 		{
 			case OperationType::CrossEntropyOp:          return OperationNames::CrossEntropy;
+			case OperationType::TokenEmbeddingOp:        return OperationNames::TokenEmbedding;
 			case OperationType::LpeOp:                   return OperationNames::Lpe;
 			case OperationType::RopeOp:                  return OperationNames::Rope;
 			case OperationType::FusedOp:                 return OperationNames::Fused;
@@ -72,7 +86,9 @@ namespace Mila::Dnn::Compute
 			case OperationType::GroupedQueryAttentionOp: return OperationNames::GroupedQueryAttention;
 			case OperationType::ResidualOp:              return OperationNames::Residual;
 			case OperationType::SoftmaxOp:               return OperationNames::Softmax;
+			case OperationType::DropoutOp:               return OperationNames::Dropout;
 			case OperationType::SamplingOp:              return OperationNames::Sampling;
+			case OperationType::SoftmaxCrossEntropyOp:   return OperationNames::SoftmaxCrossEntropy;
 			default:
 				throw std::runtime_error( "operationTypeToString: unrecognized OperationType" );
 		}

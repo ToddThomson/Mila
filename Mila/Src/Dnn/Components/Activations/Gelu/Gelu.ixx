@@ -19,7 +19,7 @@ module;
 #include <algorithm>
 
 export module Dnn.Components.Gelu;
-export import :Config;
+export import Dnn.Components.GeluConfig;
 
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -36,7 +36,7 @@ import Compute.DeviceTypeTraits;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.UnaryOperation;
-import Compute.OperationRegistry;
+import Compute.OperationTraits;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
@@ -543,10 +543,12 @@ namespace Mila::Dnn
 
     private:
 
+        using OpType = typename OperationTraits<OperationType::GeluOp, TDeviceType, TPrecision>::type;
+
         GeluConfig config_;
-       
+
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<OpType> operation_{ nullptr };
 
         std::unique_ptr<TensorType> output_{ nullptr };
         std::optional<TensorType> output_view_;
@@ -620,9 +622,7 @@ namespace Mila::Dnn
          */
         void createOperation()
         {
-            operation_ = OperationRegistry::instance()
-                .createUnaryOperation<TDeviceType, TPrecision>(
-                    "GeluOp", this->getExecutionContext(), config_ );
+            operation_ = std::make_shared<OpType>( this->getExecutionContext(), config_ );
 
             if ( !operation_ )
             {

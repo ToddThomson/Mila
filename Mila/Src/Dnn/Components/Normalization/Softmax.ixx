@@ -17,7 +17,7 @@ module;
 #include <optional>
 
 export module Dnn.Components.Softmax;
-export import :Config;
+export import Dnn.Components.SoftmaxConfig;
 
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -34,7 +34,7 @@ import Compute.IExecutionContext;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.UnaryOperation;
-import Compute.OperationRegistry;
+import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
@@ -391,9 +391,11 @@ namespace Mila::Dnn
         }
 
     private:
+        using OpType = typename OperationTraits<OperationType::SoftmaxOp, TDeviceType, TPrecision>::type;
+
         SoftmaxConfig config_;
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<OpType> operation_{ nullptr };
 
         /**
          * @brief Validate input shape for softmax operation.
@@ -440,13 +442,9 @@ namespace Mila::Dnn
          */
         void createOperation()
         {
-            operation_ = OperationRegistry::instance()
-                .createUnaryOperation<TDeviceType, TPrecision>(
-                    "SoftmaxOp",
-                    this->getExecutionContext(),
-                    config_ );
+            operation_ = std::make_shared<OpType>( this->getExecutionContext(), config_ );
 
-            if (!operation_)
+            if ( !operation_ )
             {
                 throw std::runtime_error( "Failed to create Softmax compute backend operation." );
             }

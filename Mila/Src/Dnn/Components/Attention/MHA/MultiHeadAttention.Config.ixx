@@ -9,7 +9,7 @@ module;
 #include <utility>
 #include <sstream>
 
-export module Dnn.Components.MultiHeadAttention:Config;
+export module Dnn.Components.MultiHeadAttentionConfig;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;

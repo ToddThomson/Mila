@@ -2,8 +2,14 @@
  * @file SoftmaxCrossEntropy.ixx
  * @brief Device-templated fused SoftmaxCrossEntropy loss module.
  *
- * Delegates compute to a UnaryOperation backend that implements the fused
+ * Delegates compute to a BinaryOperation backend that implements the fused
  * softmax + cross-entropy operation for numerical stability and performance.
+ *
+ * STATUS: Work in progress. The component shell and CPU/CUDA operation stubs exist
+ * but are not wired into the build (CpuSoftmaxCrossEntropyOp and CudaSoftmaxCrossEntropyOp
+ * are excluded from CpuOperations.ixx / CudaOperations.ixx). Completion is targeted
+ * for Llama training support. The GPT reference implementation uses the host-based
+ * CpuCrossEntropyOp instead.
  */
 
 module;
@@ -17,7 +23,7 @@ module;
 #include <stdexcept>
 
 export module Dnn.Components.SoftmaxCrossEntropy;
-export import :Config;
+export import Dnn.Components.CrossEntropyConfig;
 
 import Dnn.Component;
 import Dnn.Tensor;

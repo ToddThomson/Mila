@@ -15,7 +15,8 @@ module;
 
 export module Compute.CudaGeluOp:Dispatch;
 
-import Dnn.Components.Gelu;
+import Dnn.Components.GeluConfig;
+import Dnn.ApproximationMethod;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;

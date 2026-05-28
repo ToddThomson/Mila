@@ -38,12 +38,14 @@ namespace Mila::Dnn
         LayerNorm,
         RmsNorm,
         Softmax,
+        Dropout,
         MultiHeadAttention,
         GroupedQueryAttention,
         Residual,
         TokenEmbedding,
         Lpe,
         Rope,
+        SoftmaxCrossEntropy,    ///< WIP: Fused softmax + cross-entropy loss — targeted for Llama training
 
         // Composite components
         Mlp,

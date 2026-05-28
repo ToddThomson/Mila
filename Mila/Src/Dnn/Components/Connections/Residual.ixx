@@ -22,7 +22,7 @@ module;
 #include <algorithm>
 
 export module Dnn.Components.Residual;
-export import :Config;
+export import Dnn.Components.ResidualConfig;
 
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -39,7 +39,7 @@ import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.UnaryOperation;
 import Compute.BinaryOperation;
-import Compute.OperationRegistry;
+import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
@@ -382,10 +382,12 @@ namespace Mila::Dnn
 
     private:
 
+        using OpType = typename OperationTraits<OperationType::ResidualOp, TDeviceType, TPrecision>::type;
+
         ResidualConfig config_;
         shape_t leading_shape_;
 
-        std::shared_ptr<BinaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<OpType> operation_{ nullptr };
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
         std::unique_ptr<TensorType> output_{ nullptr };
@@ -403,9 +405,7 @@ namespace Mila::Dnn
          */
         void createOperation()
         {
-            operation_ = OperationRegistry::instance()
-                .createBinaryOperation<TDeviceType, TPrecision>(
-                    "ResidualOp", this->getExecutionContext(), config_ );
+            operation_ = std::make_shared<OpType>( this->getExecutionContext(), config_ );
 
             if ( !operation_ )
             {

@@ -34,7 +34,7 @@ module;
 #include <optional>
 #include <utility>
 
-export module Dnn.Components.RmsNorm:Config;
+export module Dnn.Components.RmsNormConfig;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;

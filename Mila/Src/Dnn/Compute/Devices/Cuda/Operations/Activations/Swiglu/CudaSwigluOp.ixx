@@ -18,7 +18,7 @@ module;
 export module Compute.CudaSwigluOp;
 import :Dispatch;
 
-import Dnn.Components.Swiglu;
+import Dnn.Components.SwigluConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;

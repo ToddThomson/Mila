@@ -18,7 +18,7 @@ module;
 #include <optional>
 
 export module Dnn.Components.Swiglu;
-export import :Config;
+export import Dnn.Components.SwigluConfig;
 
 import Dnn.Components.Gelu;
 import Dnn.Component;
@@ -35,7 +35,7 @@ import Compute.DeviceTypeTraits;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.UnaryOperation;
-import Compute.OperationRegistry;
+import Compute.OperationTraits;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
@@ -268,11 +268,13 @@ namespace Mila::Dnn
         }
 
     private:
+        using OpType = typename OperationTraits<OperationType::SwigluOp, TDeviceType, TPrecision>::type;
+
         SwigluConfig config_;
         shape_t input_shape_;
 
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<OpType> operation_{ nullptr };
 
         std::unique_ptr<TensorType> output_{ nullptr };
         std::optional<TensorType> output_view_;
@@ -347,8 +349,7 @@ namespace Mila::Dnn
 
         void createOperation()
         {
-            operation_ = OperationRegistry::instance()
-                .createUnaryOperation<TDeviceType, TPrecision>( "SwigluOp", this->getExecutionContext(), config_ );
+            operation_ = std::make_shared<OpType>( this->getExecutionContext(), config_ );
 
             if ( !operation_ )
             {

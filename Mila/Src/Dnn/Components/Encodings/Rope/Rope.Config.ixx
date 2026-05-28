@@ -25,7 +25,7 @@ module;
 #include <sstream>
 #include <utility>
 
-export module Dnn.Components.Rope:Config;
+export module Dnn.Components.RopeConfig;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;

@@ -14,7 +14,7 @@ module;
 #include <utility>
 #include <sstream>
 
-export module Dnn.Components.TokenEmbedding:Config;
+export module Dnn.Components.TokenEmbeddingConfig;
 
 import Dnn.ComponentConfig;
 import Serialization.Metadata;

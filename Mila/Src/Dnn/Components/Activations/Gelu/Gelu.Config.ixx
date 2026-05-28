@@ -11,7 +11,7 @@ module;
 #include <sstream>
 #include <string_view>
 
-export module Dnn.Components.Gelu:Config;
+export module Dnn.Components.GeluConfig;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;

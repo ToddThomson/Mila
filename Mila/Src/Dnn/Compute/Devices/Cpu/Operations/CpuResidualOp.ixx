@@ -28,7 +28,7 @@ module;
 
 export module Compute.CpuResidualOp;
 
-import Dnn.Components.Residual;
+import Dnn.Components.ResidualConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorDataType;

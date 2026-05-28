@@ -25,7 +25,7 @@ module;
 
 export module Compute.CudaSoftmaxCrossEntropyOp;
 
-import Dnn.Components.SoftmaxCrossEntropy;
+import Dnn.Components.CrossEntropyConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

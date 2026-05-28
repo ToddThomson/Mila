@@ -520,6 +520,7 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/OperationTraits.Cpu.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"

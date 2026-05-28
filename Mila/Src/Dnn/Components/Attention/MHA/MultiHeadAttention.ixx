@@ -14,7 +14,7 @@ module;
 #include <optional>
 
 export module Dnn.Components.MultiHeadAttention;
-export import :Config;
+export import Dnn.Components.MultiHeadAttentionConfig;
 
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -30,7 +30,7 @@ import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.UnaryOperation;
-import Compute.OperationRegistry;
+import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
@@ -392,10 +392,12 @@ namespace Mila::Dnn
         }
 
     private:
+        using OpType = typename OperationTraits<OperationType::MultiHeadAttentionOp, TDeviceType, TPrecision>::type;
+
         MultiHeadAttentionConfig config_;
         shape_t max_input_shape_;
 
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<OpType> operation_{ nullptr };
         std::unique_ptr<IExecutionContext> context_{ nullptr };
 
         // Non-owning capability interface pointers. Lifetime tied to operation_.
@@ -448,11 +450,7 @@ namespace Mila::Dnn
 
         void createOperation()
         {
-            operation_ = OperationRegistry::instance()
-                .createUnaryOperation<TDeviceType, TPrecision>(
-                    "MultiHeadAttentionOp",
-                    this->getExecutionContext(),
-                    config_ );
+            operation_ = std::make_shared<OpType>( this->getExecutionContext(), config_ );
 
             if ( !operation_ )
             {

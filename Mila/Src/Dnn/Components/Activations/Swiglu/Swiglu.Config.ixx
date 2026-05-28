@@ -29,7 +29,7 @@ module;
 #include <string_view>
 #include <sstream>
 
-export module Dnn.Components.Swiglu:Config;
+export module Dnn.Components.SwigluConfig;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;

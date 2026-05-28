@@ -20,7 +20,7 @@ module;
 export module Compute.CudaRmsNormOp;
 import :Dispatch;
 
-import Dnn.Components.RmsNorm;
+import Dnn.Components.RmsNormConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

@@ -15,7 +15,7 @@ module;
 #include <utility>
 #include <sstream>
 
-export module Dnn.Components.Lpe:Config;
+export module Dnn.Components.LpeConfig;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;

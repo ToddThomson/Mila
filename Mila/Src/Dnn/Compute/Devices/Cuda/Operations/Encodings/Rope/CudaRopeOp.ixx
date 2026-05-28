@@ -21,7 +21,7 @@ import :Dispatch;
 import :Cache;
 
 import Dnn.Component;
-import Dnn.Components.Rope;
+import Dnn.Components.RopeConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;

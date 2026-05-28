@@ -7,7 +7,7 @@ module;
 #include <cstdint>
 #include <string>
 
-export module Dnn.Components.Softmax:Config;
+export module Dnn.Components.SoftmaxConfig;
 
 import Dnn.ComponentConfig;
 import Serialization.Metadata;
