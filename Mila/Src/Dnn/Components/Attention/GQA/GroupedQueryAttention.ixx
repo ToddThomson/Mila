@@ -46,8 +46,6 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
     using namespace Mila::Dnn::Quant::KvCache;
 
-    constexpr int64_t kPrefillChunkSize = 64;
-
     /**
      * @brief Grouped-Query Attention module that accepts concatenated QKV input.
      *
@@ -479,8 +477,8 @@ namespace Mila::Dnn
                 shape_t decode_output_shape = { input_shape[ 0 ], 1, config_.getModelDim() };
                 decode_output_ = std::make_unique<TensorType>( device, decode_output_shape, this->getName() + ".output_decode" );
 
-                // Prefill path output — sized for 1 kPrefillChunkSize at a time
-                shape_t output_shape = { B, kPrefillChunkSize, config_.getModelDim() };
+                // Prefill path output — sized for one prefill chunk at a time
+                shape_t output_shape = { B, context.getPrefillSize(), config_.getModelDim() };
                 output_ = std::make_unique<TensorType>( device, output_shape, this->getName() + ".output_prefill" );
                 output_view_.emplace( output_->view( output_->shape() ) );
             }

@@ -118,18 +118,41 @@ namespace Mila::Dnn
         /**
          * @brief Return a copy of this context with a different input shape.
          *
-         * All other parameters are preserved — RuntimeMode, prefill_size,
-         * initialize_parameters, precision_policy, and quantization.
+         * All other fields are preserved — RuntimeMode, prefill_size, and
+         * initialize_parameters.
          *
          * @param new_shape  Replacement input shape. Must be non-empty.
          * @return New BuildContext with new_shape and all other fields unchanged.
          */
         [[nodiscard]] BuildContext withShape( shape_t new_shape ) const
         {
-            return BuildContext(
-                std::move( new_shape ),
-                runtime_mode_,
-                initialize_parameters_ );
+            if ( new_shape.empty() )
+            {
+                throw std::invalid_argument(
+                    "BuildContext::withShape: input_shape must have at least one dimension" );
+            }
+
+            BuildContext copy( *this );
+            copy.input_shape_ = std::move( new_shape );
+
+            return copy;
+        }
+
+        /**
+         * @brief Return a copy of this context with a different prefill size.
+         *
+         * All other fields are preserved. Used by the network to stamp the tuned
+         * prefill chunk size onto the contexts it builds its child components with.
+         *
+         * @param prefill_size  Tokens per prefill pass.
+         * @return New BuildContext with prefill_size and all other fields unchanged.
+         */
+        [[nodiscard]] BuildContext withPrefillSize( int64_t prefill_size ) const
+        {
+            BuildContext copy( *this );
+            copy.prefill_size_ = prefill_size;
+
+            return copy;
         }
 
         /**
@@ -187,19 +210,15 @@ namespace Mila::Dnn
 
         /**
          * @brief Number of tokens processed per prefill pass.
+         *
+         * The tuned prefill chunk size, computed once at network build time and
+         * threaded down to every component that sizes prefill buffers or attention
+         * scratch. Zero on training-mode contexts (no chunking).
          */
-        //int64_t getPrefillSize() const noexcept
-        //{
-        //    return prefill_size_;
-        //}
-
-        /**
-         * @brief True if this build context supports prefill.
-         */
-        //bool hasPrefill() const noexcept
-        //{
-        //    return runtime_mode_ == RuntimeMode::Inference && prefill_size_ > 0;
-        //}
+        int64_t getPrefillSize() const noexcept
+        {
+            return prefill_size_;
+        }
 
         // ====================================================================
         // Parameter initialization
@@ -233,7 +252,7 @@ namespace Mila::Dnn
 
         shape_t                  input_shape_;
         RuntimeMode              runtime_mode_;
-        //int64_t                prefill_size_{ 0 };
+        int64_t                  prefill_size_{ 0 };
         bool                     initialize_parameters_{ true };
     };
 }

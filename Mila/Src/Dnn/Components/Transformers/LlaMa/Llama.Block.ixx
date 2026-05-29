@@ -82,9 +82,6 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Quant::Weight;
     using namespace Mila::Dnn::Quant::KvCache;
 
-    // TODO: Temporary. To be replaced by tuned chunk size based on empirical perf testing across devices and precisions.
-    export constexpr int64_t kPrefillChunkSize = 64;
-
     export template<DeviceType TDeviceType, TensorDataType TPrecision,
         WeightQuantPolicy TWeightQuant = NoWeightQuant, KvCachePolicy TKvPolicy = NoKvCompression>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -227,7 +224,7 @@ namespace Mila::Dnn
 
             // Split the fused QKV output into separate Q, K and V for RoPE and GQA
             // Create T-trimmed views into the pre-allocated chunk buffers so split()'s
-            // shape validation (B and T must match) succeeds when T_actual < kPrefillChunkSize.
+            // shape validation (B and T must match) succeeds when T_actual < the prefill chunk size.
             auto q_view = q_->view( shape_t{ B, T_actual, n_heads * head_dim }, 0 );
             auto k_view = k_->view( shape_t{ B, T_actual, n_kv * head_dim }, 0 );
             auto v_view = v_->view( shape_t{ B, T_actual, n_kv * head_dim }, 0 );
@@ -567,21 +564,25 @@ namespace Mila::Dnn
 
             if ( context.isInferenceMode() )
             {
-                // Non-attention components built at kPrefillChunkSize —
+                // Tuned prefill chunk size, computed once by LlamaTransformer and
+                // threaded down via BuildContext. Sizes every prefill-path buffer.
+                const int64_t prefill_chunk_size = context.getPrefillSize();
+
+                // Non-attention components built at the prefill chunk size —
                 // owned_output_ sized to hold a full prefill chunk.
                 // decode() uses resolveOutputView() to extract T=1 slice.
-                const shape_t prefill_shape = { B, kPrefillChunkSize, config_.getModelDim() };
-                const shape_t gate_up_prefill = { B, kPrefillChunkSize, 2 * hidden_dim };
-                const shape_t hidden_prefill = { B, kPrefillChunkSize, hidden_dim };
+                const shape_t prefill_shape = { B, prefill_chunk_size, config_.getModelDim() };
+                const shape_t gate_up_prefill = { B, prefill_chunk_size, 2 * hidden_dim };
+                const shape_t hidden_prefill = { B, prefill_chunk_size, hidden_dim };
 
                 BuildContext prefill_context = context.withShape( prefill_shape );
                 BuildContext gate_up_context = context.withShape( gate_up_prefill );
                 BuildContext hidden_context = context.withShape( hidden_prefill );
 
-                // Prefill view shapes — kPrefillChunkSize
-                q_prefill_shape_ = { B, kPrefillChunkSize, n_heads * head_dim };
-                k_prefill_shape_ = { B, kPrefillChunkSize, n_kv * head_dim };
-                q_prefill_offset_ = static_cast<size_t>( B * kPrefillChunkSize * n_heads * head_dim);
+                // Prefill view shapes — prefill chunk size
+                q_prefill_shape_ = { B, prefill_chunk_size, n_heads * head_dim };
+                k_prefill_shape_ = { B, prefill_chunk_size, n_kv * head_dim };
+                q_prefill_offset_ = static_cast<size_t>( B * prefill_chunk_size * n_heads * head_dim);
 
                 rms1_ = this->template getComponentAs<RmsNormType>( this->getName() + ".rmsn_1" );
                 rms1_->build( prefill_context );
@@ -626,11 +627,11 @@ namespace Mila::Dnn
                 // overwritten by subsequent components.
                 auto device = this->getExecutionContext()->getDeviceId();
 
-                res1_prefill_ = std::make_unique<TensorType>( device, shape_t{ B, kPrefillChunkSize, config_.getModelDim() }, this->getName() + ".res_1.prefill" );
+                res1_prefill_ = std::make_unique<TensorType>( device, shape_t{ B, prefill_chunk_size, config_.getModelDim() }, this->getName() + ".res_1.prefill" );
 
-                q_ = std::make_unique<TensorType>( device, shape_t{ B, kPrefillChunkSize, n_heads * head_dim }, this->getName() + ".q" );
-                k_ = std::make_unique<TensorType>( device, shape_t{ B, kPrefillChunkSize, n_kv * head_dim }, this->getName() + ".k" );
-                v_ = std::make_unique<TensorType>( device, shape_t{ B, kPrefillChunkSize, n_kv * head_dim }, this->getName() + ".v" );
+                q_ = std::make_unique<TensorType>( device, shape_t{ B, prefill_chunk_size, n_heads * head_dim }, this->getName() + ".q" );
+                k_ = std::make_unique<TensorType>( device, shape_t{ B, prefill_chunk_size, n_kv * head_dim }, this->getName() + ".k" );
+                v_ = std::make_unique<TensorType>( device, shape_t{ B, prefill_chunk_size, n_kv * head_dim }, this->getName() + ".v" );
             }
             else
             {

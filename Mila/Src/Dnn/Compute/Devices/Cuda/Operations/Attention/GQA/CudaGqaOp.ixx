@@ -59,9 +59,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute::Cuda;
 
-    // TODO: Temporary. To be replaced by tuned chunk size based on empirical perf testing across devices and precisions.
-    constexpr int64_t kPrefillChunkSize = 64;
-
     // TEMP: A/B validation gate. Flip to true to activate the optimized NKV-layout path.
     // Remove this constant and all legacy/optimized branching once the optimized path is validated.
     static constexpr bool kUseOptimizedPath = true;
@@ -250,7 +247,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             C_ = static_cast<int>(config_.getModelDim());
             GS_ = NH_ / NKV_;
 
-            prefill_chunk_size_ = static_cast<int>(kPrefillChunkSize);
+            // Tuned prefill chunk size, threaded down from LlamaTransformer via BuildContext.
+            // Training-mode contexts carry no prefill size; fall back to the full sequence
+            // length so the (vestigial) prefill plans are still built with a valid row count.
+            const int64_t prefill_size = context.getPrefillSize();
+            prefill_chunk_size_ = static_cast<int>( prefill_size > 0 ? prefill_size : T_ );
 
             active_max_seq_len_ = T_;
             cached_seq_len_ = 0;
@@ -712,8 +713,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             if ( build_context.isInferenceMode() )
             {
-                const shape_t prefill_att_shape = { B_, NH_, kPrefillChunkSize, T_ };
-                const shape_t prefill_vout_shape = { B_, NH_, kPrefillChunkSize, HS_ };
+                const shape_t prefill_att_shape = { B_, NH_, prefill_chunk_size_, T_ };
+                const shape_t prefill_vout_shape = { B_, NH_, prefill_chunk_size_, HS_ };
 
                 preatt_tensor_ = make( prefill_att_shape, "gqa.preatt_prefill" );
                 preatt_ = raw( preatt_tensor_ );
@@ -770,7 +771,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             // DEBUG:
             std::cout << "CudaGQAOp::build: built with batch_size = " << B_
-                << ", num_heads = " << NH_ << ", head_size = " << HS_ << ", max_seq_length = " << T_ << ", kPrefillChunkSize = " << kPrefillChunkSize << "\n";
+                << ", num_heads = " << NH_ << ", head_size = " << HS_ << ", max_seq_length = " << T_ << ", prefill_chunk_size = " << prefill_chunk_size_ << "\n";
             std::cout << "CudaGroupedQueryAttentionOp state memory size: "
                 << (state_memory_size_ / (1024.0 * 1024.0)) << " MiB\n";
             // END DEBUG
@@ -867,7 +868,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             qk_prefill_plan_ = Detail::build_qk_prefill_plan<NativeType>(
                 cublaslt_handle_, B_, NH_,
-                static_cast<int>(kPrefillChunkSize), T_, HS_, prefill_chunk_size_,
+                prefill_chunk_size_, T_, HS_, prefill_chunk_size_,
                 cuda_dt, compute_type, scale_type );
 
             att_value_prefill_plan_ = Detail::build_att_value_prefill_plan<NativeType>(
@@ -982,7 +983,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 k_exp_, v_exp_, k_, v_,
                 B_, total_kv_len, T_, NH_, NKV_, HS_, 0, stream );
 
-            const bool is_full_chunk = (chunk_len == static_cast<int>(kPrefillChunkSize));
+            const bool is_full_chunk = (chunk_len == prefill_chunk_size_);
             const auto& qk_plan = is_full_chunk ? qk_prefill_plan_ : getOrBuildPartialQKPlan( chunk_len );
             const auto& av_plan = is_full_chunk ? att_value_prefill_plan_ : getOrBuildPartialAVPlan( chunk_len );
 
@@ -997,7 +998,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             Detail::cuda_gqa_kernels<NativeType>::prefill_softmax(
                 att_, preatt_,
-                B_, NH_, T_, kPrefillChunkSize, chunk_len, position_offset, stream );
+                B_, NH_, T_, prefill_chunk_size_, chunk_len, position_offset, stream );
 
             execute_plan<NativeType>(
                 cublaslt_handle_, av_plan,
@@ -1006,7 +1007,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
 
-            const int padded_T = is_full_chunk ? static_cast<int>(kPrefillChunkSize) : chunk_len;
+            const int padded_T = is_full_chunk ? prefill_chunk_size_ : chunk_len;
 
             Detail::cuda_gqa_kernels<NativeType>::prefill_unpermute_output_padded(
                 v_out_, Y,
@@ -1114,7 +1115,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             Detail::cuda_gqa_kernels<NativeType>::permute_q_compact(
                 q_permute_opt_, Xq, B_, chunk_len, NH_, HS_, stream );
 
-            const bool is_full_chunk = (chunk_len == static_cast<int>(kPrefillChunkSize));
+            const bool is_full_chunk = (chunk_len == prefill_chunk_size_);
             const auto& qk_plan = is_full_chunk
                 ? qk_prefill_plan_optimized_
                 : getOrBuildPartialQKPlan_optimized( chunk_len );
@@ -1131,7 +1132,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             Detail::cuda_gqa_kernels<NativeType>::prefill_softmax(
                 att_opt_, preatt_opt_,
-                B_, NH_, T_, kPrefillChunkSize, chunk_len, position_offset, stream );
+                B_, NH_, T_, prefill_chunk_size_, chunk_len, position_offset, stream );
 
             execute_plan<NativeType>(
                 cublaslt_handle_, av_plan,
@@ -1140,8 +1141,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
 
-            // POSSIBLE BUG: Was - const int padded_T = static_cast<int>(kPrefillChunkSize);
-            const int padded_T = is_full_chunk ? static_cast<int>(kPrefillChunkSize) : chunk_len;
+            // POSSIBLE BUG: Was - const int padded_T = static_cast<int>(prefill_chunk_size_);
+            const int padded_T = is_full_chunk ? prefill_chunk_size_ : chunk_len;
 
             Detail::cuda_gqa_kernels<NativeType>::prefill_unpermute_output_padded(
                 v_out_opt_, Y,

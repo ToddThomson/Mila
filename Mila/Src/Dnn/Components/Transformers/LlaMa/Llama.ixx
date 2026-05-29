@@ -16,6 +16,7 @@ module;
 #include <format>
 #include <optional>
 #include <filesystem>
+#include <algorithm>
 
 export module Dnn.Components.LlamaTransformer;
 export import :Config;
@@ -60,7 +61,35 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Quant::Weight;
     using namespace Mila::Dnn::Quant::KvCache;
 
-    //export constexpr int64_t kPrefillChunkSize = 64;
+    // Attention-scratch ceiling for a single prefill pass. The chunk-dependent GQA
+    // scratch (preatt + att + q_permute + v_out) must fit under this cap. Tuned for
+    // the 12 GB / 8B-FP4 / 16K-context deployment target. A VRAM-aware budget
+    // (CUDA device caps / MemoryStats) can replace this fixed cap later.
+    inline constexpr int64_t kPrefillScratchByteCap = int64_t{ 1536 } * 1024 * 1024;
+
+    // Largest prefill chunk in {512, 256, 128} whose attention scratch stays under
+    // kPrefillScratchByteCap. Self-adjusts to model width, context length, and
+    // compute precision. Floors at min(128, context_length) when even 128 exceeds
+    // the cap. Computed once at network build time; see LlamaTransformer::onBuilding.
+    inline int64_t computePrefillChunkSize(
+        int64_t batch, int64_t num_heads, int64_t head_dim,
+        int64_t context_length, int64_t precision_bytes )
+    {
+        // preatt + att dominate (each B*NH*chunk*T); q_permute + v_out add B*NH*chunk*HS.
+        const int64_t scratch_per_chunk_row =
+            batch * num_heads * ( 2 * context_length + 2 * head_dim ) * precision_bytes;
+
+        for ( int64_t candidate : { int64_t{ 512 }, int64_t{ 256 }, int64_t{ 128 } } )
+        {
+            if ( candidate > context_length )
+                continue;
+
+            if ( scratch_per_chunk_row * candidate <= kPrefillScratchByteCap )
+                return candidate;
+        }
+
+        return std::min<int64_t>( 128, context_length );
+    }
 
     /**
      * @brief LLaMA-style transformer (decoder-only) for autoregressive token prediction.
@@ -196,11 +225,11 @@ namespace Mila::Dnn
 
             TensorType* last_block_out = nullptr;
 
-            // Chunked prefill loop — input is sliced into kPrefillChunkSize chunks and fed through the network sequentially to populate the KV cache.
+            // Chunked prefill loop — input is sliced into prefill_chunk_size_ chunks and fed through the network sequentially to populate the KV cache.
             // The final chunk output is used to extract the last token representation for LM head inference.
             while ( offset < T_prompt )
             {
-                const int64_t T_actual = std::min( kPrefillChunkSize, T_prompt - offset );
+                const int64_t T_actual = std::min( prefill_chunk_size_, T_prompt - offset );
                 T_last = T_actual;
 
                 auto chunk_input = input.view( shape_t{ B, T_actual }, offset );
@@ -429,10 +458,19 @@ namespace Mila::Dnn
             const auto B = input_shape[ 0 ];
             const auto T = input_shape[ 1 ];
 
+            // Tune the prefill chunk size once for the whole network and thread it down
+            // to every block (and its GQA op) via block_context. Single source of truth
+            // for prefill granularity; also reused by prefill() and the shared GQA workspace.
+            prefill_chunk_size_ = computePrefillChunkSize(
+                B, config_.getNumHeads(), config_.getModelDim() / config_.getNumHeads(),
+                T, static_cast<int64_t>( TensorDataTypeTraits<TPrecision>::size_in_bytes ) );
+
             // Blocks need full context_length so GQA can size the KV cache correctly.
             // LlamaBlock handles the prefill/decode split internally.
             shape_t block_shape = { B, T, config_.getModelDim() };
-            BuildContext block_context( block_shape, context.getRuntimeMode(), context.shouldInitializeParameters() );
+            BuildContext block_context =
+                BuildContext( block_shape, context.getRuntimeMode(), context.shouldInitializeParameters() )
+                .withPrefillSize( prefill_chunk_size_ );
 
             // Inference: final_rmsnorm and lm_head only process the last position.
             // Training: must process full sequence for loss computation.
@@ -474,16 +512,16 @@ namespace Mila::Dnn
                 auto device = this->getExecutionContext()->getDeviceId();
 
                 gqa_q_permute_ = std::make_unique<TensorType>(
-                    device, shape_t{ B, NH, kPrefillChunkSize, HS }, this->getName() + ".gqa_ws.q_perm" );
+                    device, shape_t{ B, NH, prefill_chunk_size_, HS }, this->getName() + ".gqa_ws.q_perm" );
 
                 gqa_preatt_ = std::make_unique<TensorType>(
-                    device, shape_t{ B, NH, kPrefillChunkSize, T_ctx }, this->getName() + ".gqa_ws.preatt" );
+                    device, shape_t{ B, NH, prefill_chunk_size_, T_ctx }, this->getName() + ".gqa_ws.preatt" );
 
                 gqa_att_ = std::make_unique<TensorType>(
-                    device, shape_t{ B, NH, kPrefillChunkSize, T_ctx }, this->getName() + ".gqa_ws.att" );
+                    device, shape_t{ B, NH, prefill_chunk_size_, T_ctx }, this->getName() + ".gqa_ws.att" );
 
                 gqa_v_out_ = std::make_unique<TensorType>(
-                    device, shape_t{ B, NH, kPrefillChunkSize, HS }, this->getName() + ".gqa_ws.v_out" );
+                    device, shape_t{ B, NH, prefill_chunk_size_, HS }, this->getName() + ".gqa_ws.v_out" );
 
                 gqa_preatt_decode_ = std::make_unique<TensorType>(
                     device, shape_t{ B, NH, 1, T_ctx }, this->getName() + ".gqa_ws.preatt_dec" );
@@ -557,6 +595,10 @@ namespace Mila::Dnn
         shape_t output_shape_;
         int64_t batch_size_{ 0 };
         int64_t seq_length_{ 0 };
+
+        // Tuned prefill chunk size — single source of truth, set in onBuilding and
+        // threaded to child components via BuildContext::withPrefillSize().
+        int64_t prefill_chunk_size_{ 0 };
 
         std::shared_ptr<TokenEmbeddingType> token_embedding_{ nullptr };
         std::vector<std::shared_ptr<TransformerBlockType>> transformer_blocks_;
