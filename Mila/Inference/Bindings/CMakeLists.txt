@@ -13,6 +13,18 @@ set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 pybind11_add_module(MilaPy
     Mila_py.cpp
+    Mila_py.Wrappers.cpp
+)
+
+# All Mila access is confined to this module interface unit; Mila_py.cpp binds
+# against its std-only opaque handles and never imports Mila. The latest VS2026
+# MSVC raises C2079 (basic_istream::sentry undefined) whenever Mila is imported
+# into an ordinary .cpp that also includes std headers such as <string>.
+target_sources(MilaPy
+PUBLIC
+    FILE_SET module_files
+    TYPE CXX_MODULES FILES
+        "Mila_py.Wrappers.ixx"
 )
 
 set_target_properties(MilaPy PROPERTIES

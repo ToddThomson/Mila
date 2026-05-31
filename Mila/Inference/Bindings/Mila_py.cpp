@@ -1,18 +1,31 @@
-#include <pybind11/pybind11.h>
-#include <filesystem>
-#include <stop_token>
-#include <vector>
-#include <string>
+/**
+ * @file Mila_py.cpp
+ * @brief pybind11 entry point for the MilaPy extension.
+ *
+ * This TU deliberately does NOT `import Mila;`. The latest VS2026 MSVC raises
+ * C2079 (basic_istream::sentry undefined) whenever Mila is imported into an
+ * ordinary .cpp alongside std includes such as <string>. All Mila access goes
+ * through the std-only opaque handles exported by Mila.Bindings. See
+ * [[feedback-build-in-vs]].
+ */
 
-import Mila;
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <stop_token>
+#include <string>
+#include <vector>
+
+import Mila.Bindings;
 
 namespace py = pybind11;
 
-using namespace Mila::Data;
-using namespace Mila::Dnn;
-using namespace Mila::Dnn::Compute;
-
-using LlamaCudaBf16 = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
+using Mila::Bindings::LlamaConfigInfo;
+using Mila::Bindings::LlamaSession;
+using Mila::Bindings::Tokenizer;
 
 // ============================================================================
 // StopController — exposes std::stop_source to Python
@@ -42,43 +55,52 @@ private:
 
 static void bind_tokenizer( py::module_& m )
 {
-    py::class_<BpeTokenizer, std::shared_ptr<BpeTokenizer>>( m, "BpeTokenizer" )
+    py::class_<Tokenizer, std::shared_ptr<Tokenizer>>( m, "BpeTokenizer" )
         .def_static( "load_llama32",
             []( const std::string& path ) {
-                return BpeTokenizer::loadLlama32( std::filesystem::path( path ) );
+                return Tokenizer::loadLlama32( path );
             },
             py::arg( "path" ),
             "Load a Llama 3.2 tokenizer from a Mila binary vocabulary file." )
         .def( "encode",
-            []( BpeTokenizer& self, const std::string& text ) -> std::vector<int32_t> {
+            []( Tokenizer& self, const std::string& text ) -> std::vector<int32_t> {
                 py::gil_scoped_release _;
                 return self.encode( text );
             },
             py::arg( "text" ),
             "Encode UTF-8 text to a list of token IDs." )
         .def( "decode",
-            []( BpeTokenizer& self, const std::vector<int32_t>& ids ) -> std::string {
+            []( Tokenizer& self, const std::vector<int32_t>& ids ) -> std::string {
                 py::gil_scoped_release _;
-                return self.decode( std::span<const int32_t>( ids ) );
+                return self.decode( ids );
             },
             py::arg( "ids" ),
             "Decode a list of token IDs to a UTF-8 string." )
-        .def( "token_to_string", &BpeTokenizer::tokenToString, py::arg( "token_id" ) )
-        .def( "is_valid_token", &BpeTokenizer::isValidToken, py::arg( "token_id" ) )
-        .def_property_readonly( "vocab_size", &BpeTokenizer::getVocabSize )
+        .def( "token_to_string",
+            []( const Tokenizer& self, int32_t token_id ) {
+                return self.tokenToString( token_id );
+            },
+            py::arg( "token_id" ) )
+        .def( "is_valid_token",
+            []( const Tokenizer& self, int32_t token_id ) {
+                return self.isValidToken( token_id );
+            },
+            py::arg( "token_id" ) )
+        .def_property_readonly( "vocab_size",
+            []( const Tokenizer& self ) { return self.vocabSize(); } )
         .def_property_readonly( "bos_token_id",
-            []( const BpeTokenizer& self ) -> py::object {
-                auto id = self.getBosTokenId();
+            []( const Tokenizer& self ) -> py::object {
+                auto id = self.bosTokenId();
                 return id ? py::cast( *id ) : py::none();
             } )
         .def_property_readonly( "eos_token_id",
-            []( const BpeTokenizer& self ) -> py::object {
-                auto id = self.getEosTokenId();
+            []( const Tokenizer& self ) -> py::object {
+                auto id = self.eosTokenId();
                 return id ? py::cast( *id ) : py::none();
             } )
         .def_property_readonly( "pad_token_id",
-            []( const BpeTokenizer& self ) -> py::object {
-                auto id = self.getPadTokenId();
+            []( const Tokenizer& self ) -> py::object {
+                auto id = self.padTokenId();
                 return id ? py::cast( *id ) : py::none();
             } );
 }
@@ -89,23 +111,18 @@ static void bind_tokenizer( py::module_& m )
 
 static void bind_llama_model( py::module_& m )
 {
-    py::class_<LlamaCudaBf16>( m, "LlamaModel" )
+    py::class_<LlamaSession>( m, "LlamaModel" )
         .def_static( "from_pretrained",
             []( const std::string& path,
                 int64_t context_length,
                 int device_index,
-                bool quantize_fp8 ) -> std::unique_ptr<LlamaCudaBf16>
+                bool quantize_fp8 ) -> std::unique_ptr<LlamaSession>
             {
+                (void)quantize_fp8;
+
                 py::gil_scoped_release _;
 
-                DeviceId device_id{ DeviceType::Cuda, device_index };
-
-                LlamaModelConfig model_config = LlamaModelConfig( static_cast<dim_t>(context_length) );
-
-                return LlamaCudaBf16::fromPretrained(
-                    std::filesystem::path( path ),
-                    model_config,
-                    device_id );
+                return LlamaSession::fromPretrained( path, context_length, device_index );
             },
             py::arg( "path" ),
             py::arg( "context_length" ),
@@ -119,9 +136,9 @@ static void bind_llama_model( py::module_& m )
             "    quantize_fp8:  Quantize weights to FP8_E4M3 at load time (default: False).\n"
             "                   Requires SM >= 8.9 (RTX 40xx / Ada Lovelace)." )
         .def( "generate",
-            []( LlamaCudaBf16& self,
+            []( LlamaSession& self,
                 const std::vector<int32_t>& prompt_tokens,
-                size_t max_new_tokens,
+                std::size_t max_new_tokens,
                 float temperature,
                 int top_k ) -> std::vector<int32_t>
             {
@@ -134,10 +151,10 @@ static void bind_llama_model( py::module_& m )
             py::arg( "top_k" ) = 0,
             "Blocking generation. Returns prompt tokens followed by all generated tokens." )
         .def( "generate_streaming",
-            []( LlamaCudaBf16& self,
+            []( LlamaSession& self,
                 const std::vector<int32_t>& prompt_tokens,
                 py::function on_token,
-                size_t max_new_tokens,
+                std::size_t max_new_tokens,
                 float temperature,
                 int top_k,
                 StopController* stop_ctrl )
@@ -167,20 +184,21 @@ static void bind_llama_model( py::module_& m )
             "generated token (EOS excluded). Blocks until generation completes or "
             "stop_controller.request_stop() is called." )
         .def( "get_config",
-            []( const LlamaCudaBf16& self ) {
-                const auto& cfg = self.getConfig();
+            []( const LlamaSession& self ) {
+                const LlamaConfigInfo cfg = self.getConfig();
                 py::dict d;
-                d["vocab_size"] = cfg.getVocabSize();
-                d["max_sequence_length"] = cfg.getMaxSequenceLength();
-                d["model_dim"] = cfg.getModelDim();
-                d["num_layers"] = cfg.getNumLayers();
-                d["num_heads"] = cfg.getNumHeads();
-                d["num_kv_heads"] = cfg.getNumKVHeads();
-                d["hidden_dim"] = cfg.getHiddenDimension();
-                d["rope_theta"] = cfg.getRoPETheta();
+                d["vocab_size"] = cfg.vocab_size;
+                d["max_sequence_length"] = cfg.max_sequence_length;
+                d["model_dim"] = cfg.model_dim;
+                d["num_layers"] = cfg.num_layers;
+                d["num_heads"] = cfg.num_heads;
+                d["num_kv_heads"] = cfg.num_kv_heads;
+                d["hidden_dim"] = cfg.hidden_dim;
+                d["rope_theta"] = cfg.rope_theta;
                 return d;
             } )
-        .def( "__repr__", &LlamaCudaBf16::toString );
+        .def( "__repr__",
+            []( const LlamaSession& self ) { return self.repr(); } );
 }
 
 // ============================================================================
@@ -205,19 +223,8 @@ PYBIND11_MODULE( mila, m )
     m.doc() = "Mila inference bindings — Llama 3.2 3B Instruct on CUDA BF16.";
 
     m.def( "initialize",
-        []( const std::string& level )
-        {
-            static const std::unordered_map<std::string, Mila::Logging::LogLevel> map = {
-                { "trace",   Mila::Logging::LogLevel::Trace   },
-                { "info",    Mila::Logging::LogLevel::Info    },
-                { "warning", Mila::Logging::LogLevel::Warning },
-                { "error",   Mila::Logging::LogLevel::Error   },
-            };
-            auto it = map.find( level );
-            auto log_level = (it != map.end()) ? it->second : Mila::Logging::LogLevel::Warning;
-            auto sink = std::make_shared<Mila::Logging::ConsoleSink>( log_level );
-            
-            return Mila::initialize( 0, std::move( sink ) );
+        []( const std::string& level ) {
+            Mila::Bindings::initialize( level );
         },
         py::arg( "log_level" ) = "warning",
         "Initialize the Mila framework. log_level: trace | info | warning | error." );

@@ -223,7 +223,7 @@ namespace Mila::Dnn
         {
             auto input = makeTokenTensor( token_ids );
             this->getLanguageNetwork().prefill( input );
-            this->getLanguageNetwork().getExecutionContext()->synchronize();
+            this->getLanguageNetwork().synchronize();
         }
 
     protected:

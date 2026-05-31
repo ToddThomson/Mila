@@ -62,9 +62,16 @@
     {
       "name": "x64-release",
       "displayName": "x64 Release",
-      "description": "Target Windows (64-bit) with the Visual Studio development environment. (RelWithDebInfo)",
+      "description": "Target Windows (64-bit) with the Visual Studio development environment. (Release)",
       "inherits": "x64-debug",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "x64-profile",
+      "displayName": "x64 Profile",
+      "description": "Target Windows (64-bit). Optimized build with device line info for Nsight profiling. (RelWithDebInfo)",
+      "inherits": "x64-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
     },
     {
       "name": "x86-debug",

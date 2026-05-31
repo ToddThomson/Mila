@@ -12,7 +12,7 @@ set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
  
 option(MILA_ENABLE_TESTING "Enable Mila Library tests." OFF)
-option(MILA_ENABLE_PYTHON_BINDINGS "Build the MilaPy pybind11 extension module." ON)
+option(MILA_ENABLE_PYTHON_BINDINGS "Build the MilaPy pybind11 extension module." OFF)
 option(MILA_ENABLE_BENCHMARKS "Enable Mila Library benchmarks." OFF)
 option(MILA_ENABLE_PROFILING "Enable Mila Library profiling." ON)
 option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ON)
@@ -146,16 +146,16 @@ CPMAddPackage(
 
 # SentencePiece - Llama-compatible BPE tokenizer
 # Built without protobuf and shared libs to keep the dependency footprint minimal.
-CPMAddPackage(
-    NAME sentencepiece
-    GITHUB_REPOSITORY google/sentencepiece
-    GIT_TAG v0.2.1
-    OPTIONS
-        "SPM_ENABLE_SHARED OFF"
-        "SPM_ENABLE_TCMALLOC OFF"
-        "SPM_USE_BUILTIN_PROTOBUF ON"
-        "SPM_BUILD_TEST OFF"
-)
+#CPMAddPackage(
+#    NAME sentencepiece
+#    GITHUB_REPOSITORY google/sentencepiece
+#    GIT_TAG v0.2.1
+#    OPTIONS
+#        "SPM_ENABLE_SHARED OFF"
+#        "SPM_ENABLE_TCMALLOC OFF"
+#        "SPM_USE_BUILTIN_PROTOBUF ON"
+#        "SPM_BUILD_TEST OFF"
+#)
 
 if(MILA_ENABLE_PYTHON_BINDINGS)
     CPMAddPackage(

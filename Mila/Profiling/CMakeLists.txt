@@ -1,3 +1,3 @@
 # CMake project for Mila Profiling
 
-add_subdirectory( ProfilePrefill )
+add_subdirectory( ProfileModel )

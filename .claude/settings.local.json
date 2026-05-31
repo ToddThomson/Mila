@@ -53,7 +53,25 @@
       "Bash(cuobjdump --list-elf --list-ptx CudaW4A16Gemm.Wmma.cu.obj)",
       "Bash(cuobjdump --list-elf --list-ptx CudaW4A16Gemm.cu.obj)",
       "Read(//d/d/Repos/Mila/out/build/x64-debug/**)",
-      "Bash(awk '/CudaW4A16Gemm\\\\.Wmma\\\\.cu\\\\.obj: CUDA_COMPILER/{found=1} found{print; if\\(/^$/\\) exit}' build.ninja)"
+      "Bash(awk '/CudaW4A16Gemm\\\\.Wmma\\\\.cu\\\\.obj: CUDA_COMPILER/{found=1} found{print; if\\(/^$/\\) exit}' build.ninja)",
+      "Bash(where nsys *)",
+      "Bash(where cmake *)",
+      "Read(//c/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.0/include/nvtx3/**)",
+      "Read(//c/Program Files/NVIDIA GPU Computing Toolkit/**)",
+      "Bash(ls \"C:/Program Files/Microsoft Visual Studio/18/Community/VC/Auxiliary/Build/vcvars64.bat\" && echo FOUND)",
+      "Bash(find \"D:/source/CudaProfiling\" -type f -not -path '*/.git/*' -not -path '*/out/*' -not -path '*/build/*' 2>/dev/null | head -50)",
+      "Bash(find . -name \"Version.h\")",
+      "Bash(find . -name \"Version.ixx\")",
+      "Bash(grep -n 'Version.h' ./mila/modules/Src/Version.ixx)",
+      "Bash(echo \"=== local build-tree Version.h ===\"; find \"D:/Repos/Mila/out/build\" -name \"Version.h\" 2>/dev/null; echo \"=== does the install's recorded build path exist? \\(C:/Users/ToddT/Src/Repos/Mila\\) ===\"; ls -d \"C:/Users/ToddT/Src/Repos/Mila/out/build/x64-profile/Mila/Src\" 2>/dev/null && echo \"EXISTS\" || echo \"DOES NOT EXIST\")",
+      "Bash(echo \"=== miniz_export.h anywhere on disk ===\"; find \"D:/Repos/Mila/out\" \"C:/Users/ToddT/Src/Repos/Mila/out\" -name \"miniz_export.h\" 2>/dev/null; echo \"=== which Mila module pulls miniz ===\"; cd \"D:/Repos/Mila/out/install/x64-profile/include/mila/modules/Src\"; grep -rln \"miniz\" . 2>/dev/null | head)",
+      "Bash(ls -la \"D:/source/CudaProfiling\")",
+      "Bash(git -C D:/Repos/Mila status --short)",
+      "Bash(git -C D:/Repos/Mila diff --stat)",
+      "Bash(git -C D:/Repos/Mila diff -- Mila/Src/Dnn/Models/LlamaModel.ixx Mila/Samples/Chat/Src/main.cpp Mila/Samples/Chat/Src/Chat.ixx ROADMAP.md)",
+      "Bash(git -C D:/Repos/Mila diff --stat -- Mila/Samples/Chat/Src/Chat.ixx Mila/Samples/Chat/Src/main.cpp)",
+      "Bash(git -C D:/Repos/Mila diff -- Mila/Samples/Chat/Src/main.cpp)",
+      "Bash(git -C D:/Repos/Mila diff -- Mila/Profiling/CMakeLists.txt)"
     ]
   }
 }

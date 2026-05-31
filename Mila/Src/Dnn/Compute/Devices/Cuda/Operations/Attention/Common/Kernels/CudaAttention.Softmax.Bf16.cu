@@ -107,39 +107,56 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
         }
     }
 
+    // Decode softmax: one row per warp. Each warp strides its row in fp32 with
+    // butterfly reductions; att is written once (narrowed to bf16 at store), so
+    // there is no unnormalized-exp round-trip through global memory. The scale
+    // factor is omitted -- at decode the 1/sqrt(head_size) term is folded into
+    // the QK GEMM alpha, so it is always 1.0 here.
     __global__ void softmax_decode_forward_bf16_kernel(
-        __nv_bfloat16* att, float scale, const __nv_bfloat16* preatt,
+        __nv_bfloat16* att, const __nv_bfloat16* preatt,
         int B_NH, int max_len, int actual_len )
     {
-        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        const int lane = threadIdx.x % warpSize;
+        const int warp_id = threadIdx.x / warpSize;
+        const int row = blockIdx.x * (blockDim.x / warpSize) + warp_id;
 
-        if ( idx < B_NH )
-        {
-            const __nv_bfloat16* preatt_row = preatt + idx * max_len;
-            __nv_bfloat16* att_row = att + idx * max_len;
+        // Uniform across the warp (row depends only on warp_id), so the full mask
+        // stays valid for the reductions below.
+        if ( row >= B_NH )
+            return;
 
-            float max_val = -INFINITY;
+        const __nv_bfloat16* preatt_row = preatt + row * max_len;
+        __nv_bfloat16* att_row = att + row * max_len;
 
-            for ( int t2 = 0; t2 < actual_len; ++t2 )
-                max_val = fmaxf( max_val, __bfloat162float( preatt_row[ t2 ] ) );
+        // Pass 1: row max.
+        float thread_max = -INFINITY;
 
-            float sum = 0.0f;
+        for ( int t2 = lane; t2 < actual_len; t2 += warpSize )
+            thread_max = fmaxf( thread_max, __bfloat162float( preatt_row[ t2 ] ) );
 
-            for ( int t2 = 0; t2 < actual_len; ++t2 )
-            {
-                float val = expf( (__bfloat162float( preatt_row[ t2 ] ) - max_val) * scale );
-                sum += val;
-                att_row[ t2 ] = __float2bfloat16( val );
-            }
+        for ( int offset = warpSize / 2; offset > 0; offset >>= 1 )
+            thread_max = fmaxf( thread_max, __shfl_xor_sync( 0xffffffffu, thread_max, offset ) );
 
-            float inv_sum = 1.0f / sum;
+        const float max_val = thread_max;
 
-            for ( int t2 = 0; t2 < actual_len; ++t2 )
-                att_row[ t2 ] = __float2bfloat16( __bfloat162float( att_row[ t2 ] ) * inv_sum );
+        // Pass 2: sum of exp, fp32 accumulation.
+        float thread_sum = 0.0f;
 
-            for ( int t2 = actual_len; t2 < max_len; ++t2 )
-                att_row[ t2 ] = __float2bfloat16( 0.0f );
-        }
+        for ( int t2 = lane; t2 < actual_len; t2 += warpSize )
+            thread_sum += expf( __bfloat162float( preatt_row[ t2 ] ) - max_val );
+
+        for ( int offset = warpSize / 2; offset > 0; offset >>= 1 )
+            thread_sum += __shfl_xor_sync( 0xffffffffu, thread_sum, offset );
+
+        const float inv_sum = 1.0f / thread_sum;
+
+        // Pass 3: normalize and store.
+        for ( int t2 = lane; t2 < actual_len; t2 += warpSize )
+            att_row[ t2 ] = __float2bfloat16( expf( __bfloat162float( preatt_row[ t2 ] ) - max_val ) * inv_sum );
+
+        // Zero the unused tail [actual_len, max_len).
+        for ( int t2 = actual_len + lane; t2 < max_len; t2 += warpSize )
+            att_row[ t2 ] = __float2bfloat16( 0.0f );
     }
 
     __global__ void softmax_backward_bf16_kernel(
@@ -215,12 +232,18 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
         int B, int NH, int max_len, int actual_len,
         cudaStream_t stream )
     {
-        const int block_size = 256;
-        const int B_NH = B * NH;
-        const int num_blocks = ceil_div( B_NH, block_size );
+        // scale is kept for signature symmetry with the fp32/fp16 launchers but
+        // is unused: the decode QK GEMM already folds 1/sqrt(head_size) into its
+        // alpha, so the softmax operand is pre-scaled.
+        (void) scale;
 
-        softmax_decode_forward_bf16_kernel << < num_blocks, block_size, 0, stream >> > (
-            att, scale, preatt, B_NH, max_len, actual_len);
+        constexpr int warps_per_block = 8;
+        const int block_size = warps_per_block * 32;
+        const int B_NH = B * NH;
+        const int num_blocks = ceil_div( B_NH, warps_per_block );
+
+        softmax_decode_forward_bf16_kernel <<< num_blocks, block_size, 0, stream >>> (
+            att, preatt, B_NH, max_len, actual_len);
 
         cudaCheck( cudaGetLastError() );
     }

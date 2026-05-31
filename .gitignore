@@ -16,6 +16,7 @@ Data/Datasets/**/encoded/
 # Mila tokenizer vocabulary artifacts
 Data/Datasets/**/*.mila
 Data/Datasets/**/*.tokens
+Data/**/*.exe
 
 # User-specific files
 *.bin
@@ -64,6 +65,7 @@ bld/
 
 # Claude's Visual Studio cache/options directory
 .claude/
+.claude/settings.local.json
 
 # Visual Studio cache/options directory
 .vs/
@@ -396,3 +398,4 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 /Data/DataSets/Mnist
+/.claude/settings.local.json

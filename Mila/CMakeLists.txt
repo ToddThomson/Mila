@@ -54,6 +54,7 @@ add_library( Mila STATIC
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cu"
+    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Linear.cuh"
 
     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp16.cu"
     "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp32.cu"
@@ -121,8 +122,14 @@ target_compile_features( Mila PUBLIC cxx_std_23 )
 target_include_directories( Mila
     PRIVATE
         ${miniz_SOURCE_DIR}
-        ${sentencepiece_SOURCE_DIR}/src
+        #${sentencepiece_SOURCE_DIR}/src
         $<$<BOOL:${cutlass_ADDED}>:${cutlass_SOURCE_DIR}/include> )
+
+target_include_directories( Mila
+    INTERFACE
+        $<INSTALL_INTERFACE:include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Src>
+)
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   target_compile_options(Mila PRIVATE 
@@ -141,6 +148,13 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")
   set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -ccbin ${CMAKE_CXX_COMPILER}")
 endif()
+
+# Emit device-side line info under RelWithDebInfo so Nsight Compute/Systems can
+# correlate optimized SASS back to source. -lineinfo keeps full device
+# optimization, unlike the -G device-debug flag used by the Debug build.
+target_compile_options( Mila PRIVATE
+  $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CONFIG:RelWithDebInfo>>:-lineinfo>
+)
 
 if(MILA_ENABLE_OPENMP)
   find_package(OpenMP REQUIRED)
@@ -500,7 +514,9 @@ PUBLIC
         
 )
 
-set(MILA_INSTALL_FILE_SET_ARGS FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
+# Initialize install file set args with core modules; backend blocks append to this.
+set( MILA_INSTALL_FILE_SET_ARGS
+    FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
 # ----------------------------------------------------------------------------
 # CPU backend modules
@@ -734,7 +750,7 @@ endif()
 target_link_libraries( Mila 
   PRIVATE 
     miniz
-    sentencepiece-static
+    #sentencepiece-static
 )
 
 # =============================================================================
@@ -777,7 +793,13 @@ target_include_directories(Mila PRIVATE ${CMAKE_BINARY_DIR}/Mila/Src)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-# Install component interface targets
+install( TARGETS 
+    miniz
+    #sentencepiece-static
+    EXPORT MilaTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
 if(MILA_HAS_CPU)
     install(TARGETS Mila_Cpu EXPORT MilaTargets)
 endif()
@@ -794,21 +816,28 @@ if(MILA_HAS_ROCM)
     install(TARGETS Mila_Rocm EXPORT MilaTargets)
 endif()
 
+install(
+    DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Src/
+    DESTINATION include
+    FILES_MATCHING
+        PATTERN "*.cuh"
+        PATTERN "*.h"
+)
 
-#install(TARGETS Mila
-#    EXPORT MilaTargets
-#    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-#    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-#    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-#    ${MILA_INSTALL_FILE_SET_ARGS}
-#)
+install(TARGETS Mila
+    EXPORT MilaTargets
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    ${MILA_INSTALL_FILE_SET_ARGS}
+)
 
 # Export targets
-#install(EXPORT MilaTargets
-#    FILE MilaTargets.cmake
-#    NAMESPACE Mila::
-#    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Mila
-#)
+install(EXPORT MilaTargets
+    FILE MilaTargets.cmake
+    NAMESPACE Mila::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Mila
+)
 
 # Generate config file
 configure_package_config_file(
@@ -844,15 +873,6 @@ add_subdirectory( Docs )
 
 # Add tools: tokeniz.exe, etc
 add_subdirectory( Tools )
-
-# Configure code coverage for MSVC
-# REVIEW: OBSOLETE
-#if( MILA_ENABLE_COVERAGE AND MSVC)
-#    add_compile_options(/Zi /Od)
-#    add_link_options(/DEBUG:FULL)
-#    
-#    message(STATUS "Code coverage enabled for MSVC")
-#endif()
 
 if(MILA_ENABLE_PYTHON_BINDINGS)
     add_subdirectory( Inference/Bindings )
