@@ -169,24 +169,43 @@ Demonstrates the full training loop: data loading, forward pass, loss, backward 
 
 | Requirement | Version |
 |---|---|
-| Visual Studio | 2022 or newer |
-| CUDA Toolkit | 13.0 |
+| Visual Studio | 2026 18.6.2 or newer |
+| Git | 2.x or newer (validated on 2.54.0) |
+| CUDA Toolkit | 13.0 or newer |
 | CMake | 4.0 or newer |
 | GTest | 1.17.0 |
+| Doxygen + Graphviz | latest (optional — docs only) |
 | C++ Standard | C++23 |
 
 Ninja is the recommended generator — significantly faster than MSBuild for
 incremental C++23 module builds.
+
+Mila is CI-tested on CUDA 13.0 and developed on 13.3; newer 13.x releases are expected
+to work but are not exhaustively validated.
+
+Use Visual Studio 2026 18.6.2 or newer — earlier 2026 builds have a regression that breaks
+the C++23 module build.
+
+Git must be installed and on `PATH`: the first CMake configure fetches dependencies via CPM
+(`git clone`), so it is needed beyond the initial repository clone. GitHub Desktop is an
+optional convenience, not a requirement.
+
+Building the API docs is optional — enable it with `-DMILA_ENABLE_DOCS=ON` (default
+`OFF`), which requires Doxygen (and Graphviz for the call graphs). A normal
+library/test build needs neither.
 
 ### Quick Start
 
 ```bash
 git clone https://github.com/toddthomson/mila.git
 cd mila
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMILA_ENABLE_TESTING=ON
 cmake --build build
 ctest --test-dir build
 ```
+
+Tests are opt-in (`MILA_ENABLE_TESTING` defaults to `OFF`); omit the flag for a
+library-only build.
 
 ### Visual Studio
 
@@ -195,18 +214,28 @@ Select the Ninja generator and Release configuration. Build with F7.
 
 ### Docker
 
+A development container provides a reproducible Linux build toolchain (CUDA 13.0,
+Clang 19, CMake 4.x, Ninja) — the simplest way to build Mila without installing the
+toolchain locally, for example from WSL. It mounts the repo at `/mila` with GPU access.
+
 ```bash
-# GPU
-docker run -it --rm --gpus all toddthomson/mila:latest
+# Build and start the dev container (requires the NVIDIA Container Toolkit for GPU access)
+docker compose -f Docker/docker-compose.yml run --rm mila-dev
 
-# CPU only
-docker run -it --rm toddthomson/mila:latest
-
-# Local build
-git clone https://github.com/toddthomson/mila.git && cd mila
-docker build -t mila:local .
-docker run -it --rm --gpus all -v $(pwd):/mila/src mila:local
+# Inside the container:
+cmake -S . -B out/build/linux-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DMILA_ENABLE_TESTING=ON
+cmake --build out/build/linux-release
+ctest --test-dir out/build/linux-release
 ```
+
+VS Code users can instead **Reopen in Container** — see `.devcontainer/`.
+
+Model weights are not included; they are converted offline on the host (see
+`Mila/Tools/Converters/`), and the repo bind mount makes the converted `.bin` files
+available inside the container automatically.
+
+> A slim, published runtime image — `docker run … mila` for users who only want to run
+> inference without building — is planned for the beta release. See [ROADMAP.md](ROADMAP.md).
 
 ---
 
@@ -229,6 +258,8 @@ encoding strategies under /Components/Encodings/.
 3. Ensure new components include forward and backward pass tests
 4. Open a pull request targeting dev
 
+New contributors: [getting-started.md](getting-started.md) walks through a fresh clone,
+build, model weight conversion, running inference, and opening your first PR.
 See CONTRIBUTING.md for coding standards and the pull request process.
 
 ---

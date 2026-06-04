@@ -17,6 +17,11 @@ Converters/
 
 ## Setup
 
+Requires Python 3.10 or newer (validated on 3.14.5). PyTorch and Transformers publish
+wheels per Python minor version and can lag brand-new releases — if `pip install` cannot
+find a torch wheel for your interpreter, create the venv with a slightly older minor
+(e.g. 3.12).
+
 Run once from the `Converters/` root directory:
 
 ```powershell

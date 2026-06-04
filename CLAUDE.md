@@ -14,9 +14,11 @@ Primary validated targets: Llama 3.2 3B Instruct (BF16, FP8, FP4) and Llama 3.1 
 
 ## Build
 
-**Toolchain:** Visual Studio 2022+ (user uses VS 2026), CUDA Toolkit 13.0, CMake 4.0+, Ninja (required for C++23 module incremental builds), GTest 1.17.0, C++23.
+**Toolchain:** Visual Studio 2026 18.6.2 or newer (earlier 2026 builds have a C++23 module regression that breaks the Mila build; 18.6.2 fixed it), CUDA Toolkit 13.0+ (CI-tested on 13.0, developed on 13.3), CMake 4.0+, Ninja (required for C++23 module incremental builds), Git 2.x+ (validated on 2.54.0; CPM fetches dependencies via `git clone` at configure time), GTest 1.17.0, C++23.
 
-The user builds exclusively inside **Visual Studio 2026** — never run `git commit`, `git add`, or `git push` commands. Describe what would make a good commit message and let the user commit.
+**C++ compilers:** the C++23 modules require MSVC (VS 2026 18.6.2+), Clang 19+, or GCC 15.3+. GCC 15.2 and earlier cannot compile the modules (validated: GCC 16 works, 15.2 fails); on Ubuntu 26.04 install the `gcc-16` package. In CUDA builds the C++ compiler handles the module units while nvcc uses a separate host compiler for `.cu` files (no modules there), so an older host GCC is acceptable for that role. Cross-compiler builds (Clang/GCC) surface missing `#include`s that MSVC resolves transitively — these are real portability fixes.
+
+The user builds exclusively inside **Visual Studio 2026** — never run `git commit`, `git add`, or `git push` commands. Do not volunteer commit messages; only suggest one when the user explicitly says they are ready to commit, then let the user commit.
 
 ```bash
 # CMake configure (Ninja, Debug)
@@ -168,7 +170,7 @@ Module partition files (`:Cuda`, `:Cpu` suffixes) are used to separate backend s
 ## Workflow Notes
 
 - When the user ends a message with **"Your thoughts?"** — respond with analysis only. No code edits.
-- User commits via **VS 2026 integrated git**. When a commit point is reached, suggest a commit message but do not run any git commands.
+- User commits via **VS 2026 integrated git**. Only suggest a commit message when the user explicitly says they are ready to commit — do not volunteer one at every commit point, and never run any git commands.
 
 ---
 

@@ -6,7 +6,7 @@
 
 namespace Mila::Dnn::Compute::Cuda::LayerNorm
 {
-    export inline constexpr int WARP_SIZE = 32;
+    inline constexpr int WARP_SIZE = 32;
 
     template<typename T>
     struct VecType

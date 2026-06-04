@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.37-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
+| In Progress | 0.13.38-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
 | Planned | 0.2.2-beta.1 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.2.3-beta.2 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
@@ -410,7 +410,166 @@ library is stable enough for external contributors to work with confidently.
 | Debug instrumentation fully gated or removed | Yes |
 | Test coverage of core components | Yes |
 | CONTRIBUTING.md with coding standards | Yes |
+| getting-started.md onboarding guide (user-first, contributor superset) | Yes |
+| `find_package(Mila)` packaging validated by an external consumer build | Yes |
+| Published Docker runtime image (slim multi-stage GPU runtime, release-tagged) | Yes |
+| Ungated GPT-2 quick-start path for zero-auth first run | Yes |
 | good-first-issue labels on GitHub | Yes |
+
+**Distribution.** Beta introduces a published Docker image so users can run Mila without
+standing up the bleeding-edge build toolchain. Two images, two roles: a slim multi-stage
+**runtime** image (built in the CUDA `-devel` base, artifacts copied into a `-runtime`
+base) for users, and the existing `-devel` **dev container** for contributors. Images are
+published on release tags (not a rolling `:latest` divorced from releases) to keep
+maintenance bounded for a solo maintainer. Gated model weights are never baked into the
+image — they remain a user-supplied, offline conversion step mounted in at run time; the
+ungated GPT-2 path provides an out-of-the-box first run with no HuggingFace auth.
+
+Pre-converted Mila-format weights for permissively-licensed models (GPT-2 first; Qwen and
+Mistral as they land) are hosted in a public Hugging Face repository and fetched on first
+run via direct `resolve/` URLs over HTTPS — no Python, venv, or HuggingFace auth at runtime.
+The weight blob already carries a format magic and `version` (see `PretrainedReader`), so
+hosted artifacts are versioned against the Mila format and an incompatible build fails loudly
+rather than mis-loading; the writer (`common.py`) and reader `VERSION` constants must be kept
+in sync and a re-publish is required on any format bump. Llama and other gated weights stay a
+user-supplied offline conversion step — redistributing them would transfer Meta's license
+obligations (attribution, Acceptable Use Policy, gating) onto the project.
+
+**Packaging.** A downstream app consuming Mila via `find_package(Mila)` currently fails to
+build. Because C++23 module interface units cannot ship as portable BMIs, the consumer's
+toolchain recompiles the installed `.ixx` units, and each one pulls its kernel header via a
+file-relative quoted include (`#include "Kernels/Gelu.cuh"`, `"../Common/Kernels/CudaAttention.cuh"`,
+`"../../Deps/nlohmann/json.hpp"`). On install these resolve against the wrong tree: the module
+units land under `include/mila/modules/Src/...` while the kernel headers are installed by a
+separate `install(DIRECTORY Src/ FILES_MATCHING *.cuh *.h)` glob under `include/Dnn/...`, and
+the vendored `Deps/` plus the generated `Version.h` are not installed at all.
+
+The include strings are only the visible symptom; the real defect is in how the `Mila` target
+is composed in `Mila/CMakeLists.txt`. The kernel `.cuh`/`.h` headers are listed as raw
+`add_library` sources, which carry no base directory, no install rule, and no usage
+requirement — which is precisely why packaging had to bolt on the ad-hoc directory glob that
+splits headers from modules. The CUDA `.cu`/`.cuh` sources are added unconditionally even
+though `enable_language(CUDA)` and the CUDA `.ixx` module file set are both gated on
+`MILA_HAS_CUDA`, so a CPU-only configure is incoherent. And three distinct categories are
+flattened into one list: `.cu` files (per-precision explicit instantiations compiled into the
+archive — private, link-only, must not ship), `.cuh`/`.h` headers (declarations the installed
+`.ixx` units include at consumer-recompile time — must ship), and `.ixx` interface units (the
+only category currently modeled, via a file set).
+
+The fix is a single coherent restructuring, not a destination patch: model the headers as a
+`FILE_SET HEADERS TYPE HEADERS BASE_DIRS Src` so they gain a base dir and install semantics;
+migrate the file-relative quoted includes to angled includes anchored at that one `Src` root
+(give vendored `Deps` its own root so nlohmann becomes `<nlohmann/json.hpp>`); set `BASE_DIRS`
+on the `CXX_MODULES` file sets to the same `Src` root; move all CUDA `.cu`/`.cuh` sources under
+the `if(MILA_HAS_CUDA)` block via `target_sources`; replace the `install(DIRECTORY …)` glob with
+`install(TARGETS Mila … FILE_SET HEADERS)`. The single include root must be on Mila's *own*
+build path (the current root at `Mila/CMakeLists.txt:128` is INTERFACE-only, so it has to become
+PUBLIC or gain a PRIVATE entry, or the in-tree build breaks once includes are anchored), and the
+generated `Version.h` and `Deps/` must be installed alongside the modules. Validate with a
+throwaway `find_package(Mila)` + `import Mila;` consumer wired into CI — Mila's own CI stays green
+throughout and will not catch packaging regressions on its own. Suggested sequencing: convert one
+CUDA op to angled includes and get the in-tree build green first (proves the root/`-I` model), then
+bulk-convert backend-by-backend (the compiler flags every missed header), then do the install-side
+CMake and the consumer test last.
+
+Deferred to later in the Beta push: whether the kernel `.cuh` *declarations* belong in the public
+install surface at all. Because the kernels are explicitly instantiated per precision in `.cu`
+files compiled into the archive, consumers link the kernel symbols and only need the declarations
+to call the launch wrappers — so the shippable surface may be reducible. That is a separate
+architectural decision and is intentionally out of scope for the packaging fix above.
+
+**Module Hygiene — Includes/Imports and Doxygen.** Over the course of alpha the module surface
+has accumulated `#include`s and `import`s that are no longer required, and Doxygen comments that
+have drifted out of sync with the code. Both are large, mechanical, low-risk-per-edit but
+high-volume diffs, and both are deferred until the WSL/Linux + dev container build environments
+are stood up — the cross-compiler build is a hard prerequisite for the include work, not a
+convenience. Current surface: 287 `.ixx` module units, ~1,810 `import` lines, ~1,419 `#include`
+lines (252 files use a global module fragment), and ~1,950 `@brief` / ~1,100 `@param` / ~257
+`@tparam` / ~218 `@file` Doxygen tags across 258 files.
+
+*Includes and imports.* There is no reliable off-the-shelf tool for C++23 module `import`
+cleanup — IWYU and clangd do not understand the module graph — so the compiler is the only
+ground-truth oracle. The critical trap is MSVC transitive resolution: a line can be removed and
+MSVC still compiles because the symbol arrives transitively, which means "still builds on MSVC"
+does *not* prove the line was unused, and can silently convert a real dependency into a fragile
+implicit one. The honest oracle is a **Clang or GCC** build, which is exactly why this work waits
+for the Linux/dev container toolchain. The cruft is already real and visible — even `Linear.ixx`,
+the dispatch reference file, imports `Dnn.TensorOps` twice. Phasing:
+
+- [ ] Phase 0 — exact-duplicate `import`/`#include` dedup within each file; pure text analysis, scriptable across all 287 units, zero compile cost and zero risk
+- [ ] Phase 1 — candidate report (no edits): heuristic scan flagging imports/includes whose symbols never appear in the file body; over-reports by design (cannot see macro/transitive use), so it is a worklist to size the job, not a verdict
+- [ ] Phase 2 — compiler-verified removal, leaf modules first: scripted remove -> rebuild -> revert-on-failure, batched per file with binary-search on failures, verified against Clang/GCC rather than MSVC so visible cruft is not traded for invisible transitive coupling
+
+*Doxygen staleness.* Stratified by confidence and tooling:
+
+- [ ] Tier 1 — `@file` rename drift: 34 files whose `@file` tag does not match the actual filename (e.g. `RocmDevice.ixx` tagged `@file VulkanDevice.ixx`, `CudaMhaOp.ixx` tagged `@file CudaAttentionOp.ixx`, `Lpe.ixx` tagged `@file Gpt2Encoder.ixx`). Pure rename leftovers; the correct value is `basename`, so this is fully scriptable with no judgment
+- [ ] Tier 2 — `@param`/`@tparam` name mismatches: documented parameter/template names that no longer appear in the signature (renamed or removed). Mechanical and high-confidence, but module/template signatures span lines, so build a detector that emits a candidate list for review before batch-fixing; the actual mismatches are a small fraction of the ~1,100 `@param` + ~257 `@tparam`
+- [ ] Tier 3 — semantic staleness (needs judgment, per-subsystem): `@brief`/descriptions that still describe the retired world — components "registering with `OperationRegistry`" or "deriving from `UnaryOperation`/`BinaryOperation`", string-keyed dispatch references, naming drift (`TWeightQuant` in prose vs. the spelled-out style), and file-level `@brief`s exceeding the 1-3 sentence rule. Done one settled subsystem at a time; subsystems still mid-refactor (notably the `OperationTraits` dispatch migration) are left alone until the refactor lands, to avoid re-staling the prose
+
+**Public API Surface — Narrowing the `Mila` Umbrella.** The supported public entry point is a
+single `import Mila;` — confirmed as the sole public surface, by design. Consumers import the
+umbrella and nothing else; the internal module names (`Dnn.*`, `Compute.*`, etc.) are an
+implementation detail of the source tree, not part of the consumer contract, which is also why
+they are intentionally *not* prefixed with `Mila.` (the namespace root `Mila::` already provides
+symbol-level scoping; the module-name layer is a private implementation concern as long as the
+umbrella is the only door). Tests and samples import submodules directly (14 direct imports in
+the test tree today) and are explicitly not bound by the public contract.
+
+The mechanism is correct; the open work is *scope*. At an API freeze the two failure modes are
+asymmetric: an umbrella that is too narrow is widened later by *adding* exports (non-breaking),
+while an umbrella that is too broad can only be corrected by *removing* exports (breaking every
+consumer that reached for the symbol). Beta should therefore freeze the narrowest defensible
+surface, not the widest. Today `Mila.ixx` re-exports essentially the entire module tree, which
+locks in two costs: (1) every consumer recompiles the full re-exported transitive closure into
+BMIs — inference-only adopters pay the compile cost of the training/visualization/serialization
+subtrees, because BMIs are not portable (see Packaging) and `export import` pulls the whole graph;
+(2) every re-exported symbol becomes a frozen compatibility promise, including the legacy paths
+currently being deleted. The umbrella *is* the API specification — there is no "exported but not
+really public" once it is frozen.
+
+- [ ] Define an explicit public allowlist for `Mila.ixx` — the inference surface (models, components, tensors, execution context, `initialize`/`shutdown`, tokenizers) is what beta promises; treat the export list as the literal API spec
+- [ ] Demote non-public modules to unexported internal modules (still directly importable by tests/samples, just not re-exported through the umbrella): `OperationRegistry`/`OperationRegistryHelpers`/`OperationsRegistrar`, `UnaryOperation`/`BinaryOperation` (both slated for removal), `Dnn.TensorBuffer` (marked "remove after testing"), and the per-device operation modules
+- [ ] Stop re-exporting the vendored `nlohmann` module/namespace through the public surface — it hands a breaking change to a third party's release schedule; the Chat sample's direct `import nlohmann.json` is a sample-layer concern, not a Mila public-API one
+- [ ] Domain-qualify generic single-segment module names that are global-collision magnets on co-link — `Core`, `Utils`, `Components`, `Profiling` (e.g. `Dnn.Core`, `Dnn.Utils`); this is targeted (a handful of renames) and independent of the no-`Mila.`-prefix rule, which stands for the specific multi-segment names
+- [ ] Deferred-but-non-breaking: if training becomes a first-class public concern, add a separate `Mila.Training` umbrella rather than widening `Mila` — the additive direction keeps the inference surface tight
+
+**Release Assets and CI.** Mila is a source-distributed C++ library: contributors clone, users
+consume it via `find_package(Mila)` built from a source install. That distribution model means
+most "release asset" machinery is unnecessary — GitHub auto-generates source `.zip`/`.tar.gz` for
+every tag, so **tagging `master` is the release**; there is no need for a release workflow unless
+prebuilt binaries are shipped. The release flow is a `dev` -> `master` PR (dev is the interim
+workspace); CI validates on that PR, and the documentation site publishes only from `master`.
+
+The genuinely GitHub-bound deliverable is the **documentation site** (GitHub Pages can only serve
+from a GitHub source). Decisions:
+
+- [ ] Docs are generated by a GitHub Action, never committed to the source tree — Doxygen output for 287 modules with call graphs is thousands of files plus binary graph images; committing it per release poisons the 14.8 MB source repo with noisy, conflict-prone history
+- [ ] The docs job is decoupled from the build — Doxygen is a source parser (`EXTRACT_ALL` reads `.ixx`/`.cuh` directly) and needs no compiled library, no CUDA, no GPU, no clang. The current job downloads the multi-GB build tree and runs `cmake --build --target docs` against a foreign CMakeCache; the correct job is checkout master -> install `doxygen`+`graphviz` -> run Doxygen -> publish, with no build dependency
+- [ ] Publish via Actions-native Pages (`actions/upload-pages-artifact` + `actions/deploy-pages`) rather than the current `gh-pages` orphan branch + `JamesIves` action — no branch to manage, and avoids the missing `permissions: contents: write` that can silently no-op the deploy; trigger on push to `master`
+- [ ] Narrow what the docs expose to match the public API surface — current Doxygen config sets `EXTRACT_ALL`/`EXTRACT_PRIVATE`/`EXTRACT_STATIC` recursively over all of `Mila/Src`, producing an undifferentiated dump where the `import Mila;` public surface is indistinguishable from internals (see Public API Surface item); the published docs should show the public API, not every private member of 287 modules
+- [ ] Verify Doxygen renders C++23 module units faithfully — module support is young; `export module`/partitions/`import` may misrepresent structure. Depends on the Doxygen staleness pass (Module Hygiene) so the generated docs are not loud with `WARN_NO_PARAMDOC` warnings and stale `@param`/`@file` drift
+
+CI correctness — the existing `build-pipeline.yml` produces a green badge that both overstates and
+understates reality, which is the opposite of what a beta trust signal should do:
+
+- [ ] GPU test honesty (highest priority) — the `test` job runs on a bare GitHub-hosted `ubuntu-24.04` runner with no NVIDIA GPU and only `libgtest-dev` installed, while the build ran inside the `nvidia/cuda` container. CUDA test executables either fail to load (`libcudart.so` absent) or fail at runtime (no device); if any are silently skipping on "no device" that is *false green*, worse than red. Fix: a self-hosted GPU runner, or explicitly partition CPU-runnable tests from GPU-required ones so the badge means what readers assume
+- [ ] Stop passing the whole configured `build/` tree between jobs — it is gigabytes, environment-specific, and consumed cross-environment (the `docs` and `test` jobs run on differently provisioned runners against a CMakeCache full of absolute tool paths that do not exist there); decoupling docs from the build (above) removes most of this coupling
+- [ ] Wire ccache as the compiler launcher (`-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`) — `CCACHE_DIR` is set and cached but never used, so builds are not actually accelerated
+- [ ] Broaden compiler coverage toward the supported matrix — CI builds only Clang 19; the primary dev compiler (MSVC 2026) and the working GCC 16 path are untested, so the compiler that previously broke the build (the VS 2026 pre-18.6.2 module regression) is the one CI cannot catch. A multi-compiler CI is also the cross-compiler oracle the deferred include/import hygiene pass needs (see Module Hygiene)
+
+Docker image publish is optional and only if the runtime image stays a beta deliverable (see
+Distribution) — building and pushing a release-tagged image to GHCR is a natural CI job on tag,
+but is equally a local `docker build && docker push`; it is automation-of-convenience, not a gate.
+The `find_package` consumer build itself is tracked under Packaging, not here.
+
+**Project Hygiene and Contributor Readiness.** A beta is a trust signal to users and contributors;
+these items are about the project not contradicting itself or wasting a newcomer's first hour.
+
+- [ ] License reconciliation (must-fix) — the root `License.md` is MIT, but `Mila/Src/Mila.ixx` (the public entry point) and `Mila/Src/Version.ixx` carry a proprietary header stating use "outside the terms of the EULA is strictly prohibited", which flatly contradicts MIT in the first file a contributor opens. Reconcile to MIT, pick a single per-file header convention (a one-line `// SPDX-License-Identifier: MIT`, or none) and apply it consistently, and bump the `License.md` copyright from `2021..2025` to include 2026
+- [ ] Formatter/linter config (highest-ROI scaffolding) — there is no `.clang-format`, `.editorconfig`, or `.clang-tidy`, so the idiosyncratic style in `CLAUDE.md` (no column alignment, blank-line-before-control-flow, full-word identifiers, ASCII-only comments) is unenforceable and reviews drown in whitespace nits. Add `.clang-format` + `.editorconfig` (even if they cannot capture every rule) so style is machine-checkable in CI rather than tribal knowledge
+- [ ] GitHub community-health files — `.github/` has only the workflow and copilot-instructions; add `CODE_OF_CONDUCT.md`, `SECURITY.md`, issue templates, and a PR template to complete GitHub's community-standards checklist (pairs with the existing good-first-issue labels requirement)
+- [ ] FIXME/TODO debt triage — the source carries ~71 `FIXME` + ~69 `REVIEW` + ~25 `TODO` markers (165 total); `FIXME` reads as "known broken" to anyone browsing, and several are commented-out core paths (weight initializers bypassed as "takes too long", commented `prefill`/`xavier`/`normal` calls). Triage before beta: fix the real ones, convert the rest to tracked GitHub issues, and do not ship literal "FIXME"s in public source. Distinct from the "debug instrumentation gated/removed" item, which is the `std::cout` (12 files) / `std::cerr` (5) / `printf` (6) usage
+- [ ] Borderline (conscious calls, not assumed gates): convert the Beta table's "test coverage of core components" from a vibe into an actual audit listing components with zero tests; and add the Samples build to CI (currently only tests build) so a contributor's first sample build is not the thing that breaks. A `CHANGELOG` is judged unnecessary — completed ROADMAP sections plus GitHub auto-generated release notes cover it
 
 ---
 

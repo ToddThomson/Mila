@@ -68,12 +68,12 @@ jobs:
           clang++ --version
           ccache --version
 
-      - name: Install CMake 3.31.7
+      - name: Install CMake 4.2.3
         run: |
-          wget -q https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-linux-x86_64.tar.gz
-          tar -xzf cmake-3.31.7-linux-x86_64.tar.gz
-          cp -r cmake-3.31.7-linux-x86_64/bin/* /usr/local/bin/
-          cp -r cmake-3.31.7-linux-x86_64/share/* /usr/local/share/
+          wget -q https://github.com/Kitware/CMake/releases/download/v4.2.3/cmake-4.2.3-linux-x86_64.tar.gz
+          tar -xzf cmake-4.2.3-linux-x86_64.tar.gz
+          cp -r cmake-4.2.3-linux-x86_64/bin/* /usr/local/bin/
+          cp -r cmake-4.2.3-linux-x86_64/share/* /usr/local/share/
           cmake --version
 
       - name: Verify CUDA toolchain
@@ -114,7 +114,8 @@ jobs:
             -DCMAKE_CXX_STANDARD=23 \
             -DCMAKE_CXX_STANDARD_REQUIRED=ON \
             -DCMAKE_CXX_EXTENSIONS=OFF \
-            -DMILA_ENABLE_TESTING=ON
+            -DMILA_ENABLE_TESTING=ON \
+            -DMILA_ENABLE_DOCS=ON
 
       - name: Build Mila
         run: cmake --build build --config Release -- -j $(nproc)
@@ -180,12 +181,12 @@ jobs:
             doxygen \
             graphviz
 
-      - name: Install CMake 3.31.7
+      - name: Install CMake 4.2.3
         run: |
-          wget -q https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-linux-x86_64.tar.gz
-          tar -xzf cmake-3.31.7-linux-x86_64.tar.gz
-          cp -r cmake-3.31.7-linux-x86_64/bin/* /usr/local/bin/
-          cp -r cmake-3.31.7-linux-x86_64/share/* /usr/local/share/
+          wget -q https://github.com/Kitware/CMake/releases/download/v4.2.3/cmake-4.2.3-linux-x86_64.tar.gz
+          tar -xzf cmake-4.2.3-linux-x86_64.tar.gz
+          cp -r cmake-4.2.3-linux-x86_64/bin/* /usr/local/bin/
+          cp -r cmake-4.2.3-linux-x86_64/share/* /usr/local/share/
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4

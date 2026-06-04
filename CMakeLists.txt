@@ -1,6 +1,6 @@
 ﻿# CMakeList.txt : Root CMake project for the Mila Project
 
-cmake_minimum_required (VERSION 3.31)  
+cmake_minimum_required (VERSION 4.0)  
 
 project(MilaProject LANGUAGES CXX CUDA)
 
@@ -16,7 +16,12 @@ option(MILA_ENABLE_PYTHON_BINDINGS "Build the MilaPy pybind11 extension module."
 option(MILA_ENABLE_BENCHMARKS "Enable Mila Library benchmarks." OFF)
 option(MILA_ENABLE_PROFILING "Enable Mila Library profiling." ON)
 option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ON)
+option(MILA_ENABLE_DOCS "Build Doxygen API documentation. Requires Doxygen and Graphviz." OFF)
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
+# TODO: MILA_ENABLE_CUDA=OFF does not produce a clean CPU-only build. Sources include CUDA
+# headers (cuda_runtime.h, etc.) unconditionally, so configuring with this OFF fails to compile
+# with "CUDA includes could not be found". Either make the CPU-only path header-clean or drop
+# the option. (Found while validating the GCC/WSL build on Ubuntu 26.04.)
 option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
 
 # The Metal and ROCm backends are currently for internal testing only. Please leave them disabled.

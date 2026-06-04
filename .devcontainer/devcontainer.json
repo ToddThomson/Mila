@@ -1,6 +1,18 @@
 {
 	"name": "Mila Dev Container",
-	"build": {
-		"dockerfile": "../Docker/Dockerfile"
+	"dockerComposeFile": [
+		"../Docker/docker-compose.yml",
+		"../Docker/docker-compose.dev.yml"
+	],
+	"service": "mila-dev",
+	"workspaceFolder": "/mila",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-vscode.cpptools",
+				"ms-vscode.cmake-tools",
+				"llvm-vs-code-extensions.vscode-clangd"
+			]
+		}
 	}
 }

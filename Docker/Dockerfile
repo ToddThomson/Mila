@@ -1,12 +1,17 @@
+# Mila development container.
+# CUDA + Clang 19 + CMake 4.x + Ninja toolchain for building and testing the C++23
+# library. Model weight conversion is an offline, host-side step (see
+# Mila/Tools/Converters); converted weights are bind-mounted in via docker-compose.
 FROM nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install core packages, GPG tools and lsb-release (used for distro codename)
+# Core toolchain and tools. Ninja 1.11+ (Ubuntu 24.04) supports C++23 module dyndep and is
+# the generator CI builds with. CMake is installed separately below (the distro package
+# predates the 4.0 floor). Doxygen/Graphviz are only needed for -DMILA_ENABLE_DOCS=ON.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
-        cmake \
         ninja-build \
         curl \
         wget \
@@ -21,29 +26,15 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Update package lists, install wget and gnupg2 (necessary dependencies for the script)
-RUN apt-get update && apt-get install -y wget gnupg2 software-properties-common
+# Clang 19 via the official LLVM script (adds the repository and key, installs the toolchain).
+RUN wget -q https://apt.llvm.org/llvm.sh \
+    && chmod +x llvm.sh \
+    && ./llvm.sh 19 \
+    && rm -f llvm.sh \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Download and run the official LLVM installation script for Clang 19
-# The script handles adding the repository and public key
-RUN wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && ./llvm.sh 19
-
-# (Optional) Clean up to reduce image size
-RUN apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/* /llvm.sh
-
-# Set default command to verify the installation
-CMD ["clang-19", "--version"]
-
-# Install latest Ninja build system from source (required for c++20 modules support)
-RUN git clone https://github.com/ninja-build/ninja.git /tmp/ninja \
-    && cd /tmp/ninja \
-    && git checkout release \
-    && cmake -Bbuild -H. -DCMAKE_BUILD_TYPE=Release \
-    && cmake --build build --target install \
-    && rm -rf /tmp/ninja \
-    && ninja --version
-
-# Set Clang 19 as the default compiler
+# Make Clang 19 the default C/C++ compiler.
 RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100 \
     && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100 \
     && update-alternatives --install /usr/bin/cc cc /usr/bin/clang-19 100 \
@@ -53,27 +44,20 @@ RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100 \
     && update-alternatives --set cc /usr/bin/clang-19 \
     && update-alternatives --set c++ /usr/bin/clang++-19
 
-RUN clang --version && clang++ --version
-
-# Install CMake 3.31 (project requires 3.31). Consider adding checksum validation if desired.
-RUN wget -qO- "https://cmake.org/files/v3.31/cmake-3.31.0-linux-x86_64.tar.gz" \
+# CMake 4.2.3 (the project requires 4.0+; the Ubuntu package is older). Matches CI.
+RUN wget -qO- "https://cmake.org/files/v4.2/cmake-4.2.3-linux-x86_64.tar.gz" \
     | tar --strip-components=1 -xz -C /usr/local
 
-# Clone and install GoogleTest for testing support
-RUN git clone https://github.com/google/googletest.git /tmp/googletest \
-    && cd /tmp/googletest \
-    && mkdir build \
-    && cd build \
-    && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 \
-    && cmake --build . --target install \
-    && rm -rf /tmp/googletest
-
-# Set work directory
 WORKDIR /mila
 
-# Set environment variables
 ENV CUDA_HOME=/usr/local/cuda-13.0
 ENV PATH=${CUDA_HOME}/bin:${PATH}
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
 ENV CC=clang-19
 ENV CXX=clang++-19
+
+# Dependencies (GoogleTest, nlohmann_json, miniz, CUTLASS, ...) are fetched by the build
+# via CPM/FetchContent at CMake configure time, which requires git and network access, so
+# none are installed here.
+
+CMD ["/bin/bash"]

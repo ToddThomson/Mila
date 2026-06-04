@@ -1,7 +1,7 @@
 # CMake configuration for the MilaPy pybind11 extension module.
 # Requires CUDA; targets Llama 3.2 3B Instruct on CUDA BF16.
 
-cmake_minimum_required(VERSION 3.31)
+cmake_minimum_required(VERSION 4.0)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 

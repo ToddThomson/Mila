@@ -868,8 +868,10 @@ install(FILES
 # Mila project benchmarks, samples, tests, and tools can reference this variable to access data files.
 set(MILA_DATA_DIR "${CMAKE_SOURCE_DIR}/Data")
 
-# Generate documentation with Doxygen
-add_subdirectory( Docs )
+# Generate documentation with Doxygen (opt-in: Doxygen is a hard requirement of the Docs target)
+if(MILA_ENABLE_DOCS)
+    add_subdirectory( Docs )
+endif()
 
 # Add tools: tokeniz.exe, etc
 add_subdirectory( Tools )

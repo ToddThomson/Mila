@@ -101,7 +101,7 @@ namespace Mila::Dnn::Compute
         // Check 3: Second moment sanity
         if ( !isfinite( v ) || fabsf( v ) > kMomentAbsLimit * kMomentAbsLimit ) {
             printf(
-                "AdamW DEBUG v: block=%d thread=%d idx=%d v=%f grad²=%f beta2=%f v_old=%f\n",
+                "AdamW DEBUG v: block=%d thread=%d idx=%d v=%f grad^2=%f beta2=%f v_old=%f\n",
                 blockIdx.x, threadIdx.x, idx, v, grad * grad, beta2, v_memory[ idx ]
             );
         }
