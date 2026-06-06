@@ -8,6 +8,7 @@
 module;
 #include <memory>
 #include <vector>
+#include <unordered_set>
 #include <string>
 #include <sstream>
 #include <cstdint>
@@ -27,6 +28,7 @@ export module Dnn.Models.LlamaModel;
 
 import Dnn.Models.LlamaModelConfig;
 import Dnn.LanguageModel;
+import Dnn.LanguageModelConfig;
 import Dnn.LanguageNetwork;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
@@ -37,6 +39,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.Component;
+import Dnn.RuntimeMode;
 import Dnn.Components.LlamaTransformer;
 import Compute.Device;
 import Compute.DeviceId;
@@ -46,6 +49,7 @@ import Compute.CpuMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.ExecutionContextFactory;
 import Serialization.PretrainedReader;
+import Serialization.Mode;
 import Logging.Logger;
 
 namespace Mila::Dnn

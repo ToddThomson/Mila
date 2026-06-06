@@ -31,6 +31,12 @@
  * @endcode
  */
 
+ module;
+ #include <stdexcept>
+ #include <string>
+ #include <type_traits>
+ #include <concepts>
+ 
 export module Dnn.Models.LlamaModelConfig;
 
 import Dnn.LanguageModelConfig;

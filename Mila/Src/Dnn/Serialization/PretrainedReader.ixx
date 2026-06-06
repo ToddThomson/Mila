@@ -264,7 +264,7 @@ namespace Mila::Dnn::Serialization
          * @return TensorBlob<MR> owning the metadata and raw byte buffer.
          * @throws std::runtime_error if the tensor is not found or the read fails.
          */
-        template<typename MR = CpuMemoryResource>
+        template<typename MR = Compute::CpuMemoryResource>
             requires isValidTensor<dtype_t::UINT8, MR>
         TensorBlob<MR> readTensorBlob( const std::string& name, int device_id = 0 )
         {

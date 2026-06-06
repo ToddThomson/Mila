@@ -193,13 +193,8 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // Module interface
+        // Component interface
         // ====================================================================
-
-        std::string getName() const override
-        {
-            return config_.getName();
-        }
 
         DeviceId getDeviceId() const override
         {
@@ -221,7 +216,7 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "SoftmaxCrossEntropy (fused): " << getName() << std::endl;
+            oss << "SoftmaxCrossEntropy (fused): " << std::endl;
             oss << "Vocabulary Size: " << config_.getVocabSize() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Output: Per-sample losses [B, S]" << std::endl;

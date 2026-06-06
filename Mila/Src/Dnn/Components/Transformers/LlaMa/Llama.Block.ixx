@@ -50,6 +50,7 @@ import Dnn.ITensor;
 import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
 import Dnn.Component;
 import Dnn.ComponentType;

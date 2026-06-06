@@ -71,7 +71,9 @@
       "Bash(git -C D:/Repos/Mila diff -- Mila/Src/Dnn/Models/LlamaModel.ixx Mila/Samples/Chat/Src/main.cpp Mila/Samples/Chat/Src/Chat.ixx ROADMAP.md)",
       "Bash(git -C D:/Repos/Mila diff --stat -- Mila/Samples/Chat/Src/Chat.ixx Mila/Samples/Chat/Src/main.cpp)",
       "Bash(git -C D:/Repos/Mila diff -- Mila/Samples/Chat/Src/main.cpp)",
-      "Bash(git -C D:/Repos/Mila diff -- Mila/Profiling/CMakeLists.txt)"
+      "Bash(git -C D:/Repos/Mila diff -- Mila/Profiling/CMakeLists.txt)",
+      "PowerShell(git -C D:\\\\Repos\\\\Mila diff --stat)",
+      "PowerShell(git -C D:\\\\Repos\\\\Mila status --short)"
     ]
   }
 }

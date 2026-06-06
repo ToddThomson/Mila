@@ -16,7 +16,7 @@ import Dnn.TensorTypes;
 import CublasLt.Error;
 import Logging.Logger;
 
-export namespace Mila::Dnn::Compute::Cuda
+namespace Mila::Dnn::Compute::Cuda
 {
     /**
      * @brief Copies a device tensor to host, formats it via dump_tensor, and emits

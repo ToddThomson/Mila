@@ -573,14 +573,16 @@ namespace Mila::Dnn
         /**
          * @brief Returns the tensor's unique identifier
          */
-        std::string getUId() const {
+        std::string getUId() const override
+        {
             return uid_;
         }
 
         /**
          * @brief Returns the tensor's optional user-assigned name
          */
-        std::string getName() const {
+        std::string getName() const override
+        {
             return name_;
         }
 

@@ -33,6 +33,7 @@ import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.OperationType;
+import Dnn.Component;
 import Compute.OperationRegistrarHelpers;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;

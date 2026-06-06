@@ -23,6 +23,7 @@ import Dnn.Model;
 import Dnn.LanguageNetwork;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
+import Dnn.RuntimeMode;
 import Compute.DeviceType;
 
 namespace Mila::Dnn

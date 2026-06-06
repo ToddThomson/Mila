@@ -49,6 +49,7 @@ import Compute.CudaPinnedMemoryResource;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
+import Serialization.PretrainedReader;
 import Serialization.Tensor;
 
 // import Compute.LinearOpTraits;

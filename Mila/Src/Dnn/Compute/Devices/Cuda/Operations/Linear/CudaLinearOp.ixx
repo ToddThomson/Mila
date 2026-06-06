@@ -51,6 +51,7 @@ import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextTemplate;
 import Compute.OperationType;
+import Dnn.Component;
 import Compute.MemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaDevice;

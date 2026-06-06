@@ -9,9 +9,12 @@
  * directly and would @b not import this module, as sliding window eviction
  * carries no dtype fields.
  *
- * @note Alpha.6 target: @c PerChannelKvFp8<> — symmetric per-head per-token
+ * @note Alpha.6 target: @c PerChannelKvFp8<> ï¿½ symmetric per-head per-token
  *       FP8 compression applied identically to K and V.
  */
+
+ module;
+ #include <concepts>
 
 export module Dnn.Quantization.KvCache.QuantPolicy;
 
@@ -36,7 +39,7 @@ namespace Mila::Dnn::Quant::KvCache
      * @tparam T Candidate policy type.
      */
     export template<typename T>
-        concept QuantKvPolicy = KvCachePolicy<T> && requires
+    concept QuantKvPolicy = KvCachePolicy<T> && requires
     {
         { T::kStorageDtype    } -> std::convertible_to<TensorDataType>;
         {
@@ -75,7 +78,7 @@ namespace Mila::Dnn::Quant::KvCache
      *         is not a current Mila target.
      */
     export template<TensorDataType TStorage = TensorDataType::FP8_E4M3>
-        struct PerChannelKvFp8
+    struct PerChannelKvFp8
     {
         static constexpr bool kIsActive = true;  ///< Activates KV cache compression in @c CudaGqaOp.
         static constexpr TensorDataType kStorageDtype = TStorage;                ///< Storage dtype for compressed K and V values.

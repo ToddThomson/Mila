@@ -16,6 +16,7 @@ module;
 #include <cstring>
 #include <ostream>
 #include <iostream>
+#include <filesystem>
 #include <format>
 #include <optional>
 #include <cassert>
@@ -40,6 +41,7 @@ import Dnn.Components.Lpe;
 import Dnn.Components.GptBlock;
 import Dnn.Component;
 import Dnn.ComponentType;
+import Dnn.RuntimeMode;
 import Dnn.ActivationType;
 import Compute.Device;
 import Compute.DeviceType;
@@ -50,6 +52,8 @@ import Compute.CudaPinnedMemoryResource;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
+import Serialization.Mode;
+import Serialization.PretrainedReader;
 import Serialization.Tensor;
 import Logging.Logger;
 

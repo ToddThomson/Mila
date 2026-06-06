@@ -32,6 +32,7 @@ import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.OperationType;
+import Dnn.Component;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
 import Compute.OperationRegistrarHelpers;
@@ -148,7 +149,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
                 dA, dB, dY, static_cast<int>(actual_size), stream );
         }
 
-        void build( const BuildContext& config )
+        void build( const BuildContext& config ) override
         {
             const auto& input_shape = config.inputShape();
 

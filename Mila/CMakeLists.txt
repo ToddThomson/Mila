@@ -114,7 +114,9 @@ add_library( Mila STATIC
     CUDA_ARCHITECTURES "75;80;86;89;90"
 )
 
-target_compile_features( Mila PUBLIC cxx_std_23 )
+# C++23 is selected via the CXX_STANDARD properties above and forced per-compiler
+# below (-std=c++23 / /std:c++latest). target_compile_features(cxx_std_23) is omitted
+# because CMake rejects it when its feature tables lag a newer Clang (e.g. 21.x).
 
 #find_package(miniz REQUIRED)  
 #find_package(nlohmann_json REQUIRED)
@@ -144,7 +146,10 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   target_compile_options(Mila PRIVATE 
     $<$<COMPILE_LANGUAGE:CXX>:-std=c++23 -fno-implicit-modules -fno-implicit-module-maps>
   )
-  set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "/usr/bin/clang-scan-deps-19")
+  find_program(MILA_CLANG_SCAN_DEPS
+    NAMES clang-scan-deps clang-scan-deps-21 clang-scan-deps-20 clang-scan-deps-19
+    REQUIRED)
+  set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${MILA_CLANG_SCAN_DEPS}")
   set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")
   set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -ccbin ${CMAKE_CXX_COMPILER}")
 endif()
@@ -403,7 +408,6 @@ PUBLIC
         "Src/Dnn/Components/MilaComponents.ixx"
         "Src/Dnn/Core/Loss.ixx"
         "Src/Dnn/Serialization/SerializationMetadata.ixx"
-        "Src/Dnn/Core/FusedComponent.ixx"
         "Src/Dnn/Compute/Operations/OperationRegistrarHelpers.ixx"
         
         "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlan.ixx"

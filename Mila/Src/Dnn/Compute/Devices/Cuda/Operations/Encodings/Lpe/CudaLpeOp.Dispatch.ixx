@@ -8,6 +8,7 @@
 module;
 #include <cuda_fp16.h>
 #include <type_traits>
+#include <cstdint>
 #include "Kernels/Lpe.cuh"
 
 export module Compute.CudaLpeOp:Dispatch;
@@ -77,7 +78,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
          *
          * Computes output[b,:] = wte[X[b],:] + wpe[position,:] for each batch
          * element. Delegates to cuda_encoder_decode_fp32 which reads only the
-         * single wpe row at `position` — no sequence iteration overhead.
+         * single wpe row at `position` ï¿½ no sequence iteration overhead.
          *
          * @param Y        Output embeddings [B, C].
          * @param X        Input token indices [B] (INT32).

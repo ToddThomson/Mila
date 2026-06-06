@@ -41,6 +41,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.Component;
+import Dnn.RuntimeMode;
 import Dnn.Components.GptTransformer;
 import Compute.Device;
 import Compute.DeviceId;
@@ -154,18 +155,12 @@ namespace Mila::Dnn
                     deviceTypeToString( TDeviceType ),
                     deviceTypeToString( device_id.type ) ) );
 
-            ModelArchive archive( path, OpenMode::Read );
-
-            GptConfig config = GptConfig::fromArchive( archive );
-
-            auto network = std::make_unique<GptTransformerType>(
-                "GptTransformer" /* FIXME: archive.readNetworkName() */, config, device_id );
-
-            network->build( shape_t{ 1, config.getMaxSequenceLength() } );
-            network->setTraining( false );
-            network->load( archive, SerializationMode::WeightsOnly );
-
-            return std::unique_ptr<GptModel>( new GptModel( std::move( network ), config ) );
+            // NOT YET IMPLEMENTED: depends on the ModelArchive/ZipSerializer checkpoint path,
+            // which is unfinished (GptConfig::fromArchive and GptTransformer save/load do not
+            // exist). Use fromPretrained() instead.
+            throw std::runtime_error( std::format(
+                "GptModel::fromCheckpoint('{}'): Mila-native checkpoint loading is not yet "
+                "implemented; use fromPretrained().", path.string() ) );
         }
 
         // ====================================================================

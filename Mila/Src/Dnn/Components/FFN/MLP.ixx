@@ -504,14 +504,14 @@ namespace Mila::Dnn
          *
          * @param suffix Suffix appended to parent name for the child component.
          */
-        void addLayerNorm( const std::string& suffix )
-        {
-            auto cfg = LayerNormConfig().withAxis( -1 );
-
-            auto component = std::make_shared<LayerNormType>( this->getName() + "." + suffix, cfg, std::nullopt );
-
-            this->addComponent( component );
-        }
+        // DEPRECATED: void addLayerNorm( const std::string& suffix )
+        //{
+        //    auto cfg = LayerNormConfig().withAxis( -1 );
+        //
+        //    auto component = std::make_shared<LayerNormType>( this->getName() + "." + suffix, cfg, std::nullopt );
+        //
+        //    this->addComponent( component );
+        //}
 
         /**
          * @brief Create and register the activation child component for the configured type.

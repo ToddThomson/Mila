@@ -18,11 +18,13 @@ module;
 #include <chrono>
 #include <algorithm>
 #include <vector>
+#include <unordered_map>
 #include <exception>
 #include <format>
 
 export module Dnn.Network;
 
+import Dnn.Component;
 import Dnn.CompositeComponent;
 import Dnn.ComponentType;
 import Dnn.TensorDataType;

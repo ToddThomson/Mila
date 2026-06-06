@@ -17,6 +17,46 @@
       "vendor": { "microsoft.com/VisualStudioRemoteSettings/CMake/2.0": { "remoteSourceRootDir": "$env{HOME}/.vs/$ms{projectDirName}" } }
     },
     {
+      "name": "linux-clang-base",
+      "hidden": true,
+      "description": "Linux/WSL build: Clang for the C++23 module units, nvcc (CUDA 13) with a GCC host compiler for .cu files (gcc-15 is nvcc 13.0's max supported host and the Ubuntu 26.04 default).",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/install/${presetName}",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_CXX_STANDARD": "23",
+        "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+        "CMAKE_CXX_EXTENSIONS": "OFF",
+        "CMAKE_CUDA_COMPILER": "/usr/local/cuda/bin/nvcc",
+        "CUDAToolkit_ROOT": "/usr/local/cuda",
+        "CMAKE_CUDA_HOST_COMPILER": "gcc-15",
+        "CMAKE_CUDA_FLAGS": "--allow-unsupported-compiler",
+        "MILA_ENABLE_TESTING": "ON"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "vendor": { "microsoft.com/VisualStudioRemoteSettings/CMake/2.0": { "remoteSourceRootDir": "$env{HOME}/.vs/$ms{projectDirName}" } }
+    },
+    {
+      "name": "linux-clang-debug",
+      "displayName": "Linux Clang Debug",
+      "description": "Clang + CUDA 13 Debug build on Linux/WSL.",
+      "inherits": "linux-clang-base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "linux-clang-release",
+      "displayName": "Linux Clang Release",
+      "description": "Clang + CUDA 13 Release build on Linux/WSL.",
+      "inherits": "linux-clang-base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
       "name": "macos-debug",
       "displayName": "macOS Debug",
       "description": "Target a remote macOS system.",

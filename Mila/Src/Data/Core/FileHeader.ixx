@@ -15,10 +15,12 @@ module;
 export module Data.FileHeader;
 
 import Serialization.Metadata;
+import nlohmann.json;
 
 namespace Mila::Data
 {
     using Mila::Dnn::Serialization::SerializationMetadata;
+    using json = nlohmann::json;
 
     /**
      * @brief File type identifiers for Mila data files.
@@ -136,7 +138,7 @@ namespace Mila::Data
                     throw std::runtime_error( "MilaFileHeader: Failed to read metadata" );
                 }
 
-                auto json_obj = nlohmann::json::parse( metadata_json );
+                auto json_obj = json::parse( metadata_json );
                 metadata = SerializationMetadata::fromJson( json_obj );
             }
 

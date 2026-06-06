@@ -4,6 +4,7 @@
  */
 
 module;
+#include <cuda_runtime.h>
 //#include <vector>
 #include <memory>
 //#include <iostream>
@@ -11,6 +12,7 @@ module;
 #include <stdexcept>
 //#include <type_traits>
 #include <string>
+#include <cuda_runtime_api.h>  // cudaStream_t
 //#include "Kernels/Gelu.cuh"
 
 export module Compute.CudaGeluOp;
@@ -136,7 +138,8 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
         void backward(
             const ITensor& input,
             const ITensor& output_gradient,
-            ITensor& input_gradient ) const {
+            ITensor& input_gradient ) const override 
+        {
 
             //ComputePrecision::Policy policy = this->getPrecisionPolicy();
 

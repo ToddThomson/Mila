@@ -48,6 +48,7 @@ import Compute.CpuMemoryResource;
 import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
 import Serialization.Mode;
+import Serialization.Tensor;
 
 // DEBUG:
 import Dnn.TensorOps;

@@ -336,7 +336,7 @@ namespace Mila::Dnn
                 SerializationMetadata cfg = archive.readMetadata( "config.json" );
 
                 GeluConfig config;
-                auto approx_method = static_cast<GeluConfig::ApproximationMethod>(
+                auto approx_method = static_cast<ApproximationMethod>(
                     cfg.getInt( "approximation_method" ));
                 config.withApproximationMethod( approx_method );
                 config.validate();

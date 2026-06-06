@@ -26,13 +26,19 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Generic wrapper for fused backend operations.
+     * @brief DEPRECATED. Generic wrapper for fused backend operations.
      *
      * Replaces a sequence of components with a single backend operation
      * without exposing a new component type in the public API.
+     *
+     * @deprecated Built on the retired UnaryOperation base and the string-keyed
+     * OperationRegistry runtime dispatch, both superseded by compile-time
+     * OperationTraits. The only callers were CompositeComponent's never-invoked
+     * fuseSequentialOperations()/fusePair(). Excluded from the build (removed from
+     * Mila/CMakeLists.txt); retained for reference pending removal.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
-    class FusedComponent : public Component<TDeviceType, TPrecision>
+    class [[deprecated( "FusedComponent is unused and built on the retired OperationRegistry/UnaryOperation dispatch; excluded from the build." )]] FusedComponent : public Component<TDeviceType, TPrecision>
     {
     public:
         using ComponentBase = Component<TDeviceType, TPrecision>;

@@ -23,6 +23,7 @@ import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextTemplate;
 import Compute.OperationType;
+import Dnn.Component;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.CpuMemoryResource;
@@ -166,7 +167,8 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const {
+            ITensor& input_grad ) const override
+            {
 
             // Resize input_grad to match input shape if needed
             if (input_grad.shape() != input.shape())

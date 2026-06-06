@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.38-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
+| In Progress | 0.13.39-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
 | Planned | 0.2.2-beta.1 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.2.3-beta.2 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
@@ -481,9 +481,11 @@ architectural decision and is intentionally out of scope for the packaging fix a
 **Module Hygiene — Includes/Imports and Doxygen.** Over the course of alpha the module surface
 has accumulated `#include`s and `import`s that are no longer required, and Doxygen comments that
 have drifted out of sync with the code. Both are large, mechanical, low-risk-per-edit but
-high-volume diffs, and both are deferred until the WSL/Linux + dev container build environments
-are stood up — the cross-compiler build is a hard prerequisite for the include work, not a
-convenience. Current surface: 287 `.ixx` module units, ~1,810 `import` lines, ~1,419 `#include`
+high-volume diffs, and both were deferred until a cross-compiler build environment was stood up
+— a hard prerequisite for the include work, not a convenience. As of 0.13.39-alpha.5 the native
+WSL / Ubuntu 26.04 Clang build is green (Clang 21 + CUDA 13.3 + gcc-15 host), so the Clang oracle
+now exists locally and these phases are un-gated; GCC 16 (the second oracle) and the dev-container
+build remain to be validated. Current surface: 287 `.ixx` module units, ~1,810 `import` lines, ~1,419 `#include`
 lines (252 files use a global module fragment), and ~1,950 `@brief` / ~1,100 `@param` / ~257
 `@tparam` / ~218 `@file` Doxygen tags across 258 files.
 
@@ -492,8 +494,8 @@ cleanup — IWYU and clangd do not understand the module graph — so the compil
 ground-truth oracle. The critical trap is MSVC transitive resolution: a line can be removed and
 MSVC still compiles because the symbol arrives transitively, which means "still builds on MSVC"
 does *not* prove the line was unused, and can silently convert a real dependency into a fragile
-implicit one. The honest oracle is a **Clang or GCC** build, which is exactly why this work waits
-for the Linux/dev container toolchain. The cruft is already real and visible — even `Linear.ixx`,
+implicit one. The honest oracle is a **Clang or GCC** build, which is exactly why this work waited
+for the Linux toolchain — now available via the green WSL Clang build, with GCC 16 still to come. The cruft is already real and visible — even `Linear.ixx`,
 the dispatch reference file, imports `Dnn.TensorOps` twice. Phasing:
 
 - [ ] Phase 0 — exact-duplicate `import`/`#include` dedup within each file; pure text analysis, scriptable across all 287 units, zero compile cost and zero risk

@@ -16,6 +16,7 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <optional>
+#include <cmath>
 #include <numeric>
 #include <algorithm>
 
@@ -43,6 +44,7 @@ import Compute.CudaDeviceMemoryResource;
 import Compute.IPositionalDecode;
 import Serialization.ModelArchive;
 import Serialization.Mode;
+import Serialization.Tensor;
 
 // DEBUG:
 import Dnn.TensorOps;

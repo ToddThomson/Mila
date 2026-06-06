@@ -28,12 +28,15 @@ module;
 #include <unordered_map>
 
 export module Mila.Chat;
+
 export import Chat.Config;
 export import Chat.Message;
 export import Chat.MessageFormatter;
 export import Chat.SystemPrompt;
 export import Chat.ToolCallParser;
+import Chat.Json;
 import Chat.Renderer;
+
 import Mila;
 
 namespace Mila::ChatApp

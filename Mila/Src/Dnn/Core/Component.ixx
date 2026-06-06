@@ -760,19 +760,19 @@ namespace Mila::Dnn
          *
          * @throws std::invalid_argument if dtype or shape mismatch.
          */
-        template<TensorDataType TPrecision, typename TMemoryResource>
+        template<TensorDataType TParameterPrecision, typename TMemoryResource>
         void loadParameterFromBlob(
             const std::string& param_name,
             const Serialization::ITensorBlob& blob,
-            Tensor<TPrecision, TMemoryResource>& target,
+            Tensor<TParameterPrecision, TMemoryResource>& target,
             const shape_t& expected_shape )
         {
-            if ( blob.getMetadata().dtype != TPrecision )
+            if ( blob.getMetadata().dtype != TParameterPrecision )
             {
                 throw std::invalid_argument(
                     std::format( "Parameter '{}' dtype mismatch. Expected {}, got {}",
                         param_name,
-                        tensorDataTypeToString( TPrecision ),
+                        tensorDataTypeToString( TParameterPrecision ),
                         tensorDataTypeToString( blob.getMetadata().dtype)));
             }
 
