@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.43-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
+| In Progress | 0.13.44-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
 | Planned | 0.2.2-beta.1 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.2.3-beta.2 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
@@ -578,6 +578,14 @@ most "release asset" machinery is unnecessary — GitHub auto-generates source `
 every tag, so **tagging `master` is the release**; there is no need for a release workflow unless
 prebuilt binaries are shipped. The release flow is a `dev` -> `master` PR (dev is the interim
 workspace); CI validates on that PR, and the documentation site publishes only from `master`.
+
+During alpha the **GitHub default branch is `dev`**: all work lands on dev (the CI-gated trunk),
+releases are infrequent, and the audience is followers/contributors who already target dev, so a
+no-argument clone and the repo home page should show the live project rather than a lagging master.
+At beta this flips — **switch the default branch to `master`** so the front door is the stable,
+released artifact that matches the canonical identity (tags, docs, and the CPM/FetchContent
+by-semver path all key on master). The README and roadmap links are branch-agnostic, so the switch
+needs no content changes.
 
 The genuinely GitHub-bound deliverable is the **documentation site** (GitHub Pages can only serve
 from a GitHub source). Decisions:

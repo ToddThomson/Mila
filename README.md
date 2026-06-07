@@ -7,7 +7,8 @@ and write kernels that do precisely what they intend. No autograd engine. No run
 dispatch magic. Just C++23, CUDA, and full control.
 
 > *Currently in active alpha development. API is not yet stable.*
-> *See the [Roadmap](ROADMAP.md) for current status and trajectory.*
+> *Active development lands on the [`dev`](https://github.com/ToddThomson/Mila/tree/dev) branch; `master` tracks tagged releases.*
+> *See the [Roadmap](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for current status and trajectory.*
 
 ---
 
@@ -112,7 +113,7 @@ Qwen 3 transformer architecture with thinking mode and model-agnostic tool calli
 validated on Qwen 3 8B Instruct at BF16 and FP8. FP8 KV cache compression introduced
 alongside weight quantization.
 
-See [ROADMAP.md](ROADMAP.md) for the full task breakdown.
+See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for the full task breakdown.
 
 ---
 
@@ -235,7 +236,7 @@ Model weights are not included; they are converted offline on the host (see
 available inside the container automatically.
 
 > A slim, published runtime image — `docker run … mila` for users who only want to run
-> inference without building — is planned for the beta release. See [ROADMAP.md](ROADMAP.md).
+> inference without building — is planned for the beta release. See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md).
 
 ---
 
