@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.41-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
+| In Progress | 0.13.43-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
 | Planned | 0.2.2-beta.1 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.2.3-beta.2 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
@@ -59,7 +59,7 @@ the earlier per-component `XxxOpTypeMap` design. All remaining components migrat
 - [x] `OperationTraits.Cuda.ixx` — CUDA policy-free op specializations added (FP32 + BF16 each): `GeluOp`, `ResidualOp`, `RmsNormOp`, `SoftmaxOp`, `SwigluOp`, `MultiHeadAttentionOp`, `RopeOp`, `LpeOp`, `TokenEmbeddingOp`, `CrossEntropyOp`; all 9 active components' `createOperation()` migrated to `OperationTraits` dispatch; fixed latent `CudaTokenEmbeddingOp::setGradients` signature bug (non-virtual 1-arg was hiding base class 2-arg virtual)
 - [ ] `SoftmaxCrossEntropy` component — pending lifecycle API modernization before `OperationTraits` dispatch can be applied (`onBuilding(shape_t)`, raw `exec_context_*` member, and 4-param `BinaryOperation` do not match current `Component` API)
 - [x] `OperationTraits.Cpu.ixx` — `:Cpu` partition created; active CPU op specializations added (FP32): `GeluOp`, `ResidualOp`, `SoftmaxOp`, `MultiHeadAttentionOp`, `LpeOp`; corresponding CPU component paths migrated
-- [ ] `OperationTraits.Cpu.ixx` — remaining CPU specializations pending (no CPU ops currently exist): `RmsNormOp`, `SwigluOp`, `RopeOp`, `TokenEmbeddingOp`; `CrossEntropyOp` CPU path also pending
+- _(not a gate)_ `OperationTraits.Cpu.ixx` — Llama-lineage CPU ops (`RmsNormOp`, `SwigluOp`, `RopeOp`, `TokenEmbeddingOp`, `CrossEntropyOp`) are intentionally **demand-driven**. The compile-time dispatch makes their absence zero-cost on the GPU path and surfaces a localized compile error if a `<Cpu, …>` Llama is instantiated — so they are filled in by a contributor when CPU Llama is actually wanted. See the Beta "Compute backend scope" note
 - [ ] `LayerNorm`, `Dropout`, `MLP` components — `LayerNormOp` has CPU/CUDA registrars but no `OperationTraits` entries yet; `DropoutOp` same; `MLP` has stale `OperationRegistry` import to remove (before Beta.1)
 - [ ] Remove `OperationRegistry`, `OperationRegistryHelpers`, `LinearOpTypeMap`, `GqaOpTypeMap`, and all legacy registrar files once all components are migrated
 
@@ -406,7 +406,7 @@ library is stable enough for external contributors to work with confidently.
 | Llama 3.1 8B Instruct FP8 validated against BF16 baseline | Yes |
 | Tool calling validated on Llama 3.2 3B and 3.1 8B Instruct | Yes |
 | API documentation complete and published | Yes |
-| CPU reference implementations for all Alpha.2 components | Yes |
+| CPU reference ops — GPT-2 (Alpha.1) lineage only; Llama/Qwen/Ministral CPU ops are contributor-driven, not a gate | Scoped |
 | Debug instrumentation fully gated or removed | Yes |
 | Test coverage of core components | Yes |
 | CONTRIBUTING.md with coding standards | Yes |
@@ -415,6 +415,43 @@ library is stable enough for external contributors to work with confidently.
 | Published Docker runtime image (slim multi-stage GPU runtime, release-tagged) | Yes |
 | Ungated GPT-2 quick-start path for zero-auth first run | Yes |
 | good-first-issue labels on GitHub | Yes |
+
+**Compute backend scope.** Mila is GPU-first. The CUDA backend is the validated, supported
+inference path; correctness is established token-for-token against HuggingFace, which serves as
+the reference oracle (the original llm.c-derived CPU path is no longer needed for that role). The
+CPU backend is retained as the always-available baseline and contributor on-ramp, but full CPU
+op parity across architectures is explicitly **not** a beta gate. GPT-2 (the Alpha.1 / llm.c
+lineage) keeps its CPU reference; Llama, Qwen, and Ministral are CUDA-first, and their CPU ops are
+filled in by contributors as demand arises. This is safe by construction: compile-time
+`OperationTraits` dispatch means a missing CPU op costs nothing on the GPU path and produces a
+localized compile error — never a silent wrong answer — if a CPU model is instantiated without it.
+The coverage matrix below marks these gaps as intentional good-first-issue work rather than hidden
+incompleteness, and the user-facing model paths stay GPU so an end user never hits an unimplemented
+CPU op.
+
+CPU op coverage by component (the CUDA backend implements every row). Legend: ✅ wired via
+`OperationTraits`; ◐ implemented but still on the legacy registry/typemap dispatch (migration
+tracked in Phase 1); — not implemented (contributor opportunity).
+
+| Component | Lineage | CPU | Notes |
+|---|---|---|---|
+| GELU | GPT-2 / shared | ✅ | |
+| Residual | GPT-2 / shared | ✅ | |
+| Softmax | GPT-2 / shared | ✅ | |
+| LayerNorm | GPT-2 | ◐ | `CpuLayerNormOp` exists; not yet `OperationTraits`-wired |
+| Linear | GPT-2 / shared | ◐ | `CpuLinearOp` exists; still on `CpuLinearOpTypeMap` |
+| MultiHeadAttention | GPT-2 | ✅ | |
+| LPE (learned positional) | GPT-2 | ✅ | `CpuEncoderOp` |
+| AdamW (optimizer) | shared | ✅ | `CpuAdamWOptimizer` |
+| SoftmaxCrossEntropy (loss) | training | — | `CpuSoftmaxCrossEntropyOp` exists but is not built/wired |
+| TokenEmbedding | Llama | — | GPT-2 embedding is folded into `CpuEncoderOp` |
+| RoPE | Llama | — | good-first-issue |
+| RmsNorm | Llama | — | good-first-issue |
+| SwiGLU (SiLU) | Llama | — | good-first-issue |
+| GroupedQueryAttention | Llama | — | good-first-issue |
+
+Net: the GPT-2 lineage runs end-to-end on CPU; the Llama lineage is CUDA-only until a contributor
+adds the five Llama CPU ops above.
 
 **Distribution.** Beta introduces a published Docker image so users can run Mila without
 standing up the bleeding-edge build toolchain. Two images, two roles: a slim multi-stage

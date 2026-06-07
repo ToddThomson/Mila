@@ -9,7 +9,10 @@ cmake_minimum_required (VERSION 4.0)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MilaVersion.cmake")
 mila_read_version("${CMAKE_CURRENT_SOURCE_DIR}/Version.txt" MILA_VERSION_NUMERIC MILA_PRERELEASE_TAG)
 
-project(MilaProject VERSION ${MILA_VERSION_NUMERIC} LANGUAGES CXX CUDA)
+# CUDA is enabled on demand via enable_language(CUDA) in the backend-detection
+# block below, gated on MILA_ENABLE_CUDA + a found toolkit. Declaring it here would
+# force the CUDA toolkit as a hard requirement and break a CPU-only configure.
+project(MilaProject VERSION ${MILA_VERSION_NUMERIC} LANGUAGES CXX)
 
 # PROJECT_IS_TOP_LEVEL (set by project() above) is FALSE when Mila is consumed
 # via add_subdirectory / FetchContent. Developer-facing extras (samples,
@@ -134,6 +137,14 @@ message(STATUS "  CUDA:    ${MILA_HAS_CUDA}")
 message(STATUS "  Metal:   ${MILA_HAS_METAL}  (NOTE: Internal testing only)")
 message(STATUS "  ROCm:    ${MILA_HAS_ROCM}  (NOTE: Internal testing only)")
 
+# A Mila build with no compute backend cannot construct an execution context or run
+# any operation -- it would be a non-functional artifact. CPU is the guaranteed
+# baseline today (MILA_HAS_CPU is unconditionally TRUE), so this cannot fire yet; it
+# is the load-bearing invariant for the day CPU becomes optional.
+if(NOT (MILA_HAS_CPU OR MILA_HAS_CUDA OR MILA_HAS_METAL OR MILA_HAS_ROCM))
+    message(FATAL_ERROR "Mila requires at least one compute backend, but all are disabled.")
+endif()
+
 # Use CPM to manage dependencies. If the embedding consumer already provides CPM
 # (CPMAddPackage defined), reuse it; otherwise bootstrap into Mila's own tree
 # (PROJECT_SOURCE_DIR, not CMAKE_SOURCE_DIR) so we never write into a consumer's
@@ -206,17 +217,23 @@ if( MILA_HAS_CUDA )
     )
 endif()
 
-find_package(CUDAToolkit REQUIRED)
+# Gated on MILA_HAS_CUDA: a CPU-only configure has no toolkit and must not require
+# one. When CUDA is on, find_package re-establishes the CUDA::* imported targets the
+# library and consumers link against.
+if(MILA_HAS_CUDA)
+    find_package(CUDAToolkit REQUIRED)
+
+    # Default to building for the GPU on the current system. Guarded by NOT DEFINED
+    # so an embedding consumer's architecture choice is respected.
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        set(CMAKE_CUDA_ARCHITECTURES native 86 CACHE STRING "CUDA architectures" )
+    endif()
+endif()
+
 # miniz is provided by CPMAddPackage above (the `miniz` target plus miniz_SOURCE_DIR/
 # miniz_BINARY_DIR); requiring find_package(miniz) added nothing the build uses and
 # forced consumers/CI to system-install miniz just to satisfy it.
 find_package(nlohmann_json REQUIRED)
-
-# Default to building for the GPU on the current system. Guarded by NOT DEFINED
-# so an embedding consumer's architecture choice is respected.
-if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-   set(CMAKE_CUDA_ARCHITECTURES native 86 CACHE STRING "CUDA architectures" )
-endif()
 
 # Only switch on CTest when Mila is the top project; an embedding consumer owns
 # its own testing setup.

@@ -250,8 +250,11 @@ Updated automatically on every push to master.
 ## Contributing
 
 Mila is approaching a public beta and welcomes contributors who share its philosophy.
-Good starting points are CPU reference implementations, test coverage, and new
-encoding strategies under /Components/Encodings/.
+Good starting points are CPU reference ops, test coverage, and new encoding strategies
+under /Components/Encodings/. Mila is GPU-first by design: the CUDA backend is the
+validated inference path, and CPU op coverage beyond the GPT-2 lineage is intentionally
+demand-driven — implementing a CPU op for Llama (RmsNorm, SwiGLU, RoPE, token embedding)
+is a well-scoped, self-contained first contribution, not a gap to apologize for.
 
 1. Fork the repository and create a branch from dev
 2. Make changes with clear, focused commits

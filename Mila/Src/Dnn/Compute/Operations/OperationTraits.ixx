@@ -14,5 +14,11 @@ export module Compute.OperationTraits;
 
 export import Compute.OperationTraits.Template;
 
+// The :Cuda partition is only compiled when the CUDA backend is enabled
+// (MILA_HAS_CUDA is a PUBLIC compile definition set by the CUDA block in
+// Mila/CMakeLists.txt). Guard the re-export so this aggregator -- which lives in
+// the always-compiled core module set -- stays valid in a CPU-only build.
+#ifdef MILA_HAS_CUDA
 export import :Cuda;
+#endif
 export import :Cpu;

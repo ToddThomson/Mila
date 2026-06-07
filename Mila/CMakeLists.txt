@@ -340,7 +340,6 @@ PUBLIC
         "Src/Dnn/Serialization/SerializationMetadata.ixx"
         "Src/Dnn/Compute/Operations/OperationRegistrarHelpers.ixx"
         
-        "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlan.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Zero.ixx"
 
         "Src/Dnn/Core/Component.BuildContext.ixx"
@@ -398,12 +397,6 @@ PUBLIC
         "Src/Dnn/Serialization/Serializer.ixx"
         
         "Src/Dnn/Compute/Operations/IKVCacheLifecycle.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.Dispatch.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.Dispatch.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Dispatch.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Plans.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Quantize.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlanCache.ixx"
         
         "Src/Dnn/Models/GptModel.ixx"
         "Src/Dnn/Models/LlamaModel.ixx"
@@ -427,7 +420,6 @@ PUBLIC
         "Src/Dnn/Compute/Operations/IKvInference.ixx"
         "Src/Dnn/Compute/Operations/IPackedKvInference.ixx"
         "Src/Dnn/Core/TokenStreamer.ixx"
-        "Src/Dnn/Compute/Devices/Cuda/Profiling/NvtxRange.ixx"
         #"Src/Dnn/Compute/Operations/LinearOpTypeMap.Template.ixx"
         #"Src/Dnn/Compute/Operations/LinearOpTypeMap.ixx"
         #"Src/Dnn/Core/ModelQuantizationConfig.ixx"
@@ -485,7 +477,6 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Zero.ixx"
 
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOpTypeMap.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataTypes-CublasLtTypes.ixx"
                 #"Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOpTypeMap.ixx"
     )
 
@@ -680,6 +671,21 @@ if(MILA_HAS_CUDA)
                 #"Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Random.h"
                 #"Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOpTypeMap.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtLinearPlan.ixx"
+
+                # Relocated out of the core module set (Mila core file set): these are
+                # CUDA modules that were erroneously listed among the always-compiled
+                # core modules, which broke a CPU-only (MILA_ENABLE_CUDA=OFF) configure.
+                # They belong with the rest of the CUDA backend and only build when CUDA
+                # is enabled.
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlan.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtPlanCache.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.Dispatch.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.Dispatch.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Dispatch.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Plans.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.Quantize.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Profiling/NvtxRange.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataTypes-CublasLtTypes.ixx"
     )
 
     # PUBLIC (like the Metal/ROCm backends below), not PRIVATE: Mila is a STATIC
