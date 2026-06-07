@@ -22,8 +22,6 @@
 module;
 #include <string>
 #include <sstream>
-#include <iostream>
-#include "Version.h"
 
 export module Mila.Version;
 
@@ -98,4 +96,24 @@ namespace Mila
         int patch_;
         std::string pre_release_tag_;
     };
+
+    /// <summary>
+    /// Gets the current Mila runtime API version.
+    /// </summary>
+    /// <returns>A Version object describing the running library.</returns>
+    /// <remarks>
+    /// The version components are injected by the build as PUBLIC compile
+    /// definitions (see the Versioning block in Mila/CMakeLists.txt), sourced
+    /// from Version.txt. find_package consumers recompile this module unit and
+    /// pick the definitions up via the exported target's interface, so no
+    /// version header is shipped.
+    /// </remarks>
+    export Version getAPIVersion()
+    {
+        return Version{
+            MILA_VERSION_MAJOR,
+            MILA_VERSION_MINOR,
+            MILA_VERSION_PATCH,
+            MILA_VERSION_PRERELEASE_TAG };
+    }
 }

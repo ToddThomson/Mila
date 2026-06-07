@@ -1,72 +1,51 @@
-name: Mila CI Pipeline
+name: Mila CI
+
+# Purpose: protect what MSVC-local development structurally cannot see --
+# cross-compiler portability (clang on Linux), clean-room dependency hygiene, and
+# packaging consumability. GPU correctness tests are NOT run here: hosted runners
+# have no GPU, so device tests would be theater. Those run locally on real hardware.
 
 on:
   push:
-    branches:
-      - master
-      - dev
+    branches: [master, dev]
   pull_request:
-    branches:
-      - master
+    branches: [master, dev]
 
-env:
-  CUDA_VERSION: '13.0.2'
+# Supersede in-flight runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build Mila
+  compile-and-gate:
+    name: Compile (clang-21) + packaging gates
     runs-on: ubuntu-24.04
-    container: nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
+    # Mirrors the validated WSL toolchain: Ubuntu 26.04 + CUDA 13.3 (glibc 2.43 --
+    # the path that broke under CUDA 13.0). No cuDNN variant exists for 26.04, and
+    # none is needed while USE_CUDNN is unset, so the plain devel image is correct.
+    container: nvidia/cuda:13.3.0-devel-ubuntu26.04
     env:
-      CUDA_PATH: /usr/local/cuda-13.0
-      CCACHE_DIR: ${{ github.workspace }}/.ccache
-
+      CUDA_PATH: /usr/local/cuda
+      CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore build cache and ccache
+      # Cache CPM dependency clones (cutlass is large and slow to re-clone).
+      - name: Cache CPM sources
         uses: actions/cache@v4
         with:
-          path: |
-            .ccache
-            build
-            .cache/cmake
-          key: ${{ runner.os }}-mila-${{ env.CUDA_VERSION }}-build-${{ hashFiles('**/CMakeLists.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-mila-build-
+          path: .cpm-cache
+          key: cpm-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: cpm-
 
-      - name: Install host toolchain and tools
+      # clang-21 compiles the C++23 module units; gcc-15 is only the nvcc host
+      # compiler for the (module-free) .cu files. Both ship with Ubuntu 26.04.
+      - name: Install toolchain
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            build-essential \
-            git \
-            wget \
-            curl \
-            software-properties-common \
-            ca-certificates \
-            gnupg2 \
-            lsb-release \
-            doxygen \
-            graphviz \
-            gdb \
-            gcc-14 g++-14 \
-            ninja-build \
-            ccache
-          # Install LLVM/Clang 19 using official script
-          wget -q https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
-          chmod +x /tmp/llvm.sh
-          /tmp/llvm.sh 19
-          rm -f /tmp/llvm.sh
-          # Configure alternatives
-          update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 || true
-          update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 140 || true
-          update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100 || true
-          update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100 || true
-          git --version
-          gcc --version
-          clang++ --version
-          ccache --version
+            build-essential git wget ca-certificates ninja-build \
+            gcc-15 g++-15 clang-21
 
       - name: Install CMake 4.2.3
         run: |
@@ -74,138 +53,25 @@ jobs:
           tar -xzf cmake-4.2.3-linux-x86_64.tar.gz
           cp -r cmake-4.2.3-linux-x86_64/bin/* /usr/local/bin/
           cp -r cmake-4.2.3-linux-x86_64/share/* /usr/local/share/
-          cmake --version
 
-      - name: Verify CUDA toolchain
+      - name: Configure
         run: |
-          echo "CUDA_PATH=${CUDA_PATH}"
-          ls -la $CUDA_PATH/bin || true
-          nvcc --version || true
-
-      - name: Install dependencies (miniz)
-        run: |
-          git clone https://github.com/richgel999/miniz.git /tmp/miniz
-          cmake -B /tmp/miniz/build -S /tmp/miniz -G Ninja
-          cmake --build /tmp/miniz/build --config Release
-          cmake --install /tmp/miniz/build
-
-      - name: Ensure GoogleTest available
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends libgtest-dev cmake
-          if [ -d /usr/src/googletest ]; then
-            cmake -S /usr/src/googletest -B /tmp/gtest-build -DCMAKE_BUILD_TYPE=Release
-            cmake --build /tmp/gtest-build --target install
-          fi
-
-      - name: Configure CMake (Ninja)
-        env:
-          CC: clang-19
-          CXX: clang++-19
-        run: |
-          mkdir -p build
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=clang-19 \
-            -DCMAKE_CXX_COMPILER=clang++-19 \
+            -DCMAKE_C_COMPILER=clang-21 \
+            -DCMAKE_CXX_COMPILER=clang++-21 \
             -DCMAKE_CUDA_COMPILER=${CUDA_PATH}/bin/nvcc \
             -DCUDAToolkit_ROOT=${CUDA_PATH} \
-            -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler -ccbin=gcc-14" \
-            -DCMAKE_CXX_STANDARD=23 \
-            -DCMAKE_CXX_STANDARD_REQUIRED=ON \
-            -DCMAKE_CXX_EXTENSIONS=OFF \
+            -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler -ccbin=gcc-15" \
             -DMILA_ENABLE_TESTING=ON \
-            -DMILA_ENABLE_DOCS=ON
+            -DMILA_ENABLE_PACKAGING_TEST=ON
 
-      - name: Build Mila
-        run: cmake --build build --config Release -- -j $(nproc)
+      # Compiling lib + tests + samples under clang IS the cross-compiler portability
+      # check. MSVC silently resolves includes/conformance that clang rejects.
+      - name: Build
+        run: cmake --build build -- -j $(nproc)
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: mila-build
-          path: |
-            build/
-            !build/.ccache
-          retention-days: 1
-
-  test:
-    name: Run Tests
-    needs: build
-    runs-on: ubuntu-24.04
-    container: nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
-    env:
-      CUDA_PATH: /usr/local/cuda-13.0
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install runtime dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libgtest-dev
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: mila-build
-          path: build
-
-      - name: Run unit tests
-        run: |
-          cd build
-          find . -type f -executable -exec chmod +x {} +
-          ctest --output-on-failure --verbose -j $(nproc)
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: build/Testing/
-
-  docs:
-    name: Generate Documentation
-    needs: build
-    runs-on: ubuntu-24.04
-    if: success()
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install documentation tools
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            doxygen \
-            graphviz
-
-      - name: Install CMake 4.2.3
-        run: |
-          wget -q https://github.com/Kitware/CMake/releases/download/v4.2.3/cmake-4.2.3-linux-x86_64.tar.gz
-          tar -xzf cmake-4.2.3-linux-x86_64.tar.gz
-          cp -r cmake-4.2.3-linux-x86_64/bin/* /usr/local/bin/
-          cp -r cmake-4.2.3-linux-x86_64/share/* /usr/local/share/
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: mila-build
-          path: build
-
-      - name: Generate documentation
-        run: cmake --build build --target docs
-
-      - name: Upload docs artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: docs
-          path: build/docs/html
-
-      - name: Deploy to GitHub Pages
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        uses: JamesIves/github-pages-deploy-action@v4
-        with:
-          folder: ${{ github.workspace }}/build/docs/html
-          branch: gh-pages
+      # GPU-free by construction: the gates install Mila and build consumers against
+      # it (find_package) and embed it as a subproject (FetchContent). No device used.
+      - name: Packaging gates
+        run: ctest --test-dir build -L packaging --output-on-failure

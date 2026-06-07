@@ -1,23 +1,37 @@
 ﻿# CMakeList.txt : Root CMake project for the Mila Project
 
-cmake_minimum_required (VERSION 4.0)  
+cmake_minimum_required (VERSION 4.0)
 
-project(MilaProject LANGUAGES CXX CUDA)
+# Single source of truth for the version. Version.txt feeds project(VERSION ...)
+# (numeric triple) plus MILA_PRERELEASE_TAG for the label; see cmake/MilaVersion.cmake.
+# CMAKE_CURRENT_SOURCE_DIR (not CMAKE_SOURCE_DIR) keeps this correct when Mila is
+# add_subdirectory'd by a consumer.
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MilaVersion.cmake")
+mila_read_version("${CMAKE_CURRENT_SOURCE_DIR}/Version.txt" MILA_VERSION_NUMERIC MILA_PRERELEASE_TAG)
 
-# Set global C++ and CUDA standard 
-set(CMAKE_CXX_STANDARD 23)   
-set(CMAKE_CXX_STANDARD_REQUIRED ON)  
-set(CMAKE_CXX_EXTENSIONS OFF)  
+project(MilaProject VERSION ${MILA_VERSION_NUMERIC} LANGUAGES CXX CUDA)
+
+# PROJECT_IS_TOP_LEVEL (set by project() above) is FALSE when Mila is consumed
+# via add_subdirectory / FetchContent. Developer-facing extras (samples,
+# profiling) and install rules default ON only when Mila is the top project, so
+# an embedding consumer gets just the library and pays for nothing else.
+
+# Set global C++ and CUDA standard
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
- 
-option(MILA_ENABLE_TESTING "Enable Mila Library tests." OFF)
+
+option(MILA_ENABLE_TESTING "Enable Mila Library tests." ON)
+option(MILA_ENABLE_PACKAGING_TEST "Build the find_package(Mila) packaging gate: installs Mila and builds Samples/QuickStart against the install. Requires MILA_ENABLE_TESTING." ON)
 option(MILA_ENABLE_PYTHON_BINDINGS "Build the MilaPy pybind11 extension module." OFF)
 option(MILA_ENABLE_BENCHMARKS "Enable Mila Library benchmarks." OFF)
-option(MILA_ENABLE_PROFILING "Enable Mila Library profiling." ON)
-option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ON)
+option(MILA_ENABLE_PROFILING "Enable Mila Library profiling." ${PROJECT_IS_TOP_LEVEL})
+option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_DOCS "Build Doxygen API documentation. Requires Doxygen and Graphviz." OFF)
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
+option(MILA_INSTALL "Generate Mila install/export rules (find_package consumption)." ${PROJECT_IS_TOP_LEVEL})
 # TODO: MILA_ENABLE_CUDA=OFF does not produce a clean CPU-only build. Sources include CUDA
 # headers (cuda_runtime.h, etc.) unconditionally, so configuring with this OFF fails to compile
 # with "CUDA includes could not be found". Either make the CPU-only path header-clean or drop
@@ -120,18 +134,23 @@ message(STATUS "  CUDA:    ${MILA_HAS_CUDA}")
 message(STATUS "  Metal:   ${MILA_HAS_METAL}  (NOTE: Internal testing only)")
 message(STATUS "  ROCm:    ${MILA_HAS_ROCM}  (NOTE: Internal testing only)")
 
-# Use CPM to manage dependencies
-file(MAKE_DIRECTORY "${CMAKE_SOURCE_DIR}/cmake")
-set(CPM_PATH "${CMAKE_SOURCE_DIR}/cmake/CPM.cmake")
-if(NOT EXISTS "${CPM_PATH}")
-    message(STATUS "Downloading CPM.cmake to ${CPM_PATH}")
-    file(DOWNLOAD
-        https://github.com/cpm-cmake/CPM.cmake/releases/latest/download/CPM.cmake
-        "${CPM_PATH}"
-        TLS_VERIFY ON
-    )
+# Use CPM to manage dependencies. If the embedding consumer already provides CPM
+# (CPMAddPackage defined), reuse it; otherwise bootstrap into Mila's own tree
+# (PROJECT_SOURCE_DIR, not CMAKE_SOURCE_DIR) so we never write into a consumer's
+# source root.
+if(NOT COMMAND CPMAddPackage)
+    file(MAKE_DIRECTORY "${PROJECT_SOURCE_DIR}/cmake")
+    set(CPM_PATH "${PROJECT_SOURCE_DIR}/cmake/CPM.cmake")
+    if(NOT EXISTS "${CPM_PATH}")
+        message(STATUS "Downloading CPM.cmake to ${CPM_PATH}")
+        file(DOWNLOAD
+            https://github.com/cpm-cmake/CPM.cmake/releases/latest/download/CPM.cmake
+            "${CPM_PATH}"
+            TLS_VERIFY ON
+        )
+    endif()
+    include(${CPM_PATH})
 endif()
-include(${CPM_PATH})
 
 CPMAddPackage(
     NAME miniz
@@ -149,6 +168,7 @@ CPMAddPackage(
         "JSON_MultipleHeaders OFF"
 )
 
+# TODO: Remove or Keep?
 # SentencePiece - Llama-compatible BPE tokenizer
 # Built without protobuf and shared libs to keep the dependency footprint minimal.
 #CPMAddPackage(
@@ -186,24 +206,23 @@ if( MILA_HAS_CUDA )
     )
 endif()
 
-find_package(CUDAToolkit REQUIRED)  
-find_package(miniz REQUIRED)
+find_package(CUDAToolkit REQUIRED)
+# miniz is provided by CPMAddPackage above (the `miniz` target plus miniz_SOURCE_DIR/
+# miniz_BINARY_DIR); requiring find_package(miniz) added nothing the build uses and
+# forced consumers/CI to system-install miniz just to satisfy it.
 find_package(nlohmann_json REQUIRED)
 
-add_custom_target(MilaUpdateVersion
-    COMMAND ${CMAKE_COMMAND} 
-        -D CMAKE_SOURCE_DIR=${CMAKE_SOURCE_DIR}
-        -P ${CMAKE_SOURCE_DIR}/cmake/IncrementVersion.cmake
-    COMMENT "Incrementing build version number"
-    VERBATIM
-)
-
-# Default to building for the GPU on the current system  
-if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)  
-   set(CMAKE_CUDA_ARCHITECTURES native 86 CACHE STRING "CUDA architectures" )  
+# Default to building for the GPU on the current system. Guarded by NOT DEFINED
+# so an embedding consumer's architecture choice is respected.
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+   set(CMAKE_CUDA_ARCHITECTURES native 86 CACHE STRING "CUDA architectures" )
 endif()
 
-enable_testing()
+# Only switch on CTest when Mila is the top project; an embedding consumer owns
+# its own testing setup.
+if(PROJECT_IS_TOP_LEVEL)
+    enable_testing()
+endif()
 
 # The Mila library and Doxygen docs
 add_subdirectory( Mila )

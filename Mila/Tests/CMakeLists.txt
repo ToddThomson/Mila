@@ -241,3 +241,10 @@ gtest_discover_tests(MilaTests
     PROPERTIES
         VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
+
+# find_package(Mila) packaging gate -- installs Mila and builds Samples/QuickStart
+# against the install. Opt-in because it does a full install plus a second configure
+# and build; CI enables it, local unit-test runs need not.
+if(MILA_ENABLE_PACKAGING_TEST)
+    add_subdirectory(Packaging)
+endif()

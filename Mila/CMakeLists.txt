@@ -2,121 +2,46 @@
 
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
-add_library( Mila STATIC
-    "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaUtils.h"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOps.h"
+# Sources are added below via target_sources, partitioned by category and guarded
+# by backend. CUDA kernel .cu (compiled, never shipped) and .cuh/.h (shipped
+# declarations) live in the if(MILA_HAS_CUDA) block, so a CPU-only configure no
+# longer drags in CUDA sources.
+add_library( Mila STATIC )
 
-    #--------------------------------------------------------------------------
-    # Cuda Operations Kernels
-    #--------------------------------------------------------------------------
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.cuh"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.Bf16.cu"
-
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.cuh"
-    
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Bf16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.cuh"
-
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.cuh"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Unpermute.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Unpermute.Bf16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Softmax.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Softmax.Bf16.cu"
-
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/Kernels/CudaMha.cuh"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/Kernels/CudaMha.Permute.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/Kernels/CudaMha.Softmax.cu"
-
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/CudaGqa.cuh"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/CudaGqa.Permute.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Cache.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Cache.Bf16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Decode.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Decode.Bf16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Bf16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Bf16.cu"
-
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Fp8Prefill/CudaFp8Prefill.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaLinearGelu.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaReduction.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatVec/CudaMatVecBias.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatVec/CudaMatVecBias.Bf16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W8A16Gemm/CudaW8A16Gemm.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Linear.cuh"
-
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.cuh"
-
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Bf16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.cuh"
-    
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.cuh"
-
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/Kernels/RmsNorm.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/Kernels/RmsNorm.Bf16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/Kernels/RmsNorm.cuh"
-
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.Fp16.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.cuh"
-
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.Fp32.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.Bf16.cu"
-        
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.warp.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.block.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.cuh"
-    
-    #--------------------------------------------------------------------------
-    # Cuda TensorOps Kernels
-    #--------------------------------------------------------------------------
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorCopy.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.h"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/CudaTensorOps.h"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.h"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Reduction.h"
-    "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Structural.cu"
-
-    #--------------------------------------------------------------------------
-    # Cuda Optimizer Kernels
-    #--------------------------------------------------------------------------
-    "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
-    "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
-)
-
- set_target_properties( Mila PROPERTIES
+set_target_properties( Mila PROPERTIES
 	CXX_STANDARD 23
 	CXX_STANDARD_REQUIRED ON
 	CXX_EXTENSIONS OFF
     CUDA_STANDARD 20
     CUDA_STANDARD_REQUIRED ON
     CUDA_SEPARABLE_COMPILATION ON
+    # Mila uses relocatable device code (separable compilation above), so each .cu
+    # leaves device symbols that need a device-link step to emit the
+    # __cudaRegisterLinkedBinary stubs. For a STATIC library CMake defers that to
+    # the final executable -- fine for in-tree samples, but a find_package consumer
+    # linking Mila.lib into a plain C++ executable never device-links and fails with
+    # unresolved __cudaRegisterLinkedBinary_*. Resolving device symbols here runs the
+    # device link when Mila.lib is created, making the shipped archive self-contained.
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
     CUDA_ARCHITECTURES "75;80;86;89;90"
 )
 
 # C++23 is selected via the CXX_STANDARD properties above and forced per-compiler
-# below (-std=c++23 / /std:c++latest). target_compile_features(cxx_std_23) is omitted
-# because CMake rejects it when its feature tables lag a newer Clang (e.g. 21.x).
+# below (-std=c++23 / /std:c++latest) for Mila's OWN compile.
+#
+# find_package consumers are a separate case: they compile Mila's installed module
+# units in a synthetic target derived from the imported Mila target, and that
+# target takes its C++ standard ONLY from INTERFACE_COMPILE_FEATURES. CXX_STANDARD
+# is a target property, not a usage requirement, so it is not exported -- without
+# the line below the consumer's generate step fails with "no C++ standard found".
+# Declared INTERFACE-only so it never affects Mila's own compile, and guarded
+# because CMake rejects cxx_std_23 when a newer compiler's feature table lags
+# (e.g. Clang 21.x); there we fall back to the cxx_std_20 the module support needs.
+if(cxx_std_23 IN_LIST CMAKE_CXX_COMPILE_FEATURES)
+    target_compile_features(Mila INTERFACE cxx_std_23)
+else()
+    target_compile_features(Mila INTERFACE cxx_std_20)
+endif()
 
 #find_package(miniz REQUIRED)  
 #find_package(nlohmann_json REQUIRED)
@@ -127,6 +52,11 @@ target_include_directories( Mila
         #${sentencepiece_SOURCE_DIR}/src
         $<$<BOOL:${cutlass_ADDED}>:${cutlass_SOURCE_DIR}/include> )
 
+# Kernel headers and the vendored nlohmann header are pulled by file-relative quoted
+# includes (#include "Kernels/Foo.cuh", "../../Deps/nlohmann/json.hpp"), which resolve
+# relative to the including .ixx. The install tree mirrors the source tree (see the
+# install section), so those same relative includes resolve after install when the
+# consumer recompiles the module units. No source-side include changes are needed.
 target_include_directories( Mila
     INTERFACE
         $<INSTALL_INTERFACE:include>
@@ -569,6 +499,111 @@ endif()
 # CUDA backend modules
 # ----------------------------------------------------------------------------
 if(MILA_HAS_CUDA)
+    # Compiled kernel implementations: private to the static archive, never shipped.
+    # A consumer links these symbols out of libMila; a .cu is not a header and has no
+    # place in the install tree. Explicit list (not a glob) so intentionally excluded
+    # files - e.g. the superseded Swiglu.Fp32.v1.cu - stay out by omission.
+    target_sources(Mila
+        PRIVATE
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Unpermute.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Unpermute.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Softmax.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.Softmax.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/Kernels/CudaMha.Permute.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/Kernels/CudaMha.Softmax.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/CudaGqa.Permute.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Cache.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Cache.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Decode.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Decode.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Fp8Prefill/CudaFp8Prefill.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaMatMulFp16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaLinearGelu.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatMul/CudaReduction.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatVec/CudaMatVecBias.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatVec/CudaMatVecBias.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W8A16Gemm/CudaW8A16Gemm.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/Kernels/RmsNorm.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/Kernels/RmsNorm.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.Fp16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.Fp32.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.warp.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.block.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorCopy.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Structural.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
+    )
+
+    # Kernel declaration headers: shipped, because the module units #include them with
+    # file-relative quoted paths and the consumer recompiles those modules from source
+    # (C++23 BMIs are not portable). A HEADERS file set gives them a BASE_DIRS and real
+    # install semantics. BASE_DIRS matches the module file sets so headers install at the
+    # same Src-relative offset and the quoted includes keep resolving post-install. The
+    # full set is shipped (robust over minimal); new headers are placed here via the VS
+    # add-file dialog.
+    target_sources(Mila
+        PUBLIC
+            FILE_SET cuda_headers
+               TYPE HEADERS
+               BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR} FILES
+                "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaUtils.h"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOps.h"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/Common/Kernels/CudaAttention.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/MHA/Kernels/CudaMha.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/CudaGqa.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Linear.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Fp8Prefill/CudaFp8Prefill.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W8A16Gemm/CudaW8A16Gemm.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/Kernels/RmsNorm.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.h"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/CudaTensorOps.h"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.h"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Reduction.h"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Structural.h"
+                "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Random.h"
+                "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaOptimizers.h"
+    )
+
     target_sources(Mila
         PUBLIC
             FILE_SET cuda_modules
@@ -647,7 +682,13 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Common/CublasLtLinearPlan.ixx"
     )
 
-    target_link_libraries( Mila PRIVATE 
+    # PUBLIC (like the Metal/ROCm backends below), not PRIVATE: Mila is a STATIC
+    # library, so a find_package consumer must (1) resolve cudart/cublas/curand
+    # symbols from Mila's .cu objects at its own final link, and (2) get the CUDA
+    # toolkit include dir as a usage requirement so the synthetic target that
+    # recompiles Mila's CUDA module units can find <cuda_fp16.h> etc. CUDA::* are
+    # re-established consumer-side by find_dependency(CUDAToolkit) in MilaConfig.
+    target_link_libraries( Mila PUBLIC
         CUDA::cudart
         CUDA::cublas
         CUDA::curand
@@ -661,6 +702,9 @@ if(MILA_HAS_CUDA)
     )
 
     list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cuda_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
+    # Same destination root as the module file sets: the kernel headers must land at the
+    # same Src-relative offset so the module units' file-relative includes resolve.
+    list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cuda_headers DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
     message(STATUS "Added CUDA backend modules")
 endif()
@@ -751,48 +795,56 @@ if(MILA_HAS_ROCM)
     add_library(Mila::Rocm ALIAS Mila_Rocm)
 endif()
 
-target_link_libraries( Mila 
-  PRIVATE 
+# PUBLIC, not PRIVATE: Mila is a STATIC library, so a find_package consumer must
+# resolve miniz's mz_zip_* symbols (referenced by ZipSerializer) at its own final
+# link. Header propagation for the recompiled module is set up just below.
+target_link_libraries( Mila
+  PUBLIC
     miniz
     #sentencepiece-static
+)
+
+# ZipSerializer.ixx is re-exported by Mila.ixx, so find_package consumers recompile
+# it; it includes <miniz.h>, which is multi-header (pulls miniz_common/_tdef/_tinfl/
+# _zip.h) plus a generated miniz_export.h in miniz's build dir. Propagate both the
+# source and build include dirs for our own build, and the shipped copy for
+# installed consumers (headers installed in the install section below).
+target_include_directories( Mila INTERFACE
+    $<BUILD_INTERFACE:${miniz_SOURCE_DIR}>
+    $<BUILD_INTERFACE:${miniz_BINARY_DIR}>
+    $<INSTALL_INTERFACE:include/mila/modules/Deps/miniz>
 )
 
 # =============================================================================
 # Versioning
 # =============================================================================
 
-# Parse the version from Version.txt
-file(READ "${CMAKE_SOURCE_DIR}/Version.txt" VERSION_CONTENT)
-string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)-([a-zA-Z]+)" _VERSION_MATCH ${VERSION_CONTENT})
+# The version is parsed from Version.txt into project(VERSION ...) at the repo
+# root, which populates PROJECT_VERSION_* here. The prerelease label cannot live
+# in project(VERSION) (CMake accepts only numeric major.minor.patch), so it is
+# carried in MILA_PRERELEASE_TAG (also set at the root).
+#
+# Both are surfaced to source as PUBLIC compile definitions rather than a
+# generated, install-mirrored Version.h. They flow to find_package consumers --
+# who recompile the module units -- through the exported target's interface
+# compile definitions, so Mila::getAPIVersion() works without any header to ship.
+set(MILA_SEMVER "${PROJECT_VERSION}")
 
-if(_VERSION_MATCH)
-    set(MILA_VERSION_MAJOR ${CMAKE_MATCH_1})
-    set(MILA_VERSION_MINOR ${CMAKE_MATCH_2})
-    set(MILA_VERSION_PATCH ${CMAKE_MATCH_3})
-    if(DEFINED CMAKE_MATCH_4)
-        set(MILA_VERSION_PRERELEASE_TAG ${CMAKE_MATCH_4})
-    else()
-        set(MILA_VERSION_PRERELEASE_TAG "")
-    endif()
-else()
-    message(FATAL_ERROR "Failed to parse version from Version.txt; expected X.Y.Z or X.Y.Z-PRERELEASE")
-endif()
-
-set(MILA_SEMVER "${MILA_VERSION_MAJOR}.${MILA_VERSION_MINOR}.${MILA_VERSION_PATCH}")
-
-# Configure the Version.h file from Version.h.in template
-configure_file(
-  "${CMAKE_SOURCE_DIR}/Mila/Src/Version.h.in"
-  "${CMAKE_BINARY_DIR}/Mila/Src/Version.h"
-  @ONLY
+target_compile_definitions(Mila PUBLIC
+    MILA_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+    MILA_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+    MILA_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+    MILA_VERSION_PRERELEASE_TAG="${MILA_PRERELEASE_TAG}"
 )
-
-include_directories(${CMAKE_BINARY_DIR}/Mila/Src)
-target_include_directories(Mila PRIVATE ${CMAKE_BINARY_DIR}/Mila/Src)
 
 # =============================================================================
 # Installation
 # =============================================================================
+#
+# Gated on MILA_INSTALL (defaults to PROJECT_IS_TOP_LEVEL). A FetchContent /
+# add_subdirectory consumer builds Mila in-tree and does not want Mila's
+# targets, export set, or config files leaking into its own install tree.
+if(MILA_INSTALL)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -820,12 +872,33 @@ if(MILA_HAS_ROCM)
     install(TARGETS Mila_Rocm EXPORT MilaTargets)
 endif()
 
-install(
-    DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Src/
-    DESTINATION include
-    FILES_MATCHING
-        PATTERN "*.cuh"
-        PATTERN "*.h"
+# Kernel headers ship via the cuda_headers HEADERS file set (see the CUDA block),
+# installed alongside the module units by the install(TARGETS) below. The old
+# install(DIRECTORY Src/ FILES_MATCHING *.cuh *.h) glob is gone: it dropped headers
+# under include/ on a different tree than the modules under include/mila/modules/Src,
+# which is exactly what broke the file-relative includes on the consumer side.
+
+# The install tree must mirror the source tree so the module units' file-relative
+# quoted includes resolve post-install. One piece sits outside the file sets:
+#   - The vendored nlohmann header: json.ixx includes "../../Deps/nlohmann/json.hpp",
+#     which from .../mila/modules/Src/Utils/json.ixx resolves to .../mila/modules/Deps.
+# (Version no longer needs a shipped header: it travels as PUBLIC compile
+# definitions on the exported target -- see the Versioning block above.)
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Deps/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules/Deps
+)
+
+# miniz headers for the recompiled ZipSerializer module: the 5 source headers plus
+# the generated miniz_export.h. Destination matches the INSTALL_INTERFACE include
+# dir set on the Mila target above.
+install(FILES
+    ${miniz_SOURCE_DIR}/miniz.h
+    ${miniz_SOURCE_DIR}/miniz_common.h
+    ${miniz_SOURCE_DIR}/miniz_tdef.h
+    ${miniz_SOURCE_DIR}/miniz_tinfl.h
+    ${miniz_SOURCE_DIR}/miniz_zip.h
+    ${miniz_BINARY_DIR}/miniz_export.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules/Deps/miniz
 )
 
 install(TARGETS Mila
@@ -864,21 +937,27 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Mila
 )
 
+endif() # MILA_INSTALL
+
 # =============================================================================
 # Additional Targets and Subdirectories
 # =============================================================================
 
-# Define the data directory path (project-wide resource)
+# Define the data directory path (project-wide resource). PROJECT_SOURCE_DIR (not
+# CMAKE_SOURCE_DIR) keeps this pointing at Mila's own Data/ when embedded.
 # Mila project benchmarks, samples, tests, and tools can reference this variable to access data files.
-set(MILA_DATA_DIR "${CMAKE_SOURCE_DIR}/Data")
+set(MILA_DATA_DIR "${PROJECT_SOURCE_DIR}/Data")
 
 # Generate documentation with Doxygen (opt-in: Doxygen is a hard requirement of the Docs target)
 if(MILA_ENABLE_DOCS)
     add_subdirectory( Docs )
 endif()
 
-# Add tools: tokeniz.exe, etc
-add_subdirectory( Tools )
+# Developer tooling (tokenize.exe, etc.) -- top-level builds only; an embedding
+# consumer just wants the library.
+if(PROJECT_IS_TOP_LEVEL)
+    add_subdirectory( Tools )
+endif()
 
 if(MILA_ENABLE_PYTHON_BINDINGS)
     add_subdirectory( Inference/Bindings )

@@ -24,12 +24,11 @@ module;
 //#include <iostream>
 #include <memory>
 #include <format>
-#include "Version.h"
 #include <exception>
 
 export module Mila;
 
-import Mila.Version;
+export import Mila.Version;
 
 // ====================================================================
 // Core

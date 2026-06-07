@@ -22,6 +22,8 @@ import Compute.OperationRegistry;
 
 import Logging.Logger;
 
+import Mila.Version;
+
 namespace Mila::Dnn::Extensibility
 {
     //using namespace Mila::Dnn::Compute;
@@ -73,10 +75,9 @@ namespace Mila::Dnn::Extensibility
             auto info = plugin->getInfo();
             if (!isCompatible( info.mila_api_version ))
             {
-				// FIXME: getAPIVersion() not accessible??
-                //throw std::runtime_error(
-                //    std::format( "Plugin API version {} incompatible with Mila {}",
-                //        info.mila_api_version, Mila::getAPIVersion() ) );
+                throw std::runtime_error(
+                    std::format( "Plugin API version {} incompatible with Mila {}",
+                        info.mila_api_version, Mila::getAPIVersion().toString() ) );
             }
 
             // Register operations

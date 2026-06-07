@@ -1,0 +1,38 @@
+name: Mila Release
+
+# Source-only release: tagging master cuts a GitHub Release (the source tarball/zip
+# is attached automatically; no prebuilt binaries -- no build-matrix resources, by
+# design). The drift-check enforces tag == v<Version.txt> so a CPM/FetchContent
+# by-semver consumer resolves the matching source. Lean by design: master is already
+# gated by CI, so this does not rebuild.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # required to create the GitHub Release
+
+jobs:
+  release:
+    name: Tag-driven source release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches Version.txt
+        run: |
+          file_version="v$(tr -d '[:space:]' < Version.txt)"
+          echo "Version.txt -> ${file_version} ; tag -> ${GITHUB_REF_NAME}"
+          if [ "${file_version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match Version.txt (${file_version})."
+            exit 1
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          # Tags containing '-' (e.g. v0.13.40-alpha.5) are marked pre-release.
+          prerelease: ${{ contains(github.ref_name, '-') }}
