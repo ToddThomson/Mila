@@ -1,0 +1,65 @@
+# Tokenize
+
+Command-line tool that trains vocabularies and encodes/decodes text corpora for the Mila data pipeline.
+
+Overview
+- Provides three subcommands implemented in `Tokenize.cpp`:
+  - `train`  — build a vocabulary from a text corpus
+  - `encode` — convert text to token IDs using a vocabulary
+  - `decode` — convert token IDs back to text using a vocabulary
+- Uses `TokenizerFactory` to obtain trainers, vocabularies and tokenizers for supported types (`char`, `bpe`, ...).
+
+Usage
+- Build and run the `tokenize` executable, then call:
+  `Tokenize <command> [options]`
+- Typical commands:
+  - `Tokenize train --input <file> --output <file> [--type <char|bpe>] [--vocab-size <n>] [--force]`
+  - `Tokenize encode --vocab <file> --input <file> --output <file> [--type <char|bpe>]`
+  - `Tokenize decode --vocab <file> --input <file> --output <file> [--type <char|bpe>]`
+  - `Tokenize help`
+
+Options
+- `--input <file>`  
+  Input text corpus (for `train`/`encode`) or tokens file (for `decode`).
+- `--output <file>`  
+  Output vocabulary file (for `train`), tokens file (for `encode`), or text file (for `decode`).
+- `--vocab <file>`  
+  Vocabulary file to load (required for `encode` and `decode`).
+- `--type <char|bpe>`  
+  Tokenizer type. Default: `char`.
+- `--vocab-size <n>`  
+  Required for `train` when using the `bpe` tokenizer.
+- `--force` / `-f`  
+  For `train` only: force rebuilding the vocabulary when the output file already exists.
+- `--help` / `-h`  
+  Show help message.
+
+Behavior notes
+- The tool now uses explicit subcommands (`train`, `encode`, `decode`) instead of a single-mode invocation.
+- `train` will skip training only when the specified output vocabulary file already exists and `--force` is not provided. It does not compare timestamps of `.vocab`/`.tokens` against the source file.
+- `encode`/`decode` expect an explicit vocabulary file to be provided with `--vocab`.
+- Default tokenizer type is `char` when `--type` is omitted.
+- Errors while reading or writing files throw and cause a non-zero exit code; error messages are printed to `stderr` by the caller/runtime.
+
+Output file formats
+- Vocabulary files (`--output` from `train`) are serialized using the repository `TokenizerVocabulary::save` implementation and loaded by `TokenizerVocabulary::load`.
+- Tokens file format (`--output` from `encode`, input for `decode`):
+  - Binary layout: `[size_t num_tokens][uint32_t token_id_0][uint32_t token_id_1]...`
+  - Unknown tokens are represented by token id `0` (vocabulary-defined).
+
+Examples
+- Train a character-level vocabulary:
+  `Tokenize train --input corpus.txt --output vocab.bin --type char`
+- Train a BPE vocabulary:
+  `Tokenize train --input corpus.txt --output vocab.bin --type bpe --vocab-size 32000`
+- Encode text using a saved vocabulary:
+  `Tokenize encode --vocab vocab.bin --input train.txt --output train.tokens --type char`
+- Decode tokens back to text:
+  `Tokenize decode --vocab vocab.bin --input train.tokens --output train.txt --type char`
+
+Limitations
+- The code and tests primarily target the `char` tokenizer. BPE requires appropriate trainer and vocabulary implementations to be present and will additionally require `--vocab-size` when training.
+
+Contact / troubleshooting
+- For unexpected behavior, verify file paths/permissions and that the correct `--vocab`/`--input`/`--output` arguments are provided.
+- Check the tool's printed messages for details when errors occur.

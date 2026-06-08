@@ -1,0 +1,403 @@
+/**
+ * @file CublasLtPlan.ixx
+ * @brief Shared cuBLASLt plans for building and executing matmul plans (RAII + builders).
+ *
+ * Provides templated utilities to build cuBLASLt matmul plans (including strided-batched)
+ * and execute them. Designed to be reused by CUDA Linear and Attention operations.
+ */
+
+module;
+#include <cublasLt.h>
+#include <cuda_runtime.h>
+#include <cstdint>
+#include <stdexcept>
+#include <utility>
+#include <string>
+#include <vector>
+#include <iostream>
+#include <sstream>
+#include <iomanip>
+
+export module Compute.CublasLtPlan;
+
+import Dnn.TensorTypes;
+import CublasLt.Error;
+import Logging.Logger;
+
+export namespace Mila::Dnn::Compute::Cuda
+{
+    using namespace Mila::Dnn;
+
+    /**
+     * @brief RAII wrapper owning cuBLASLt descriptors and the selected heuristic algorithm.
+     *
+     * Owns:
+     *  - matmul_desc: operation descriptor (transpose flags, epilogue, bias pointer)
+     *  - layoutA, layoutB, layoutC: matrix memory layouts
+     *  - preference: algorithm preference used during heuristic search
+     *  - algorithm: selected algorithm (present when has_algorithm is true)
+     *
+     * Non-copyable; move-only.
+     */
+    template <typename TComputePrecision>
+    struct CublasLtMatMulPlan
+    {
+        cublasLtMatmulDesc_t   matmul_desc{ nullptr };
+        cublasLtMatrixLayout_t layoutA{ nullptr };
+        cublasLtMatrixLayout_t layoutB{ nullptr };
+        cublasLtMatrixLayout_t layoutC{ nullptr };
+        cublasLtMatmulPreference_t preference{ nullptr };
+        cublasLtMatmulAlgo_t       algorithm{};
+        bool has_algorithm{ false };
+        bool has_bias_epilogue{ false };
+
+        CublasLtMatMulPlan() = default;
+
+        ~CublasLtMatMulPlan()
+        {
+            if ( matmul_desc ) cublasLtMatmulDescDestroy( matmul_desc );
+            if ( layoutA )     cublasLtMatrixLayoutDestroy( layoutA );
+            if ( layoutB )     cublasLtMatrixLayoutDestroy( layoutB );
+            if ( layoutC )     cublasLtMatrixLayoutDestroy( layoutC );
+            if ( preference )  cublasLtMatmulPreferenceDestroy( preference );
+        }
+
+        CublasLtMatMulPlan( const CublasLtMatMulPlan& ) = delete;
+        CublasLtMatMulPlan& operator=( const CublasLtMatMulPlan& ) = delete;
+
+        CublasLtMatMulPlan( CublasLtMatMulPlan&& other ) noexcept
+            : matmul_desc( other.matmul_desc )
+            , layoutA( other.layoutA )
+            , layoutB( other.layoutB )
+            , layoutC( other.layoutC )
+            , preference( other.preference )
+            , algorithm( other.algorithm )
+            , has_algorithm( other.has_algorithm )
+            , has_bias_epilogue( other.has_bias_epilogue )
+        {
+            other.matmul_desc = nullptr;
+            other.layoutA = nullptr;
+            other.layoutB = nullptr;
+            other.layoutC = nullptr;
+            other.preference = nullptr;
+            other.has_algorithm = false;
+            other.has_bias_epilogue = false;
+        }
+
+        CublasLtMatMulPlan& operator=( CublasLtMatMulPlan&& other ) noexcept
+        {
+            if ( this != &other )
+            {
+                if ( matmul_desc ) cublasLtMatmulDescDestroy( matmul_desc );
+                if ( layoutA )     cublasLtMatrixLayoutDestroy( layoutA );
+                if ( layoutB )     cublasLtMatrixLayoutDestroy( layoutB );
+                if ( layoutC )     cublasLtMatrixLayoutDestroy( layoutC );
+                if ( preference )  cublasLtMatmulPreferenceDestroy( preference );
+
+                matmul_desc = other.matmul_desc;
+                layoutA = other.layoutA;
+                layoutB = other.layoutB;
+                layoutC = other.layoutC;
+                preference = other.preference;
+                algorithm = other.algorithm;
+                has_algorithm = other.has_algorithm;
+                has_bias_epilogue = other.has_bias_epilogue;
+
+                other.matmul_desc = nullptr;
+                other.layoutA = nullptr;
+                other.layoutB = nullptr;
+                other.layoutC = nullptr;
+                other.preference = nullptr;
+                other.has_algorithm = false;
+                other.has_bias_epilogue = false;
+            }
+
+            return *this;
+        }
+
+        bool isValid() const
+        {
+            return matmul_desc != nullptr;
+        }
+    };
+
+    /**
+     * @brief Build a cuBLASLt plan for a standard (non-strided) matmul.
+     *
+     * Computes C[outer_size, out_features] = A[outer_size, in_features] @ B^T[in_features, out_features]
+     * Row-major layout, opA=N, opB=T, strided_batch_count=1.
+     *
+     * @param outer_size  Bucket-aligned row count for A and C (C=B*T for transformers).
+     */
+    template <typename TNative>
+    CublasLtMatMulPlan<TNative> build_plan(
+        cublasLtHandle_t handle,
+        int outer_size,
+        int in_features,
+        int out_features,
+        bool has_bias,
+        cudaDataType_t data_type,
+        cublasComputeType_t compute_type,
+        cudaDataType_t scale_type )
+    {
+        const long long strideA = 0LL;
+        const long long strideB = 0LL;
+        const long long strideC = 0LL;
+
+        return build_strided_plan<TNative>(
+            handle,
+            /*A_rows=*/ outer_size,   /*A_cols=*/ in_features,  /*ldA=*/ in_features,  /*strideA=*/ strideA,
+            /*B_rows=*/ out_features, /*B_cols=*/ in_features,  /*ldB=*/ in_features,  /*strideB=*/ strideB,
+            /*C_rows=*/ outer_size,   /*C_cols=*/ out_features, /*ldC=*/ out_features, /*strideC=*/ strideC,
+            /*opA=*/ CUBLAS_OP_N, /*opB=*/ CUBLAS_OP_T,
+            /*strided_batch_count=*/ 1,   // single matmul instance; outer_size is the row dim, not a batch axis
+            has_bias,
+            compute_type,
+            data_type,
+            scale_type );
+    }
+
+    /**
+     * @brief Build a cuBLASLt matmul plan for strided-batched matmuls.
+     *
+     * Accepts explicit layout dimensions (rows/cols/ld) and per-element strides for A, B, C.
+     * The heuristic algorithm is selected at build time for the given dimensions and reused
+     * at execution time. When actual_rows is passed to execute_plan, only the row count
+     * embedded in layoutA and layoutC is updated — the selected algorithm remains valid
+     * for any row count up to the bucket it was built for.
+     *
+     * @param strided_batch_count  Number of independent matmul instances (1 for Linear, B*NH for Attention).
+     *
+     * @note CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET expects stride in elements, not bytes.
+     */
+    template <typename TComputePrecision>
+    CublasLtMatMulPlan<TComputePrecision> build_strided_plan(
+        cublasLtHandle_t handle,
+        int A_rows, int A_cols, int ldA, long long strideA_elems,
+        int B_rows, int B_cols, int ldB, long long strideB_elems,
+        int C_rows, int C_cols, int ldC, long long strideC_elems,
+        cublasOperation_t opA, cublasOperation_t opB,
+        int strided_batch_count,
+        bool has_bias = false,
+        cublasComputeType_t compute_type = CUBLAS_COMPUTE_32F,
+        cudaDataType_t cuda_data_type = CUDA_R_32F,
+        cudaDataType_t scale_type = CUDA_R_32F,
+        cublasLtOrder_t order = CUBLASLT_ORDER_ROW )
+    {
+        CublasLtMatMulPlan<TComputePrecision> plan;
+        plan.has_bias_epilogue = has_bias;
+
+        cublasStatus_t status = cublasLtMatmulDescCreate( &plan.matmul_desc, compute_type, scale_type );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Logging::Logger::error( "cublasLtMatmulDescCreate failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatmulDescSetAttribute(
+            plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSA, &opA, sizeof( cublasOperation_t ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Logging::Logger::error( "Set TRANSA failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatmulDescSetAttribute(
+            plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSB, &opB, sizeof( cublasOperation_t ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Logging::Logger::error( "Set TRANSB failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        if ( has_bias )
+        {
+            const int epilogue = CUBLASLT_EPILOGUE_BIAS;
+            cublasLtCheckStatus( cublasLtMatmulDescSetAttribute(
+                plan.matmul_desc, CUBLASLT_MATMUL_DESC_EPILOGUE, &epilogue, sizeof( epilogue ) ) );
+        }
+
+        status = cublasLtMatrixLayoutCreate( &plan.layoutA, cuda_data_type, A_rows, A_cols, ldA );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Logging::Logger::error( "cublasLtMatrixLayoutCreate for A failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatrixLayoutSetAttribute( plan.layoutA, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Logging::Logger::error( "Set order for A failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatrixLayoutCreate( &plan.layoutB, cuda_data_type, B_rows, B_cols, ldB );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Logging::Logger::error( "cublasLtMatrixLayoutCreate for B failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatrixLayoutSetAttribute( plan.layoutB, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Logging::Logger::error( "Set order for B failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatrixLayoutCreate( &plan.layoutC, cuda_data_type, C_rows, C_cols, ldC );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Logging::Logger::error( "cublasLtMatrixLayoutCreate for C failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatrixLayoutSetAttribute( plan.layoutC, CUBLASLT_MATRIX_LAYOUT_ORDER, &order, sizeof( order ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Logging::Logger::error( "Set order for C failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatrixLayoutSetAttribute(
+            plan.layoutA, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideA_elems, sizeof( strideA_elems ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Logging::Logger::error( "Set stride A failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatrixLayoutSetAttribute(
+            plan.layoutB, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideB_elems, sizeof( strideB_elems ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Logging::Logger::error( "Set stride B failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatrixLayoutSetAttribute(
+            plan.layoutC, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideC_elems, sizeof( strideC_elems ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Logging::Logger::error( "Set stride C failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatrixLayoutSetAttribute(
+            plan.layoutA, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &strided_batch_count, sizeof( strided_batch_count ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Logging::Logger::error( "Set batch count A failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatrixLayoutSetAttribute(
+            plan.layoutB, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &strided_batch_count, sizeof( strided_batch_count ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Logging::Logger::error( "Set batch count B failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        status = cublasLtMatrixLayoutSetAttribute(
+            plan.layoutC, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &strided_batch_count, sizeof( strided_batch_count ) );
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            Logging::Logger::error( "Set batch count C failed with status: " + std::to_string( status ) );
+            cublasLtCheckStatus( status );
+        }
+
+        cublasLtCheckStatus( cublasLtMatmulPreferenceCreate( &plan.preference ) );
+
+        // Hint the available workspace so the heuristic considers algorithms that require
+        // scratch memory. Required for bias epilogue on row-major layouts with small M.
+        constexpr size_t kWorkspaceHint = 4ull * 1024 * 1024;
+        cublasLtCheckStatus( cublasLtMatmulPreferenceSetAttribute(
+            plan.preference,
+            CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
+            &kWorkspaceHint, sizeof( kWorkspaceHint ) ) );
+
+        cublasLtMatmulHeuristicResult_t heuristic_result{};
+        int returned_algo_count = 0;
+
+        status = cublasLtMatmulAlgoGetHeuristic(
+            handle, plan.matmul_desc,
+            plan.layoutA, plan.layoutB, plan.layoutC, plan.layoutC,
+            plan.preference, 1, &heuristic_result, &returned_algo_count );
+
+        if ( status == CUBLAS_STATUS_SUCCESS && returned_algo_count > 0 )
+        {
+            plan.algorithm = heuristic_result.algo;
+            plan.has_algorithm = true;
+        }
+        else if ( status == CUBLAS_STATUS_SUCCESS && returned_algo_count == 0 )
+        {
+            Logging::Logger::warning( "cuBLASLt heuristic found no algorithms, will use default at execution" );
+            plan.algorithm = {};
+            plan.has_algorithm = false;
+        }
+        else
+        {
+            Logging::Logger::error( "cuBLASLt heuristic failed with error status" );
+            cublasLtCheckStatus( status );
+        }
+
+        return plan;
+    }
+
+    /**
+     * @brief Execute a previously-built cuBLASLt plan.
+     *
+     * Computes: C = alpha * op(A) * op(B) + beta * C, with optional bias epilogue.
+     *
+     * @param bias         Device pointer to bias vector. Applied only when plan.has_bias_epilogue is true.
+     * @param workspace    Optional device workspace buffer. Must be non-null when the selected
+     *                     algorithm requires scratch memory (workspaceSize > 0 in heuristic result).
+     * @param workspaceSize Size of the workspace buffer in bytes.
+     */
+    template <typename TComputePrecision>
+    void execute_plan(
+        cublasLtHandle_t handle,
+        const CublasLtMatMulPlan<TComputePrecision>& plan,
+        const void* alpha,
+        const TComputePrecision* A,
+        const TComputePrecision* B,
+        const void* beta,
+        TComputePrecision* C,
+        const TComputePrecision* bias,
+        cudaStream_t stream,
+        void* workspace = nullptr,
+        size_t workspaceSize = 0 )
+    {
+        if ( !plan.isValid() )
+        {
+            throw std::invalid_argument( "execute_plan - provided cuBLASLt plan is not valid" );
+        }
+
+        if ( plan.has_bias_epilogue && bias != nullptr )
+        {
+            cublasLtCheckStatus( cublasLtMatmulDescSetAttribute(
+                plan.matmul_desc, CUBLASLT_MATMUL_DESC_BIAS_POINTER, &bias, sizeof( bias ) ) );
+        }
+
+        const cublasLtMatmulAlgo_t* algo_ptr = plan.has_algorithm ? &plan.algorithm : nullptr;
+
+        cublasStatus_t status = cublasLtMatmul(
+            handle,
+            plan.matmul_desc,
+            alpha,
+            A, plan.layoutA,
+            B, plan.layoutB,
+            beta,
+            C, plan.layoutC,
+            C, plan.layoutC,
+            algo_ptr,
+            workspace, workspaceSize,
+            stream );
+
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            throw CublasLtError( status );
+        }
+    }
+}

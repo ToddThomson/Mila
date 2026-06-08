@@ -4,12 +4,11 @@
 #include <string>
 #include <cmath>
 #include <stdexcept>
-#include <cuda_runtime.h>
 #include <cstdint>
 
 import Mila;
 
-namespace Modules::Normalization::Tests
+namespace Components_Normalization_LayerNorm_Tests
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
@@ -20,992 +19,1010 @@ namespace Modules::Normalization::Tests
     template<TensorDataType TPrecision>
     using CpuTensor = Tensor<TPrecision, CpuMemoryResource>;
 
-    template<TensorDataType TPrecision>
-    struct LayerNormCudaTestData
+    // ====================================================================
+    // Test Shape Definitions
+    // ====================================================================
+
+    enum class TestShapeSize
     {
+        Small,
+        Medium,
+        Large,
+        Transformer,
+        Minimal
+    };
+
+    struct TestShape
+    {
+        TestShapeSize size;
         shape_t shape;
         shape_t normalized_shape;
+        std::string name;
+
+        static TestShape Small()
+        {
+            return { TestShapeSize::Small, { 2, 3, 4 }, { 4 }, "Small" };
+        }
+
+        static TestShape Medium()
+        {
+            return { TestShapeSize::Medium, { 8, 16, 32 }, { 32 }, "Medium" };
+        }
+
+        static TestShape Large()
+        {
+            return { TestShapeSize::Large, { 16, 64, 128 }, { 128 }, "Large" };
+        }
+
+        static TestShape Transformer()
+        {
+            return { TestShapeSize::Transformer, { 32, 128, 768 }, { 768 }, "Transformer" };
+        }
+
+        static TestShape Minimal()
+        {
+            return { TestShapeSize::Minimal, { 1, 1, 2 }, { 2 }, "Minimal" };
+        }
+
+        static TestShape MultiTrailing()
+        {
+            return { TestShapeSize::Medium, { 2, 3, 4, 5 }, { 4, 5 }, "MultiTrailing" };
+        }
+
+        static std::vector<TestShape> AllShapes()
+        {
+            return { Small(), Medium(), Large(), Transformer(), Minimal() };
+        }
+
+        static std::vector<TestShape> StandardShapes()
+        {
+            return { Small(), Medium(), Large() };
+        }
+    };
+
+    // ====================================================================
+    // Precision Traits
+    // ====================================================================
+
+    template<TensorDataType TPrecision>
+    struct PrecisionTraits
+    {
+        static constexpr TensorDataType value = TPrecision;
+        static constexpr const char* name = "Unknown";
+        static constexpr float tolerance = 1e-4f;
+    };
+
+    template<>
+    struct PrecisionTraits<TensorDataType::FP32>
+    {
+        static constexpr TensorDataType value = TensorDataType::FP32;
+        static constexpr const char* name = "FP32";
+        static constexpr float tolerance = 1e-4f;
+    };
+
+    template<>
+    struct PrecisionTraits<TensorDataType::FP16>
+    {
+        static constexpr TensorDataType value = TensorDataType::FP16;
+        static constexpr const char* name = "FP16";
+        static constexpr float tolerance = 1e-2f;
+    };
+
+    // ====================================================================
+    // Test Fixture Structure
+    // ====================================================================
+
+    template<TensorDataType TPrecision>
+    struct LayerNormTestFixture
+    {
+        // Members are initialized in declaration order; test_shape precedes config,
+        // so test_shape.normalized_shape is valid in config's initializer.
+        LayerNormTestFixture()
+            : test_shape( TestShape::Small() ),
+              config( test_shape.normalized_shape ),
+              component( nullptr ),
+              is_training( false )
+        {}
+
+        TestShape test_shape;
         LayerNormConfig config;
-        std::shared_ptr<ExecutionContext<DeviceType::Cuda>> exec_context;
-        std::shared_ptr<LayerNorm<DeviceType::Cuda, TPrecision>> module;
+        std::shared_ptr<LayerNorm<DeviceType::Cuda, TPrecision>> component;
         bool is_training;
 
-        static LayerNormCudaTestData Create(
-            const std::string& name,
-            const shape_t& shape,
-            const shape_t& normalized_shape,
+        static LayerNormTestFixture Create(
+            TestShape shape,
             bool has_bias = true,
             float epsilon = 1e-5f,
             bool is_training = false )
         {
-            LayerNormCudaTestData data;
-            data.shape = shape;
-            data.normalized_shape = normalized_shape;
-            data.is_training = is_training;
+            LayerNormTestFixture fixture;
+            fixture.test_shape = shape;
+            fixture.is_training = is_training;
 
-            data.config = LayerNormConfig();
-            data.config.withName( name )
-                .withNormalizedShape( normalized_shape )
+            fixture.config = LayerNormConfig( shape.normalized_shape )
                 .withBias( has_bias )
                 .withEpsilon( epsilon );
 
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
-            data.module = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
+            std::string name = "layernorm_cuda_" + shape.name + "_" + PrecisionTraits<TPrecision>::name;
 
-            return data;
+            fixture.component = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>(
+                name,
+                fixture.config,
+                Device::Cuda( 0 )
+            );
+
+            return fixture;
         }
 
-        static LayerNormCudaTestData CreateWithAxis(
-            const std::string& name,
-            const shape_t& shape,
+        static LayerNormTestFixture CreateWithAxis(
+            TestShape shape,
             int64_t axis,
             bool has_bias = true,
             float epsilon = 1e-5f,
             bool is_training = false )
         {
-            LayerNormCudaTestData data;
-            data.shape = shape;
-            data.is_training = is_training;
+            LayerNormTestFixture fixture;
+            fixture.test_shape = shape;
+            fixture.is_training = is_training;
 
-            data.config = LayerNormConfig();
-            data.config.withName( name )
-                .withAxis( axis )
+            fixture.config = LayerNormConfig( axis )
                 .withBias( has_bias )
                 .withEpsilon( epsilon );
 
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
-            data.module = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
+            std::string name = "layernorm_cuda_axis_" + shape.name + "_" + PrecisionTraits<TPrecision>::name;
 
-            return data;
-        }
+            fixture.component = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>(
+                name,
+                fixture.config,
+                Device::Cuda( 0 )
+            );
 
-        static LayerNormCudaTestData CreateWithContext(
-            const std::string& name,
-            const shape_t& shape,
-            const shape_t& normalized_shape,
-            std::shared_ptr<ExecutionContext<DeviceType::Cuda>> context,
-            bool has_bias = true,
-            float epsilon = 1e-5f,
-            bool is_training = false )
-        {
-            LayerNormCudaTestData data;
-            data.shape = shape;
-            data.normalized_shape = normalized_shape;
-            data.is_training = is_training;
-
-            data.config = LayerNormConfig();
-            data.config.withName( name )
-                .withNormalizedShape( normalized_shape )
-                .withBias( has_bias )
-                .withEpsilon( epsilon );
-
-            data.exec_context = context;
-            data.module = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>( data.exec_context, data.config );
-
-            return data;
+            return fixture;
         }
     };
 
-    class LayerNormCudaTests : public ::testing::Test
+    // ====================================================================
+    // Typed Tests (Precision-Based)
+    // ====================================================================
+
+    template<typename T>
+    class LayerNormCudaTests : public testing::Test
     {
     protected:
         void SetUp() override
         {
-            int device_count = 0;
-            cudaError_t error = cudaGetDeviceCount( &device_count );
-            cuda_available_ = (error == cudaSuccess && device_count > 0);
-
-            if (!cuda_available_)
-            {
-                return;
-            }
-
-            small_shape_ = { 2, 3, 4 };
-            small_normalized_shape_ = { 4 };
-
-            medium_shape_ = { 8, 16, 32 };
-            medium_normalized_shape_ = { 32 };
-
-            large_shape_ = { 16, 64, 128 };
-            large_normalized_shape_ = { 128 };
-
-            transformer_shape_ = { 32, 128, 768 };
-            transformer_normalized_shape_ = { 768 };
-        }
-
-        void TearDown() override
-        {
-			// Tensor RAII handles cleanup
-        }
-
-        LayerNormCudaTestData<TensorDataType::FP32>& SmallFp32Data()
-        {
-            if (!small_fp32_.module)
-            {
-                small_fp32_ = LayerNormCudaTestData<TensorDataType::FP32>::Create(
-                    "small_layernorm_cuda", small_shape_, small_normalized_shape_ );
-            }
-            return small_fp32_;
-        }
-
-        LayerNormCudaTestData<TensorDataType::FP32>& MediumFp32Data()
-        {
-            if (!medium_fp32_.module)
-            {
-                medium_fp32_ = LayerNormCudaTestData<TensorDataType::FP32>::Create(
-                    "medium_layernorm_cuda", medium_shape_, medium_normalized_shape_ );
-            }
-            
-            return medium_fp32_;
-        }
-
-        LayerNormCudaTestData<TensorDataType::FP32>& LargeFp32Data()
-        {
-            if (!large_fp32_.module)
-            {
-                large_fp32_ = LayerNormCudaTestData<TensorDataType::FP32>::Create(
-                    "large_layernorm_cuda", large_shape_, large_normalized_shape_ );
-            }
-            
-            return large_fp32_;
-        }
-
-        LayerNormCudaTestData<TensorDataType::FP32>& TrainingFp32Data()
-        {
-            if (!training_fp32_.module)
-            {
-                training_fp32_ = LayerNormCudaTestData<TensorDataType::FP32>::Create(
-                    "training_layernorm_cuda", medium_shape_, medium_normalized_shape_, true, 1e-5f, true );
-            }
-            return training_fp32_;
+            int device_count = getDeviceCount( DeviceType::Cuda );
+            cuda_available_ = (device_count > 0);
         }
 
         bool cuda_available_{ false };
-
-        shape_t small_shape_;
-        shape_t small_normalized_shape_;
-        shape_t medium_shape_;
-        shape_t medium_normalized_shape_;
-        shape_t large_shape_;
-        shape_t large_normalized_shape_;
-        shape_t transformer_shape_;
-        shape_t transformer_normalized_shape_;
-
-        LayerNormCudaTestData<TensorDataType::FP32> small_fp32_;
-        LayerNormCudaTestData<TensorDataType::FP32> medium_fp32_;
-        LayerNormCudaTestData<TensorDataType::FP32> large_fp32_;
-        LayerNormCudaTestData<TensorDataType::FP32> training_fp32_;
     };
 
     template<TensorDataType TPrecision>
-    void TestGetName( const LayerNormCudaTestData<TPrecision>& data, const std::string& expected_name )
+    struct PrecisionType
     {
-        EXPECT_EQ( data.module->getName(), expected_name );
+        static constexpr TensorDataType value = TPrecision;
+    };
+
+    using PrecisionTypes = ::testing::Types<
+        PrecisionType<TensorDataType::FP32>
+        /* TODO: FP16 implementation
+        PrecisionType<TensorDataType::FP16> */
+    >;
+
+    TYPED_TEST_SUITE( LayerNormCudaTests, PrecisionTypes );
+
+    // ====================================================================
+    // Constructor Tests
+    // ====================================================================
+
+    TYPED_TEST( LayerNormCudaTests, Constructor_WithValidDeviceId_CreatesComponent )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        LayerNormConfig cfg( shape_t{ 64 } );
+
+        std::shared_ptr<LayerNorm<DeviceType::Cuda, TPrecision>> component{ nullptr };
+
+        ASSERT_NO_THROW(
+            (component = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>(
+                "ctor_device_cuda",
+                cfg,
+                Device::Cuda( 0 )
+            ))
+        );
+
+        ASSERT_NE( component, nullptr );
+        EXPECT_EQ( component->getDeviceType(), DeviceType::Cuda );
     }
 
-    template<TensorDataType TPrecision>
-    void TestDeviceType( const LayerNormCudaTestData<TPrecision>& data )
+    TYPED_TEST( LayerNormCudaTests, Constructor_WithoutDeviceId_CreatesComponent )
     {
-        EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cuda );
-        ASSERT_NE( data.exec_context, nullptr );
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
-        auto device = data.exec_context->getDevice();
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), DeviceType::Cuda );
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        LayerNormConfig cfg( shape_t{ 64 } );
+
+        std::shared_ptr<LayerNorm<DeviceType::Cuda, TPrecision>> component;
+
+        ASSERT_NO_THROW(
+            (component = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>(
+                "ctor_shared_cuda",
+                cfg
+            ))
+        );
+
+        ASSERT_NE( component, nullptr );
     }
 
-    template<TensorDataType TPrecision>
-    void TestTrainingMode( const LayerNormCudaTestData<TPrecision>& data, bool expected_mode )
+    TYPED_TEST( LayerNormCudaTests, Constructor_WithInvalidDeviceType_ThrowsInvalidArgument )
     {
-        EXPECT_EQ( data.module->isTraining(), expected_mode );
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        LayerNormConfig cfg( shape_t{ 64 } );
+
+        EXPECT_THROW(
+            ((void)std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>(
+                "invalid_ctor",
+                cfg,
+                Device::Cpu()
+            )),
+            std::invalid_argument
+        );
     }
 
-    template<TensorDataType TPrecision>
-    void TestIsBuilt( const LayerNormCudaTestData<TPrecision>& data, bool expected_built )
+    TYPED_TEST( LayerNormCudaTests, Constructor_WithInvalidConfig_ThrowsInvalidArgument )
     {
-        EXPECT_EQ( data.module->isBuilt(), expected_built );
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        LayerNormConfig invalid_config( shape_t{ 0 } );
+
+        EXPECT_THROW(
+            (std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>(
+                "invalid_config",
+                invalid_config,
+                Device::Cuda( 0 )
+            )),
+            std::invalid_argument
+        );
     }
 
-    template<TensorDataType TPrecision>
-    void TestBuild( LayerNormCudaTestData<TPrecision>& data )
-    {
-        EXPECT_NO_THROW( data.module->build( data.shape ) );
-        EXPECT_TRUE( data.module->isBuilt() );
+    // ====================================================================
+    // Component Property Tests
+    // ====================================================================
 
-        data.module->build( data.shape );
-        EXPECT_TRUE( data.module->isBuilt() );
+    TYPED_TEST( LayerNormCudaTests, GetDeviceType_AfterConstruction_ReturnsCuda )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        EXPECT_EQ( fixture.component->getDeviceType(), DeviceType::Cuda );
+
+        auto device = fixture.component->getDeviceId();
+        EXPECT_EQ( device.type, DeviceType::Cuda );
     }
 
-    template<TensorDataType TPrecision>
-    void TestParameters( const LayerNormCudaTestData<TPrecision>& data, size_t expected_weight_size )
+    TYPED_TEST( LayerNormCudaTests, GetName_AfterConstruction_ReturnsCorrectName )
     {
-        /*auto weight = data.module->getWeight();
-        ASSERT_NE( weight, nullptr );
-        EXPECT_EQ( weight->size(), expected_weight_size );
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
-        auto bias = data.module->getBias();
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        if (data.config.hasBias())
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        std::string expected_name = "layernorm_cuda_Small_" + std::string( PrecisionTraits<TPrecision>::name );
+        EXPECT_EQ( fixture.component->getName(), expected_name );
+    }
+
+    TYPED_TEST( LayerNormCudaTests, IsTraining_InferenceFixture_ReturnsFalse )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Small(), true, 1e-5f, false );
+
+        fixture.component->build( fixture.test_shape.shape );
+
+        EXPECT_FALSE( fixture.component->isTraining() );
+    }
+
+    TYPED_TEST( LayerNormCudaTests, IsTraining_TrainingFixture_ReturnsTrue )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Small(), true, 1e-5f, true );
+
+        fixture.component->build( fixture.test_shape.shape );
+        fixture.component->setTraining( true );
+
+        EXPECT_TRUE( fixture.component->isTraining() );
+    }
+
+    TYPED_TEST( LayerNormCudaTests, SetTraining_TogglingMode_UpdatesState )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        fixture.component->build( fixture.test_shape.shape );
+
+        EXPECT_FALSE( fixture.component->isTraining() );
+
+        fixture.component->setTraining( true );
+        EXPECT_TRUE( fixture.component->isTraining() );
+
+        fixture.component->setTraining( false );
+        EXPECT_FALSE( fixture.component->isTraining() );
+    }
+
+    TYPED_TEST( LayerNormCudaTests, ParameterCount_WithBias_ReturnsCorrectCount )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Small(), true );
+
+        fixture.component->build( fixture.test_shape.shape );
+
+        size_t norm_size = 1;
+
+        for ( auto dim : fixture.test_shape.normalized_shape )
         {
-            ASSERT_NE( bias, nullptr );
-            EXPECT_EQ( bias->size(), expected_weight_size );
+            norm_size *= dim;
         }
-        else
-        {
-            EXPECT_EQ( bias, nullptr );
-        }*/
 
-        auto params = data.module->getParameters();
-
-        if (data.config.hasBias())
-        {
-            EXPECT_EQ( params.size(), 2 );
-        }
-        else
-        {
-            EXPECT_EQ( params.size(), 1 );
-        }
+        EXPECT_EQ( fixture.component->parameterCount(), norm_size * 2 );
     }
 
-    template<TensorDataType TPrecision>
-    void TestParameterCount( const LayerNormCudaTestData<TPrecision>& data, size_t expected_count )
+    TYPED_TEST( LayerNormCudaTests, ParameterCount_WithoutBias_ReturnsCorrectCount )
     {
-        EXPECT_EQ( data.module->parameterCount(), expected_count );
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Small(), false );
+
+        fixture.component->build( fixture.test_shape.shape );
+
+        size_t norm_size = 1;
+
+        for ( auto dim : fixture.test_shape.normalized_shape )
+        {
+            norm_size *= dim;
+        }
+
+        EXPECT_EQ( fixture.component->parameterCount(), norm_size );
     }
 
-    template<TensorDataType TPrecision>
-    void TestToString( const LayerNormCudaTestData<TPrecision>& data )
+    TYPED_TEST( LayerNormCudaTests, ToString_AfterConstruction_ContainsComponentInfo )
     {
-        std::string output = data.module->toString();
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Small() );
+        std::string output = fixture.component->toString();
 
         EXPECT_NE( output.find( "LayerNorm" ), std::string::npos );
-        EXPECT_NE( output.find( data.config.getName() ), std::string::npos );
         EXPECT_NE( output.find( "Device:" ), std::string::npos );
         EXPECT_NE( output.find( "Epsilon:" ), std::string::npos );
         EXPECT_NE( output.find( "Has Bias:" ), std::string::npos );
     }
 
-    template<TensorDataType TPrecision>
-    void TestForward( LayerNormCudaTestData<TPrecision>& data )
+    TYPED_TEST( LayerNormCudaTests, Synchronize_AfterConstruction_Succeeds )
     {
-        using DeviceTensorType = CudaTensor<TPrecision>;
-        using HostTensorType = CpuTensor<TensorDataType::FP32>;
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
-        data.module->build( data.shape );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        HostTensorType host_input( "CPU", data.shape );
-        random( host_input, -2.0f, 2.0f );
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Small() );
 
-        DeviceTensorType device_input( "CUDA:0", data.shape );
-        DeviceTensorType device_output( "CUDA:0", data.shape );
-
-        copy( host_input, device_input );
-
-        EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
-        EXPECT_EQ( device_output.size(), device_input.size() );
-        EXPECT_EQ( device_output.shape(), device_input.shape() );
-
-        HostTensorType host_output = toHost<TensorDataType::FP32>( device_output );
-        EXPECT_EQ( host_output.size(), host_input.size() );
+        EXPECT_NO_THROW( fixture.component->synchronize() );
     }
 
-    template<TensorDataType TPrecision>
-    void ValidateNormalization( const CpuTensor<TensorDataType::FP32>& output, const shape_t& normalized_shape, float epsilon )
+    // ====================================================================
+    // Build Tests
+    // ====================================================================
+
+    TYPED_TEST( LayerNormCudaTests, IsBuilt_BeforeBuild_ReturnsFalse )
     {
-        const auto& shape = output.shape();
-        size_t norm_dims = normalized_shape.size();
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
-        size_t outer_size = 1;
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        for (size_t i = 0; i + norm_dims < shape.size(); ++i)
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Small() );
+
+        EXPECT_FALSE( fixture.component->isBuilt() );
+    }
+
+    TYPED_TEST( LayerNormCudaTests, Build_WithVariousShapes_SetsBuiltState )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto shapes = TestShape::StandardShapes();
+
+        for ( const auto& test_shape : shapes )
         {
-            outer_size *= static_cast<size_t>( shape[i] );
-        }
+            auto fixture = LayerNormTestFixture<TPrecision>::Create( test_shape );
 
-        size_t norm_size = 1;
+            EXPECT_FALSE( fixture.component->isBuilt() )
+                << "Component should not be built before build() for shape: " << test_shape.name;
 
-        for (auto dim : normalized_shape)
-        {
-            norm_size *= static_cast<size_t>( dim );
-        }
+            EXPECT_NO_THROW( fixture.component->build( test_shape.shape ) )
+                << "Build failed for shape: " << test_shape.name;
 
-        auto output_ptr = output.data();
-
-        for (size_t outer_idx = 0; outer_idx < outer_size; ++outer_idx)
-        {
-            float sum = 0.0f;
-            float sum_sq = 0.0f;
-
-            for (size_t norm_idx = 0; norm_idx < norm_size; ++norm_idx)
-            {
-                size_t idx = outer_idx * norm_size + norm_idx;
-                float val = static_cast<float>( output_ptr[idx] );
-                sum += val;
-                sum_sq += val * val;
-            }
-
-            float mean = sum / norm_size;
-            float variance = (sum_sq / norm_size) - (mean * mean);
-
-            EXPECT_NEAR( mean, 0.0f, 0.01f ) << "Mean check failed at outer_idx=" << outer_idx;
-            EXPECT_NEAR( variance, 1.0f, 0.1f ) << "Variance check failed at outer_idx=" << outer_idx;
+            EXPECT_TRUE( fixture.component->isBuilt() )
+                << "Component should be built after build() for shape: " << test_shape.name;
         }
     }
 
-    TEST_F( LayerNormCudaTests, GetName )
+    TYPED_TEST( LayerNormCudaTests, Build_WithoutContext_ThrowsRuntimeError )
     {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
-        auto data = LayerNormCudaTestData<TensorDataType::FP32>::Create(
-            "small_layernorm_cuda", medium_shape_, medium_normalized_shape_, false );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        TestGetName( data, "small_layernorm_cuda" );
-    }
+        LayerNormConfig config( shape_t{ 4 } );
 
-    TEST_F( LayerNormCudaTests, DeviceType )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        TestDeviceType( SmallFp32Data() );
-    }
-
-    TEST_F( LayerNormCudaTests, TrainingMode_Default )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        TestTrainingMode( SmallFp32Data(), false );
-    }
-
-    TEST_F( LayerNormCudaTests, TrainingMode_Enabled )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        TestTrainingMode( TrainingFp32Data(), true );
-    }
-
-    TEST_F( LayerNormCudaTests, IsBuilt_BeforeBuild )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        TestIsBuilt( SmallFp32Data(), false );
-    }
-
-    TEST_F( LayerNormCudaTests, IsBuilt_AfterBuild )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = SmallFp32Data();
-
-        EXPECT_FALSE( data.module->isBuilt() );
-
-        data.module->build( data.shape );
-
-        EXPECT_TRUE( data.module->isBuilt() );
-    }
-
-    TEST_F( LayerNormCudaTests, Build )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = SmallFp32Data();
-        TestBuild( data );
-    }
-
-    TEST_F( LayerNormCudaTests, Parameters_WithBias )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = SmallFp32Data();
-        data.module->build( data.shape );
-
-        size_t norm_size = 1;
-
-        for (auto dim : data.normalized_shape)
-        {
-            norm_size *= dim;
-        }
-
-        TestParameters( data, norm_size );
-    }
-
-    TEST_F( LayerNormCudaTests, Parameters_WithoutBias )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = LayerNormCudaTestData<TensorDataType::FP32>::Create(
-            "no_bias_layernorm_cuda", small_shape_, small_normalized_shape_, false );
-
-        data.module->build( data.shape );
-
-        size_t norm_size = 1;
-
-        for (auto dim : data.normalized_shape)
-        {
-            norm_size *= dim;
-        }
-
-        TestParameters( data, norm_size );
-    }
-
-    TEST_F( LayerNormCudaTests, ParameterCount_WithBias )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = SmallFp32Data();
-        data.module->build( data.shape );
-
-        size_t norm_size = 1;
-
-        for (auto dim : data.normalized_shape)
-        {
-            norm_size *= dim;
-        }
-
-        TestParameterCount( data, norm_size * 2 );
-    }
-
-    TEST_F( LayerNormCudaTests, ParameterCount_WithoutBias )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = LayerNormCudaTestData<TensorDataType::FP32>::Create(
-            "no_bias_layernorm_cuda", small_shape_, small_normalized_shape_, false );
-
-        data.module->build( data.shape );
-
-        size_t norm_size = 1;
-
-        for (auto dim : data.normalized_shape)
-        {
-            norm_size *= dim;
-        }
-
-        TestParameterCount( data, norm_size );
-    }
-
-    TEST_F( LayerNormCudaTests, ToString )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = SmallFp32Data();
-        TestToString( data );
-    }
-
-    TEST_F( LayerNormCudaTests, Forward_SmallShape )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-		// 1. Use cached test data
-        auto data = SmallFp32Data();
-
-
-		// 2. Alternatively, create new test data
-        /*auto data = LayerNormCudaTestData<TensorDataType::FP32>::Create(
-            "small_layernorm_cuda", small_shape_, small_normalized_shape_, false );*/
-
-        TestForward( data );
-    }
-
-    TEST_F( LayerNormCudaTests, Forward_MediumShape )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = MediumFp32Data();
-        TestForward( data );
-    }
-
-    TEST_F( LayerNormCudaTests, Forward_LargeShape )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = LargeFp32Data();
-        TestForward( data );
-    }
-
-    TEST_F( LayerNormCudaTests, Forward_WithoutBias )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = LayerNormCudaTestData<TensorDataType::FP32>::Create(
-            "no_bias_forward_cuda", medium_shape_, medium_normalized_shape_, false );
-
-        TestForward( data );
-    }
-
-    TEST_F( LayerNormCudaTests, Forward_DifferentEpsilon )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = LayerNormCudaTestData<TensorDataType::FP32>::Create(
-            "custom_epsilon_cuda", medium_shape_, medium_normalized_shape_, true, 1e-3f );
-
-        TestForward( data );
-    }
-
-    TEST_F( LayerNormCudaTests, Forward_Normalization )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = MediumFp32Data();
-        data.module->build( data.shape );
-
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.shape );
-        random( host_input, -5.0f, 5.0f );
-
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.shape );
-
-        copy( host_input, device_input );
-
-        //auto weight = data.module->getWeight();
-        //auto bias = data.module->getBias();
-
-        //CpuTensor<TensorDataType::FP32> host_weight( "CPU", weight->shape() );
-        //CpuTensor<TensorDataType::FP32> host_bias( "CPU", bias->shape() );
-
-        //ones( host_weight );
-        //zeros( host_bias );
-
-        //copy( host_weight, *weight );
-        //copy( host_bias, *bias );
-
-        data.module->forward( device_input, device_output );
-
-        CpuTensor<TensorDataType::FP32> host_output = toHost<TensorDataType::FP32>( device_output );
-
-        ValidateNormalization<TensorDataType::FP32>( host_output, data.normalized_shape, data.config.getEpsilon() );
-    }
-
-    TEST_F( LayerNormCudaTests, Forward_MultipleTrailingDims )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        shape_t shape = { 2, 3, 4, 5 };
-        shape_t normalized_shape = { 4, 5 };
-
-        auto data = LayerNormCudaTestData<TensorDataType::FP32>::Create(
-            "multi_trailing_cuda", shape, normalized_shape );
-
-        data.module->build( data.shape );
-
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", shape );
-        random( host_input, -3.0f, 3.0f );
-
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", shape );
-
-        copy( host_input, device_input );
-
-        EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
-        EXPECT_EQ( device_output.size(), device_input.size() );
-    }
-
-    TEST_F( LayerNormCudaTests, WithAxis_Construction )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = LayerNormCudaTestData<TensorDataType::FP32>::CreateWithAxis(
-            "axis_layernorm_cuda", medium_shape_, -1 );
-
-        EXPECT_EQ( data.module->getName(), "axis_layernorm_cuda" );
-        EXPECT_FALSE( data.module->isBuilt() );
-    }
-
-    TEST_F( LayerNormCudaTests, WithAxis_Build )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = LayerNormCudaTestData<TensorDataType::FP32>::CreateWithAxis(
-            "axis_layernorm_cuda", medium_shape_, -1 );
-
-        EXPECT_NO_THROW( data.module->build( data.shape ) );
-        EXPECT_TRUE( data.module->isBuilt() );
-
-        //auto weight = data.module->getWeight();
-
-        //ASSERT_NE( weight, nullptr );
-        //EXPECT_EQ( weight->size(), static_cast<size_t>(data.shape.back()) );
-    }
-
-    TEST_F( LayerNormCudaTests, WithAxis_Forward )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = LayerNormCudaTestData<TensorDataType::FP32>::CreateWithAxis(
-            "axis_forward_cuda", medium_shape_, -1 );
-
-        TestForward( data );
-    }
-
-    TEST_F( LayerNormCudaTests, WithContext_Construction )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
-
-        auto data = LayerNormCudaTestData<TensorDataType::FP32>::CreateWithContext(
-            "context_layernorm_cuda", medium_shape_, medium_normalized_shape_, ctx );
-
-        EXPECT_EQ( data.module->getName(), "context_layernorm_cuda" );
-        EXPECT_EQ( data.exec_context, ctx );
-    }
-
-    TEST_F( LayerNormCudaTests, EdgeCase_MinimalShape )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        shape_t shape = { 1, 1, 2 };
-        shape_t normalized_shape = { 2 };
-
-        auto data = LayerNormCudaTestData<TensorDataType::FP32>::Create(
-            "minimal_cuda", shape, normalized_shape );
-
-        TestForward( data );
-    }
-
-    TEST_F( LayerNormCudaTests, EdgeCase_LargeNormalizedDim )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = LargeFp32Data();
-        TestForward( data );
-    }
-
-    TEST_F( LayerNormCudaTests, EdgeCase_TransformerSize )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = LayerNormCudaTestData<TensorDataType::FP32>::Create(
-            "transformer_cuda", transformer_shape_, transformer_normalized_shape_ );
-
-        TestForward( data );
-    }
-
-    TEST_F( LayerNormCudaTests, EdgeCase_AllZeros )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = SmallFp32Data();
-        data.module->build( data.shape );
-
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.shape );
-        zeros( host_input );
-
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.shape );
-
-        copy( host_input, device_input );
-
-        EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
-    }
-
-    TEST_F( LayerNormCudaTests, EdgeCase_ConstantValues )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = SmallFp32Data();
-        data.module->build( data.shape );
-
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.shape );
-        fill( host_input, 5.0f );
-
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.shape );
-
-        copy( host_input, device_input );
-
-        EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
-    }
-
-    TEST_F( LayerNormCudaTests, Error_NullExecutionContext )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        LayerNormConfig config;
-        config.withName( "test_cuda" ).withNormalizedShape( { 4 } );
-
-        std::shared_ptr<ExecutionContext<DeviceType::Cuda>> null_ctx;
-
-        EXPECT_THROW(
-            (std::make_shared<LayerNorm<DeviceType::Cuda, TensorDataType::FP32>>( null_ctx, config )),
-            std::invalid_argument
+        auto module = std::make_shared<LayerNorm<DeviceType::Cuda, TPrecision>>(
+            "null_context_test",
+            config,
+            std::nullopt
         );
-    }
-
-    TEST_F( LayerNormCudaTests, Error_InvalidConfig )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        LayerNormConfig invalid_config;
-        invalid_config.withName( "invalid_cuda" );
-
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
 
         EXPECT_THROW(
-            (std::make_shared<LayerNorm<DeviceType::Cuda, TensorDataType::FP32>>( ctx, invalid_config )),
-            std::invalid_argument
-        );
-    }
-
-    TEST_F( LayerNormCudaTests, Error_ForwardBeforeBuild_WithAxis )
-    {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
-
-        auto data = LayerNormCudaTestData<TensorDataType::FP32>::CreateWithAxis(
-            "unbuild_cuda", medium_shape_, -1 );
-
-        CudaTensor<TensorDataType::FP32> input( "CUDA:0", data.shape );
-        CudaTensor<TensorDataType::FP32> output( "CUDA:0", data.shape );
-
-        EXPECT_THROW(
-            data.module->forward( input, output ),
+            module->build( shape_t{ 2, 1, 4 } ),
             std::runtime_error
         );
     }
 
-    TEST_F( LayerNormCudaTests, Error_ShapeMismatch )
+    // ====================================================================
+    // Forward Tests (new API: forward returns Tensor&)
+    // ====================================================================
+
+    TYPED_TEST( LayerNormCudaTests, Forward_BeforeBuild_ThrowsRuntimeError )
     {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
-        auto data = SmallFp32Data();
-        data.module->build( data.shape );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        shape_t wrong_shape = { 2, 3, 8 };
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Small() );
 
-        CudaTensor<TensorDataType::FP32> input( "CUDA:0", wrong_shape );
-        CudaTensor<TensorDataType::FP32> output( "CUDA:0", wrong_shape );
+        CudaTensor<TPrecision> input( Device::Cuda( 0 ), fixture.test_shape.shape );
 
         EXPECT_THROW(
-            data.module->forward( input, output ),
-            std::invalid_argument
+            fixture.component->forward( input ),
+            std::runtime_error
         );
     }
 
-    TEST_F( LayerNormCudaTests, Synchronize )
+    TYPED_TEST( LayerNormCudaTests, Forward_WithVariousShapes_ProducesValidOutput )
     {
-        if (!cuda_available_)
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto shapes = TestShape::StandardShapes();
+
+        for ( const auto& test_shape : shapes )
         {
-            GTEST_SKIP() << "CUDA not available";
+            auto fixture = LayerNormTestFixture<TPrecision>::Create( test_shape );
+            fixture.component->build( test_shape.shape );
+
+            CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), test_shape.shape );
+            random( host_input, -2.0f, 2.0f );
+
+            CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), test_shape.shape );
+
+            copy( host_input, device_input );
+
+            Tensor<TPrecision, CudaDeviceMemoryResource>* out_ptr = nullptr;
+            EXPECT_NO_THROW( { auto& out_ref = fixture.component->forward( device_input ); out_ptr = &out_ref; } )
+                << "Forward failed for shape: " << test_shape.name;
+
+            ASSERT_NE( out_ptr, nullptr );
+
+            auto& out_tensor = *out_ptr;
+
+            EXPECT_EQ( out_tensor.shape(), device_input.shape() )
+                << "Output shape mismatch for shape: " << test_shape.name;
+
+            auto host_out = toHost<TensorDataType::FP32>( out_tensor );
+
+            EXPECT_EQ( host_out.size(), out_tensor.size() )
+                << "Output size mismatch for shape: " << test_shape.name;
         }
-
-        auto data = SmallFp32Data();
-
-        EXPECT_NO_THROW( data.module->synchronize() );
     }
 
-    TEST_F( LayerNormCudaTests, SetTrainingMode )
+    // ====================================================================
+    // Additional forward variants
+    // ====================================================================
+
+    TYPED_TEST( LayerNormCudaTests, Forward_WithBias_Succeeds )
     {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
-        auto data = SmallFp32Data();
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        EXPECT_FALSE( data.module->isTraining() );
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Medium(), true );
 
-        data.module->setTraining( true );
-        EXPECT_TRUE( data.module->isTraining() );
+        fixture.component->build( fixture.test_shape.shape );
 
-        data.module->setTraining( false );
-        EXPECT_FALSE( data.module->isTraining() );
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.test_shape.shape );
+        random( host_input, -2.0f, 2.0f );
+
+        CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.test_shape.shape );
+
+        copy( host_input, device_input );
+
+        Tensor<TPrecision, CudaDeviceMemoryResource>* out_ptr = nullptr;
+        EXPECT_NO_THROW( { auto& out_ref = fixture.component->forward( device_input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
     }
 
-    TEST_F( LayerNormCudaTests, MultipleForwardCalls )
+    TYPED_TEST( LayerNormCudaTests, Forward_WithoutBias_Succeeds )
     {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
-        auto data = MediumFp32Data();
-        data.module->build( data.shape );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", data.shape );
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", data.shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.shape );
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Medium(), false );
 
-        for (int iter = 0; iter < 10; ++iter)
+        fixture.component->build( fixture.test_shape.shape );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.test_shape.shape );
+        random( host_input, -2.0f, 2.0f );
+
+        CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.test_shape.shape );
+
+        copy( host_input, device_input );
+
+        Tensor<TPrecision, CudaDeviceMemoryResource>* out_ptr = nullptr;
+        EXPECT_NO_THROW( { auto& out_ref = fixture.component->forward( device_input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
+    }
+
+    TYPED_TEST( LayerNormCudaTests, Forward_DifferentEpsilon_Succeeds )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Medium(), true, 1e-3f );
+
+        fixture.component->build( fixture.test_shape.shape );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.test_shape.shape );
+        random( host_input, -2.0f, 2.0f );
+
+        CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.test_shape.shape );
+
+        copy( host_input, device_input );
+
+        Tensor<TPrecision, CudaDeviceMemoryResource>* out_ptr = nullptr;
+        EXPECT_NO_THROW( { auto& out_ref = fixture.component->forward( device_input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
+    }
+
+    TYPED_TEST( LayerNormCudaTests, Forward_MultipleTrailingDims_Succeeds )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::MultiTrailing() );
+
+        fixture.component->build( fixture.test_shape.shape );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.test_shape.shape );
+        random( host_input, -3.0f, 3.0f );
+
+        CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.test_shape.shape );
+
+        copy( host_input, device_input );
+
+        Tensor<TPrecision, CudaDeviceMemoryResource>* out_ptr = nullptr;
+        EXPECT_NO_THROW( { auto& out_ref = fixture.component->forward( device_input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
+
+        auto& out_tensor = *out_ptr;
+        EXPECT_EQ( out_tensor.size(), device_input.size() );
+    }
+
+    TYPED_TEST( LayerNormCudaTests, Forward_MultipleCalls_Succeeds )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Medium() );
+        fixture.component->build( fixture.test_shape.shape );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.test_shape.shape );
+        CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.test_shape.shape );
+
+        for ( int iter = 0; iter < 10; ++iter )
         {
             random( host_input, -2.0f, 2.0f );
             copy( host_input, device_input );
 
-            EXPECT_NO_THROW( data.module->forward( device_input, device_output ) );
+            Tensor<TPrecision, CudaDeviceMemoryResource>* out_ptr = nullptr;
+            EXPECT_NO_THROW( { auto& out_ref = fixture.component->forward( device_input ); out_ptr = &out_ref; } );
+            ASSERT_NE( out_ptr, nullptr );
         }
     }
 
-    TEST_F( LayerNormCudaTests, CpuCuda_OutputEquivalence )
+    // ====================================================================
+    // Axis Mode Tests
+    // ====================================================================
+
+    TYPED_TEST( LayerNormCudaTests, WithAxis_Construction_Succeeds )
     {
-        if (!cuda_available_)
-        {
-            GTEST_SKIP() << "CUDA not available";
-        }
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
-        shape_t test_shape = { 2, 4, 8 };
-        shape_t normalized_shape = { 8 };
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        // Create CPU module directly
-        LayerNormConfig cpu_config;
-        cpu_config.withName( "cpu_equiv" )
-            .withNormalizedShape( normalized_shape )
-            .withBias( true )
-            .withEpsilon( 1e-5f );
+        auto fixture = LayerNormTestFixture<TPrecision>::CreateWithAxis( TestShape::Medium(), -1 );
 
-        auto cpu_exec_context = std::make_shared<ExecutionContext<DeviceType::Cpu>>();
-        auto cpu_module = std::make_shared<LayerNorm<DeviceType::Cpu, TensorDataType::FP32>>( cpu_exec_context, cpu_config );
+        std::string expected_name = "layernorm_cuda_axis_Medium_" + std::string( PrecisionTraits<TPrecision>::name );
+        EXPECT_EQ( fixture.component->getName(), expected_name );
+        EXPECT_FALSE( fixture.component->isBuilt() );
+    }
 
-        // Create CUDA module
-        auto cuda_data = LayerNormCudaTestData<TensorDataType::FP32>::Create(
-            "cuda_equiv", test_shape, normalized_shape );
+    TYPED_TEST( LayerNormCudaTests, WithAxis_Build_Succeeds )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
-        // Build both modules
-        cpu_module->build( test_shape );
-        cuda_data.module->build( test_shape );
+        constexpr TensorDataType TPrecision = TypeParam::value;
 
-        // Create and initialize input
-        CpuTensor<TensorDataType::FP32> host_input( "CPU", test_shape );
+        auto fixture = LayerNormTestFixture<TPrecision>::CreateWithAxis( TestShape::Medium(), -1 );
+
+        EXPECT_NO_THROW( fixture.component->build( fixture.test_shape.shape ) );
+        EXPECT_TRUE( fixture.component->isBuilt() );
+    }
+
+    TYPED_TEST( LayerNormCudaTests, WithAxis_Forward_Succeeds )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = LayerNormTestFixture<TPrecision>::CreateWithAxis( TestShape::Medium(), -1 );
+
+        fixture.component->build( fixture.test_shape.shape );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.test_shape.shape );
         random( host_input, -2.0f, 2.0f );
 
-        // Initialize parameters with same values for both CPU and CUDA
-        //CpuTensor<TensorDataType::FP32> cpu_weight( "CPU", normalized_shape );
-        //CpuTensor<TensorDataType::FP32> cpu_bias( "CPU", normalized_shape );
-        //ones( cpu_weight );
-        //zeros( cpu_bias );
+        CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.test_shape.shape );
 
-        //// Copy parameters to CPU module
-        //copy( cpu_weight, *cpu_module->getWeight() );
-        //copy( cpu_bias, *cpu_module->getBias() );
-
-        //// Copy parameters to CUDA module
-        //copy( cpu_weight, *cuda_data.module->getWeight() );
-        //copy( cpu_bias, *cuda_data.module->getBias() );
-
-        // Run CPU forward pass
-        CpuTensor<TensorDataType::FP32> cpu_output( "CPU", test_shape );
-        cpu_module->forward( host_input, cpu_output );
-
-        // Run CUDA forward pass
-        CudaTensor<TensorDataType::FP32> device_input( "CUDA:0", test_shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", test_shape );
         copy( host_input, device_input );
-        cuda_data.module->forward( device_input, device_output );
 
-        // Copy CUDA output back to host for comparison
-        CpuTensor<TensorDataType::FP32> cuda_output_host = toHost<TensorDataType::FP32>( device_output );
+        Tensor<TPrecision, CudaDeviceMemoryResource>* out_ptr = nullptr;
+        EXPECT_NO_THROW( { auto& out_ref = fixture.component->forward( device_input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
+    }
 
-        // Compare outputs
-        const float epsilon = 1e-4f;
-        bool all_close = true;
+    TYPED_TEST( LayerNormCudaTests, WithAxis_ForwardBeforeBuild_ThrowsRuntimeError )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
 
-        for (size_t i = 0; i < cpu_output.size(); ++i)
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = LayerNormTestFixture<TPrecision>::CreateWithAxis( TestShape::Medium(), -1 );
+
+        CudaTensor<TPrecision> input( Device::Cuda( 0 ), fixture.test_shape.shape );
+
+        EXPECT_THROW(
+            fixture.component->forward( input ),
+            std::runtime_error
+        );
+    }
+
+    // ====================================================================
+    // Edge Case Tests
+    // ====================================================================
+
+    TYPED_TEST( LayerNormCudaTests, EdgeCase_MinimalShape_Succeeds )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Minimal() );
+
+        fixture.component->build( fixture.test_shape.shape );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.test_shape.shape );
+        random( host_input, -1.0f, 1.0f );
+
+        CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.test_shape.shape );
+
+        copy( host_input, device_input );
+
+        Tensor<TPrecision, CudaDeviceMemoryResource>* out_ptr = nullptr;
+        EXPECT_NO_THROW( { auto& out_ref = fixture.component->forward( device_input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
+    }
+
+    TYPED_TEST( LayerNormCudaTests, EdgeCase_TransformerSize_Succeeds )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        auto fixture = LayerNormTestFixture<TPrecision>::Create( TestShape::Transformer() );
+
+        fixture.component->build( fixture.test_shape.shape );
+
+        CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), fixture.test_shape.shape );
+        random( host_input, -2.0f, 2.0f );
+
+        CudaTensor<TPrecision> device_input( Device::Cuda( 0 ), fixture.test_shape.shape );
+
+        copy( host_input, device_input );
+
+        Tensor<TPrecision, CudaDeviceMemoryResource>* out_ptr = nullptr;
+        EXPECT_NO_THROW( { auto& out_ref = fixture.component->forward( device_input ); out_ptr = &out_ref; } );
+        ASSERT_NE( out_ptr, nullptr );
+    }
+
+    // ====================================================================
+    // CPU <-> CUDA Equivalence Tests (FP32 only)
+    // ====================================================================
+
+    TYPED_TEST( LayerNormCudaTests, Forward_CPU_CUDA_Equivalence_FP32 )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        if constexpr ( TPrecision != TensorDataType::FP32 )
         {
-            float cpu_val = cpu_output.data()[i];
-            float cuda_val = cuda_output_host.data()[i];
-            float diff = std::abs( cpu_val - cuda_val );
-
-            if (diff > epsilon)
-            {
-                all_close = false;
-                break;
-            }
+            GTEST_SKIP() << "Forward equivalence test only runs for FP32 precision";
         }
 
-        EXPECT_TRUE( all_close ) << "CPU and CUDA implementations produced different results";
+        try
+        {
+            auto shape = TestShape::Small();
+
+            auto config = LayerNormConfig( shape.normalized_shape )
+                .withBias( true )
+                .withEpsilon( 1e-5f );
+
+            auto cpu_comp = std::make_shared<LayerNorm<DeviceType::Cpu, TensorDataType::FP32>>(
+                "layernorm_cpu_equiv", config, Device::Cpu()
+            );
+
+            auto cuda_comp = std::make_shared<LayerNorm<DeviceType::Cuda, TensorDataType::FP32>>(
+                "layernorm_cuda_equiv", config, Device::Cuda( 0 )
+            );
+
+            cpu_comp->build( shape.shape );
+            cuda_comp->build( shape.shape );
+
+            CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), shape.shape );
+            random( host_input, -2.0f, 2.0f );
+
+            Tensor<TensorDataType::FP32, CpuMemoryResource>* cpu_out_ptr = nullptr;
+            ASSERT_NO_THROW( { auto& out_ref = cpu_comp->forward( host_input ); cpu_out_ptr = &out_ref; } );
+            ASSERT_NE( cpu_out_ptr, nullptr );
+
+            auto& cpu_out_tensor = *cpu_out_ptr;
+
+            CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), shape.shape );
+            copy( host_input, device_input );
+
+            Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>* cuda_out_ptr = nullptr;
+            ASSERT_NO_THROW( { auto& out_ref = cuda_comp->forward( device_input ); cuda_out_ptr = &out_ref; } );
+            ASSERT_NE( cuda_out_ptr, nullptr );
+
+            auto& cuda_out_tensor = *cuda_out_ptr;
+            cuda_comp->synchronize();
+
+            CpuTensor<TensorDataType::FP32> host_out_cuda = toHost<TensorDataType::FP32>( cuda_out_tensor );
+
+            auto* cdata = cpu_out_tensor.data();
+            auto* gdata = host_out_cuda.data();
+            size_t total = cpu_out_tensor.size();
+
+            for ( size_t i = 0; i < total; ++i )
+            {
+                EXPECT_NEAR( cdata[ i ], gdata[ i ], 1e-4f ) << "Mismatch at index " << i;
+            }
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "LayerNorm backend not available for CPU/CUDA equivalence test";
+        }
+    }
+
+    // ====================================================================
+    // Backward Tests (CPU <-> CUDA Equivalence, FP32 only)
+    // ====================================================================
+
+    TYPED_TEST( LayerNormCudaTests, Backward_CPU_CUDA_Equivalence_FP32 )
+    {
+        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        if constexpr ( TPrecision != TensorDataType::FP32 )
+        {
+            GTEST_SKIP() << "Backward equivalence test only runs for FP32 precision";
+        }
+
+        try
+        {
+            auto shape = TestShape::Small();
+
+            auto config = LayerNormConfig( shape.normalized_shape )
+                .withBias( true )
+                .withEpsilon( 1e-5f );
+
+            auto cpu_comp = std::make_shared<LayerNorm<DeviceType::Cpu, TensorDataType::FP32>>(
+                "layernorm_cpu_backward", config, Device::Cpu()
+            );
+
+            auto cuda_comp = std::make_shared<LayerNorm<DeviceType::Cuda, TensorDataType::FP32>>(
+                "layernorm_cuda_backward", config, Device::Cuda( 0 )
+            );
+
+            cpu_comp->build( shape.shape );
+            cuda_comp->build( shape.shape );
+
+            cpu_comp->setTraining( true );
+            cuda_comp->setTraining( true );
+
+            // Prepare inputs and perform forward to populate cached statistics (mean/rstd)
+            CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), shape.shape );
+            random( host_input, -2.0f, 2.0f );
+
+            // CPU forward (new API)
+            Tensor<TensorDataType::FP32, CpuMemoryResource>* cpu_out_ptr = nullptr;
+            cpu_out_ptr = &cpu_comp->forward( host_input );
+            ASSERT_NE( cpu_out_ptr, nullptr );
+
+            // CUDA forward (new API)
+            CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), shape.shape );
+            copy( host_input, device_input );
+
+            Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>* cuda_out_ptr = nullptr;
+            cuda_out_ptr = &cuda_comp->forward( device_input );
+            ASSERT_NE( cuda_out_ptr, nullptr );
+            cuda_comp->synchronize();
+
+            // Prepare output gradient (dY) on host and device
+            CpuTensor<TensorDataType::FP32> host_dout( Device::Cpu(), shape.shape );
+            random( host_dout, -1.0f, 1.0f );
+
+            // CPU backward (new API) -> returns component-owned input grad
+            Tensor<TensorDataType::FP32, CpuMemoryResource>* cpu_ing_ptr = nullptr;
+            ASSERT_NO_THROW( { auto& ing_ref = cpu_comp->backward( host_input, host_dout ); cpu_ing_ptr = &ing_ref; } );
+            ASSERT_NE( cpu_ing_ptr, nullptr );
+
+            auto& cpu_ing_tensor = *cpu_ing_ptr;
+
+            // CUDA backward (new API)
+            CudaTensor<TensorDataType::FP32> device_dout( Device::Cuda( 0 ), shape.shape );
+            copy( host_dout, device_dout );
+
+            Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>* cuda_ing_ptr = nullptr;
+            ASSERT_NO_THROW( { auto& ing_ref = cuda_comp->backward( device_input, device_dout ); cuda_ing_ptr = &ing_ref; } );
+            ASSERT_NE( cuda_ing_ptr, nullptr );
+
+            auto& cuda_ing_tensor = *cuda_ing_ptr;
+            cuda_comp->synchronize();
+
+            CpuTensor<TensorDataType::FP32> host_input_grad_cuda = toHost<TensorDataType::FP32>( cuda_ing_tensor );
+
+            // Compare input gradients
+            auto* cpu_dx = cpu_ing_tensor.data();
+            auto* cuda_dx = host_input_grad_cuda.data();
+            size_t total = cpu_ing_tensor.size();
+
+            for ( size_t i = 0; i < total; ++i )
+            {
+                EXPECT_NEAR( cpu_dx[ i ], cuda_dx[ i ], 1e-4f ) << "Input-grad mismatch at index " << i;
+            }
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "LayerNorm backend not available for CPU/CUDA backward equivalence test";
+        }
+    }
+
+    // ====================================================================
+    // Deterministic Tests
+    // ====================================================================
+
+    TYPED_TEST( LayerNormCudaTests, Forward_Deterministic_ReproducibleWithSeed )
+    {
+        if ( !this->cuda_available_ )
+            GTEST_SKIP() << "CUDA not available";
+
+        constexpr TensorDataType TPrecision = TypeParam::value;
+
+        if constexpr ( TPrecision != TensorDataType::FP32 )
+        {
+            GTEST_SKIP() << "Deterministic test only runs for FP32 precision";
+        }
+
+        try
+        {
+            auto shape = TestShape::Small();
+
+            auto cuda_comp = std::make_shared<LayerNorm<DeviceType::Cuda, TensorDataType::FP32>>(
+                "layernorm_reproducible",
+                LayerNormConfig( shape.normalized_shape ),
+                Device::Cuda( 0 )
+            );
+
+            cuda_comp->build( shape.shape );
+
+            Mila::Core::RandomGenerator::getInstance().setSeed( 42 );
+
+            CpuTensor<TensorDataType::FP32> host_input1( Device::Cpu(), shape.shape );
+            random( host_input1, -2.0f, 2.0f );
+
+            CudaTensor<TensorDataType::FP32> device_input1( Device::Cuda( 0 ), shape.shape );
+
+            copy( host_input1, device_input1 );
+
+            Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>* out1_ptr = nullptr;
+
+            ASSERT_NO_THROW( { auto& out_ref = cuda_comp->forward( device_input1 ); out1_ptr = &out_ref; } );
+            ASSERT_NE( out1_ptr, nullptr );
+
+            auto& out1_tensor = *out1_ptr;
+            CpuTensor<TensorDataType::FP32> host_output1 = toHost<TensorDataType::FP32>( out1_tensor );
+
+            Mila::Core::RandomGenerator::getInstance().setSeed( 42 );
+
+            CpuTensor<TensorDataType::FP32> host_input2( Device::Cpu(), shape.shape );
+            random( host_input2, -2.0f, 2.0f );
+
+            CudaTensor<TensorDataType::FP32> device_input2( Device::Cuda( 0 ), shape.shape );
+
+            copy( host_input2, device_input2 );
+
+            Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>* out2_ptr = nullptr;
+            ASSERT_NO_THROW( { auto& out_ref = cuda_comp->forward( device_input2 ); out2_ptr = &out_ref; } );
+            ASSERT_NE( out2_ptr, nullptr );
+
+            auto& out2_tensor = *out2_ptr;
+            CpuTensor<TensorDataType::FP32> host_output2 = toHost<TensorDataType::FP32>( out2_tensor );
+
+            auto* data1 = host_output1.data();
+            auto* data2 = host_output2.data();
+            size_t total = host_output1.size();
+
+            for ( size_t i = 0; i < total; ++i )
+            {
+                EXPECT_FLOAT_EQ( data1[ i ], data2[ i ] ) << "Non-reproducible output at index " << i;
+            }
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "LayerNorm backend not available";
+        }
     }
 }

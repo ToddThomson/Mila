@@ -1,14 +1,6 @@
+# Development override for the VS Code dev container (see .devcontainer/devcontainer.json).
+# Layered on top of docker-compose.yml, which provides the build, GPU reservation, and the
+# ..:/mila bind mount. Keep the container running so the editor can attach to it.
 services:
   mila-dev:
-    extends:
-      file: docker-compose.yml
-      service: mila-dev
-    volumes:
-      - ..:/mila
-      - build-cache:/mila/build
-    environment:
-      - CMAKE_BUILD_TYPE=Debug
-      - MILA_ENABLE_TESTING=ON
-
-volumes:
-  build-cache:
+    command: sleep infinity

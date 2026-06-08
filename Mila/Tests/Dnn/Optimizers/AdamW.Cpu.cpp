@@ -62,7 +62,7 @@ namespace Dnn::Optimizers::Tests
             float init_value = 1.0f )
         {
             auto param = std::make_shared<Tensor<TensorDataType::FP32, CpuMemoryResource>>(
-                exec_ctx_->getDevice(), shape );
+                exec_ctx_->getDeviceId(), shape );
 
             auto data = param->data();
             for (size_t i = 0; i < param->size(); ++i)
@@ -82,7 +82,7 @@ namespace Dnn::Optimizers::Tests
             float grad_value = 0.1f )
         {
             auto grad = std::make_shared<Tensor<TensorDataType::FP32, CpuMemoryResource>>(
-                exec_ctx_->getDevice(), shape );
+                exec_ctx_->getDeviceId(), shape );
 
             auto data = grad->data();
             for (size_t i = 0; i < grad->size(); ++i)
@@ -389,8 +389,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCpuTests, Error_AddParameter_NullGradient )
     {
         AdamWConfig cfg;
-        cfg.withLearningRate( default_lr_ )
-            .withName("AdamW" );
+        cfg.withLearningRate( default_lr_ );
 
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
             exec_ctx_, cfg );
@@ -406,8 +405,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCpuTests, Error_AddParameter_ShapeMismatch )
     {
         AdamWConfig cfg;
-        cfg.withLearningRate( default_lr_ )
-            .withName( "AdamW" );
+        cfg.withLearningRate( default_lr_ );
 
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
             exec_ctx_, cfg );
@@ -428,8 +426,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCpuTests, Step_SingleParameter_SingleIteration )
     {
         AdamWConfig cfg;
-        cfg.withLearningRate( default_lr_ )
-            .withName( "AdamW" );
+        cfg.withLearningRate( default_lr_ );
 
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
             exec_ctx_, cfg );
@@ -474,8 +471,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCpuTests, Step_MultipleIterations )
     {
         AdamWConfig cfg;
-        cfg.withLearningRate( default_lr_ )
-            .withName( "AdamW" );
+        cfg.withLearningRate( default_lr_ );
 
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
             exec_ctx_, cfg );
@@ -681,8 +677,7 @@ namespace Dnn::Optimizers::Tests
     TEST_F( AdamWCpuTests, Error_SetLearningRate_Invalid )
     {
         AdamWConfig cfg;
-        cfg.withLearningRate( default_lr_ )
-            .withName( "AdamW" );
+        cfg.withLearningRate( default_lr_ );
 
         auto optimizer = std::make_shared<CpuAdamWOptimizer<TensorDataType::FP32>>(
             exec_ctx_, cfg );

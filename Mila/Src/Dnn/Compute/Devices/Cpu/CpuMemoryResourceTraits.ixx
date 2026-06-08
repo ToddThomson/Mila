@@ -24,8 +24,6 @@ namespace Mila::Dnn::Compute
         static constexpr bool is_cpu_resource = true;
         static constexpr bool is_cuda_resource = false;
         static constexpr bool is_metal_resource = false;
-        static constexpr bool is_opencl_resource = false;
-        static constexpr bool is_vulkan_resource = false;
 
         // CPU-specific traits
         static constexpr bool supports_simd = true;

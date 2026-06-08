@@ -18,14 +18,14 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
-import Compute.Precision;
-import Compute.ComputeDevice;
+import Compute.Device;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.DeviceTypeTraits.Cpu;
-import Compute.CudaDeviceMemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CudaDevice;
+#ifdef MILA_HAS_CUDA
+import Compute.CudaDeviceMemoryResource;
+#endif
 import Compute.OperationBase;
 import Compute.OperationType;
 
@@ -44,8 +44,11 @@ namespace Mila::Dnn::Compute
     class UnaryOperation : public Operation<TDeviceType, TPrecision>
     {
     public:
+#ifdef MILA_HAS_CUDA
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-
+#else
+        using MR = CpuMemoryResource;
+#endif
         // Concrete tensor aliases for implementers to use (typed, device-aware)
         using TensorOutputType = Tensor<TPrecision, MR>;
         using TensorInputType  = Tensor<TInput, MR>;
@@ -69,6 +72,7 @@ namespace Mila::Dnn::Compute
         virtual void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad ) const = 0;
 
     protected:
+        
         // Helpers for typed dynamic casts to concrete Tensor<T,...> types.
         // Use these to avoid unsafe void* casts and to prefer the typed `.data()` accessor.
         static const TensorInputType& asInputTensor( const ITensor& t )

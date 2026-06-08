@@ -25,10 +25,11 @@ import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
+import Dnn.TensorInitializers;
 import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.CudaDeviceMemoryResource;
-import Compute.CudaExecutionContext;
+import Compute.ExecutionContext;
 import Compute.CudaTensorDataType;
 
 namespace Mila::Dnn::Compute
@@ -66,7 +67,7 @@ namespace Mila::Dnn::Compute
         using MR = CudaDeviceMemoryResource;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
-        using ExecutionContextType = ExecutionContext<DeviceType::Cuda>;
+        using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
         /**
          * @brief Construct CUDA AdamW optimizer.
@@ -76,14 +77,9 @@ namespace Mila::Dnn::Compute
          *
          * @throws std::invalid_argument if exec_context is null
          */
-        explicit CudaAdamWOptimizer( std::shared_ptr<ExecutionContextType> context, const OptimizerConfig& config )
-            : exec_context_( context ), config_( config ), grad_scale_{ 1.0f }, step_count_{ 0 }
+        explicit CudaAdamWOptimizer( IExecutionContext* context, const OptimizerConfig& config )
+            : exec_context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaAdamOptimizer")), config_(config), grad_scale_{1.0f}, step_count_{0}
         {
-            if (!exec_context_)
-            {
-                throw std::invalid_argument( "CudaAdamWOptimizer: ExecutionContext cannot be null" );
-            }
-
             validateHyperparameters();
         }
 
@@ -152,16 +148,16 @@ namespace Mila::Dnn::Compute
             grad_data_.push_back( reinterpret_cast<NativeType*>(grad->rawData()) );
 
             // Create optimizer-owned state tensors (always FP32 for numerical stability)
-            auto device = exec_context_->getDevice();
+            auto device = exec_context_->getDeviceId();
             auto shape = param->shape();
 
             auto m_state = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
             m_state->setName( param->getName() + ".m" );
-            zeros( *m_state );
+            // FIXME: zero( *m_state );
 
             auto v_state = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
             v_state->setName( param->getName() + ".v" );
-            zeros( *v_state );
+            // FIXME: zero( *v_state );
 
             m_states_.push_back( m_state );
             v_states_.push_back( v_state );
@@ -179,7 +175,7 @@ namespace Mila::Dnn::Compute
                 // Initialize master param from current param values
                 // TODO: Implement copy with type conversion
                 // For now, initialize to zero
-                zeros( *master_param );
+                // FIXME: zero( *master_param );
 
                 master_params_.push_back( master_param );
                 master_param_data_.push_back( reinterpret_cast<float*>(master_param->rawData()) );
@@ -225,6 +221,11 @@ namespace Mila::Dnn::Compute
             {
                 size_t num_params = params_[i]->size();
 
+                // DEBUG: Print what we're about to update
+                if ( step_count_ == 1 ) {  // Only print on first step
+                    printf( "AdamW step(): group[%zu] has %zu parameters\n", i, num_params );
+                }
+
                 NativeType* param_ptr = param_data_[i];
                 NativeType* grad_ptr = grad_data_[i];
                 
@@ -265,6 +266,19 @@ namespace Mila::Dnn::Compute
                 );
             }
 
+            // After the loop, print total:
+            if ( step_count_ == 1 ) {
+                size_t total = 0;
+                for ( size_t i = 0; i < params_.size(); ++i ) {
+                    total += params_[ i ]->size();
+                }
+                printf( "AdamW step(): Total parameters across %zu groups = %zu\n",
+                    params_.size(), total );
+            }
+
+            // DEBUG:
+            exec_context_->synchronize();
+
             // Note: No synchronization - caller can sync via exec_context_->synchronize() if needed
         }
 
@@ -275,20 +289,21 @@ namespace Mila::Dnn::Compute
          *
          * @throws std::runtime_error if no parameters have been registered
          */
-        void zeroGrad() override
-        {
-            if (grads_.empty())
-            {
-                throw std::runtime_error( "CudaAdamWOptimizer: no gradients to zero." );
-            }
-
-            for (auto* grad : grads_)
-            {
-                // The grad must be valid!
-				auto total_size = grad->size() * grad->elementSize();
-                cudaMemsetAsync( grad->rawData(), 0, total_size, exec_context_->getStream() );
-            }
-        }
+    //    // TJT: zeroGradients() is now handled by the component/model
+    //    void zeroGrad() override
+    //    {
+    //        if (grads_.empty())
+    //        {
+    //            throw std::runtime_error( "CudaAdamWOptimizer: no gradients to zero." );
+    //        }
+    //
+    //        for (auto* grad : grads_)
+    //        {
+    //            // The grad must be valid!
+	//			//auto total_size = grad->size() * grad->elementSize();
+    //            cudaMemsetAsync( grad->rawData(), 0, total_size, exec_context_->getStream() );
+    //        }
+    //    }
 
         /**
          * @brief Get current learning rate.
@@ -383,14 +398,15 @@ namespace Mila::Dnn::Compute
         }
 
     private:
-        std::shared_ptr<ExecutionContextType> exec_context_;
-		OptimizerConfig config_;
+
+        OptimizerConfig config_;
+        CudaExecutionContext* exec_context_;
 
         float grad_scale_{ 1.0f };
         
         size_t step_count_;
 
-        // Non-owning pointers to parameters and gradients (module owns these)
+        // Non-owning pointers to parameters and gradients (component owns these)
         std::vector<ITensor*> params_;
         std::vector<ITensor*> grads_;
 

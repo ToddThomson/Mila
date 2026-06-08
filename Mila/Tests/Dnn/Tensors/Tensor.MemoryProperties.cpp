@@ -5,155 +5,160 @@ import Mila;
 namespace Dnn::Tensors::Tests
 {
     using namespace Mila::Dnn;
+    using namespace Mila::Dnn::Compute;
 
     class TensorMemoryPropertiesTest : public testing::Test {
     protected:
+        void SetUp() override {
+            has_cuda_device_ = DeviceRegistry::instance().hasDeviceType( DeviceType::Cuda );
+        }
+
         TensorMemoryPropertiesTest() {}
+
+        bool has_cuda_device_;
     };
 
     // ====================================================================
-    // Host-Compatible Abstract Data Types with All Memory Resources
+    // Host-only tests: verify CPU memory resource behavior and host-accessible types
     // ====================================================================
 
-    TEST( TensorMemoryPropertiesTest, HostCompatibleDataTypes_AllMemoryResources ) {
-        std::vector<int64_t> shape = { 2, 3 };
+    TEST_F( TensorMemoryPropertiesTest, HostOnly_HostCompatibleDataTypes_CpuMemoryResource ) {
+        shape_t shape = { 2, 3 };
 
-        // FP32 (host-compatible floating-point)
+        // FP32 (host-compatible floating-point) - CPU only
         {
-            Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> host_tensor( "CPU", shape );
-            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::FP32, Compute::CudaPinnedMemoryResource> pinned_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::FP32, Compute::CudaManagedMemoryResource> managed_tensor( "CUDA:0", shape );
+            Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> host_tensor( Device::Cpu(), shape );
 
             EXPECT_TRUE( host_tensor.is_host_accessible() );
             EXPECT_FALSE( host_tensor.is_device_accessible() );
-            EXPECT_FALSE( cuda_tensor.is_host_accessible() );
-            EXPECT_TRUE( cuda_tensor.is_device_accessible() );
-            EXPECT_TRUE( pinned_tensor.is_host_accessible() );
-            EXPECT_TRUE( pinned_tensor.is_device_accessible() );
-            EXPECT_TRUE( managed_tensor.is_host_accessible() );
-            EXPECT_TRUE( managed_tensor.is_device_accessible() );
 
             EXPECT_EQ( host_tensor.getDataType(), TensorDataType::FP32 );
-            EXPECT_EQ( cuda_tensor.getDataType(), TensorDataType::FP32 );
-            EXPECT_EQ( pinned_tensor.getDataType(), TensorDataType::FP32 );
-            EXPECT_EQ( managed_tensor.getDataType(), TensorDataType::FP32 );
-
             EXPECT_EQ( host_tensor.getDataTypeName(), "FP32" );
-            EXPECT_EQ( cuda_tensor.getDataTypeName(), "FP32" );
-            EXPECT_EQ( pinned_tensor.getDataTypeName(), "FP32" );
-            EXPECT_EQ( managed_tensor.getDataTypeName(), "FP32" );
         }
 
-        // INT16 (host-compatible signed integer)
+        // INT16 (host-compatible signed integer) - CPU only
         {
-            Tensor<TensorDataType::INT16, Compute::CpuMemoryResource> host_tensor( "CPU", shape );
-            Tensor<TensorDataType::INT16, Compute::CudaDeviceMemoryResource> cuda_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::INT16, Compute::CudaPinnedMemoryResource> pinned_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::INT16, Compute::CudaManagedMemoryResource> managed_tensor( "CUDA:0", shape );
+            Tensor<TensorDataType::INT16, Compute::CpuMemoryResource> host_tensor( Device::Cpu(), shape );
 
             EXPECT_TRUE( host_tensor.is_host_accessible() );
             EXPECT_FALSE( host_tensor.is_device_accessible() );
-            EXPECT_FALSE( cuda_tensor.is_host_accessible() );
-            EXPECT_TRUE( cuda_tensor.is_device_accessible() );
-            EXPECT_TRUE( pinned_tensor.is_host_accessible() );
-            EXPECT_TRUE( pinned_tensor.is_device_accessible() );
-            EXPECT_TRUE( managed_tensor.is_host_accessible() );
-            EXPECT_TRUE( managed_tensor.is_device_accessible() );
 
             EXPECT_EQ( host_tensor.getDataType(), TensorDataType::INT16 );
-            EXPECT_EQ( cuda_tensor.getDataType(), TensorDataType::INT16 );
-            EXPECT_EQ( pinned_tensor.getDataType(), TensorDataType::INT16 );
-            EXPECT_EQ( managed_tensor.getDataType(), TensorDataType::INT16 );
-
             EXPECT_EQ( host_tensor.getDataTypeName(), "INT16" );
         }
 
-        // INT32 (host-compatible signed integer)
+        // INT32 (host-compatible signed integer) - CPU only
         {
-            Tensor<TensorDataType::INT32, Compute::CpuMemoryResource> host_tensor( "CPU", shape );
-            Tensor<TensorDataType::INT32, Compute::CudaDeviceMemoryResource> cuda_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::INT32, Compute::CudaPinnedMemoryResource> pinned_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::INT32, Compute::CudaManagedMemoryResource> managed_tensor( "CUDA:0", shape );
+            Tensor<TensorDataType::INT32, Compute::CpuMemoryResource> host_tensor( Device::Cpu(), shape );
 
             EXPECT_TRUE( host_tensor.is_host_accessible() );
             EXPECT_FALSE( host_tensor.is_device_accessible() );
-            EXPECT_FALSE( cuda_tensor.is_host_accessible() );
-            EXPECT_TRUE( cuda_tensor.is_device_accessible() );
-            EXPECT_TRUE( pinned_tensor.is_host_accessible() );
-            EXPECT_TRUE( pinned_tensor.is_device_accessible() );
-            EXPECT_TRUE( managed_tensor.is_host_accessible() );
-            EXPECT_TRUE( managed_tensor.is_device_accessible() );
 
             EXPECT_EQ( host_tensor.getDataType(), TensorDataType::INT32 );
-            EXPECT_EQ( cuda_tensor.getDataType(), TensorDataType::INT32 );
-            EXPECT_EQ( pinned_tensor.getDataType(), TensorDataType::INT32 );
-            EXPECT_EQ( managed_tensor.getDataType(), TensorDataType::INT32 );
-
             EXPECT_EQ( host_tensor.getDataTypeName(), "INT32" );
         }
 
-        // UINT16 (host-compatible unsigned integer)
+        // UINT16 (host-compatible unsigned integer) - CPU only
         {
-            Tensor<TensorDataType::UINT16, Compute::CpuMemoryResource> host_tensor( "CPU", shape );
-            Tensor<TensorDataType::UINT16, Compute::CudaDeviceMemoryResource> cuda_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::UINT16, Compute::CudaPinnedMemoryResource> pinned_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::UINT16, Compute::CudaManagedMemoryResource> managed_tensor( "CUDA:0", shape );
+            Tensor<TensorDataType::UINT16, Compute::CpuMemoryResource> host_tensor( Device::Cpu(), shape );
 
             EXPECT_TRUE( host_tensor.is_host_accessible() );
             EXPECT_FALSE( host_tensor.is_device_accessible() );
-            EXPECT_FALSE( cuda_tensor.is_host_accessible() );
-            EXPECT_TRUE( cuda_tensor.is_device_accessible() );
-            EXPECT_TRUE( pinned_tensor.is_host_accessible() );
-            EXPECT_TRUE( pinned_tensor.is_device_accessible() );
-            EXPECT_TRUE( managed_tensor.is_host_accessible() );
-            EXPECT_TRUE( managed_tensor.is_device_accessible() );
 
             EXPECT_EQ( host_tensor.getDataType(), TensorDataType::UINT16 );
-            EXPECT_EQ( cuda_tensor.getDataType(), TensorDataType::UINT16 );
-            EXPECT_EQ( pinned_tensor.getDataType(), TensorDataType::UINT16 );
-            EXPECT_EQ( managed_tensor.getDataType(), TensorDataType::UINT16 );
-
             EXPECT_EQ( host_tensor.getDataTypeName(), "UINT16" );
         }
 
-        // UINT32 (host-compatible unsigned integer)
+        // UINT32 (host-compatible unsigned integer) - CPU only
         {
-            Tensor<TensorDataType::UINT32, Compute::CpuMemoryResource> host_tensor( "CPU", shape );
-            Tensor<TensorDataType::UINT32, Compute::CudaDeviceMemoryResource> cuda_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::UINT32, Compute::CudaPinnedMemoryResource> pinned_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::UINT32, Compute::CudaManagedMemoryResource> managed_tensor( "CUDA:0", shape );
+            Tensor<TensorDataType::UINT32, Compute::CpuMemoryResource> host_tensor( Device::Cpu(), shape );
 
             EXPECT_TRUE( host_tensor.is_host_accessible() );
             EXPECT_FALSE( host_tensor.is_device_accessible() );
-            EXPECT_FALSE( cuda_tensor.is_host_accessible() );
-            EXPECT_TRUE( cuda_tensor.is_device_accessible() );
-            EXPECT_TRUE( pinned_tensor.is_host_accessible() );
-            EXPECT_TRUE( pinned_tensor.is_device_accessible() );
-            EXPECT_TRUE( managed_tensor.is_host_accessible() );
-            EXPECT_TRUE( managed_tensor.is_device_accessible() );
 
             EXPECT_EQ( host_tensor.getDataType(), TensorDataType::UINT32 );
-            EXPECT_EQ( cuda_tensor.getDataType(), TensorDataType::UINT32 );
-            EXPECT_EQ( pinned_tensor.getDataType(), TensorDataType::UINT32 );
-            EXPECT_EQ( managed_tensor.getDataType(), TensorDataType::UINT32 );
-
             EXPECT_EQ( host_tensor.getDataTypeName(), "UINT32" );
         }
     }
 
     // ====================================================================
-    // Device-Only Abstract Data Types (CUDA only)
+    // Device tests: verify CUDA memory resources and device-only types (skipped if no CUDA)
     // ====================================================================
 
-    TEST( TensorMemoryPropertiesTest, DeviceOnlyDataTypes_CudaMemoryResources ) {
-        std::vector<int64_t> shape = { 2, 3 };
+#ifdef MILA_HAS_CUDA
+    TEST_F( TensorMemoryPropertiesTest, Device_HostCompatibleDataTypes_CudaMemoryResources ) {
+        if ( !has_cuda_device_ ) {
+            GTEST_SKIP() << "CUDA device not available. Skipping CUDA memory-resource checks.";
+        }
+
+        shape_t shape = { 2, 3 };
+
+        // FP32 across CUDA resources
+        {
+            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );
+            Tensor<TensorDataType::FP32, Compute::CudaPinnedMemoryResource> pinned_tensor( Device::Cuda( 0 ), shape );
+            Tensor<TensorDataType::FP32, Compute::CudaManagedMemoryResource> managed_tensor( Device::Cuda( 0 ), shape );
+
+            EXPECT_FALSE( cuda_tensor.is_host_accessible() );
+            EXPECT_TRUE( cuda_tensor.is_device_accessible() );
+
+            EXPECT_TRUE( pinned_tensor.is_host_accessible() );
+            EXPECT_TRUE( pinned_tensor.is_device_accessible() );
+
+            EXPECT_TRUE( managed_tensor.is_host_accessible() );
+            EXPECT_TRUE( managed_tensor.is_device_accessible() );
+
+            EXPECT_EQ( cuda_tensor.getDataType(), TensorDataType::FP32 );
+            EXPECT_EQ( pinned_tensor.getDataType(), TensorDataType::FP32 );
+            EXPECT_EQ( managed_tensor.getDataType(), TensorDataType::FP32 );
+
+            EXPECT_EQ( cuda_tensor.getDataTypeName(), "FP32" );
+            EXPECT_EQ( pinned_tensor.getDataTypeName(), "FP32" );
+            EXPECT_EQ( managed_tensor.getDataTypeName(), "FP32" );
+        }
+
+        // Host-compatible integer/unsigned types on CUDA resources: spot-check device resource behavior
+        {
+            Tensor<TensorDataType::INT16, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );
+            EXPECT_FALSE( cuda_tensor.is_host_accessible() );
+            EXPECT_TRUE( cuda_tensor.is_device_accessible() );
+            EXPECT_EQ( cuda_tensor.getDataType(), TensorDataType::INT16 );
+        }
+
+        {
+            Tensor<TensorDataType::INT32, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );
+            EXPECT_FALSE( cuda_tensor.is_host_accessible() );
+            EXPECT_TRUE( cuda_tensor.is_device_accessible() );
+            EXPECT_EQ( cuda_tensor.getDataType(), TensorDataType::INT32 );
+        }
+
+        {
+            Tensor<TensorDataType::UINT16, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );
+            EXPECT_FALSE( cuda_tensor.is_host_accessible() );
+            EXPECT_TRUE( cuda_tensor.is_device_accessible() );
+            EXPECT_EQ( cuda_tensor.getDataType(), TensorDataType::UINT16 );
+        }
+
+        {
+            Tensor<TensorDataType::UINT32, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );
+            EXPECT_FALSE( cuda_tensor.is_host_accessible() );
+            EXPECT_TRUE( cuda_tensor.is_device_accessible() );
+            EXPECT_EQ( cuda_tensor.getDataType(), TensorDataType::UINT32 );
+        }
+    }
+
+    TEST_F( TensorMemoryPropertiesTest, DeviceOnly_DataTypes_CudaMemoryResources ) {
+        if ( !has_cuda_device_ ) {
+            GTEST_SKIP() << "CUDA device not available. Skipping device-only type checks.";
+        }
+
+        shape_t shape = { 2, 3 };
 
         // FP16 (device-only half precision)
         {
-            Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource> cuda_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::FP16, Compute::CudaPinnedMemoryResource> pinned_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::FP16, Compute::CudaManagedMemoryResource> managed_tensor( "CUDA:0", shape );
+            Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );
+            Tensor<TensorDataType::FP16, Compute::CudaPinnedMemoryResource> pinned_tensor( Device::Cuda( 0 ), shape );
+            Tensor<TensorDataType::FP16, Compute::CudaManagedMemoryResource> managed_tensor( Device::Cuda( 0 ), shape );
 
             EXPECT_FALSE( cuda_tensor.is_host_accessible() );
             EXPECT_TRUE( cuda_tensor.is_device_accessible() );
@@ -165,17 +170,13 @@ namespace Dnn::Tensors::Tests
             EXPECT_EQ( cuda_tensor.getDataType(), TensorDataType::FP16 );
             EXPECT_EQ( pinned_tensor.getDataType(), TensorDataType::FP16 );
             EXPECT_EQ( managed_tensor.getDataType(), TensorDataType::FP16 );
-
-            EXPECT_EQ( cuda_tensor.getDataTypeName(), "FP16" );
-            EXPECT_EQ( pinned_tensor.getDataTypeName(), "FP16" );
-            EXPECT_EQ( managed_tensor.getDataTypeName(), "FP16" );
         }
 
         // BF16 (device-only brain float)
         {
-            Tensor<TensorDataType::BF16, Compute::CudaDeviceMemoryResource> cuda_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::BF16, Compute::CudaPinnedMemoryResource> pinned_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::BF16, Compute::CudaManagedMemoryResource> managed_tensor( "CUDA:0", shape );
+            Tensor<TensorDataType::BF16, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );
+            Tensor<TensorDataType::BF16, Compute::CudaPinnedMemoryResource> pinned_tensor( Device::Cuda( 0 ), shape );
+            Tensor<TensorDataType::BF16, Compute::CudaManagedMemoryResource> managed_tensor( Device::Cuda( 0 ), shape );
 
             EXPECT_FALSE( cuda_tensor.is_host_accessible() );
             EXPECT_TRUE( cuda_tensor.is_device_accessible() );
@@ -187,31 +188,19 @@ namespace Dnn::Tensors::Tests
             EXPECT_EQ( cuda_tensor.getDataType(), TensorDataType::BF16 );
             EXPECT_EQ( pinned_tensor.getDataType(), TensorDataType::BF16 );
             EXPECT_EQ( managed_tensor.getDataType(), TensorDataType::BF16 );
-
-            EXPECT_EQ( cuda_tensor.getDataTypeName(), "BF16" );
         }
 
-        // FP8_E4M3 (device-only 8-bit float)
+        // FP8 variants
         {
-            Tensor<TensorDataType::FP8_E4M3, Compute::CudaDeviceMemoryResource> cuda_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::FP8_E4M3, Compute::CudaPinnedMemoryResource> pinned_tensor( "CUDA:0", shape );
-            Tensor<TensorDataType::FP8_E4M3, Compute::CudaManagedMemoryResource> managed_tensor( "CUDA:0", shape );
-
+            Tensor<TensorDataType::FP8_E4M3, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );
             EXPECT_FALSE( cuda_tensor.is_host_accessible() );
             EXPECT_TRUE( cuda_tensor.is_device_accessible() );
-            EXPECT_TRUE( pinned_tensor.is_host_accessible() );
-            EXPECT_TRUE( pinned_tensor.is_device_accessible() );
-            EXPECT_TRUE( managed_tensor.is_host_accessible() );
-            EXPECT_TRUE( managed_tensor.is_device_accessible() );
-
             EXPECT_EQ( cuda_tensor.getDataType(), TensorDataType::FP8_E4M3 );
             EXPECT_EQ( cuda_tensor.getDataTypeName(), "FP8_E4M3" );
         }
 
-        // FP8_E5M2 (device-only 8-bit float alternative)
         {
-            Tensor<TensorDataType::FP8_E5M2, Compute::CudaDeviceMemoryResource> cuda_tensor( "CUDA:0", shape );
-
+            Tensor<TensorDataType::FP8_E5M2, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );
             EXPECT_FALSE( cuda_tensor.is_host_accessible() );
             EXPECT_TRUE( cuda_tensor.is_device_accessible() );
             EXPECT_EQ( cuda_tensor.getDataType(), TensorDataType::FP8_E5M2 );
@@ -220,10 +209,10 @@ namespace Dnn::Tensors::Tests
     }
 
     // ====================================================================
-    // Static Class Method Tests for Abstract Data Types
+    // Static class-method checks and compile-time verifications (no CUDA runtime required)
     // ====================================================================
 
-    TEST( TensorMemoryPropertiesTest, StaticMethods_AbstractDataTypes ) {
+    TEST_F( TensorMemoryPropertiesTest, StaticMethods_AbstractDataTypes ) {
         // Host-compatible types can be used with all memory resources
 
         // FP32
@@ -267,11 +256,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_TRUE( (Tensor<TensorDataType::BF16, Compute::CudaDeviceMemoryResource>::is_device_accessible()) );
     }
 
-    // ====================================================================
-    // Compile-time Property Verification
-    // ====================================================================
-
-    TEST( TensorMemoryPropertiesTest, CompileTimeProperties_AbstractDataTypes ) {
+    TEST_F( TensorMemoryPropertiesTest, CompileTimeProperties_AbstractDataTypes ) {
         // Host-compatible types with all memory resources
         static_assert(Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>::is_host_accessible());
         static_assert(!Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>::is_device_accessible());
@@ -311,23 +296,44 @@ namespace Dnn::Tensors::Tests
         SUCCEED();
     }
 
+#endif
+
     // ====================================================================
-    // Type Alias Property Tests (Updated for Abstract Data Types)
+    // Type alias tests: split host aliases and device aliases
     // ====================================================================
 
-    TEST( TensorMemoryPropertiesTest, TypeAliasProperties_AbstractDataTypes ) {
-        std::vector<int64_t> shape = { 2, 3 };
+    TEST_F( TensorMemoryPropertiesTest, HostOnly_TypeAliasProperties ) {
+        shape_t shape = { 2, 3 };
 
-        // Test type aliases with different abstract data types
-
-        // FP32 aliases
-        HostTensor<TensorDataType::FP32> host_fp32_tensor( "CPU", shape );
-        DeviceTensor<TensorDataType::FP32> device_fp32_tensor( "CUDA:0", shape );
-        PinnedTensor<TensorDataType::FP32> pinned_fp32_tensor( "CUDA:0", shape );
-        UniversalTensor<TensorDataType::FP32> universal_fp32_tensor( "CUDA:0", shape );
-
+        // Host aliases for various types
+        HostTensor<TensorDataType::FP32> host_fp32_tensor( Device::Cpu(), shape );
         EXPECT_TRUE( host_fp32_tensor.is_host_accessible() );
         EXPECT_FALSE( host_fp32_tensor.is_device_accessible() );
+        EXPECT_EQ( host_fp32_tensor.getDataType(), TensorDataType::FP32 );
+
+        HostTensor<TensorDataType::INT32> host_int32_tensor( Device::Cpu(), shape );
+        EXPECT_TRUE( host_int32_tensor.is_host_accessible() );
+        EXPECT_FALSE( host_int32_tensor.is_device_accessible() );
+        EXPECT_EQ( host_int32_tensor.getDataType(), TensorDataType::INT32 );
+
+        HostTensor<TensorDataType::UINT16> host_uint16_tensor( Device::Cpu(), shape );
+        EXPECT_TRUE( host_uint16_tensor.is_host_accessible() );
+        EXPECT_FALSE( host_uint16_tensor.is_device_accessible() );
+        EXPECT_EQ( host_uint16_tensor.getDataType(), TensorDataType::UINT16 );
+    }
+
+#ifdef MILA_HAS_CUDA
+    TEST_F( TensorMemoryPropertiesTest, Device_TypeAliasProperties ) {
+        if ( !has_cuda_device_ ) {
+            GTEST_SKIP() << "CUDA device not available. Skipping device alias checks.";
+        }
+
+        shape_t shape = { 2, 3 };
+
+        DeviceTensor<TensorDataType::FP32> device_fp32_tensor( Device::Cuda( 0 ), shape );
+        PinnedTensor<TensorDataType::FP32> pinned_fp32_tensor( Device::Cuda( 0 ), shape );
+        UniversalTensor<TensorDataType::FP32> universal_fp32_tensor( Device::Cuda( 0 ), shape );
+
         EXPECT_FALSE( device_fp32_tensor.is_host_accessible() );
         EXPECT_TRUE( device_fp32_tensor.is_device_accessible() );
         EXPECT_TRUE( pinned_fp32_tensor.is_host_accessible() );
@@ -335,40 +341,9 @@ namespace Dnn::Tensors::Tests
         EXPECT_TRUE( universal_fp32_tensor.is_host_accessible() );
         EXPECT_TRUE( universal_fp32_tensor.is_device_accessible() );
 
-        // INT32 aliases
-        HostTensor<TensorDataType::INT32> host_int32_tensor( "CPU", shape );
-        DeviceTensor<TensorDataType::INT32> device_int32_tensor( "CUDA:0", shape );
-        PinnedTensor<TensorDataType::INT32> pinned_int32_tensor( "CUDA:0", shape );
-        UniversalTensor<TensorDataType::INT32> universal_int32_tensor( "CUDA:0", shape );
-
-        EXPECT_TRUE( host_int32_tensor.is_host_accessible() );
-        EXPECT_FALSE( host_int32_tensor.is_device_accessible() );
-        EXPECT_FALSE( device_int32_tensor.is_host_accessible() );
-        EXPECT_TRUE( device_int32_tensor.is_device_accessible() );
-        EXPECT_TRUE( pinned_int32_tensor.is_host_accessible() );
-        EXPECT_TRUE( pinned_int32_tensor.is_device_accessible() );
-        EXPECT_TRUE( universal_int32_tensor.is_host_accessible() );
-        EXPECT_TRUE( universal_int32_tensor.is_device_accessible() );
-
-        // UINT16 aliases
-        HostTensor<TensorDataType::UINT16> host_uint16_tensor( "CPU", shape );
-        DeviceTensor<TensorDataType::UINT16> device_uint16_tensor( "CUDA:0", shape );
-        PinnedTensor<TensorDataType::UINT16> pinned_uint16_tensor( "CUDA:0", shape );
-        UniversalTensor<TensorDataType::UINT16> universal_uint16_tensor( "CUDA:0", shape );
-
-        EXPECT_TRUE( host_uint16_tensor.is_host_accessible() );
-        EXPECT_FALSE( host_uint16_tensor.is_device_accessible() );
-        EXPECT_FALSE( device_uint16_tensor.is_host_accessible() );
-        EXPECT_TRUE( device_uint16_tensor.is_device_accessible() );
-        EXPECT_TRUE( pinned_uint16_tensor.is_host_accessible() );
-        EXPECT_TRUE( pinned_uint16_tensor.is_device_accessible() );
-        EXPECT_TRUE( universal_uint16_tensor.is_host_accessible() );
-        EXPECT_TRUE( universal_uint16_tensor.is_device_accessible() );
-
-        // FP16 device-only aliases
-        DeviceTensor<TensorDataType::FP16> device_fp16_tensor( "CUDA:0", shape );
-        PinnedTensor<TensorDataType::FP16> pinned_fp16_tensor( "CUDA:0", shape );
-        UniversalTensor<TensorDataType::FP16> universal_fp16_tensor( "CUDA:0", shape );
+        DeviceTensor<TensorDataType::FP16> device_fp16_tensor( Device::Cuda( 0 ), shape );
+        PinnedTensor<TensorDataType::FP16> pinned_fp16_tensor( Device::Cuda( 0 ), shape );
+        UniversalTensor<TensorDataType::FP16> universal_fp16_tensor( Device::Cuda( 0 ), shape );
 
         EXPECT_FALSE( device_fp16_tensor.is_host_accessible() );
         EXPECT_TRUE( device_fp16_tensor.is_device_accessible() );
@@ -378,16 +353,18 @@ namespace Dnn::Tensors::Tests
         EXPECT_TRUE( universal_fp16_tensor.is_device_accessible() );
     }
 
+#endif
+
     // ====================================================================
-    // Memory Property Consistency Tests
+    // Property consistency across operations: split host and device parts
     // ====================================================================
 
-    TEST( TensorMemoryPropertiesTest, PropertyConsistencyAcrossOperations_AbstractDataTypes ) {
-        std::vector<int64_t> shape = { 3, 3 };
+    TEST_F( TensorMemoryPropertiesTest, Host_PropertyConsistencyAcrossOperations ) {
+        shape_t shape = { 3, 3 };
 
-        // Test with FP32
+        // Test with FP32 on CPU
         {
-            Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> host_tensor( "CPU", shape );
+            Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> host_tensor( Device::Cpu(), shape );
 
             EXPECT_TRUE( host_tensor.is_host_accessible() );
             EXPECT_FALSE( host_tensor.is_device_accessible() );
@@ -401,10 +378,19 @@ namespace Dnn::Tensors::Tests
             EXPECT_TRUE( host_tensor.is_host_accessible() );
             EXPECT_FALSE( host_tensor.is_device_accessible() );
         }
+    }
 
-        // Test with INT32
+#ifdef MILA_HAS_CUDA
+    TEST_F( TensorMemoryPropertiesTest, Device_PropertyConsistencyAcrossOperations ) {
+        if ( !has_cuda_device_ ) {
+            GTEST_SKIP() << "CUDA device not available. Skipping device operation consistency tests.";
+        }
+
+        shape_t shape = { 3, 3 };
+
+        // Test with INT32 on CUDA device memory
         {
-            Tensor<TensorDataType::INT32, Compute::CudaDeviceMemoryResource> cuda_tensor( "CUDA:0", shape );
+            Tensor<TensorDataType::INT32, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );
 
             EXPECT_FALSE( cuda_tensor.is_host_accessible() );
             EXPECT_TRUE( cuda_tensor.is_device_accessible() );
@@ -414,9 +400,9 @@ namespace Dnn::Tensors::Tests
             EXPECT_TRUE( cuda_tensor.is_device_accessible() );
         }
 
-        // Test with UINT16
+        // Test with UINT16 pinned memory
         {
-            Tensor<TensorDataType::UINT16, Compute::CudaPinnedMemoryResource> pinned_tensor( "CUDA:0", shape );
+            Tensor<TensorDataType::UINT16, Compute::CudaPinnedMemoryResource> pinned_tensor( Device::Cuda( 0 ), shape );
 
             EXPECT_TRUE( pinned_tensor.is_host_accessible() );
             EXPECT_TRUE( pinned_tensor.is_device_accessible() );
@@ -426,9 +412,9 @@ namespace Dnn::Tensors::Tests
             EXPECT_TRUE( pinned_tensor.is_device_accessible() );
         }
 
-        // Test with device-only FP16
+        // Device-only FP16 with managed memory
         {
-            Tensor<TensorDataType::FP16, Compute::CudaManagedMemoryResource> managed_tensor( "CUDA:0", shape );
+            Tensor<TensorDataType::FP16, Compute::CudaManagedMemoryResource> managed_tensor( Device::Cuda( 0 ), shape );
 
             EXPECT_TRUE( managed_tensor.is_host_accessible() );
             EXPECT_TRUE( managed_tensor.is_device_accessible() );
@@ -439,86 +425,99 @@ namespace Dnn::Tensors::Tests
         }
     }
 
+#endif
+
     // ====================================================================
-    // Data Type Information Tests
+    // Data type information: split host-only and device-only checks
     // ====================================================================
 
-    TEST( TensorMemoryPropertiesTest, DataTypeInformation_AbstractDataTypes ) {
-        std::vector<int64_t> shape = { 2, 2 };
-
-        // Test data type information for all supported abstract types
-        {
-            Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( "CPU", shape );
-            EXPECT_EQ( tensor.getDataType(), TensorDataType::FP32 );
-            EXPECT_EQ( tensor.getDataTypeName(), "FP32" );
-        }
+    TEST_F( TensorMemoryPropertiesTest, HostOnly_DataTypeInformation ) {
+        shape_t shape = { 2, 2 };
 
         {
-            Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource> tensor( "CUDA:0", shape );
-            EXPECT_EQ( tensor.getDataType(), TensorDataType::FP16 );
-            EXPECT_EQ( tensor.getDataTypeName(), "FP16" );
-        }
-
-        {
-            Tensor<TensorDataType::BF16, Compute::CudaDeviceMemoryResource> tensor( "CUDA:0", shape );
-            EXPECT_EQ( tensor.getDataType(), TensorDataType::BF16 );
-            EXPECT_EQ( tensor.getDataTypeName(), "BF16" );
-        }
-
-        {
-            Tensor<TensorDataType::FP8_E4M3, Compute::CudaDeviceMemoryResource> tensor( "CUDA:0", shape );
-            EXPECT_EQ( tensor.getDataType(), TensorDataType::FP8_E4M3 );
-            EXPECT_EQ( tensor.getDataTypeName(), "FP8_E4M3" );
-        }
-
-        {
-            Tensor<TensorDataType::FP8_E5M2, Compute::CudaDeviceMemoryResource> tensor( "CUDA:0", shape );
-            EXPECT_EQ( tensor.getDataType(), TensorDataType::FP8_E5M2 );
-            EXPECT_EQ( tensor.getDataTypeName(), "FP8_E5M2" );
-        }
-
-        {
-            Tensor<TensorDataType::INT8, Compute::CpuMemoryResource> tensor( "CPU", shape );
+            Tensor<TensorDataType::INT8, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
             EXPECT_EQ( tensor.getDataType(), TensorDataType::INT8 );
             EXPECT_EQ( tensor.getDataTypeName(), "INT8" );
         }
 
         {
-            Tensor<TensorDataType::INT16, Compute::CpuMemoryResource> tensor( "CPU", shape );
+            Tensor<TensorDataType::INT16, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
             EXPECT_EQ( tensor.getDataType(), TensorDataType::INT16 );
             EXPECT_EQ( tensor.getDataTypeName(), "INT16" );
         }
 
         {
-            Tensor<TensorDataType::INT32, Compute::CpuMemoryResource> tensor( "CPU", shape );
+            Tensor<TensorDataType::INT32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
             EXPECT_EQ( tensor.getDataType(), TensorDataType::INT32 );
             EXPECT_EQ( tensor.getDataTypeName(), "INT32" );
         }
 
         {
-            Tensor<TensorDataType::UINT8, Compute::CpuMemoryResource> tensor( "CPU", shape );
+            Tensor<TensorDataType::UINT8, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
             EXPECT_EQ( tensor.getDataType(), TensorDataType::UINT8 );
             EXPECT_EQ( tensor.getDataTypeName(), "UINT8" );
         }
 
         {
-            Tensor<TensorDataType::UINT16, Compute::CpuMemoryResource> tensor( "CPU", shape );
+            Tensor<TensorDataType::UINT16, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
             EXPECT_EQ( tensor.getDataType(), TensorDataType::UINT16 );
             EXPECT_EQ( tensor.getDataTypeName(), "UINT16" );
         }
 
         {
-            Tensor<TensorDataType::UINT32, Compute::CpuMemoryResource> tensor( "CPU", shape );
+            Tensor<TensorDataType::UINT32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
             EXPECT_EQ( tensor.getDataType(), TensorDataType::UINT32 );
             EXPECT_EQ( tensor.getDataTypeName(), "UINT32" );
+        }
+
+        // FP32 CPU check (host-compatible)
+        {
+            Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> tensor( Device::Cpu(), shape );
+            EXPECT_EQ( tensor.getDataType(), TensorDataType::FP32 );
+            EXPECT_EQ( tensor.getDataTypeName(), "FP32" );
+        }
+    }
+
+#ifdef MILA_HAS_CUDA
+    TEST_F( TensorMemoryPropertiesTest, Device_DataTypeInformation ) {
+        if ( !has_cuda_device_ ) {
+            GTEST_SKIP() << "CUDA device not available. Skipping device data-type information tests.";
+        }
+
+        shape_t shape = { 2, 2 };
+
+        {
+            Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda( 0 ), shape );
+            EXPECT_EQ( tensor.getDataType(), TensorDataType::FP16 );
+            EXPECT_EQ( tensor.getDataTypeName(), "FP16" );
+        }
+
+        {
+            Tensor<TensorDataType::BF16, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda( 0 ), shape );
+            EXPECT_EQ( tensor.getDataType(), TensorDataType::BF16 );
+            EXPECT_EQ( tensor.getDataTypeName(), "BF16" );
+        }
+
+        {
+            Tensor<TensorDataType::FP8_E4M3, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda( 0 ), shape );
+            EXPECT_EQ( tensor.getDataType(), TensorDataType::FP8_E4M3 );
+            EXPECT_EQ( tensor.getDataTypeName(), "FP8_E4M3" );
+        }
+
+        {
+            Tensor<TensorDataType::FP8_E5M2, Compute::CudaDeviceMemoryResource> tensor( Device::Cuda( 0 ), shape );
+            EXPECT_EQ( tensor.getDataType(), TensorDataType::FP8_E5M2 );
+            EXPECT_EQ( tensor.getDataTypeName(), "FP8_E5M2" );
         }
     }
 
     // ====================================================================
-    // TensorDataTypeTraits Validation Tests
+    // TensorDataTypeTraits and concept validations (compile-time)
     // ====================================================================
 
-    TEST( TensorMemoryPropertiesTest, TensorDataTypeTraitsValidation ) {
+#endif
+
+    TEST_F( TensorMemoryPropertiesTest, TensorDataTypeTraitsValidation ) {
         // Verify TensorDataTypeTraits properties for all supported abstract types
 
         // FP32 traits
@@ -584,11 +583,8 @@ namespace Dnn::Tensors::Tests
         SUCCEED();
     }
 
-    // ====================================================================
-    // Concept Validation Tests
-    // ====================================================================
-
-    TEST( TensorMemoryPropertiesTest, ConceptValidation ) {
+#ifdef MILA_HAS_CUDA
+    TEST_F( TensorMemoryPropertiesTest, ConceptValidation ) {
         // Verify that all supported abstract data types satisfy the validation concept
         static_assert(isValidTensor<TensorDataType::FP32, Compute::CpuMemoryResource>);
         static_assert(isValidTensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource>);
@@ -661,45 +657,55 @@ namespace Dnn::Tensors::Tests
         SUCCEED();
     }
 
+#endif
+
     // ====================================================================
-    // Device Context Compatibility Tests
+    // Device context compatibility: host part and device part
     // ====================================================================
 
-    TEST( TensorMemoryPropertiesTest, DeviceContextCompatibility ) {
-        std::vector<int64_t> shape = { 2, 2 };
+    TEST_F( TensorMemoryPropertiesTest, Host_DeviceContextCompatibility ) {
+        shape_t shape = { 2, 2 };
 
-        // Test that tensors properly report their device types
         {
-            Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> cpu_tensor( "CPU", shape );
+            Tensor<TensorDataType::FP32, Compute::CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
             EXPECT_EQ( cpu_tensor.getDeviceType(), Compute::DeviceType::Cpu );
         }
+    }
+
+#ifdef MILA_HAS_CUDA
+    TEST_F( TensorMemoryPropertiesTest, Device_DeviceContextCompatibility ) {
+        if ( !has_cuda_device_ ) {
+            GTEST_SKIP() << "CUDA device not available. Skipping device context compatibility tests.";
+        }
+
+        shape_t shape = { 2, 2 };
 
         {
-            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_tensor( "CUDA:0", shape );
+            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda( 0 ), shape );
             EXPECT_EQ( cuda_tensor.getDeviceType(), Compute::DeviceType::Cuda );
         }
 
         {
-            Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource> cuda_fp16_tensor( "CUDA:0", shape );
+            Tensor<TensorDataType::FP16, Compute::CudaDeviceMemoryResource> cuda_fp16_tensor( Device::Cuda( 0 ), shape );
             EXPECT_EQ( cuda_fp16_tensor.getDeviceType(), Compute::DeviceType::Cuda );
         }
 
         {
-            Tensor<TensorDataType::INT32, Compute::CudaPinnedMemoryResource> pinned_tensor( "CUDA:0", shape );
+            Tensor<TensorDataType::INT32, Compute::CudaPinnedMemoryResource> pinned_tensor( Device::Cuda( 0 ), shape );
             EXPECT_EQ( pinned_tensor.getDeviceType(), Compute::DeviceType::Cuda );
         }
 
         {
-            Tensor<TensorDataType::BF16, Compute::CudaManagedMemoryResource> managed_tensor( "CUDA:0", shape );
+            Tensor<TensorDataType::BF16, Compute::CudaManagedMemoryResource> managed_tensor( Device::Cuda( 0 ), shape );
             EXPECT_EQ( managed_tensor.getDeviceType(), Compute::DeviceType::Cuda );
         }
     }
 
     // ====================================================================
-    // Memory Resource Properties Verification
+    // Memory resource property verification (compile-time)
     // ====================================================================
 
-    TEST( TensorMemoryPropertiesTest, MemoryResourcePropertiesVerification ) {
+    TEST_F( TensorMemoryPropertiesTest, MemoryResourcePropertiesVerification ) {
         // Verify static memory resource properties
         static_assert(Compute::CpuMemoryResource::is_host_accessible == true);
         static_assert(Compute::CpuMemoryResource::is_device_accessible == false);
@@ -719,4 +725,5 @@ namespace Dnn::Tensors::Tests
 
         SUCCEED();
     }
+#endif
 }

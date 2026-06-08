@@ -1,214 +1,276 @@
-[![Mila CI Pipeline](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=master)](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml)
-
-## ⚠️ Active Development Notice
-
-The `master` branch reflects the last stable alpha release (**v0.9.9140-alpha.1**).
-
-Active development for the latest architectural changes — RoPE, RMSNorm, SwiGLU, and Grouped
-Query Attention — is underway in the [`dev`](https://github.com/ToddThomson/Mila/tree/dev)
-branch. If you are following Mila's progress, `dev` is where the action is.
-
-The next milestone is **v0.2.0-beta.1**, targeting validated Llama 3.2 3B Bf16 inference.
-See the [Roadmap](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for details.
-
 # Mila
-Mila Deep Neural Network Library
 
-## Prerelease Notice
-Mila, version 0.9.914-alpha
+**A C++23 module-based deep neural network library for those who want full control&mdash;to work at the metal.**
 
-## Roadmap
-Mila is targeting a **v0.2.0-beta release** featuring a stable high-level Model API, GPU-accelerated loss functions, comprehensive checkpointing, and production-quality MNIST examples with 98%+ accuracy. 
-See the complete [ROADMAP.md](ROADMAP.md) for detailed weekly milestones, success criteria, and the path to beta.
+Mila is built for researchers, engineers, and developers who find high-level frameworks too opaque—who want to understand exactly what happens in every forward pass, trace every gradient,
+and write kernels that do precisely what they intend. No autograd engine. No runtime
+dispatch magic. Just C++23, CUDA, and full control.
 
-## Description
-Achilles Mila Deep Neural Network library provides a comprehensive API to model, train and evaluate 
-Deep Neural Networks for both research and production environments. The library implements
-state-of-the-art architectures including transformers, convolutional networks, and recurrent models.
-Mila utilizes the NVIDIA CUDA runtime for high-performance GPU acceleration, enabling efficient
-training and inference on large-scale datasets. The library also supports distributed training
-across multiple GPUs and compute nodes, with automatic optimization for various hardware configurations.
+> *Currently in active alpha development. API is not yet stable.*
+> *Active development lands on the [`dev`](https://github.com/ToddThomson/Mila/tree/dev) branch; `master` tracks tagged releases.*
+> *See the [Roadmap](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for current status and trajectory.*
 
-## Usage
+---
 
-## Mnist Sample
-A complete Mnist training example is included in the `samples/mnist` directory.
-This example demonstrates how to set up a simple feedforward neural network using Mila,
-load the MNIST dataset, and train the model to achieve high accuracy on handwritten digit recognition.
+| Branch | Build | Test | Docs |
+|--------|-------|------|------|
+| master | ![Build](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=master&job=build) | ![Test](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=master&job=test) | ![Docs](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=master&job=docs) |
+| dev    | ![Build](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=dev&job=build) | ![Test](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=dev&job=test) | ![Docs](https://github.com/ToddThomson/Mila/actions/workflows/build-pipeline.yml/badge.svg?branch=dev&job=docs) |
+
+---
+
+## What Mila Is
+
+Mila is a component-based DNN library where **device and precision are chosen at compile time,
+every forward and backward pass is explicit, and every gradient is yours to inspect**.
+
+There is no hidden execution engine. When you call `forward()`, you know exactly what runs.
+When you call `backward()`, you know exactly what accumulates. The architecture is designed
+to be read, understood, extended, and challenged.
+
+**This makes Mila well-suited for:**
+- Researchers implementing novel architectures who need full visibility into compute
+- Engineers studying training dynamics, gradient flow, or numerical precision
+- Developers building custom CUDA kernels who want a structured C++ framework around them
+- Anyone who learns best by reading code that does not hide what it does
+
+---
+
+## Design Principles
+
+**Explicit over implicit.** Forward and backward passes are implemented manually per
+component. Gradient flow is auditable by design, not by accident.
+
+**Type safety at compile time.** Device type and precision are template parameters.
+A CPU tensor and a CUDA tensor are different types. Mixing them is a compile error,
+not a runtime surprise.
+
+**Ownership is clear.** Every component owns its parameters and gradients. Composition
+is explicit. There is no shared global state.
+
+**C++23 throughout.** Modules, deducing-this, std::format, concepts — Mila is written
+in modern C++ and intends to stay there. No header soup. Fast incremental builds with Ninja.
+
+**CUDA-native.** Matrix operations via cuBLASLt. Hand-written kernels where control
+matters. Vectorized memory access throughout — float4 for FP32, uint4 for BF16.
+
+**Precision is deliberate.** BF16 is the primary reduced-precision compute target — it
+matches FP32's exponent range, avoiding overflow and underflow without loss scaling, with
+native Tensor Core support on Ada Lovelace and newer. FP16 is not a Mila target; BF16
+supersedes it for all current use cases. Weight quantization is applied at model load time
+as a pure compile-time decision via a `TWeightQuant` policy on `Linear` — no runtime
+dispatch, no quantized checkpoint format. FP8 (`PerChannelFp8<>`) enables 8B-class models
+within a 12 GB VRAM budget via per-channel BF16→FP8_E4M3 quantization with cuBLASLt
+mixed-precision GEMM. FP4 E2M1 (`PerGroupFp4<>`) halves weight storage again — packed
+nibbles dequantized per-group inline at inference time, forward-compatible with Blackwell
+native FP4 compute when it becomes available.
+
+---
+
+## Current Status — Alpha.5
+
+Mila is under active development toward a public beta. The alpha phase focuses on
+building and validating the core architecture against known-good reference implementations.
+
+**Alpha.1 — Complete**
+GPT-2 inference validated token-for-token against HuggingFace using greedy decoding.
+The full GPT-2 stack — tokenizer, embeddings, attention, MLP, KV-cache — is implemented,
+tested, and confirmed correct.
+
+**Alpha.2 — Complete**
+Llama architecture validated token-for-token against HuggingFace at FP32. RoPE, RMSNorm,
+SwiGLU, and Grouped Query Attention are implemented and confirmed correct. The full
+LlamaModel stack — including SentencePiece tokenization and HuggingFace weight conversion
+— matches HuggingFace LlamaForCausalLM token-for-token on greedy decode.
+
+**Alpha.3 — Complete**
+BF16 compute backend validated token-for-token against HuggingFace. Greedy decode of
+Llama 3.2 3B matches HuggingFace LlamaForCausalLM at BF16 using the same methodology
+applied to FP32.
+
+**Alpha.4 — Complete**
+Instruction following and tool calling, validated on Llama 3.2 3B Instruct at BF16.
+Delivers the structured message and tool calling infrastructure in the Chat application
+layer. No model architecture changes required.
+
+**Alpha.5 — In Progress**
+FP8 and FP4 E2M1 load-time weight quantization, validated on Llama 3.2 3B and Llama 3.1 8B
+Instruct. Weights are quantized from BF16 at model load time inside `Linear` via a compile-time
+`TWeightQuant` policy — no quantized checkpoint format required. FP8 uses per-channel
+absmax scaling with cuBLASLt mixed-precision GEMM; FP4 E2M1 uses per-group absmax scaling
+with a dedicated decode matvec kernel. Llama 3.1 8B at FP4 (~6 GB) is the production default,
+fitting comfortably within a 12 GB VRAM budget; FP8 is the validated finer-precision
+alternative. Both paths are validated against the existing BF16 baseline.
+
+Alpha.5 also introduces compile-time operation dispatch via `OperationTraits<OperationType,
+TDeviceType, TPrecision, TPolicy>`. `Linear` is the reference implementation — a missing
+specialization is a compile error, not a registry miss. All remaining components migrate
+to `OperationTraits` dispatch as part of this alpha. The component type system
+(`ComponentType`, `OperationType`) has been audited for completeness and consistency
+across all leaf components.
+
+**Beta.1 — Planned**
+Qwen 3 transformer architecture with thinking mode and model-agnostic tool calling,
+validated on Qwen 3 8B Instruct at BF16 and FP8. FP8 KV cache compression introduced
+alongside weight quantization.
+
+See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for the full task breakdown.
+
+---
+
+## Validated Capabilities
+
+| Capability | Status |
+|---|---|
+| GPT-2 inference — greedy and sampled | Validated against HuggingFace |
+| Llama 3.2 1B inference — greedy decode at FP32 | Validated against HuggingFace |
+| Llama 3.2 3B inference — greedy decode at BF16 | Validated against HuggingFace |
+| Llama 3.2 3B inference — FP8 E4M3 per-channel quantization | Validated — coherent generation, ~41 tok/s decode |
+| Llama 3.2 3B inference — FP4 E2M1 per-group quantization | Validated — coherent generation, 44–48 tok/s decode |
+| Llama 3.1 8B inference — FP8 E4M3 per-channel quantization | Validated — fits 12 GB VRAM budget, ~11.6 GB at ctx 8192 |
+| Llama 3.1 8B inference — FP4 E2M1 per-group quantization | Validated — production default, ~6 GB, ~57 tok/s decode |
+| Two-phase KV-cache — prefill + decode | Complete |
+| HuggingFace GPT-2 weight converter | Complete |
+| HuggingFace Llama weight converter | Complete |
+| Instruction following — Llama 3.2 3B Instruct | Validated |
+| Tool calling framework | Complete |
+| Chat CLI | Complete |
+| MNIST training — 97.5% test accuracy | Complete |
+| AdamW optimizer | Complete |
+| cuBLASLt Linear — forward + backward | Complete |
+| LayerNorm, RMSNorm, GELU, SiLU, Softmax, CrossEntropy | Complete |
+| SwiGLU MLP — forward + CUDA kernel | Complete |
+| Multi-Head Attention — forward + backward | Complete |
+| Grouped Query Attention — GQA with KV-cache | Complete |
+| RoPE — rotary positional encoding | Complete |
+| BPE tokenizer | Complete |
+| SentencePiece tokenizer | Complete |
+
+---
+
+## Samples
+
+### Chat CLI
+
+```
+You: Once upon a time
+Mila: , the world was a place of great beauty and great danger...
+```
+
+Located under `Samples/Chat`. Loads a converted HuggingFace GPT-2 checkpoint and
+generates text using the two-phase KV-cache pipeline.
+
+### MNIST Classifier
+
+Located under `Samples/Mnist`. Trains a 3-layer MLP on MNIST to 97.5% test accuracy.
+Demonstrates the full training loop: data loading, forward pass, loss, backward pass, AdamW step.
+
+---
+
+## Build
+
+### Prerequisites
+
+| Requirement | Version |
+|---|---|
+| Visual Studio | 2026 18.6.2 or newer |
+| Git | 2.x or newer (validated on 2.54.0) |
+| CUDA Toolkit | 13.0 or newer |
+| CMake | 4.0 or newer |
+| GTest | 1.17.0 |
+| Doxygen + Graphviz | latest (optional — docs only) |
+| C++ Standard | C++23 |
+
+Ninja is the recommended generator — significantly faster than MSBuild for
+incremental C++23 module builds.
+
+Mila is CI-tested on CUDA 13.0 and developed on 13.3; newer 13.x releases are expected
+to work but are not exhaustively validated.
+
+Use Visual Studio 2026 18.6.2 or newer — earlier 2026 builds have a regression that breaks
+the C++23 module build.
+
+Git must be installed and on `PATH`: the first CMake configure fetches dependencies via CPM
+(`git clone`), so it is needed beyond the initial repository clone. GitHub Desktop is an
+optional convenience, not a requirement.
+
+Building the API docs is optional — enable it with `-DMILA_ENABLE_DOCS=ON` (default
+`OFF`), which requires Doxygen (and Graphviz for the call graphs). A normal
+library/test build needs neither.
+
+### Quick Start
+
+```bash
+git clone https://github.com/toddthomson/mila.git
+cd mila
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMILA_ENABLE_TESTING=ON
+cmake --build build
+ctest --test-dir build
+```
+
+Tests are opt-in (`MILA_ENABLE_TESTING` defaults to `OFF`); omit the flag for a
+library-only build.
+
+### Visual Studio
+
+Open the repository folder — Visual Studio detects CMakeLists.txt automatically.
+Select the Ninja generator and Release configuration. Build with F7.
+
+### Docker
+
+A development container provides a reproducible Linux build toolchain (CUDA 13.0,
+Clang 19, CMake 4.x, Ninja) — the simplest way to build Mila without installing the
+toolchain locally, for example from WSL. It mounts the repo at `/mila` with GPU access.
+
+```bash
+# Build and start the dev container (requires the NVIDIA Container Toolkit for GPU access)
+docker compose -f Docker/docker-compose.yml run --rm mila-dev
+
+# Inside the container:
+cmake -S . -B out/build/linux-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DMILA_ENABLE_TESTING=ON
+cmake --build out/build/linux-release
+ctest --test-dir out/build/linux-release
+```
+
+VS Code users can instead **Reopen in Container** — see `.devcontainer/`.
+
+Model weights are not included; they are converted offline on the host (see
+`Mila/Tools/Converters/`), and the repo bind mount makes the converted `.bin` files
+available inside the container automatically.
+
+> A slim, published runtime image — `docker run … mila` for users who only want to run
+> inference without building — is planned for the beta release. See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md).
+
+---
 
 ## Documentation
-Comprehensive Online documentation is available:
 
-- **Online Documentation**: The complete API reference is hosted on GitHub Pages at [https://toddthomson.github.io/Mila](https://toddthomson.github.io/Mila)
+API reference: https://toddthomson.github.io/Mila
 
-The documentation includes class references, usage examples, and architecture guides. It is automatically updated through our GitHub Actions workflow whenever changes are pushed to the master branch.
+Updated automatically on every push to master.
 
-## Top Features
-1. Deep Neural Nets
-   * GPT2, Recurrent Neural Networks
-   * GPU acceleration using CUDA runtime
-
-2. Datasets
-   * Batch sequence loader
-   * Optimized data processing pipelines
-
-## What's New
-
-### Recent Updates (v0.9.9XX-alpha)
-
-**Training Infrastructure Complete**
-- Successfully trained MNIST classifier achieving **97.5% test accuracy** with 3-layer MLP
-- Implemented complete forward and backward pass for Linear layers using cuBLASLt
-- AdamW optimizer fully operational with momentum, weight decay, and bias correction
-- Achieved **~136,000 samples/second** training throughput on CUDA
-
-**Critical Fixes**
-- **Race Condition Resolution**: Fixed GPU-CPU memory transfer synchronization issues that caused intermittent forward pass failures
-- **cuBLASLt Integration**: Resolved stream synchronization in tensor copy operations for reliable GPU computation
-- **Gradient Management**: Fixed gradient accumulation vs. overwrite semantics in backward pass (beta parameter handling)
-- **Optimizer Registration**: Verified correct parameter and gradient tensor registration for multi-layer networks
-
-**Performance Optimizations**
-- Optimized cuBLASLt matrix multiplication with proper layout configurations for forward and backward passes
-- Implemented efficient bias gradient reduction kernels using CUDA warp-level operations
-- Stream-ordered execution eliminates unnecessary synchronization overhead
-- Zero-copy operations where possible using pinned memory for host-device transfers
-
-**Validated Components**
--  Linear layer forward pass (784?128?64?10 architecture tested)
--  Linear layer backward pass (input gradients, weight gradients, bias gradients)
--  AdamW optimizer step with all hyperparameters
--  Gradient zeroing and accumulation
--  Multi-layer network training convergence
--  Test set evaluation with proper inference mode
-
-### Next Steps
-* Additional activation functions (GELU, SiLU) and their backward passes
-* Layer normalization and batch normalization modules
-* Attention mechanism implementation for transformer models
-* Gradient clipping and learning rate scheduling
-* Model checkpointing and weight serialization
-* Distributed training support for multi-GPU environments
-* Mixed precision training (FP16/BF16) support
-
-## Mila Build Instructions
-Mila uses CMake build. To build Mila, follow the steps below:  
-
-1. Clone the Mila repository
-- git clone https://github.com/toddthomson/mila.git cd mila
-
-#### Using Visual Studio
-
-1. **Prerequisites**
-   - Visual Studio 2022 or newer with "Desktop development with C++" workload
-   - CUDA Toolkit 13.0 latest
-   - CMake 3.31 or newer (included with Visual Studio)
-
-2. **Open the Project**
-   - Launch Visual Studio
-   - Select "Open a local folder" and navigate to your cloned Mila repository
-   - Visual Studio will automatically detect the CMakeLists.txt file
-
-3. **Configure Project**
-   - Visual Studio will automatically generate CMake cache
-   - To customize build settings, right-click on CMakeLists.txt and select "CMake Settings for MilaProject"
-   - Under "Configuration type", select "Release" for optimal performance
-
-4. **Build the Project**
-   - Right-click on CMakeLists.txt and select "Build All"
-   - Alternatively, use the Build menu or press F7
-
-5. **Run Tests**
-   - In the Solution Explorer, expand the "Tests" folder
-   - Right-click on a test project and select "Run Tests"
-
-#### Using Visual Studio Code
-
-1. **Prerequisites**
-   - Visual Studio Code
-   - C/C++ extension
-   - CMake Tools extension
-   - CUDA Toolkit 13.0
-   - CMake 3.31 or newer
-
-2. **Open the Project**
-   - Launch VS Code
-   - Open the folder containing your cloned Mila repository
-   - VS Code should detect the CMake project automatically
-
-3. **Configure Project**
-   - Press Ctrl+Shift+P to open the command palette
-   - Type "CMake: Configure" and select it
-   - Choose your preferred generator (Ninja is recommended for faster builds)
-   - Select the build variant (Debug/Release)
-
-4. **Build the Project**
-   - Press Ctrl+Shift+P to open the command palette
-   - Type "CMake: Build" and select it, or use the build button in the status bar
-
-5. **Run Tests**
-   - Press Ctrl+Shift+P to open the command palette
-   - Type "CMake: Run Tests" and select it
-   - Alternatively, use the Test Explorer extension to browse and run tests
-
-#### Using Docker on Linux
-
-1. **Prerequisites**
-   - Docker installed on your system
-   - NVIDIA Docker runtime (for GPU support)
-
-2. **Pull the Docker Image**
-
-3. **Run the Container**
-- For CPU-only usage:
-  ```bash
-  docker run -it --rm toddthomson/mila:latest
-  ```
-- For GPU support:
-  ```bash
-  docker run -it --rm --gpus all toddthomson/mila:latest
-  ```
-
-4. **Build from Dockerfile**
-- Clone the repository and build locally:
-  ```bash
-  git clone https://github.com/toddthomson/mila.git
-  cd mila
-  docker build -t mila:local .
-  ```
-
-5. **Development Workflow**
-- Mount your local source directory for development:
-  ```bash
-  docker run -it --rm -v $(pwd):/mila/src toddthomson/mila:latest
-     ```
-   - Build inside the container:
-     ```bash
-     mkdir -p build && cd build
-     cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
-     ninja
-     ```
-   
-## Required Components
-* C++23 support
-* NVIDIA CUDA Runtime, 13.0 latest
-* CMake 3.31 or later
-* GTest framework for unit testing, 1.17.0
-
-## License
-Mila is licensed under the Apache License 2.0. You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
+---
 
 ## Contributing
-We welcome contributions from the community. If you are interested in contributing to Mila, please follow these steps:
 
-1. Fork the repository on GitHub.
-2. Create a new branch from the `master` branch.
-3. Make your changes and commit them with clear and concise messages.
-4. Push your changes to your forked repository.
-5. Create a pull request to the `master` branch of the original repository.
+Mila is approaching a public beta and welcomes contributors who share its philosophy.
+Good starting points are CPU reference ops, test coverage, and new encoding strategies
+under /Components/Encodings/. Mila is GPU-first by design: the CUDA backend is the
+validated inference path, and CPU op coverage beyond the GPT-2 lineage is intentionally
+demand-driven — implementing a CPU op for Llama (RmsNorm, SwiGLU, RoPE, token embedding)
+is a well-scoped, self-contained first contribution, not a gap to apologize for.
 
-Please ensure that your code adheres to the project's coding standards and includes appropriate tests. For more detailed guidelines, refer to the [contribution guidelines](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+1. Fork the repository and create a branch from dev
+2. Make changes with clear, focused commits
+3. Ensure new components include forward and backward pass tests
+4. Open a pull request targeting dev
+
+New contributors: [getting-started.md](getting-started.md) walks through a fresh clone,
+build, model weight conversion, running inference, and opening your first PR.
+See CONTRIBUTING.md for coding standards and the pull request process.
+
+---
+
+## License
+
+MIT License — see [License.md](License.md) for details.

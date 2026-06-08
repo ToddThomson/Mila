@@ -39,7 +39,7 @@ namespace Mila::Dnn::Extensibility
         /**
          * @brief Create module instance from archive
          *
-         * @param device_type Device as string ("Cpu", "Cuda")
+         * @param device_type Device as string (Device::Cpu(), "Cuda")
          * @param precision Precision as string ("float32", etc.)
          * @param archive Archive to read from
          * @param module_name Module name in archive

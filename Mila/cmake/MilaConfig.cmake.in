@@ -1,0 +1,42 @@
+# cmake/MilaConfig.cmake.in
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+# Find dependencies for enabled backends
+set(MILA_HAS_CPU @MILA_HAS_CPU@)
+set(MILA_HAS_CUDA @MILA_HAS_CUDA@)
+set(MILA_HAS_METAL @MILA_HAS_METAL@)
+set(MILA_HAS_ROCM @MILA_HAS_ROCM@)
+
+if(MILA_HAS_CUDA)
+    find_dependency(CUDAToolkit REQUIRED)
+endif()
+
+if(MILA_HAS_ROCM)
+    find_dependency(hip REQUIRED)
+    find_dependency(rocblas REQUIRED)
+endif()
+
+# Include targets
+include(${CMAKE_CURRENT_LIST_DIR}/MilaTargets.cmake)
+
+# Set component found variables
+set(Mila_Core_FOUND TRUE)
+set(Mila_Cpu_FOUND @MILA_HAS_CPU@)
+set(Mila_Cuda_FOUND @MILA_HAS_CUDA@)
+set(Mila_Metal_FOUND @MILA_HAS_METAL@)
+set(Mila_Rocm_FOUND @MILA_HAS_ROCM@)
+
+# Validate requested components
+if(Mila_FIND_COMPONENTS)
+    foreach(comp IN LISTS Mila_FIND_COMPONENTS)
+        if(NOT Mila_${comp}_FOUND)
+            if(Mila_FIND_REQUIRED_${comp})
+                message(FATAL_ERROR "Mila component '${comp}' not available in this build")
+            endif()
+        endif()
+    endforeach()
+endif()
+
+check_required_components(Mila)

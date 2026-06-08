@@ -17,7 +17,12 @@ export module Extensibility.PluginManager;
 
 import Extensibility.PluginInterface;
 import Extensibility.PluginInfo;
-import Utils.Logger;
+
+import Compute.OperationRegistry;
+
+import Logging.Logger;
+
+import Mila.Version;
 
 namespace Mila::Dnn::Extensibility
 {
@@ -70,10 +75,9 @@ namespace Mila::Dnn::Extensibility
             auto info = plugin->getInfo();
             if (!isCompatible( info.mila_api_version ))
             {
-				// FIXME: getAPIVersion() not accessible??
-                //throw std::runtime_error(
-                //    std::format( "Plugin API version {} incompatible with Mila {}",
-                //        info.mila_api_version, Mila::getAPIVersion() ) );
+                throw std::runtime_error(
+                    std::format( "Plugin API version {} incompatible with Mila {}",
+                        info.mila_api_version, Mila::getAPIVersion().toString() ) );
             }
 
             // Register operations
@@ -103,7 +107,7 @@ namespace Mila::Dnn::Extensibility
                     catch (const std::exception& e)
                     {
                         // Log warning but continue loading other plugins
-                        // FIXME: Utils::Logger:: warning_fmt( "Warning: Failed to load plugin {}: {}", entry.path(), e.what() );
+                        // FIXME: Logging::Logger:: warning_fmt( "Warning: Failed to load plugin {}: {}", entry.path(), e.what() );
                     }
                 }
             }

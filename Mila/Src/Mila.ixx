@@ -1,34 +1,20 @@
-/*
- * Copyright 2025 Todd Thomson, Achilles Software.  All rights reserved.
+/**
+ * @file Mila.ixx
+ * @brief Mila public API umbrella module - the single supported entry point (import Mila;).
  *
- * Please refer to the Mila end user license agreement (EULA) associated
- * with this source code for terms and conditions that govern your use of
- * this software. Any use, reproduction, disclosure, or distribution of
- * this software and related documentation outside the terms of the EULA
- * is strictly prohibited.
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2021..2026 Todd J. Thomson
  */
 
 module;
 #include <string>
-#include <iostream>
 #include <memory>
-#include "Version.h"
+#include <format>
 #include <exception>
 
 export module Mila;
 
-import Mila.Version;
+export import Mila.Version;
 
 // ====================================================================
 // Core
@@ -36,44 +22,49 @@ import Mila.Version;
 export import Core.RandomGenerator;
 
 // ====================================================================
-// Utils
+// Logging
 // ====================================================================
-export import Utils.Logger;
-import Utils.DefaultLogger;
+export import Logging.Logger;
+export import Logging.ConsoleSink;
+export import Logging.FileSink;
+export import Logging.NullSink;
 
 // ====================================================================
-// Cuda
+// Cuda 
+// REVIEW: TODO: Make internal. We don't want to expose CUDA details
+// in the main API.
 // ====================================================================
-export import Cuda.Error;
-export import Cuda.Helpers;
+//export import Cuda.Error;
+//export import Cuda.Helpers;
 
 // ====================================================================
 // Compute - Base
 // ====================================================================
+// REVIEW: Should we make Operations internal only?
 export import Compute.OperationBase;
 export import Compute.OperationType;
 export import Compute.UnaryOperation;
 export import Compute.BinaryOperation;
-export import Compute.Precision;
 
 // ====================================================================
 // Compute - Execution Context
 // ====================================================================
-export import Compute.ExecutionContext;
-export import Compute.CpuExecutionContext;
-export import Compute.CudaExecutionContext;
+export import Compute.IExecutionContext;
+export import Compute.ExecutionContextFactory;
 
 // ====================================================================
 // Compute - Devices
 // ====================================================================
-export import Compute.ComputeDevice;
+export import Compute.Device;
+export import Compute.DeviceId;
 export import Compute.DeviceType;
 export import Compute.DeviceTypeTraits;
 export import Compute.DeviceTypeTraits.Cpu;
-export import Compute.DeviceTypeTraits.Cuda;
 export import Compute.CpuDevice;
-export import Compute.CpuDevicePlugin;
+#ifdef MILA_HAS_CUDA
+export import Compute.DeviceTypeTraits.Cuda;
 export import Compute.CudaDevice;
+#endif
 
 // ============================================================================
 // Compute - Optimizers
@@ -83,66 +74,80 @@ export import Compute.OptimizerBase;
 // ====================================================================
 // Compute - Device Registry
 // ====================================================================
-//export import Compute.DevicePlugin; // Base class for device plugins: Not yet ready for export
+import Compute.DeviceRegistrar; // Not part of the Mila public API
 export import Compute.DeviceRegistry;
-export import Compute.DeviceRegistrar; // Only for testing purposes
 export import Compute.DeviceRegistryHelpers;
 
 // ====================================================================
 // Compute - Memory Resources
 // ====================================================================
 export import Compute.MemoryResource;
-export import Compute.MemoryResourceTracker;
+//export import Compute.MemoryResourceTracker;
 export import Compute.CpuMemoryResource;
+#ifdef MILA_HAS_CUDA
 export import Compute.CudaDeviceMemoryResource;
 export import Compute.CudaManagedMemoryResource;
 export import Compute.CudaPinnedMemoryResource;
+#endif
 
 // ====================================================================
 // Compute - Operations Registry
 // ====================================================================
+import Compute.OperationsRegistrar;
 export import Compute.OperationRegistry;
 export import Compute.OperationRegistryHelpers;
 
-// Deprecated to be removed later
-// export import Compute.OperationAttributes;
-
 // ====================================================================
-// Compute - CPU Operations
+// Compute - CPU Operations ( internal )
 // ====================================================================
 //export import Compute.CpuEncoderOp;
-export import Compute.CpuGeluOp;
+//export import Compute.CpuGeluOp;
 //export import Compute.CpuLayerNormOp;
 //export import Compute.CpuLinearOp;
 //export import Compute.CpuResidualOp;
 //export import Compute.CpuSoftmaxOp;
 
 // ====================================================================
-// Compute - CUDA Operations
+// Compute - CUDA Operations ( internal )
 // ====================================================================
 //export import Compute.CudaEncoderOp;
-export import Compute.CudaGeluOp;
+//export import Compute.CudaGeluOp;
 //export import Compute.CudaMHAOp;
 //export import Compute.CudaLinearOp;
-export import Compute.CudaLayerNormOp;
+//export import Compute.CudaLayerNormOp;
 //export import Compute.CudaResidualOp;
 //export import Compute.CudaSoftmaxOp;
 
 // ====================================================================
 // Compute - Tensor Data Types
 // ====================================================================
-export import Compute.CudaTensorDataType;
-export import Compute.CpuTensorDataTypeTraits;
+//export import Compute.CudaTensorDataType;
+//export import Compute.CpuTensorDataTypeTraits;
 // FUTURE: export import Compute.MetalTensorTraits;
 // FUTURE: export import Compute.OpenCLTensorTraits;
 // FUTURE: export import Compute.VulkanTensorTraits;
 
 // ====================================================================
-// Dnn - Core
+// Dnn - Core, Components, and Composite Components
 // ====================================================================
 export import Dnn.Component;
+export import Dnn.ComponentType;
 export import Dnn.ComponentConfig;
 export import Dnn.CompositeComponent;
+
+// ============================================================================
+// Dnn - Core Network
+// ============================================================================
+export import Dnn.Network;
+export import Dnn.NetworkFactory;
+
+// ============================================================================
+// Dnn - Core Model
+// ============================================================================
+export import Dnn.Model;
+export import Dnn.LanguageNetwork;
+export import Dnn.LanguageModel;
+export import Dnn.RuntimeMode;
 
 // ====================================================================
 // Dnn - Tensors
@@ -170,21 +175,48 @@ export import Dnn.TensorInitializers;
 // Dnn - Components
 // ====================================================================
 export import Dnn.ActivationType;
+export import Dnn.ApproximationMethod;
+export import Dnn.ConnectionType;
 
-export import Dnn.Components.Attention;
-export import Dnn.Components.Encoder;
+export import Dnn.Components.MultiHeadAttention;
+export import Dnn.Components.Gqa;
+export import Dnn.Components.Lpe;
+export import Dnn.Components.Rope;
 export import Dnn.Components.Gelu;
+export import Dnn.Components.Swiglu;
 export import Dnn.Components.LayerNorm;
+export import Dnn.Components.RmsNorm;
+
+// TODO: Alpha.5 OperationTraits supercedes individual operation OpTypeMaps 
+//export import Compute.GqaOpTypeMap;
+//export import Compute.LinearOpTypeMap;
+export import Compute.OperationTraits;
+
 export import Dnn.Components.Linear;
+
 export import Dnn.Components.Residual;
 export import Dnn.Components.Softmax;
-export import Dnn.Components.SoftmaxCrossEntropy;
+//export import Dnn.Components.SoftmaxCrossEntropy;
 
 // ============================================================================
-// Dnn - Blocks
+// Dnn - Composite Components
 // ============================================================================
-export import Dnn.Blocks.MLP;
-export import Dnn.Blocks.Transformer;
+export import Dnn.Components.MLP;
+export import Dnn.Components.GptBlock;
+
+// ============================================================================
+// Networks - Open Source Transformer Networks
+// ============================================================================
+export import Dnn.Components.GptTransformer;
+export import Dnn.Components.LlamaTransformer;
+
+// ============================================================================
+// Models - Open Source Models
+// ============================================================================
+export import Dnn.Models.GptModel;
+
+export import Dnn.Models.LlamaModel;
+export import Dnn.Models.LlamaModelConfig;
 
 // ============================================================================
 // Dnn - Optimizers
@@ -195,103 +227,134 @@ export import Dnn.Optimizers.AdamWConfig;
 // ============================================================================
 // Dnn - LossFunctions
 // ============================================================================
-export import Dnn.Loss;
+//export import Dnn.Loss;
 
 // ============================================================================
 // Dnn - Data
 // ============================================================================
-export import Data.DatasetReader;
+export import Data.DataLoader;
+export import Data.Tokenizer;
+export import Data.TokenizerType;
 
 // ============================================================================
 // Serialization
 // ============================================================================
 export import Serialization.Mode;
+export import Serialization.OpenMode;
+export import Serialization.Metadata;
 export import Serialization.ModelArchive;
-export import Serialization.ModelSerializer;
+export import Serialization.ArchiveSerializer;
 export import Serialization.ZipSerializer;
 
 // ============================================================================
-// Network
+// Data - Core
 // ============================================================================
-export import Dnn.Network;
-export import Dnn.NetworkFactory;
+
+// Data - Tokenizers
+export import Data.CharTokenizer;
+export import Data.CharTrainer;
+export import Data.CharVocabulary;
+export import Data.CharVocabularyConfig;
+export import Data.SpecialTokens;
+
+export import Data.BpeVocabulary;
+export import Data.BpeVocabularyConfig;
+export import Data.BpeTokenizer;
+export import Data.BpeTrainer;
+export import Data.BpePreTokenizationMode;
 
 // ============================================================================
-// Modeling
+// Data - Datasets
 // ============================================================================
-export import Dnn.Model;
-export import Dnn.ModelConfig;
+export import Data.DataLoader;
+export import Data.TokenSequenceLoader;
 
-// ====================================================================
-// Internal Imports (not exported)
-// ====================================================================
-import Compute.OperationsRegistrar;
-import Compute.DeviceRegistrar;
-
+/**
+ * @brief Mila main API namespace.
+ */
 namespace Mila
 {
     namespace detail
     {
-        std::shared_ptr<Utils::DefaultLogger> g_defaultLogger;
+        std::shared_ptr<Logging::Logger> g_defaultLogger;
     }
 
-    static void initializeLogger( Utils::LogLevel level = Utils::LogLevel::Info ) {
-        detail::g_defaultLogger = std::make_shared<Utils::DefaultLogger>( level );
-        Utils::Logger::setDefaultLogger( detail::g_defaultLogger.get() );
-    }
-
-    /// <summary>
-    /// Gets the current Mila API version.
-    /// </summary>
-    /// <returns>A Version object containing the version information</returns>
-    export Version getAPIVersion() {
-        return Version{
-                MILA_VERSION_MAJOR,
-                MILA_VERSION_MINOR,
-                MILA_VERSION_PATCH,
-                MILA_VERSION_PRERELEASE_TAG,
-        };
-    }
-
-    /// <summary>
-    /// Initializes the Mila framework.
-    /// Must be called before using any other Mila functionality.
-    /// </summary>
-    /// <param name="randomSeed">Random seed for reproducibility (0 = use non-deterministic seed)</param>
-    /// <returns>True if initialization succeeded, false otherwise</returns>
-    export bool initialize( unsigned int randomSeed = 0 ) {
-        try {
-            initializeLogger( Utils::LogLevel::Info );
-
-            Core::RandomGenerator::getInstance().setSeed( randomSeed );
-
-            if (randomSeed != 0) {
-                Utils::Logger::info( "Initialized random generator with seed: " + std::to_string( randomSeed ) );
-            }
-            else {
-                Utils::Logger::info( "Initialized random generator with non-deterministic seed." );
-            }
-
-            Dnn::Compute::OperationsRegistrar::instance();
-            Dnn::Compute::DeviceRegistrar::instance();
-
-            Utils::Logger::info( "Mila framework initialized successfully." );
-
-            return true;
+    /**
+     * @brief Initializes the Mila framework.
+     *
+     * Must be called before using any other Mila functionality. If no sink is
+     * provided a NullSink is used, suppressing all log output — appropriate for
+     * applications linking Mila as a static library that manage their own logging.
+     * Pass an explicit sink to opt in to Mila log output.
+     *
+     * @param randomSeed  Random seed for reproducibility. 0 = non-deterministic.
+     * @param sink        Logging sink to register. nullptr = NullSink (silent).
+     * @return True if initialization succeeded, false otherwise.
+     * @throws            Any exception thrown during initialization is propagated
+     *                    to the caller; the application is responsible for handling it.
+     *
+     * @code
+     * // Silent — appropriate default for apps linking Mila as a library
+     * Mila::initialize();
+     *
+     * // Development / CLI tool — opt in to Info-level console output
+     * auto sink = std::make_shared<Mila::Logging::ConsoleSink>( Logging::LogLevel::Info );
+     * Mila::initialize( 0, sink );
+     *
+     * // FastAPI server — structured file logging at Warning+
+     * auto sink = std::make_shared<Mila::Logging::FileSink>( "mila.log", Logging::LogLevel::Warning );
+     * Mila::initialize( 0, sink );
+     * @endcode
+     */
+    export bool initialize(
+        unsigned int randomSeed = 0,
+        std::shared_ptr<Logging::Logger> sink = nullptr )
+    {
+        if ( sink )
+        {
+            detail::g_defaultLogger = std::move( sink );
         }
-        catch (const std::exception& e) {
-            // Fall back to std::cerr if logger isn't initialized yet
-            std::cerr << "Mila initialization failed: " << e.what() << std::endl;
-            return false;
+        else
+        {
+            detail::g_defaultLogger = std::make_shared<Logging::NullSink>();
         }
+
+        Logging::Logger::setDefaultLogger( detail::g_defaultLogger.get() );
+
+        Core::RandomGenerator::getInstance().setSeed( randomSeed );
+
+        if ( randomSeed != 0 )
+        {
+            auto message = std::format( "Initialized random generator with seed: {}", randomSeed );
+            Logging::Logger::info( message );
+        }
+        else
+        {
+            Logging::Logger::info( "Initialized random generator with non-deterministic seed." );
+        }
+
+        Dnn::Compute::DeviceRegistrar::instance();
+        Dnn::Compute::OperationsRegistrar::instance();
+
+        Logging::Logger::info( "Mila framework initialized successfully." );
+
+        return true;
     }
 
-    export void shutdown() {
-        Utils::Logger::info( "Shutting down Mila framework" );
+    /**
+     * @brief Shuts down the Mila framework and releases all resources.
+     *
+     * Flushes any pending log output through the registered sink before
+     * releasing it. After this call no further log calls should be made
+     * until initialize() is called again.
+     *
+     * @throws Any exception thrown during shutdown is propagated to the caller.
+     */
+    export void shutdown()
+    {
+        Logging::Logger::info( "Shutting down Mila framework." );
 
         detail::g_defaultLogger.reset();
-        Utils::Logger::setDefaultLogger( nullptr );
-
-        // TODO: Add other cleanup code here...
+        Logging::Logger::setDefaultLogger( nullptr );
     }
 }

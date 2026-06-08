@@ -19,7 +19,7 @@ module;
 
 export module Compute.CpuEncoderOp;
 
-import Dnn.Components.Encoder;
+import Dnn.Components.LpeConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -27,13 +27,14 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
 import Dnn.ComponentConfig;
-import Compute.Precision;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.OperationType;
+import Dnn.Component;
+import Compute.OperationRegistrarHelpers;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CpuDevice;
@@ -48,8 +49,9 @@ namespace Mila::Dnn::Compute
      * Contract and behavior:
      * - Forward: for each batch b and sequence position t, computes
      *     output[b, t, c] = wte[input[b, t], c] + wpe[t, c]
-     *   where `input` is a token-id tensor of shape [B, T] (INT32) and
-     *   `output` is an embedding tensor of shape [B, T, C] (FP32).
+     *   where 
+     *     `input` is a token-id tensor of shape [B, T] (INT32) and
+     *     `output` is an embedding tensor of shape [B, T, C] (FP32).
      *
      * - Backward: accumulates gradients into two parameter tensors:
      *     dwte[input[b, t], :] += output_grad[b, t, :]
@@ -71,8 +73,7 @@ namespace Mila::Dnn::Compute
      *   max sequence length and channels). If shapes mismatch, the method throws.
      *
      * Edge-cases:
-     * - Out-of-range token indices are ignored (the implementation currently
-     *   skips writing that output location).
+     * - Out-of-range token indices are treated as fatal errors and will throw.
      * - Token indices are discrete: no input gradient is produced. The `input_grad`
      *   parameter exists to satisfy the UnaryOperation interface but is unused.
      */
@@ -83,6 +84,7 @@ namespace Mila::Dnn::Compute
         using OperationBase = UnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
         using TensorType = Tensor<TensorDataType::FP32, MR>;
+        using ConfigType = LpeConfig;
 
         /**
          * @brief Construct with execution context and configuration.
@@ -94,11 +96,10 @@ namespace Mila::Dnn::Compute
          * Ownership:
          * - The operation stores the provided execution context shared_ptr.
          */
-        explicit CpuEncoderOp(
-            std::shared_ptr<CpuExecutionContext> context, const EncoderConfig& config )
+        explicit CpuEncoderOp( IExecutionContext* context, const LpeConfig& config )
             : context_( context ), config_( config )
         {
-            if (!context)
+            if ( !context )
             {
                 throw std::invalid_argument( "ExecutionContext cannot be null." );
             }
@@ -118,16 +119,18 @@ namespace Mila::Dnn::Compute
          * Validates the input shape and caches B, T and C for hot-path loops.
          * Must be called (via Module::build) before forward/backward.
          */
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
-            if (is_built_)
+            if ( is_built_ )
                 return;
+
+            const auto& input_shape = config.inputShape();
 
             validateInputShape( input_shape );
 
-            cached_batch_size_ = input_shape[0];
-            cached_seq_length_ = input_shape[1];
-            cached_embedding_dim_ = config_.getChannels();
+            batch_size_ = input_shape[ 0 ];
+            seq_length_ = input_shape[ 1 ];
+            embedding_dim_ = config_.getEmbeddingDim();
 
             is_built_ = true;
         }
@@ -153,34 +156,34 @@ namespace Mila::Dnn::Compute
          */
         void setParameters( ITensor* wte, ITensor* wpe ) override
         {
-            if (!wte)
+            if ( !wte )
             {
                 throw std::invalid_argument( "CpuEncoderOp::setParameters - wte parameter is required" );
             }
 
-            if (!wpe)
+            if ( !wpe )
             {
                 throw std::invalid_argument( "CpuEncoderOp::setParameters - wpe parameter is required" );
             }
 
-            if (wte->getDeviceType() != DeviceType::Cpu || wpe->getDeviceType() != DeviceType::Cpu)
+            if ( wte->getDeviceType() != DeviceType::Cpu || wpe->getDeviceType() != DeviceType::Cpu )
             {
                 throw std::invalid_argument( "CpuEncoderOp::setParameters - parameters must be CPU tensors" );
             }
 
             // Validate shapes immediately and cache both ITensor* and typed data pointer
             const auto& wte_shape = wte->shape();
-            if (wte_shape.size() != 2 ||
-                wte_shape[0] != config_.getVocabularyLength() ||
-                wte_shape[1] != config_.getChannels())
+            if ( wte_shape.size() != 2 ||
+                wte_shape[ 0 ] != config_.getVocabularyLength() ||
+                wte_shape[ 1 ] != config_.getEmbeddingDim() )
             {
                 throw std::invalid_argument( "CpuEncoderOp::setParameters - wte shape mismatch" );
             }
 
             const auto& wpe_shape = wpe->shape();
-            if (wpe_shape.size() != 2 ||
-                wpe_shape[0] != config_.getMaxSequenceLength() ||
-                wpe_shape[1] != config_.getChannels())
+            if ( wpe_shape.size() != 2 ||
+                wpe_shape[ 0 ] != config_.getMaxSequenceLength() ||
+                wpe_shape[ 1 ] != config_.getEmbeddingDim() )
             {
                 throw std::invalid_argument( "CpuEncoderOp::setParameters - wpe shape mismatch" );
             }
@@ -206,28 +209,28 @@ namespace Mila::Dnn::Compute
         void setGradients( ITensor* wte_grad, ITensor* wpe_grad ) override
         {
             // Both gradients are required for encoder training
-            if (!wte_grad || !wpe_grad)
+            if ( !wte_grad || !wpe_grad )
             {
                 throw std::invalid_argument( "CpuEncoderOp::setParameterGradients - both wte and wpe gradients are required" );
             }
 
-            if (wte_grad->getDeviceType() != DeviceType::Cpu || wpe_grad->getDeviceType() != DeviceType::Cpu)
+            if ( wte_grad->getDeviceType() != DeviceType::Cpu || wpe_grad->getDeviceType() != DeviceType::Cpu )
             {
                 throw std::invalid_argument( "CpuEncoderOp::setParameterGradients - gradients must be CPU tensors" );
             }
 
             const auto& wte_g_shape = wte_grad->shape();
-            if (wte_g_shape.size() != 2 ||
-                wte_g_shape[0] != config_.getVocabularyLength() ||
-                wte_g_shape[1] != config_.getChannels())
+            if ( wte_g_shape.size() != 2 ||
+                wte_g_shape[ 0 ] != config_.getVocabularyLength() ||
+                wte_g_shape[ 1 ] != config_.getEmbeddingDim() )
             {
                 throw std::invalid_argument( "CpuEncoderOp::setParameterGradients - wte_grad shape mismatch" );
             }
 
             const auto& wpe_g_shape = wpe_grad->shape();
-            if (wpe_g_shape.size() != 2 ||
-                wpe_g_shape[0] != config_.getMaxSequenceLength() ||
-                wpe_g_shape[1] != config_.getChannels())
+            if ( wpe_g_shape.size() != 2 ||
+                wpe_g_shape[ 0 ] != config_.getMaxSequenceLength() ||
+                wpe_g_shape[ 1 ] != config_.getEmbeddingDim() )
             {
                 throw std::invalid_argument( "CpuEncoderOp::setParameterGradients - wpe_grad shape mismatch" );
             }
@@ -251,16 +254,16 @@ namespace Mila::Dnn::Compute
          * - build() and setParameters() must have been called.
          *
          * Behavior:
-         * - Writes output in-place. Out-of-range token indices are skipped.
+         * - Writes output in-place. Out-of-range token indices now throw.
          */
         void forward( const ITensor& input, ITensor& output ) const override
         {
-            if (!is_built_)
+            if ( !is_built_ )
             {
                 throw std::runtime_error( "CpuEncoderOp: forward called before build()" );
             }
 
-            if (!wte_ || !wpe_)
+            if ( !wte_ || !wpe_ )
             {
                 throw std::runtime_error( "CpuEncoderOp: parameters not set via setParameters()" );
             }
@@ -271,25 +274,27 @@ namespace Mila::Dnn::Compute
             const int32_t* X = static_cast<const int32_t*>(input.rawData());
             float* Y = static_cast<float*>(output.rawData());
 
-            const int64_t B = cached_batch_size_;
-            const int64_t T = cached_seq_length_;
-            const int64_t C = cached_embedding_dim_;
+            const int64_t B = batch_size_;
+            const int64_t T = seq_length_;
+            const int64_t C = embedding_dim_;
 
             // Parallel over batch and sequence dimensions
-#pragma omp parallel for collapse(2)
-            for (int64_t b = 0; b < B; b++)
+        #pragma omp parallel for collapse(2)
+            for ( int64_t b = 0; b < B; b++ )
             {
-                for (int64_t t = 0; t < T; t++)
+                for ( int64_t t = 0; t < T; t++ )
                 {
                     // Get token index for this position
-                    const int32_t token_idx = X[b * T + t];
+                    const int32_t token_idx = X[ b * T + t ];
 
-                    // Bounds check for token index
-                    if (token_idx < 0 || token_idx >= config_.getVocabularyLength())
+                    // Bounds check for token index - treat out-of-range as error
+                    if ( token_idx < 0 || token_idx >= config_.getVocabularyLength() )
                     {
-                        // Invalid token index - could fill with zeros or throw
-                        // For now, skip (output will have undefined values)
-                        continue;
+                        throw std::out_of_range(
+                            "CpuEncoderOp::forward - token index " + std::to_string(token_idx) +
+                            " at batch " + std::to_string(b) + " pos " + std::to_string(t) +
+                            " is outside vocabulary range [0," + std::to_string(config_.getVocabularyLength()-1) + "]"
+                        );
                     }
 
                     // Output pointer for this position
@@ -302,9 +307,9 @@ namespace Mila::Dnn::Compute
                     const float* wpe_t = wpe_ + t * C;
 
                     // Add token and position embeddings
-                    for (int64_t c = 0; c < C; c++)
+                    for ( int64_t c = 0; c < C; c++ )
                     {
-                        out_bt[c] = wte_ix[c] + wpe_t[c];
+                        out_bt[ c ] = wte_ix[ c ] + wpe_t[ c ];
                     }
                 }
             }
@@ -326,43 +331,51 @@ namespace Mila::Dnn::Compute
          * - Accumulates gradients into `wte_grad` and `wpe_grad` in-place.
          * - Uses atomic updates to ensure thread-safety when multiple threads
          *   update the same row.
+         *
+         * Note:
+         * - Input token indices are validated and will throw on out-of-range indices.
          */
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
             ITensor& input_grad ) const override
         {
-            if (!is_built_)
+            if ( !is_built_ )
             {
                 throw std::runtime_error( "CpuEncoderOp: backward called before build()" );
             }
 
-            if (!wte_grad_ || !wpe_grad_)
+            if ( !wte_grad_ || !wpe_grad_ )
             {
                 throw std::runtime_error( "CpuEncoderOp: parameter gradients not set via setParameterGradients()" );
             }
 
-            const float* X = static_cast<const float*>(input.rawData());
+            // Input is INT32 token indices
+            const int32_t* X = static_cast<const int32_t*>(input.rawData());
             const float* dY = static_cast<const float*>(output_grad.rawData());
             float* dX = static_cast<float*>(input_grad.rawData());
 
-            const int64_t B = cached_batch_size_;
-            const int64_t T = cached_seq_length_;
-            const int64_t C = cached_embedding_dim_;
+            const int64_t B = batch_size_;
+            const int64_t T = seq_length_;
+            const int64_t C = embedding_dim_;
 
             // Accumulate gradients
             // Note: atomic operations needed because multiple positions can reference same token
-#pragma omp parallel for collapse(2)
-            for (int64_t b = 0; b < B; b++)
+        #pragma omp parallel for collapse(2)
+            for ( int64_t b = 0; b < B; b++ )
             {
-                for (int64_t t = 0; t < T; t++)
+                for ( int64_t t = 0; t < T; t++ )
                 {
-                    const int32_t token_idx = X[b * T + t];
+                    const int32_t token_idx = X[ b * T + t ];
 
-                    // Bounds check
-                    if (token_idx < 0 || token_idx >= config_.getVocabularyLength())
+                    // Bounds check - treat out-of-range as error
+                    if ( token_idx < 0 || token_idx >= config_.getVocabularyLength() )
                     {
-                        continue;
+                        throw std::out_of_range(
+                            "CpuEncoderOp::backward - token index " + std::to_string(token_idx) +
+                            " at batch " + std::to_string(b) + " pos " + std::to_string(t) +
+                            " is outside vocabulary range [0," + std::to_string(config_.getVocabularyLength()-1) + "]"
+                        );
                     }
 
                     const float* dout_bt = dY + b * T * C + t * C;
@@ -370,17 +383,17 @@ namespace Mila::Dnn::Compute
                     float* dwpe_t = wpe_grad_ + t * C;
 
                     // Accumulate gradients (atomic for thread safety on dwte)
-                    for (int64_t c = 0; c < C; c++)
+                    for ( int64_t c = 0; c < C; c++ )
                     {
-                        const float grad = dout_bt[c];
+                        const float grad = dout_bt[ c ];
 
                         // Token embedding gradient (needs atomic - multiple tokens can be same)
-#pragma omp atomic
-                        dwte_ix[c] += grad;
+                    #pragma omp atomic
+                        dwte_ix[ c ] += grad;
 
                         // Position embedding gradient (needs atomic - multiple batches same position)
-#pragma omp atomic
-                        dwpe_t[c] += grad;
+                    #pragma omp atomic
+                        dwpe_t[ c ] += grad;
                     }
                 }
             }
@@ -394,32 +407,32 @@ namespace Mila::Dnn::Compute
 
         OperationType getOperationType() const override
         {
-            return OperationType::EncoderOp;
+            return OperationType::LpeOp;
         }
 
         std::string getName() const override
         {
-            return "CpuEncoderOp";
+            return "Cpu::LpeOp";
         }
 
     private:
 
-        std::shared_ptr<CpuExecutionContext> context_;
-        EncoderConfig config_;
+        LpeConfig config_;
+        IExecutionContext* context_{ nullptr };
 
         bool is_built_{ false };
 
-        // Parameter pointers (bound by module via setParameters)
+        // Parameter pointers (bound by encoder component via setParameters)
         const float* wte_{ nullptr };      // Token embeddings (V, C)
         const float* wpe_{ nullptr };      // Position embeddings (maxT, C)
 
-        // Gradient pointers (bound by module via setParameterGradients)
+        // Gradient pointers (bound by encoder component via setParameterGradients)
         float* wte_grad_{ nullptr };
         float* wpe_grad_{ nullptr };
 
-        int64_t cached_batch_size_{ 0 };
-        int64_t cached_seq_length_{ 0 };
-        int64_t cached_embedding_dim_{ 0 };
+        int64_t batch_size_{ 0 };
+        int64_t seq_length_{ 0 };
+        int64_t embedding_dim_{ 0 };
 
         void validateInputShape( const ITensor& input ) const
         {
@@ -429,20 +442,18 @@ namespace Mila::Dnn::Compute
 
         void validateInputShape( const shape_t& input_shape ) const
         {
-            if (input_shape.size() != 2)
+            if ( input_shape.size() != 2 )
             {
                 throw std::invalid_argument(
                     "CpuEncoderOp: input must have rank 2 (batch_size, sequence_length)" );
             }
 
-            if (input_shape[1] > config_.getMaxSequenceLength())
+            if ( input_shape[ 1 ] > config_.getMaxSequenceLength() )
             {
                 throw std::invalid_argument(
                     "CpuEncoderOp: sequence length exceeds configured maximum" );
             }
         }
-
-
     };
 
     /**
@@ -455,22 +466,9 @@ namespace Mila::Dnn::Compute
     public:
         static void registerOperations()
         {
-            const std::string opName = "EncoderOp";
+            const std::string_view op_name = OperationNames::Lpe;
 
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>(
-                opName,
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>>
-                {
-                    const auto& encoder_config = dynamic_cast<const EncoderConfig&>(config);
-                    return std::make_shared<CpuEncoderOp>( context, encoder_config );
-                } );
+            registerUnaryOpType<DeviceType::Cpu, CpuEncoderOp, TensorDataType::INT32, TensorDataType::FP32>( op_name );
         }
-
-        /*static inline bool isRegistered = []()
-            {
-                registerOperations();
-                return true;
-            }();*/
     };
 }

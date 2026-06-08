@@ -1,29 +1,28 @@
 /**
  * @file CpuLinearOp.ixx
- * @brief CPU implementation of Linear (fully connected) operation (TensorDataType-based).
- *
- * Ported to the ExecutionContext / TensorDataType UnaryOperation interface
- * following the two-phase initialization pattern used by CpuLayerNormOp.
+ * @brief CPU implementation of Linear (fully connected) operation.
  */
 
 module;
 #include <memory>
 #include <vector>
 #include <string>
-#include <stdexcept>
 #include <sstream>
-#include <numeric>
-#include <functional>
+#include <iostream>
+#include <stdexcept>
 #include <cstdint>
+#include <type_traits>
+#include <optional>
 #ifdef USE_OMP
 #include <omp.h>
 #endif
 
 export module Compute.CpuLinearOp;
 
-import Dnn.Components.Linear;
+import Dnn.Components.LinearConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
@@ -31,8 +30,9 @@ import Dnn.ComponentConfig;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
-import Compute.CpuExecutionContext;
+import Compute.ExecutionContextTemplate;
 import Compute.OperationType;
+import Dnn.Component;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
@@ -40,7 +40,6 @@ import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;
 import Compute.CpuDevice;
-import Compute.Precision;
 
 namespace Mila::Dnn::Compute
 {
@@ -71,12 +70,9 @@ namespace Mila::Dnn::Compute
         using MR = CpuMemoryResource;
         using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>;
         using TensorType = Tensor<TensorDataType::FP32, MR>;
-        //using Parameters = std::vector<std::shared_ptr<TensorType>>;
-        //using OutputState = std::vector<std::shared_ptr<TensorType>>;
-        //using float = typename TensorfloatMap<TPrecision>::host_type;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
-        CpuLinearOp( std::shared_ptr<CpuExecutionContext> context, const LinearConfig& config )
+        CpuLinearOp( IExecutionContext* context, const LinearConfig& config )
             : context_( context ), config_( config )
         {
             if (!context_)
@@ -178,8 +174,10 @@ namespace Mila::Dnn::Compute
          *
          * After build(), the operation is ready for zero-overhead forward/backward dispatch.
          */
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
+            const auto& input_shape = config.inputShape();
+
             if (weight_ == nullptr)
             {
                 throw std::runtime_error( "CpuLinearOp::build requires parameters bound via setParameters() before build()." );
@@ -204,6 +202,7 @@ namespace Mila::Dnn::Compute
                 std::ostringstream oss;
                 oss << "CpuLinearOp::build - weight output features mismatch. Expected "
                     << config_.getOutputFeatures() << ", got " << weight_out_features_;
+                
                 throw std::invalid_argument( oss.str() );
             }
 
@@ -212,6 +211,7 @@ namespace Mila::Dnn::Compute
                 std::ostringstream oss;
                 oss << "CpuLinearOp::build - weight input features mismatch. Expected "
                     << in_features_ << ", got " << weight_in_features_;
+                
                 throw std::invalid_argument( oss.str() );
             }
 
@@ -230,7 +230,7 @@ namespace Mila::Dnn::Compute
             // Cache OMP parallelization threshold
             enable_omp_ = (batch_size_ > 100);
 
-            UnaryOperationBase::build( input_shape );
+            UnaryOperationBase::build( config );
         }
 
         // ====================================================================
@@ -250,6 +250,14 @@ namespace Mila::Dnn::Compute
         void forward( const ITensor& input, ITensor& output ) const override
         {
             const float* X = static_cast<const float*>(input.rawData());
+
+            // DEBUG:
+            /*if ( const auto* in_t = dynamic_cast<const TensorType*>(&input) )
+            {
+                std::clog << this->getName() << ": ln input:\n" << in_t->toString( true ) << std::endl;
+            }*/
+            //----
+
             float* Y = static_cast<float*>(output.rawData());
 
             const float* W = weight_;
@@ -352,10 +360,11 @@ namespace Mila::Dnn::Compute
         }
 
     private:
+        
         static constexpr int LOOP_UNROLL = 8;
 
         LinearConfig config_;
-        std::shared_ptr<CpuExecutionContext> context_;
+        IExecutionContext* context_;
 
         const float* weight_{ nullptr };
         const float* bias_{ nullptr };
@@ -463,7 +472,7 @@ namespace Mila::Dnn::Compute
         {
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 "LinearOp",
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
+                []( IExecutionContext* context,
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
                 {
                     const auto& linearConfig = static_cast<const LinearConfig&>(config);

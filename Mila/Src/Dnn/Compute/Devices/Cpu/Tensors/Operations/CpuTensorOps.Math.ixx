@@ -14,10 +14,10 @@
  */
 
 module;
-#include <memory>
+//#include <memory>
 #include <stdexcept>
-#include <source_location>
-#include <cmath>
+//#include <source_location>
+//#include <cmath>
 #include <algorithm>
 #include <execution>
 
@@ -25,12 +25,12 @@ export module Compute.CpuTensorOps:Math;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorHostTypeMap;
 import Compute.DeviceType;
-import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
-import Compute.ExecutionContext;
+import Compute.IExecutionContext;
 
 namespace Mila::Dnn::Compute::Cpu
 {
@@ -75,7 +75,7 @@ namespace Mila::Dnn::Compute::Cpu
             const Tensor<TDataType, TMemoryResource>& a,
             const Tensor<TDataType, TMemoryResource>& b,
             Tensor<TDataType, TMemoryResource>& result,
-            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
             validateShapeCompatibility( a, b, result, "add" );
 
@@ -107,7 +107,7 @@ namespace Mila::Dnn::Compute::Cpu
             const Tensor<TDataType, TMemoryResource>& a,
             const Tensor<TDataType, TMemoryResource>& b,
             Tensor<TDataType, TMemoryResource>& result,
-            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
             validateShapeCompatibility( a, b, result, "subtract" );
 
@@ -139,7 +139,7 @@ namespace Mila::Dnn::Compute::Cpu
             const Tensor<TDataType, TMemoryResource>& a,
             const Tensor<TDataType, TMemoryResource>& b,
             Tensor<TDataType, TMemoryResource>& result,
-            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
             validateShapeCompatibility( a, b, result, "multiply" );
 
@@ -177,7 +177,7 @@ namespace Mila::Dnn::Compute::Cpu
             const Tensor<TDataType, TMemoryResource>& a,
             const Tensor<TDataType, TMemoryResource>& b,
             Tensor<TDataType, TMemoryResource>& result,
-            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
             validateShapeCompatibility( a, b, result, "divide" );
 
@@ -223,7 +223,7 @@ namespace Mila::Dnn::Compute::Cpu
             requires isValidTensor<TDataType, TMemoryResource>
         static float sum(
             const Tensor<TDataType, TMemoryResource>& tensor,
-            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
             if (tensor.size() == 0)
             {

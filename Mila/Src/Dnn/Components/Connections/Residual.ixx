@@ -1,17 +1,11 @@
 /**
  * @file Residual.ixx
- * @brief Device-templated Residual connection module.
+ * @brief Device-templated Residual connection component.
  *
- * The `Residual` module implements a residual shortcut y = x + F(x) with
+ * The `Residual` component implements a residual shortcut y = x + F(x) with
  * configurable connection types (Addition, ScaledAddition, Gated) and optional
  * projection when input/output dimensions differ. Computation is delegated to
  * a device-specific binary operation backend obtained from the OperationRegistry.
- *
- * This implementation is device- and precision-parameterized and follows the
- * same module interface used by other layers (see `Module.ixx` and `Linear.ixx`).
- *
- * @tparam TDeviceType Compile-time device identifier (DeviceType::Cpu or DeviceType::Cuda).
- * @tparam TPrecision  Abstract tensor precision (TensorDataType).
  */
 
 module;
@@ -23,29 +17,36 @@ module;
 #include <type_traits>
 #include <stdexcept>
 #include <cstdint>
+#include <optional>
+#include <format>
+#include <algorithm>
 
 export module Dnn.Components.Residual;
-export import :Config;
+export import Dnn.Components.ResidualConfig;
 
 import Dnn.Component;
+import Dnn.ComponentType;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Compute.Precision;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
-import Compute.ExecutionContext;
-import Compute.OperationBase;
+import Compute.DeviceTypeTraits;
+import Compute.IExecutionContext;
+import Compute.ExecutionContextFactory;
+import Compute.UnaryOperation;
 import Compute.BinaryOperation;
-import Compute.OperationRegistry;
+import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
+import Serialization.Mode;
 
 import Dnn.Components.Linear;
+import Logging.Logger;
 
 namespace Mila::Dnn
 {
@@ -53,11 +54,17 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Device-templated Residual connection module.
+     * @brief Device-templated Residual connection component.
      *
      * Delegates binary residual computation to a device-specific backend
      * operation. Parameters (if any) and any projection tensors are stored as
      * `Tensor` instances bound to the associated execution context.
+     *
+     * New API:
+     * - `forward(...)` returns pointer to a component-owned output `ITensor`
+     * - `backward(...)` returns pointer to a component-owned input-gradient for the first input.
+     *   The component also owns the gradient for the second input which can be
+     *   accessed via `getInputBGrad()`.
      *
      * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda).
      * @tparam TPrecision  Abstract tensor precision (TensorDataType).
@@ -67,101 +74,139 @@ namespace Mila::Dnn
     class Residual : public Component<TDeviceType, TPrecision>
     {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
-        using ExecutionContextType = ExecutionContext<TDeviceType>;
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TPrecision, MR>;
+        using ComponentBase = Component<TDeviceType, TPrecision>;
 
         /**
-         * @brief Construct with an existing execution context.
+         * @brief Construct Residual component with optional ExecutionContext ownership.
          *
-         * @param exec_context Shared execution context for device resources.
-         * @param config       Residual configuration.
+         * Supports two construction modes:
+         * - Standalone mode (device_id provided): creates and owns an ExecutionContext.
+         * - Shared mode (no device_id): parent must call setExecutionContext() prior to build().
          *
-         * Throws std::invalid_argument if exec_context is null.
+         * @param name Component name identifier (mandatory).
+         * @param build_config Residual configuration.
+         * @param device_id Optional device identifier to create owned ExecutionContext.
+         *
+         * @throws std::invalid_argument if build_config is invalid or device type mismatches.
+         * @throws std::runtime_error if ExecutionContext creation fails (standalone mode).
          */
-        explicit Residual( std::shared_ptr<ExecutionContextType> exec_context, const ResidualConfig& config )
-            : exec_context_( exec_context ), config_( config )
+        explicit Residual( const std::string& name, const ResidualConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+            : ComponentBase( name ), config_( config )
         {
-            if (!exec_context_)
-            {
-                throw std::invalid_argument( "ExecutionContext cannot be null." );
-            }
-
             config_.validate();
 
-            createOperation();
+            if ( device_id.has_value() )
+            {
+                if ( device_id->type != TDeviceType )
+                {
+                    throw std::invalid_argument( "Residual: device type mismatch" );
+                }
+
+                owned_exec_context_ = createExecutionContext( device_id.value() );
+
+                this->setExecutionContext( owned_exec_context_.get() );
+            }
         }
 
         ~Residual() override = default;
 
         /**
-         * @brief Return the total number of scalar parameters in this module.
+         * @brief Execute the forward pass and return component-owned output tensor.
          *
-         * This includes gating/scaling parameters and any projection parameters.
-         */
-        size_t parameterCount() const override
-        {
-            return 0;
-        }
-
-        /**
-         * @brief Execute the forward pass.
+         * The returned pointer is owned by the component and is valid until the
+         * component is destroyed or rebuilt. The backend BinaryOperation signature
+         * is unchanged; the component provides the owned output tensor when
+         * invoking the backend.
          *
-         * Delegates to the backend binary operation. Inputs and outputs are
-         * provided as abstract `ITensor` references to remain device-agnostic.
-         */
-        void forward( const ITensor& input_a, const ITensor& input_b, ITensor& output )
-        {
-            operation_->forward( input_a, input_b, output );
-        }
-
-        /**
-         * @brief Execute the backward pass (gradient computation).
+         * @param input_a Left input tensor.
+         * @param input_b Right input tensor.
+         * @return Pointer to component-owned ITensor containing the forward result.
          *
-         * Currently a placeholder; backend gradient support should be invoked
-         * here when available.
+         * @throws std::runtime_error if component has not been built or backend missing.
          */
-        void backward( const ITensor& input, const ITensor& output_grad, ITensor& input_grad )
+        TensorType& forward( const TensorType& input_a, const TensorType& input_b )
         {
-            operation_->backward(
-                input,
-                output_grad,
-                input_grad
-            );
-        }
-
-        // ====================================================================
-        // Module lifecycle
-        // ====================================================================
-
-        bool isBuilt() const override
-        {
-            return is_built_;
-        }
-
-        void build( const shape_t& input_shape ) override
-        {
-            if (is_built_)
+            if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "Residual::build: module already built" );
+                throw std::runtime_error( "Residual::forward: component must be built before forward pass" );
             }
 
-            operation_->build( input_shape );
+            operation_->forward( input_a, input_b, *output_ );
 
-            input_shape_ = input_shape;
-            is_built_ = true;
+            // DEBUG: 
+            //this->synchronize();
+
+            auto input_shape = input_a.shape();
+
+            if ( input_shape == leading_shape_ )
+            {
+                return *output_;
+            }
+
+            output_view_ = std::make_unique<TensorType>( output_->view( input_shape ) );
+
+            return *output_view_;
         }
 
         /**
-         * @brief Block until all device operations submitted by this module complete.
+         * @brief Execute the backward pass and return component-owned gradient for input_a.
+         *
+         * Component owns both input gradients (for input_a and input_b). The method
+         * returns the gradient tensor for `input_a`. The gradient for `input_b` can
+         * be accessed via `getInputBGrad()` after calling `backward()`.
+         *
+         * @param input_a Left forward input.
+         * @param input_b Right forward input.
+         * @param output_grad Gradient with respect to the component output.
+         * @return Pointer to component-owned ITensor containing gradient w.r.t. input_a.
+         *
+         * @throws std::runtime_error if backend not initialized or if component not built/training.
+         */
+        std::pair<TensorType&, TensorType&> backward(
+            const TensorType& input_a,
+            const TensorType& input_b,
+            const TensorType& output_grad )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "Residual::backward: component must be built before backward pass" );
+            }
+
+            if ( this->isInferenceMode() )
+            {
+                throw std::runtime_error( "Residual::backward: component must be in training mode to compute gradients" );
+            }
+
+            // Zero BOTH owned input gradient buffers before backward pass.
+            // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed
+            // buffers to prevent gradient buildup across calls.
+            zero( *input_a_grad_ /*, this->getExecutionContext() */);
+            zero( *input_b_grad_ /*, this->getExecutionContext() */);
+
+            operation_->backward(
+                input_a,
+                input_b,
+                output_grad,
+                *input_a_grad_,
+                *input_b_grad_ );
+
+            return { *input_a_grad_, *input_b_grad_ };
+        }
+
+        /**
+         * @brief Block until all device operations submitted by this component complete.
+         *
+         * @throws std::runtime_error if ExecutionContext has not been set.
          */
         void synchronize() override
         {
-            exec_context_->synchronize();
+            this->getExecutionContext()->synchronize();
         }
 
         /**
-         * @brief Serialize module parameters into the provided archive.
+         * @brief Serialize component parameters into the provided archive.
          *
          * Placeholder; concrete implementations should write named parameter
          * tensors into the archive.
@@ -169,35 +214,26 @@ namespace Mila::Dnn
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
             // No-op placeholder; serialize parameter tensors if needed
+            (void)archive;
+            (void)mode;
         }
 
-        std::vector<ITensor*> getParameters() const override
+        // ====================================================================
+        // Identification and Description
+        // ====================================================================
+
+        const ComponentType getType() const override
         {
-            return {};
+            return ComponentType::Residual;
         }
 
-        std::vector<ITensor*> getGradients() const override
+        DeviceId getDeviceId() const override
         {
-            return {};
+            return this->getExecutionContext()->getDeviceId();
         }
 
         /**
-         * @brief Get the module name from configuration.
-         *
-         * @returns Module name string.
-         */
-        std::string getName() const override
-        {
-            return config_.getName();
-        }
-
-        std::shared_ptr<ComputeDevice> getDevice() const override
-        {
-            return exec_context_->getDevice();
-        }
-
-        /**
-         * @brief Return a human-readable description of the module.
+         * @brief Return a human-readable description of the component.
          *
          * Includes configured name, training/built state, backend presence,
          * device information and parameter count to aid debugging and logging.
@@ -205,15 +241,130 @@ namespace Mila::Dnn
         std::string toString() const override
         {
             std::ostringstream oss;
-            oss << "Residual: " << getName() << std::endl;
-            oss << "Training mode: " << (this->isTraining() ? "true" : "false") << std::endl;
-            oss << "Built: " << (isBuilt() ? "true" : "false") << std::endl;
-            oss << "Device: " << deviceTypeToString( exec_context_->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Residual: " << this->getName() << std::endl;
+            // REVEIW: oss << "Training mode: " << (this->isTraining() ? "true" : "false") << std::endl;
+            oss << "Built: " << (this->isBuilt() ? "true" : "false") << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
 
             return oss.str();
         }
 
+        /**
+         * @brief Number of trainable parameters.
+         *
+         * Residual has no trainable parameters.
+         *
+         * @return 0
+         */
+        size_t parameterCount() const override
+        {
+            return 0;
+        }
+
+        /**
+         * @brief Return non-owning pointers to parameter tensors.
+         *
+         * Residual has no trainable parameter tensors by default; return empty list.
+         */
+        std::vector<ITensor*> getParameters() const override
+        {
+            return {};
+        }
+
+        /**
+         * @brief Return non-owning pointers to parameter gradient tensors.
+         *
+         * Only valid in training mode. Residual has no trainable parameters by default.
+         */
+        std::vector<ITensor*> getGradients() const override
+        {
+            // REVIEW:
+            /*if ( !this->isTraining() )
+            {
+                throw std::runtime_error( "Residual: getGradients called when not in training mode" );
+            }*/
+
+            return {};
+        }
+
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+
+            if ( output_ != nullptr )
+            {
+                stats.device_state_bytes += output_->getStorageSize();
+            }
+
+            if ( input_a_grad_ != nullptr )
+            {
+                stats.device_gradient_bytes += input_a_grad_->getStorageSize();
+            }
+
+            if ( input_b_grad_ != nullptr )
+            {
+                stats.device_gradient_bytes += input_b_grad_->getStorageSize();
+            }
+
+            return stats;
+        }
+
     protected:
+
+        /**
+         * @brief Hook invoked after ExecutionContext is set on the base Component.
+         *
+         * Create the device-specific BinaryOperation backend via the OperationRegistry.
+         */
+        void onExecutionContextSet() override
+        {
+            createOperation();
+        }
+
+        /**
+         * @brief Build the Residual component from the provided BuildContext.
+         *
+         * Allocates the component-owned output buffer and, for Training-mode
+         * builds, the gradient buffers for both inputs.
+         *
+         * ## Output buffer
+         *
+         * The output buffer matches the full input shape. Residual is a
+         * pure elementwise addition with no sequence dimension concern —
+         * RuntimeMode does not influence output buffer allocation.
+         *
+         * ## Gradient buffers
+         *
+         * input_a_grad_ and input_b_grad_ are allocated only for
+         * RuntimeMode::Training builds. Both are the same shape as the
+         * input — Residual is elementwise addition and both inputs are
+         * always symmetric in shape.
+         *
+         * @param build_config Full input shape and RuntimeMode for this build.
+         */
+        void onBuilding( const BuildContext& build_config ) override
+        {
+            const auto& input_shape = build_config.inputShape();
+
+            operation_->build( build_config );
+
+            auto device = this->getExecutionContext()->getDeviceId();
+
+            output_ = std::make_unique<TensorType>(
+                device, input_shape, this->getName() + ".output" );
+
+            if ( build_config.isTrainingMode() )
+            {
+                input_a_grad_ = std::make_unique<TensorType>(
+                    device, input_shape, this->getName() + ".input_a.grad" );
+                zero( *input_a_grad_ );
+
+                input_b_grad_ = std::make_unique<TensorType>(
+                    device, input_shape, this->getName() + ".input_b.grad" );
+                zero( *input_b_grad_ );
+            }
+        }
+
         /**
          * @brief Hook invoked when training mode is about to change.
          *
@@ -221,33 +372,43 @@ namespace Mila::Dnn
          * training, explicitly unbind any parameter-gradient pointers on the
          * backend to avoid accidental use or pinned memory.
          *
-         * Called with Module's training mutex held; do not call setTraining() here.
+         * Called with Component's training mutex held; do not call setTraining() here.
          */
-        void onTrainingChanging( bool is_training ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
-            operation_->setTraining( is_training );
+            operation_->setTrainingMode( training_mode );
         }
 
     private:
 
+        using OpType = typename OperationTraits<OperationType::ResidualOp, TDeviceType, TPrecision>::type;
+
         ResidualConfig config_;
-        bool is_built_{ false };
-        shape_t input_shape_;
+        shape_t leading_shape_;
 
-        std::shared_ptr<BinaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
-        std::shared_ptr<ExecutionContextType> exec_context_;
+        std::shared_ptr<OpType> operation_{ nullptr };
+        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
+        std::unique_ptr<TensorType> output_{ nullptr };
+        std::unique_ptr<TensorType> output_view_{ nullptr };
+        std::unique_ptr<TensorType> input_a_grad_{ nullptr };
+        std::unique_ptr<TensorType> input_b_grad_{ nullptr };
+
+        /**
+         * @brief Create backend BinaryOperation from OperationRegistry.
+         *
+         * Called by onExecutionContextSet(). Looks up "ResidualOp" in the
+         * OperationRegistry and creates a device-specific implementation.
+         *
+         * @throws std::runtime_error if operation creation fails.
+         */
         void createOperation()
         {
-            operation_ = OperationRegistry::instance()
-                .createBinaryOperation<TDeviceType, TPrecision>(
-                    "ResidualOp",
-                    exec_context_,
-                    config_ );
+            operation_ = std::make_shared<OpType>( this->getExecutionContext(), config_ );
 
-            if (!operation_)
+            if ( !operation_ )
             {
-                throw std::runtime_error( "Failed to create Residual compute backend operation." );
+                throw std::runtime_error( "Residual: Failed to create compute backend operation." );
             }
         }
     };

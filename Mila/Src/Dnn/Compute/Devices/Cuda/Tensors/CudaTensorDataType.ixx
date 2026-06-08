@@ -6,3 +6,4 @@ export module Compute.CudaTensorDataType;
 
 export import :Specializations;
 export import :Maps;
+export import :CublasLtTypes;

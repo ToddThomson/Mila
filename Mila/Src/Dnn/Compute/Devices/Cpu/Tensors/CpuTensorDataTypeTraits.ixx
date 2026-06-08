@@ -3,6 +3,7 @@
  * @brief CPU-specific tensor trait specializations
  */
 module;
+#include <cstdint>
 #include <type_traits>
 
 export module Compute.CpuTensorDataTypeTraits;

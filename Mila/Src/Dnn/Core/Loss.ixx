@@ -8,10 +8,11 @@ export module Dnn.Loss;
 import Dnn.Component;
 import Dnn.Tensor;
 import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.CpuMemoryResource;
-import Compute.CudaDeviceMemoryResource;
+import Compute.DeviceTypeTraits;
 
 namespace Mila::Dnn
 {
@@ -32,7 +33,7 @@ namespace Mila::Dnn
     class Loss : public Component<TDeviceType, TPrecision>
     {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
 

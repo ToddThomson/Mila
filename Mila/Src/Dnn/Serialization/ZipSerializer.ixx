@@ -19,8 +19,9 @@ module;
 
 export module Serialization.ZipSerializer;
 
-import Serialization.ModelSerializer;
-import Utils.Logger;
+import Serialization.ArchiveSerializer;
+import Serialization.OpenMode;
+import Logging.Logger;
 
 namespace Mila::Dnn::Serialization
 {
@@ -36,7 +37,7 @@ namespace Mila::Dnn::Serialization
      *  - Move-only type; copying is disabled to prevent resource conflicts.
      *  - Maintains explicit open/closed state for robustness.
      */
-    export class ZipSerializer : public ModelSerializer
+    export class ZipSerializer : public ArchiveSerializer
     {
     public:
         /**
@@ -117,26 +118,30 @@ namespace Mila::Dnn::Serialization
             {
                 if (!mz_zip_writer_init_file( &zip_, filename.c_str(), 0 ))
                 {
-                    Utils::Logger::info( std::format( "ZipSerializer: failed to init writer for {}", filename ) );
+                    Logging::Logger::info( std::format( "ZipSerializer: failed to init writer for {}", filename ) );
                     state_ = State::Closed;
+                    
                     return false;
                 }
 
                 filename_ = filename;
                 state_ = State::OpenForWrite;
+                
                 return true;
             }
             else // OpenMode::Read
             {
                 if (!mz_zip_reader_init_file( &zip_, filename.c_str(), 0 ))
                 {
-                    Utils::Logger::error_fmt( "ZipSerializer: failed to init reader for '{}'", filename );
+                    Logging::Logger::error( std::format( "ZipSerializer: failed to init reader for '{}'", filename ) );
                     state_ = State::Closed;
+                    
                     return false;
                 }
 
                 filename_ = filename;
                 state_ = State::OpenForRead;
+                
                 return true;
             }
         }
@@ -167,12 +172,12 @@ namespace Mila::Dnn::Serialization
 
                 if (!finalize_ok)
                 {
-                    Utils::Logger::warning_fmt( "ZipSerializer: finalize archive failed for '{}'", filename_ );
+                    Logging::Logger::warning( std::format( "ZipSerializer: finalize archive failed for '{}'", filename_ ) );
                 }
 
                 if (!end_ok)
                 {
-                    Utils::Logger::warning_fmt( "ZipSerializer: writer end failed for '{}'", filename_ );
+                    Logging::Logger::warning( std::format( "ZipSerializer: writer end failed for '{}'", filename_ ) );
                 }
             }
             else if (state_ == State::OpenForRead)
@@ -182,7 +187,7 @@ namespace Mila::Dnn::Serialization
 
                 if (!reader_ok)
                 {
-                    Utils::Logger::warning_fmt( "ZipSerializer: reader end failed for '{}'", filename_ );
+                    Logging::Logger::warning( std::format( "ZipSerializer: reader end failed for '{}'", filename_ ) );
                 }
             }
 
@@ -248,7 +253,7 @@ namespace Mila::Dnn::Serialization
         {
             if (!isOpenForWrite())
             {
-                Utils::Logger::error( "ZipSerializer: addData called but archive not open for writing" );
+                Logging::Logger::error( "ZipSerializer: addData called but archive not open for writing" );
                 return false;
             }
 
@@ -256,7 +261,7 @@ namespace Mila::Dnn::Serialization
 
             if (!mz_zip_writer_add_mem( &zip_, p.c_str(), data, size, MZ_DEFAULT_COMPRESSION ))
             {
-                Utils::Logger::error_fmt( "ZipSerializer: failed to add data '{}' to '{}'", p, filename_ );
+                Logging::Logger::error( std::format( "ZipSerializer: failed to add data '{}' to '{}'", p, filename_ ) );
                 return false;
             }
 
@@ -287,7 +292,7 @@ namespace Mila::Dnn::Serialization
         {
             if (!isOpenForRead())
             {
-                Utils::Logger::error( "ZipSerializer: extractData called but archive not open for reading" );
+                Logging::Logger::error( "ZipSerializer: extractData called but archive not open for reading" );
                 return 0;
             }
 
@@ -296,27 +301,27 @@ namespace Mila::Dnn::Serialization
             int fileIndex = mz_zip_reader_locate_file( &zip_, p.c_str(), nullptr, 0 );
             if (fileIndex < 0)
             {
-                Utils::Logger::warning_fmt( "ZipSerializer: file not found in archive '{}': {}", filename_, p );
+                Logging::Logger::warning( std::format( "ZipSerializer: file not found in archive '{}': {}", filename_, p ) );
                 return 0;
             }
 
             mz_zip_archive_file_stat stat;
             if (!mz_zip_reader_file_stat( &zip_, fileIndex, &stat ))
             {
-                Utils::Logger::error_fmt( "ZipSerializer: failed to stat file '{}' in '{}'", p, filename_ );
+                Logging::Logger::error( std::format( "ZipSerializer: failed to stat file '{}' in '{}'", p, filename_ ) );
                 return 0;
             }
 
             if (stat.m_uncomp_size > size)
             {
-                Utils::Logger::error_fmt( "ZipSerializer: buffer too small for '{}' (need {}, have {})",
-                    p, static_cast<size_t>(stat.m_uncomp_size), size );
+                Logging::Logger::error( std::format( "ZipSerializer: buffer too small for '{}' (need {}, have {})",
+                    p, static_cast<size_t>(stat.m_uncomp_size), size ) );
                 return 0;
             }
 
             if (!mz_zip_reader_extract_to_mem( &zip_, fileIndex, data, size, 0 ))
             {
-                Utils::Logger::error_fmt( "ZipSerializer: failed to extract '{}' from '{}'", p, filename_ );
+                Logging::Logger::error( std::format( "ZipSerializer: failed to extract '{}' from '{}'", p, filename_ ) );
                 return 0;
             }
 
@@ -428,7 +433,7 @@ namespace Mila::Dnn::Serialization
 
             if (extracted != size)
             {
-                Utils::Logger::warning_fmt( "ZipSerializer: metadata extraction size mismatch for key '{}'", key );
+                Logging::Logger::warning( std::format( "ZipSerializer: metadata extraction size mismatch for key '{}'", key ) );
                 return {};
             }
 

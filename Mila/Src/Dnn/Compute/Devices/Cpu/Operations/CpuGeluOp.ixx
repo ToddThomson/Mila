@@ -12,30 +12,26 @@ module;
 
 export module Compute.CpuGeluOp;
 
-import Dnn.Components.Gelu;
+import Dnn.Components.GeluConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
-import Dnn.TensorDataTypeTraits;
 import Dnn.ComponentConfig;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
-import Compute.CpuExecutionContext;
+import Compute.ExecutionContextTemplate;
 import Compute.OperationType;
-import Compute.OperationBase;
+import Dnn.Component;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
-import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CpuTensorDataTypeTraits;
-import Compute.CpuDevice;
-import Compute.Precision;
-
-using namespace Mila::Dnn;
 
 namespace Mila::Dnn::Compute
 {
+    using namespace Mila::Dnn;
+
     /**
      * @brief Scaling factor for GELU tanh approximation: sqrt(2/pi)
      *
@@ -79,7 +75,7 @@ namespace Mila::Dnn::Compute
          * @param config Configuration for GELU operation.
          * @throws std::runtime_error If the context is not for a CPU device.
          */
-        CpuGeluOp(  std::shared_ptr<CpuExecutionContext> context, const GeluConfig& config )
+        CpuGeluOp( IExecutionContext* context, const GeluConfig& config )
             : context_( context ), config_( config )
         {
             if (!context_)
@@ -99,7 +95,7 @@ namespace Mila::Dnn::Compute
 		// Lifecycle
 		// ====================================================================
 
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
 			// No shape-dependent setup required for this implementation.
 			// The default OperationBase build() could be used instead.
@@ -151,6 +147,7 @@ namespace Mila::Dnn::Compute
             {
                 float x = input_data[i];
                 float cube = static_cast<float>( 0.044715f * x * x * x );
+                
                 output_data[i] = static_cast<float>( 0.5f * x * (1.0f + tanhf( GELU_SCALING_FACTOR * (x + cube) )) );
             }
         }
@@ -167,11 +164,11 @@ namespace Mila::Dnn::Compute
          * @param input_grad Gradient to propagate to previous layer (dL/dinput, may be scalar).
          * @param output_state Cached tensors from forward pass (not used currently).
          */
-
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const {
+            ITensor& input_grad ) const override
+            {
 
             // Resize input_grad to match input shape if needed
             if (input_grad.shape() != input.shape())
@@ -204,6 +201,7 @@ namespace Mila::Dnn::Compute
                     0.5f * (1.0f + tanh_out) +
                     x * 0.5f * sech_out * GELU_SCALING_FACTOR * (1.0f + 3.0f * 0.044715f * x * x)
                     );
+                
                 dinp[i] += local_grad * dout[i];
             }
         }
@@ -224,7 +222,7 @@ namespace Mila::Dnn::Compute
     private:
         
         GeluConfig config_; ///< Configuration for the GELU operation (approximation method, etc.)
-        std::shared_ptr<CpuExecutionContext> context_;
+        IExecutionContext* context_{ nullptr };
     };
 
     /**
@@ -249,25 +247,14 @@ namespace Mila::Dnn::Compute
         {
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 "GeluOp",
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>>
+                []( IExecutionContext* context,
+                    const ComponentConfig& config ) -> std::unique_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>>
                 {
                     const auto& geluConfig = static_cast<const GeluConfig&>(config);
                     
-                    return std::make_shared<CpuGeluOp>( context, geluConfig );
+                    return std::make_unique<CpuGeluOp>( context, geluConfig );
                 }
             );
         }
-
-        /**
-         * @brief Static initialization flag ensuring operations are registered
-         *
-         * This static member is initialized before main(), causing registerOperations()
-         * to be called automatically when the module is loaded.
-         */
-        static inline bool isRegistered = []() {
-            registerOperations();
-            return true;
-            }();
     };
 }

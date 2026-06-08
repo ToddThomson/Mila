@@ -15,8 +15,7 @@ PUBLIC
 		"Src/MnistConfig.ixx"
 )
 
-if(MILA_ENABLE_COPY_MODEL_DATA)
-    add_dependencies(MnistApp MilaCopyData)
-endif()
+# Define the Data/Datasets directory path
+target_compile_definitions( MnistApp PRIVATE MILA_DATASETS_DIR="${CMAKE_SOURCE_DIR}/Data/Datasets")
 
 target_link_libraries( MnistApp PRIVATE Mila CUDA::cudart )

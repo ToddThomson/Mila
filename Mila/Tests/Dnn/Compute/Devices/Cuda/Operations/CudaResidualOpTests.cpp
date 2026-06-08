@@ -9,7 +9,6 @@
 #include <chrono>
 #include <iostream>
 #include <cmath>
-#include <cuda_runtime.h>
 #include <stdexcept>
 
 import Mila;
@@ -25,9 +24,12 @@ namespace Operations::Tests
     class CudaResidualOpTests : public ::testing::Test {
     protected:
         void SetUp() override {
+
+			auto hasCudaDevices = DeviceRegistry::instance().hasDeviceType( DeviceType::Cuda );
+
             // Create device contexts for both CPU and CUDA
-            cuda_context_ = std::make_shared<DeviceContext>( "CUDA:0" );
-            cpu_context_ = std::make_shared<DeviceContext>( "CPU" );
+            cuda_context_ = std::make_shared<DeviceContext>( Device::Cuda(0) );
+            cpu_context_ = std::make_shared<DeviceContext>( Device::Cpu() );
 
             // Define small shapes for quick tests
             small_shape_ = { 2, 3, 4 };
@@ -645,8 +647,8 @@ namespace Operations::Tests
      */
     TEST_F( CudaResidualOpTests, Forward_MismatchedShapes ) {
         // Create tensors with different shapes
-        std::vector<int64_t> shape1 = { 2, 3, 4 };
-        std::vector<int64_t> shape2 = { 2, 3, 5 };  // Different last dimension
+        shape_t shape1 = { 2, 3, 4 };
+        shape_t shape2 = { 2, 3, 5 };  // Different last dimension
 
         Tensor<float, CudaDeviceMemoryResource> device_input1( shape1 );
         Tensor<float, CudaDeviceMemoryResource> device_input2( shape2 );

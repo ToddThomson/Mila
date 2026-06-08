@@ -4,6 +4,8 @@ module;
 #include <stdexcept>
 #include <string>
 #include <source_location>
+#include <exception>
+#include <cstddef>
 
 export module Compute.CudaPinnedMemoryResource;
 
@@ -72,24 +74,30 @@ namespace Mila::Dnn::Compute
          * @return Pointer to allocated pinned memory
          * @throws std::bad_alloc If allocation fails
          */
-        void* do_allocate( std::size_t bytes, std::size_t alignment = alignof(std::max_align_t) ) override {
-            if (bytes == 0) {
+        void* do_allocate( std::size_t bytes, std::size_t alignment = alignof(std::max_align_t) ) override
+        {
+            if ( bytes == 0 )
+            {
                 return nullptr;
             }
 
             // Set device before allocation
             cudaError_t set_error = cudaSetDevice( device_id_ );
-            if (set_error != cudaSuccess) {
+            if ( set_error != cudaSuccess )
+            {
                 throw std::runtime_error(
                     "Failed to set device " + std::to_string( device_id_ ) +
                     ": " + cudaGetErrorString( set_error )
                 );
             }
 
+            // REVIEW: cudaHostAlloc with flags could be used for specific behaviors
+
             void* ptr = nullptr;
             cudaError_t error = cudaMallocHost( &ptr, bytes );
 
-            if (error != cudaSuccess) {
+            if ( error != cudaSuccess )
+            {
                 throw std::bad_alloc();
             }
 

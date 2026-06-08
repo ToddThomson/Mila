@@ -35,7 +35,10 @@
 
 module;
 #include <concepts>
+#include <memory>
 #include <span>
+#include <type_traits>
+#include <cstdint>
 
 export module Dnn.TensorOps:Fill;
 
@@ -44,25 +47,13 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps.Base;
-import Compute.DeviceTraits;
+//import Compute.DeviceTraits;
 import Compute.ExecutionContext;
 import Compute.DeviceType;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
-
-    /**
-     * @brief Host value type for given abstract tensor data type.
-     *
-     * Maps floating tensor types to `float` and integer tensor types to `int32_t`.
-     * Use this alias when declaring host-side buffers, spans or scalar arguments
-     * intended for conversion/transfer into tensors of `TDataType`.
-     *
-     * @tparam TDataType Abstract tensor data type from `TensorDataType` enum.
-     */
-    template<TensorDataType TDataType>
-    using host_value_t = std::conditional_t<TensorDataTypeTraits<TDataType>::is_integer_type, int32_t, float>;
 
     /**
      * @brief Copy host values into a tensor with device dispatch and optional ExecutionContext.
@@ -104,7 +95,7 @@ namespace Mila::Dnn
     void fill(
         Tensor<TDataType, TMemoryResource>& tensor,
         std::span<const host_value_t<TDataType>> host_values,
-        ExecutionContext<TMemoryResource::device_type>* exec_context = nullptr )
+        IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
         TensorOps<device>::fill( tensor, host_values, exec_context );
@@ -147,7 +138,7 @@ namespace Mila::Dnn
     void fill(
         Tensor<TDataType, TMemoryResource>& tensor,
         host_value_t<TDataType> host_value,
-        ExecutionContext<TMemoryResource::device_type>* exec_context = nullptr )
+        IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
         TensorOps<device>::fill( tensor, host_value, exec_context );

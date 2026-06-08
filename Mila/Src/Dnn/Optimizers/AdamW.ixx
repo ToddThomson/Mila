@@ -14,13 +14,14 @@ import Dnn.Optimizers.AdamWConfig;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
-import Compute.CpuExecutionContext;
-import Compute.CudaExecutionContext;
 import Compute.CpuAdamWOptimizer;
+#ifdef MILA_HAS_CUDA
 import Compute.CudaAdamWOptimizer;
+#endif
 
 namespace Mila::Dnn::Optimizers
 {
@@ -41,8 +42,13 @@ namespace Mila::Dnn::Optimizers
     class AdamWOptimizer : public Optimizer<TDeviceType, TPrecision>
     {
     public:
+        
         using ExecutionContextType = ExecutionContext<TDeviceType>;
+#ifdef MILA_HAS_CUDA
         using OptimizerType = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaAdamWOptimizer<TPrecision>, CpuAdamWOptimizer<TPrecision>>;
+#else
+        using OptimizerType = CpuAdamWOptimizer<TPrecision>;
+#endif
 
         /**
          * @brief Construct AdamW optimizer from fluent `AdamWConfig`.
@@ -53,7 +59,7 @@ namespace Mila::Dnn::Optimizers
          * @throws std::invalid_argument if exec_context is null
          * @throws std::invalid_argument if config.validate() fails
          */
-        explicit AdamWOptimizer( std::shared_ptr<ExecutionContextType> exec_context, const AdamWConfig& config )
+        explicit AdamWOptimizer( IExecutionContext* exec_context, const AdamWConfig& config )
 			: context_( exec_context ), config_( config )
         {
             if (!exec_context)
@@ -63,12 +69,6 @@ namespace Mila::Dnn::Optimizers
 
             config.validate();
 
-            const float lr = config.getLearningRate();
-            const float beta1 = config.getBeta1();
-            const float beta2 = config.getBeta2();
-            const float eps = config.getEpsilon();
-            const float wd = config.getWeightDecay();
-
             impl_ = std::make_shared<OptimizerType>(
                     context_, config_ );
         }
@@ -76,7 +76,7 @@ namespace Mila::Dnn::Optimizers
         ~AdamWOptimizer() override = default;
 
         // ====================================================================
-        // Optimizer Interface Implementation (Delegation)
+        // Optimizer Interface Implementation
         // ====================================================================
 
         void addParameter( ITensor* param, ITensor* grad ) override
@@ -87,11 +87,6 @@ namespace Mila::Dnn::Optimizers
         void step() override
         {
             impl_->step();
-        }
-
-        void zeroGrad() override
-        {
-            impl_->zeroGrad();
         }
 
         float getLearningRate() const override
@@ -105,7 +100,7 @@ namespace Mila::Dnn::Optimizers
         }
 
         // ====================================================================
-        // AdamW-Specific Interface (Pass-through)
+        // AdamW-Specific Interface
         // ====================================================================
 
         size_t getStepCount() const noexcept
@@ -145,13 +140,7 @@ namespace Mila::Dnn::Optimizers
 
     private:
 		AdamWConfig config_;
-		std::shared_ptr<ExecutionContextType> context_;
+		IExecutionContext* context_;
         std::shared_ptr<OptimizerType> impl_;
     };
-
-    //export template<TensorDataType TPrecision>
-    //    using CpuAdamWOptimizerFP32 = AdamWOptimizer<DeviceType::Cpu, TPrecision>;
-
-    //export template<TensorDataType TPrecision>
-    //    using CudaAdamWOptimizerFP32 = AdamWOptimizer<DeviceType::Cuda, TPrecision>;
 }

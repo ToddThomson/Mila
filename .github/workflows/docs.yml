@@ -1,0 +1,76 @@
+name: Mila Docs
+
+# Doxygen API docs -> GitHub Pages. Master-only: docs are a release-surface concern,
+# not something to regenerate on every dev push or PR. Split out of the CI build so
+# it runs only when it can actually deploy, in an environment that matches the build
+# (the old docs job ran on a bare runner against a container-built tree and was
+# fragile). The 'docs' target only runs Doxygen over source -- nothing is compiled.
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write   # required for the gh-pages deploy
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    name: Doxygen -> GitHub Pages
+    runs-on: ubuntu-24.04
+    container: nvidia/cuda:13.3.0-devel-ubuntu26.04
+    env:
+      CUDA_PATH: /usr/local/cuda
+      CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache CPM sources
+        uses: actions/cache@v4
+        with:
+          path: .cpm-cache
+          key: cpm-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: cpm-
+
+      # python3 is required by CUTLASS's configure (root pulls CUTLASS whenever CUDA
+      # is enabled, even for a docs-only configure); the bare CUDA image ships none.
+      - name: Install tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential git wget ca-certificates ninja-build \
+            gcc-15 g++-15 clang-21 doxygen graphviz python3 python3-dev
+
+      - name: Install CMake 4.2.3
+        run: |
+          wget -q https://github.com/Kitware/CMake/releases/download/v4.2.3/cmake-4.2.3-linux-x86_64.tar.gz
+          tar -xzf cmake-4.2.3-linux-x86_64.tar.gz
+          cp -r cmake-4.2.3-linux-x86_64/bin/* /usr/local/bin/
+          cp -r cmake-4.2.3-linux-x86_64/share/* /usr/local/share/
+
+      # Configure only -- the 'docs' target runs Doxygen over README + Mila/Src and
+      # compiles nothing. Configure still needs the CUDA toolkit (root requires it);
+      # samples/profiling are off to keep it lean.
+      - name: Configure (docs)
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_C_COMPILER=clang-21 \
+            -DCMAKE_CXX_COMPILER=clang++-21 \
+            -DCMAKE_CUDA_COMPILER=${CUDA_PATH}/bin/nvcc \
+            -DCUDAToolkit_ROOT=${CUDA_PATH} \
+            -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler -ccbin=gcc-15" \
+            -DMILA_ENABLE_DOCS=ON \
+            -DMILA_ENABLE_SAMPLES=OFF \
+            -DMILA_ENABLE_PROFILING=OFF
+
+      - name: Generate documentation
+        run: cmake --build build --target docs
+
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: build/docs/html
+          branch: gh-pages

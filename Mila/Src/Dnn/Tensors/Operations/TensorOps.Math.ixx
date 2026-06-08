@@ -33,21 +33,23 @@
 
 module;
 #include <concepts>
+#include <memory>
 
 export module Dnn.TensorOps:Math;
 
 import Dnn.Tensor;
 import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorOps.Base;
-import Compute.DeviceTraits;
+//import Compute.DeviceTraits;
 import Compute.ExecutionContext;
 import Compute.DeviceType;
 
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
-	
+
     /**
      * @brief Element-wise addition with optional ExecutionContext (device-dispatched).
      *
@@ -83,10 +85,10 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b,
         Tensor<TDataType, TMemoryResource>& result,
-        ExecutionContext<TMemoryResource::device_type>* exec_context = nullptr )
+        IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        TensorOps<device>::add( a, b, result, exec_context );
+        // FIXME: TensorOps<device>::add( a, b, result, exec_context );
     }
 
     /**
@@ -107,10 +109,10 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b,
         Tensor<TDataType, TMemoryResource>& result,
-        ExecutionContext<TMemoryResource::device_type>* exec_context = nullptr )
+        IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        TensorOps<device>::subtract( a, b, result, exec_context );
+        // FIXME: TensorOps<device>::subtract( a, b, result, exec_context );
     }
 
     /**
@@ -131,10 +133,10 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b,
         Tensor<TDataType, TMemoryResource>& result,
-        ExecutionContext<TMemoryResource::device_type>* exec_context = nullptr )
+        IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        TensorOps<device>::multiply( a, b, result, exec_context );
+        // FIXME: TensorOps<device>::multiply( a, b, result, exec_context );
     }
 
     /**
@@ -155,10 +157,10 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b,
         Tensor<TDataType, TMemoryResource>& result,
-        ExecutionContext<TMemoryResource::device_type>* exec_context = nullptr )
+        IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        TensorOps<device>::divide( a, b, result, exec_context );
+        // FIXME: TensorOps<device>::divide( a, b, result, exec_context );
     }
 
     /**
@@ -179,7 +181,7 @@ namespace Mila::Dnn
         requires isValidTensor<TDataType, TMemoryResource>
     float sum(
         const Tensor<TDataType, TMemoryResource>& tensor,
-        ExecutionContext<TMemoryResource::device_type>* exec_context = nullptr )
+        IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
         return TensorOps<device>::sum( tensor, exec_context );
@@ -205,8 +207,9 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b )
     {
-        Tensor<TDataType, TMemoryResource> result( a.getDevice(), a.shape() );
+        Tensor<TDataType, TMemoryResource> result( a.getDeviceId(), a.shape() );
         add( a, b, result, nullptr );  // Synchronous default execution
+        
         return result;
     }
 
@@ -222,7 +225,7 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b )
     {
-        Tensor<TDataType, TMemoryResource> result( a.getDevice(), a.shape() );
+        Tensor<TDataType, TMemoryResource> result( a.getDeviceId(), a.shape() );
         subtract( a, b, result, nullptr );  // Synchronous default execution
         return result;
     }
@@ -239,7 +242,7 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b )
     {
-        Tensor<TDataType, TMemoryResource> result( a.getDevice(), a.shape() );
+        Tensor<TDataType, TMemoryResource> result( a.getDeviceId(), a.shape() );
         multiply( a, b, result, nullptr );  // Synchronous default execution
         return result;
     }
@@ -256,7 +259,7 @@ namespace Mila::Dnn
         const Tensor<TDataType, TMemoryResource>& a,
         const Tensor<TDataType, TMemoryResource>& b )
     {
-        Tensor<TDataType, TMemoryResource> result( a.getDevice(), a.shape() );
+        Tensor<TDataType, TMemoryResource> result( a.getDeviceId(), a.shape() );
         divide( a, b, result, nullptr );  // Synchronous default execution
         return result;
     }

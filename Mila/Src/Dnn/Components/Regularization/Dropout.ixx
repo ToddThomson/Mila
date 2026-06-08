@@ -16,20 +16,21 @@ export module Dnn.Components.Dropout;
 export import :Config;
 
 import Dnn.Component;
+import Dnn.ComponentType;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTraits;
 import Compute.Precision;
 import Compute.DeviceType;
 import Compute.DeviceContext;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.OperationBase;
 import Compute.OperationAttributes;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
 
 namespace Mila::Dnn
@@ -59,12 +60,12 @@ namespace Mila::Dnn
         /**
          * @brief Memory resource type used for tensors, selected based on device type.
          */
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
 
         /**
-         * @brief Alias for base module type.
+         * @brief Alias for base Component type.
          */
-        using ModuleBase = Component<TDeviceType, TInput, TOutput>;
+        using ComponentBase = Component<TDeviceType, TInput, TOutput>;
 
         /**
          * @brief Constructs a new Dropout module with a device name.
@@ -73,7 +74,7 @@ namespace Mila::Dnn
          * This constructor is useful for creating standalone modules without
          * pre-existing device contexts.
          *
-         * @param device_name The name of the device to use (e.g., "CPU", "CUDA:0").
+         * @param device_name The name of the device to use (e.g., Device::Cpu(), "CUDA:0").
          * @param config Configuration parameters for the Dropout module.
          * @throws std::invalid_argument If the device name is invalid or the configuration is invalid
          * @throws std::runtime_error If device type doesn't match template parameter TDeviceType
@@ -248,6 +249,15 @@ namespace Mila::Dnn
             // No-op: Dropout is a stateless module with no parameters to load
         }
 
+        // ====================================================================
+        // Identification and Description
+        // ====================================================================
+
+        const ComponentType getType() const override
+        {
+            return ComponentType::Dropout;
+        }
+
         /**
          * @brief Generates a string representation of this module's configuration.
          *
@@ -262,7 +272,7 @@ namespace Mila::Dnn
             oss << "Scale during inference: " << (config_.scalesDuringInference() ? "Yes" : "No") << std::endl;
             oss << "Same mask per batch: " << (config_.usesSameMaskPerBatch() ? "Yes" : "No") << std::endl;
             oss << "Random seed: " << seed_ << std::endl;
-            oss << "Device: " << deviceTypeToString( this->getDeviceContext()->getDevice()->getDeviceType() ) << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceContext()->getDeviceId()->getDeviceType() ) << std::endl;
             oss << this->getComputePrecision().toString() << std::endl;
 
             return oss.str();

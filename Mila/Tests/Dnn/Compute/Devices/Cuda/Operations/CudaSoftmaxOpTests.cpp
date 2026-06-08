@@ -9,8 +9,6 @@
 #include <chrono>
 #include <iostream>
 #include <cmath>
-#include <cuda_runtime.h>
-#include <cuda_fp16.h>
 #include <stdexcept>
 
 import Mila;
@@ -27,8 +25,8 @@ namespace Operations::Tests
     class CudaSoftmaxOpPrecisionTests : public ::testing::Test {
     protected:
         void SetUp() override {
-            cuda_context_ = std::make_shared<DeviceContext>( "CUDA:0" );
-            cpu_context_ = std::make_shared<DeviceContext>( "CPU" );
+            cuda_context_ = std::make_shared<DeviceContext>( Device::Cuda(0) );
+            cpu_context_ = std::make_shared<DeviceContext>( Device::Cpu() );
 
             // Define shapes for testing
             // Small shape for quick tests (batch, sequence_length, vocabulary)
@@ -861,8 +859,8 @@ namespace Operations::Tests
     protected:
         void SetUp() override {
             // Create device contexts for both CPU and CUDA
-            cuda_context_ = std::make_shared<DeviceContext>( "CUDA:0" );
-            cpu_context_ = std::make_shared<DeviceContext>( "CPU" );
+            cuda_context_ = std::make_shared<DeviceContext>( Device::Cuda(0) );
+            cpu_context_ = std::make_shared<DeviceContext>( Device::Cpu() );
 
             // Define shapes for testing
             small_shape_ = { 2, 3, 4 }; // (batch, sequence_length, vocabulary)
@@ -902,14 +900,14 @@ namespace Operations::Tests
         }
 
         // Create device context for CUDA
-        auto cuda_context = std::make_shared<DeviceContext>( "CUDA:0" );
+        auto cuda_context = std::make_shared<DeviceContext>( Device::Cuda(0) );
 
         // Create operations for both precision types
         auto fp32_op = std::make_shared<CudaSoftmaxOp<float>>( cuda_context );
         auto fp16_op = std::make_shared<CudaSoftmaxOp<half>>( cuda_context );
 
         // Define test shape
-        std::vector<int64_t> shape = { 16, 32, 1024 }; // Large shape for significant performance difference
+        shape_t shape = { 16, 32, 1024 }; // Large shape for significant performance difference
 
         // Create tensors
         Tensor<float, CudaDeviceMemoryResource> input( shape );

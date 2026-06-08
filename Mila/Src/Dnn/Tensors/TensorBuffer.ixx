@@ -3,7 +3,7 @@
  * @brief Device-agnostic memory management layer for tensor data using abstract data types
  *
  * This module provides a sophisticated memory management system for tensor data that operates
- * across heterogeneous compute environments (CPU, CUDA, Metal, OpenCL, Vulkan) using abstract
+ * across heterogeneous compute environments (CPU, CUDA, Metal, Rocm) using abstract
  * TensorDataType enumeration. The system handles device-specific alignment optimization and
  * automatic memory resource selection based on data type compatibility constraints.
  *
@@ -24,6 +24,9 @@ module;
 #include <cstring>
 #include <cstddef>
 
+#include <cassert>
+#include <string>
+
 export module Dnn.TensorBuffer;
 
 import Dnn.TensorDataType;
@@ -32,7 +35,9 @@ import Dnn.TensorDataTypeTraits;
 import Compute.MemoryResource;
 import Compute.MemoryResourceTracker;
 import Compute.CpuMemoryResource;
+#ifdef MILA_HAS_CUDA
 import Compute.CudaDeviceMemoryResource;
+#endif
 
 namespace Mila::Dnn
 {
@@ -68,13 +73,20 @@ namespace Mila::Dnn
 		 * @return Optimal alignment boundary in bytes for the given configuration
 		 */
 		template<TensorDataType TDataType, typename MR>
-		constexpr size_t get_alignment() {
+		constexpr size_t get_alignment() 
+		{
+			// REVIEW: Update for packed types. We now support FP4 packed types
+
+#ifdef MILA_HAS_CUDA
 			if constexpr (std::is_same_v<MR, Compute::CudaDeviceMemoryResource>) {
 				return CUDA_WARP_SIZE * TensorDataTypeTraits<TDataType>::size_in_bytes;
 			}
 			else {
 				return CPU_SIMD_ALIGN;
 			}
+#else
+			return CPU_SIMD_ALIGN;
+#endif
 		}
 
 		/**
@@ -89,14 +101,34 @@ namespace Mila::Dnn
 		 * @throws std::overflow_error If calculation would overflow
 		 */
 		template<TensorDataType TDataType>
-		constexpr size_t getStorageSize( size_t logical_size ) {
-			constexpr size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
+		constexpr size_t getStorageSize( size_t logical_size )
+		{
+			// For sub-byte packed types use bits_per_element; all other types use size_in_bytes * 8.
+			constexpr size_t bits = []() constexpr {
+				if constexpr ( requires { TensorDataTypeTraits<TDataType>::bits_per_element; } )
+					return TensorDataTypeTraits<TDataType>::bits_per_element;
+				else
+					return TensorDataTypeTraits<TDataType>::size_in_bytes * size_t( 8 );
+				}();
 
-			if (logical_size > std::numeric_limits<size_t>::max() / element_size) {
+			if ( logical_size > (std::numeric_limits<size_t>::max() - 7) / bits )
+			{
 				throw std::overflow_error( "Storage size calculation would overflow." );
 			}
 
-			return logical_size * element_size;
+			return (logical_size * bits + 7) / 8;
+		}
+
+		inline std::string formatBytes( size_t bytes )
+		{
+			if ( bytes < 1024 )
+				return std::format( "{} B", bytes );
+			if ( bytes < 1024 * 1024 )
+				return std::format( "{:.2f} KB", bytes / 1024.0 );
+			if ( bytes < 1024ull * 1024 * 1024 )
+				return std::format( "{:.2f} MB", bytes / (1024.0 * 1024.0) );
+
+			return std::format( "{:.2f} GB", bytes / (1024.0 * 1024.0 * 1024.0) );
 		}
 	}
 
@@ -160,7 +192,7 @@ namespace Mila::Dnn
 		static constexpr bool is_device_only = DataTypeTraits::is_device_only;     ///< Device-only type restriction
 
 		/**
-		 * @brief Constructs buffer with owned memory and zero initialization
+		 * @brief Constructs buffer with owned memory
 		 *
 		 * Allocates optimally aligned memory using the specified memory resource
 		 * and initializes all memory to zero for deterministic behavior.
@@ -188,6 +220,16 @@ namespace Mila::Dnn
 			// Calculate storage requirements
 			storage_bytes_ = Detail::getStorageSize<TDataType>( logical_size_ );
 
+			// DEBUG:
+			if ( storage_bytes_ >= (4ULL << 30) )  // 4GB limit
+			{
+				throw std::length_error(
+					"TensorBuffer storage size exceeds 4 GB limit: "
+					+ std::to_string( storage_bytes_ ) + " bytes"
+				);
+			}
+			// END DEBUG:
+
 			// Check for overflow in alignment calculations
 			if (storage_bytes_ > (std::numeric_limits<size_t>::max() - alignment + 1)) {
 				throw std::overflow_error( "Storage size too large, causing overflow in alignment calculation." );
@@ -200,11 +242,7 @@ namespace Mila::Dnn
 			if constexpr (TrackMemory) {
 				logAllocation();
 			}
-
-			// Initialize memory to zero for deterministic behavior
-			// mr_->memset( data_, 0, storage_bytes_ );
 		}
-
 
 		/**
 		 * @brief Destructor with automatic memory cleanup via RAII
@@ -364,10 +402,10 @@ namespace Mila::Dnn
 		}
 
 		/**
-		 * @brief Resizes buffer preserving existing data when possible
+		 * @brief Resizes buffer WITHOUT preserving existing data
 		 *
-		 * Allocates new optimally aligned memory, copies existing data up to
-		 * the minimum of old and new sizes. Provides strong exception safety.
+		 * Allocates new optimally aligned memory. Existing data is DISCARDED.
+		 * Use for buffer reuse scenarios where data preservation is not required.
 		 *
 		 * @param new_logical_size New number of logical elements
 		 *
@@ -375,24 +413,31 @@ namespace Mila::Dnn
 		 * @throws std::overflow_error If new size causes storage overflow
 		 * @throws std::bad_alloc If memory allocation fails
 		 *
-		 * @note Preserves existing data up to minimum of old/new sizes
-		 * @note New elements beyond old size are zero-initialized
+		 * @note Does NOT preserve existing data (caller must reinitialize)
+		 * @note New memory is uninitialized for performance
 		 */
 		void resize( size_t new_logical_size ) {
-			if (!mr_) {
-				throw std::runtime_error( "Cannot resize buffer with external memory management." );
+			if ( !mr_ ) {
+				throw std::runtime_error(
+					"Cannot resize buffer with external memory management."
+				);
 			}
 
-			if (logical_size_ == new_logical_size) {
+			if ( logical_size_ == new_logical_size ) {
 				return;
 			}
 
-			// Handle resize to zero
-			if (new_logical_size == 0) {
-				if (data_) {
-					mr_->deallocate( data_, aligned_size_, alignment );
-					data_ = nullptr;
+			// Deallocate old memory
+			if ( data_ ) {
+				if constexpr ( TrackMemory ) {
+					logDeallocation();
 				}
+				mr_->deallocate( data_, aligned_size_, alignment );
+				data_ = nullptr;
+			}
+
+			// Handle resize to zero
+			if ( new_logical_size == 0 ) {
 				logical_size_ = 0;
 				storage_bytes_ = 0;
 				aligned_size_ = 0;
@@ -400,50 +445,25 @@ namespace Mila::Dnn
 			}
 
 			// Calculate new storage requirements
-			size_t new_storage_bytes = Detail::getStorageSize<TDataType>( new_logical_size );
+			storage_bytes_ = Detail::getStorageSize<TDataType>( new_logical_size );
 
-			if (new_storage_bytes > (std::numeric_limits<size_t>::max() - alignment + 1)) {
-				throw std::overflow_error( "New storage size too large for alignment calculation." );
+			if ( storage_bytes_ > (std::numeric_limits<size_t>::max() - alignment + 1) ) {
+				throw std::overflow_error(
+					"New storage size too large for alignment calculation."
+				);
 			}
 
-			size_t new_aligned_size = calculateAlignedSize( new_storage_bytes );
+			aligned_size_ = calculateAlignedSize( storage_bytes_ );
 
-			std::byte* new_data = nullptr;
+			// Allocate new memory (uninitialized)
+			data_ = static_cast<std::byte*>(mr_->allocate( aligned_size_, alignment ));
 
-			try {
-				new_data = static_cast<std::byte*>(mr_->allocate( new_aligned_size, alignment ));
-
-				// Copy existing data if present
-				// FIXME:
-				//if (data_ && storage_bytes_ > 0) {
-				//	size_t copy_bytes = std::min( storage_bytes_, new_storage_bytes );
-				//	mr_->memcpy( new_data, data_, copy_bytes );
-				//}
-
-				//// Zero-initialize new memory beyond copied data
-				//if (new_storage_bytes > storage_bytes_) {
-				//	size_t zero_bytes = new_storage_bytes - storage_bytes_;
-				//	mr_->memset( new_data + storage_bytes_, 0, zero_bytes );
-				//}
-
-				// Clean up old memory after successful allocation and copy
-				if (data_) {
-					mr_->deallocate( data_, aligned_size_, alignment );
-				}
-
-				// Update buffer state
-				data_ = new_data;
-				logical_size_ = new_logical_size;
-				storage_bytes_ = new_storage_bytes;
-				aligned_size_ = new_aligned_size;
-
+			if constexpr ( TrackMemory ) {
+				logAllocation();
 			}
-			catch (...) {
-				if (new_data) {
-					mr_->deallocate( new_data, new_aligned_size, alignment );
-				}
-				throw;
-			}
+
+			// Update state
+			logical_size_ = new_logical_size;
 		}
 
 		/**
@@ -512,12 +532,14 @@ namespace Mila::Dnn
 		/**
 		 * @brief Logs memory allocation for tracking and profiling
 		 */
-		void logAllocation() const {
-			if constexpr (TrackMemory) {
+		void logAllocation() const
+		{
+			if constexpr ( TrackMemory )
+			{
 				std::cout << "TensorBuffer allocated: " << logical_size_ << " elements ("
-					<< storage_bytes_ << " storage bytes, " << aligned_size_ << " aligned)"
+					<< Detail::formatBytes( storage_bytes_ ) << " storage, "
+					<< Detail::formatBytes( aligned_size_ ) << " aligned)"
 					<< " DataType: " << DataTypeTraits::type_name
-					<< " Pointer: 0x" << std::hex << reinterpret_cast<uintptr_t>(data_) << std::dec
 					<< std::endl;
 			}
 		}
@@ -525,10 +547,13 @@ namespace Mila::Dnn
 		/**
 		 * @brief Logs memory deallocation for tracking and profiling
 		 */
-		void logDeallocation() const {
-			if constexpr (TrackMemory) {
+		void logDeallocation() const
+		{
+			if constexpr ( TrackMemory )
+			{
 				std::cout << "TensorBuffer deallocated: " << logical_size_ << " elements ("
-					<< storage_bytes_ << " storage bytes, " << aligned_size_ << " aligned)"
+					<< Detail::formatBytes( storage_bytes_ ) << " storage, "
+					<< Detail::formatBytes( aligned_size_ ) << " aligned)"
 					<< " DataType: " << DataTypeTraits::type_name
 					<< " Pointer: 0x" << std::hex << reinterpret_cast<uintptr_t>(data_) << std::dec
 					<< std::endl;

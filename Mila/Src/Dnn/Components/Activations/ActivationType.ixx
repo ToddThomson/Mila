@@ -23,6 +23,7 @@ namespace Mila::Dnn
         Relu,       ///< Rectified Linear Unit: max(0, x)
         Gelu,       ///< Gaussian Error Linear Unit: x * phi(x) where phi() is the standard Gaussian CDF
         Silu,       ///< Sigmoid Linear Unit (Swish): x * sigmoid(x)
+        Swiglu,     ///< SwiGLU: gated activation x1 * GELU(x2)
         Tanh,       ///< Hyperbolic Tangent: tanh(x)
         Sigmoid,    ///< Sigmoid function: 1 / (1 + exp(-x))
         LeakyRelu,  ///< Leaky ReLU: max(alpha * x, x) where alpha is typically 0.01
@@ -42,6 +43,7 @@ namespace Mila::Dnn
             case ActivationType::Relu:      return "ReLU";
             case ActivationType::Gelu:      return "GELU";
             case ActivationType::Silu:      return "SiLU";
+            case ActivationType::Swiglu:    return "SwiGLU";
             case ActivationType::Tanh:      return "Tanh";
             case ActivationType::Sigmoid:   return "Sigmoid";
             case ActivationType::LeakyRelu: return "LeakyReLU";
@@ -63,6 +65,8 @@ namespace Mila::Dnn
         if ( name == "ReLU" )       return ActivationType::Relu;
         if ( name == "GELU" )       return ActivationType::Gelu;
         if ( name == "SiLU" )       return ActivationType::Silu;
+        if ( name == "SwiGLU" )     return ActivationType::Swiglu;
+        if ( name == "Swiglu" )     return ActivationType::Swiglu;
         if ( name == "Tanh" )       return ActivationType::Tanh;
         if ( name == "Sigmoid" )    return ActivationType::Sigmoid;
         if ( name == "LeakyReLU" )  return ActivationType::LeakyRelu;

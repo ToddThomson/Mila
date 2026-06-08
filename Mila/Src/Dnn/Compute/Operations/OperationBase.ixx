@@ -8,6 +8,7 @@ module;
 
 export module Compute.OperationBase;
 
+import Dnn.Component;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
@@ -17,13 +18,13 @@ import Compute.OperationType;
 
 namespace Mila::Dnn::Compute
 {
-    export template <DeviceType TDeviceType, TensorDataType TPrecision>
+    export template <DeviceType TDeviceType, TensorDataType TComputePrecision>
     class Operation
     {
     public:
         static constexpr DeviceType device_type = TDeviceType;
-        static constexpr TensorDataType data_type = TPrecision;
-        using DataTypeTraits = TensorDataTypeTraits<TPrecision>;
+        static constexpr TensorDataType data_type = TComputePrecision;
+        using DataTypeTraits = TensorDataTypeTraits<TComputePrecision>;
 
         virtual ~Operation() = default;
 
@@ -41,7 +42,7 @@ namespace Mila::Dnn::Compute
          * Default implementation is a no-op. Operations requiring shape-dependent
          * setup should override this method.
          */
-        virtual void build( [[maybe_unused]] const shape_t& input_shape )
+        virtual void build( [[maybe_unused]] const BuildContext& build_context )
         {
 			// Default: no build required by stateless operations
             is_built_ = true;
@@ -97,17 +98,17 @@ namespace Mila::Dnn::Compute
          *
          * Implementations may use this to enable/disable training-specific work.
          */
-        virtual void setTraining( bool is_training )
+        virtual void setTrainingMode( TrainingMode training_mode )
         {
-            is_training_ = is_training;
+            training_mode_ = training_mode;
         }
 
         /**
          * @brief Query whether operation is configured for training.
          */
-        virtual bool isTraining() const
+        virtual bool isEvalMode() const
         {
-            return is_training_;
+            return (training_mode_ == TrainingMode::Eval );
         }
 
         /**
@@ -128,7 +129,20 @@ namespace Mila::Dnn::Compute
          */
         virtual TensorDataType getDataType() const
         {
-            return TPrecision;
+            return TComputePrecision;
+        }
+
+        /**
+         * @brief Returns the number of bytes of state memory allocated by this operation.
+         *
+         * State memory includes build-time buffers such as caches and scratch allocations.
+         * Parameters and gradients are owned at the component level and are not included.
+         *
+         * Override in derived operations that allocate device or host state during build().
+         */
+        virtual std::size_t getStateMemorySize() const
+        {
+            return 0;
         }
 
         /**
@@ -139,6 +153,6 @@ namespace Mila::Dnn::Compute
     protected:
 
         bool is_built_{ false };
-        bool is_training_{ false };
+        TrainingMode training_mode_{ TrainingMode::Normal };
     };
 }

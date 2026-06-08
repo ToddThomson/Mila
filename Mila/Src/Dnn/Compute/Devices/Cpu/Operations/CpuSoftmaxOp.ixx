@@ -11,6 +11,7 @@ module;
 #include <vector>
 #include <string>
 #include <stdexcept>
+#include <math.h>
 #include <cmath>
 #ifdef USE_OMP
 #include <omp.h>
@@ -20,7 +21,7 @@ module;
 
 export module Compute.CpuSoftmaxOp;
 
-import Dnn.Components.Softmax;
+import Dnn.Components.SoftmaxConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -32,8 +33,8 @@ import Dnn.ComponentConfig;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
-import Compute.CpuExecutionContext;
 import Compute.OperationType;
+import Dnn.Component;
 import Compute.OperationBase;
 import Compute.UnaryOperation;
 import Compute.OperationRegistry;
@@ -41,7 +42,6 @@ import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;
 import Compute.CpuDevice;
-import Compute.Precision;
 
 namespace Mila::Dnn::Compute
 {
@@ -68,7 +68,7 @@ namespace Mila::Dnn::Compute
         using TensorType = Tensor<TensorDataType::FP32, MR>;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
-        CpuSoftmaxOp( std::shared_ptr<CpuExecutionContext> context, const SoftmaxConfig& config )
+        CpuSoftmaxOp( IExecutionContext* context, const SoftmaxConfig& config )
             : context_( context ), config_( config )
         {
             if (!context_)
@@ -115,9 +115,9 @@ namespace Mila::Dnn::Compute
          *
          * After build(), the operation is ready for zero-overhead forward/backward dispatch.
          */
-        void build( const shape_t& input_shape ) override
+        void build( const BuildContext& config ) override
         {
-            const auto& shape = input_shape;
+            const auto& shape = config.inputShape();
             const int64_t ndim = static_cast<int64_t>(shape.size());
 
             if (ndim == 0)
@@ -153,7 +153,7 @@ namespace Mila::Dnn::Compute
 
             enable_omp_ = (outer_size * inner_size > 100);
 
-            UnaryOperationBase::build( input_shape );
+            UnaryOperationBase::build( config );
         }
 
         /**
@@ -193,7 +193,7 @@ namespace Mila::Dnn::Compute
                     long double sum = 0.0L;
                     for (int64_t i = 0; i < dim_size; ++i)
                     {
-                        long double val = std::expl( static_cast<long double>( slice_in[i * inner_size] - max_val ) );
+                        long double val = expl( static_cast<long double>( slice_in[i * inner_size] - max_val ) );
                         slice_out[i * inner_size] = static_cast<float>( val );
                         sum += val;
                     }
@@ -271,9 +271,8 @@ namespace Mila::Dnn::Compute
 
     private:
         SoftmaxConfig config_;
-        std::shared_ptr<CpuExecutionContext> context_;
+        IExecutionContext* context_;
 
-        // Cached dimension values computed once in build() for hot-path dispatch
         int64_t cached_axis_{ -1 };
         int64_t cached_outer_size_{ 0 };
         int64_t cached_dim_size_{ 0 };
@@ -288,7 +287,7 @@ namespace Mila::Dnn::Compute
         {
             OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
                 "SoftmaxOp",
-                []( std::shared_ptr<ExecutionContext<DeviceType::Cpu>> context,
+                []( IExecutionContext* context,
                     const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>>
                 {
                     const auto& softmaxConfig = dynamic_cast<const SoftmaxConfig&>(config);

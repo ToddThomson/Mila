@@ -2,8 +2,14 @@
  * @file SoftmaxCrossEntropy.ixx
  * @brief Device-templated fused SoftmaxCrossEntropy loss module.
  *
- * Delegates compute to a UnaryOperation backend that implements the fused
+ * Delegates compute to a BinaryOperation backend that implements the fused
  * softmax + cross-entropy operation for numerical stability and performance.
+ *
+ * STATUS: Work in progress. The component shell and CPU/CUDA operation stubs exist
+ * but are not wired into the build (CpuSoftmaxCrossEntropyOp and CudaSoftmaxCrossEntropyOp
+ * are excluded from CpuOperations.ixx / CudaOperations.ixx). Completion is targeted
+ * for Llama training support. The GPT reference implementation uses the host-based
+ * CpuCrossEntropyOp instead.
  */
 
 module;
@@ -17,7 +23,7 @@ module;
 #include <stdexcept>
 
 export module Dnn.Components.SoftmaxCrossEntropy;
-export import :Config;
+export import Dnn.Components.CrossEntropyConfig;
 
 import Dnn.Component;
 import Dnn.Tensor;
@@ -25,16 +31,17 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Compute.Precision;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.BinaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CudaDeviceMemoryResource;
+import Compute.DeviceTypeTraits;
 import Serialization.ModelArchive;
+import Serialization.Mode;
 
 namespace Mila::Dnn
 {
@@ -52,7 +59,7 @@ namespace Mila::Dnn
     class SoftmaxCrossEntropy : public Component<TDeviceType, TPrecision>
     {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
         using TargetTensorType = Tensor<TTargets, MR>;
@@ -63,7 +70,7 @@ namespace Mila::Dnn
          * @param exec_context Shared execution context for device resources.
          * @param config CrossEntropy configuration (vocab_size required).
          */
-        explicit SoftmaxCrossEntropy( std::shared_ptr<ExecutionContextType> exec_context, const CrossEntropyConfig& config )
+        explicit SoftmaxCrossEntropy( IExecutionContext* exec_context, const CrossEntropyConfig& config )
             : exec_context_( exec_context ), config_( config )
         {
             if (!exec_context_)
@@ -74,7 +81,7 @@ namespace Mila::Dnn
             config_.validate();
 
             // Create dummy tensor for unused target gradients in backward pass
-            dummy_target_grad_ = std::make_shared<TargetTensorType>( exec_context_->getDevice(), shape_t{ 0 } );
+            dummy_target_grad_ = std::make_shared<TargetTensorType>( exec_context_->getDeviceId(), shape_t{ 0 } );
 
             createOperation();
         }
@@ -85,24 +92,14 @@ namespace Mila::Dnn
         // Lifecycle
         // ====================================================================
 
-        bool isBuilt() const override
-        {
-            return (operation_ != nullptr) && is_built_;
-        }
-
         /**
          * @brief Build the module using an input shape.
          *
          * Validates input shape and triggers backend-specific setup.
          * The fused operation has no trainable parameters.
          */
-        void build( const shape_t& input_shape ) override
+        void onBuilding( const shape_t& input_shape ) override
         {
-            if (is_built_)
-            {
-                return;
-            }
-
             validateInputShape( input_shape );
 
             // Ensure backend is aware of the current training mode
@@ -112,8 +109,6 @@ namespace Mila::Dnn
             }
 
             operation_->build( input_shape );
-
-            is_built_ = true;
         }
 
         // ====================================================================
@@ -127,7 +122,7 @@ namespace Mila::Dnn
          */
         void forward( const ITensor& logits, const ITensor& targets, ITensor& output )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "SoftmaxCrossEntropy module must be built before calling forward." );
             }
@@ -148,7 +143,7 @@ namespace Mila::Dnn
             const ITensor& output_grad,
             ITensor& logits_grad )
         {
-            if (!isBuilt())
+            if (!this->isBuilt())
             {
                 throw std::runtime_error( "SoftmaxCrossEntropy module must be built before calling backward." );
             }
@@ -198,17 +193,12 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // Module interface
+        // Component interface
         // ====================================================================
 
-        std::string getName() const override
+        DeviceId getDeviceId() const override
         {
-            return config_.getName();
-        }
-
-        std::shared_ptr<ComputeDevice> getDevice() const override
-        {
-            return exec_context_->getDevice();
+            return exec_context_->getDeviceId();
         }
 
         void synchronize() override
@@ -226,7 +216,7 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "--------------------" << std::endl;
-            oss << "SoftmaxCrossEntropy (fused): " << getName() << std::endl;
+            oss << "SoftmaxCrossEntropy (fused): " << std::endl;
             oss << "Vocabulary Size: " << config_.getVocabSize() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
             oss << "Output: Per-sample losses [B, S]" << std::endl;
@@ -263,10 +253,9 @@ namespace Mila::Dnn
 
     private:
         CrossEntropyConfig config_;
-        bool is_built_{ false };
 
-        std::shared_ptr<BinaryOperation<TDeviceType, TLogits, TTargets, TPrecision>> operation_{ nullptr };
-        std::shared_ptr<ExecutionContextType> exec_context_;
+        std::unique_ptr<BinaryOperation<TDeviceType, TLogits, TTargets, TPrecision>> operation_{ nullptr };
+        IExecutionContext* exec_context_{ nullptr };
 
         std::shared_ptr<TargetTensorType> dummy_target_grad_{ nullptr };
 

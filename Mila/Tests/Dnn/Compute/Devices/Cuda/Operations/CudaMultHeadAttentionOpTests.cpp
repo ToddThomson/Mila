@@ -7,7 +7,6 @@
 #include <memory>
 #include <vector>
 #include <cmath>
-#include <cuda_runtime.h>
 #include <stdexcept>
 #include <random>
 
@@ -25,8 +24,8 @@ namespace Operations::Tests
     protected:
         void SetUp() override {
             // Create device contexts for both CPU and CUDA
-            cuda_context_ = std::make_shared<DeviceContext>( "CUDA:0" );
-            cpu_context_ = std::make_shared<DeviceContext>( "CPU" );
+            cuda_context_ = std::make_shared<DeviceContext>( Device::Cuda(0) );
+            cpu_context_ = std::make_shared<DeviceContext>( Device::Cpu() );
 
             // Define shapes for testing
             small_shape_ = { 2, 16, 64 };  // Small shape for quick tests [Batch, Seq_len, Hidden_dim]
@@ -454,7 +453,7 @@ namespace Operations::Tests
 
         for ( size_t seq_len : seq_lengths ) {
             // Create shape with varying sequence length
-            std::vector<int64_t> shape = { 2, seq_len, 64 };
+            shape_t = { 2, seq_len, 64 };
 
             // Create input, weight, bias, and output tensors
             Tensor<float, CudaDeviceMemoryResource> device_input( shape );
@@ -523,7 +522,7 @@ namespace Operations::Tests
 
         for ( size_t batch_size : batch_sizes ) {
             // Create shape with varying batch size
-            std::vector<int64_t> shape = { batch_size, 16, 64 };
+            shape_t = { batch_size, 16, 64 };
 
             // Create input, weight, bias, and output tensors
             Tensor<float, CudaDeviceMemoryResource> device_input( shape );

@@ -1,6 +1,6 @@
 module;
 #include <memory>
-#include "C:\Users\ToddT\Src\Repos\Mila\Mila\Deps\nlohmann\json.hpp"
+#include "../../Deps/nlohmann/json.hpp"
 
 export module nlohmann.json;
 

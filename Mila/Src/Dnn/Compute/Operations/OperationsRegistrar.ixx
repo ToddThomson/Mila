@@ -6,12 +6,16 @@ module;
 #include <type_traits>
 #include <utility>
 #include <tuple>
+#ifdef MILA_HAS_CUDA
 #include <cuda_fp16.h>
+#endif
 
 export module Compute.OperationsRegistrar;
 
 import Compute.CpuOperations;
+#ifdef MILA_HAS_CUDA
 import Compute.CudaOperations;
+#endif
 
 namespace Mila::Dnn::Compute
 {
@@ -59,13 +63,21 @@ namespace Mila::Dnn::Compute
 			CpuResidualOpRegistrar::registerOperations();
 			CpuSoftmaxOpRegistrar::registerOperations();
 
-			CudaEncoderOpRegistrar::registerOperations();
-			CudaGeluOpRegistrar::registerOperations();
-			CudaLayerNormOpRegistrar::registerOperations();
-			CudaLinearOpRegistrar::registerOperations();
-			CudaAttentionOpRegistrar::registerOperations();
-			CudaResidualOpRegistrar::registerOperations();
-			CudaSoftmaxOpRegistrar::registerOperations();
+#ifdef MILA_HAS_CUDA
+            Cuda::TokenEmbedding::CudaTokenEmbeddingOpRegistrar::registerOperations();
+			Cuda::Lpe::CudaLpeOpRegistrar::registerOperations();
+			Cuda::Gelu::CudaGeluOpRegistrar::registerOperations();
+            Cuda::Swiglu::CudaSwigluOpRegistrar::registerOperations();
+			Cuda::LayerNorm::CudaLayerNormOpRegistrar::registerOperations();
+            Cuda::RmsNorm::CudaRmsNormOpRegistrar::registerOperations();
+			// DEPRECATED: Cuda::Linear::CudaLinearOpRegistrar::registerOperations();
+            Cuda::Rope::CudaRopeOpRegistrar::registerOperations();
+			Cuda::MultiHeadAttention::CudaMultiHeadAttentionOpRegistrar::registerOperations();
+			Cuda::Gqa::CudaGroupedQueryAttentionOpRegistrar::registerOperations();
+			Cuda::Residual::CudaResidualOpRegistrar::registerOperations();
+			Cuda::Softmax::CudaSoftmaxOpRegistrar::registerOperations();
+#endif
+
 			//CudaMatMulBiasGeluOpRegistrar::registerOperations();
 		}
 

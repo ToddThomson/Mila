@@ -18,7 +18,6 @@ namespace Dnn::Compute::Operations::Tests
 	using namespace Mila::Dnn;
 	using namespace Mila::Dnn::Compute;
 
-	// Test fixture class - group tests by project namespace and class
 	class UnaryOperationTest : public ::testing::Test {
 	protected:
 		void SetUp() override {}

@@ -5,7 +5,6 @@
 #include <cmath>
 #include <stdexcept>
 #include <cstdint>
-#include <cuda_runtime.h>
 
 import Mila;
 
@@ -52,7 +51,7 @@ namespace Modules::Losses::Tests
             data.config = CrossEntropyConfig( vocab_size );
             data.config.withName( name );
 
-            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+            data.exec_context = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
             data.module = std::make_shared<SoftmaxCrossEntropy<DeviceType::Cuda, TLogits, TTargets>>(
                 data.exec_context, data.config );
 
@@ -90,9 +89,8 @@ namespace Modules::Losses::Tests
     protected:
         void SetUp() override
         {
-            int device_count = 0;
-            cudaError_t error = cudaGetDeviceCount( &device_count );
-            cuda_available_ = (error == cudaSuccess && device_count > 0);
+            int device_count = getDeviceCount( DeviceType::Cuda );
+            cuda_available_ = (device_count > 0);
 
             if (!cuda_available_)
             {
@@ -175,9 +173,9 @@ namespace Modules::Losses::Tests
         EXPECT_EQ( data.module->getDeviceType(), DeviceType::Cuda );
         ASSERT_NE( data.exec_context, nullptr );
 
-        auto device = data.exec_context->getDevice();
-        ASSERT_NE( device, nullptr );
-        EXPECT_EQ( device->getDeviceType(), DeviceType::Cuda );
+        auto device = data.exec_context->getDeviceId();
+        
+        EXPECT_EQ( device.type, DeviceType::Cuda );
     }
 
     template<TensorDataType TLogits, TensorDataType TTargets>
@@ -230,8 +228,8 @@ namespace Modules::Losses::Tests
 
         data.module->build( data.logits_shape );
 
-        HostLogitsTensorType host_logits( "CPU", data.logits_shape );
-        HostTargetsTensorType host_targets( "CPU", data.targets_shape );
+        HostLogitsTensorType host_logits( Device::Cpu(), data.logits_shape );
+        HostTargetsTensorType host_targets( Device::Cpu(), data.targets_shape );
 
         random( host_logits, -2.0f, 2.0f );
 
@@ -242,9 +240,9 @@ namespace Modules::Losses::Tests
             host_targets.data()[i] = static_cast<int32_t>( rand() % data.vocab_size );
         }
 
-        LogitsTensorType device_logits( "CUDA:0", data.logits_shape );
-        TargetsTensorType device_targets( "CUDA:0", data.targets_shape );
-        LogitsTensorType device_output( "CUDA:0", data.output_shape );
+        LogitsTensorType device_logits( Device::Cuda(0), data.logits_shape );
+        TargetsTensorType device_targets( Device::Cuda(0), data.targets_shape );
+        LogitsTensorType device_output( Device::Cuda(0), data.output_shape );
 
         copy( host_logits, device_logits );
         copy( host_targets, device_targets );
@@ -273,9 +271,9 @@ namespace Modules::Losses::Tests
         data.module->setTraining( true );
         data.module->build( data.logits_shape );
 
-        HostLogitsTensorType host_logits( "CPU", data.logits_shape );
-        HostTargetsTensorType host_targets( "CPU", data.targets_shape );
-        HostLogitsTensorType host_output_grad( "CPU", data.output_shape );
+        HostLogitsTensorType host_logits( Device::Cpu(), data.logits_shape );
+        HostTargetsTensorType host_targets( Device::Cpu(), data.targets_shape );
+        HostLogitsTensorType host_output_grad( Device::Cpu(), data.output_shape );
 
         random( host_logits, -2.0f, 2.0f );
         fill( host_output_grad, 1.0f );
@@ -287,11 +285,11 @@ namespace Modules::Losses::Tests
             host_targets.data()[i] = static_cast<int32_t>( rand() % data.vocab_size );
         }
 
-        LogitsTensorType device_logits( "CUDA:0", data.logits_shape );
-        TargetsTensorType device_targets( "CUDA:0", data.targets_shape );
-        LogitsTensorType device_output( "CUDA:0", data.output_shape );
-        LogitsTensorType device_output_grad( "CUDA:0", data.output_shape );
-        LogitsTensorType device_input_grad( "CUDA:0", data.logits_shape );
+        LogitsTensorType device_logits( Device::Cuda(0), data.logits_shape );
+        TargetsTensorType device_targets( Device::Cuda(0), data.targets_shape );
+        LogitsTensorType device_output( Device::Cuda(0), data.output_shape );
+        LogitsTensorType device_output_grad( Device::Cuda(0), data.output_shape );
+        LogitsTensorType device_input_grad( Device::Cuda(0), data.logits_shape );
 
         copy( host_logits, device_logits );
         copy( host_targets, device_targets );
@@ -479,7 +477,7 @@ namespace Modules::Losses::Tests
             GTEST_SKIP() << "CUDA not available";
         }
 
-        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( 0 );
+        auto ctx = std::make_shared<ExecutionContext<DeviceType::Cuda>>( Device::Cuda(0) );
 
         auto data = SoftmaxCrossEntropyCudaTestData<TensorDataType::FP32>::CreateWithContext(
             "context_sce_cuda", small_shape_, small_vocab_, ctx );
@@ -546,9 +544,9 @@ namespace Modules::Losses::Tests
         auto data = SoftmaxCrossEntropyCudaTestData<TensorDataType::FP32>::Create(
             "unbuild_cuda", small_shape_, small_vocab_ );
 
-        CudaTensor<TensorDataType::FP32> logits( "CUDA:0", data.logits_shape );
-        CudaTensor<TensorDataType::INT32> targets( "CUDA:0", data.targets_shape );
-        CudaTensor<TensorDataType::FP32> output( "CUDA:0", data.output_shape );
+        CudaTensor<TensorDataType::FP32> logits( Device::Cuda(0), data.logits_shape );
+        CudaTensor<TensorDataType::INT32> targets( Device::Cuda(0), data.targets_shape );
+        CudaTensor<TensorDataType::FP32> output( Device::Cuda(0), data.output_shape );
 
         EXPECT_THROW(
             data.module->forward( logits, targets, output ),
@@ -613,11 +611,11 @@ namespace Modules::Losses::Tests
         auto data = MediumFp32Data();
         data.module->build( data.logits_shape );
 
-        CpuTensor<TensorDataType::FP32> host_logits( "CPU", data.logits_shape );
-        CpuTensor<TensorDataType::INT32> host_targets( "CPU", data.targets_shape );
-        CudaTensor<TensorDataType::FP32> device_logits( "CUDA:0", data.logits_shape );
-        CudaTensor<TensorDataType::INT32> device_targets( "CUDA:0", data.targets_shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.output_shape );
+        CpuTensor<TensorDataType::FP32> host_logits( Device::Cpu(), data.logits_shape );
+        CpuTensor<TensorDataType::INT32> host_targets( Device::Cpu(), data.targets_shape );
+        CudaTensor<TensorDataType::FP32> device_logits( Device::Cuda(0), data.logits_shape );
+        CudaTensor<TensorDataType::INT32> device_targets( Device::Cuda(0), data.targets_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.output_shape );
 
         for (int iter = 0; iter < 10; ++iter)
         {
@@ -695,10 +693,10 @@ namespace Modules::Losses::Tests
         auto data = SoftmaxCrossEntropyCudaTestData<TensorDataType::FP32>::Create(
             "unbuild_backward_cuda", small_shape_, small_vocab_ );
 
-        CudaTensor<TensorDataType::FP32> logits( "CUDA:0", data.logits_shape );
-        CudaTensor<TensorDataType::INT32> targets( "CUDA:0", data.targets_shape );
-        CudaTensor<TensorDataType::FP32> output_grad( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> input_grad( "CUDA:0", data.logits_shape );
+        CudaTensor<TensorDataType::FP32> logits( Device::Cuda(0), data.logits_shape );
+        CudaTensor<TensorDataType::INT32> targets( Device::Cuda(0), data.targets_shape );
+        CudaTensor<TensorDataType::FP32> output_grad( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> input_grad( Device::Cuda(0), data.logits_shape );
 
         EXPECT_THROW(
             data.module->backward( logits, targets, output_grad, input_grad ),
@@ -748,15 +746,15 @@ namespace Modules::Losses::Tests
         data.module->setTraining( true );
         data.module->build( data.logits_shape );
 
-        CpuTensor<TensorDataType::FP32> host_logits( "CPU", data.logits_shape );
-        CpuTensor<TensorDataType::INT32> host_targets( "CPU", data.targets_shape );
-        CpuTensor<TensorDataType::FP32> host_output_grad( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> host_logits( Device::Cpu(), data.logits_shape );
+        CpuTensor<TensorDataType::INT32> host_targets( Device::Cpu(), data.targets_shape );
+        CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), data.output_shape );
 
-        CudaTensor<TensorDataType::FP32> device_logits( "CUDA:0", data.logits_shape );
-        CudaTensor<TensorDataType::INT32> device_targets( "CUDA:0", data.targets_shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_output_grad( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_input_grad( "CUDA:0", data.logits_shape );
+        CudaTensor<TensorDataType::FP32> device_logits( Device::Cuda(0), data.logits_shape );
+        CudaTensor<TensorDataType::INT32> device_targets( Device::Cuda(0), data.targets_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda(0), data.logits_shape );
 
         for (int iter = 0; iter < 5; ++iter)
         {
@@ -795,14 +793,14 @@ namespace Modules::Losses::Tests
         EXPECT_FALSE( data.module->isTraining() );
         data.module->build( data.logits_shape );
 
-        CudaTensor<TensorDataType::FP32> device_logits( "CUDA:0", data.logits_shape );
-        CudaTensor<TensorDataType::INT32> device_targets( "CUDA:0", data.targets_shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_output_grad( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_input_grad( "CUDA:0", data.logits_shape );
+        CudaTensor<TensorDataType::FP32> device_logits( Device::Cuda(0), data.logits_shape );
+        CudaTensor<TensorDataType::INT32> device_targets( Device::Cuda(0), data.targets_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda(0), data.logits_shape );
 
-        CpuTensor<TensorDataType::FP32> host_logits( "CPU", data.logits_shape );
-        CpuTensor<TensorDataType::INT32> host_targets( "CPU", data.targets_shape );
+        CpuTensor<TensorDataType::FP32> host_logits( Device::Cpu(), data.logits_shape );
+        CpuTensor<TensorDataType::INT32> host_targets( Device::Cpu(), data.targets_shape );
         random( host_logits, -2.0f, 2.0f );
 
         int64_t batch_size = data.targets_shape[0];
@@ -827,7 +825,7 @@ namespace Modules::Losses::Tests
 
         EXPECT_NO_THROW( data.module->forward( device_logits, device_targets, device_output ) );
 
-        CpuTensor<TensorDataType::FP32> host_output_grad( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), data.output_shape );
         fill( host_output_grad, 1.0f );
         copy( host_output_grad, device_output_grad );
         zeros( device_input_grad );
@@ -861,15 +859,15 @@ namespace Modules::Losses::Tests
 
         data.module->build( data.logits_shape );
 
-        CudaTensor<TensorDataType::FP32> device_logits( "CUDA:0", data.logits_shape );
-        CudaTensor<TensorDataType::INT32> device_targets( "CUDA:0", data.targets_shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_output_grad( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_input_grad( "CUDA:0", data.logits_shape );
+        CudaTensor<TensorDataType::FP32> device_logits( Device::Cuda(0), data.logits_shape );
+        CudaTensor<TensorDataType::INT32> device_targets( Device::Cuda(0), data.targets_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda(0), data.logits_shape );
 
-        CpuTensor<TensorDataType::FP32> host_logits( "CPU", data.logits_shape );
-        CpuTensor<TensorDataType::INT32> host_targets( "CPU", data.targets_shape );
-        CpuTensor<TensorDataType::FP32> host_output_grad( "CPU", data.output_shape );
+        CpuTensor<TensorDataType::FP32> host_logits( Device::Cpu(), data.logits_shape );
+        CpuTensor<TensorDataType::INT32> host_targets( Device::Cpu(), data.targets_shape );
+        CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), data.output_shape );
         random( host_logits, -2.0f, 2.0f );
         fill( host_output_grad, 1.0f );
 
@@ -901,14 +899,14 @@ namespace Modules::Losses::Tests
         data.module->build( data.logits_shape );
         EXPECT_FALSE( data.module->isTraining() );
 
-        CudaTensor<TensorDataType::FP32> device_logits( "CUDA:0", data.logits_shape );
-        CudaTensor<TensorDataType::INT32> device_targets( "CUDA:0", data.targets_shape );
-        CudaTensor<TensorDataType::FP32> device_output( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_output_grad( "CUDA:0", data.output_shape );
-        CudaTensor<TensorDataType::FP32> device_input_grad( "CUDA:0", data.logits_shape );
+        CudaTensor<TensorDataType::FP32> device_logits( Device::Cuda(0), data.logits_shape );
+        CudaTensor<TensorDataType::INT32> device_targets( Device::Cuda(0), data.targets_shape );
+        CudaTensor<TensorDataType::FP32> device_output( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda(0), data.output_shape );
+        CudaTensor<TensorDataType::FP32> device_input_grad( Device::Cuda(0), data.logits_shape );
 
-        CpuTensor<TensorDataType::FP32> host_logits( "CPU", data.logits_shape );
-        CpuTensor<TensorDataType::INT32> host_targets( "CPU", data.targets_shape );
+        CpuTensor<TensorDataType::FP32> host_logits( Device::Cpu(), data.logits_shape );
+        CpuTensor<TensorDataType::INT32> host_targets( Device::Cpu(), data.targets_shape );
         random( host_logits, -2.0f, 2.0f );
 
         int64_t batch_size = data.targets_shape[0];

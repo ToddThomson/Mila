@@ -1,0 +1,435 @@
+/**
+ * @file GptModel.ixx
+ * @brief GPT inference model.
+ *
+ * Inference-only wrapper around a loaded GptTransformer network.
+ * No training, no optimizer, no gradients.
+ *
+ * Two loading paths:
+ *
+ *  fromPretrained() — third-party weights (e.g. HuggingFace GPT-2) via
+ *                     PretrainedModelReader. Primary path for Mila chat.
+ *
+ *  fromCheckpoint() — Mila-native artifact produced by GptTransformer::save()
+ *                     via ModelArchive. Round-trip path after training.
+ */
+
+module;
+#include <memory>
+#include <vector>
+#include <string>
+#include <sstream>
+#include <stdexcept>
+#include <filesystem>
+#include <format>
+#include <random>
+#include <chrono>
+#include <algorithm>
+#include <numeric>
+#include <cstring>
+#include <cmath>
+#include <functional>
+#include <stop_token>
+
+export module Dnn.Models.GptModel;
+
+import Dnn.LanguageModel;
+import Dnn.LanguageNetwork;
+import Dnn.Tensor;
+import Dnn.ITensor;
+import Dnn.TensorTypes;
+import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
+import Dnn.Component;
+import Dnn.RuntimeMode;
+import Dnn.Components.GptTransformer;
+import Compute.Device;
+import Compute.DeviceId;
+import Compute.DeviceType;
+import Compute.DeviceTypeTraits;
+import Compute.DeviceTypeTraits.Cpu;
+import Compute.CpuMemoryResource;
+import Compute.ExecutionContextFactory;
+import Serialization.ModelArchive;
+import Serialization.OpenMode;
+import Serialization.Mode;
+import Serialization.PretrainedReader;
+import Logging.Logger;
+
+namespace Mila::Dnn
+{
+    using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Serialization;
+
+    /**
+     * @brief GPT inference model.
+     *
+     * Owns a loaded, built GptTransformer and exposes generateStreaming() for
+     * autoregressive text generation.
+     *
+     * Construction is only possible via fromPretrained() or fromCheckpoint().
+     * The network is always in a built, weights-loaded, inference-mode state
+     * when generation is called.
+     */
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
+    class GptModel : public LanguageModel<TDeviceType, TPrecision>
+    {
+    public:
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+        using ModelBase = LanguageModel<TDeviceType, TPrecision>;
+        using TensorType = Tensor<TPrecision, MR>;
+        using TokenIndexType = Tensor<dtype_t::INT32, MR>;
+        using GptTransformerType = GptTransformer<TDeviceType, TPrecision>;
+
+        GptModel( const GptModel& ) = delete;
+        GptModel& operator=( const GptModel& ) = delete;
+        GptModel( GptModel&& ) = default;
+        GptModel& operator=( GptModel&& ) = default;
+
+        ~GptModel() = default;
+
+        // ====================================================================
+        // Factory — the sole construction paths
+        // ====================================================================
+
+        /**
+         * @brief Load from third-party pretrained weights.
+         *
+         * Reads weights from a Mila-compatible pretrained artifact produced
+         * by converting third-party checkpoints (e.g. HuggingFace GPT-2)
+         * via PretrainedModelReader.
+         *
+         * @param path           Path to the pretrained artifact.
+         * @param context_length Maximum sequence length to build for.
+         * @param device_id      Target device.
+         * @param strict         Throws on unknown parameter names if true.
+         * @return               Inference-ready GptModel.
+         */
+        static std::unique_ptr<GptModel> fromPretrained(
+            const std::filesystem::path& path,
+            dim_t context_length,
+            DeviceId device_id = DeviceId{ TDeviceType, 0 },
+            bool strict = true )
+        {
+            if ( device_id.type != TDeviceType )
+                throw std::invalid_argument( std::format(
+                    "GptModel::fromPretrained: device type mismatch: expected {}, got {}",
+                    deviceTypeToString( TDeviceType ),
+                    deviceTypeToString( device_id.type ) ) );
+
+            PretrainedModelReader reader( path );
+            const auto& metadata = reader.getPretrainedMetadata();
+
+            GptConfig config = configFromMetadata( metadata );
+
+            auto network = std::make_unique<GptTransformerType>(
+                metadata.model_name, config, device_id );
+
+            BuildContext build_context(
+                shape_t{ 1, static_cast<int64_t>(context_length) },
+                RuntimeMode::Inference );
+
+            network->build( build_context );
+            network->loadParameters( reader, strict );
+
+            return std::unique_ptr<GptModel>( new GptModel( std::move( network ), config, RuntimeMode::Inference ) );
+        }
+
+        /**
+         * @brief Load from a Mila-native serialized artifact.
+         *
+         * Reads a checkpoint or weights-only artifact produced by
+         * GptTransformer::save() via ModelArchive.
+         *
+         * @param path      Path to the Mila archive.
+         * @param device_id Target device.
+         * @return          Inference-ready GptModel.
+         */
+        static std::unique_ptr<GptModel> fromCheckpoint(
+            const std::filesystem::path& path,
+            DeviceId device_id = DeviceId{ TDeviceType, 0 } )
+        {
+            if ( device_id.type != TDeviceType )
+                throw std::invalid_argument( std::format(
+                    "GptModel::fromCheckpoint: device type mismatch: expected {}, got {}",
+                    deviceTypeToString( TDeviceType ),
+                    deviceTypeToString( device_id.type ) ) );
+
+            // NOT YET IMPLEMENTED: depends on the ModelArchive/ZipSerializer checkpoint path,
+            // which is unfinished (GptConfig::fromArchive and GptTransformer save/load do not
+            // exist). Use fromPretrained() instead.
+            throw std::runtime_error( std::format(
+                "GptModel::fromCheckpoint('{}'): Mila-native checkpoint loading is not yet "
+                "implemented; use fromPretrained().", path.string() ) );
+        }
+
+        // ====================================================================
+        // Accessors
+        // ====================================================================
+
+        const GptConfig& getConfig() const noexcept
+        {
+            return config_;
+        }
+
+        // ====================================================================
+        // Diagnostics
+        // ====================================================================
+
+        std::string toString() const override
+        {
+            std::ostringstream oss;
+            oss << "GptModel\n";
+            oss << "Vocabulary: " << config_.getVocabSize() << " tokens\n";
+            oss << "Max sequence length: " << config_.getMaxSequenceLength() << "\n";
+            oss << "Embedding dim: " << config_.getEmbeddingSize() << "\n";
+            oss << "Layers: " << config_.getNumLayers() << "\n";
+            oss << "Heads: " << config_.getNumHeads() << "\n";
+            oss << "MLP hidden dim: " << config_.getHiddenSize() << "\n";
+
+            return oss.str();
+        }
+
+    protected:
+
+        // ====================================================================
+        // LanguageModel overrides
+        // ====================================================================
+
+        /**
+         * @brief Prefill + KV-cache decode loop with per-token streaming.
+         */
+        void onGenerating(
+            const std::vector<int32_t>& prompt_tokens,
+            const std::function<void(int32_t)>& on_token,
+            size_t max_new_tokens,
+            float temperature,
+            int top_k,
+            std::stop_token stop ) override
+        {
+            std::vector<int32_t> prefill_tokens = prompt_tokens;
+            std::mt19937 rng( std::chrono::high_resolution_clock::now()
+                .time_since_epoch().count() );
+
+            truncateIfNeeded( prefill_tokens );
+            int64_t seq_len = static_cast<int64_t>(prefill_tokens.size());
+
+            auto prefill_input = makeTokenTensor( prefill_tokens );
+            auto& logits = this->getLanguageNetwork().prefill( prefill_input );
+            this->getLanguageNetwork().synchronize();
+
+            int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
+
+            if ( next_token == eos_token_ )
+                return;
+
+            on_token( next_token );
+
+            int position = static_cast<int>(seq_len);
+
+            for ( size_t step = 1; step < max_new_tokens; ++step )
+            {
+                if ( stop.stop_requested() ) break;
+
+                auto decode_input = makeTokenTensor( { next_token } );
+                auto& decode_logits = this->getLanguageNetwork().decode( decode_input, position );
+                this->getLanguageNetwork().synchronize();
+
+                next_token = sampleFromLogits( decode_logits, 0, temperature, top_k, rng );
+
+                if ( next_token == eos_token_ ) break;
+
+                on_token( next_token );
+                ++position;
+            }
+        }
+
+        /**
+         * @brief GPT-2 end-of-text token id.
+         */
+        int32_t eosToken() const noexcept override
+        {
+            return eos_token_;
+        }
+
+        /**
+         * @brief Maximum sequence length from GPT config.
+         */
+        int64_t maxSequenceLength() const noexcept override
+        {
+            return static_cast<int64_t>(config_.getMaxSequenceLength());
+        }
+
+        /**
+         * @brief Vocabulary size from GPT config.
+         */
+        int64_t vocabSize() const noexcept override
+        {
+            return static_cast<int64_t>(config_.getVocabSize());
+        }
+
+        /**
+         * @brief Training loop — not yet implemented for GptModel.
+         *
+         * @throws std::runtime_error always.
+         */
+        void onTraining() override
+        {
+            throw std::runtime_error(
+                "GptModel::onTraining: training not yet implemented" );
+        }
+
+    private:
+
+        explicit GptModel(
+            std::unique_ptr<GptTransformerType> network,
+            const GptConfig& config,
+            RuntimeMode runtime_mode )
+            : ModelBase( std::move( network ), runtime_mode ), config_( config )
+        {}
+
+        explicit GptModel(
+            std::unique_ptr<GptTransformerType> network,
+            const GptConfig& config )
+            : ModelBase( std::move( network ), RuntimeMode::Inference ), config_( config )
+        {}
+
+        GptConfig config_;
+
+        // REVIEW: Should come from tokenizer metadata when tokenizer support added.
+        static constexpr int32_t eos_token_ = 50256;  // GPT-2 <|endoftext|>
+
+        // ====================================================================
+        // Generation helpers
+        // ====================================================================
+
+        void truncateIfNeeded( std::vector<int32_t>& tokens ) const
+        {
+            int64_t seq_len = static_cast<int64_t>(tokens.size());
+
+            if ( seq_len > config_.getMaxSequenceLength() )
+            {
+                Logging::Logger::warning( std::format(
+                    "GptModel: sequence length {} exceeds max {}, truncating from start",
+                    seq_len, config_.getMaxSequenceLength() ) );
+
+                tokens.erase( tokens.begin(),
+                    tokens.begin() + (seq_len - config_.getMaxSequenceLength()) );
+            }
+        }
+
+        TokenIndexType makeTokenTensor( const std::vector<int32_t>& token_ids ) const
+        {
+            shape_t shape = { 1, static_cast<int64_t>(token_ids.size()) };
+            TokenIndexType device_tensor( this->getDeviceId(), shape );
+            Tensor<dtype_t::INT32, CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
+            std::memcpy( cpu_tensor.data(), token_ids.data(),
+                token_ids.size() * sizeof( int32_t ) );
+            copy( cpu_tensor, device_tensor );
+
+            return device_tensor;
+        }
+
+        int32_t sampleFromLogits(
+            const TensorType& logits,
+            int64_t position,
+            float temperature,
+            int top_k,
+            std::mt19937& rng ) const
+        {
+            int64_t seq_len = logits.shape()[ 1 ];
+            shape_t shape = { 1, seq_len, config_.getVocabSize() };
+            Tensor<TPrecision, CpuMemoryResource> cpu( Device::Cpu(), shape );
+            copy( logits, cpu );
+
+            const float* last = cpu.data()
+                + static_cast<size_t>(position) * config_.getVocabSize();
+
+            return sampleToken( last,
+                static_cast<size_t>(config_.getVocabSize()),
+                temperature, top_k, rng );
+        }
+
+        static int32_t sampleToken(
+            const float* logits,
+            size_t vocab_size,
+            float temperature,
+            int top_k,
+            std::mt19937& rng )
+        {
+            if ( temperature <= 0.0f || top_k == 1 )
+                return static_cast<int32_t>(
+                    std::max_element( logits, logits + vocab_size ) - logits);
+
+            float max_logit = *std::max_element( logits, logits + vocab_size );
+
+            std::vector<float> probs( vocab_size );
+            double sum = 0.0;
+
+            for ( size_t i = 0; i < vocab_size; ++i )
+            {
+                float v = std::exp( (logits[ i ] - max_logit) / temperature );
+                probs[ i ] = v;
+                sum += v;
+            }
+
+            for ( size_t i = 0; i < vocab_size; ++i )
+                probs[ i ] /= static_cast<float>( sum );
+
+            if ( top_k > 0 && top_k < static_cast<int>( vocab_size ) )
+            {
+                std::vector<size_t> indices( vocab_size );
+                std::iota( indices.begin(), indices.end(), 0 );
+                std::partial_sort( indices.begin(), indices.begin() + top_k,
+                    indices.end(),
+                    [&]( size_t a, size_t b ) { return probs[ a ] > probs[ b ]; } );
+
+                std::vector<float> filtered( vocab_size, 0.0f );
+                double filtered_sum = 0.0;
+
+                for ( int i = 0; i < top_k; ++i )
+                {
+                    filtered[ indices[ i ] ] = probs[ indices[ i ] ];
+                    filtered_sum += probs[ indices[ i ] ];
+                }
+
+                for ( size_t i = 0; i < vocab_size; ++i )
+                    probs[ i ] = filtered[ i ] / static_cast<float>( filtered_sum );
+            }
+
+            std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
+            float r = dist( rng );
+            float cumsum = 0.0f;
+
+            for ( size_t i = 0; i < vocab_size; ++i )
+            {
+                cumsum += probs[ i ];
+
+                if ( r < cumsum )
+                    return static_cast<int32_t>( i );
+            }
+
+            return static_cast<int32_t>( vocab_size - 1 );
+        }
+
+        // ====================================================================
+        // Config helpers
+        // ====================================================================
+
+        static GptConfig configFromMetadata( const PretrainedMetadata& metadata )
+        {
+            GptConfig config(
+                static_cast<dim_t>(metadata.embedding_dim),
+                static_cast<dim_t>(metadata.num_layers) );
+
+            config.withVocabSize( static_cast<dim_t>(metadata.vocab_size) )
+                .withMaxSequenceLength( static_cast<dim_t>(metadata.max_seq_length) )
+                .withNumHeads( static_cast<dim_t>(metadata.num_heads) )
+                .withHiddenSize( static_cast<dim_t>(metadata.hidden_dim) )
+                .withBias( metadata.use_bias );
+
+            return config;
+        }
+    };
+}

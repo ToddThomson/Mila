@@ -5,7 +5,7 @@
 
 module;
 #include <random>
-#include <mutex>
+// #include <mutex> // MSVC++ 2026 does not support <mutex> in modules yet, so we will use a workaround
 
 export module Core.RandomGenerator;
 
@@ -17,15 +17,18 @@ namespace Mila::Core
      * This class manages random number generation for the entire codebase,
      * allowing control over reproducibility through seed management.
      */
-    export class RandomGenerator {
+    export class RandomGenerator
+    {
     public:
         /**
          * @brief Gets the singleton instance of the RandomGenerator.
          *
          * @return Reference to the singleton instance
          */
-        static RandomGenerator& getInstance() {
+        static RandomGenerator& getInstance()
+        {
             static RandomGenerator instance;
+
             return instance;
         }
 
@@ -34,15 +37,20 @@ namespace Mila::Core
          *
          * @param seed The seed value (use 0 for non-deterministic behavior from std::random_device)
          */
-        void setSeed( unsigned int seed ) {
-            std::lock_guard<std::mutex> lock( mutex_ );
-            if ( seed == 0 ) {
+        void setSeed( unsigned int seed )
+        {
+            // std::lock_guard<std::mutex> lock( mutex_ );
+            
+            if ( seed == 0 )
+            {
                 std::random_device rd;
                 seed_ = rd();
             }
-            else {
+            else
+            {
                 seed_ = seed;
             }
+
             generator_ = std::mt19937( seed_ );
         }
 
@@ -51,8 +59,10 @@ namespace Mila::Core
          *
          * @return The currently used seed value
          */
-        unsigned int getSeed() const {
-            std::lock_guard<std::mutex> lock( mutex_ );
+        unsigned int getSeed() const
+        {
+            //std::lock_guard<std::mutex> lock( mutex_ );
+
             return seed_;
         }
 
@@ -64,13 +74,16 @@ namespace Mila::Core
          *
          * @return A copy of the random number generator
          */
-        std::mt19937 getGenerator() const {
-            std::lock_guard<std::mutex> lock( mutex_ );
+        std::mt19937 getGenerator() const
+        {
+            //std::lock_guard<std::mutex> lock( mutex_ );
+
             return generator_;
         }
 
     private:
-        RandomGenerator() {
+        RandomGenerator()
+        {
             // Initialize with a non-deterministic seed by default for production use
             std::random_device rd;
             seed_ = rd();
@@ -81,7 +94,7 @@ namespace Mila::Core
         RandomGenerator( const RandomGenerator& ) = delete;
         RandomGenerator& operator=( const RandomGenerator& ) = delete;
 
-        mutable std::mutex mutex_;
+        // mutable std::mutex mutex_;
         unsigned int seed_;
         std::mt19937 generator_;
     };

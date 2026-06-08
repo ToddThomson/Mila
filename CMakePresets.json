@@ -1,16 +1,86 @@
-{
+﻿{
   "version": 3,
   "configurePresets": [
     {
+      "name": "linux-debug",
+      "displayName": "Linux Debug",
+      "description": "Target the Windows Subsystem for Linux (WSL) or a remote system.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/install/${presetName}",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "vendor": { "microsoft.com/VisualStudioRemoteSettings/CMake/2.0": { "remoteSourceRootDir": "$env{HOME}/.vs/$ms{projectDirName}" } }
+    },
+    {
+      "name": "linux-clang-base",
+      "hidden": true,
+      "description": "Linux/WSL build: Clang for the C++23 module units, nvcc (CUDA 13) with a GCC host compiler for .cu files (gcc-15 is nvcc 13.0's max supported host and the Ubuntu 26.04 default).",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/install/${presetName}",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_CXX_STANDARD": "23",
+        "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+        "CMAKE_CXX_EXTENSIONS": "OFF",
+        "CMAKE_CUDA_COMPILER": "/usr/local/cuda/bin/nvcc",
+        "CUDAToolkit_ROOT": "/usr/local/cuda",
+        "CMAKE_CUDA_HOST_COMPILER": "gcc-15",
+        "CMAKE_CUDA_FLAGS": "--allow-unsupported-compiler",
+        "MILA_ENABLE_TESTING": "ON"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "vendor": { "microsoft.com/VisualStudioRemoteSettings/CMake/2.0": { "remoteSourceRootDir": "$env{HOME}/.vs/$ms{projectDirName}" } }
+    },
+    {
+      "name": "linux-clang-debug",
+      "displayName": "Linux Clang Debug",
+      "description": "Clang + CUDA 13 Debug build on Linux/WSL.",
+      "inherits": "linux-clang-base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "linux-clang-release",
+      "displayName": "Linux Clang Release",
+      "description": "Clang + CUDA 13 Release build on Linux/WSL.",
+      "inherits": "linux-clang-base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "macos-debug",
+      "displayName": "macOS Debug",
+      "description": "Target a remote macOS system.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/install/${presetName}",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "vendor": { "microsoft.com/VisualStudioRemoteSettings/CMake/1.0": { "sourceDir": "$env{HOME}/.vs/$ms{projectDirName}" } }
+    },
+    {
       "name": "windows-base",
+      "description": "Target Windows with the Visual Studio development environment.",
       "hidden": true,
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/windows-${presetName}",
-      "installDir": "${sourceDir}/out/install/windows-${presetName}",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/install/${presetName}",
       "cacheVariables": {
         "CMAKE_C_COMPILER": "cl.exe",
-        "CMAKE_CXX_COMPILER": "cl.exe",
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+        "CMAKE_CXX_COMPILER": "cl.exe"
       },
       "condition": {
         "type": "equals",
@@ -19,222 +89,65 @@
       }
     },
     {
-      "name": "linux-base",
-      "hidden": true,
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/linux-${presetName}",
-      "installDir": "${sourceDir}/out/install/linux-${presetName}",
-      "cacheVariables": {
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
-      },
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Linux"
-      }
-    },
-    {
-      "name": "macos-base",
-      "hidden": true,
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/macos-${presetName}",
-      "installDir": "${sourceDir}/out/install/macos-${presetName}",
-      "cacheVariables": {
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0"
-      },
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Darwin"
-      }
-    },
-    {
       "name": "x64-debug",
       "displayName": "x64 Debug",
+      "description": "Target Windows (64-bit) with the Visual Studio development environment. (Debug)",
       "inherits": "windows-base",
       "architecture": {
         "value": "x64",
         "strategy": "external"
       },
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
     },
     {
       "name": "x64-release",
       "displayName": "x64 Release",
+      "description": "Target Windows (64-bit) with the Visual Studio development environment. (Release)",
+      "inherits": "x64-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "x64-profile",
+      "displayName": "x64 Profile",
+      "description": "Target Windows (64-bit). Optimized build with device line info for Nsight profiling. (RelWithDebInfo)",
+      "inherits": "x64-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+    {
+      "name": "x64-validate",
+      "displayName": "x64 Release (full validation - run before committing)",
+      "description": "Pre-commit validation build. The default x64-release already builds the unit tests and samples; this adds the heavy network-free packaging gates (find_package + FetchContent install/embed consumers). Build, then run ctest. Does NOT enable the CPM release-access gate -- that needs a pushed tag; use x64-release-cpm-gate at release time.",
+      "inherits": "x64-release",
+      "cacheVariables": {
+        "MILA_ENABLE_TESTING": "ON",
+        "MILA_ENABLE_PACKAGING_TEST": "ON",
+        "MILA_ENABLE_SAMPLES": "ON"
+      }
+    },
+    {
+      "name": "x64-release-cpm-gate",
+      "displayName": "x64 Release (CPM release-access gate)",
+      "description": "x64-validate plus the opt-in CPM-by-tag release-access gate: fetches Mila from the GitHub remote at the Version.txt tag (e.g. v0.13.45-alpha.5) and builds a consumer against it -- requires that tag to be pushed. Select this only at release time to validate access.",
+      "inherits": "x64-validate",
+      "cacheVariables": { "MILA_ENABLE_CPM_GATE": "ON" }
+    },
+    {
+      "name": "x86-debug",
+      "displayName": "x86 Debug",
+      "description": "Target Windows (32-bit) with the Visual Studio development environment. (Debug)",
       "inherits": "windows-base",
       "architecture": {
-        "value": "x64",
+        "value": "x86",
         "strategy": "external"
       },
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
     },
     {
-      "name": "linux-clang-debug",
-      "displayName": "Linux Clang Debug",
-      "inherits": "linux-base",
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang-19",
-        "CMAKE_CXX_COMPILER": "clang++-19",
-        "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "clang-scan-deps-19",
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "linux-gcc-debug",
-      "displayName": "Linux GCC Debug",
-      "inherits": "linux-base",
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "gcc",
-        "CMAKE_CXX_COMPILER": "g++",
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "macos-clang-debug",
-      "displayName": "macOS Clang Debug",
-      "inherits": "macos-base",
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
-        "CMAKE_BUILD_TYPE": "Debug",
-        "MILA_ENABLE_METAL": "ON"
-      }
-    },
-    {
-      "name": "macos-clang-release",
-      "displayName": "macOS Clang Release",
-      "inherits": "macos-base",
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
-        "CMAKE_BUILD_TYPE": "Release",
-        "MILA_ENABLE_METAL": "ON"
-      }
-    },
-    {
-      "name": "macos-arm64-debug",
-      "displayName": "macOS ARM64 Debug (Apple Silicon)",
-      "inherits": "macos-base",
-      "architecture": {
-        "value": "arm64",
-        "strategy": "external"
-      },
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_OSX_ARCHITECTURES": "arm64",
-        "MILA_ENABLE_METAL": "ON"
-      }
-    },
-    {
-      "name": "macos-x64-debug",
-      "displayName": "macOS x64 Debug (Intel)",
-      "inherits": "macos-base",
-      "architecture": {
-        "value": "x64",
-        "strategy": "external"
-      },
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_OSX_ARCHITECTURES": "x86_64"
-      }
-    },
-    {
-      "name": "macos-universal-debug",
-      "displayName": "macOS Universal Debug (Intel + Apple Silicon)",
-      "inherits": "macos-base",
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64",
-        "MILA_ENABLE_METAL": "ON"
-      }
-    },
-    {
-      "name": "wsl-debug",
-      "displayName": "WSL Debug",
-      "inherits": "linux-base",
-      "binaryDir": "${sourceDir}/out/build/wsl-debug",
-      "installDir": "${sourceDir}/out/install/wsl-debug",
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang-19",
-        "CMAKE_CXX_COMPILER": "clang++-19",
-        "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "clang-scan-deps-19",
-        "CMAKE_BUILD_TYPE": "Debug",
-        "MILA_ENABLE_COPY_MODEL_DATA": "OFF"
-      },
-      "vendor": {
-        "microsoft.com/VisualStudioRemoteSettings/CMake/1.0": {
-          "sourceDir": "$env{HOME}/.vs/$ms{projectDirName}",
-          "intelliSenseMode": "linux-clang-x64"
-        }
-      }
-    },
-    {
-      "name": "docker-debug",
-      "displayName": "Docker Debug",
-      "inherits": "linux-base",
-      "binaryDir": "${sourceDir}/out/build/docker-debug",
-      "installDir": "${sourceDir}/out/install/docker-debug",
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang-19",
-        "CMAKE_CXX_COMPILER": "clang++-19",
-        "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS": "clang-scan-deps-19",
-        "CMAKE_BUILD_TYPE": "Debug",
-        "MILA_ENABLE_COPY_MODEL_DATA": "OFF",
-        "CMAKE_BUILD_PARALLEL_LEVEL": "4"
-      }
-    }
-  ],
-  "buildPresets": [
-    {
-      "name": "x64-debug",
-      "configurePreset": "x64-debug"
-    },
-    {
-      "name": "x64-release",
-      "configurePreset": "x64-release"
-    },
-    {
-      "name": "linux-clang-debug",
-      "configurePreset": "linux-clang-debug"
-    },
-    {
-      "name": "macos-clang-debug",
-      "configurePreset": "macos-clang-debug"
-    },
-    {
-      "name": "macos-clang-release",
-      "configurePreset": "macos-clang-release"
-    },
-    {
-      "name": "macos-arm64-debug",
-      "configurePreset": "macos-arm64-debug"
-    },
-    {
-      "name": "macos-x64-debug",
-      "configurePreset": "macos-x64-debug"
-    },
-    {
-      "name": "macos-universal-debug",
-      "configurePreset": "macos-universal-debug"
-    },
-    {
-      "name": "wsl-debug",
-      "configurePreset": "wsl-debug"
-    },
-    {
-      "name": "docker-debug",
-      "configurePreset": "docker-debug"
+      "name": "x86-release",
+      "displayName": "x86 Release",
+      "description": "Target Windows (32-bit) with the Visual Studio development environment. (RelWithDebInfo)",
+      "inherits": "x86-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     }
   ]
 }

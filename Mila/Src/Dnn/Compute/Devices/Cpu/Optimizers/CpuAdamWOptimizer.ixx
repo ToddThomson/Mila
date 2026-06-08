@@ -26,10 +26,11 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
+import Dnn.TensorInitializers;
 import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.CpuMemoryResource;
-import Compute.CpuExecutionContext;
+import Compute.ExecutionContext;
 
 namespace Mila::Dnn::Compute
 {
@@ -82,7 +83,7 @@ namespace Mila::Dnn::Compute
          * @throws std::invalid_argument if beta1, beta2 not in (0, 1)
          * @throws std::invalid_argument if epsilon <= 0
          */
-        explicit CpuAdamWOptimizer( std::shared_ptr<ExecutionContextType> context, const AdamWConfig& config )
+        explicit CpuAdamWOptimizer( IExecutionContext* context, const AdamWConfig& config )
             : context_( context ), config_( config )
         {
             if (!context_)
@@ -92,7 +93,7 @@ namespace Mila::Dnn::Compute
 
 			config_.validate();
 
-			// The learning rate can be set and accessed
+            // The learning rate can be modified during training (e.g., via schedulers)
 			learning_rate_ = config_.getLearningRate();
         }
 
@@ -161,16 +162,16 @@ namespace Mila::Dnn::Compute
             grad_data_.push_back( reinterpret_cast<const HostType*>(grad->rawData()) );
 
             // Create optimizer-owned state tensors (always FP32 for numerical stability)
-            auto device = context_->getDevice();
+            auto device = context_->getDeviceId();
             auto shape = param->shape();
 
             auto m_state = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
             m_state->setName( param->getName() + ".m" );
-            zeros( *m_state );
+            // FIXME: zeros( *m_state );
 
             auto v_state = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
             v_state->setName( param->getName() + ".v" );
-            zeros( *v_state );
+            // FIXME: zeros( *v_state );
 
             m_states_.push_back( m_state );
             v_states_.push_back( v_state );
@@ -226,19 +227,20 @@ namespace Mila::Dnn::Compute
          *
          * @throws std::runtime_error if no parameters have been registered
          */
-        void zeroGrad() override
-        {
-            if (grads_.empty())
-            {
-                throw std::runtime_error( "CpuAdamWOptimizer: no gradients to zero" );
-            }
+         // TJT: ZeroGradients() is now handled at the component level.
+        //void zeroGrad() override
+        //{
+        //    if (grads_.empty())
+        //    {
+        //        throw std::runtime_error( "CpuAdamWOptimizer: no gradients to zero" );
+        //    }
 
-            for (auto* grad : grads_)
-            {
-                // Zero gradient using memset
-                std::memset( grad->rawData(), 0, grad->size() * grad->elementSize() );
-            }
-        }
+        //    for (auto* grad : grads_)
+        //    {
+        //        // Zero gradient using memset
+        //        std::memset( grad->rawData(), 0, grad->size() * grad->elementSize() );
+        //    }
+        //}
 
         /**
          * @brief Get current learning rate.
@@ -318,8 +320,8 @@ namespace Mila::Dnn::Compute
 
     private:
         
-        std::shared_ptr<ExecutionContextType> context_;
         AdamWConfig config_;
+        IExecutionContext* context_;
 
         float learning_rate_;
         

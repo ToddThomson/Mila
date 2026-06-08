@@ -23,7 +23,7 @@ namespace Operations::Cpu::Tests
     class CpuEncoderOpTests : public ::testing::Test {
     protected:
         void SetUp() override {
-            cpu_context_ = std::make_shared<DeviceContext>( "CPU" );
+            cpu_context_ = std::make_shared<DeviceContext>( Device::Cpu() );
 
             // Test dimensions
             batch_size_ = 4;
@@ -146,7 +146,7 @@ namespace Operations::Cpu::Tests
     TEST_F( CpuEncoderOpTests, InvalidDeviceContext ) {
         try {
             // Try creating with CUDA context, which should fail
-            auto cuda_context = std::make_shared<DeviceContext>( "CUDA:0" );
+            auto cuda_context = std::make_shared<DeviceContext>( Device::Cuda(0) );
             auto invalid_op = CpuEncoderOp( cuda_context );
             FAIL() << "Expected exception for invalid device context";
         }

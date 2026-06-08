@@ -32,12 +32,12 @@ import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
 import Compute.CudaTensorDataType;
 import Compute.CudaDevice;
-import Compute.DeviceTraits;
+//import Compute.DeviceTraits;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaPinnedMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Compute.ExecutionContext;
-import Compute.CudaExecutionContext;
+//import Compute.CudaExecutionContext;
 import Compute.DeviceType;
 import Cuda.Helpers;
 import Cuda.Error;
@@ -103,17 +103,16 @@ namespace Mila::Dnn::Compute::Cuda
             const Tensor<TDataType, TMemoryResource>& a,
             const Tensor<TDataType, TMemoryResource>& b,
             Tensor<TDataType, TMemoryResource>& result,
-            ExecutionContext<DeviceType::Cuda>* exec_context = nullptr )
+            IExecutionContext* exec_context = nullptr )
         {
-            // Validate tensor compatibility
-            if (a.shape() != b.shape() || a.shape() != result.shape())
+            if ( a.shape() != b.shape() || a.shape() != result.shape() )
             {
                 throw std::invalid_argument(
                     "All tensors must have the same shape for element-wise addition"
                 );
             }
 
-            if (a.size() == 0)
+            if ( a.size() == 0 )
             {
                 return; // Nothing to compute
             }
@@ -121,28 +120,23 @@ namespace Mila::Dnn::Compute::Cuda
             // Determine stream and synchronization requirements
             cudaStream_t stream;
             bool needs_sync = false;
-            int device_id = -1;
+            int device_idx = -1;
 
-            if (exec_context)
+            if ( exec_context )
             {
-                // Caller-provided context - borrow stream, let caller control sync
-                stream = exec_context->getStream();
-                device_id = exec_context->getDeviceId();
+                auto* cuda_context = cast_context_<DeviceType::Cuda>( exec_context );
+                stream = cuda_context->getStream();
+                device_idx = cuda_context->getDeviceId().index;
             }
             else
             {
                 // No context - use default stream with explicit device setting
-                auto device = std::dynamic_pointer_cast<CudaDevice>(a.getDevice());
-                if (!device)
-                {
-                    throw std::runtime_error(
-                        "Tensor does not have valid CUDA device for math operations"
-                    );
-                }
+                auto device_id = a.getDeviceId();
 
-                device_id = device->getDeviceId();
-                Cuda::setCurrentDevice( device_id );
+                // REDUNDANT call to Cuda::setCurrentDevice( device_id.index );
+
                 stream = nullptr;  // Default stream
+                device_idx = device_id.index;
                 needs_sync = true;  // Must sync default stream before returning
             }
 
@@ -151,15 +145,15 @@ namespace Mila::Dnn::Compute::Cuda
             const void* b_data = static_cast<const ITensor&>(b).rawData();
             void* result_data = static_cast<ITensor&>(result).rawData();
 
-            if (!a_data || !b_data || !result_data)
+            if ( !a_data || !b_data || !result_data )
             {
                 throw std::runtime_error( "Invalid tensor data pointers for add operation" );
             }
 
             // Perform operation
-            addImpl<TDataType>( a_data, b_data, result_data, a.size(), stream, device_id );
+            addImpl<TDataType>( a_data, b_data, result_data, a.size(), stream, device_idx );
 
-            if (needs_sync)
+            if ( needs_sync )
             {
                 cudaStreamSynchronize( stream );
             }
@@ -183,7 +177,7 @@ namespace Mila::Dnn::Compute::Cuda
             const Tensor<TDataType, TMemoryResource>& a,
             const Tensor<TDataType, TMemoryResource>& b,
             Tensor<TDataType, TMemoryResource>& result,
-            ExecutionContext<DeviceType::Cuda>* exec_context = nullptr )
+            IExecutionContext* exec_context = nullptr )
         {
             if (a.shape() != b.shape() || a.shape() != result.shape())
             {
@@ -197,28 +191,29 @@ namespace Mila::Dnn::Compute::Cuda
                 return;
             }
 
-            cudaStream_t stream;
+            cudaStream_t stream = nullptr;
             bool needs_sync = false;
-            int device_id = -1;
+            int device_idx = -1;
 
             if (exec_context)
             {
-                stream = exec_context->getStream();
-                device_id = exec_context->getDeviceId();
+                auto* cuda_context = cast_context_<DeviceType::Cuda>( exec_context );
+                stream = cuda_context->getStream();
+                device_idx = cuda_context->getDeviceId().index;
             }
             else
             {
-                auto device = std::dynamic_pointer_cast<CudaDevice>(a.getDevice());
-                if (!device)
+                auto device_id = a.getDeviceId();
+                if ( device_id != DeviceType::Cuda )
                 {
                     throw std::runtime_error(
                         "Tensor does not have valid CUDA device for math operations"
                     );
                 }
 
-                device_id = device->getDeviceId();
-                Cuda::setCurrentDevice( device_id );
+                // Redundant Cuda::setCurrentDevice( device_id.index );
                 stream = nullptr;
+                device_idx = device_id.index;
                 needs_sync = true;
             }
 
@@ -232,7 +227,7 @@ namespace Mila::Dnn::Compute::Cuda
                 throw std::runtime_error( "Invalid tensor data pointers for subtract operation" );
             }
 
-            subtractImpl<TDataType>( a_data, b_data, result_data, a.size(), stream, device_id );
+            subtractImpl<TDataType>( a_data, b_data, result_data, a.size(), stream, device_idx );
 
             if (needs_sync)
             {
@@ -258,7 +253,7 @@ namespace Mila::Dnn::Compute::Cuda
             const Tensor<TDataType, TMemoryResource>& a,
             const Tensor<TDataType, TMemoryResource>& b,
             Tensor<TDataType, TMemoryResource>& result,
-            ExecutionContext<DeviceType::Cuda>* exec_context = nullptr )
+            IExecutionContext* exec_context = nullptr )
         {
             if (a.shape() != b.shape() || a.shape() != result.shape())
             {
@@ -274,26 +269,28 @@ namespace Mila::Dnn::Compute::Cuda
 
             cudaStream_t stream;
             bool needs_sync = false;
-            int device_id = -1;
+            int device_idx = -1;
 
             if (exec_context)
             {
-                stream = exec_context->getStream();
-                device_id = exec_context->getDeviceId();
+                auto* cuda_context = cast_context_<DeviceType::Cuda>( exec_context );
+                stream = cuda_context->getStream();
+                device_idx = cuda_context->getDeviceId().index;
             }
             else
             {
-                auto device = std::dynamic_pointer_cast<CudaDevice>(a.getDevice());
-                if (!device)
+                auto device_id = a.getDeviceId();
+                if ( device_id != DeviceType::Cuda )
                 {
                     throw std::runtime_error(
                         "Tensor does not have valid CUDA device for math operations"
                     );
                 }
 
-                device_id = device->getDeviceId();
-                Cuda::setCurrentDevice( device_id );
+                //Cuda::setCurrentDevice( device_id.index );
+
                 stream = nullptr;
+                device_idx = device_id.index;
                 needs_sync = true;
             }
 
@@ -307,7 +304,7 @@ namespace Mila::Dnn::Compute::Cuda
                 throw std::runtime_error( "Invalid tensor data pointers for multiply operation" );
             }
 
-            multiplyImpl<TDataType>( a_data, b_data, result_data, a.size(), stream, device_id );
+            multiplyImpl<TDataType>( a_data, b_data, result_data, a.size(), stream, device_idx );
 
             if (needs_sync)
             {
@@ -340,7 +337,7 @@ namespace Mila::Dnn::Compute::Cuda
             const Tensor<TDataType, TMemoryResource>& a,
             const Tensor<TDataType, TMemoryResource>& b,
             Tensor<TDataType, TMemoryResource>& result,
-            ExecutionContext<DeviceType::Cuda>* exec_context = nullptr )
+            IExecutionContext* exec_context = nullptr )
         {
             if (a.shape() != b.shape() || a.shape() != result.shape())
             {
@@ -356,26 +353,26 @@ namespace Mila::Dnn::Compute::Cuda
 
             cudaStream_t stream;
             bool needs_sync = false;
-            int device_id = -1;
+            int device_idx = -1;
 
             if (exec_context)
             {
-                stream = exec_context->getStream();
-                device_id = exec_context->getDeviceId();
+                auto* cuda_context = cast_context_<DeviceType::Cuda>( exec_context );
+                stream = cuda_context->getStream();
+                device_idx = cuda_context->getDeviceId().index;
             }
             else
             {
-                auto device = std::dynamic_pointer_cast<CudaDevice>(a.getDevice());
-                if (!device)
+                auto device_id = a.getDeviceId();
+                if ( device_id.type != DeviceType::Cuda )
                 {
                     throw std::runtime_error(
                         "Tensor does not have valid CUDA device for math operations"
                     );
                 }
 
-                device_id = device->getDeviceId();
-                Cuda::setCurrentDevice( device_id );
                 stream = nullptr;
+                device_idx = device_id.index;
                 needs_sync = true;
             }
 
@@ -389,7 +386,7 @@ namespace Mila::Dnn::Compute::Cuda
                 throw std::runtime_error( "Invalid tensor data pointers for divide operation" );
             }
 
-            divideImpl<TDataType>( a_data, b_data, result_data, a.size(), stream, device_id );
+            divideImpl<TDataType>( a_data, b_data, result_data, a.size(), stream, device_idx );
 
             if (needs_sync)
             {
@@ -420,7 +417,7 @@ namespace Mila::Dnn::Compute::Cuda
             requires isValidTensor<TDataType, TMemoryResource>
         static float sum(
             const Tensor<TDataType, TMemoryResource>& tensor,
-            ExecutionContext<DeviceType::Cuda>* exec_context = nullptr )
+            IExecutionContext* exec_context = nullptr )
         {
             if (tensor.size() == 0)
             {
@@ -428,25 +425,26 @@ namespace Mila::Dnn::Compute::Cuda
             }
 
             cudaStream_t stream;
-            int device_id = -1;
+            int device_idx = -1;
 
             if (exec_context)
             {
-                stream = exec_context->getStream();
-                device_id = exec_context->getDeviceId();
+                auto* cuda_context = cast_context_<DeviceType::Cuda>( exec_context );
+                stream = cuda_context->getStream();
+                device_idx = cuda_context->getDeviceId().index;
             }
             else
             {
-                auto device = std::dynamic_pointer_cast<CudaDevice>(tensor.getDevice());
-                if (!device)
+                auto device_id = tensor.getDeviceId();
+                if ( device_id != DeviceType::Cuda )
                 {
                     throw std::runtime_error(
                         "Tensor does not have valid CUDA device for math operations"
                     );
                 }
 
-                device_id = device->getDeviceId();
-                Cuda::setCurrentDevice( device_id );
+                //Cuda::setCurrentDevice( device_id.index );
+                device_idx = device_id.index;
                 stream = nullptr;
             }
 
@@ -457,7 +455,7 @@ namespace Mila::Dnn::Compute::Cuda
                 throw std::runtime_error( "Invalid tensor data pointer for sum operation" );
             }
 
-            return sumImpl<TDataType>( tensor_data, tensor.size(), stream, device_id );
+            return sumImpl<TDataType>( tensor_data, tensor.size(), stream, device_idx );
         }
 
     private:
@@ -481,7 +479,7 @@ namespace Mila::Dnn::Compute::Cuda
 
             Cuda::setCurrentDevice( device_id );
 
-            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
             const auto* typed_a = static_cast<const NativeType*>(a_data);
             const auto* typed_b = static_cast<const NativeType*>(b_data);
             auto* typed_result = static_cast<NativeType*>(result_data);
@@ -510,7 +508,7 @@ namespace Mila::Dnn::Compute::Cuda
 
             Cuda::setCurrentDevice( device_id );
 
-            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
             const auto* typed_a = static_cast<const NativeType*>(a_data);
             const auto* typed_b = static_cast<const NativeType*>(b_data);
             auto* typed_result = static_cast<NativeType*>(result_data);
@@ -539,7 +537,7 @@ namespace Mila::Dnn::Compute::Cuda
 
             Cuda::setCurrentDevice( device_id );
 
-            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
             const auto* typed_a = static_cast<const NativeType*>(a_data);
             const auto* typed_b = static_cast<const NativeType*>(b_data);
             auto* typed_result = static_cast<NativeType*>(result_data);
@@ -568,7 +566,7 @@ namespace Mila::Dnn::Compute::Cuda
 
             Cuda::setCurrentDevice( device_id );
 
-            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
             const auto* typed_a = static_cast<const NativeType*>(a_data);
             const auto* typed_b = static_cast<const NativeType*>(b_data);
             auto* typed_result = static_cast<NativeType*>(result_data);
@@ -588,6 +586,9 @@ namespace Mila::Dnn::Compute::Cuda
             cudaStream_t stream,
             int device_id )
         {
+			// TODO: Implement sum reduction kernel.
+            throw std::runtime_error( "CUDA sum reduction kernels are not implemented yet" );
+
             if (!tensor_data || count == 0)
             {
                 return 0.0f;
@@ -595,7 +596,7 @@ namespace Mila::Dnn::Compute::Cuda
 
             Cuda::setCurrentDevice( device_id );
 
-            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::native_type;
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
             const auto* typed_src = static_cast<const NativeType*>(tensor_data);
 
             constexpr int block = 256;
@@ -613,12 +614,10 @@ namespace Mila::Dnn::Compute::Cuda
             float result = 0.0f;
             try
             {
-                // Launch reduction kernel
-                // FIXME:
-                /*Kernels::launch_sum_reduction_kernel<NativeType>(
-                    typed_src, d_partial_sums, count, grid, block,
-                    block * sizeof( float ), stream
-                );*/
+                //Kernels::launch_sum_reduction_kernel<NativeType>(
+                //    typed_src, d_partial_sums, count, grid, block,
+                //    block * sizeof( float ), stream
+                //);
 
                 // Copy partial sums to host
                 std::vector<float> h_partial_sums( grid );

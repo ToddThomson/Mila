@@ -1,6 +1,6 @@
 /**
  * @file TensorOps.Transfer.ixx
- * @brief Tensor transfer utilities — copy/dispatch helpers for tensor data movement.
+ * @brief Tensor transfer utilities ï¿½ copy/dispatch helpers for tensor data movement.
  *
  * Provides an exported generic `copy()` template that validates shapes, handles
  * host/device accessibility, and dispatches to device-specific `TensorOps`
@@ -22,14 +22,16 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps.Base;
-import Compute.ComputeDevice;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
-import Compute.DeviceTraits;
+//import Compute.DeviceTraits;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 
 import Compute.CpuMemoryResource;
-import Compute.CudaDeviceMemoryResource;
+
+import Serialization.Tensor;
 
 namespace Mila::Dnn
 {
@@ -103,11 +105,8 @@ namespace Mila::Dnn
                 "Cannot copy between different device types (e.g., CUDA to Metal). "
                 "Use host-accessible memory as intermediate step.");
 
-            throw std::runtime_error( "Device to Device Copy() is not implemented." );
-            
-            // TODO:
-            //constexpr DeviceType device = TSrcMemoryResource::device_type;
-            //TensorOps<device>::copy( src, dst, exec_context );
+            constexpr DeviceType device = TSrcMemoryResource::device_type;
+            TensorOps<device>::copy( src, dst, exec_context );
         }
 
         // Determine which DeviceType to use based on memory accessibility
@@ -154,16 +153,74 @@ namespace Mila::Dnn
      * @param exec_context Optional execution context for stream control (borrowed)
      * @return Tensor on CPU with copied data
      */
-    export template<TensorDataType TDstDataType,
-                    TensorDataType TSrcDataType, typename TSrcMemoryResource>
+    export template<TensorDataType TDstDataType, TensorDataType TSrcDataType, typename TSrcMemoryResource>
         requires isValidTensor<TSrcDataType, TSrcMemoryResource> && isValidTensor<TDstDataType, CpuMemoryResource>
     Tensor<TDstDataType, CpuMemoryResource> toHost(
         const Tensor<TSrcDataType, TSrcMemoryResource>& src,
         IExecutionContext* exec_context = nullptr )
     {
-        Tensor<TDstDataType, CpuMemoryResource> dst( std::string( "CPU" ), src.shape() );
+        Tensor<TDstDataType, CpuMemoryResource> dst( Device::Cpu(), src.shape() );
         copy( src, dst, exec_context );
         
         return dst;
+    }
+
+    export template<TensorDataType TDstDataType, typename TDstMemoryResource>
+        requires isValidTensor<TDstDataType, TDstMemoryResource>
+    void copyFromBlob(
+        const Serialization::ITensorBlob& blob,
+        Tensor<TDstDataType, TDstMemoryResource>& dst,
+        IExecutionContext* exec_context = nullptr )
+    {
+        // Validate shapes match
+        if ( blob.getMetadata().shape != dst.shape() )
+        {
+            throw std::invalid_argument( "Blob and destination tensor shapes must match" );
+        }
+
+        // FIXME: Validate total bytes
+        //size_t expected_bytes = computeTotalBytes( blob.metadata.dtype, blob.metadata.shape );
+        //if ( blob.data.size() != expected_bytes )
+        //{
+        //    throw std::invalid_argument( "Blob size mismatch" );
+        //}
+
+        // Dispatch based on destination device
+        constexpr DeviceType device = TDstMemoryResource::device_type;
+        TensorOps<device>::copyFromBlob( blob, dst, exec_context );
+    }
+
+    /**
+     * @brief Copy a serialized blob into a destination tensor, converting element types.
+     *
+     * Intended for quantize-on-load paths where the checkpoint dtype (TSrcDataType)
+     * differs from the weight storage dtype (TDstDataType). Shape is validated against
+     * the destination tensor. Dispatches to the device-specific backend.
+     *
+     * @tparam TSrcDataType  Blob element dtype (e.g. BF16).
+     * @tparam TDstDataType  Destination tensor dtype (e.g. FP8_E4M3).
+     * @tparam TDstMemoryResource Destination memory resource.
+     *
+     * @param blob         Source tensor blob.
+     * @param dst          Pre-allocated destination tensor.
+     * @param exec_context Optional execution context for stream control (borrowed).
+     *
+     * @throws std::invalid_argument if blob shape != dst shape.
+     */
+    export template<TensorDataType TSrcDataType,
+        TensorDataType TDstDataType, typename TDstMemoryResource>
+        requires isValidTensor<TDstDataType, TDstMemoryResource>
+    void copyFromBlobWithConversion(
+        const Serialization::ITensorBlob& blob,
+        Tensor<TDstDataType, TDstMemoryResource>& dst,
+        IExecutionContext* exec_context = nullptr )
+    {
+        if ( blob.getMetadata().shape != dst.shape() )
+        {
+            throw std::invalid_argument( "Blob and destination tensor shapes must match" );
+        }
+
+        constexpr DeviceType device = TDstMemoryResource::device_type;
+        TensorOps<device>::template copyFromBlobWithConversion<TSrcDataType>( blob, dst, exec_context );
     }
 }

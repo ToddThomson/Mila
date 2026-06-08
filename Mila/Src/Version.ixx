@@ -1,29 +1,14 @@
-/*
- * Copyright 2025 Todd Thomson, Achilles Software.  All rights reserved.
+/**
+ * @file Version.ixx
+ * @brief Semantic version type and Mila library version constants.
  *
- * Please refer to the Mila end user license agreement (EULA) associated
- * with this source code for terms and conditions that govern your use of
- * this software. Any use, reproduction, disclosure, or distribution of
- * this software and related documentation outside the terms of the EULA
- * is strictly prohibited.
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2021..2026 Todd J. Thomson
  */
 
 module;
 #include <string>
 #include <sstream>
-#include <iostream>
-#include "Version.h"
 
 export module Mila.Version;
 
@@ -98,4 +83,24 @@ namespace Mila
         int patch_;
         std::string pre_release_tag_;
     };
+
+    /// <summary>
+    /// Gets the current Mila runtime API version.
+    /// </summary>
+    /// <returns>A Version object describing the running library.</returns>
+    /// <remarks>
+    /// The version components are injected by the build as PUBLIC compile
+    /// definitions (see the Versioning block in Mila/CMakeLists.txt), sourced
+    /// from Version.txt. find_package consumers recompile this module unit and
+    /// pick the definitions up via the exported target's interface, so no
+    /// version header is shipped.
+    /// </remarks>
+    export Version getAPIVersion()
+    {
+        return Version{
+            MILA_VERSION_MAJOR,
+            MILA_VERSION_MINOR,
+            MILA_VERSION_PATCH,
+            MILA_VERSION_PRERELEASE_TAG };
+    }
 }

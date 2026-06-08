@@ -25,8 +25,9 @@ import Dnn.Tensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
+import Compute.ExecutionContext;
 import Compute.DeviceType;
-import Compute.DeviceTraits;
+//import Compute.DeviceTraits;
 import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;
 import Compute.ExecutionContext;
@@ -81,7 +82,7 @@ namespace Mila::Dnn::Compute::Cpu
         static void fill(
             Tensor<TDataType, TMemoryResource>& tensor,
             std::span<const host_value_t<TDataType>> host_values,
-            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
             if (tensor.size() == 0 || host_values.empty())
                 return;
@@ -134,7 +135,7 @@ namespace Mila::Dnn::Compute::Cpu
         static void fill(
             Tensor<TDataType, TMemoryResource>& tensor,
             host_value_t<TDataType> host_value,
-            [[maybe_unused]] ExecutionContext<DeviceType::Cpu>* exec_context = nullptr )
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
             if (tensor.size() == 0)
                 return;

@@ -1,10 +1,11 @@
 /**
  * @file CompositeComponent.ixx
- * @brief Abstract container for managing child modules.
+ * @brief Abstract container for managing child components.
  *
  * CompositeComponent provides standardized child management (add, remove, get)
  * and aggregates parameters, gradients, and training state across children.
- * Derived classes define execution semantics (forward/backward/build).
+ * Derived classes define execution semantics (forward/backward) and architecture
+ * graph creation (createGraph()).
  */
 
 module;
@@ -15,14 +16,19 @@ module;
 #include <stdexcept>
 #include <sstream>
 #include <algorithm>
-#include <vector>
-#include <iterator>
+#include <format>
+#include <string_view>
 
 export module Dnn.CompositeComponent;
 
 import Dnn.Component;
+import Dnn.ComponentFactory;
+import Dnn.ITensor;
 import Dnn.TensorDataType;
+import Compute.Device;
+import Compute.DeviceId;
 import Compute.DeviceType;
+import Compute.IExecutionContext;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 
@@ -32,25 +38,24 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief A module that contains and manages child modules.
+     * @brief A component that contains and manages child components.
      *
-     * CompositeComponent is a device-parameterized abstract container. It does not
-     * implement the computational interface (forward/backward) so derived types
-     * must provide execution semantics while benefiting from standardized child
-     * management.
+     * CompositeComponent is a device-parameterized abstract container that manages
+     * child component lifecycle, aggregates operations (parameters, gradients, training
+     * mode), and provides context propagation. Derived types implement execution
+     * semantics (forward/backward) and architecture definition (createGraph()).
      *
-     * Features:
-     * - Add, remove, replace, and query child modules
-     * - Aggregate parameters and gradients across children
-     * - Propagate training mode to all children
-     * - Recursive serialization of child hierarchy
-     * - Build state validation
+     * Architecture Philosophy:
+     * - Context-independent graph creation: Architecture defined without device knowledge
+     * - Three-phase lifecycle: Graph creation -> Context binding -> Shape binding
+     * - Automatic context propagation: Base class propagates context to all children
+     * - Component-owns-name: Children manage their own identity via getName()
      *
-     * Design note:
-     * - The build lifecycle is centralized in this base class (template method).
-     *   Derived classes supply architecture-specific shape propagation by
-     *   implementing `onBuilding(const shape_t&)` and using the provided protected
-     *   helpers to build children with the correct shapes.
+     * NOTE:
+     * - `getComponent()` performs direct child lookup only.
+     * - For path-based / full-graph resolution use `findComponent()` or `tryFindComponent()`
+     *   on the Network (root) or call `findComponent()` on a composite to resolve
+     *   dot-separated paths (e.g. "encoder.mlp.fc1").
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
     class CompositeComponent : public Component<TDeviceType, TPrecision>
@@ -60,20 +65,28 @@ namespace Mila::Dnn
         using ComponentPtr = std::shared_ptr<Component<TDeviceType, TPrecision>>;
 
         /**
-         * @brief Construct an empty composite module.
+         * @brief Construct composite component with name.
+         *
+         * The composite component is named for identification in hierarchical structures.
+         * Derived classes should call createGraph() from their constructor to define
+         * the architecture graph (context-independent).
+         *
+         * All child components added via addComponent() will receive ExecutionContext
+         * automatically when the composite receives its context (via onExecutionContextSet).
+         *
+         * @param name Component name identifier (mandatory)
+         *
+         * @throws std::invalid_argument if name is not a valid identifier
          */
-        explicit CompositeComponent() noexcept
-            : is_built_( false )
-        {
-        }
+        explicit CompositeComponent( const std::string& name )
+            : ComponentBase( name )
+        {}
 
         virtual ~CompositeComponent() = default;
 
-        // Delete copy operations (manages shared_ptr children)
         CompositeComponent( const CompositeComponent& ) = delete;
         CompositeComponent& operator=( const CompositeComponent& ) = delete;
 
-        // Enable move operations
         CompositeComponent( CompositeComponent&& ) noexcept = default;
         CompositeComponent& operator=( CompositeComponent&& ) noexcept = default;
 
@@ -82,73 +95,271 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Add a child module that must already carry a valid name.
+         * @brief Add a pre-constructed child component (chainable).
          *
-         * Caller-provided module MUST expose a non-empty, valid name via
-         * `getName()`. This enforces a project-wide invariant: all components
-         * must have identifiers. The composite will use the child's name as the
-         * registration key and will reject unnamed children.
+         * Registers a component that was constructed externally (typically by the
+         * derived class in its createGraph() method). The component's getName() is
+         * used as the lookup key.
          *
-         * @param module Child module to add (cannot be null, must have non-empty name)
-         * @return Reference to this composite for method chaining
+         * Components are expected to be created in shared mode (no ExecutionContext).
+         * Context will be automatically propagated to all children when this composite
+         * receives its context via onExecutionContextSet().
+         *
+         * Usage pattern in derived class:
+         * @code
+         * void MLP::createGraph()
+         * {
+         *     auto fc1 = std::make_shared<LinearType>(config, std::nullopt);
+         *     fc1->setName(this->getName() + ".fc1");
+         *     this->addComponent(fc1);
+         *     // ... more components
+         * }
+         * @endcode
+         *
+         * @param component Shared pointer to the constructed component
+         *
+         * @return Reference to *this for method chaining
          *
          * @throws std::runtime_error if called after build()
-         * @throws std::invalid_argument if module is null, has empty name, or name already exists
+         * @throws std::invalid_argument if component is null
+         * @throws std::invalid_argument if component name already exists
+         * @throws std::invalid_argument if component already has its own ExecutionContext
          */
         CompositeComponent& addComponent( ComponentPtr component )
         {
-            if (is_built_)
+            if ( this->isBuilt() )
             {
                 throw std::runtime_error(
-                    "Cannot add Components after build() has been called"
+                    "Cannot add components after build() has been called" );
+            }
+
+            if ( !component )
+            {
+                throw std::invalid_argument( "Component cannot be null" );
+            }
+
+            // Enforce that children are created in shared mode (no standalone context).
+            // All children of a composite must share the parent's ExecutionContext;
+            if ( component->hasExecutionContext() )
+            {
+                throw std::invalid_argument(
+                    std::format( "Component '{}' already has an ExecutionContext; children must be created in shared mode",
+                        component->getName() )
                 );
             }
 
-            if (!component)
+            // Propagate ExecutionContext if already set on this composite
+            if ( this->hasExecutionContext() )
             {
-                throw std::invalid_argument( "Cannot add null Component" );
+                component->setExecutionContext( this->getExecutionContext() );
+                // FIXME: This is a bug: setTraining cannot be called until after build()!
+                // component->setTraining( this->isTraining() );
             }
 
-            // Require the child to already provide a valid name.
-            const std::string child_name = component->getName();
-            if (child_name.empty())
+            std::string name = component->getName();
+
+            if ( child_component_map_.find( name ) != child_component_map_.end() )
             {
                 throw std::invalid_argument(
-                    "Child Component must provide a non-empty name via getName()" );
+                    std::format( "Component name '{}' already exists", name )
+                );
             }
 
-            if (child_component_map_.find( child_name ) != child_component_map_.end())
-            {
-                throw std::invalid_argument( "Component name '" + child_name + "' already exists" );
-            }
-
-            child_component_map_[child_name] = component;
+            child_component_map_[ name ] = component;
             child_components_.push_back( component );
 
             return *this;
         }
 
         /**
-         * @brief Retrieve a child module by name.
+         * @brief Retrieve a direct child component by name.
          *
-         * @param name Name of the child module
-         * @return Shared pointer to the child module
+         * This performs direct (non-recursive) lookup of immediate children only.
+         * Use `findComponent()` to resolve dot-separated paths across the subgraph.
          *
-         * @throws std::out_of_range if no module with that name exists
+         * @param name Name of the direct child component
+         * @return Shared pointer to the component
+         *
+         * @throws std::out_of_range if the direct child is not found
          */
         ComponentPtr getComponent( const std::string& name ) const
         {
             auto it = child_component_map_.find( name );
-            if (it == child_component_map_.end())
+
+            if ( it == child_component_map_.end() )
             {
-                throw std::out_of_range( "No module named '" + name + "' found" );
+                throw std::out_of_range(
+                    std::format( "No direct child component named '{}' found", name )
+                );
             }
 
             return it->second;
         }
 
         /**
-         * @brief Check if a named child module exists.
+         * @brief Try to resolve a dot-separated component path within this composite.
+         *
+         * Non-throwing version: returns nullptr if any segment is not found or if a
+         * path segment attempts to traverse into a non-composite leaf.
+         *
+         * Example:
+         *   auto ptr = composite->tryFindComponent("encoder.mlp.fc1");
+         *
+         * @param path Dot-separated path (e.g. "layer_0.mlp.fc_1")
+         * @return ComponentPtr or nullptr when not found / invalid traversal
+         */
+        ComponentPtr tryFindComponent( const std::string& path ) const
+        {
+            // Empty path -> not found
+            if ( path.empty() )
+            {
+                return nullptr;
+            }
+
+            size_t pos = 0;
+            size_t next = path.find( '.' );
+            std::string segment = path.substr( 0, next );
+
+            auto it = child_component_map_.find( segment );
+            if ( it == child_component_map_.end() )
+            {
+                return nullptr;
+            }
+
+            ComponentPtr current = it->second;
+
+            // No remaining path -> return the direct child
+            if ( next == std::string::npos )
+            {
+                return current;
+            }
+
+            std::string remaining = path.substr( next + 1 );
+
+            // Traverse remaining segments
+            while ( true )
+            {
+                // current must be composite to traverse deeper
+                auto composite = std::dynamic_pointer_cast<const CompositeComponent>( current );
+                if ( !composite )
+                {
+                    return nullptr;
+                }
+
+                // find next segment
+                next = remaining.find( '.' );
+                segment = remaining.substr( 0, next );
+
+                auto childIt = composite->child_component_map_.find( segment );
+                if ( childIt == composite->child_component_map_.end() )
+                {
+                    return nullptr;
+                }
+
+                current = childIt->second;
+
+                if ( next == std::string::npos )
+                {
+                    break;
+                }
+
+                remaining = remaining.substr( next + 1 );
+            }
+
+            return current;
+        }
+
+        /**
+         * @brief Resolve a dot-separated component path within this composite.
+         *
+         * Supports both relative paths ("lenc.wte") and absolute paths ("gpt2.lenc.wte").
+         * If path starts with this component's name, strips it before searching.
+         */
+        ComponentPtr findComponent( const std::string& path ) const
+        {
+            if ( path.empty() )
+            {
+                throw std::out_of_range( "Empty component path" );
+            }
+
+            // Strip our own name prefix if present
+            // "gpt2.lenc.wte" -> "lenc.wte" when called on "gpt2"
+            std::string search_path = path;
+            std::string my_name = this->getName();
+
+            if ( search_path.starts_with( my_name + "." ) )
+            {
+                search_path = search_path.substr( my_name.length() + 1 );
+            }
+
+            // Now proceed with normal resolution
+            size_t next = search_path.find( '.' );
+            std::string first_segment = search_path.substr( 0, next );
+
+            // Look for child with full name (e.g., "gpt2.lenc")
+            std::string full_child_name = my_name + "." + first_segment;
+
+            auto it = child_component_map_.find( full_child_name );
+            if ( it == child_component_map_.end() )
+            {
+                throw std::out_of_range(
+                    std::format( "No component named '{}' found in path '{}'",
+                        first_segment, path )
+                );
+            }
+
+            ComponentPtr current = it->second;
+
+            if ( next == std::string::npos )
+            {
+                return current;
+            }
+
+            std::string remaining = search_path.substr( next + 1 );
+
+            // Recursively resolve remaining path
+            while ( true )
+            {
+                auto composite = std::dynamic_pointer_cast<const CompositeComponent>(current);
+
+                if ( !composite )
+                {
+                    throw std::runtime_error(
+                        std::format( "Component '{}' in path '{}' is not composite, cannot traverse to '{}'",
+                            current->getName(), path, remaining )
+                    );
+                }
+
+                next = remaining.find( '.' );
+                std::string segment = remaining.substr( 0, next );
+
+                // Look for child with full name relative to current component
+                std::string full_name = current->getName() + "." + segment;
+
+                auto childIt = composite->child_component_map_.find( full_name );
+                if ( childIt == composite->child_component_map_.end() )
+                {
+                    throw std::out_of_range(
+                        std::format( "No component named '{}' found in path '{}'",
+                            segment, path )
+                    );
+                }
+
+                current = childIt->second;
+
+                if ( next == std::string::npos )
+                {
+                    break;
+                }
+
+                remaining = remaining.substr( next + 1 );
+            }
+
+            return current;
+        }
+
+        /**
+         * @brief Check if a named child component exists.
          *
          * @param name Name to query
          * @return true if a child with this name exists
@@ -159,53 +370,59 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Get all child modules in insertion order.
+         * @brief Get all child components in insertion order.
          *
-         * @return Vector of child module pointers
+         * @return Vector of child component pointers
          */
         const std::vector<ComponentPtr>& getComponents() const
         {
             return child_components_;
         }
 
-        /**
-         * @brief Get the named child modules map.
-         *
-         * @return Map of names to child module pointers
-         */
-        const std::unordered_map<std::string, ComponentPtr>& getNamedComponents() const
-        {
-            return child_component_map_;
-        }
+        ///**
+        // * @brief Get the named child components map.
+        // *
+        // * @return Map of names to child component pointers
+        // */
+        //const std::unordered_map<std::string, ComponentPtr>& getNamedComponents() const
+        //{
+        //    return child_component_map_;
+        //}
 
         /**
-         * @brief Remove a child module by name.
+         * @brief Remove a child component by name.
          *
-         * @param name Name of the module to remove
+         * @param name Name of the component to remove
          * @return true if removed, false if not found
          *
          * @throws std::runtime_error if called after build()
          */
         bool removeComponent( const std::string& name )
         {
-            if (is_built_)
+            if ( this->isBuilt() )
             {
                 throw std::runtime_error(
-                    "Cannot remove modules after build() has been called"
+                    "Cannot remove components after build() has been called"
                 );
             }
 
             auto it = child_component_map_.find( name );
-            if (it == child_component_map_.end())
+
+            if ( it == child_component_map_.end() )
             {
                 return false;
             }
 
-            auto module_ptr = it->second;
+            auto component_ptr = it->second;
             child_component_map_.erase( it );
 
-            auto vector_it = std::find( child_components_.begin(), child_components_.end(), module_ptr );
-            if (vector_it != child_components_.end())
+            auto vector_it = std::find(
+                child_components_.begin(),
+                child_components_.end(),
+                component_ptr
+            );
+
+            if ( vector_it != child_components_.end() )
             {
                 child_components_.erase( vector_it );
             }
@@ -214,62 +431,16 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Replace a named child module.
-         *
-         * The replacement inherits the parent's training mode.
-         *
-         * @param name Name of the module to replace
-         * @param module Replacement module (cannot be null)
-         * @return true if replaced, false if not found
-         *
-         * @throws std::runtime_error if called after build()
-         * @throws std::invalid_argument if replacement module is null
-         */
-        bool replaceComponent( const std::string& name, ComponentPtr module )
-        {
-            if (is_built_)
-            {
-                throw std::runtime_error(
-                    "Cannot replace modules after build() has been called"
-                );
-            }
-
-            if (!module)
-            {
-                throw std::invalid_argument( "Cannot replace with null module" );
-            }
-
-            auto it = child_component_map_.find( name );
-            if (it == child_component_map_.end())
-            {
-                return false;
-            }
-
-            auto old_module = it->second;
-            it->second = module;
-
-            auto vector_it = std::find( child_components_.begin(), child_components_.end(), old_module );
-            if (vector_it != child_components_.end())
-            {
-                *vector_it = module;
-            }
-
-            module->setTraining( this->isTraining() );
-
-            return true;
-        }
-
-        /**
-         * @brief Clear all child modules.
+         * @brief Clear all child components.
          *
          * @throws std::runtime_error if called after build()
          */
         void clearComponents()
         {
-            if (is_built_)
+            if ( this->isBuilt() )
             {
                 throw std::runtime_error(
-                    "Cannot clear modules after build() has been called"
+                    "Cannot clear components after build() has been called"
                 );
             }
 
@@ -280,7 +451,7 @@ namespace Mila::Dnn
         /**
          * @brief Get the number of direct children.
          *
-         * @return Number of child modules
+         * @return Number of child components
          */
         size_t childCount() const noexcept
         {
@@ -290,64 +461,11 @@ namespace Mila::Dnn
         /**
          * @brief Check if this composite has any children.
          *
-         * @return true if at least one child module exists
+         * @return true if at least one child component exists
          */
         bool hasChildren() const noexcept
         {
             return !child_components_.empty();
-        }
-
-        // ====================================================================
-        // Build Lifecycle
-        // ====================================================================
-
-        /**
-         * @brief Check if this Component and all children are built.
-         *
-         * @return true if this Component and all children are successfully built
-         */
-        virtual bool isBuilt() const override
-        {
-            if (!is_built_)
-            {
-                return false;
-            }
-
-            // All children must also be built
-            return std::all_of( child_components_.begin(), child_components_.end(),
-                []( const auto& component ) {
-                    return component->isBuilt();
-                } );
-        }
-
-        /**
-         * @brief Final build entry point (template method).
-         *
-         * Lifecycle responsibilities implemented here:
-         * - guard against repeated builds
-         * - invoke derived-class architecture-specific build hook `onBuilding`
-         * - validate that children report built state
-         * - mark composite as built
-         *
-         * Derived classes MUST implement `onBuilding(const shape_t&)` and use the
-         * protected helpers to build their children with correct shapes.
-         *
-         * @param input_shape Expected input tensor shape
-         */
-        virtual void build( const shape_t& input_shape ) final override
-        {
-            if (is_built_)
-            {
-                return;
-            }
-
-            // Delegate architecture-specific shape propagation to derived class.
-            onBuilding( input_shape );
-
-            // Verify children succeeded and mark composite built.
-            validateChildrenBuilt();
-
-            is_built_ = true;
         }
 
         // ====================================================================
@@ -363,7 +481,7 @@ namespace Mila::Dnn
          */
         size_t parameterCount() const override
         {
-            if (!isBuilt())
+            if ( !this->isBuilt() )
             {
                 throw std::runtime_error(
                     "Cannot query parameter count before build() has been called"
@@ -371,44 +489,113 @@ namespace Mila::Dnn
             }
 
             size_t count = 0;
-            for (const auto& module : child_components_)
+
+            for ( const auto& component : child_components_ )
             {
-                count += module->parameterCount();
+                count += component->parameterCount();
             }
 
             return count;
         }
 
+        // ====================================================================
+        // Synchronization
+        // ====================================================================
+
         /**
-         * @brief Get all parameters from all children.
+         * @brief Synchronize all child components.
          *
-         * @return Vector of non-owning pointers to parameter tensors
-         *
-         * @throws std::runtime_error if called before build()
+         * Waits for outstanding device operations on all children.
          */
-        std::vector<ITensor*> getParameters() const override
+        void synchronize() override
         {
-            if (!isBuilt())
+            // All children share this composite's ExecutionContext and stream
+            // One synchronization is sufficient due to CUDA stream ordering
+            this->getExecutionContext()->synchronize();
+        }
+
+        // ====================================================================
+        // Device Information
+        // ====================================================================
+
+        /**
+         * @brief Get the compute device for this composite.
+         *
+         * Returns the device from the shared execution context.
+         *
+         * @return DeviceId for this composite and its children
+         */
+        DeviceId getDeviceId() const override
+        {
+            return this->getExecutionContext()->getDeviceId();
+        }
+
+        // ====================================================================
+        // Component Information
+        // ====================================================================
+
+        /**
+         * @brief Generate a human-readable description.
+         *
+         * @return String representation showing children
+         */
+        std::string toString() const override
+        {
+            std::ostringstream oss;
+            oss << this->getName() << " { children: [";
+
+            bool first = true;
+
+            for ( const auto& [name, component] : child_component_map_ )
             {
-                throw std::runtime_error( "Cannot get parameters before build()" );
+                if ( !first )
+                {
+                    oss << ", ";
+                }
+
+                first = false;
+                oss << name << ": " << component->getName();
             }
 
-            // Pre-calculate total size to avoid reallocations
-            size_t total_count = 0;
-            for (const auto& module : child_components_)
+            oss << "] }";
+
+            return oss.str();
+        }
+
+        /**
+               * @brief Get all parameters from all children.
+               *
+               * @return Vector of non-owning pointers to parameter tensors
+               *
+               * @throws std::runtime_error if called before build()
+               */
+        std::vector<ITensor*> getParameters() const override
+        {
+            if ( !this->isBuilt() )
             {
-                total_count += module->parameterCount();
+                throw std::runtime_error(
+                    "Cannot get parameters before build()"
+                );
+            }
+
+            size_t total_count = 0;
+
+            for ( const auto& component : child_components_ )
+            {
+                total_count += component->parameterCount();
             }
 
             std::vector<ITensor*> params;
             params.reserve( total_count );
 
-            for (const auto& component : child_components_)
+            for ( const auto& component : child_components_ )
             {
                 auto child_params = component->getParameters();
-                params.insert( params.end(),
+                params.insert(
+                    params.end(),
                     std::make_move_iterator( child_params.begin() ),
-                    std::make_move_iterator( child_params.end() ) );
+                    std::make_move_iterator( child_params.end() )
+                );
             }
 
             return params;
@@ -423,129 +610,141 @@ namespace Mila::Dnn
          */
         std::vector<ITensor*> getGradients() const override
         {
-            if (!isBuilt())
+            if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "Cannot get parameter gradients before build()" );
+                throw std::runtime_error(
+                    "Cannot get parameter gradients before build()"
+                );
             }
 
-            if (!this->isTraining())
+            if ( !this->build_context_.isTrainingMode() )
             {
-                throw std::runtime_error( "Cannot get parameter gradients when not in training mode" );
+                throw std::runtime_error(
+                    "Cannot get parameter gradients when not in training mode"
+                );
             }
 
-            // Pre-calculate total size to avoid reallocations
             size_t total_count = 0;
-            for (const auto& module : child_components_)
+
+            for ( const auto& component : child_components_ )
             {
-                total_count += module->parameterCount();
+                total_count += component->parameterCount();
             }
 
             std::vector<ITensor*> grads;
             grads.reserve( total_count );
 
-            for (const auto& module : child_components_)
+            for ( const auto& component : child_components_ )
             {
-                auto child_grads = module->getGradients();
-                grads.insert( grads.end(),
+                auto child_grads = component->getGradients();
+                grads.insert(
+                    grads.end(),
                     std::make_move_iterator( child_grads.begin() ),
-                    std::make_move_iterator( child_grads.end() ) );
+                    std::make_move_iterator( child_grads.end() )
+                );
             }
 
             return grads;
         }
 
-        // ====================================================================
-        // Synchronization
-        // ====================================================================
-
-        /**
-         * @brief Synchronize all child modules.
-         *
-         * Waits for outstanding device operations on all children.
-         */
-        void synchronize() override
-        {
-            for (auto& module : child_components_)
-            {
-                module->synchronize();
-            }
-        }
-
-        // ====================================================================
-        // Device Information
-        // ====================================================================
-
-        /**
-         * @brief Get the compute device for this composite.
-         *
-         * Returns the device of the first child. Assumes all children share
-         * the same device (should be validated during build).
-         *
-         * @return Shared pointer to compute device, or nullptr if no children
-         */
-        std::shared_ptr<ComputeDevice> getDevice() const override
-        {
-            if (child_components_.empty())
-            {
-                return nullptr;
-            }
-
-            return child_components_[0]->getDevice();
-        }
-
-        // ====================================================================
-        // Module Information
-        // ====================================================================
-
-        /**
-         * @brief Get the name of this composite module.
-         *
-         * Derived classes should override to provide specific names.
-         *
-         * @return Module name for diagnostics and serialization
-         */
-        std::string getName() const override
-        {
-            return "CompositeComponent";
-        }
-
-        /**
-         * @brief Generate a human-readable description.
-         *
-         * @return String representation showing children
-         */
-        std::string toString() const override
-        {
-            std::ostringstream oss;
-            oss << getName() << " { children: [";
-
-            bool first = true;
-            for (const auto& [name, module] : child_component_map_)
-            {
-                if (!first)
-                {
-                    oss << ", ";
-                }
-                first = false;
-                oss << name << ": " << module->toString();
-            }
-
-            oss << "] }";
-
-            return oss.str();
-        }
-
     protected:
 
-        // ====================================================================
-        // Serialization (Internal Protocol)
-        // ====================================================================
+        /**
+         * @brief Virtual hook for graph optimization after construction.
+         *
+         * Called automatically after createGraph() completes. Derived classes
+         * can override to perform fusion, pruning, or other optimizations.
+         *
+         * Default implementation does nothing. Override to perform
+         * architecture-specific graph optimizations.
+         */
+        virtual void optimize()
+        {
+            // REVIEW: Architecture-specific optimizations is currently a no-op.
+        }
 
         /**
-         * @internal
-         * @brief Save all child modules recursively.
+         * @brief Retrieve a typed child component by name.
          *
-         * Follows the Module serialization contract:
+         * Helper method for derived composites (like MLP) that need to cache typed
+         * pointers to children in their onBuilding() hook. Performs dynamic_pointer_cast
+         * and validates the cast succeeded.
+         *
+         * Note: This resolves direct children only. For full-path resolution use
+         * `findComponent()` on the appropriate root composite or Network.
+         *
+         * @tparam TComponent Expected component type
+         * @param name Name of the direct child component
+         * @return Shared pointer to component with correct type
+         *
+         * @throws std::out_of_range if component name not found
+         * @throws std::runtime_error if dynamic cast fails (type mismatch)
+         */
+        template<typename TComponent>
+        std::shared_ptr<TComponent> getComponentAs( const std::string& name ) const
+        {
+            auto base = getComponent( name );
+            auto typed = std::dynamic_pointer_cast<TComponent>(base);
+
+            if ( !typed )
+            {
+                throw std::runtime_error(
+                    std::format(
+                        "Component '{}' cannot be cast to requested type", name )
+                );
+            }
+
+            return typed;
+        }
+
+        /**
+         * @brief Hook invoked after ExecutionContext is set.
+         *
+         * Propagates the execution context to all child components that don't
+         * already have one. This enables the pattern where composites define
+         * their architecture graph in the constructor (context-independent)
+         * and context is bound later when available.
+         *
+         * Called by Component::setExecutionContext() after the context is registered.
+         * Automatically invoked for both standalone mode (component creates own context)
+         * and shared mode (parent provides context).
+         *
+         * Override this in derived classes if additional context-dependent initialization
+         * is required beyond context propagation to children.
+         */
+        void onExecutionContextSet() override
+        {
+            for ( auto& component : child_components_ )
+            {
+                if ( !component->hasExecutionContext() )
+                {
+                    component->setExecutionContext( this->getExecutionContext() );
+                }
+            }
+
+            optimize();
+        }
+
+        /**
+         * @brief Hook invoked when training mode is about to change.
+         *
+         * Propagates the new mode to all child components. The hook runs with
+         * the Component's training mutex held; it MUST NOT call setTraining().
+         *
+         * @param is_training New training mode (true = training, false = eval)
+         */
+        void onTrainingModeChanging( TrainingMode training_mode ) override
+        {
+            for ( auto& component : child_components_ )
+            {
+                component->setTrainingMode( training_mode );
+            }
+        }
+
+        /**
+         * @brief Save all child components recursively.
+         *
+         * Follows the component serialization contract:
          * - Writes type, version, and configuration metadata
          * - Recursively saves all children with scoped namespaces
          * - Each child's save_() handles its own state
@@ -555,189 +754,53 @@ namespace Mila::Dnn
          */
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
-            if (!isBuilt())
+            if ( !this->isBuilt() )
             {
-                throw std::runtime_error( "Cannot save unbuilt CompositeComponent" );
+                throw std::runtime_error(
+                    "Cannot save unbuilt CompositeComponent"
+                );
             }
 
-            // Metadata per Module contract
-            archive.addMetadata( "type", getName() );
+            archive.addMetadata( "type", this->getName() );
             archive.addMetadata( "version", "1" );
-
-            // Configuration needed for reconstruction
             archive.addMetadata( "child_count", std::to_string( child_components_.size() ) );
 
-            // Save child names in insertion order for reconstruction
             std::ostringstream names_stream;
             bool first = true;
-            for (const auto& [name, _] : child_component_map_)
+
+            for ( const auto& [name, _] : child_component_map_ )
             {
-                if (!first) names_stream << ",";
+                if ( !first )
+                {
+                    names_stream << ",";
+                }
+
                 names_stream << name;
                 first = false;
             }
+
             archive.addMetadata( "child_names", names_stream.str() );
 
-            // Recursively save each child with scoped namespace
-            for (const auto& [name, module] : child_component_map_)
+            for ( const auto& [name, component] : child_component_map_ )
             {
-                //archive.pushScope( name );
-                module->save_( archive, mode );
-                //archive.popScope();
+                component->save_( archive, mode );
             }
         }
 
-        // ====================================================================
-        // Helpers for Derived Classes
-        // ====================================================================
+    private:
 
         /**
-         * @brief Derived-class hook for architecture-specific build logic.
-         *
-         * Called from the final `build()` implementation. Derived classes MUST
-         * implement this method to compute per-child shapes and invoke the
-         * protected build helpers to construct child modules.
-         *
-         * Preconditions:
-         * - Called only when the composite is not yet built.
-         *
-         * Postconditions:
-         * - Children required by the composite should have been built when this
-         *   method returns.
-         */
-        virtual void onBuilding( const shape_t& input_shape ) = 0;
-
-        /**
-         * @brief Build a specific child module with the provided shape.
-         *
-         * Sets the child's training mode to match the parent, then calls
-         * `child->build(shape)`. Throws if `child` is null.
-         *
-         * This helper centralizes common preconditions and ensures children are
-         * built consistently.
-         */
-        void buildChild( ComponentPtr child, const shape_t& shape )
-        {
-            if (!child)
-            {
-                throw std::invalid_argument( "buildChild: null child" );
-            }
-
-            child->setTraining( this->isTraining() );
-            child->build( shape );
-        }
-
-        /**
-         * @brief Build a named child (lookup by name) with the provided shape.
-         *
-         * Throws if the name is not found.
-         */
-        void buildChild( const std::string& name, const shape_t& shape )
-        {
-            auto it = child_component_map_.find( name );
-            if (it == child_component_map_.end())
-            {
-                throw std::out_of_range( "buildChild: no child named '" + name + "'" );
-            }
-
-            buildChild( it->second, shape );
-        }
-
-        /**
-         * @brief Convenience: build all direct children with the same input shape.
-         *
-         * Useful for top-level containers (Network) where children accept the same
-         * input shape. This calls `buildChild(child, shape)` for each direct child
-         * in insertion order.
-         */
-        void buildChildrenWithSameShape( const shape_t& shape )
-        {
-            for (auto& c : child_components_)
-            {
-                buildChild( c, shape );
-            }
-        }
-
-        /**
-         * @brief Validate that all children were successfully built.
-         *
-         * Call this at the end of your build() override to ensure all
-         * children are in a valid built state.
-         *
-         * @throws std::runtime_error if any child is not built
-         */
-        void validateChildrenBuilt() const
-        {
-            for (const auto& component : child_components_)
-            {
-                if (!component->isBuilt())
-                {
-                    throw std::runtime_error(
-                        "Child Component '" + getComponentName( component.get() ) +
-                        "' failed to build"
-                    );
-                }
-            }
-        }
-
-        /**
-         * @brief Get the name of a child module for diagnostics.
-         *
-         * @param module Pointer to the child module
-         * @return Name of the module, or "unknown" if not found
-         */
-        std::string getComponentName( const Component<TDeviceType, TPrecision>* module ) const
-        {
-            for (const auto& [name, mod] : child_component_map_)
-            {
-                if (mod.get() == module)
-                {
-                    return name;
-                }
-            }
-            return "unknown";
-        }
-
-        /**
-         * @brief Mark this module as built without validation.
-         *
-         * Used exclusively by ModuleFactory when reconstructing from archive.
-         * After reconstruction, the module structure is complete and should
-         * be treated as built.
-         *
-         * Warning: This bypasses normal build validation. Only use during
-         * deserialization after fully reconstructing the module tree.
-         */
-        void markBuilt_()
-        {
-            is_built_ = true;
-        }
-
-        /**
-         * @brief Hook invoked when training mode is about to change.
-         *
-         * Propagates the new mode to all child modules. The hook runs with
-         * the Module's training mutex held; it MUST NOT call setTraining().
-         *
-         * @param is_training New training mode (true = training, false = eval)
-         */
-        void onTrainingChanging( bool is_training ) override
-        {
-            for (auto& module : child_components_)
-            {
-                module->setTraining( is_training );
-            }
-        }
-
-        /**
-         * @brief Child modules in insertion order.
+         * @brief Child components in insertion order.
          *
          * This vector holds shared ownership of the composite's direct children and
          * preserves the order in which children were added. The insertion order is
-         * used for build sequencing, ordered iteration, and determining serialization
-         * ordering. Do not mutate this container directly outside of the Composite
-         * API (use addComponent / replaceComponent / removeComponent) — mutations
-         * must occur prior to calling build().
+         * used for build sequencing, ordered iteration, and serialization ordering.
+         *
+         * Lifecycle invariants:
+         * - Children are constructed in createGraph() (called from derived constructor)
+         * - Children are registered via addComponent() before context is available
+         * - Context is propagated to children via onExecutionContextSet() hook
+         * - Children are built by parent's onBuilding() via template method pattern
          *
          * Threading: access is not internally synchronized. Mutations and lifecycle
          * operations must be externally serialized.
@@ -745,32 +808,21 @@ namespace Mila::Dnn
         std::vector<ComponentPtr> child_components_;
 
         /**
-         * @brief Lookup map from child name to module pointer.
+         * @brief Lookup map from child name to component pointer.
          *
-         * Provides O(1) name-based lookup for children. Keys are expected to match
-         * the child's stable identifier returned by `getName()` and must be unique.
-         * This map is used for diagnostics, getComponent()/hasComponent(), and to
-         * pair with `child_components_` when deterministic ordering is required.
+         * Provides O(1) name-based lookup for children. Keys are component names
+         * (obtained via component->getName()) and must be unique within the composite.
          *
-         * Note: insertion order is preserved by `child_components_`; the unordered_map
-         * does not guarantee ordering.
+         * Used for:
+         * - getComponent()/hasComponent() queries
+         * - getComponentAs<T>() typed retrieval in derived classes
+         * - Diagnostics and debugging
+         *
+         * Note: insertion order is preserved by `child_components_`; this unordered_map
+         * does not guarantee ordering but provides fast lookup.
          */
-        std::unordered_map<std::string, ComponentPtr> child_component_map_;
+        std::unordered_map<std::string, ComponentPtr, std::hash<std::string_view>, std::equal_to<>> child_component_map_;
 
-        /**
-         * @brief Indicates whether this composite and its children have been built.
-         *
-         * Set to true after a successful call to `build()` (or by `markBuilt_()` when
-         * reconstructing from an archive). Public APIs rely on this flag to guard
-         * operations that require the built state (for example parameter queries).
-         *
-         * Lifecycle: modifications follow the build/deserialization contract; this
-         * flag is not internally synchronized and callers must ensure serialized
-         * access to build-related operations.
-         */
-        bool is_built_;
-
-        // Friend declarations for factory access
         friend class ComponentFactory;
     };
 }

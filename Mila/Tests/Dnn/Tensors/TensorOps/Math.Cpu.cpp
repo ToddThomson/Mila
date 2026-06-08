@@ -10,6 +10,8 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <cmath>
+#include <cstdint>
 
 import Mila;
 
@@ -24,15 +26,14 @@ namespace Dnn::Tensors::TensorOps::Tests
     class CpuTensorMathTest : public ::testing::Test {
     protected:
         void SetUp() override {
-            // CPU ExecutionContext doesn't require parameters
-            exec_ctx_ = std::make_unique<ExecutionContext<DeviceType::Cpu>>();
+            exec_ctx_ = createExecutionContext( Device::Cpu() );
         }
 
         void TearDown() override {
             exec_ctx_.reset();
         }
 
-        std::unique_ptr<ExecutionContext<DeviceType::Cpu>> exec_ctx_;
+        std::unique_ptr<IExecutionContext> exec_ctx_;
     };
 
     /**
@@ -46,8 +47,8 @@ namespace Dnn::Tensors::TensorOps::Tests
      */
     template<TensorDataType TDataType>
     Tensor<TDataType, CpuMemoryResource> makeCpuTensor(
-        const std::string& device_name,
-        const std::vector<int64_t>& shape,
+        const DeviceId device_name,
+        const shape_t& shape,
         const std::vector<typename TensorHostTypeMap<TDataType>::host_type>& values = {} )
     {
         Tensor<TDataType, CpuMemoryResource> tensor( device_name, shape );
@@ -70,7 +71,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Add_SameShape_Int32 )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = Tensor<TensorDataType::INT32, CpuMemoryResource>( device_name, { 2, 2 } );
         auto data_a = a.data();
@@ -102,7 +103,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Add_SameShape_Float )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::FP32>(
             device_name, { 2, 2 }, { 1.5f, 2.5f, 3.5f, 4.5f } );
@@ -123,7 +124,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Add_WithoutExecutionContext )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::FP32>(
             device_name, { 3 }, { 1.0f, 2.0f, 3.0f } );
@@ -143,7 +144,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Add_LargeArray_Float )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
         const size_t size = 10000;
 
         std::vector<float> values_a( size );
@@ -172,7 +173,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Add_DifferentShape_Throws )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::INT32>( device_name, { 2, 2 }, { 1, 2, 3, 4 } );
         auto b = makeCpuTensor<TensorDataType::INT32>( device_name, { 2, 1 }, { 5, 6 } );
@@ -183,7 +184,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Add_ResultShapeMismatch_Throws )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::FP32>( device_name, { 2, 2 }, { 1.0f, 2.0f, 3.0f, 4.0f } );
         auto b = makeCpuTensor<TensorDataType::FP32>( device_name, { 2, 2 }, { 5.0f, 6.0f, 7.0f, 8.0f } );
@@ -194,7 +195,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Add_Scalar_Tensors )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         // Create scalar tensors (rank 0)
         auto a = Tensor<TensorDataType::FP32, CpuMemoryResource>( device_name, {} );
@@ -215,7 +216,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Add_UsingOperator )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::FP32>( device_name, { 3 }, { 1.0f, 2.0f, 3.0f } );
         auto b = makeCpuTensor<TensorDataType::FP32>( device_name, { 3 }, { 4.0f, 5.0f, 6.0f } );
@@ -235,7 +236,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Subtract_SameShape_Int32 )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::INT32>( device_name, { 2, 2 }, { 10, 20, 30, 40 } );
         auto b = makeCpuTensor<TensorDataType::INT32>( device_name, { 2, 2 }, { 1, 2, 3, 4 } );
@@ -253,7 +254,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Subtract_SameShape_Float )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::FP32>( device_name, { 3 }, { 5.5f, 10.0f, 15.5f } );
         auto b = makeCpuTensor<TensorDataType::FP32>( device_name, { 3 }, { 1.5f, 2.0f, 3.5f } );
@@ -269,7 +270,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Subtract_Negative_Results )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::INT32>( device_name, { 2 }, { 5, 10 } );
         auto b = makeCpuTensor<TensorDataType::INT32>( device_name, { 2 }, { 10, 5 } );
@@ -284,7 +285,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Subtract_UsingOperator )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::FP32>( device_name, { 2 }, { 10.0f, 20.0f } );
         auto b = makeCpuTensor<TensorDataType::FP32>( device_name, { 2 }, { 3.0f, 5.0f } );
@@ -302,7 +303,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Multiply_SameShape_Int32 )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::INT32>( device_name, { 2, 2 }, { 2, 3, 4, 5 } );
         auto b = makeCpuTensor<TensorDataType::INT32>( device_name, { 2, 2 }, { 10, 10, 10, 10 } );
@@ -319,7 +320,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Multiply_SameShape_Float )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::FP32>( device_name, { 3 }, { 2.5f, 3.0f, 4.5f } );
         auto b = makeCpuTensor<TensorDataType::FP32>( device_name, { 3 }, { 2.0f, 2.0f, 2.0f } );
@@ -335,7 +336,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Multiply_WithZeros )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::INT32>( device_name, { 3 }, { 5, 0, 10 } );
         auto b = makeCpuTensor<TensorDataType::INT32>( device_name, { 3 }, { 2, 3, 0 } );
@@ -351,7 +352,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Multiply_UsingOperator )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::FP32>( device_name, { 2 }, { 3.0f, 4.0f } );
         auto b = makeCpuTensor<TensorDataType::FP32>( device_name, { 2 }, { 5.0f, 6.0f } );
@@ -369,7 +370,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Divide_SameShape_Int32 )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::INT32>( device_name, { 3 }, { 20, 30, 40 } );
         auto b = makeCpuTensor<TensorDataType::INT32>( device_name, { 3 }, { 2, 3, 4 } );
@@ -385,7 +386,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Divide_SameShape_Float )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::FP32>( device_name, { 3 }, { 10.0f, 20.0f, 30.0f } );
         auto b = makeCpuTensor<TensorDataType::FP32>( device_name, { 3 }, { 2.0f, 4.0f, 5.0f } );
@@ -401,7 +402,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Divide_ByZero_Int32_Throws )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::INT32>( device_name, { 2 }, { 10, 20 } );
         auto b = makeCpuTensor<TensorDataType::INT32>( device_name, { 2 }, { 0, 5 } );
@@ -412,7 +413,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Divide_ByZero_Float_InfNaN )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::FP32>( device_name, { 2 }, { 10.0f, 0.0f } );
         auto b = makeCpuTensor<TensorDataType::FP32>( device_name, { 2 }, { 0.0f, 0.0f } );
@@ -428,7 +429,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Divide_UsingOperator )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::FP32>( device_name, { 2 }, { 20.0f, 30.0f } );
         auto b = makeCpuTensor<TensorDataType::FP32>( device_name, { 2 }, { 4.0f, 5.0f } );
@@ -446,7 +447,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Add_3D_Tensors )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         std::vector<float> values_a( 24 );
         std::vector<float> values_b( 24 );
@@ -479,7 +480,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, Operations_SingleElement )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::INT32>( device_name, { 1 }, { 10 } );
         auto b = makeCpuTensor<TensorDataType::INT32>( device_name, { 1 }, { 5 } );
@@ -506,7 +507,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, ChainedOperations_WithContext )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::FP32>( device_name, { 3 }, { 10.0f, 20.0f, 30.0f } );
         auto b = makeCpuTensor<TensorDataType::FP32>( device_name, { 3 }, { 2.0f, 3.0f, 4.0f } );
@@ -527,7 +528,7 @@ namespace Dnn::Tensors::TensorOps::Tests
 
     TEST_F( CpuTensorMathTest, ChainedOperations_UsingOperators )
     {
-        auto device_name = exec_ctx_->getDeviceName();
+        auto device_name = exec_ctx_->getDeviceId();
 
         auto a = makeCpuTensor<TensorDataType::FP32>( device_name, { 2 }, { 5.0f, 10.0f } );
         auto b = makeCpuTensor<TensorDataType::FP32>( device_name, { 2 }, { 2.0f, 3.0f } );

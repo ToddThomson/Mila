@@ -17,13 +17,13 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
-import Compute.Precision;
-import Compute.ComputeDevice;
+import Compute.Device;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
-import Compute.CudaDeviceMemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CudaDevice;
+#ifdef MILA_HAS_CUDA
+import Compute.CudaDeviceMemoryResource;
+#endif
 import Compute.OperationBase;
 import Compute.OperationType;
 
@@ -46,7 +46,11 @@ namespace Mila::Dnn::Compute
     class BinaryOperation : public Operation<TDeviceType, TPrecision>
     {
     public:
+#ifdef MILA_HAS_CUDA
         using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+#else
+        using MR = CpuMemoryResource;
+#endif
 
         // Concrete tensor aliases for implementers
         using TensorOutputType   = Tensor<TPrecision, MR>;
