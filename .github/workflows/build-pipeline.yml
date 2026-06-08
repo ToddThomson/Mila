@@ -33,7 +33,7 @@ jobs:
 
       # Cache CPM dependency clones (cutlass is large and slow to re-clone).
       - name: Cache CPM sources
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .cpm-cache
           key: cpm-${{ hashFiles('CMakeLists.txt') }}
@@ -44,7 +44,7 @@ jobs:
       # a cache hit after the first run. Scoped to CUDA only: ccache's support for the
       # C++23 module units is unreliable, so the C++ launcher is intentionally not set.
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .ccache
           key: ccache-${{ github.sha }}

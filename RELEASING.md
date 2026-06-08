@@ -55,12 +55,27 @@ tagged releases.
 
 ## Cutting a release
 
+Releases are **manual** — there is no release workflow. The GitHub Release object is
+human-facing only (a curated changelog and download link); consumers resolve by git **tag**,
+not by the Release. See the note below.
+
 1. Open a `dev -> master` pull request. CI validates on the PR.
 2. Merge to `master`.
-3. Tag `master` with `v` + the current `Version.txt`, e.g. `v0.13.46-alpha.5`, and push the tag.
-   **Tagging `master` is the release** — there is no separate release workflow for a
-   source-distributed library (GitHub auto-generates the source archives).
-4. **Post-tag smoke test:** configure the **`x64-release-cpm-gate`** preset and run:
+3. **Drift check (by eye — this used to be an automated gate):** the tag you are about to
+   create must be exactly `v` + the contents of `Version.txt`, e.g. a `Version.txt` of
+   `0.13.46-alpha.5` -> tag `v0.13.46-alpha.5`. A tag that disagrees with `Version.txt` makes a
+   semver consumer fetch a tree that reports a different version.
+4. Tag `master` and push the tag. **Tagging `master` is the release** — CPM/FetchContent fetch
+   this git tag directly, and GitHub auto-generates the source archives at it. Nothing else is
+   required for the library to be consumable downstream.
+5. **(Optional, human-facing) Publish a GitHub Release** for a curated changelog:
+   ```
+   gh release create v0.13.46-alpha.5 --generate-notes --prerelease
+   ```
+   Use `--prerelease` for any `-alpha`/`-beta` tag; drop it for a final release. Or draft it in
+   the **Releases** web UI for full hand-curation. Nothing downstream depends on this, so do it
+   on your own schedule.
+6. **Post-tag smoke test:** configure the **`x64-release-cpm-gate`** preset and run:
    ```
    ctest --test-dir out/build/x64-release-cpm-gate -R packaging_cpm_consumer --output-on-failure
    ```
@@ -75,6 +90,13 @@ tagged releases.
 - **Never commit directly to `master`.** It changes *only* via a `dev -> master` release PR.
   A stray direct edit to `master` is what caused the README merge conflict in the first release
   — `master` and `dev` diverged and had to be hand-reconciled. Treat `master` as release-only.
+- **Releases are created by hand (no release workflow).** The GitHub Release is human-facing
+  only — CPM and FetchContent resolve by git **tag**, and GitHub serves source archives from the
+  tag regardless — so the Release object is curated manually (`gh release create` or the web UI)
+  rather than auto-cut on tag push by a third-party action. This keeps release timing and content
+  under explicit control, and the drift check (tag == `Version.txt`) moves to step 3 above. A
+  tag-triggered workflow (`release.yml`, `softprops/action-gh-release`) previously did this; it
+  was removed deliberately.
 - **Tag format:** `vX.Y.Z` or `vX.Y.Z-PRERELEASE`. The CPM gate uses an explicit `GIT_TAG`
   (not CPM's `@version` shorthand, which mishandles the `-alpha.N` pre-release suffix).
 - **Testing an older tag mid-development:** the CPM gate defaults its tag to `Version.txt`,
