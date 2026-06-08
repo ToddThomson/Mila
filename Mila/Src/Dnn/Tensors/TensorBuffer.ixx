@@ -35,7 +35,9 @@ import Dnn.TensorDataTypeTraits;
 import Compute.MemoryResource;
 import Compute.MemoryResourceTracker;
 import Compute.CpuMemoryResource;
+#ifdef MILA_HAS_CUDA
 import Compute.CudaDeviceMemoryResource;
+#endif
 
 namespace Mila::Dnn
 {
@@ -75,12 +77,16 @@ namespace Mila::Dnn
 		{
 			// REVIEW: Update for packed types. We now support FP4 packed types
 
+#ifdef MILA_HAS_CUDA
 			if constexpr (std::is_same_v<MR, Compute::CudaDeviceMemoryResource>) {
 				return CUDA_WARP_SIZE * TensorDataTypeTraits<TDataType>::size_in_bytes;
 			}
 			else {
 				return CPU_SIMD_ALIGN;
 			}
+#else
+			return CPU_SIMD_ALIGN;
+#endif
 		}
 
 		/**

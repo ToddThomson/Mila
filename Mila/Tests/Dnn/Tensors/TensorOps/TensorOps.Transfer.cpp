@@ -252,6 +252,7 @@ namespace Dnn::Tensors::TensorOps::Tests
     // CPU to CUDA Copy Tests (Host-accessible to Device-only)
     // ====================================================================
 
+#ifdef MILA_HAS_CUDA
     TEST_F( TensorOpsTransferTest, Copy_CpuToCuda_FP32 ) {
         if (!cuda_exec_context_)
         {
@@ -472,6 +473,7 @@ namespace Dnn::Tensors::TensorOps::Tests
         EXPECT_FALSE( dst.is_host_accessible() );
         EXPECT_TRUE( dst.is_device_accessible() );
     }
+#endif
 
     TEST_F( TensorOpsTransferTest, ZeroSizedTensor_NoOperation ) {
         auto src = Tensor<TensorDataType::FP32, Compute::CpuMemoryResource>( cpu_exec_context_->getDeviceId(), { 0 } );
@@ -554,6 +556,7 @@ namespace Dnn::Tensors::TensorOps::Tests
         EXPECT_EQ( dst.shape(), src.shape() );
     }
 
+#ifdef MILA_HAS_CUDA
     TEST_F( TensorOpsTransferTest, RoundTrip_CpuToCudaToCpu ) {
         if (!cuda_exec_context_)
         {
@@ -598,6 +601,7 @@ namespace Dnn::Tensors::TensorOps::Tests
         EXPECT_EQ( final_copy.shape(), original.shape() );
         EXPECT_EQ( final_copy.getDataType(), TensorDataType::FP32 );
     }
+#endif
 
     TEST_F( TensorOpsTransferTest, MultipleSequentialCopies ) {
         const shape_t shape = { 10, 10 };

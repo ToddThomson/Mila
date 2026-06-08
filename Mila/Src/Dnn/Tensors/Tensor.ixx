@@ -38,14 +38,15 @@ import Dnn.TensorDataTypeTraits;
 import Compute.CpuTensorDataTypeTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
+#ifdef MILA_HAS_CUDA
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Compute.CudaPinnedMemoryResource;
+#endif
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.CpuDevice;
-import Compute.CudaDevice;
 import Compute.DeviceRegistrar;
 import Compute.DeviceRegistry;
 
@@ -970,6 +971,7 @@ namespace Mila::Dnn
     export template <TensorDataType TDataType>
         using HostTensor = Tensor<TDataType, Compute::CpuMemoryResource>;
 
+#ifdef MILA_HAS_CUDA
     /**
      * @brief Device tensor alias
      */
@@ -987,4 +989,5 @@ namespace Mila::Dnn
      */
     export template <TensorDataType TDataType>
         using UniversalTensor = Tensor<TDataType, Compute::CudaManagedMemoryResource>;
+#endif
 }

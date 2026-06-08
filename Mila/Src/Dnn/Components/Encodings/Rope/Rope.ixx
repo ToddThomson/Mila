@@ -34,7 +34,6 @@ import Compute.PairedOperation;
 import Compute.IPositionalPairedOp;
 import Compute.OperationTraits;
 import Compute.CpuMemoryResource;
-import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 

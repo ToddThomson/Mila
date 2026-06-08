@@ -39,7 +39,7 @@ import Compute.BinaryOperation;
 import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CudaDeviceMemoryResource;
+import Compute.DeviceTypeTraits;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 
@@ -59,7 +59,7 @@ namespace Mila::Dnn
     class SoftmaxCrossEntropy : public Component<TDeviceType, TPrecision>
     {
     public:
-        using MR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaDeviceMemoryResource, CpuMemoryResource>;
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
         using TargetTensorType = Tensor<TTargets, MR>;

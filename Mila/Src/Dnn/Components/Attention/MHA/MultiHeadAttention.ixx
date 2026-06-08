@@ -33,7 +33,6 @@ import Compute.UnaryOperation;
 import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CudaDeviceMemoryResource;
 import Compute.IPackedKvInference;
 import Compute.IKvCacheLifecycle;
 import Serialization.ModelArchive;

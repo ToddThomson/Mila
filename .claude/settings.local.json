@@ -74,7 +74,10 @@
       "Bash(git -C D:/Repos/Mila diff -- Mila/Profiling/CMakeLists.txt)",
       "PowerShell(git -C D:\\\\Repos\\\\Mila diff --stat)",
       "PowerShell(git -C D:\\\\Repos\\\\Mila status --short)",
-      "WebFetch(domain:api.github.com)"
+      "WebFetch(domain:api.github.com)",
+      "Bash(git -C D:\\\\Repos\\\\Mila log --oneline -8)",
+      "Bash(Measure-Object -Line)",
+      "Bash(Select-Object -Last 5)"
     ]
   }
 }

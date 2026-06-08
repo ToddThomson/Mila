@@ -22,8 +22,6 @@ module;
 #include <numeric>
 #include <format>
 
-#include <nvtx3/nvtx3.hpp>
-
 export module Dnn.Components.TokenEmbedding;
 export import Dnn.Components.TokenEmbeddingConfig;
 
@@ -45,7 +43,6 @@ import Compute.UnaryOperation;
 import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Tensor;

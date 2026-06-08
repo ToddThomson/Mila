@@ -40,7 +40,6 @@ import Compute.UnaryOperation;
 import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CudaDeviceMemoryResource;
 import Compute.IPositionalDecode;
 import Serialization.ModelArchive;
 import Serialization.Mode;

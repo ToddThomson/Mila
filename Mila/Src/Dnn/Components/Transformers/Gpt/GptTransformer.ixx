@@ -48,7 +48,9 @@ import Compute.DeviceType;
 import Compute.DeviceId;
 import Compute.DeviceTypeTraits;
 import Compute.CpuMemoryResource;
+#ifdef MILA_HAS_CUDA
 import Compute.CudaPinnedMemoryResource;
+#endif
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
@@ -547,12 +549,14 @@ namespace Mila::Dnn
                     continue;
                 }
 
+#ifdef MILA_HAS_CUDA
                 if constexpr ( TDeviceType == DeviceType::Cuda )
                 {
                     auto blob = reader.readTensorBlob<CudaPinnedMemoryResource>( full_name, device_index );
                     target->loadParameter( param_name, blob );
                 }
                 else
+#endif
                 {
                     auto blob = reader.readTensorBlob<CpuMemoryResource>( full_name );
                     target->loadParameter( param_name, blob );

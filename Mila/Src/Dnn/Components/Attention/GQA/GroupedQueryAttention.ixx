@@ -33,7 +33,6 @@ import Compute.OperationTraits;
 import Compute.GqaState;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
-import Compute.CudaDeviceMemoryResource;
 import Compute.IKvInference;
 import Compute.IKvCacheLifecycle;
 import Serialization.ModelArchive;

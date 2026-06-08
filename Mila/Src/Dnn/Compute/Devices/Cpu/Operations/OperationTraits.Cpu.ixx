@@ -9,7 +9,7 @@
  * BF16 CPU paths are not a current Mila target.
  *
  * Migration status:
- *   LinearOp              pending (CpuLinearOpTypeMap still active)
+ *   LinearOp              complete (NoWeightQuant; quantized policies are CUDA-only)
  *   GeluOp                complete
  *   ResidualOp            complete
  *   SoftmaxOp             complete
@@ -21,14 +21,32 @@
 export module Compute.OperationTraits:Cpu;
 
 import Compute.OperationTraits.Template;
+import Compute.CpuLinearOp;
 import Compute.CpuGeluOp;
 import Compute.CpuResidualOp;
 import Compute.CpuSoftmaxOp;
 import Compute.CpuAttention;
 import Compute.CpuEncoderOp;
+import Dnn.Quantization.Weight.Policies;
 
 namespace Mila::Dnn::Compute
 {
+    using namespace Mila::Dnn::Quant::Weight;
+
+    // -------------------------------------------------------------------------
+    // LinearOp — CPU specialization (FP32, unquantized only)
+    //
+    // FP32 is the sole CPU-supported precision and CpuLinearOp is concrete
+    // (non-templated). Quantized weight policies (PerChannelFp8/PerGroupFp4) are
+    // CUDA-only, so NoWeightQuant is the only CPU LinearOp registration.
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::LinearOp, DeviceType::Cpu, TensorDataType::FP32, NoWeightQuant>
+    {
+        using type = CpuLinearOp;
+    };
+
     // -------------------------------------------------------------------------
     // GeluOp — CPU specialization (FP32 only)
     // -------------------------------------------------------------------------

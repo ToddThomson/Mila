@@ -94,12 +94,13 @@ Delivers the structured message and tool calling infrastructure in the Chat appl
 layer. No model architecture changes required.
 
 **Alpha.5 — In Progress**
-FP8 and FP4 E2M1 load-time weight quantization, validated on Llama 3.2 3B Instruct.
-Weights are quantized from BF16 at model load time inside `Linear` via a compile-time
+FP8 and FP4 E2M1 load-time weight quantization, validated on Llama 3.2 3B and Llama 3.1 8B
+Instruct. Weights are quantized from BF16 at model load time inside `Linear` via a compile-time
 `TWeightQuant` policy — no quantized checkpoint format required. FP8 uses per-channel
 absmax scaling with cuBLASLt mixed-precision GEMM; FP4 E2M1 uses per-group absmax scaling
-with a dedicated decode matvec kernel (44–48 tok/s on Llama 3.2 3B). Both paths are
-validated on the existing BF16 baseline.
+with a dedicated decode matvec kernel. Llama 3.1 8B at FP4 (~6 GB) is the production default,
+fitting comfortably within a 12 GB VRAM budget; FP8 is the validated finer-precision
+alternative. Both paths are validated against the existing BF16 baseline.
 
 Alpha.5 also introduces compile-time operation dispatch via `OperationTraits<OperationType,
 TDeviceType, TPrecision, TPolicy>`. `Linear` is the reference implementation — a missing
@@ -108,7 +109,7 @@ to `OperationTraits` dispatch as part of this alpha. The component type system
 (`ComponentType`, `OperationType`) has been audited for completeness and consistency
 across all leaf components.
 
-**Alpha.6 — Planned**
+**Beta.1 — Planned**
 Qwen 3 transformer architecture with thinking mode and model-agnostic tool calling,
 validated on Qwen 3 8B Instruct at BF16 and FP8. FP8 KV cache compression introduced
 alongside weight quantization.
@@ -126,6 +127,8 @@ See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for th
 | Llama 3.2 3B inference — greedy decode at BF16 | Validated against HuggingFace |
 | Llama 3.2 3B inference — FP8 E4M3 per-channel quantization | Validated — coherent generation, ~41 tok/s decode |
 | Llama 3.2 3B inference — FP4 E2M1 per-group quantization | Validated — coherent generation, 44–48 tok/s decode |
+| Llama 3.1 8B inference — FP8 E4M3 per-channel quantization | Validated — fits 12 GB VRAM budget, ~11.6 GB at ctx 8192 |
+| Llama 3.1 8B inference — FP4 E2M1 per-group quantization | Validated — production default, ~6 GB, ~57 tok/s decode |
 | Two-phase KV-cache — prefill + decode | Complete |
 | HuggingFace GPT-2 weight converter | Complete |
 | HuggingFace Llama weight converter | Complete |
@@ -270,4 +273,4 @@ See CONTRIBUTING.md for coding standards and the pull request process.
 
 ## License
 
-Apache License 2.0 — see LICENSE for details.
+MIT License — see [License.md](License.md) for details.

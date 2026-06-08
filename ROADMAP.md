@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.44-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
+| In Progress | 0.13.45-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
 | Planned | 0.2.2-beta.1 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.2.3-beta.2 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
@@ -131,8 +131,9 @@ cache + runtime overhead) is ~11.6 GB at context_length 8192 on an RTX 4070, wit
 the 12 GB budget. The transformer architecture is identical to Llama 3.2 3B — no new
 components are required, only the config preset and weight converter mapping need
 verification at the 8B parameter scale. The production default is Llama 3.1 8B at FP4
-(~6 GB, ~28–31 tok/s decode); FP8 is the validated alternative for applications
-requiring finer weight precision within the same VRAM budget.
+(~6 GB, ~57 tok/s decode after the warp-per-row decode-softmax rewrite); FP8 is the
+validated alternative for applications requiring finer weight precision within the same
+VRAM budget.
 
 - [x] `Llama.Presets.ixx` — `Llama3_1_8B()` preset: embedding=4096, layers=32, heads=32, kv_heads=8, hidden=14336, rope_theta=500000; `LlamaModel::fromPretrained` reads all architecture dimensions from checkpoint metadata so no preset wiring is required in the load path
 - [x] `convert_llama_weights.py` — extended to support `meta-llama/Llama-3.1-8B` and `meta-llama/Llama-3.1-8B-Instruct`; key mapping and gate/up concatenation confirmed identical to Llama 3.2; `tie_word_embeddings=False` on 8B handled by existing lm_head fallback; `rope_scaling` (`rope_type="llama3"`) printed for reference but not written — standard RoPE with `rope_theta=500000` is accurate at context lengths ≤ 4096; output: `llama31_8b_instruct_bf16.bin`
@@ -612,7 +613,7 @@ The `find_package` consumer build itself is tracked under Packaging, not here.
 **Project Hygiene and Contributor Readiness.** A beta is a trust signal to users and contributors;
 these items are about the project not contradicting itself or wasting a newcomer's first hour.
 
-- [ ] License reconciliation (must-fix) — the root `License.md` is MIT, but `Mila/Src/Mila.ixx` (the public entry point) and `Mila/Src/Version.ixx` carry a proprietary header stating use "outside the terms of the EULA is strictly prohibited", which flatly contradicts MIT in the first file a contributor opens. Reconcile to MIT, pick a single per-file header convention (a one-line `// SPDX-License-Identifier: MIT`, or none) and apply it consistently, and bump the `License.md` copyright from `2021..2025` to include 2026
+- [x] License reconciliation (must-fix) — DONE 2026-06-08. Repo had stated the license **four** different ways: `License.md` (MIT), `Mila/Src/Mila.ixx` + `Version.ixx` (proprietary "EULA / All rights reserved" headers), `README.md` ("Apache License 2.0"), and `CONTRIBUTING.md` ("Apache License 2.0"). All reconciled to MIT: the two public-entry source files now carry an SPDX header (`SPDX-License-Identifier: MIT` + `Copyright (c) 2021..2026 Todd J. Thomson`) plus the standard `@file`/`@brief` block they were previously missing; README and CONTRIBUTING corrected to MIT and pointed at `License.md` (was the non-existent `LICENSE`); holder unified to `Todd J. Thomson` (dropped retired "Achilles Software" trade name); `License.md` copyright bumped to `2021..2026`. SPDX-on-two-files is the chosen convention; all other source files remain header-free by convention (root `License.md` governs)
 - [ ] Formatter/linter config (highest-ROI scaffolding) — there is no `.clang-format`, `.editorconfig`, or `.clang-tidy`, so the idiosyncratic style in `CLAUDE.md` (no column alignment, blank-line-before-control-flow, full-word identifiers, ASCII-only comments) is unenforceable and reviews drown in whitespace nits. Add `.clang-format` + `.editorconfig` (even if they cannot capture every rule) so style is machine-checkable in CI rather than tribal knowledge
 - [ ] GitHub community-health files — `.github/` has only the workflow and copilot-instructions; add `CODE_OF_CONDUCT.md`, `SECURITY.md`, issue templates, and a PR template to complete GitHub's community-standards checklist (pairs with the existing good-first-issue labels requirement)
 - [ ] FIXME/TODO debt triage — the source carries ~71 `FIXME` + ~69 `REVIEW` + ~25 `TODO` markers (165 total); `FIXME` reads as "known broken" to anyone browsing, and several are commented-out core paths (weight initializers bypassed as "takes too long", commented `prefill`/`xavier`/`normal` calls). Triage before beta: fix the real ones, convert the rest to tracked GitHub issues, and do not ship literal "FIXME"s in public source. Distinct from the "debug instrumentation gated/removed" item, which is the `std::cout` (12 files) / `std::cerr` (5) / `printf` (6) usage

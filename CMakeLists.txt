@@ -35,10 +35,6 @@ option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ${PROJECT_IS_TOP_LEVEL
 option(MILA_ENABLE_DOCS "Build Doxygen API documentation. Requires Doxygen and Graphviz." OFF)
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
 option(MILA_INSTALL "Generate Mila install/export rules (find_package consumption)." ${PROJECT_IS_TOP_LEVEL})
-# TODO: MILA_ENABLE_CUDA=OFF does not produce a clean CPU-only build. Sources include CUDA
-# headers (cuda_runtime.h, etc.) unconditionally, so configuring with this OFF fails to compile
-# with "CUDA includes could not be found". Either make the CPU-only path header-clean or drop
-# the option. (Found while validating the GCC/WSL build on Ubuntu 26.04.)
 option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
 
 # The Metal and ROCm backends are currently for internal testing only. Please leave them disabled.

@@ -32,7 +32,9 @@ import Dnn.TensorHostTypeMap;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.CpuMemoryResource;
+#ifdef MILA_HAS_CUDA
 import Compute.CudaPinnedMemoryResource;
+#endif
 
 namespace Mila::Data
 {
@@ -55,9 +57,14 @@ namespace Mila::Data
      *
      * @tparam TMemoryResource CpuMemoryResource or CudaPinnedMemoryResource
      */
+#ifdef MILA_HAS_CUDA
     export template<typename TMemoryResource>
         requires (std::is_same_v<TMemoryResource, CudaPinnedMemoryResource> ||
             std::is_same_v<TMemoryResource, CpuMemoryResource>)
+#else
+    export template<typename TMemoryResource>
+        requires (std::is_same_v<TMemoryResource, CpuMemoryResource>)
+#endif
     class TokenSequenceLoader : public DataLoader<TensorDataType::INT32, TensorDataType::INT32, TMemoryResource>
     {
     public:
@@ -390,6 +397,7 @@ namespace Mila::Data
                 }
             }
 
+#ifdef MILA_HAS_CUDA
             if constexpr ( std::is_same_v<TMemoryResource, CudaPinnedMemoryResource> )
             {
                 if ( device.type != DeviceType::Cuda )
@@ -398,6 +406,7 @@ namespace Mila::Data
                         "CudaPinnedMemoryResource requires CUDA device, got " + device.toString() );
                 }
             }
+#endif
 
             return device;
         }

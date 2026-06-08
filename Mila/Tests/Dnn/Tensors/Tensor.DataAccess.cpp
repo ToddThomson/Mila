@@ -323,6 +323,7 @@ namespace Dnn::Tensors::Tests
     // Device-related element access tests (pinned / managed memory)
     // ====================================================================
 
+#ifdef MILA_HAS_CUDA
     TEST_F( TensorElementAccessTest, Device_PinnedMemoryAccess ) {
         if ( !has_cuda_device_ ) {
             GTEST_SKIP() << "CUDA device not available. Skipping pinned memory access test.";
@@ -352,4 +353,5 @@ namespace Dnn::Tensors::Tests
         EXPECT_FLOAT_EQ( (managed_tensor[ 0, 0 ]), 4.4f );
         EXPECT_FLOAT_EQ( (managed_tensor[ 1, 1 ]), 5.5f );
     }
+#endif
 }

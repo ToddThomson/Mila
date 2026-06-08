@@ -37,7 +37,6 @@ import Compute.ExecutionContextFactory;
 import Compute.UnaryOperation;
 import Compute.OperationTraits;
 import Compute.CpuMemoryResource;
-import Compute.CudaDeviceMemoryResource;
 import Serialization.ModelArchive;
 import Serialization.Tensor;
 import Serialization.Mode;

@@ -85,6 +85,7 @@ namespace Dnn::Tensors::Tests
     // Device tests: verify CUDA memory resources and device-only types (skipped if no CUDA)
     // ====================================================================
 
+#ifdef MILA_HAS_CUDA
     TEST_F( TensorMemoryPropertiesTest, Device_HostCompatibleDataTypes_CudaMemoryResources ) {
         if ( !has_cuda_device_ ) {
             GTEST_SKIP() << "CUDA device not available. Skipping CUDA memory-resource checks.";
@@ -295,6 +296,8 @@ namespace Dnn::Tensors::Tests
         SUCCEED();
     }
 
+#endif
+
     // ====================================================================
     // Type alias tests: split host aliases and device aliases
     // ====================================================================
@@ -319,6 +322,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( host_uint16_tensor.getDataType(), TensorDataType::UINT16 );
     }
 
+#ifdef MILA_HAS_CUDA
     TEST_F( TensorMemoryPropertiesTest, Device_TypeAliasProperties ) {
         if ( !has_cuda_device_ ) {
             GTEST_SKIP() << "CUDA device not available. Skipping device alias checks.";
@@ -349,6 +353,8 @@ namespace Dnn::Tensors::Tests
         EXPECT_TRUE( universal_fp16_tensor.is_device_accessible() );
     }
 
+#endif
+
     // ====================================================================
     // Property consistency across operations: split host and device parts
     // ====================================================================
@@ -374,6 +380,7 @@ namespace Dnn::Tensors::Tests
         }
     }
 
+#ifdef MILA_HAS_CUDA
     TEST_F( TensorMemoryPropertiesTest, Device_PropertyConsistencyAcrossOperations ) {
         if ( !has_cuda_device_ ) {
             GTEST_SKIP() << "CUDA device not available. Skipping device operation consistency tests.";
@@ -417,6 +424,8 @@ namespace Dnn::Tensors::Tests
             EXPECT_TRUE( managed_tensor.is_device_accessible() );
         }
     }
+
+#endif
 
     // ====================================================================
     // Data type information: split host-only and device-only checks
@@ -469,6 +478,7 @@ namespace Dnn::Tensors::Tests
         }
     }
 
+#ifdef MILA_HAS_CUDA
     TEST_F( TensorMemoryPropertiesTest, Device_DataTypeInformation ) {
         if ( !has_cuda_device_ ) {
             GTEST_SKIP() << "CUDA device not available. Skipping device data-type information tests.";
@@ -504,6 +514,8 @@ namespace Dnn::Tensors::Tests
     // ====================================================================
     // TensorDataTypeTraits and concept validations (compile-time)
     // ====================================================================
+
+#endif
 
     TEST_F( TensorMemoryPropertiesTest, TensorDataTypeTraitsValidation ) {
         // Verify TensorDataTypeTraits properties for all supported abstract types
@@ -571,6 +583,7 @@ namespace Dnn::Tensors::Tests
         SUCCEED();
     }
 
+#ifdef MILA_HAS_CUDA
     TEST_F( TensorMemoryPropertiesTest, ConceptValidation ) {
         // Verify that all supported abstract data types satisfy the validation concept
         static_assert(isValidTensor<TensorDataType::FP32, Compute::CpuMemoryResource>);
@@ -644,6 +657,8 @@ namespace Dnn::Tensors::Tests
         SUCCEED();
     }
 
+#endif
+
     // ====================================================================
     // Device context compatibility: host part and device part
     // ====================================================================
@@ -657,6 +672,7 @@ namespace Dnn::Tensors::Tests
         }
     }
 
+#ifdef MILA_HAS_CUDA
     TEST_F( TensorMemoryPropertiesTest, Device_DeviceContextCompatibility ) {
         if ( !has_cuda_device_ ) {
             GTEST_SKIP() << "CUDA device not available. Skipping device context compatibility tests.";
@@ -709,4 +725,5 @@ namespace Dnn::Tensors::Tests
 
         SUCCEED();
     }
+#endif
 }

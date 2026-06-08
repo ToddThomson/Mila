@@ -21,11 +21,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
-find_package(CUDAToolkit REQUIRED)
+if(MILA_ENABLE_CUDA)
+    find_package(CUDAToolkit REQUIRED)
 
-# Default to building for the GPU on the current system
-if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES native)
+    # Default to building for the GPU on the current system
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+      set(CMAKE_CUDA_ARCHITECTURES native)
+    endif()
 endif()
 
 add_executable( MilaTests
@@ -37,8 +39,6 @@ add_executable( MilaTests
     
     "Dnn/Compute/DeviceTypes.cpp"
     "Dnn/Compute/DeviceId.cpp"
-    
-    "Dnn/Compute/Devices/Cuda/CudaDeviceRegistrar.cpp"
 
     "Dnn/Compute/Devices/Registry/DeviceRegistrar.cpp"
     "Dnn/Compute/Devices/Registry/DeviceRegistry.cpp"
@@ -51,7 +51,6 @@ add_executable( MilaTests
     # Dnn::Compute::Execution Context Tests
     # --------------------------------------------------------------
     "Dnn/Compute/ExecutionContext/ExecutionContext.cpp"
-    "Dnn/Compute/ExecutionContext/CudaExecutionContext.cpp"
     "Dnn/Compute/ExecutionContext/CpuExecutionContext.cpp"
 
     # --------------------------------------------------------------
@@ -68,9 +67,7 @@ add_executable( MilaTests
 
     # TensorOps
     "Dnn/Tensors/TensorOps/Fill.Cpu.cpp"
-    "Dnn/Tensors/TensorOps/Fill.Cuda.cpp"
     "Dnn/Tensors/TensorOps/Math.Cpu.cpp"
-    "Dnn/Tensors/TensorOps/Math.Cuda.cpp"
     "Dnn/Tensors/TensorOps/TensorOps.Transfer.cpp"
 
     # Tensor Helpers
@@ -222,6 +219,19 @@ add_executable( MilaTests
     "Dnn/Components/Transformers/Llama/Llama.Config.cpp"
 )
 
+# CUDA-only test translation units. These exercise CUDA memory resources,
+# execution contexts, and kernels directly and have no CPU-only meaning, so they
+# are compiled only when the CUDA backend is enabled. New *.Cuda.cpp / Cuda*.cpp
+# test files belong in this block, not in the add_executable list above.
+if(MILA_ENABLE_CUDA)
+    target_sources( MilaTests PRIVATE
+        "Dnn/Compute/Devices/Cuda/CudaDeviceRegistrar.cpp"
+        "Dnn/Compute/ExecutionContext/CudaExecutionContext.cpp"
+        "Dnn/Tensors/TensorOps/Fill.Cuda.cpp"
+        "Dnn/Tensors/TensorOps/Math.Cuda.cpp"
+    )
+endif()
+
 target_compile_definitions( MilaTests PRIVATE TEST_DATA_DIR="${MILA_DATA_DIR}" )
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
@@ -234,7 +244,11 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   )
 endif()
 
-target_link_libraries( MilaTests PRIVATE Mila gtest CUDA::cudart )
+target_link_libraries( MilaTests PRIVATE Mila gtest )
+
+if(MILA_ENABLE_CUDA)
+    target_link_libraries( MilaTests PRIVATE CUDA::cudart )
+endif()
 
 gtest_discover_tests(MilaTests
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"  # Set working directory to project root

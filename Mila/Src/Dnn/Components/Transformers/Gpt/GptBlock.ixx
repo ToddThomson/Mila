@@ -42,7 +42,6 @@ import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
 import Compute.CpuMemoryResource;
-import Compute.CudaDeviceMemoryResource;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
 import Dnn.Components.LayerNorm;

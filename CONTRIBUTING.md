@@ -190,7 +190,7 @@ When reporting issues, please include:
 
 ## License
 
-By contributing to Mila, you agree that your contributions will be licensed under the project's [Apache License 2.0](LICENSE).
+By contributing to Mila, you agree that your contributions will be licensed under the project's [MIT License](License.md).
 
 ---
 

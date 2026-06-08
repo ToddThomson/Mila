@@ -1,6 +1,6 @@
 /**
  * @file TensorOps.Transfer.ixx
- * @brief Tensor transfer utilities — copy/dispatch helpers for tensor data movement.
+ * @brief Tensor transfer utilities ï¿½ copy/dispatch helpers for tensor data movement.
  *
  * Provides an exported generic `copy()` template that validates shapes, handles
  * host/device accessibility, and dispatches to device-specific `TensorOps`
@@ -30,7 +30,6 @@ import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 
 import Compute.CpuMemoryResource;
-import Compute.CudaDeviceMemoryResource;
 
 import Serialization.Tensor;
 

@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
+#ifdef MILA_HAS_CUDA
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
+#endif
 #include <vector>
 #include <chrono>
 #include <stdexcept>
@@ -202,6 +204,7 @@ namespace Dnn::Tensors::Tests
         TensorBuffer<TensorDataType::INT32, Compute::CpuMemoryResource, true> tracked_int32_buffer( cpu_device_id_, 10 );
         TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource, true> tracked_float_buffer( cpu_device_id_, 10 );
 
+#ifdef MILA_HAS_CUDA
         if (has_cuda_) {
             TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource, true> tracked_cuda_float_buffer( cuda_device_id_, 10 );
             TensorBuffer<TensorDataType::FP16, Compute::CudaDeviceMemoryResource, true> tracked_cuda_half_buffer( cuda_device_id_, 10 );
@@ -212,6 +215,7 @@ namespace Dnn::Tensors::Tests
             EXPECT_EQ( tracked_cuda_float_buffer.size(), 20 );
             EXPECT_EQ( tracked_cuda_half_buffer.size(), 20 );
         }
+#endif
 
         tracked_int16_buffer.resize( 20 );
         tracked_int32_buffer.resize( 20 );
@@ -240,6 +244,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( uint32_buffer.size(), 10 );
         EXPECT_EQ( float_buffer.size(), 10 );
 
+#ifdef MILA_HAS_CUDA
         if (has_cuda_) {
             TensorBuffer<TensorDataType::INT16, Compute::CudaDeviceMemoryResource> cuda_int16_buffer( cuda_device_id_, 10 );
             TensorBuffer<TensorDataType::INT32, Compute::CudaDeviceMemoryResource> cuda_int32_buffer( cuda_device_id_, 10 );
@@ -271,6 +276,7 @@ namespace Dnn::Tensors::Tests
             EXPECT_TRUE( cuda_fp8_e4m3_buffer.isAligned() );
             EXPECT_TRUE( cuda_fp8_e5m2_buffer.isAligned() );
         }
+#endif
 
         EXPECT_TRUE( int16_buffer.isAligned() );
         EXPECT_TRUE( int32_buffer.isAligned() );
@@ -296,6 +302,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_FALSE( INT32Buffer::is_float_type );
         EXPECT_TRUE( INT32Buffer::is_integer_type );
 
+#ifdef MILA_HAS_CUDA
         if (has_cuda_) {
             using FP16Buffer = TensorBuffer<TensorDataType::FP16, Compute::CudaDeviceMemoryResource>;
             EXPECT_EQ( FP16Buffer::data_type, TensorDataType::FP16 );
@@ -303,6 +310,7 @@ namespace Dnn::Tensors::Tests
             EXPECT_TRUE( FP16Buffer::is_float_type );
             EXPECT_FALSE( FP16Buffer::is_integer_type );
         }
+#endif
     }
 
     TEST_F( TensorBufferTests, VerifyAlignment ) {
@@ -310,11 +318,13 @@ namespace Dnn::Tensors::Tests
         EXPECT_TRUE( cpu_buffer.isAligned() );
         EXPECT_EQ( (cpu_buffer.alignedSize() % TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource>::alignment), 0 );
 
+#ifdef MILA_HAS_CUDA
         if (has_cuda_) {
             TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_buffer( cuda_device_id_, 100 );
             EXPECT_TRUE( cuda_buffer.isAligned() );
             EXPECT_EQ( (cuda_buffer.alignedSize() % TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource>::alignment), 0 );
         }
+#endif
     }
 
     TEST_F( TensorBufferTests, VerifyAlignedSize ) {
@@ -328,10 +338,12 @@ namespace Dnn::Tensors::Tests
         TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> buffer( cpu_device_id_, 100 );
         EXPECT_EQ( buffer.storageBytes(), 100 * sizeof( float ) );
 
+#ifdef MILA_HAS_CUDA
         if (has_cuda_) {
             TensorBuffer<TensorDataType::FP16, Compute::CudaDeviceMemoryResource> half_buffer( cuda_device_id_, 50 );
             EXPECT_EQ( half_buffer.storageBytes(), 50 * sizeof( half ) );
         }
+#endif
 
         TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> empty_buffer( cpu_device_id_, 0 );
         EXPECT_EQ( empty_buffer.storageBytes(), 0 );
@@ -366,10 +378,12 @@ namespace Dnn::Tensors::Tests
         TensorBuffer<TensorDataType::FP32, Compute::CpuMemoryResource> cpu_buffer( cpu_device_id_, 100 );
         EXPECT_NE( cpu_buffer.getMemoryResource(), nullptr );
 
+#ifdef MILA_HAS_CUDA
         if (has_cuda_) {
             TensorBuffer<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_buffer( cuda_device_id_, 100 );
             EXPECT_NE( cuda_buffer.getMemoryResource(), nullptr );
         }
+#endif
     }
 
     TEST_F( TensorBufferTests, ArchitecturalSeparationOfConcerns ) {
@@ -389,6 +403,7 @@ namespace Dnn::Tensors::Tests
 
     // ============================================================================
 
+#ifdef MILA_HAS_CUDA
     TEST_F( TensorBufferTests, CudaMaxTensorAllocation )
     {
         if (!has_cuda_)
@@ -471,4 +486,5 @@ namespace Dnn::Tensors::Tests
         // Reset device state to be conservative in test environment
         cudaDeviceReset();
     }
+#endif
 }

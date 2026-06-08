@@ -14,7 +14,10 @@ export module Compute.DeviceRegistryHelpers;
 import Compute.DeviceRegistry;
 import Compute.DeviceId;
 import Compute.DeviceType;
+
+#if defined(MILA_HAS_CUDA)
 import Cuda.Helpers;
+#endif
 
 namespace Mila::Dnn::Compute
 {
@@ -78,12 +81,13 @@ namespace Mila::Dnn::Compute
      * @param preferMemory When true, prioritizes memory bandwidth over compute capability
      * @return DeviceId Best available device id for the requested type, or index == -1 if none
      */
-    export DeviceId getBestDevice( DeviceType type, bool preferMemory = false )
+    export DeviceId getBestDevice( DeviceType type, [[maybe_unused]] bool preferMemory = false )
     {
         auto& registry = DeviceRegistry::instance();
 
         auto allDeviceIds = registry.listDeviceIds();
 
+#if defined(MILA_HAS_CUDA)
         if ( type == DeviceType::Cuda )
         {
             std::vector<DeviceId> cudaIds;
@@ -116,6 +120,7 @@ namespace Mila::Dnn::Compute
 
             return cudaIds.front();
         }
+#endif
 
         for ( const auto& id : allDeviceIds )
         {

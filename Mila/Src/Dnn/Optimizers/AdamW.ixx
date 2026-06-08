@@ -19,7 +19,9 @@ import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.CpuAdamWOptimizer;
+#ifdef MILA_HAS_CUDA
 import Compute.CudaAdamWOptimizer;
+#endif
 
 namespace Mila::Dnn::Optimizers
 {
@@ -42,7 +44,11 @@ namespace Mila::Dnn::Optimizers
     public:
         
         using ExecutionContextType = ExecutionContext<TDeviceType>;
+#ifdef MILA_HAS_CUDA
         using OptimizerType = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaAdamWOptimizer<TPrecision>, CpuAdamWOptimizer<TPrecision>>;
+#else
+        using OptimizerType = CpuAdamWOptimizer<TPrecision>;
+#endif
 
         /**
          * @brief Construct AdamW optimizer from fluent `AdamWConfig`.

@@ -38,6 +38,7 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( cpu_tensor.rank(), 2 );
         EXPECT_EQ( cpu_tensor.shape(), shape );
 
+#ifdef MILA_HAS_CUDA
         if (has_cuda_) {
             Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> cuda_tensor( Device::Cuda(0), shape );
 
@@ -49,10 +50,12 @@ namespace Dnn::Tensors::Tests
         else {
             GTEST_SKIP() << "CUDA device not available for CUDA tensor test";
         }
+#endif
     }
 
     
 
+#ifdef MILA_HAS_CUDA
     TEST_F( TensorConstructionTest, ConstructorWithMismatchedDeviceAndMemoryResource ) {
         shape_t shape = { 2, 3 };
 
@@ -88,6 +91,8 @@ namespace Dnn::Tensors::Tests
         EXPECT_EQ( tensor.rank(), 2 );
         EXPECT_EQ( tensor.shape(), shape );
     }
+
+#endif
 
     TEST_F( TensorConstructionTest, ConstructorWithEmptyShape ) {
         shape_t shape = {};
@@ -233,6 +238,7 @@ namespace Dnn::Tensors::Tests
     // Construction with Different Memory Resources
     // ====================================================================
 
+#ifdef MILA_HAS_CUDA
     TEST_F( TensorConstructionTest, ConstructWithDifferentMemoryResources ) {
         if (!has_cuda_) {
             GTEST_SKIP() << "CUDA device not available for this test";
@@ -302,6 +308,8 @@ namespace Dnn::Tensors::Tests
             std::runtime_error
         );
     }
+
+#endif
 
     TEST_F( TensorConstructionTest, CpuMemoryResourceRequiresCpuDevice ) {
         shape_t shape = { 2, 3 };
@@ -407,6 +415,7 @@ namespace Dnn::Tensors::Tests
     // Constructor Tests with All CUDA-Supported Data Types
     // ====================================================================
 
+#ifdef MILA_HAS_CUDA
     TEST_F( TensorConstructionTest, ConstructorWithAllCudaSupportedDataTypes ) {
         if (!has_cuda_) {
             GTEST_SKIP() << "CUDA device not available for this test";
@@ -682,4 +691,5 @@ namespace Dnn::Tensors::Tests
         static_assert(isValidTensor<TensorDataType::FP8_E4M3, CudaManagedMemoryResource>);
         static_assert(isValidTensor<TensorDataType::FP8_E5M2, CudaPinnedMemoryResource>);
     }
+#endif
 }

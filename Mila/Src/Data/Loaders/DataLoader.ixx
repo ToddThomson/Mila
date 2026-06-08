@@ -32,9 +32,10 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.DeviceType;
 import Compute.MemoryResource;
-import Compute.CudaDeviceMemoryResource;
-import Compute.CudaPinnedMemoryResource;
 import Compute.CpuMemoryResource;
+#ifdef MILA_HAS_CUDA
+import Compute.CudaPinnedMemoryResource;
+#endif
 
 namespace Mila::Data
 {
@@ -98,7 +99,11 @@ namespace Mila::Data
             static constexpr TensorDataType input_data_type = TInputDataType;          ///< Compile-time input data type constant
             static constexpr TensorDataType target_data_type = TTargetDataType;        ///< Compile-time target data type constant
             static constexpr bool is_mixed_precision = (TInputDataType != TTargetDataType); ///< Mixed-precision workflow detection
+#ifdef MILA_HAS_CUDA
             static constexpr bool uses_pinned_memory = std::is_same_v<TMemoryResource, CudaPinnedMemoryResource>; ///< Pinned memory optimization
+#else
+            static constexpr bool uses_pinned_memory = false; ///< Pinned memory optimization (CUDA-only; false on CPU-only builds)
+#endif
 
             // ====================================================================
             // Construction and Destruction
@@ -461,6 +466,7 @@ namespace Mila::Data
      * @tparam TInputDataType Input tensor data type (defaults to FP32)
      * @tparam TTargetDataType Target tensor data type (defaults to input type)
      */
+#ifdef MILA_HAS_CUDA
     export template<TensorDataType TInputDataType = TensorDataType::FP32,
         TensorDataType TTargetDataType = TInputDataType>
         using PinnedDataLoader = DataLoader<TInputDataType, TTargetDataType, CudaPinnedMemoryResource>;
@@ -473,4 +479,5 @@ namespace Mila::Data
      */
     export template<TensorDataType TInputDataType, TensorDataType TTargetDataType>
         using MixedPrecisionDataLoader = DataLoader<TInputDataType, TTargetDataType, CudaPinnedMemoryResource>;
+#endif
 }

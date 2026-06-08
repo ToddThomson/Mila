@@ -47,6 +47,7 @@ import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
+import Compute.DeviceTypeTraits.Cpu;
 import Compute.CpuMemoryResource;
 import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;

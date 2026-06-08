@@ -24,7 +24,11 @@ PUBLIC
 set(MODELS_DIR "${CMAKE_SOURCE_DIR}/Data/Models")
 target_compile_definitions( ChatApp PRIVATE MODELS_DIR="${MODELS_DIR}" )
 
-target_link_libraries( ChatApp PRIVATE Mila CUDA::cudart CUDA::nvtx3 )
+# ChatApp uses no CUDA APIs directly. When CUDA is enabled, Mila propagates
+# CUDA::cudart/nvtx3 as PUBLIC usage requirements, so linking Mila alone is
+# sufficient; when CUDA is OFF those targets do not exist. Relisting them here
+# would be redundant in the first case and a hard error in the second.
+target_link_libraries( ChatApp PRIVATE Mila )
 
 # Copy chat session data to the output directory alongside the executable
 add_custom_command( TARGET ChatApp POST_BUILD

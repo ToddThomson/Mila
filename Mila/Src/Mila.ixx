@@ -1,27 +1,13 @@
-/*
- * Copyright 2025 Todd Thomson, Achilles Software.  All rights reserved.
+/**
+ * @file Mila.ixx
+ * @brief Mila public API umbrella module - the single supported entry point (import Mila;).
  *
- * Please refer to the Mila end user license agreement (EULA) associated
- * with this source code for terms and conditions that govern your use of
- * this software. Any use, reproduction, disclosure, or distribution of
- * this software and related documentation outside the terms of the EULA
- * is strictly prohibited.
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2021..2026 Todd J. Thomson
  */
 
 module;
 #include <string>
-//#include <iostream>
 #include <memory>
 #include <format>
 #include <exception>
@@ -74,9 +60,11 @@ export import Compute.DeviceId;
 export import Compute.DeviceType;
 export import Compute.DeviceTypeTraits;
 export import Compute.DeviceTypeTraits.Cpu;
-export import Compute.DeviceTypeTraits.Cuda;
 export import Compute.CpuDevice;
+#ifdef MILA_HAS_CUDA
+export import Compute.DeviceTypeTraits.Cuda;
 export import Compute.CudaDevice;
+#endif
 
 // ============================================================================
 // Compute - Optimizers
@@ -96,9 +84,11 @@ export import Compute.DeviceRegistryHelpers;
 export import Compute.MemoryResource;
 //export import Compute.MemoryResourceTracker;
 export import Compute.CpuMemoryResource;
+#ifdef MILA_HAS_CUDA
 export import Compute.CudaDeviceMemoryResource;
 export import Compute.CudaManagedMemoryResource;
 export import Compute.CudaPinnedMemoryResource;
+#endif
 
 // ====================================================================
 // Compute - Operations Registry

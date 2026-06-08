@@ -45,8 +45,12 @@ import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
+import Compute.DeviceTypeTraits.Cpu;
 import Compute.CpuMemoryResource;
+#ifdef MILA_HAS_CUDA
+import Compute.DeviceTypeTraits.Cuda;
 import Compute.CudaPinnedMemoryResource;
+#endif
 import Compute.ExecutionContextFactory;
 import Serialization.PretrainedReader;
 import Serialization.Mode;
@@ -80,7 +84,11 @@ namespace Mila::Dnn
         using ModelBase = LanguageModel<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
+#ifdef MILA_HAS_CUDA
         using StagingMR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaPinnedMemoryResource, CpuMemoryResource>;
+#else
+        using StagingMR = CpuMemoryResource;
+#endif
 
         LlamaModel( const LlamaModel& ) = delete;
         LlamaModel& operator=( const LlamaModel& ) = delete;

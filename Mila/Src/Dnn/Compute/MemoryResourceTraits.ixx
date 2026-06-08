@@ -9,9 +9,11 @@ module;
 export module Compute.MemoryResourceTraits;
 
 import Compute.CpuMemoryResource;
+#ifdef MILA_HAS_CUDA
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaManagedMemoryResource;
 import Compute.CudaPinnedMemoryResource;
+#endif
 
 namespace Mila::Dnn::Compute
 {
@@ -43,6 +45,7 @@ namespace Mila::Dnn::Compute
         static constexpr bool is_vulkan_resource = false;
     };
 
+#ifdef MILA_HAS_CUDA
     /**
      * @brief CUDA Device Memory Resource Specialization
      */
@@ -78,6 +81,7 @@ namespace Mila::Dnn::Compute
         static constexpr bool is_opencl_resource = false;
         static constexpr bool is_vulkan_resource = false;
     };
+#endif
 
     // ====================================================================
     // Convenience Helper Concepts
