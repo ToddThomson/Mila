@@ -1,6 +1,8 @@
 ﻿# CMake project for testing the Mila Library
-
-enable_testing()
+#
+# enable_testing() is NOT called here: the top-level CMakeLists already enables CTest
+# (gated on PROJECT_IS_TOP_LEVEL), and Mila/CMakeLists.txt enables it for the embedded
+# case before adding this directory. A third call here would be pure redundancy.
 
 include(FetchContent)
    FetchContent_Declare(
@@ -256,9 +258,15 @@ gtest_discover_tests(MilaTests
         VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
-# find_package(Mila) packaging gate -- installs Mila and builds Samples/QuickStart
-# against the install. Opt-in because it does a full install plus a second configure
-# and build; CI enables it, local unit-test runs need not.
+# Packaging gates: the find_package(Mila) consumer (installs Mila, builds
+# Samples/QuickStart against the install) and the FetchContent subproject consumer.
+# Defined here, with the tests, rather than at the root: it is meaningful only when
+# MILA_ENABLE_TESTING is on, and that dependency is now structural -- this file is
+# reached only through the MILA_ENABLE_TESTING-gated add_subdirectory(Tests). Default
+# OFF because each gate is a full install/subproject reconfigure + rebuild (900-1800s);
+# unit-test runs should not pay that. The x64-validate preset (and CI) turns it on.
+option(MILA_ENABLE_PACKAGING_TEST "Build the find_package + FetchContent packaging gates (install/embed Mila and build a consumer against it)." OFF)
+
 if(MILA_ENABLE_PACKAGING_TEST)
     add_subdirectory(Packaging)
 endif()

@@ -172,6 +172,15 @@ For modules, include tests for:
 4. CPU/CUDA equivalence where applicable
 5. Training/inference mode behavior
 
+### Running the tests
+Tests are off in the default build (lean library + samples). Configure the **`x64-validate`**
+preset to enable the unit tests plus the packaging gates, then run `ctest`:
+```
+ctest --test-dir out/build/x64-validate --output-on-failure
+```
+Run this before opening a PR. See [RELEASING.md](RELEASING.md) for the full version, validation,
+and tagging flow (including the post-tag CPM release-access smoke test).
+
 ## Documentation
 
 * Update Doxygen comments in code for API changes

@@ -22,9 +22,20 @@ set(consumer_build "${WORK_DIR}/quickstart-build")
 file(REMOVE_RECURSE "${prefix}" "${consumer_build}")
 file(MAKE_DIRECTORY "${prefix}")
 
+# Propagate the Mila build's configuration to BOTH the install and the consumer, so the
+# installed Mila.lib and the consumer's main.cpp.obj use the same CRT. Without this the
+# consumer configures with an empty build type (MSVC then picks the Debug CRT) and fails
+# to link a Release Mila with LNK2038 (RuntimeLibrary / _ITERATOR_DEBUG_LEVEL mismatch).
+set(install_config_args "")
+set(consumer_config_args "")
+if(BUILD_TYPE)
+    list(APPEND install_config_args "--config" "${BUILD_TYPE}")
+    list(APPEND consumer_config_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
+endif()
+
 # 1. Install the built Mila into the throwaway prefix.
 execute_process(
-    COMMAND ${CMAKE_COMMAND} --install "${MILA_BINARY_DIR}" --prefix "${prefix}"
+    COMMAND ${CMAKE_COMMAND} --install "${MILA_BINARY_DIR}" --prefix "${prefix}" ${install_config_args}
     RESULT_VARIABLE install_result
 )
 if(NOT install_result EQUAL 0)
@@ -48,6 +59,7 @@ execute_process(
         -G "${GENERATOR}"
         -D "CMAKE_PREFIX_PATH=${prefix}"
         ${compiler_args}
+        ${consumer_config_args}
     RESULT_VARIABLE configure_result
 )
 if(NOT configure_result EQUAL 0)

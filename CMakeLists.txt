@@ -26,8 +26,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
-option(MILA_ENABLE_TESTING "Enable Mila Library tests." ON)
-option(MILA_ENABLE_PACKAGING_TEST "Build the find_package(Mila) packaging gate: installs Mila and builds Samples/QuickStart against the install. Requires MILA_ENABLE_TESTING." ON)
+# On for a top-level build (like SAMPLES/PROFILING/INSTALL), off when Mila is embedded
+# via add_subdirectory/FetchContent/CPM -- so a consumer never builds Mila's tests or
+# pulls googletest. The genuinely heavy gates (full install + subproject rebuild) are a
+# separate opt-in: MILA_ENABLE_PACKAGING_TEST, off by default, enabled by x64-validate.
+option(MILA_ENABLE_TESTING "Enable Mila Library tests." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_PYTHON_BINDINGS "Build the MilaPy pybind11 extension module." OFF)
 option(MILA_ENABLE_BENCHMARKS "Enable Mila Library benchmarks." OFF)
 option(MILA_ENABLE_PROFILING "Enable Mila Library profiling." ${PROJECT_IS_TOP_LEVEL})
@@ -231,8 +234,9 @@ endif()
 # forced consumers/CI to system-install miniz just to satisfy it.
 find_package(nlohmann_json REQUIRED)
 
-# Only switch on CTest when Mila is the top project; an embedding consumer owns
-# its own testing setup.
+# CTest is enabled once, here -- and only when Mila is the top-level project, since an
+# embedding consumer owns its own testing setup. enable_testing() propagates to every
+# subdirectory, so neither Mila/ nor Tests/ calls it again.
 if(PROJECT_IS_TOP_LEVEL)
     enable_testing()
 endif()

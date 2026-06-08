@@ -16,6 +16,7 @@ add_test(
         -D "GENERATOR=${CMAKE_GENERATOR}"
         -D "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
         -D "CUDA_COMPILER=${CMAKE_CUDA_COMPILER}"
+        -D "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/drive_consumer.cmake"
 )
 
@@ -38,6 +39,7 @@ add_test(
         -D "GENERATOR=${CMAKE_GENERATOR}"
         -D "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
         -D "CUDA_COMPILER=${CMAKE_CUDA_COMPILER}"
+        -D "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/drive_fetchcontent.cmake"
 )
 
@@ -47,3 +49,47 @@ set_tests_properties(packaging_fetchcontent_consumer PROPERTIES
     TIMEOUT 1800
     LABELS "packaging"
 )
+
+# CPM release-access gate (OPT-IN). The two gates above are network-free -- they
+# consume the LOCAL working tree -- so they validate packaging correctness but NOT
+# that a published release is actually fetchable. This gate closes that gap: CPM
+# git-clones Mila from the GitHub remote at a published tag and builds against it,
+# exercising the real downstream release-consumption path. It requires network
+# access AND a pushed tag, so it is OFF by default and excluded from the standard
+# (network-free) CI green. Enable once a tag is published:
+#   -DMILA_ENABLE_CPM_GATE=ON [-DMILA_CPM_GIT_TAG=<tag>] [-DMILA_CPM_GITHUB_REPOSITORY=<owner/repo>]
+# The tag defaults to the current Version.txt (e.g. v0.13.45-alpha.5).
+option(MILA_ENABLE_CPM_GATE "Enable the CPM-by-tag release-access packaging gate (network; requires a published tag)." OFF)
+
+if(MILA_ENABLE_CPM_GATE)
+    if(MILA_PRERELEASE_TAG)
+        set(_mila_default_tag "v${MILA_VERSION_NUMERIC}-${MILA_PRERELEASE_TAG}")
+    else()
+        set(_mila_default_tag "v${MILA_VERSION_NUMERIC}")
+    endif()
+
+    set(MILA_CPM_GITHUB_REPOSITORY "ToddThomson/Mila" CACHE STRING "owner/repo for the CPM release-access gate.")
+    set(MILA_CPM_GIT_TAG "${_mila_default_tag}" CACHE STRING "Published tag for the CPM release-access gate.")
+
+    add_test(
+        NAME packaging_cpm_consumer
+        COMMAND ${CMAKE_COMMAND}
+            -D "CONSUMER_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/cpm_consumer"
+            -D "WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/work"
+            -D "GENERATOR=${CMAKE_GENERATOR}"
+            -D "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+            -D "CUDA_COMPILER=${CMAKE_CUDA_COMPILER}"
+            -D "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+            -D "GITHUB_REPOSITORY=${MILA_CPM_GITHUB_REPOSITORY}"
+            -D "GIT_TAG=${MILA_CPM_GIT_TAG}"
+            -D "CPM_SCRIPT=${CMAKE_SOURCE_DIR}/cmake/CPM.cmake"
+            -D "CPM_SOURCE_CACHE=${CMAKE_CURRENT_BINARY_DIR}/cpm-cache"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/drive_cpm.cmake"
+    )
+
+    # Network clone + full in-tree subproject build of the fetched tree.
+    set_tests_properties(packaging_cpm_consumer PROPERTIES
+        TIMEOUT 1800
+        LABELS "packaging"
+    )
+endif()

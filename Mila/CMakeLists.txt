@@ -973,9 +973,8 @@ if(MILA_ENABLE_PROFILING)
     add_subdirectory(Profiling)
 endif()
 
-if(MILA_ENABLE_TESTING)  
-    enable_testing()
-    add_subdirectory(Tests) 
+if(MILA_ENABLE_TESTING)
+    add_subdirectory(Tests)
 endif()
 
 if(MILA_ENABLE_BENCHMARKS)

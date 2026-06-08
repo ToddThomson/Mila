@@ -114,6 +114,24 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
     },
     {
+      "name": "x64-validate",
+      "displayName": "x64 Release (full validation - run before committing)",
+      "description": "Pre-commit validation build. The default x64-release already builds the unit tests and samples; this adds the heavy network-free packaging gates (find_package + FetchContent install/embed consumers). Build, then run ctest. Does NOT enable the CPM release-access gate -- that needs a pushed tag; use x64-release-cpm-gate at release time.",
+      "inherits": "x64-release",
+      "cacheVariables": {
+        "MILA_ENABLE_TESTING": "ON",
+        "MILA_ENABLE_PACKAGING_TEST": "ON",
+        "MILA_ENABLE_SAMPLES": "ON"
+      }
+    },
+    {
+      "name": "x64-release-cpm-gate",
+      "displayName": "x64 Release (CPM release-access gate)",
+      "description": "x64-validate plus the opt-in CPM-by-tag release-access gate: fetches Mila from the GitHub remote at the Version.txt tag (e.g. v0.13.45-alpha.5) and builds a consumer against it -- requires that tag to be pushed. Select this only at release time to validate access.",
+      "inherits": "x64-validate",
+      "cacheVariables": { "MILA_ENABLE_CPM_GATE": "ON" }
+    },
+    {
       "name": "x86-debug",
       "displayName": "x86 Debug",
       "description": "Target Windows (32-bit) with the Visual Studio development environment. (Debug)",

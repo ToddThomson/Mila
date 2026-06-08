@@ -29,6 +29,12 @@ if(CUDA_COMPILER)
     list(APPEND compiler_args "-DCMAKE_CUDA_COMPILER=${CUDA_COMPILER}")
 endif()
 
+# Build the subproject (Mila + the consumer exe) in the same config as the parent build
+# so the consumer is actually validated under that configuration, not an empty default.
+if(BUILD_TYPE)
+    list(APPEND compiler_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
+endif()
+
 # 1. Configure the consumer. FetchContent_MakeAvailable add_subdirectory's the
 #    Mila tree -- if anything in Mila's CMake assumes top-level, this aborts.
 execute_process(
