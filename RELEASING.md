@@ -72,6 +72,9 @@ tagged releases.
 
 ## Notes
 
+- **Never commit directly to `master`.** It changes *only* via a `dev -> master` release PR.
+  A stray direct edit to `master` is what caused the README merge conflict in the first release
+  — `master` and `dev` diverged and had to be hand-reconciled. Treat `master` as release-only.
 - **Tag format:** `vX.Y.Z` or `vX.Y.Z-PRERELEASE`. The CPM gate uses an explicit `GIT_TAG`
   (not CPM's `@version` shorthand, which mishandles the `-alpha.N` pre-release suffix).
 - **Testing an older tag mid-development:** the CPM gate defaults its tag to `Version.txt`,

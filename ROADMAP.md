@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.46-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
+| In Progress | 0.13.47-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
 | Planned | 0.2.2-beta.1 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.2.3-beta.2 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
