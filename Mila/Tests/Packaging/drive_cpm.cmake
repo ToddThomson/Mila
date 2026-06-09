@@ -25,6 +25,16 @@ set(consumer_build "${WORK_DIR}/cpm-build")
 # Start clean so a stale build dir cannot mask a regression.
 file(REMOVE_RECURSE "${consumer_build}")
 
+# Force a FRESH fetch of Mila itself every run. This gate's whole purpose is to prove a
+# clean downstream consumer can clone + build the published tag, so a persisted Mila clone
+# must never be reused -- in particular a dirty/partial clone left by a prior fail-closed
+# run (tag not yet pushed) would otherwise be picked up and break with a missing Mila::Mila
+# target. The rest of the CPM cache (cutlass/nlohmann/miniz: stable, expensive to re-clone)
+# is intentionally kept.
+if(CPM_SOURCE_CACHE)
+    file(REMOVE_RECURSE "${CPM_SOURCE_CACHE}/mila")
+endif()
+
 set(consumer_args "")
 if(CXX_COMPILER)
     list(APPEND consumer_args "-DCMAKE_CXX_COMPILER=${CXX_COMPILER}")

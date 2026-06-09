@@ -27,26 +27,38 @@ jobs:
     env:
       CUDA_PATH: /usr/local/cuda
       CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Cache CPM dependency clones (cutlass is large and slow to re-clone).
       - name: Cache CPM sources
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .cpm-cache
           key: cpm-${{ hashFiles('CMakeLists.txt') }}
           restore-keys: cpm-
 
+      # ccache persists compiled .cu objects across runs, so the kernel codegen (the
+      # bulk of the build, and of the packaging fetchcontent rebuild on master) becomes
+      # a cache hit after the first run. Scoped to CUDA only: ccache's support for the
+      # C++23 module units is unreliable, so the C++ launcher is intentionally not set.
+      - name: Cache ccache
+        uses: actions/cache@v5
+        with:
+          path: .ccache
+          key: ccache-${{ github.sha }}
+          restore-keys: ccache-
+
       # clang-21 compiles the C++23 module units; gcc-15 is only the nvcc host
       # compiler for the (module-free) .cu files. Both ship with Ubuntu 26.04.
       # python3 is required by CUTLASS's configure (find_package(Python3 REQUIRED));
-      # the bare CUDA devel image ships none.
+      # the bare CUDA devel image ships none. ccache caches the .cu compiles.
       - name: Install toolchain
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            build-essential git wget ca-certificates ninja-build \
+            build-essential git wget ca-certificates ninja-build ccache \
             gcc-15 g++-15 clang-21 python3 python3-dev
 
       - name: Install CMake 4.2.3
@@ -56,6 +68,9 @@ jobs:
           cp -r cmake-4.2.3-linux-x86_64/bin/* /usr/local/bin/
           cp -r cmake-4.2.3-linux-x86_64/share/* /usr/local/share/
 
+      # CMAKE_CUDA_ARCHITECTURES is pinned to a single arch (86): CI never RUNS kernels
+      # (no GPU), it only needs them to compile, so building the repo default (native;86 =
+      # two targets) just doubles codegen for no gain.
       - name: Configure
         run: |
           cmake -B build -G Ninja \
@@ -65,15 +80,26 @@ jobs:
             -DCMAKE_CUDA_COMPILER=${CUDA_PATH}/bin/nvcc \
             -DCUDAToolkit_ROOT=${CUDA_PATH} \
             -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler -ccbin=gcc-15" \
+            -DCMAKE_CUDA_ARCHITECTURES=86 \
+            -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
             -DMILA_ENABLE_TESTING=ON \
             -DMILA_ENABLE_PACKAGING_TEST=ON
 
       # Compiling lib + tests + samples under clang IS the cross-compiler portability
-      # check. MSVC silently resolves includes/conformance that clang rejects.
+      # check. MSVC silently resolves includes/conformance that clang rejects. Runs on
+      # every push/PR -- this is the fast feedback that matters on dev.
       - name: Build
         run: cmake --build build -- -j $(nproc)
 
-      # GPU-free by construction: the gates install Mila and build consumers against
-      # it (find_package) and embed it as a subproject (FetchContent). No device used.
+      # GPU-free by construction: the gates install Mila and build consumers against it
+      # (find_package) and embed it as a subproject (FetchContent). No device used.
+      #
+      # HEAVY (~26 min: install + consumer module recompile + full in-tree subproject
+      # rebuild of every kernel) and they only catch regressions from build-system
+      # changes, which land at releases. So they run ONLY on master-bound runs -- the
+      # dev -> master release PR and pushes to master -- not on every dev iteration.
+      # A packaging regression introduced on dev is caught at the release PR (the suspect
+      # set is the batch's CMake-touching commits), before anything is tagged.
       - name: Packaging gates
+        if: github.ref == 'refs/heads/master' || github.base_ref == 'master'
         run: ctest --test-dir build -L packaging --output-on-failure

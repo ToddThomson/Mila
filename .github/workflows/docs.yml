@@ -1,35 +1,53 @@
 name: Mila Docs
 
 # Doxygen API docs -> GitHub Pages. Master-only: docs are a release-surface concern,
-# not something to regenerate on every dev push or PR. Split out of the CI build so
-# it runs only when it can actually deploy, in an environment that matches the build
-# (the old docs job ran on a bare runner against a container-built tree and was
-# fragile). The 'docs' target only runs Doxygen over source -- nothing is compiled.
+# not something to regenerate on every dev push or PR.
+#
+# Deployment uses GitHub's first-party Pages actions (upload-pages-artifact +
+# deploy-pages), NOT a gh-pages branch push. This is deliberate: the branch-push
+# approach runs git inside the build container and fails there ("not in a git
+# directory"), which is exactly what froze the published docs. deploy-pages never
+# touches git in the workspace -- it hands the uploaded artifact to the Pages API --
+# so the container is a non-issue. Requires the repo Pages "Source" set to
+# "GitHub Actions" (not "Deploy from a branch").
+#
+# Two jobs by necessity: the build MUST run in the CUDA container (CMake's configure
+# requires the toolkit even for a docs-only target), while deploy-pages needs no
+# toolchain at all and runs on the bare host.
 
 on:
   push:
     branches: [master]
+  # Manual re-publish (e.g. refresh the site without a code change, or re-run after a
+  # transient deploy failure). Available once this workflow is on the default branch.
+  workflow_dispatch:
 
+# Pages deployment needs write to Pages and an OIDC token to prove the deploy
+# originates from this workflow; the build only reads the repo.
 permissions:
-  contents: write   # required for the gh-pages deploy
+  contents: read
+  pages: write
+  id-token: write
 
+# Serialize Pages deployments and let an in-flight one finish (cancelling a
+# production deploy mid-publish can leave the site half-updated).
 concurrency:
-  group: docs-${{ github.ref }}
-  cancel-in-progress: true
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  docs:
-    name: Doxygen -> GitHub Pages
+  build:
+    name: Doxygen (build artifact)
     runs-on: ubuntu-24.04
     container: nvidia/cuda:13.3.0-devel-ubuntu26.04
     env:
       CUDA_PATH: /usr/local/cuda
       CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Cache CPM sources
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .cpm-cache
           key: cpm-${{ hashFiles('CMakeLists.txt') }}
@@ -69,8 +87,21 @@ jobs:
       - name: Generate documentation
         run: cmake --build build --target docs
 
-      - name: Deploy to GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@v4
+      # Doxygen HTML lands in build/docs/html (OUTPUT_DIRECTORY=build/docs, default
+      # HTML_OUTPUT=html). Packaged here as the Pages artifact for the deploy job.
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
         with:
-          folder: build/docs/html
-          branch: gh-pages
+          path: build/docs/html
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
