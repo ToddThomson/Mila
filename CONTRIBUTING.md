@@ -113,6 +113,13 @@ These are summarized here; the authoritative reference is the "Code Style" and
 * Template parameters use the `TFoo` convention (e.g., `TDeviceType`, `TComputePrecision`)
 
 ### Code Formatting
+
+Formatting is encoded in [`.editorconfig`](.editorconfig) and [`.clang-format`](.clang-format)
+at the repository root. Visual Studio 2026 applies `.editorconfig` natively; for VS Code and
+other editors, `.clang-format` is a best-effort match (see its header for the rules it cannot
+express). The rules below are the human-reviewed conventions, some of which no formatter can
+enforce (notably full-word identifiers and the blank-line placement rules):
+
 * Use 4 spaces for indentation (no tabs)
 * Opening braces go on their **own line** (Allman style), for namespaces, classes,
   functions, and control statements

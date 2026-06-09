@@ -1,0 +1,79 @@
+# Mila .clang-format
+#
+# Best-effort approximation of Mila's house style for contributors NOT using Visual
+# Studio. The authoritative formatter on Windows is Visual Studio 2026 driven by
+# .editorconfig (Microsoft cpp_* keys); this file targets clang-format 17+ for everyone
+# else (VS Code with clang-format, CLI git-clang-format, other editors).
+#
+# Honest limitations -- these are NOT bugs in this file:
+#   * Spaces in parens: VS spaces function-parameter parens but NOT general expression
+#     parens. clang-format cannot distinguish the two, so this config spaces conditional
+#     and parameter parens and may differ from VS on nested expression parens. Do not
+#     chase the difference by reformatting; VS + .editorconfig is the source of truth.
+#   * Naming (no abbreviations -- Quantization not Quant), the blank-line-before-control-
+#     flow rule, and ASCII-only comments are NOT expressible in clang-format and remain
+#     review-time conventions. See CONTRIBUTING.md / CLAUDE.md.
+#
+# ColumnLimit is 0 on purpose: VS does not reflow lines, so neither do we -- this keeps
+# clang-format from rewrapping long template/signature lines and exploding the diff.
+---
+Language: Cpp
+Standard: Latest
+BasedOnStyle: LLVM
+
+# Indentation
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+NamespaceIndentation: All
+IndentCaseLabels: true
+IndentPPDirectives: None
+
+# Preserve existing line breaks (match VS, minimize churn)
+ColumnLimit: 0
+
+# Allman braces (namespace, type, function, control, else/catch on their own line)
+BreakBeforeBraces: Allman
+
+# Never collapse short constructs onto one line (Allman everywhere) -- lambdas excepted,
+# matching the VS "ignore lambda braces" setting
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortLambdasOnASingleLine: All
+
+# Pointers and references bind left: T* p, T& r
+PointerAlignment: Left
+
+# template<...> with no space after the keyword (matches the codebase)
+SpaceAfterTemplateKeyword: false
+
+# Spaces in parens: if ( x ), foo( a ), foo() stays tight
+SpaceBeforeParens: ControlStatements
+SpacesInParens: Custom
+SpacesInParensOptions:
+  InConditionalStatements: true
+  InCStyleCasts: false
+  InEmptyParentheses: false
+  Other: true
+
+# arr[ i ] (matches cpp_space_within_square_brackets); braced lists { a, b } with spaces
+SpacesInSquareBrackets: true
+Cpp11BracedListStyle: false
+
+# No column alignment -- single-space rule. This WILL un-align any existing aligned '='
+# blocks (e.g. the using-alias block in Linear.ixx), which is the intended direction.
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignTrailingComments:
+  Kind: Never
+  OverEmptyLines: 0
+AlignAfterOpenBracket: DontAlign
+
+# Do NOT reorder includes: global-module-fragment order can be load-bearing here
+SortIncludes: Never
+
+MaxEmptyLinesToKeep: 1
