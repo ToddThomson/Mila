@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.49-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
+| In Progress | 0.13.50-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
 | Planned | 0.2.2-beta.1 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.2.3-beta.2 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
@@ -156,9 +156,19 @@ become zero-copy pointers into the mapped region with no seek-per-tensor overhea
 `ITensorBlob` interface (`blob.data()`, `blob.getMetadata()`) must remain stable; only the
 reader implementation changes.
 
-- [ ] `PretrainedReader.ixx` — replace `std::fstream` per-tensor read loop with `CreateFileMapping` + `MapViewOfFile`; `TensorBlob::data()` returns a pointer into the mapped view; no heap allocation per tensor
-- [ ] `CudaPinnedMemoryResource` path — confirm pinned host staging is still used for the async H2D DMA path; mapped memory itself need not be pinned if a single async `cudaMemcpyAsync` from the view is issued in `loadParameter()`
-- [ ] Validated on Llama 3.1 8B FP4 — load time target: < 3s on PCIe 4.0 NVMe; no regression on 3B models
+The decisive insight in implementation: the former loop iterated tensors in `unordered_map`
+(hash) order, so the per-tensor `fstream` reads were effectively *random* seeks across the
+file — that, more than syscall count, is what capped throughput. Consuming in ascending file
+offset turns the load into a single sequential scan the OS reads ahead, independent of the
+mmap-vs-fstream choice.
+
+- [x] `Serialization/Tensor.ixx` — added `TensorBlobView : ITensorBlob`, a non-owning view (metadata + borrowed `const void*` + size). Lets a blob point into the mapped region or a pinned staging slot without owning anything; the stable `ITensorBlob` surface is unchanged
+- [x] `PretrainedReader.ixx` — whole file memory-mapped at construction (`CreateFileMapping`/`MapViewOfFile` on Windows with `FILE_FLAG_SEQUENTIAL_SCAN` + best-effort `PrefetchVirtualMemory`; POSIX `mmap` + `madvise(SEQUENTIAL|WILLNEED)` fallback keeps the Linux build green). New `streamTensorBlobs<TStagingMemoryResource>(consume, device_id)` consumes blobs in file-offset order (index sorted once at construction); legacy `readTensorBlob<MR>` retained as a random-access fallback. Reader stays free of `cuda_runtime.h`
+- [x] `CudaPinnedMemoryResource` path — CUDA path runs a background producer thread that stages each blob `mmap -> pinned` (reusable double-buffered slots, 256 MB cap; oversized tensors like the token embedding bypass staging and stream directly from the pageable view) while the calling thread runs the consumer (H2D + quantize). Producer does only host `memcpy` (all CUDA stays on the consumer thread), mirroring the safe split in `TokenSequenceLoader`. CPU path consumes mapped views directly with no staging or thread
+- [x] Quantize-on-load reuse-safety contract — the FP8/FP4 `quantize` path issues an async H2D from the blob on the op stream and does NOT self-synchronize (the old per-tensor code was safe only because each blob's `cudaFreeHost` implicitly device-synced). Since pinned slots are now reused, the model's `consume` callback synchronizes its execution context after `loadParameter` so a slot is never overwritten mid-transfer; the producer's next `memcpy` overlaps that sync, preserving disk/H2D overlap. `Llama.ixx` + `GptTransformer.ixx` `loadParameters` rewritten to drive `streamTensorBlobs` via the synchronizing `consume` lambda
+- [x] Validated on Llama 3.1 8B FP4 — built in VS2026, chat ran with coherent output (quantized weights load correctly); load dropped from ~8s to near the < 3s target; no 3B regression
+- _(deferred, not a gate)_ Module hygiene — the implementation left several `#ifdef _WIN32` / `#ifdef MILA_HAS_CUDA` blocks shaping declarations in `PretrainedReader.ixx`. Preferred cleanup (tracked for a later pass): extract a `MemoryMappedFile` module with CMake-selected `.Windows.cpp`/`.Posix.cpp` implementation units (removes `windows.h`/`HANDLE` from the reader's interface), and push the pinned path into a `:Cuda` partition so the `MILA_HAS_CUDA` guards collapse to the link boundary
+- _(deferred, measure first)_ Phase 6b H2D pipelining — the per-tensor `synchronize()` only overlaps disk-with-H2D, not H2D-with-H2D. A dedicated load stream + CUDA events threaded through `loadParameter`/`quantize` would pipeline the H2Ds, but 16 GB over PCIe 4.0 (~2.3s) is the floor, so this is likely unnecessary; only pursue if a profile shows the load is sync-bound rather than disk-bound
 
 ---
 

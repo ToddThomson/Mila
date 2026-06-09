@@ -99,6 +99,32 @@ namespace Mila::Dnn::Serialization
     };
 
     /**
+     * @brief Non-owning ITensorBlob view over externally-owned bytes.
+     *
+     * Carries metadata plus a borrowed host pointer; it allocates and owns nothing.
+     * Used by PretrainedModelReader to hand out blobs that point either into a
+     * memory-mapped file region or into a reusable pinned staging buffer. The
+     * referenced memory MUST outlive the view, and the view is only valid until
+     * the owner reuses or releases that memory.
+     */
+    export struct TensorBlobView : ITensorBlob
+    {
+        TensorMetadata metadata;
+        const void* ptr{ nullptr };
+        size_t bytes{ 0 };
+
+        TensorBlobView() = default;
+
+        TensorBlobView( TensorMetadata meta, const void* data_ptr, size_t byte_count )
+            : metadata( std::move( meta ) ), ptr( data_ptr ), bytes( byte_count )
+        {}
+
+        const TensorMetadata& getMetadata() const noexcept override { return metadata; }
+        const void* data() const noexcept override { return ptr; }
+        size_t sizeBytes() const noexcept override { return bytes; }
+    };
+
+    /**
      * @brief Write tensor metadata and raw bytes under the given prefix into archive.
      *
      * Writes:

@@ -531,7 +531,7 @@ namespace Mila::Dnn
         {
             const int device_index = this->getExecutionContext()->getDeviceId().index;
 
-            for ( const auto& full_name : reader.getTensorNames() )
+            auto consume = [&]( const std::string& full_name, const Serialization::ITensorBlob& blob )
             {
                 auto [component_path, param_name] = parseParameterPath( full_name );
 
@@ -546,21 +546,29 @@ namespace Mila::Dnn
                     if ( strict )
                         throw std::runtime_error( "Component not found: " + component_path );
 
-                    continue;
+                    return;
                 }
 
-#ifdef MILA_HAS_CUDA
+                target->loadParameter( param_name, blob );
+
+                // The reader reuses its pinned staging slot as soon as this returns, so the
+                // device read of blob must be complete. The quantize-on-load H2D is async on
+                // the op stream and does not self-synchronize; force completion here.
                 if constexpr ( TDeviceType == DeviceType::Cuda )
                 {
-                    auto blob = reader.readTensorBlob<CudaPinnedMemoryResource>( full_name, device_index );
-                    target->loadParameter( param_name, blob );
+                    this->getExecutionContext()->synchronize();
                 }
-                else
+            };
+
+#ifdef MILA_HAS_CUDA
+            if constexpr ( TDeviceType == DeviceType::Cuda )
+            {
+                reader.streamTensorBlobs<CudaPinnedMemoryResource>( consume, device_index );
+            }
+            else
 #endif
-                {
-                    auto blob = reader.readTensorBlob<CpuMemoryResource>( full_name );
-                    target->loadParameter( param_name, blob );
-                }
+            {
+                reader.streamTensorBlobs<CpuMemoryResource>( consume );
             }
         }
 
