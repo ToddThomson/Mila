@@ -26,7 +26,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
-import Dnn.TensorInitializers;
+import Dnn.TensorOps;
 import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.CpuMemoryResource;
@@ -167,11 +167,11 @@ namespace Mila::Dnn::Compute
 
             auto m_state = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
             m_state->setName( param->getName() + ".m" );
-            // FIXME: zeros( *m_state );
+            zero( *m_state );
 
             auto v_state = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
             v_state->setName( param->getName() + ".v" );
-            // FIXME: zeros( *v_state );
+            zero( *v_state );
 
             m_states_.push_back( m_state );
             v_states_.push_back( v_state );

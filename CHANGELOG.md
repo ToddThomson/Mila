@@ -11,6 +11,44 @@ release notes.
 
 ---
 
+## Alpha.6 — Consolidation (feature freeze + debt burndown; in progress)
+
+The bridge from "the features work" to a tree honest enough to call beta. Milestone vision
+is in ROADMAP; open triage buckets are in BACKLOG.
+
+### Parameter initialization subsystem restored — DONE + VALIDATED (0.13.53-alpha.5)
+
+The host `Tensor.Initializers` facade was deprecated (host-side init is wrong for CUDA) in
+favor of per-device `TensorOps<device>` ops — but the CPU Random backend was never written
+and most components' init calls were left commented (`FIXME`), so weight/gradient
+initialization was silently disabled. Restored end to end, gated so inference is unaffected.
+
+- `CpuTensorOps.Random` — new host `fill_normal`/`fill_uniform` (std distributions seeded
+  from `Core::RandomGenerator`), closing the per-device parity gap; CUDA already had cuRAND
+- `TensorOps.Random` — added device-agnostic `xavier()` (Glorot limit -> `fill_uniform`)
+- `Kernels/Random.cu` registered in the build with its include corrected; the CUDA
+  `fill_uniform` path (`launch_scale_shift`) was declared but never compiled/linked
+- `GptModel::fromPretrained` now passes `initialize_parameters=false` (matching `LlamaModel`)
+  so pretrained loads no longer run-then-discard initialization
+- Gated value/grad init wired via live `zero`/`fill`/`xavier`/`fill_normal` in `Linear`,
+  `RmsNorm`, `LayerNorm`, `Cpu`/`CudaAdamWOptimizer`, `TokenEmbedding`, `Lpe`; dead
+  `Dnn.TensorInitializers` imports dropped. Each component gate-checked individually (most
+  had ungated init — the GptModel/TokenEmbedding "takes too long" bug class)
+- Validated: green build + coherent chat. Init is gated off on the inference path, so
+  runtime correctness of train-from-scratch still awaits a unit test (first TDD-revival
+  target). _Deferred (BACKLOG):_ CUDA `fill_normal`/`fill_uniform` are FP32-only (BF16
+  train-from-scratch on CUDA corrupts); couple `initialize_parameters` default to `RuntimeMode`
+
+### Multi-device `setCurrentDevice` re-enabled — DONE + VALIDATED (0.13.53-alpha.5)
+
+- Enabled `Cuda::setCurrentDevice` at 9 sites in `CudaTensorOps.Transfer` (7) and
+  `CudaTensorOps.Random` (2), restoring the `Cuda.Helpers` imports — needed for cross-device
+  kernel launches and allocations on multi-GPU (no-op on single-GPU, device 0 always current)
+- The original ICE was an old thread-local cache in the helper body, already removed; the
+  helper is now a trivial `cudaSetDevice` wrapper. _Residual (BACKLOG/Blackwell):_
+  `CudaTensorOps.Math` is internally inconsistent (5 live + 4 "redundant"); a scoped RAII
+  device guard should replace the scattered bare calls when the dual-GPU rig validates them
+
 ## Alpha.5 — FP8/FP4 load-time quantization (in progress; completed work below)
 
 Validated on Llama 3.2 3B and Llama 3.1 8B Instruct. Quantization is a compile-time

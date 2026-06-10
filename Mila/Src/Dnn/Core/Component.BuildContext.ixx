@@ -90,11 +90,8 @@ namespace Mila::Dnn
         explicit BuildContext(
             shape_t input_shape,
             RuntimeMode runtime_mode,
-            // int64_t prefill_size = 0,
             bool initialize_parameters = true )
-            : input_shape_( std::move( input_shape ) ), runtime_mode_( runtime_mode )
-            //, prefill_size_( prefill_size )
-            , initialize_parameters_( initialize_parameters )
+            : input_shape_( std::move( input_shape ) ), runtime_mode_( runtime_mode ), initialize_parameters_( initialize_parameters )
         {
             if ( input_shape_.empty() )
             {

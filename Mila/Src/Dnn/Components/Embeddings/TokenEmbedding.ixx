@@ -348,7 +348,7 @@ namespace Mila::Dnn
             max_batch_size_ = input_shape[ 0 ];
             max_seq_len_ = input_shape[ 1 ];
 
-            initializeParameters();
+            initializeParameters( build_context );
 
             // REVIEW: API needs work. setParameters() wants Weight and Bias
             operation_->setParameters( wte_.get(), nullptr );
@@ -423,12 +423,8 @@ namespace Mila::Dnn
             }
         }
 
-        void initializeParameters()
+        void initializeParameters( const BuildContext& build_context )
         {
-            // REVIEW: I cannot get this to work in VS2026
-            //nvtx3::scoped_range marker( "TokenEmbedding::initializeParameters" );
-            //nvtx3::scoped_range(  );
-
             const float std_dev = 1.0f / std::sqrt( static_cast<float>(config_.getEmbeddingDim()) );
             auto device_id = this->getExecutionContext()->getDeviceId();
 
@@ -436,18 +432,12 @@ namespace Mila::Dnn
             // but Tensor shapes use dim_t (int64_t).  The API needs work to unify these types and avoid this kind of cast.
             auto wte_shape = shape_t{ static_cast<dim_t>(config_.getVocabSize()), static_cast<dim_t>(config_.getEmbeddingDim()) };
 
-            //nvtxRangePush( "wte allocation" );
             wte_ = std::make_unique<EmbeddingTensorType>( device_id, wte_shape, this->getName() + ".wte" );
-            //nvtxRangePop();
-
-            //nvtxRangePush( "wte normal init" );
             
-            // FIXME: We are bypassing the normal initializer here as it takes too long 
-            // and the llama inference model overrides the wte with pretrained weights immediately after build().
-            // normal( *wte_, std_dev );
-            //nvtxRangePop();
-
-            //nvtxRangePop();
+            if ( build_context.shouldInitializeParameters() )
+            {
+                fill_normal( *wte_, 0.0f, std_dev, this->getExecutionContext() );
+            }
         }
 
         void initializeParameterGradients()

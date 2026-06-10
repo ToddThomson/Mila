@@ -454,7 +454,7 @@ namespace Mila::Dnn
             oss << "--------------------" << std::endl;
             oss << "Gelu: " << this->getName() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
-            // FIXME: oss << "Approximation Method: " << config_.toString( config_.getApproximationMethod() ) << std::endl;
+            oss << "Approximation Method: " << ApproximationMethodToString( config_.getApproximationMethod() ) << std::endl;
 
             return oss.str();
         }

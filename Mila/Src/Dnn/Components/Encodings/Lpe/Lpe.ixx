@@ -459,6 +459,15 @@ namespace Mila::Dnn
             operation_->setParameters( wte_.get(), wpe_.get() );
             operation_->build( build_config );
 
+            // Positional encodings are initialized only for train-from-scratch; the
+            // pretrained load path overwrites wte/wpe immediately after build().
+            if ( build_config.shouldInitializeParameters() )
+            {
+                const float std_dev = 1.0f / std::sqrt( static_cast<float>( config_.getEmbeddingDim() ) );
+                fill_normal( *wte_, 0.0f, std_dev, this->getExecutionContext() );
+                fill_normal( *wpe_, 0.0f, std_dev, this->getExecutionContext() );
+            }
+
             // Allocate and cache component-owned output and input-grad tensors.
             auto device = this->getExecutionContext()->getDeviceId();
             shape_t max_out_shape = { max_batch_size_, max_seq_len_, static_cast<dim_t>( config_.getEmbeddingDim() ) };
@@ -571,18 +580,13 @@ namespace Mila::Dnn
             int64_t max_seq_len = config_.getMaxSequenceLength();
             int64_t embedding_dim = config_.getEmbeddingDim();
 
-            // Standard deviation = 1/sqrt(embedding_dim)
-            float std_dev = 1.0f / std::sqrt( static_cast<float>(embedding_dim) );
-
             auto device_id = this->getExecutionContext()->getDeviceId();
 
             wte_ = std::make_unique<EmbeddingsTensorType>( device_id, shape_t{ vocab_size, embedding_dim } );
             wte_->setName( this->getName() + ".wte" );
-            // FIXME: normal( *wte_, std_dev );
 
             wpe_ = std::make_unique<EmbeddingsTensorType>( device_id, shape_t{ max_seq_len, embedding_dim } );
             wpe_->setName( this->getName() + ".wpe" );
-            // FIXME: normal( *wpe_, std_dev );
         }
 
         void createOperation()

@@ -27,7 +27,7 @@ import Compute.DeviceType;
 import Compute.DeviceId;
 import Core.RandomGenerator;
 
-//import Cuda.Helpers;
+import Cuda.Helpers;
 import Cuda.Error;
 
 namespace Mila::Dnn::Compute::Cuda
@@ -90,7 +90,7 @@ namespace Mila::Dnn::Compute::Cuda
             {
                 DeviceId device_id = tensor.getDeviceId();
                 
-                // FIXME: Cuda::setCurrentDevice( device_id.index );
+                Cuda::setCurrentDevice( device_id.index );
                 
                 needs_sync = true;
                 gen = make_temp_generator_( nullptr );
@@ -190,7 +190,7 @@ namespace Mila::Dnn::Compute::Cuda
             {
                 DeviceId device_id = tensor.getDeviceId();
                 
-                // FIXME: Cuda::setCurrentDevice( device_id.index );
+                Cuda::setCurrentDevice( device_id.index );
                 
                 needs_sync = true;
                 gen = make_temp_generator_( nullptr );

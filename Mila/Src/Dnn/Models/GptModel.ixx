@@ -128,7 +128,8 @@ namespace Mila::Dnn
 
             BuildContext build_context(
                 shape_t{ 1, static_cast<int64_t>(context_length) },
-                RuntimeMode::Inference );
+                RuntimeMode::Inference,
+                false );
 
             network->build( build_context );
             network->loadParameters( reader, strict );

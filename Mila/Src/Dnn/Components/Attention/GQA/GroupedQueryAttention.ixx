@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file GroupedQueryAttention.ixx
  * @brief Grouped-Query Attention module (concatenated QKV input).
  */
@@ -535,21 +535,6 @@ namespace Mila::Dnn
         // Private helpers
         // ====================================================================
 
-        // TODO: Remove after testing
-        /*TensorType& resolveOutputView( const shape_t& input_shape )
-        {
-            if ( input_shape == max_input_shape_ )
-            {
-                return *output_;
-            }
-
-            auto output_shape = input_shape;
-            output_shape.back() = config_.getModelDim();
-            output_view_ = std::make_unique<TensorType>( output_->view( output_shape ) );
-
-            return *output_view_;
-        }*/
-
         /**
          * @brief Validate that the input tensor has the expected GQA-packed QKV shape.
          *
@@ -566,8 +551,7 @@ namespace Mila::Dnn
 
             const int64_t head_dim = config_.getModelDim() / config_.getNumHeads();
             const int64_t trailing = shape.back();
-            const int64_t expected =
-                (config_.getNumHeads() + 2 * config_.getNumKvHeads()) * head_dim;
+            const int64_t expected = (config_.getNumHeads() + 2 * config_.getNumKvHeads()) * head_dim;
 
             if ( trailing != expected )
             {
@@ -591,18 +575,6 @@ namespace Mila::Dnn
             {
                 throw std::runtime_error( "GroupedQueryAttention: failed to create operation." );
             }
-            
-            //operation_ = OperationRegistry::instance()
-            //    .createUnaryOperation<TDeviceType, TComputePrecision>(
-            //        "GroupedQueryAttentionOp",
-            //        this->getExecutionContext(),
-            //        config_ );
-
-            //if ( !operation_ )
-            //{
-            //    throw std::runtime_error(
-            //        "Failed to create GroupedQueryAttention compute backend operation." );
-            //}
         }
     };
 }

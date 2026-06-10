@@ -708,9 +708,12 @@ namespace Mila::Dnn
                 }
             }
 
-            if ( context.shouldInitializeParameters() )
+            if constexpr ( !kIsQuantized )
             {
-                // FIXME: xavier<WeightTensorType, MR>( *weight_, input_features, output_features );
+                if ( context.shouldInitializeParameters() )
+                {
+                    xavier( *weight_, static_cast<size_t>( input_features ), static_cast<size_t>( output_features ), this->getExecutionContext() );
+                }
             }
 
             if ( config_.hasBias() )
@@ -720,7 +723,7 @@ namespace Mila::Dnn
 
                 if ( context.shouldInitializeParameters() )
                 {
-                    // FIXME: zero( *bias_ );
+                    zero( *bias_, this->getExecutionContext() );
                 }
             }
         }

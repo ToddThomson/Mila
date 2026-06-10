@@ -224,7 +224,6 @@ namespace Mila::Dnn
             oss << "--------------------" << std::endl;
             oss << "Swiglu: " << this->getName() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
-            // FIXME:oss << "Inner GELU: " << std::string( GeluConfig::toString( config_.getInnerGeluMethod() ) ) << std::endl;
             
             return oss.str();
         }

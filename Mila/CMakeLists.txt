@@ -471,6 +471,7 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Fill.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Math.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Random.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/OperationTraits.Cpu.ixx"
@@ -557,6 +558,7 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.cu"
             "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
             "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Structural.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Random.cu"
             "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
     )
 

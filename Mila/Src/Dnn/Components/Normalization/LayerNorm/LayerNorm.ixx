@@ -33,7 +33,6 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorPartitioning;
-import Dnn.TensorInitializers;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
@@ -398,6 +397,16 @@ namespace Mila::Dnn
 
             initializeParameters( input_shape );
 
+            if ( context.shouldInitializeParameters() )
+            {
+                fill( *weight_, 1.0f, this->getExecutionContext() );
+
+                if ( bias_ )
+                {
+                    zero( *bias_, this->getExecutionContext() );
+                }
+            }
+
             operation_->setParameters( weight_.get(), bias_.get() );
             operation_->build( context );
 
@@ -448,12 +457,12 @@ namespace Mila::Dnn
 
                 if ( weight_grad_ )
                 {
-                    // FIXME: zeros( *weight_grad_ );
+                    zero( *weight_grad_, this->getExecutionContext() );
                 }
 
                 if ( bias_grad_ )
                 {
-                    //FIXME: zeros( *bias_grad_ );
+                    zero( *bias_grad_, this->getExecutionContext() );
                 }
             }
         }
@@ -565,12 +574,10 @@ namespace Mila::Dnn
             auto device = this->getExecutionContext()->getDeviceId();
 
             weight_ = std::make_shared<TensorType>( device, shape_t{ normalized_features }, this->getName() + ".weight" );
-            // FIXME: ones( *weight_ );
 
             if ( config_.hasBias() )
             {
                 bias_ = std::make_shared<TensorType>( device, shape_t{ normalized_features }, this->getName() + ".bias" );
-                // FIXME: zero( *bias_ );
             }
         }
 
@@ -581,13 +588,13 @@ namespace Mila::Dnn
             if ( !weight_grad_ && weight_ )
             {
                 weight_grad_ = std::make_shared<TensorType>( device_id, weight_->shape(), this->getName() + ".weight_grad" );
-                // FIXME: zeros( *weight_grad_ );
+                zero( *weight_grad_, this->getExecutionContext() );
             }
 
             if ( config_.hasBias() && !bias_grad_ && bias_ )
             {
                 bias_grad_ = std::make_shared<TensorType>( device_id, bias_->shape(), this->getName() + ".bias_grad" );
-                // FIXME: zeros( *bias_grad_ );
+                zero( *bias_grad_, this->getExecutionContext() );
             }
         }
 
