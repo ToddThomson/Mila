@@ -37,8 +37,6 @@ import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
-import Compute.UnaryOperation;
-import Compute.BinaryOperation;
 import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;

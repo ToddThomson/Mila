@@ -43,8 +43,9 @@ export import Logging.NullSink;
 // REVIEW: Should we make Operations internal only?
 export import Compute.OperationBase;
 export import Compute.OperationType;
-export import Compute.UnaryOperation;
-export import Compute.BinaryOperation;
+// DEPRECATED: UnaryOperation/BinaryOperation/PairedOperation arity base classes retired.
+// Concrete ops now derive directly from Operation<TDeviceType, TPrecision> and components
+// hold the concrete op type via OperationTraits. Kept on disk, removed from the build.
 
 // ====================================================================
 // Compute - Execution Context
@@ -93,9 +94,9 @@ export import Compute.CudaPinnedMemoryResource;
 // ====================================================================
 // Compute - Operations Registry
 // ====================================================================
-import Compute.OperationsRegistrar;
-export import Compute.OperationRegistry;
-export import Compute.OperationRegistryHelpers;
+// DEPRECATED: the runtime OperationRegistry (and OperationsRegistrar/Helpers) has been retired
+// in favor of compile-time OperationTraits dispatch. The modules are kept on disk but removed
+// from the build; they are no longer re-exported from the public umbrella.
 
 // ====================================================================
 // Compute - CPU Operations ( internal )
@@ -334,7 +335,6 @@ namespace Mila
         }
 
         Dnn::Compute::DeviceRegistrar::instance();
-        Dnn::Compute::OperationsRegistrar::instance();
 
         Logging::Logger::info( "Mila framework initialized successfully." );
 

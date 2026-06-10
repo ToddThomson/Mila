@@ -253,12 +253,18 @@ PUBLIC
         "Src/Dnn/Compute/Operations/OperationTraits.ixx"
         "Src/Dnn/Compute/Operations/OperationTraits.Template.ixx"
         
-        "Src/Dnn/Compute/Operations/UnaryOperation.ixx"
-        "Src/Dnn/Compute/Operations/BinaryOperation.ixx"
+        # DEPRECATED: arity base classes retired. Concrete ops derive directly from
+        # Operation<TDeviceType, TPrecision>; components hold the concrete op via OperationTraits.
+        # Kept on disk, removed from the build.
+        #"Src/Dnn/Compute/Operations/UnaryOperation.ixx"
+        #"Src/Dnn/Compute/Operations/BinaryOperation.ixx"
         
-        "Src/Dnn/Compute/Operations/OperationRegistry.ixx"
-        "Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx"
-        "Src/Dnn/Compute/Operations/OperationsRegistrar.ixx"
+        # DEPRECATED: the runtime OperationRegistry pattern has been fully retired in favor of
+        # compile-time OperationTraits dispatch. These three modules are kept on disk for
+        # reference but removed from the build (no remaining importers after Alpha.5 Phase 1).
+        #"Src/Dnn/Compute/Operations/OperationRegistry.ixx"
+        #"Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx"
+        #"Src/Dnn/Compute/Operations/OperationsRegistrar.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute / Devices (general)
@@ -338,7 +344,9 @@ PUBLIC
         "Src/Dnn/Components/MilaComponents.ixx"
         "Src/Dnn/Core/Loss.ixx"
         "Src/Dnn/Serialization/SerializationMetadata.ixx"
-        "Src/Dnn/Compute/Operations/OperationRegistrarHelpers.ixx"
+        # DEPRECATED: retired with the OperationRegistry (compile-time OperationTraits dispatch).
+        # Kept on disk; removed from the build.
+        #"Src/Dnn/Compute/Operations/OperationRegistrarHelpers.ixx"
         
         "Src/Dnn/Tensors/Operations/TensorOps.Zero.ixx"
 
@@ -406,7 +414,8 @@ PUBLIC
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.ixx"
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
         
-        "Src/Dnn/Compute/Operations/PairedOperation.ixx"
+        # DEPRECATED: arity base class retired (see UnaryOperation/BinaryOperation note above). Kept on disk.
+        #"Src/Dnn/Compute/Operations/PairedOperation.ixx"
         "Src/Dnn/Core/Component.MemoryStats.ixx"
         "Src/Dnn/Core/Model.RuntimeMode.ixx"
         "Src/Dnn/Core/Model.ixx"

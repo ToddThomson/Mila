@@ -11,6 +11,7 @@
  * Migration status:
  *   LinearOp              complete (NoWeightQuant; quantized policies are CUDA-only)
  *   GeluOp                complete
+ *   LayerNormOp           complete
  *   ResidualOp            complete
  *   SoftmaxOp             complete
  *   MultiHeadAttentionOp  complete
@@ -23,6 +24,7 @@ export module Compute.OperationTraits:Cpu;
 import Compute.OperationTraits.Template;
 import Compute.CpuLinearOp;
 import Compute.CpuGeluOp;
+import Compute.CpuLayerNormOp;
 import Compute.CpuResidualOp;
 import Compute.CpuSoftmaxOp;
 import Compute.CpuAttention;
@@ -65,6 +67,16 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::ResidualOp, DeviceType::Cpu, TensorDataType::FP32, void>
     {
         using type = CpuResidualOp;
+    };
+
+    // -------------------------------------------------------------------------
+    // LayerNormOp — CPU specialization (FP32 only)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::LayerNormOp, DeviceType::Cpu, TensorDataType::FP32, void>
+    {
+        using type = CpuLayerNormOp;
     };
 
     // -------------------------------------------------------------------------

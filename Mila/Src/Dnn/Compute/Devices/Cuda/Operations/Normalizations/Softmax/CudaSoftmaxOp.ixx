@@ -23,8 +23,6 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.OperationType;
@@ -119,11 +117,11 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
      */
     export template<TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaSoftmaxOp : public UnaryOperation<DeviceType::Cuda, TPrecision>
+    class CudaSoftmaxOp : public Operation<DeviceType::Cuda, TPrecision>
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
+        using OperationBaseType = Operation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
@@ -211,7 +209,7 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
 
             use_optimized_kernel_ = (axis == ndim - 1 || inner_size == 1);
 
-            UnaryOperationBase::build( config );
+            OperationBaseType::build( config );
         }
 
         /**
@@ -223,7 +221,7 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
          *
          * Zero redundant work - maximum performance.
          */
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             const NativeType* X = static_cast<const NativeType*>(input.rawData());
             NativeType* Y = static_cast<NativeType*>(output.rawData());
@@ -260,7 +258,7 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
         {
             const NativeType* Y = static_cast<const NativeType*>(input.rawData());
             const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
@@ -303,37 +301,4 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
         bool use_optimized_kernel_{ false };  // kernel variant selection
     };
 
-    /**
-     * @brief Class responsible for registering the CudaSoftmaxOp operation.
-     */
-    export class CudaSoftmaxOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            const std::string opName = "SoftmaxOp";
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
-                {
-                    const auto& softmaxConfig = static_cast<const SoftmaxConfig&>(config);
-                    
-                    return std::make_shared<CudaSoftmaxOp<TensorDataType::FP32>>( context, softmaxConfig );
-                }
-            );
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
-                {
-                    const auto& softmaxConfig = static_cast<const SoftmaxConfig&>(config);
-                    
-                    return std::make_shared<CudaSoftmaxOp<TensorDataType::FP16>>( context, softmaxConfig );
-                }
-            );
-        }
-    };
 }

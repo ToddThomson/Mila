@@ -29,8 +29,6 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.OperationType;
 import Dnn.Component;
 import Compute.DeviceType;
@@ -68,7 +66,7 @@ namespace Mila::Dnn::Compute
      *  6. Compute dK = dPreatt^T @ Q
      *  7. Permute gradients back to concatenated QKV format
      */
-    export class CpuAttentionOp : public UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>
+    export class CpuAttentionOp : public Operation<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
         using MR = CpuMemoryResource;
@@ -123,7 +121,7 @@ namespace Mila::Dnn::Compute
         void setGradients( ITensor* /*unused1*/, ITensor* /*unused2*/ ) override
         {}
 
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             assert( is_built_ && "CpuAttentionOp must be built before calling forward()" );
 
@@ -146,7 +144,7 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
         {
             assert( is_built_ && "CpuAttentionOp must be built before calling backward()" );
 
@@ -661,28 +659,4 @@ namespace Mila::Dnn::Compute
         }
     };
 
-    export class CpuAttentionOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            const std::string_view opName = Compute::OperationNames::MultiHeadAttention;
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
-                opName,
-                []( IExecutionContext* context, const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
-                {
-                    const auto& attention_config = dynamic_cast<const MultiHeadAttentionConfig&>(config);
-
-                    return std::make_shared<CpuAttentionOp>( context, attention_config );
-                }
-            );
-        }
-
-        static inline bool isRegistered = []()
-            {
-                registerOperations();
-                return true;
-            }();
-    };
 }

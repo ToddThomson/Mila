@@ -30,8 +30,6 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.Device;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
@@ -85,12 +83,12 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
      */
     export template<TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaMultiHeadAttentionOp : public UnaryOperation<DeviceType::Cuda, TPrecision>, 
+    class CudaMultiHeadAttentionOp : public Operation<DeviceType::Cuda, TPrecision>,
         public IPackedKvInference
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
+        using OperationBaseType = Operation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
@@ -438,10 +436,10 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             buildCublasLtPlans();
 
-            UnaryOperationBase::build( config );
+            OperationBaseType::build( config );
         }
 
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             const NativeType* X = static_cast<const NativeType*>(input.rawData());
             NativeType* Y = static_cast<NativeType*>(output.rawData());
@@ -547,7 +545,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
         {
             assert( this->isBuilt() && "CudaAttentionOp must be built before calling backward()" );
 
@@ -928,32 +926,4 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         }
     };
 
-    export class CudaMultiHeadAttentionOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            const std::string_view opName =  Compute::OperationNames::MultiHeadAttention;
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
-                {
-                    const auto& attentionConfig = static_cast<const MultiHeadAttentionConfig&>(config);
-                    return std::make_shared<CudaMultiHeadAttentionOp<TensorDataType::FP32>>( context, attentionConfig );
-                }
-            );
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
-                {
-                    const auto& attentionConfig = static_cast<const MultiHeadAttentionConfig&>(config);
-                    return std::make_shared<CudaMultiHeadAttentionOp<TensorDataType::FP16>>( context, attentionConfig );
-                }
-            );
-        }
-    };
 }

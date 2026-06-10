@@ -30,7 +30,6 @@ import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
-import Compute.PairedOperation;
 import Compute.IPositionalPairedOp;
 import Compute.OperationTraits;
 import Compute.CpuMemoryResource;

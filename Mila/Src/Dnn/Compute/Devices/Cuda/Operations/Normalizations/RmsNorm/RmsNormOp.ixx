@@ -30,8 +30,6 @@ import Dnn.TensorHostTypeMap;
 import Dnn.TensorPartitioning;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.DeviceType;
 
 // DEBUG:
@@ -66,11 +64,11 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
      */
     export template<TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaRmsNormOp : public UnaryOperation<DeviceType::Cuda, TPrecision>
+    class CudaRmsNormOp : public Operation<DeviceType::Cuda, TPrecision>
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
+        using OperationBaseType = Operation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
@@ -260,7 +258,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
             rstd_tensor_ = std::make_shared<TensorType>( device, shape_t{ num_slices }, "rstd" );
             rstd_ = static_cast<NativeType*>(rstd_tensor_->rawData());
 
-            UnaryOperationBase::build( config );
+            OperationBaseType::build( config );
         }
 
         /**
@@ -268,7 +266,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
          *
          * Computes RMS-normalized output and caches forward-pass statistics required for backward().
          */
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             const NativeType* X = static_cast<const NativeType*>(input.rawData());
             NativeType* Y = static_cast<NativeType*>(output.rawData());
@@ -293,7 +291,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
         {
             const NativeType* X = static_cast<const NativeType*>(input.rawData());
             const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
@@ -343,30 +341,4 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         int norm_dim_{ 0 };
     };
 
-    export class CudaRmsNormOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            const std::string opName = "RmsNormOp";
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
-                {
-                    const auto& rnConfig = static_cast<const RmsNormConfig&>(config);
-                    return std::make_shared<CudaRmsNormOp<TensorDataType::FP32>>( context, rnConfig );
-                } );
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::BF16, TensorDataType::BF16>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::BF16>>
-                {
-                    const auto& rnConfig = static_cast<const RmsNormConfig&>(config);
-                    return std::make_shared<CudaRmsNormOp<TensorDataType::BF16>>( context, rnConfig );
-                } );
-        }
-    };
 }

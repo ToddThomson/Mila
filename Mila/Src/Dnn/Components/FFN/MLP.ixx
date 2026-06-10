@@ -37,7 +37,6 @@ import Compute.IExecutionContext;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Compute.CpuMemoryResource;
-import Compute.OperationRegistry;
 import Dnn.Components.Linear;
 import Dnn.Components.Gelu;
 import Dnn.Components.Swiglu;

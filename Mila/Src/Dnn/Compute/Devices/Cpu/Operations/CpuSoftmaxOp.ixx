@@ -36,8 +36,6 @@ import Compute.IExecutionContext;
 import Compute.OperationType;
 import Dnn.Component;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;
@@ -60,11 +58,11 @@ namespace Mila::Dnn::Compute
      * - Forward/backward are hot-path methods with minimal overhead
      * - Uses numerically-stable softmax: exp(x - max(x))
      */
-    export class CpuSoftmaxOp : public UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>
+    export class CpuSoftmaxOp : public Operation<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
         using MR = CpuMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>;
+        using OperationBaseType = Operation<DeviceType::Cpu, TensorDataType::FP32>;
         using TensorType = Tensor<TensorDataType::FP32, MR>;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
@@ -153,7 +151,7 @@ namespace Mila::Dnn::Compute
 
             enable_omp_ = (outer_size * inner_size > 100);
 
-            UnaryOperationBase::build( config );
+            OperationBaseType::build( config );
         }
 
         /**
@@ -166,7 +164,7 @@ namespace Mila::Dnn::Compute
          * Algorithm: softmax(x) = exp(x - max(x)) / sum(exp(x - max(x)))
          * Zero redundant work - maximum performance.
          */
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             const float* in_data = static_cast<const float*>(input.rawData());
             float* out_data = static_cast<float*>(output.rawData());
@@ -219,7 +217,7 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
         {
             const float* probs = static_cast<const float*>(input.rawData());
             const float* dY = static_cast<const float*>(output_grad.rawData());
@@ -280,25 +278,4 @@ namespace Mila::Dnn::Compute
         bool enable_omp_{ false };
     };
 
-    export class CpuSoftmaxOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
-                "SoftmaxOp",
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>>
-                {
-                    const auto& softmaxConfig = dynamic_cast<const SoftmaxConfig&>(config);
-                    return std::make_shared<CpuSoftmaxOp>( context, softmaxConfig );
-                }
-            );
-        }
-
-        static inline bool isRegistered = []() {
-            registerOperations();
-            return true;
-            }();
-    };
 }

@@ -2,14 +2,17 @@
  * @file SoftmaxCrossEntropy.ixx
  * @brief Device-templated fused SoftmaxCrossEntropy loss module.
  *
- * Delegates compute to a BinaryOperation backend that implements the fused
- * softmax + cross-entropy operation for numerical stability and performance.
+ * Resolves its backend operation at compile time via
+ * OperationTraits<CrossEntropyOp, TDeviceType, TPrecision>, which maps to the fused
+ * CudaSoftmaxCrossEntropyOp on the CUDA path. The operation implements the fused
+ * softmax + cross-entropy for numerical stability and performance.
  *
- * STATUS: Work in progress. The component shell and CPU/CUDA operation stubs exist
- * but are not wired into the build (CpuSoftmaxCrossEntropyOp and CudaSoftmaxCrossEntropyOp
- * are excluded from CpuOperations.ixx / CudaOperations.ixx). Completion is targeted
- * for Llama training support. The GPT reference implementation uses the host-based
- * CpuCrossEntropyOp instead.
+ * STATUS: Component modernized to the current Component lifecycle and migrated off the
+ * legacy OperationRegistry. CUDA dispatch is wired (FP32/BF16); the CPU path is not yet
+ * provided (CpuSoftmaxCrossEntropyOp is excluded from the build), so a Cpu instantiation
+ * is a deliberate hard compile error. Targeted for Llama training support; the component
+ * has no live instantiation site yet, so its template body is not exercised by the build
+ * until one exists (e.g. a unit test).
  */
 
 module;
@@ -35,8 +38,7 @@ import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
-import Compute.BinaryOperation;
-import Compute.OperationRegistry;
+import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.DeviceTypeTraits;
@@ -51,18 +53,18 @@ namespace Mila::Dnn
     /**
      * @brief Fused SoftmaxCrossEntropy loss module (device-templated).
      *
-     * Delegates computation to a device-specific UnaryOperation implementation
-     * registered in the OperationRegistry.
+     * Delegates computation to a device-specific operation resolved at compile time
+     * via OperationTraits<CrossEntropyOp, TDeviceType, TPrecision>. Targets are
+     * discrete class indices (INT32) and are not a precision axis.
      */
-    export template<DeviceType TDeviceType, TensorDataType TLogits, TensorDataType TTargets = dtype_t::INT32, TensorDataType TPrecision = TLogits>
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class SoftmaxCrossEntropy : public Component<TDeviceType, TPrecision>
     {
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
-        using ExecutionContextType = ExecutionContext<TDeviceType>;
         using TensorType = Tensor<TPrecision, MR>;
-        using TargetTensorType = Tensor<TTargets, MR>;
+        using TargetTensorType = Tensor<TensorDataType::INT32, MR>;
 
         /**
          * @brief Construct with an existing execution context.
@@ -71,19 +73,22 @@ namespace Mila::Dnn
          * @param config CrossEntropy configuration (vocab_size required).
          */
         explicit SoftmaxCrossEntropy( IExecutionContext* exec_context, const CrossEntropyConfig& config )
-            : exec_context_( exec_context ), config_( config )
+            : config_( config )
         {
-            if (!exec_context_)
+            if (!exec_context)
             {
                 throw std::invalid_argument( "ExecutionContext cannot be null." );
             }
 
             config_.validate();
 
-            // Create dummy tensor for unused target gradients in backward pass
-            dummy_target_grad_ = std::make_shared<TargetTensorType>( exec_context_->getDeviceId(), shape_t{ 0 } );
+            // Registering the (borrowed) context fires onExecutionContextSet(), which
+            // creates the backend operation.
+            this->setExecutionContext( exec_context );
 
-            createOperation();
+            // Create dummy tensor for unused target gradients in backward pass
+            dummy_target_grad_ = std::make_shared<TargetTensorType>(
+                this->getExecutionContext()->getDeviceId(), shape_t{ 0 } );
         }
 
         ~SoftmaxCrossEntropy() override = default;
@@ -98,17 +103,11 @@ namespace Mila::Dnn
          * Validates input shape and triggers backend-specific setup.
          * The fused operation has no trainable parameters.
          */
-        void onBuilding( const shape_t& input_shape ) override
+        void onBuilding( const BuildContext& context ) override
         {
-            validateInputShape( input_shape );
+            validateInputShape( context.inputShape() );
 
-            // Ensure backend is aware of the current training mode
-            if (operation_)
-            {
-                operation_->setTraining( this->isTraining() );
-            }
-
-            operation_->build( input_shape );
+            operation_->build( context );
         }
 
         // ====================================================================
@@ -148,9 +147,9 @@ namespace Mila::Dnn
                 throw std::runtime_error( "SoftmaxCrossEntropy module must be built before calling backward." );
             }
 
-            if (!this->isTraining())
+            if (this->isInferenceMode())
             {
-                throw std::runtime_error( "SoftmaxCrossEntropy module must be in training mode to call backward. Call setTraining(true) first." );
+                throw std::runtime_error( "SoftmaxCrossEntropy module must be in training mode to call backward." );
             }
 
             // Targets are discrete class indices (non-differentiable) - pass dummy gradient
@@ -198,12 +197,12 @@ namespace Mila::Dnn
 
         DeviceId getDeviceId() const override
         {
-            return exec_context_->getDeviceId();
+            return this->getExecutionContext()->getDeviceId();
         }
 
         void synchronize() override
         {
-            exec_context_->synchronize();
+            this->getExecutionContext()->synchronize();
         }
 
         size_t parameterCount() const override
@@ -241,21 +240,32 @@ namespace Mila::Dnn
 
     protected:
         /**
+         * @brief Hook invoked after the ExecutionContext is set.
+         *
+         * Creates the backend operation via compile-time OperationTraits dispatch.
+         */
+        void onExecutionContextSet() override
+        {
+            createOperation();
+        }
+
+        /**
          * @brief Hook invoked when training mode is about to change.
          *
          * Propagate training mode to the backend fused operation. Called with
-         * Module's training mutex held; do not call setTraining() here.
+         * the training mutex held; do not call setTrainingMode() on the component here.
          */
-        void onTrainingChanging( bool newMode ) override
+        void onTrainingModeChanging( TrainingMode training_mode ) override
         {
-            operation_->setTraining( newMode );
+            operation_->setTrainingMode( training_mode );
         }
 
     private:
+        using OpType = typename Compute::OperationTraits<OperationType::CrossEntropyOp, TDeviceType, TPrecision>::type;
+
         CrossEntropyConfig config_;
 
-        std::unique_ptr<BinaryOperation<TDeviceType, TLogits, TTargets, TPrecision>> operation_{ nullptr };
-        IExecutionContext* exec_context_{ nullptr };
+        std::shared_ptr<OpType> operation_{ nullptr };
 
         std::shared_ptr<TargetTensorType> dummy_target_grad_{ nullptr };
 
@@ -298,21 +308,13 @@ namespace Mila::Dnn
          */
         void createOperation()
         {
-            operation_ = OperationRegistry::instance()
-                .createBinaryOperation<TDeviceType, TLogits, TTargets, TPrecision>(
-                    "SoftmaxCrossEntropyOp",
-                    exec_context_,
-                    config_ );
+            operation_ = std::make_shared<OpType>( this->getExecutionContext(), config_ );
 
             if (!operation_)
             {
                 throw std::runtime_error(
-                    "Failed to create SoftmaxCrossEntropy compute backend operation. "
-                    "Ensure CPU/CUDA operation is registered in OperationRegistry." );
+                    "Failed to create SoftmaxCrossEntropy compute backend operation." );
             }
-
-            // Ensure backend knows current training mode
-            operation_->setTraining( this->isTraining() );
         }
     };
 }

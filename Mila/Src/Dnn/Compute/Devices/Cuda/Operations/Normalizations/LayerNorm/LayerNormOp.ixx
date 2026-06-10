@@ -19,7 +19,7 @@ module;
 export module Compute.CudaLayerNormOp;
 import :Dispatch;
 
-import Dnn.Components.LayerNorm;
+import Dnn.Components.LayerNormConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -29,8 +29,6 @@ import Dnn.TensorHostTypeMap;
 import Dnn.TensorPartitioning;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.DeviceType;
 
 // DEBUG:
@@ -69,11 +67,11 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
      */
     export template<TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaLayerNormOp : public UnaryOperation<DeviceType::Cuda, TPrecision>
+    class CudaLayerNormOp : public Operation<DeviceType::Cuda, TPrecision>
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
+        using OperationBaseType = Operation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
@@ -258,7 +256,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             rstd_tensor_->setName( "rstd" );
             rstd_ = static_cast<NativeType*>(rstd_tensor_->rawData());
 
-            UnaryOperationBase::build( config );
+            OperationBaseType::build( config );
         }
 
         /**
@@ -270,7 +268,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
          * @param input Input tensor to normalize
          * @param output Normalized output tensor (same shape as input)
          */
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             const auto& input_shape = input.shape();
 
@@ -404,7 +402,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
         {
             const auto& input_shape = input.shape();
 
@@ -603,30 +601,4 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
 
     };
 
-    export class CudaLayerNormOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            const std::string opName = "LayerNormOp";
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
-                {
-                    const auto& lnConfig = static_cast<const LayerNormConfig&>( config );
-                    return std::make_shared<CudaLayerNormOp<TensorDataType::FP32>>( context, lnConfig );
-                } );
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
-                {
-                    const auto& lnConfig = static_cast<const LayerNormConfig&>( config );
-                    return std::make_shared<CudaLayerNormOp<TensorDataType::FP16>>( context, lnConfig );
-                } );
-        }
-    };
 }

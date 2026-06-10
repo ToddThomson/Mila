@@ -38,8 +38,6 @@ import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 import Compute.OperationType;
 import Compute.OperationBase;
-import Compute.BinaryOperation;
-import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CpuDevice;
@@ -55,7 +53,7 @@ namespace Mila::Dnn::Compute
      * and targets CPU execution. It follows the same interface style as other
      * CPU operations (e.g., CpuGeluOp).
      */
-    export class CpuResidualOp : public BinaryOperation<DeviceType::Cpu, TensorDataType::FP32>
+    export class CpuResidualOp : public Operation<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
         using MR = CpuMemoryResource;
@@ -82,7 +80,7 @@ namespace Mila::Dnn::Compute
          *
          * Parameters and output_state are currently unused.
          */
-        void forward( const ITensor& input_a, const ITensor& input_b, ITensor& output ) const override
+        void forward( const ITensor& input_a, const ITensor& input_b, ITensor& output ) const
         {
             const float* A = static_cast<const float*>(input_a.rawData());
             const float* B = static_cast<const float*>(input_b.rawData());
@@ -112,7 +110,7 @@ namespace Mila::Dnn::Compute
             const ITensor& input_b,
             const ITensor& output_grad,
             ITensor& input_a_grad,
-            ITensor& input_b_grad ) const override
+            ITensor& input_b_grad ) const
         {
             const float* dY = static_cast<const float*>(output_grad.rawData());
             float* dX1 = static_cast<float*>(input_a_grad.rawData());
@@ -149,27 +147,4 @@ namespace Mila::Dnn::Compute
         ResidualConfig config_;
     };
 
-    /**
-     * @brief Registrar for CPU Residual operation (FP32).
-     *
-     * Registers the CPU residual implementation with the OperationRegistry
-     * under the canonical name "ResidualOp" for CPU/FP32.
-     */
-    export class CpuResidualOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            OperationRegistry::instance().registerBinaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::FP32>(
-                "ResidualOp",
-                []( IExecutionContext* context, const ComponentConfig& config )
-                -> std::shared_ptr<BinaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
-                {
-                    const auto& residualConfig = static_cast<const ResidualConfig&>(config);
-                   
-                    return std::make_unique<CpuResidualOp>( context, residualConfig );
-                }
-            );
-        }
-    };
 }

@@ -23,7 +23,7 @@ module;
 #include <algorithm>
 
 export module Dnn.Components.LayerNorm;
-export import :Config;
+export import Dnn.Components.LayerNormConfig;
 
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -41,8 +41,7 @@ import Compute.DeviceTypeTraits;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
+import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Serialization.ModelArchive;
@@ -460,10 +459,12 @@ namespace Mila::Dnn
         }
 
     private:
+        using OpType = typename Compute::OperationTraits<OperationType::LayerNormOp, TDeviceType, TPrecision>::type;
+
         LayerNormConfig config_;
-                
+
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<OpType> operation_{ nullptr };
 
         std::shared_ptr<TensorType> weight_{ nullptr };
         std::shared_ptr<TensorType> bias_{ nullptr };
@@ -615,11 +616,7 @@ namespace Mila::Dnn
 
         void createOperation()
         {
-            operation_ = OperationRegistry::instance()
-                .createUnaryOperation<TDeviceType, TPrecision>(
-                    "LayerNormOp",
-                    this->getExecutionContext(),
-                    config_ );
+            operation_ = std::make_shared<OpType>( this->getExecutionContext(), config_ );
 
             if ( !operation_ )
             {

@@ -34,8 +34,6 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.Device;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
@@ -122,7 +120,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
@@ -1336,42 +1333,4 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
     };
 
-    // ========================================================================
-    // Registration
-    // ========================================================================
-
-    export class CudaGroupedQueryAttentionOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            const std::string_view opName = Compute::OperationNames::GroupedQueryAttention;
-
-            //OperationRegistry::instance()
-            //    .registerUnaryOperation<DeviceType::Cuda,
-            //    TensorDataType::FP32,
-            //    TensorDataType::FP32>(
-            //        opName,
-            //        []( IExecutionContext* ctx,
-            //            const ComponentConfig& cfg )
-            //        -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
-            //        {
-            //            return std::make_shared<CudaGroupedQueryAttentionOp<TensorDataType::FP32>>(
-            //                ctx,
-            //                static_cast<const GroupedQueryAttentionConfig&>(cfg) );
-            //        } );
-
-            //OperationRegistry::instance()
-            //    .registerUnaryOperation<DeviceType::Cuda, TensorDataType::BF16, TensorDataType::BF16>(
-            //        opName,
-            //        []( IExecutionContext* ctx,
-            //            const ComponentConfig& cfg )
-            //        -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::BF16>>
-            //        {
-            //            return std::make_shared<CudaGroupedQueryAttentionOp<TensorDataType::BF16>>(
-            //                ctx,
-            //                static_cast<const GroupedQueryAttentionConfig&>(cfg) );
-            //        } );
-        }
-    };
 }

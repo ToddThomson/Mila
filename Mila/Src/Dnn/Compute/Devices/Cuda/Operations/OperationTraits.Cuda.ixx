@@ -21,6 +21,7 @@ import Compute.CudaGqaOp;
 import Compute.CudaGeluOp;
 import Compute.CudaResidualOp;
 import Compute.CudaRmsNormOp;
+import Compute.CudaLayerNormOp;
 import Compute.CudaSoftmaxOp;
 import Compute.CudaSwigluOp;
 import Compute.CudaMultiHeadAttentionOp;
@@ -158,6 +159,25 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::RmsNormOp, DeviceType::Cuda, TensorDataType::BF16, void>
     {
         using type = Cuda::RmsNorm::CudaRmsNormOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // LayerNormOp — CUDA specializations
+    //
+    // GPT-2 lineage. FP32 and FP16 kernels only (no BF16 LayerNorm kernel); the
+    // GPT-2 inference path runs at FP32.
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::LayerNormOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::LayerNorm::CudaLayerNormOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::LayerNormOp, DeviceType::Cuda, TensorDataType::FP16, void>
+    {
+        using type = Cuda::LayerNorm::CudaLayerNormOp<TensorDataType::FP16>;
     };
 
     // -------------------------------------------------------------------------

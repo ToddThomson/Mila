@@ -27,7 +27,7 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Compute.UnaryOperation;
+import Compute.OperationBase;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
@@ -35,7 +35,6 @@ import Compute.OperationType;
 import Dnn.Component;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
-import Compute.OperationRegistrarHelpers;
 
 // DEBUG:
 import Cuda.Debug;
@@ -47,11 +46,11 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
     export template<TensorDataType TInput, TensorDataType TPrecision = TInput>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
     class CudaTokenEmbeddingOp
-        : public UnaryOperation<DeviceType::Cuda, TInput, TPrecision>
+        : public Operation<DeviceType::Cuda, TPrecision>
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TPrecision>;
+        using OperationBaseType = Operation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
@@ -147,7 +146,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             batch_size_ = static_cast<int>(input_shape[ 0 ]);
             seq_length_ = static_cast<int>(input_shape[ 1 ]);
 
-            UnaryOperationBase::build( config );
+            OperationBaseType::build( config );
         }
 
         // ====================================================================
@@ -162,7 +161,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
          * @param input  Token indices [B, T] (INT32).
          * @param output Pre-allocated embeddings [B, T, C].
          */
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             const auto& shape = input.shape();
             int B = static_cast<int>(shape[ 0 ]);
@@ -197,7 +196,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
         {
             const auto& shape = input.shape();
             int B = static_cast<int>(shape[ 0 ]);
@@ -277,18 +276,4 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         }
     };
 
-    export class CudaTokenEmbeddingOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            registerUnaryOpType<DeviceType::Cuda,
-                CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::FP32>,
-                TensorDataType::INT32, TensorDataType::FP32>( "TokenEmbeddingOp" );
-
-            registerUnaryOpType<DeviceType::Cuda,
-                CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::BF16>,
-                TensorDataType::INT32, TensorDataType::BF16>( "TokenEmbeddingOp" );
-        }
-    };
 }

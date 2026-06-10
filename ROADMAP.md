@@ -6,7 +6,7 @@
 
 | Stage | Version | Title |
 |---|---|---|
-| In Progress | 0.13.50-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
+| In Progress | 0.13.51-alpha.5 | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
 | Planned | 0.2.1-beta | Public release |
 | Planned | 0.2.2-beta.1 | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Planned | 0.2.3-beta.2 | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
@@ -57,11 +57,15 @@ the earlier per-component `XxxOpTypeMap` design. All remaining components migrat
 - [ ] `OperationTraits.Cuda.ixx` — `<Cuda, BF16, PerChannelKvFp8<>>` GQA specialization pending `CudaGqaOp` FP8 KV cache support (deferred to Beta.1 Phase 4)
 - [ ] `OperationTraits.Cuda.ixx` — `SamplingOp` specializations: `<Cuda, FP32>` and `<Cuda, BF16>`; implement `TokenSampler` component and `CudaSamplingOp` per `TokenSampling.md`
 - [x] `OperationTraits.Cuda.ixx` — CUDA policy-free op specializations added (FP32 + BF16 each): `GeluOp`, `ResidualOp`, `RmsNormOp`, `SoftmaxOp`, `SwigluOp`, `MultiHeadAttentionOp`, `RopeOp`, `LpeOp`, `TokenEmbeddingOp`, `CrossEntropyOp`; all 9 active components' `createOperation()` migrated to `OperationTraits` dispatch; fixed latent `CudaTokenEmbeddingOp::setGradients` signature bug (non-virtual 1-arg was hiding base class 2-arg virtual)
-- [ ] `SoftmaxCrossEntropy` component — pending lifecycle API modernization before `OperationTraits` dispatch can be applied (`onBuilding(shape_t)`, raw `exec_context_*` member, and 4-param `BinaryOperation` do not match current `Component` API)
+- [x] `SoftmaxCrossEntropy` component — modernized to the current `Component` lifecycle and migrated off the legacy `OperationRegistry`; `OperationTraits<CrossEntropyOp, ...>` CUDA dispatch wired (FP32/BF16). The CPU path is intentionally not provided (`CpuSoftmaxCrossEntropyOp` is excluded from the build), so a `<Cpu, ...>` instantiation is a deliberate hard compile error. Targeted for Llama training; no live instantiation site yet, so the template body is unexercised by the build until a unit test exists
 - [x] `OperationTraits.Cpu.ixx` — `:Cpu` partition created; active CPU op specializations added (FP32): `GeluOp`, `ResidualOp`, `SoftmaxOp`, `MultiHeadAttentionOp`, `LpeOp`; corresponding CPU component paths migrated
 - _(not a gate)_ `OperationTraits.Cpu.ixx` — Llama-lineage CPU ops (`RmsNormOp`, `SwigluOp`, `RopeOp`, `TokenEmbeddingOp`, `CrossEntropyOp`) are intentionally **demand-driven**. The compile-time dispatch makes their absence zero-cost on the GPU path and surfaces a localized compile error if a `<Cpu, …>` Llama is instantiated — so they are filled in by a contributor when CPU Llama is actually wanted. See the Beta "Compute backend scope" note
-- [ ] `LayerNorm`, `Dropout`, `MLP` components — `LayerNormOp` has CPU/CUDA registrars but no `OperationTraits` entries yet; `DropoutOp` same; `MLP` has stale `OperationRegistry` import to remove (before Beta.1)
-- [ ] Remove `OperationRegistry`, `OperationRegistryHelpers`, `LinearOpTypeMap`, `GqaOpTypeMap`, and all legacy registrar files once all components are migrated
+- [x] `LayerNorm` component — `OperationTraits<LayerNormOp, ...>` specializations added (CUDA `<FP32>` and `<FP16>`, CPU `<FP32>`); component migrated off the legacy registrar to `OperationTraits` dispatch. NOTE: the reduced-precision CUDA specialization is `FP16`, not the `BF16` used everywhere else in Mila — flagged for confirmation (GPT-2 LayerNorm lineage vs. the project-wide "FP16 is not a target" convention)
+- [x] `MLP` component — stale `OperationRegistry` import removed; `MLP` is a composite that owns `Linear` + `Swiglu` children and dispatches no operation of its own
+- [ ] `Dropout` component — still on `OperationRegistry::createUnaryOperation` and excluded from the build (`#`-commented in `Mila/CMakeLists.txt`); migrate to a `DropoutOp` `OperationTraits` specialization before re-enabling (before Beta.1)
+- [x] Retire the runtime dispatch scaffolding from the build — `OperationRegistry`, `OperationRegistryHelpers`, `OperationsRegistrar`, `OperationRegistrarHelpers`, the arity base classes (`UnaryOperation` / `BinaryOperation` / `PairedOperation`), and the legacy typemaps (`LinearOpTypeMap`, `GqaOpTypeMap`, `CpuLinearOpTypeMap`, `CudaGqaOpTypeMap`, `CudaLinearOpTypeMap`) are all removed from the CMake build and no longer re-exported from `Mila.ixx`; `Mila::initialize()` no longer calls `OperationsRegistrar::instance()`. The unused `FusedComponent` (built on the retired dispatch) is `[[deprecated]]` and excluded from the build. Source files retained on disk for reference
+- [x] Remove the unused `Dnn/Extensibility` plugin scaffolding (`IModulePlugin`, `PluginManager`, `PluginInfo`, `MyCustomPlugin`) — dead experimental code with no consumers, deleted outright
+- [ ] Physically delete the retired registry / registrar / typemap / arity-base source files once the retained-for-reference window closes (before Beta.1)
 
 ### Phase 2 — FP8 Quantization Infrastructure
 

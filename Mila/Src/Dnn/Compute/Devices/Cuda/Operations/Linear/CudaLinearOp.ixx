@@ -952,38 +952,4 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         }
     };
 
-    export class CudaLinearOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            const std::string opName = "LinearOp";
-
-            /*OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
-                {
-                    const auto& linearConfig = static_cast<const LinearConfig&>(config);
-                    return std::make_shared<CudaLinearOp<TensorDataType::FP32>>( context, linearConfig );
-                }
-            );
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::BF16, TensorDataType::BF16>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::BF16>>
-                {
-                    const auto& linearConfig = static_cast<const LinearConfig&>(config);
-                    return std::make_shared<CudaLinearOp<TensorDataType::BF16>>( context, linearConfig );
-                }
-            );*/
-        }
-
-        static inline bool isRegistered = []() {
-            registerOperations();
-            return true;
-            }();
-    };
-
 }

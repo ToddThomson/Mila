@@ -17,7 +17,7 @@ module;
 
 export module Compute.CpuLayerNormOp;
 
-import Dnn.Components.LayerNorm;
+import Dnn.Components.LayerNormConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -31,8 +31,6 @@ import Compute.IExecutionContext;
 import Compute.OperationType;
 import Dnn.Component;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;
 
@@ -46,11 +44,11 @@ namespace Mila::Dnn::Compute
      * Uses proper Tensor instances for all internal state including statistics (mean/rstd),
      * ensuring architectural consistency with the rest of the framework.
      */
-    class CpuLayerNormOp : public UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>
+    export class CpuLayerNormOp : public Operation<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
         using MR = CpuMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>;
+        using OperationBaseType = Operation<DeviceType::Cpu, TensorDataType::FP32>;
         using TensorType = Tensor<TensorDataType::FP32, MR>;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
@@ -173,7 +171,7 @@ namespace Mila::Dnn::Compute
 
             allocateStatisticsTensors();
 
-            UnaryOperationBase::build( config );
+            OperationBaseType::build( config );
         }
 
         // ====================================================================
@@ -186,7 +184,7 @@ namespace Mila::Dnn::Compute
          * Uses cached parameter raw pointers (weight_, bias_) and backend-owned
          * mean/rstd tensor storage allocated during build().
          */
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             if ( axis_ < 0 )
             {
@@ -270,7 +268,7 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
         {
             if ( axis_ < 0 )
             {
@@ -501,21 +499,4 @@ namespace Mila::Dnn::Compute
         }
     };
 
-    // Register CPU LayerNorm (FP32)
-    export class CpuLayerNormOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
-                "LayerNormOp",
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
-                {
-                    const auto& lnConfig = static_cast<const LayerNormConfig&>(config);
-                    return std::make_shared<CpuLayerNormOp>( context, lnConfig );
-                }
-            );
-        }
-    };
 }

@@ -34,7 +34,7 @@ module;
 #include <optional>
 #include <utility>
 
-export module Dnn.Components.LayerNorm:Config;
+export module Dnn.Components.LayerNormConfig;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;
