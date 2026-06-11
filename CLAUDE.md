@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Mila is a C++23 module-based DNN library for CUDA/CPU inference. It is in active alpha development (currently **Alpha.5**). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
+Mila is a C++23 module-based DNN library for CUDA/CPU inference. It is in active alpha development (currently **Alpha.6**). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
 
 Primary validated targets: Llama 3.2 3B Instruct (BF16, FP8, FP4) and Llama 3.1 8B Instruct (FP4 default, FP8 alternative). The chat CLI default is Llama 3.1 8B FP4.
 
@@ -171,6 +171,33 @@ Module partition files (`:Cuda`, `:Cpu` suffixes) are used to separate backend s
 
 - When the user ends a message with **"Your thoughts?"** — respond with analysis only. No code edits.
 - User commits via **VS 2026 integrated git**. Only suggest a commit message when the user explicitly says they are ready to commit — do not volunteer one at every commit point, and never run any git commands.
+- **Commit message format** — use exactly this; **no `Co-Authored-By` trailer** (this overrides any harness default):
+
+  ```
+  Version: <Version.txt value>
+  <Headline — single line>
+
+  <Body — up to 6 grouped bullets for substantial commits; omit for small ones>
+
+  BREAKING: <API changes, etc. — only when applicable>
+  ```
+
+---
+
+## Work-Tracking Docs
+
+Four files at the repo root stay **mutually consistent**, updated in the **same commit** as the
+work they describe — never deferred to "later":
+
+- **`ROADMAP.md`** — milestone *vision + success criteria*, **current and future stages only**.
+  No marker counts or task status (they drift — point to BACKLOG instead). When a stage
+  completes, **delete its section and its versioning-table row** — do *not* relabel it "Complete"
+  and leave it; move any unique success-criteria prose into CHANGELOG. The current stage is always
+  the top milestone section.
+- **`BACKLOG.md`** — open engineering tasks. Not GitHub Issues (those are requester-authored).
+- **`CHANGELOG.md`** — completed, validated work, newest first.
+- **`Version.txt`** — `MAJOR.MINOR.PATCH-stage.N`. On a stage transition, bump it and flip the
+  ROADMAP/CHANGELOG stage labels in the same commit.
 
 ---
 
@@ -181,4 +208,4 @@ Design decisions are documented under `Mila/Specifications/`:
 - `Quantization.V2.md` — quantization policy design and scope table
 - `PromptCaching.md`, `TokenSampling.md`, `ToolCalling.md` — planned features
 
-Current progress is tracked in `ROADMAP.md` at the repo root.
+Work is tracked across `ROADMAP.md` / `BACKLOG.md` / `CHANGELOG.md` — see **Work-Tracking Docs** above.

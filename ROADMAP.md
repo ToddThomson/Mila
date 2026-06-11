@@ -26,49 +26,14 @@ would have caused.
 
 | Cycle | Version | Title |
 |---|---|---|
-| Current (closing) | `0.13.x-alpha.5` | FP8/FP4 quantization pipeline — Llama 3.2 3B and 3.1 8B Instruct |
-| Consolidation | `0.13.x-alpha.6` | Feature freeze, FIXME/TODO burndown, debug-strip — earn the right to call it beta |
+| Current | `0.13.x-alpha.6` | Feature freeze, FIXME/TODO burndown, debug-strip — earn the right to call it beta |
 | First production | `0.20.x-beta.1` -> `-rc.1` -> `0.20.0` | Public release — packaging, docs, contributor onboarding |
 | Feature cycle | `0.21.0` (own alpha->beta ladder) | Qwen 3 architecture + thinking mode — Qwen 3 8B Instruct |
 | Feature cycle | `0.22.0` (own alpha->beta ladder) | Ministral architecture + SWA — Ministral 3B and 8B Instruct |
 
 ---
 
-## Alpha.5 — In Progress
-
-**FP8/FP4 load-time quantization pipeline, validated on Llama 3.2 3B and 3.1 8B Instruct.**
-
-Quantization in Mila is a compile-time deployment decision, not a runtime configuration
-concern. Weight precision is encoded as a template parameter `TWeightQuant` on `Linear`
-and `CudaLinearOp`. When `TWeightQuant = PerChannelFp8<>`, the `Linear` component
-quantizes its weights from BF16 to FP8_E4M3 during `loadParameter()`, computing
-per-channel FP32 scales via `CudaLinearOp::quantize()`. No quantized checkpoint format
-is required — the converter always writes BF16, and quantization is entirely Mila's
-concern. The existing BF16 baseline validated in Alpha.3 is the correctness reference
-for all FP8 validation.
-
-Llama 3.2 3B Instruct is the initial validation target because its BF16 baseline is
-already token-for-token correct, making it the cleanest possible foundation for
-isolating precision regressions. Llama 3.1 8B Instruct extends validation to a scale
-where FP8 is practically required — at BF16 the model exceeds the RTX 4070 12 GB VRAM
-budget; at FP8 it fits comfortably at ~8 GB. The quantization infrastructure is
-model-agnostic and carries forward to the `0.21` Qwen 3 cycle.
-
-**Success criterion:** Greedy decode of Llama 3.2 3B Instruct at FP8 produces no catastrophic
-divergence from the BF16 baseline on standard prompts. Llama 3.1 8B Instruct at FP8 fits
-within the RTX 4070 12 GB VRAM budget and produces output quality consistent with its
-BF16 baseline.
-
-**Status:** the success criteria are met (greedy decode validated at FP8 on both 3B and 8B;
-8B fits the budget). Delivered work — the compile-time `OperationTraits` dispatch migration,
-the FP8/FP4 quantization infrastructure, and the memory-mapped bulk-I/O reader — is recorded
-in [CHANGELOG.md](CHANGELOG.md). Alpha.5 collapses to Complete; the remaining items (token
-sampling as the final feature, plus CPU Linear traits and dispatch cleanup) carry into the
-Alpha.6 consolidation phase below. Open tasks are in [BACKLOG.md](BACKLOG.md).
-
----
-
-## Alpha.6 — Consolidation (Feature Freeze)
+## Alpha.6 — Consolidation (Feature Freeze) — Current
 
 **The last alpha milestone: deliver the final feature, then stop — burn down the debt that
 would otherwise make the public release embarrassing to open to contributors.**
@@ -79,12 +44,11 @@ sampling (the last open capability — greedy-only is too thin a story to ship p
 which the feature set for the first production release is frozen. The rest is consolidation:
 
 - **Token sampling** — the final feature (temperature / top-k / top-p); see [BACKLOG.md](BACKLOG.md).
-- **FIXME/TODO debt burndown** — the ~71 `FIXME` + ~25 `TODO` markers triage into two buckets.
-  The *disguised features* (commented-out core paths — bypassed weight initializers, the
-  `prefill`/`xavier`/`normal` calls) are functional gaps that must be finished here, because you
-  cannot honestly feature-freeze around commented-out code. The *known-limitation* markers are
-  fixed or converted to tracked tasks — never shipped as literal `FIXME` in public source. The
-  ~69 `REVIEW` markers (design reconsiderations) are low-urgency, addressed opportunistically.
+- **FIXME/TODO debt burndown** — triage the source markers: *disguised features* (commented-out
+  core paths) are functional gaps that must be finished, because you cannot honestly feature-freeze
+  around commented-out code; *known-limitation* markers are fixed or demoted to tracked BACKLOG
+  tasks (never shipped as a literal `FIXME` in public source); `REVIEW` design notes are
+  low-urgency, addressed opportunistically. Live triage status and counts are in [BACKLOG.md](BACKLOG.md).
 - **Debug-instrumentation strip** — the `std::cout` / `std::cerr` / `printf` usage; same trust concern.
 
 **Why a distinct phase.** "Beta" is a public trust signal. Applying the beta label to a tree

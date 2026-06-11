@@ -16,7 +16,7 @@ release notes.
 The bridge from "the features work" to a tree honest enough to call beta. Milestone vision
 is in ROADMAP; open triage buckets are in BACKLOG.
 
-### Parameter initialization subsystem restored — DONE + VALIDATED (0.13.53-alpha.5)
+### Parameter initialization subsystem restored — DONE + VALIDATED (0.13.53-alpha.6)
 
 The host `Tensor.Initializers` facade was deprecated (host-side init is wrong for CUDA) in
 favor of per-device `TensorOps<device>` ops — but the CPU Random backend was never written
@@ -39,7 +39,7 @@ initialization was silently disabled. Restored end to end, gated so inference is
   target). _Deferred (BACKLOG):_ CUDA `fill_normal`/`fill_uniform` are FP32-only (BF16
   train-from-scratch on CUDA corrupts); couple `initialize_parameters` default to `RuntimeMode`
 
-### Multi-device `setCurrentDevice` re-enabled — DONE + VALIDATED (0.13.53-alpha.5)
+### Multi-device `setCurrentDevice` re-enabled — DONE + VALIDATED (0.13.53-alpha.6)
 
 - Enabled `Cuda::setCurrentDevice` at 9 sites in `CudaTensorOps.Transfer` (7) and
   `CudaTensorOps.Random` (2), restoring the `Cuda.Helpers` imports — needed for cross-device
@@ -49,12 +49,15 @@ initialization was silently disabled. Restored end to end, gated so inference is
   `CudaTensorOps.Math` is internally inconsistent (5 live + 4 "redundant"); a scoped RAII
   device guard should replace the scattered bare calls when the dual-GPU rig validates them
 
-## Alpha.5 — FP8/FP4 load-time quantization (in progress; completed work below)
+## Alpha.5 — FP8/FP4 load-time quantization — Complete
 
 Validated on Llama 3.2 3B and Llama 3.1 8B Instruct. Quantization is a compile-time
 deployment decision via `TWeightQuant` on `Linear`/`CudaLinearOp`; the converter always
-writes BF16 and quantization is entirely Mila's concern. Remaining Alpha.5 items are in
-BACKLOG.
+writes BF16 and quantization is entirely Mila's concern.
+
+**Success criteria (met):** greedy decode of Llama 3.2 3B Instruct at FP8 with no catastrophic
+divergence from the BF16 baseline; Llama 3.1 8B Instruct at FP8 within the RTX 4070 12 GB budget,
+output quality consistent with BF16. Consolidation work that carried into Alpha.6 lives in BACKLOG.
 
 ### Phase 6 — PretrainedModelReader bulk I/O — DONE (0.13.50-alpha.5)
 
