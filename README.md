@@ -2,6 +2,8 @@
 
 **A C++23 module-based deep neural network library for those who want full control&mdash;to work at the metal.**
 
+*Mila is a **craft project** — built for working at the metal: understanding exactly what every forward pass, gradient, and kernel does, which is also how you make them fast. Mastery is what that craft leads to.*
+
 Mila is built for researchers, engineers, and developers who find high-level frameworks too opaque—who want to understand exactly what happens in every forward pass, trace every gradient,
 and write kernels that do precisely what they intend. No autograd engine. No runtime
 dispatch magic. Just C++23, CUDA, and full control.
@@ -21,8 +23,8 @@ dispatch magic. Just C++23, CUDA, and full control.
 
 ## What Mila Is
 
-Mila is a component-based DNN library where **device and precision are chosen at compile time,
-every forward and backward pass is explicit, and every gradient is yours to inspect**.
+Mila is a component-based DNN library, crafted so that **device and precision are chosen at compile
+time, every forward and backward pass is explicit, and every gradient is yours to inspect**.
 
 There is no hidden execution engine. When you call `forward()`, you know exactly what runs.
 When you call `backward()`, you know exactly what accumulates. The architecture is designed
@@ -67,10 +69,13 @@ native FP4 compute when it becomes available.
 
 ---
 
-## Current Status — Alpha.5
+## Current Status — Alpha.6
 
-Mila is under active development toward a public beta. The alpha phase focuses on
-building and validating the core architecture against known-good reference implementations.
+Mila is under active development toward a public, craft-complete first release (v0.20). The alpha
+phase built and validated the core architecture against known-good reference implementations; the
+current focus is consolidating that work and recovering the full GPT-2 / training foundation, so the
+first release ships everything Mila has built — inference and training — as one coherent, tested,
+documented package.
 
 **Alpha.1 — Complete**
 GPT-2 inference validated token-for-token against HuggingFace using greedy decoding.
@@ -93,7 +98,7 @@ Instruction following and tool calling, validated on Llama 3.2 3B Instruct at BF
 Delivers the structured message and tool calling infrastructure in the Chat application
 layer. No model architecture changes required.
 
-**Alpha.5 — In Progress**
+**Alpha.5 — Complete**
 FP8 and FP4 E2M1 load-time weight quantization, validated on Llama 3.2 3B and Llama 3.1 8B
 Instruct. Weights are quantized from BF16 at model load time inside `Linear` via a compile-time
 `TWeightQuant` policy — no quantized checkpoint format required. FP8 uses per-channel
@@ -109,12 +114,18 @@ to `OperationTraits` dispatch as part of this alpha. The component type system
 (`ComponentType`, `OperationType`) has been audited for completeness and consistency
 across all leaf components.
 
-**Beta.1 — Planned**
-Qwen 3 transformer architecture with thinking mode and model-agnostic tool calling,
-validated on Qwen 3 8B Instruct at BF16 and FP8. FP8 KV cache compression introduced
-alongside weight quantization.
+**Alpha.6 — In Progress (Consolidation)**
+Feature freeze and debt burndown to earn the beta label, plus the architectural foundation for
+recovering the parked training path. The first release (v0.20) then proceeds through Alpha.7
+(test-suite revival), Alpha.8 (training revival — the GPT-2 / MLP samples MNIST and Bard re-aligned
+to the current API; Llama 3.1/3.2 training is not part of this release), and Alpha.9 (API
+documentation), before Beta.1 production hardening.
 
-See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for the full task breakdown.
+**vNext — Qwen 3**
+Qwen 3 transformer architecture with thinking mode and model-agnostic tool calling, validated on
+Qwen 3 8B Instruct at BF16 and FP8, with FP8 KV cache compression. Follows the v0.20 release.
+
+See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for the full milestone breakdown.
 
 ---
 
@@ -153,12 +164,14 @@ See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for th
 ### Chat CLI
 
 ```
-You: Once upon a time
-Mila: , the world was a place of great beauty and great danger...
+You: In one sentence, what is a KV-cache?
+Mila: It stores the key and value tensors from earlier tokens so each new token attends
+      over them instead of recomputing the whole sequence each step.
 ```
 
-Located under `Samples/Chat`. Loads a converted HuggingFace GPT-2 checkpoint and
-generates text using the two-phase KV-cache pipeline.
+Located under `Samples/Chat`. An instruction-following chat harness — the default model is
+Llama 3.1 8B Instruct at FP4, loaded via the two-phase (prefill + decode) KV-cache pipeline,
+with model hot-switching (`/model <alias> [quant]`) and tool calling.
 
 ### MNIST Classifier
 

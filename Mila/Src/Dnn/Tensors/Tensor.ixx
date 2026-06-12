@@ -730,17 +730,8 @@ namespace Mila::Dnn
          * Scalars allocate normally (size==1); truly empty tensors allocate nothing.
          */
         void allocateBuffer() {
-            if (size_ > 0) {
-
-                // DEBUG
-                //std::cout << "Tensor::allocateBuffer: "
-                //    << uid_ << (name_.empty() ? "" : "::" + name_)
-                //    << " device=" << device_id_.toString()
-                //    << " size=" << detail::formatBytes( size_ * elementSize() )
-                //    << " shape=" << shapeToString( shape_ )
-                //    << std::endl;
-                // END DEBUG
-
+            if (size_ > 0)
+            {
                 buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>( device_id_.index, size_);
             }
         }

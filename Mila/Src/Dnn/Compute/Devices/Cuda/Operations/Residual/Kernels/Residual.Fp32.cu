@@ -1,24 +1,12 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
-#include <cassert>
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include "device_launch_parameters.h"
 #include "CudaUtils.h"
 
-#ifndef NDEBUG
-#  include <cassert>
-#  define KERNEL_ASSERT(cond) assert(cond)
-#else
-#  define KERNEL_ASSERT(cond) ((void)0)
-#endif
-
 namespace Mila::Dnn::Compute::Cuda::Residual
 {
-    // Conservative residual magnitude bound used only for debug assertions.
-    // Chosen to catch explosions while avoiding false positives for common models.
-    static __device__ __constant__ float kResidualAbsLimit = 5000.0f;
-
     /**
      * @brief CUDA kernel for element-wise addition of two input tensors with FP32 precision
      *
@@ -46,17 +34,6 @@ namespace Mila::Dnn::Compute::Cuda::Residual
             float y = a + scale * b;
 
             Y[ idx ] = y;
-
-            if ( !isfinite( y ) || fabsf( y ) > kResidualAbsLimit )
-            {
-                // Print offending values for debugging prior to assertion abort
-                printf(
-                    "Residual DEBUG scalar: block=%d thread=%d idx=%d A=%f B=%f Y=%f Scale=%f\n",
-                    blockIdx.x, threadIdx.x, idx, a, b, y, scale
-                );
-            }
-
-            KERNEL_ASSERT( fabsf( Y[ idx ] ) <= kResidualAbsLimit );
         }
     }
 
@@ -87,44 +64,9 @@ namespace Mila::Dnn::Compute::Cuda::Residual
 
             float4 r;
             r.x = a.x + scale * b.x;
-            if ( !isfinite( r.x ) || fabsf( r.x ) > kResidualAbsLimit )
-            {
-                printf(
-                    "Residual DEBUG vec: block=%d thread=%d vec_idx=%d comp=x A=%f B=%f Y=%f scale=%f\n",
-                    blockIdx.x, threadIdx.x, idx, a.x, b.x, r.x, scale
-                );
-            }
-            KERNEL_ASSERT( fabsf( r.x ) <= kResidualAbsLimit );
-
             r.y = a.y + scale * b.y;
-            if ( !isfinite( r.y ) || fabsf( r.y ) > kResidualAbsLimit )
-            {
-                printf(
-                    "Residual DEBUG vec: block=%d thread=%d vec_idx=%d comp=y A=%f B=%f Y=%f scale=%f\n",
-                    blockIdx.x, threadIdx.x, idx, a.y, b.y, r.y, scale
-                );
-            }
-            KERNEL_ASSERT( fabsf( r.y ) <= kResidualAbsLimit );
-
             r.z = a.z + scale * b.z;
-            if ( !isfinite( r.z ) || fabsf( r.z ) > kResidualAbsLimit )
-            {
-                printf(
-                    "Residual DEBUG vec: block=%d thread=%d vec_idx=%d comp=z A=%f B=%f Y=%f scale=%f\n",
-                    blockIdx.x, threadIdx.x, idx, a.z, b.z, r.z, scale
-                );
-            }
-            KERNEL_ASSERT( fabsf( r.z ) <= kResidualAbsLimit );
-
             r.w = a.w + scale * b.w;
-            if ( !isfinite( r.w ) || fabsf( r.w ) > kResidualAbsLimit )
-            {
-                printf(
-                    "Residual DEBUG vec: block=%d thread=%d vec_idx=%d comp=w A=%f B=%f Y=%f scale=%f\n",
-                    blockIdx.x, threadIdx.x, idx, a.w, b.w, r.w, scale
-                );
-            }
-            KERNEL_ASSERT( fabsf( r.w ) <= kResidualAbsLimit );
 
             Y[ idx ] = r;
         }
@@ -153,8 +95,6 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         {
             float grad = __ldg( &dY[ idx ] );
 
-            KERNEL_ASSERT( fabsf( grad ) <= kResidualAbsLimit );
-            
             dA[ idx ] = grad;
             dB[ idx ] = grad;
         }
@@ -183,11 +123,6 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         if ( idx < N )
         {
             float4 grad = __ldg( &dY[ idx ] );
-
-            KERNEL_ASSERT( fabsf( grad.x ) <= kResidualAbsLimit );
-            KERNEL_ASSERT( fabsf( grad.y ) <= kResidualAbsLimit );
-            KERNEL_ASSERT( fabsf( grad.z ) <= kResidualAbsLimit );
-            KERNEL_ASSERT( fabsf( grad.w ) <= kResidualAbsLimit );
 
             dA[ idx ] = grad;
             dB[ idx ] = grad;

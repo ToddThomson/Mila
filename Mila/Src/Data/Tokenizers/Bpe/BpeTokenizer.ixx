@@ -27,8 +27,6 @@ module;
 #include <memory>
 #include <optional>
 #include <filesystem>
-#include <chrono>
-#include <iostream>
 #include <regex>
 #include <limits>
 #include <stdexcept>
@@ -39,6 +37,7 @@ import Data.BpeVocabulary;
 import Data.BpePreTokenizationMode;
 import Data.Tokenizer;
 import Data.TokenizerVocabulary;
+import Logging.Logger;
 
 namespace Mila::Data
 {
@@ -144,8 +143,6 @@ namespace Mila::Data
          */
         std::vector<TokenId> encode( const std::string& text ) override
         {
-            const auto start_time = std::chrono::steady_clock::now();
-
             std::vector<TokenId> out;
             const auto& special_list = vocab_.getSpecialTokenList();
 
@@ -194,13 +191,6 @@ namespace Mila::Data
                     }
                 }
             }
-
-            const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - start_time).count();
-
-            // TODO: Use Mila logging here
-            //std::cout << "\nEncoding completed in " << ms << "ms"
-            //    << " (" << text.size() << " chars -> " << out.size() << " tokens)\n";
 
             return out;
         }
@@ -345,9 +335,10 @@ namespace Mila::Data
                         "and no ASCII fallback is defined for this mode: " + pattern );
                 }
 
-                std::cerr << "Warning: Unicode regex not supported by std::regex; "
-                    "using ASCII fallback for pre-tokenization.\n"
-                    "Non-ASCII text may tokenize differently from the HuggingFace reference.\n";
+                Logging::Logger::warning(
+                    "Unicode regex not supported by std::regex; using ASCII fallback "
+                    "for pre-tokenization. Non-ASCII text may tokenize differently from "
+                    "the HuggingFace reference." );
 
                 pre_tokenization_regex_ = std::regex( fallback, std::regex::ECMAScript );
             }
@@ -466,8 +457,6 @@ namespace Mila::Data
          */
         void encodeSegmentBpe( const std::vector<std::string>& words, std::vector<TokenId>& out )
         {
-            size_t pass = 0;
-
             for ( const auto& word : words )
             {
                 std::vector<std::string> tokens;
@@ -519,15 +508,6 @@ namespace Mila::Data
                 {
                     auto id = vocab_.tokenToId( token );
                     out.push_back( id ? *id : 0 );
-                }
-
-                ++pass;
-
-                if ( pass % 100 == 0 )
-                {
-                    std::cout << "\r[BPE] Words: " << pass
-                        << " | Tokens: " << out.size()
-                        << "          " << std::flush;
                 }
             }
         }

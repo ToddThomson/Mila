@@ -19,6 +19,7 @@ module;
 #include <chrono>
 #include <iostream>
 #include <iomanip>
+#include <format>
 
 export module Data.BpeVocabulary;
 
@@ -29,6 +30,7 @@ import Data.BpeVocabularyConfig;
 import Data.BpePreTokenizationMode;
 import Data.FileHeader;
 import Serialization.Metadata;
+import Logging.Logger;
 
 namespace Mila::Data
 {
@@ -616,8 +618,9 @@ namespace Mila::Data
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::steady_clock::now() - start_time).count();
 
-        std::cout << "Training completed in " << elapsed << "s\n"
-            << "Final vocabulary size: " << id_to_token_.size() << '\n';
+        Logging::Logger::info( std::format(
+            "Training completed in {}s. Final vocabulary size: {}",
+            elapsed, id_to_token_.size() ) );
     }
 
     // ========================================================================
@@ -927,7 +930,7 @@ namespace Mila::Data
     }
 
     // ========================================================================
-    // Static Byte Encoder / Decoder  (GPT-2 style — shared across all families)
+    // Static Byte Encoder / Decoder  (GPT-2 style â€” shared across all families)
     // ========================================================================
 
     const std::unordered_map<unsigned char, std::string>& BpeVocabulary::getByteEncoder()
@@ -1237,8 +1240,6 @@ namespace Mila::Data
             uint32_t bos_id = 0;
             read_u32( bos_id );
             vocab.special_token_ids_[ st.bos_token ] = static_cast<TokenId>(bos_id);
-            
-            //std::cout << "  BOS: '" << st.bos_token << "' (ID: " << bos_id << ")\n";
         }
 
         uint32_t has_eos = 0;
@@ -1249,8 +1250,6 @@ namespace Mila::Data
             uint32_t eos_id = 0;
             read_u32( eos_id );
             vocab.special_token_ids_[ st.eos_token ] = static_cast<TokenId>(eos_id);
-            
-            // std::cout << "  EOS: '" << st.eos_token << "' (ID: " << eos_id << ")\n";
         }
 
         uint32_t has_pad = 0;
@@ -1261,8 +1260,6 @@ namespace Mila::Data
             uint32_t pad_id = 0;
             read_u32( pad_id );
             vocab.special_token_ids_[ st.pad_token ] = static_cast<TokenId>(pad_id);
-            
-            //std::cout << "  PAD: '" << st.pad_token << "' (ID: " << pad_id << ")\n";
         }
 
         uint32_t has_unk = 0;
@@ -1273,8 +1270,6 @@ namespace Mila::Data
             uint32_t unk_id = 0;
             read_u32( unk_id );
             vocab.special_token_ids_[ st.unk_token ] = static_cast<TokenId>(unk_id);
-            
-            //std::cout << "  UNK: '" << st.unk_token << "' (ID: " << unk_id << ")\n";
         }
 
         // Register extended special tokens from config (chat template tokens).
@@ -1285,10 +1280,9 @@ namespace Mila::Data
 
         vocab.buildSpecialTokenList();
 
-        // REVIEW: Possible logger Info 
-        std::cout << "Loaded Llama 3.2 vocabulary: "
-            << vocab_size << " tokens, "
-            << vocab.special_token_ids_.size() << " special tokens\n";
+        Logging::Logger::info( std::format(
+            "Loaded Llama 3.2 vocabulary: {} tokens, {} special tokens",
+            vocab_size, vocab.special_token_ids_.size() ) );
 
         return vocab;
     }

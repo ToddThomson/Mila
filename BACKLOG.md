@@ -19,12 +19,11 @@ stated trigger · **[contributor]** good-first-contribution / demand-driven, not
 ## Alpha.6 — Consolidation (closing the alpha line)
 
 Alpha.5's success criteria are met (greedy decode at FP8 with no catastrophic divergence on
-Llama 3.2 3B and 3.1 8B, 8B within the 12 GB budget). Alpha.6 closes the alpha line: deliver
-the final feature (token sampling), then feature-freeze and burn down the debt so the public
-release earns the beta label. The FIXME/TODO burndown + debug-strip work is itemized under
+Llama 3.2 3B and 3.1 8B, 8B within the 12 GB budget). Alpha.6 closes the alpha line:
+feature-freeze (no new features) and burn down the debt so the public release earns the beta
+label. The FIXME/TODO burndown + debug-strip work is itemized under
 Project Hygiene below; the migration/cleanup tasks specific to closing alpha are here.
 
-- [ ] **[gate]** Token sampling — `OperationTraits<SamplingOp, Cuda, FP32>` and `<…, BF16>` specializations; implement the `TokenSampler` component and `CudaSamplingOp` per `Specifications/TokenSampling.md`. The only net-new feature still open; greedy decode is already validated, so this is additive, not a validation gate
 - [ ] **[gate]** CPU Linear traits — `OperationTraits<LinearOp, Cpu, FP32, NoWeightQuant>` specialization; retires the last `CpuLinearOpTypeMap` dependency
 - [ ] `Dropout` component — still on `OperationRegistry::createUnaryOperation` and excluded from the build (`#`-commented in `Mila/CMakeLists.txt`); migrate to a `DropoutOp` `OperationTraits` specialization before re-enabling
 - [ ] Physically delete the retired registry / registrar / typemap / arity-base source files now retained on disk for reference (`OperationRegistry`, `OperationRegistryHelpers`, `OperationsRegistrar`, `OperationRegistrarHelpers`, `UnaryOperation`/`BinaryOperation`/`PairedOperation`, `LinearOpTypeMap`, `GqaOpTypeMap`, `CpuLinearOpTypeMap`, `CudaGqaOpTypeMap`, `CudaLinearOpTypeMap`, and the deprecated `FusedComponent`)
@@ -33,11 +32,53 @@ Project Hygiene below; the migration/cleanup tasks specific to closing alpha are
 
 Deferred / not alpha-close gates:
 
+- [ ] **[deferred, milestone TBD]** Token sampling (temperature / top-k / top-p) — `OperationTraits<SamplingOp, Cuda, FP32>` and `<…, BF16>` specializations; `TokenSampler` component + `CudaSamplingOp` per `Specifications/TokenSampling.md`. **Pushed out of Alpha.6** (feature freeze — no new features); milestone undecided, to be assigned later. Not a 0.20 gate — greedy decode is already validated, so this is additive
+- [ ] **[deferred, training-only]** AdamW debug instrumentation — the per-value `isfinite`/limit `printf` anomaly guards in `CudaAdamW.cu` (6 sites) plus the leftover `printf` in `CudaAdamWOptimizer.ixx:270` are training bring-up scaffolding. Left untouched by the Alpha.6 inference-consolidation debug strip because the AdamW path is training-only: off the validated inference path, exercised solely by the parked MNIST/Bard samples, and untested (`AdamW.Cuda.cpp`/`AdamW.Cpu.cpp` disabled in `Tests/CMakeLists.txt`). When Training is picked up, decide strip-vs-gate (the `KERNEL_ASSERT` invariant checks are already `NDEBUG`-gated and zero-cost in release; the `printf`s are not) and re-enable the optimizer tests in the same pass
 - [ ] **[deferred, training-only]** CUDA `fill_normal`/`fill_uniform` are FP32-only — they cast the raw buffer to `float*` and `curandGenerate` into it, so BF16/FP16 reduced-precision **train-from-scratch on CUDA** corrupts weight/embedding init. Reachable now that `xavier`/`normal` init is wired (`TokenEmbedding` wte is BF16 on the Llama path). Harmless for inference (init gated off) and for CPU (the `CpuTensorOps.Random` added this cycle converts element-wise). Fix: generate into a temp float buffer + a convert pass — the CUDA dtype counterpart to the CPU Random backend
 - [ ] **[deferred, needs recall + live-vs-dead analysis]** Remove FP16 — superseded by BF16. FP16 was implemented first; once BF16 landed there is no reason to carry both for LLM inference (BF16's wider exponent range is strictly preferable, no loss scaling). Scaffolding is woven through *live* code: `CudaDataTypeMap<half>`, the `half`/`CUDA_R_16F`/`CUBLAS_COMPUTE_32F_FAST_16F` branches in `CudaLinearOp`, `half` throw-stubs in `CudaLinearOp.Plans`, and the commented `*_fp16` backward/permute stubs across the GQA/MHA/LPE/Softmax dispatch (these are the marker-triage "bucket B"). Trace live-vs-dead `half` paths before removal — not a mechanical delete
 - [ ] **[deferred → 0.21 Qwen 3 cycle]** `OperationTraits<GroupedQueryAttentionOp, Cuda, BF16, PerChannelKvFp8<>>` specialization — pending `CudaGqaOp` FP8 KV cache support
 - [ ] **[contributor]** Llama-lineage CPU ops (`RmsNormOp`, `SwigluOp`, `RopeOp`, `TokenEmbeddingOp`, `CrossEntropyOp`) in `OperationTraits.Cpu.ixx` — demand-driven; compile-time dispatch makes their absence zero-cost on the GPU path and a localized compile error if a `<Cpu, …>` Llama is instantiated
 - [ ] **[deferred, measure first]** Phase 6b H2D pipelining — a dedicated load stream + CUDA events threaded through `loadParameter`/`quantize` would overlap H2D-with-H2D, but ~16 GB over PCIe 4.0 (~2.3s) is the floor, so pursue only if a profile shows the load is sync-bound rather than disk-bound
+
+---
+
+## Alpha.7 — Test Suite Revival
+
+Recover the authored test suite, not write one. The first Mila year was test-driven; ~70 test
+files exist under `Mila/Tests/**` but only ~24 are active — the rest were `#`-commented during the
+inference-era refactors (`Tests/CMakeLists.txt:107` names the cause: "too many tests to refactor for
+Component lifecycle changes"). The work is three buckets: (1) re-green what exists, (2) translate it
+to the post-refactor API, (3) backfill what the old suite never covered. The non-negotiable
+deliverable is the **CI ratchet** — the suite rotted because nothing gated it, so revival without a
+gate just reschedules the next rot. Gated behind the Alpha.6 `CompositeComponent`/`setTraining`
+lifecycle fix, which is what currently forces the component tests off.
+
+- [ ] **[gate]** Re-green the authored component / operation / tensor / tokenizer suites against the current API — re-enable the `#`-commented files in `Tests/CMakeLists.txt`. Bucket 1 (uncomment + fix trivially broken) + bucket 2 (translate to the post-refactor surface: `OperationTraits` dispatch, the `Operation` base-class collapse, the precision axes, the Alpha.6 lifecycle fix)
+- [ ] Backfill coverage for the inference-drought features the old suite never had — load-time quantization (`PerChannelFp8`/`PerGroupFp4`, the decode matvec kernels), `OperationTraits` dispatch, the Llama path (RmsNorm/SwiGLU/GQA/RoPE components, `LlamaModel::fromPretrained`). Genuinely new, not recovery
+- [ ] **[gate]** Wire the suite into CI as the anti-rot ratchet — build on the `MILA_ENABLE_CUDA=OFF` CPU-only gate so a future API churn fails the build instead of silently re-commenting coverage. This is the deliverable that keeps the revival alive
+- [ ] Do not revive tests for code being deleted — retire the disabled `UnaryOperation`/`BinaryOperation` tests alongside the base-class removal (Alpha.6); same for the registry/typemap tests
+- [ ] Calibration is the MNIST-plus-tests spike under Alpha.8 — Training Revival — it measures the per-file bucket-2 translation cost on a representative slice before the suite-wide estimate is trusted
+
+---
+
+## Alpha.8 — Training Revival
+
+Recover the validated GPT-2 / MLP training path. MNIST (MLP) and Bard (GPT-2 generation) were
+complete, working samples parked behind an explicit `FIXME: Re-enable after alpha.5 completed`
+trigger (`Mila/Samples/CMakeLists.txt:3-4`) that has now fired. Reviving them reactivates the half
+of the library inference never exercises — the AdamW optimizer, the loss and backward kernels,
+gradient flow, train-from-scratch init. The revived tests are the oracle: a sample "converges" only
+when its test says so. Several deferred Alpha.6 items (AdamW debug instrumentation, the CUDA
+`fill_normal` FP32-only gap) fold into this milestone. **Scope is GPT-2 / MLP training only** —
+Llama 3.1/3.2 fine-tuning is explicitly out of this release, remaining a Future Direction.
+
+- [ ] **(lead — timeboxed spike)** Revive **MNIST + its tests** against the current API — MNIST is the MLP (simpler than Bard's GPT-2/BPE/transformer surface), so it is the cheapest representative slice. Re-enable the sample (`Mila/Samples/CMakeLists.txt:3`) and its tests; pass/fail = builds, runs, trains to target accuracy, tests green. Measures all three revival buckets at once and sets the milestone dates on evidence rather than the day-or-3 estimate. **Do this first**
+- [ ] Re-enable MNIST + Bard in the build — flip both `FIXME: Re-enable after alpha.5 completed` triggers (`Mila/Samples/CMakeLists.txt:3-4`) and add the Samples build to CI (pairs with the Project Hygiene "Samples build to CI" item)
+- [ ] Re-enable + re-align the AdamW path — `AdamW.Cuda.cpp` / `AdamW.Cpu.cpp` (disabled in `Tests/CMakeLists.txt:190-191`); resolve the deferred AdamW debug instrumentation (strip-vs-gate the `CudaAdamW.cu` printf guards + `CudaAdamWOptimizer.ixx:270`) in the same pass
+- [ ] Fix the CUDA `fill_normal`/`fill_uniform` FP32-only gap (the deferred Alpha.6 training-only item) — it corrupts BF16 train-from-scratch init; the CUDA dtype counterpart to the `CpuTensorOps.Random` backend
+- [ ] Revive the loss + backward path — CrossEntropy / SoftmaxCrossEntropy components and tests (`Mila/Tests/Dnn/Components/Losses/*` exist, commented) and the backward-pass stubs (Alpha.6 bucket D)
+- [ ] **ProgressReporter mechanism** — design the cross-cutting progress facility for long-lived ops (the `BpeVocabulary` training `\r` progress at `:600`/`:613`, plus `PretrainedReader` load and load-time quantization are candidates). Injected per-operation (on the op's config, **not** a global facade — progress is scoped to one call, unlike the process-wide logger), null default, library owns throttling, cancellation first-class (`bool` return or `std::stop_token`), documented threading contract. Mirrors the Logging subsystem's *shape* but is a separate concern (progress = transient/overwrite-in-place; logging = append-only events). The Alpha.6 debug strip leaves the `BpeVocabulary` training progress in place as living training-path code — it migrates here, it is not deleted
+- [ ] Validation — MNIST trains to its target accuracy; Bard generates coherent text; train-from-scratch validated at the precisions the samples use; the AdamW / loss / training-path tests green and CI-gated
 
 ---
 
@@ -81,7 +122,7 @@ Includes/imports:
 - [ ] Phase 1 — candidate report (no edits): heuristic scan flagging imports/includes whose symbols never appear in the file body; over-reports by design, so it is a worklist to size the job, not a verdict
 - [ ] Phase 2 — compiler-verified removal, leaf modules first: scripted remove → rebuild → revert-on-failure, batched per file with binary-search on failures, verified against Clang/GCC rather than MSVC so visible cruft is not traded for invisible transitive coupling
 
-Doxygen staleness:
+Doxygen staleness (these tiers, plus the docs-site CI items under "Release Assets & CI" below, are the engineering detail of the **Alpha.9 — API Documentation** milestone in [ROADMAP.md](ROADMAP.md)):
 
 - [ ] Tier 1 — `@file` rename drift: 34 files whose `@file` tag does not match the filename (e.g. `RocmDevice.ixx` tagged `VulkanDevice.ixx`, `CudaMhaOp.ixx` tagged `CudaAttentionOp.ixx`, `Lpe.ixx` tagged `Gpt2Encoder.ixx`). The correct value is `basename` — fully scriptable, no judgment
 - [ ] Tier 2 — `@param`/`@tparam` name mismatches: documented names no longer in the signature. Mechanical and high-confidence, but signatures span lines, so emit a candidate list for review before batch-fixing
@@ -143,8 +184,8 @@ A beta is a trust signal; these items are about the project not contradicting it
 wasting a newcomer's first hour.
 
 - [ ] FIXME/TODO debt triage (IN PROGRESS) — the source carried ~71 `FIXME` + ~69 `REVIEW` + ~25 `TODO`; `FIXME` reads as "known broken", and several were commented-out core paths. DONE + validated: **bucket A** (the bypassed weight initializers / commented `xavier`/`normal` calls — full parameter-init subsystem restored, see CHANGELOG) and **bucket C** (CUDA `setCurrentDevice`). Remaining: FP16 stubs (bucket B — deferred, see "Remove FP16" above), backward-pass stubs (D), the training-lifecycle `isTraining()` demotes (E — tied to the `CompositeComponent` setTraining/build bug), and the design `REVIEW` set (G). Fix the real ones; demote the rest to neutral notes + tracked tasks **here in BACKLOG** (not GitHub issues — those are requester-authored), do not ship literal `FIXME` in public source. Distinct from the "debug instrumentation gated/removed" gate (the `std::cout` 12 files / `std::cerr` 5 / `printf` 6 usage)
-- [ ] Debug instrumentation fully gated or removed (Beta requirement) — `std::cout` (12 files), `std::cerr` (5), `printf` (6)
-- [ ] Test coverage of core components (Beta requirement) — convert the vibe into an actual audit listing components with zero tests; relates to the TDD-revival goal (test suite atrophied to ~23/111 active during alpha churn)
+- [ ] Debug instrumentation fully gated or removed — substantially done by the Alpha.6 debug-instrumentation strip (kernel `printf`/anomaly guards removed; the BPE tokenizer warning + vocab-load info routed to `Logging::Logger`, the encode timer and progress prints deleted). Training-path instrumentation is intentionally NOT stripped — it is deferred to its owning milestone (the AdamW debug item above; the `BpeVocabulary` training progress -> ProgressReporter under Training Revival)
+- [ ] Test coverage of core components — now owned by the **Alpha.7 — Test Suite Revival** milestone above (re-green the ~70 authored test files, the CI ratchet, and the inference-drought backfill). No longer a loose Beta line
 - [ ] Add the Samples build to CI (currently only tests build) so a contributor's first sample build is not the thing that breaks
 - [ ] `good first issue` labels on GitHub (Beta requirement) — the exact label is `good first issue` (spaces, lowercase; hyphens break GitHub's `/contribute` + aggregator discovery). These are maintainer-authored discovery Issues promoted from this backlog (a GitHub *mechanism*, distinct from inbound user issues), each well-scoped with acceptance criteria + file paths. Mint when courting contributors (~default-branch switch); pairs with the community-health files already landed and the `CONTRIBUTING.md` gate
 - [ ] `CONTRIBUTING.md` coding-standards section + `getting-started.md` onboarding guide (user-first, contributor superset) (Beta requirements)

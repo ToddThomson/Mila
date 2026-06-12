@@ -221,11 +221,6 @@ namespace Mila::Dnn::Compute
             {
                 size_t num_params = params_[i]->size();
 
-                // DEBUG: Print what we're about to update
-                if ( step_count_ == 1 ) {  // Only print on first step
-                    printf( "AdamW step(): group[%zu] has %zu parameters\n", i, num_params );
-                }
-
                 NativeType* param_ptr = param_data_[i];
                 NativeType* grad_ptr = grad_data_[i];
                 
@@ -267,13 +262,13 @@ namespace Mila::Dnn::Compute
             }
 
             // After the loop, print total:
-            if ( step_count_ == 1 ) {
+            if ( step_count_ == 1 )
+            {
                 size_t total = 0;
+
                 for ( size_t i = 0; i < params_.size(); ++i ) {
                     total += params_[ i ]->size();
                 }
-                printf( "AdamW step(): Total parameters across %zu groups = %zu\n",
-                    params_.size(), total );
             }
 
             // DEBUG:

@@ -133,11 +133,14 @@ namespace Mila::Dnn::Compute
             try {
                 cudaCheckStatus(status, std::source_location::current());
             }
-            catch (const CudaError& e) {
+            catch (const CudaError& e)
+            {
+                // REVIEW: For Milestone Alpha.6
                 std::ostringstream ss;
                 ss << e.what() << " (ptr: 0x" << std::hex << reinterpret_cast<std::uintptr_t>(ptr) << ")"
                     << " (device: " << device_id_ << ")";
                 std::cerr << ss.str() << std::endl;
+
                 throw;
             }
         }

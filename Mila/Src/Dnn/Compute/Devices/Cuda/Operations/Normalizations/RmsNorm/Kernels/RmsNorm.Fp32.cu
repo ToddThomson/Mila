@@ -64,19 +64,6 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         float inv_n = 1.0f / static_cast<float>(norm_dim);
         float rstd_val = rsqrtf( m2 * inv_n + epsilon );
 
-    #ifndef NDEBUG
-        constexpr float kRmsNormKernelLimit = 1e6f;
-        if ( lane_id == 0 )
-        {
-            if ( !isfinite( rstd_val ) || fabsf( rstd_val ) > kRmsNormKernelLimit )
-            {
-                printf( "RMSNorm FWD anomaly: idx=%d outer=%d inner=%d m2=%f rstd=%f norm_dim=%d inner_size=%d\n",
-                    idx, outer_idx, inner_idx, m2, rstd_val, norm_dim, inner_size );
-                assert( false );
-            }
-        }
-    #endif
-
         // Store rstd for backward pass
         if ( lane_id == 0 && rstd != nullptr )
         {
@@ -92,18 +79,6 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
             float b = bias ? bias[ i ] : 0.0f;
             float xhat = xv * rstd_val;
             float res = xhat * w + b;
-
-        #ifndef NDEBUG
-            constexpr float kRmsNormOutputAbsLimit = 1e4f;
-            if ( !isfinite( res ) || fabsf( res ) > kRmsNormOutputAbsLimit )
-            {
-                printf(
-                    "RMSNorm OUTPUT anomaly: idx=%d i=%d val=%f m2=%f rstd=%f weight=%f bias=%f output=%f\n",
-                    idx, i, xv, m2, rstd_val, w, b, res
-                );
-                assert( false );
-            }
-        #endif
 
             o[ offset ] = res;
         }
@@ -178,7 +153,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         // Broadcast final sum to all lanes
         sum_gx = __shfl_sync( 0xffffffff, sum_gx, 0 );
 
-        // Compute input gradient: dx = rstd * g - x * rstd³ * (1/N * sum(g * x))
+        // Compute input gradient: dx = rstd * g - x * rstd * (1/N * sum(g * x))
         float rstd3 = rstd_val * rstd_val * rstd_val;
         float correction = rstd3 * inv_n * sum_gx;
 

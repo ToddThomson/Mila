@@ -10,12 +10,6 @@
 #include <cuda_fp16.h>
 #include "device_launch_parameters.h"
 #include "CudaUtils.h"
-#ifndef NDEBUG
-#  include <cassert>
-#  define KERNEL_ASSERT(cond) assert(cond)
-#else
-#  define KERNEL_ASSERT(cond) ((void)0)
-#endif
 
 namespace Mila::Dnn::Compute::Cuda::Gelu
 {
@@ -34,38 +28,13 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
      */
     __global__ void gelu_forward_fp32_kernel( float* Y, const float* X, int N )
     {
-        constexpr float kGeluInputAbsLimit = 100.0f;   // default: 50.0f, GELU input should be reasonable was 50.0f, but increased to 75.0f to avoid false positives in some cases
-        constexpr float kGeluOutputAbsLimit = 1000.0f; // default: 100.0f, GELU output can be slightly larger
-
         int i = blockIdx.x * blockDim.x + threadIdx.x;
         if ( i < N )
         {
             float xi = X[ i ];
 
-            // Check input
-            if ( !isfinite( xi ) || fabsf( xi ) > kGeluInputAbsLimit )
-            {
-                printf(
-                    "GELU DEBUG input: block=%d thread=%d idx=%d input=%f\n",
-                    blockIdx.x, threadIdx.x, i, xi
-                );
-            }
-            KERNEL_ASSERT( isfinite( xi ) );
-            KERNEL_ASSERT( fabsf( xi ) <= kGeluInputAbsLimit );
-
             float cube = GELU_CUBIC_COEFF * xi * xi * xi;
             float y = 0.5f * xi * (1.0f + tanhf( GELU_SCALING_FACTOR * (xi + cube) ));
-
-            // Check output
-            if ( !isfinite( y ) || fabsf( y ) > kGeluOutputAbsLimit )
-            {
-                printf(
-                    "GELU DEBUG output: block=%d thread=%d idx=%d input=%f output=%f cube=%f\n",
-                    blockIdx.x, threadIdx.x, i, xi, y, cube
-                );
-            }
-            KERNEL_ASSERT( isfinite( y ) );
-            KERNEL_ASSERT( fabsf( y ) <= kGeluOutputAbsLimit );
 
             Y[ i ] = y;
         }

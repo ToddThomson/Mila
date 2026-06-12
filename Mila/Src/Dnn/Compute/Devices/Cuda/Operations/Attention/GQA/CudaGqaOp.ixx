@@ -766,13 +766,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 dVout_tensor_ = make( vout_shape, "gqa.dVout" );
                 dVout_ = raw( dVout_tensor_ );
             }
-
-            // DEBUG:
-            std::cout << "CudaGQAOp::build: built with batch_size = " << B_
-                << ", num_heads = " << NH_ << ", head_size = " << HS_ << ", max_seq_length = " << T_ << ", prefill_chunk_size = " << prefill_chunk_size_ << "\n";
-            std::cout << "CudaGroupedQueryAttentionOp state memory size: "
-                << (state_memory_size_ / (1024.0 * 1024.0)) << " MiB\n";
-            // END DEBUG
         }
 
         // ====================================================================

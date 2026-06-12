@@ -1,20 +1,148 @@
-# Releasing Mila
+# Releasing & Work-Tracking
 
-How Mila is versioned, validated, and tagged. The key thing to internalize: there are
-**two distinct validation moments**, and only one of them involves a tag.
+How Mila is versioned, planned, validated, and tagged. The [ROADMAP](ROADMAP.md) shows *where* Mila
+is going; this document is the home for the *mechanics* — the version scheme, how the roadmap and its
+milestones map to GitHub, label conventions, and the release procedure — kept out of the ROADMAP so
+that stays a clean, public-facing narrative.
+
+Two things to internalize up front: the version scheme carries a milestone-tied **stage** and a
+ticking **build** counter (next section), and there are **two distinct validation moments**, only
+one of which involves a tag (further down).
 
 ---
 
 ## Versioning
 
-`Version.txt` at the repo root is the single source of truth (SemVer: `X.Y.Z` or
-`X.Y.Z-PRERELEASE`, e.g. `0.13.46-alpha.5`). It feeds `project(VERSION ...)` (the numeric
-triple) and the prerelease label separately; see `cmake/MilaVersion.cmake`.
+Mila uses a repeating **release-cycle** model: `MAJOR.MINOR.PATCH-stage.N.build` (e.g.
+`0.20.0-alpha.6.53`).
 
-`Version.txt` is bumped **before committing** — every commit carries the version it
-introduces. Because the version bump is part of the same commit you later tag, the tag
-`vX.Y.Z-PRERELEASE` always points at a tree whose `Version.txt` matches it, and a consumer
-fetching that tag gets a Mila that reports that exact version.
+- **minor** — feature-set era.
+- **patch** — part of the target release (usually `.0`).
+- **stage** — maturity: `alpha.N -> beta.N -> rc.N ->` unsuffixed stable.
+- **build** — a running counter carried as the **trailing pre-release identifier**, so it ticks
+  every build without disturbing semver ordering (the stage token is compared first).
+
+Each feature set opens a new minor and runs its own ladder; features never land inside a hardening
+ladder — a stabilizing release takes only patch-level fixes. Mila is pre-1.0, so any release may
+carry breaking changes: `0.20.0` "production" means validated and polished, **not** API-frozen. An
+API-stability promise is a separate, deliberate `1.0.0` decision, intentionally deferred.
+
+**Why the build counter sits in the pre-release tail.** Everything before the dash is the *target
+release*, which must not move every build — so a free-running counter cannot live in the patch slot
+while an `-alpha.N` tag is present. Semver compares pre-release identifiers left-to-right, so the
+stage dominates (`alpha.6.99 < beta.1.100`) and the build ticks cleanly within a stage
+(`alpha.6.53 < alpha.6.54`). This keeps a milestone-tied stage *and* a ticking counter, both
+semver-correct.
+
+**The `0.13 -> 0.20` jump.** The minor jumps to mark the production tier, and the jump lands now:
+the current pre-releases rebase onto the `0.20.0` target. This stays forward in semver
+(`0.20.0-… > 0.13.46-…`, minor compared first), keeping the timeline monotonic past already-published
+tags like `v0.13.46-alpha.5` — which is why the target is `0.20.0` and not `0.13.0` (the latter would
+sort *below* what is already released).
+
+| Stage | Meaning | Example |
+|---|---|---|
+| `alpha.N` | features still landing; unstable | `0.20.0-alpha.6.53` (now) |
+| `beta.N` | feature-frozen; hardening only | `0.20.0-beta.1.N` |
+| `rc.N` | release candidate | `0.20.0-rc.1.N` |
+| _(none)_ | production-tagged | `0.20.0` |
+
+**`Version.txt`** at the repo root is the single source of truth. It feeds `project(VERSION ...)`
+(the numeric triple) and the prerelease label separately; see `cmake/MilaVersion.cmake` — which must
+parse the `-stage.N.build` tail (the new `.build` segment is the change from the old `-alpha.5`
+form). `Version.txt` is bumped **before committing** — every commit carries the version it
+introduces — so the tag `vX.Y.Z-stage.N.build` always points at a tree whose `Version.txt` matches
+it, and a consumer fetching that tag gets a Mila that reports that exact version.
+
+---
+
+## The roadmap: releases, milestones, Future Directions
+
+The ROADMAP shows **two production releases at a time** — the one in flight (top) and the one after
+(**vNext**) — plus a non-tracked **Future Directions** tail.
+
+- **Current release** — a pinned version, a *Committed* Release Date, and an eventual git tag.
+  Reached through one or more **milestones**.
+- **vNext** — identified by **theme, not version**; a target *range*, no tag. Its version, date, and
+  tag crystallize when it promotes to Current.
+- **Future Directions** — uncommitted vision; no milestone, no date.
+
+A **milestone** is a step inside a release box. Because the milestones of a box share its version,
+they are distinguished by **stage**, not version.
+
+---
+
+## Milestones <-> GitHub Milestones
+
+Every milestone maps **1:1 to a GitHub Milestone**. The GitHub Milestone title uses the form
+**`Release v<version>, <Stage> - <phrase>`** — release version, stage, short phrase — so it is
+readable and self-locating in GitHub's flat namespace:
+
+- `Release v0.20.0, Alpha.6 - Consolidation`
+- `Release v0.20.0, Beta - Production Hardening` — the **single** hardening milestone; `beta.N` and
+  `rc.N` are *tags* cut from it as it converges, **not** separate milestones (only the build counter
+  and the tag iteration move; the milestone does not split)
+- `vNext - Qwen 3` — the exception: no version yet, so no `Release v…` prefix; it is renamed to the
+  full form when it promotes to Current
+
+User issues (bugs, feature requests) are filed against the milestone they belong to.
+
+---
+
+## Dates and progress
+
+**Milestones are dateless.** With no date, **task completion is the progress metric**: each
+milestone's `- [ ]` checklist in the ROADMAP is its GitHub Issue set (one box ~ one Issue), so
+GitHub's milestone progress bar (closed / total) shows how far along it is. The milestone is done
+when the boxes are checked.
+
+**Releases carry a Release Date**, following a 3-tier precision rule (GitHub's date field drives
+"overdue" styling, so only populate it when you will be held to it):
+
+| Tier | Release Date | GitHub date fields | Applies to |
+|---|---|---|---|
+| **Committed** | exact date | milestone fields stay empty; the date is the release/tag target | the Current release |
+| **Target** | a range in prose ("H2 2026") | empty | vNext |
+| **Unscheduled** | "Unscheduled" | none | Future Directions |
+
+(If a GitHub-visible date is ever wanted, mirror the Committed Release Date onto the *terminal*
+milestone's due date, since its completion is the release. Default is to leave milestone date fields
+empty and let the progress bar carry the signal.)
+
+---
+
+## Roadmap lifecycle and promotion
+
+Status is encoded by **position** (Current is at the top of the ROADMAP) and **GitHub open/closed**
+— there is no "Current/Planned" label. *Open* means on-the-board-and-unshipped; future milestones
+are created **open** up front so issues can be filed against them before work starts.
+
+When the Current release ships, four things happen together (one event, kept mutually consistent in
+the same commit — the same rule that binds ROADMAP / BACKLOG / CHANGELOG):
+
+1. its prose moves to [CHANGELOG.md](CHANGELOG.md);
+2. its box is **deleted** from the ROADMAP;
+3. its GitHub Milestones **close**;
+4. **vNext promotes to Current** — acquiring a version number, a Committed Release Date, and a tag
+   target — and a new vNext is drawn from Future Directions.
+
+The ROADMAP therefore always shows exactly two release boxes plus Future Directions; it never
+sprawls.
+
+---
+
+## Labels
+
+Labels carry what milestones cannot:
+
+- `release:<version>` — *(optional)* unions the milestones of a multi-milestone release box (e.g.
+  `release:0.20` over its alpha + beta milestones) into one filter. Only earns its keep when a box
+  spans more than one milestone; vNext (single milestone, no version) gets none until it grows one.
+- `future` — the GitHub home for Future-Directions issues that have no milestone.
+- `bug` / `feature` / `good first issue` and `area:*` — orthogonal type/area classification.
+
+**Discipline:** never add a label that merely restates an issue's Milestone field — that is the
+double-bookkeeping the work-tracking model exists to avoid.
 
 ---
 

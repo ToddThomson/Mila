@@ -559,10 +559,6 @@ namespace Mila::Dnn::Compute
                     }
                 }
             }
-
-            // DEBUG: Print pre-attention scores and dPreatt tensors
-            /*std::cout << "Computed gradient dPreatt" << std::endl;
-            std::cout << dpreatt_tensor_->toString( true ) << std::endl;*/
         }
 
         void computeGradientQ() const

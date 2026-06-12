@@ -187,12 +187,6 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
                 // Ensure cache is ready before any op can use it.
                 context_->synchronize(); 
-
-                // DEBUG:
-                //std::cout << "CudaRopeOp::build: cache built for max_seq_len=" << config_.getMaxSequenceLength()
-                //    << ", head_dim=" << config_.getHeadDim() << ", base=" << config_.getBase() << "\n";
-                //std::cout << "Cache size (bytes): " << ( cache_bytes * 2 ) << "\n";
-                // END DEBUG
             }
 
             this->is_built_ = true;

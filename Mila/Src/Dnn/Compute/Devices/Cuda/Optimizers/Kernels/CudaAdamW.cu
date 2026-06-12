@@ -1,3 +1,11 @@
+// NOTE: Training-only kernel (AdamW optimizer step), off the validated inference path.
+// Reached solely through the parked MNIST/Bard samples; the AdamW.Cuda/.Cpu tests are
+// currently disabled. The per-value isfinite/limit printf guards below are retained debug
+// instrumentation from training bring-up and are deliberately NOT stripped in the Alpha.6
+// inference-consolidation pass -- they belong to the deferred Training work, which will
+// revisit (strip or properly gate) them alongside re-enabling the optimizer tests.
+// See BACKLOG.md, Alpha.6 deferred list: "[deferred, training-only] AdamW debug instrumentation".
+
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
