@@ -1,3 +1,6 @@
+// RETIRED (Alpha.6): superseded fused-component experiment; a proper fused-op design is a
+// vNext++ concern. Removed from the build, retained on disk for reference. See ROADMAP/BACKLOG.
+
 module;
 #include <memory>
 #include <vector>

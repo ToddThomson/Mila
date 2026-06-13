@@ -1,551 +1,266 @@
 /**
  * @file Gelu.Cpu.cpp
- * @brief Unit tests for GELU activation module on CPU device.
+ * @brief Concrete-component tests for Gelu<DeviceType::Cpu, FP32>.
  *
- * Verifies basic API, forward/backward invocation, config, and constructor
- * behavior for the CPU-specialized Gelu module.
+ * Reference instance of the concrete-component test archetype (see
+ * Specifications/Testing.md). Tests only the Gelu DELTA over the Component base
+ * contract: GELU-specific construction/validation, the build->forward->backward
+ * path, the GELU numeric reference, and the stateless parameter contract. It
+ * does NOT re-test the inherited base machinery — that is covered once in
+ * Core/Component.cpp.
+ *
+ * CPU device, so this rides the MILA_ENABLE_CUDA=OFF CI gate. CUDA-instantiation
+ * tests belong in Gelu.Cuda.cpp.
  */
 
 #include <gtest/gtest.h>
+#include <cmath>
 #include <memory>
 #include <vector>
 #include <string>
-#include <cmath>
-#include <cstdint>
 #include <stdexcept>
-#include <algorithm>
 
 import Mila;
 
-namespace Dnn::Components::Activations::Tests
+namespace Mila::Tests::Dnn::Components::Activations::Gelu
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    using MR = CpuMemoryResource;
-    using GeluCpu = Gelu<DeviceType::Cpu, dtype_t::FP32>;
-
-    struct GeluCpuTestData
+    namespace
     {
-        shape_t shape;
-        std::shared_ptr<GeluCpu> gelu;
+        using GeluCpu = Mila::Dnn::Gelu<DeviceType::Cpu, TensorDataType::FP32>;
+        using TensorFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
 
-        static GeluCpuTestData Create(
-            int64_t batch, int64_t seq, int64_t chan )
-        {
-            GeluCpuTestData d;
-            d.shape = { batch, seq, chan };
-
-            GeluConfig config;
-            d.gelu = std::make_shared<GeluCpu>( "gelu", config, Device::Cpu() );
-
-            return d;
-        }
-    };
-
-    class GeluCpuTests : public ::testing::Test
-    {
-    protected:
-        void SetUp() override
-        {
-            batch_ = 2;
-            seq_ = 4;
-            chan_ = 8;
-        }
-
-        void TearDown() override
-        {
-            data_.gelu.reset();
-        }
+        // GELU tanh-approximation reference (the only method GeluConfig supports).
+        // Computed independently of the component under test.
+        constexpr float kSqrt2OverPi = 0.7978845608f;
+        constexpr float kGeluCoeff = 0.044715f;
 
         float geluReference( float x )
         {
-            constexpr float sqrt_2_over_pi = 0.7978845608f;
-            constexpr float coeff = 0.044715f;
-            float x_cubed = x * x * x;
-            float tanh_arg = sqrt_2_over_pi * (x + coeff * x_cubed);
+            const float x_cubed = x * x * x;
 
-            return 0.5f * x * (1.0f + std::tanh( tanh_arg ));
+            return 0.5f * x * (1.0f + std::tanh( kSqrt2OverPi * (x + kGeluCoeff * x_cubed) ));
         }
 
         float geluGradientReference( float x )
         {
-            constexpr float sqrt_2_over_pi = 0.7978845608f;
-            constexpr float coeff = 0.044715f;
+            const float x_squared = x * x;
+            const float arg = kSqrt2OverPi * (x + kGeluCoeff * x * x_squared);
+            const float tanh_value = std::tanh( arg );
+            const float sech_squared = 1.0f - tanh_value * tanh_value;
+            const float d_arg = kSqrt2OverPi * (1.0f + 3.0f * kGeluCoeff * x_squared);
 
-            float x_squared = x * x;
-            float x_cubed = x * x_squared;
-
-            float tanh_arg = sqrt_2_over_pi * (x + coeff * x_cubed);
-            float tanh_val = std::tanh( tanh_arg );
-            float sech_squared = 1.0f - tanh_val * tanh_val;
-
-            float d_tanh_arg = sqrt_2_over_pi * (1.0f + 3.0f * coeff * x_squared);
-
-            return 0.5f * (1.0f + tanh_val) + 0.5f * x * sech_squared * d_tanh_arg;
+            return 0.5f * (1.0f + tanh_value) + 0.5f * x * sech_squared * d_arg;
         }
 
-        dim_t batch_{ 0 }, seq_{ 0 }, chan_{ 0 };
-        GeluCpuTestData data_;
+        static_assert( GeluCpu::getDeviceType() == DeviceType::Cpu );
+        static_assert( GeluCpu::getPrecision() == TensorDataType::FP32 );
+    }
+
+    class GeluCpuTests : public ::testing::Test
+    {
+    protected:
+        // Standalone Gelu (owns its CPU execution context), built in the given mode.
+        std::unique_ptr<GeluCpu> builtGelu( const shape_t& shape, RuntimeMode mode )
+        {
+            auto gelu = std::make_unique<GeluCpu>( "gelu", GeluConfig(), Device::Cpu() );
+            gelu->build( BuildContext( shape, mode ) );
+
+            return gelu;
+        }
+
+        // Fill a tensor with a deterministic spread across roughly [-2, 2].
+        static void fillSpread( TensorFp32& t )
+        {
+            auto* data = t.data();
+
+            for ( size_t i = 0; i < t.size(); ++i )
+            {
+                data[ i ] = static_cast<float>( i ) / t.size() * 4.0f - 2.0f;
+            }
+        }
     };
 
-    // ========================================================================
-    // Construction Tests
-    // ========================================================================
+    // ====================================================================
+    // A. Construction & Validation
+    // ====================================================================
 
-    TEST_F( GeluCpuTests, Construct_WithDeviceId_ThrowsWhenOpNotRegistered )
+    TEST_F( GeluCpuTests, Construct_StandaloneSucceeds )
     {
-        DeviceId cpu_id = Device::Cpu();
+        GeluCpu gelu( "gelu", GeluConfig(), Device::Cpu() );
 
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
-        {
-            EXPECT_THROW(
-                GeluCpu( "gelu", GeluConfig(), cpu_id ),
-                std::runtime_error
-            );
-        }
-        else
-        {
-            EXPECT_NO_THROW(
-                GeluCpu( "gelu", GeluConfig(), cpu_id )
-            );
-        }
+        EXPECT_EQ( gelu.getApproximationMethod(), ApproximationMethod::Tanh );
+        EXPECT_EQ( gelu.getDeviceId().type, DeviceType::Cpu );
     }
 
-    TEST_F( GeluCpuTests, Constructor_NoDeviceId_GetDeviceIdThrows )
+    TEST_F( GeluCpuTests, Construct_InvalidConfigThrows )
     {
-        GeluConfig cfg;
-        GeluCpu gelu( "gelu", cfg );
+        // GeluConfig only supports Tanh; Exact must fail validation in the ctor.
+        GeluConfig bad = GeluConfig().withApproximationMethod( ApproximationMethod::Exact );
 
-        EXPECT_THROW(
-            gelu.getDeviceId(),
-            std::runtime_error
-        );
+        EXPECT_THROW( GeluCpu( "gelu", bad, Device::Cpu() ), std::invalid_argument );
     }
 
-    TEST_F( GeluCpuTests, Constructor_InvalidConfig_ThrowsInvalidArgument )
+    TEST_F( GeluCpuTests, Construct_DeviceTypeMismatchThrows )
     {
-        GeluConfig bad_cfg = GeluConfig().withApproximationMethod( ApproximationMethod::Exact );
-
-        EXPECT_THROW(
-            GeluCpu( "gelu", bad_cfg, Device::Cpu() ),
-            std::invalid_argument
-        );
+        // A CUDA DeviceId on a CPU-typed component is rejected before any device
+        // work, so this is safe on a host without a GPU.
+        EXPECT_THROW( GeluCpu( "gelu", GeluConfig(), Device::Cuda( 0 ) ), std::invalid_argument );
     }
 
-    TEST_F( GeluCpuTests, Constructor_DeviceTypeMismatch_ThrowsInvalidArgument )
-    {
-        DeviceId cuda_id = Device::Cuda( 0 );
+    // ====================================================================
+    // B. Build Lifecycle (Gelu preconditions)
+    // ====================================================================
 
-        EXPECT_THROW(
-            GeluCpu( "gelu", GeluConfig(), cuda_id ),
-            std::invalid_argument
-        );
+    TEST_F( GeluCpuTests, Forward_ThrowsBeforeBuild )
+    {
+        GeluCpu gelu( "gelu", GeluConfig(), Device::Cpu() );
+        TensorFp32 input( Device::Cpu(), shape_t{ 2, 4 } );
+
+        EXPECT_THROW( gelu.forward( input ), std::runtime_error );
     }
 
-    // ========================================================================
-    // Forward Pass Tests
-    // ========================================================================
-
-    TEST_F( GeluCpuTests, Forward_BehaviorDependsOnRegistration )
+    TEST_F( GeluCpuTests, Backward_ThrowsBeforeBuild )
     {
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
-        {
-            DeviceId cpu_id = Device::Cpu();
-            EXPECT_THROW(
-                GeluCpu( "gelu", GeluConfig(), cpu_id ),
-                std::runtime_error
-            );
-            return;
-        }
+        GeluCpu gelu( "gelu", GeluConfig(), Device::Cpu() );
+        TensorFp32 input( Device::Cpu(), shape_t{ 2, 4 } );
+        TensorFp32 output_grad( Device::Cpu(), shape_t{ 2, 4 } );
 
-        auto d = GeluCpuTestData::Create( batch_, seq_, chan_ );
-        auto device = d.gelu->getDeviceId();
+        EXPECT_THROW( gelu.backward( input, output_grad ), std::runtime_error );
+    }
 
-        Tensor<dtype_t::FP32, MR> input( device, d.shape );
+    // ====================================================================
+    // E. Forward (numeric vs reference)
+    // ====================================================================
+
+    TEST_F( GeluCpuTests, Forward_MatchesReference )
+    {
+        const shape_t shape{ 2, 3, 4 };
+        auto gelu = builtGelu( shape, RuntimeMode::Inference );
+
+        TensorFp32 input( Device::Cpu(), shape );
+        fillSpread( input );
+
+        auto& output = gelu->forward( input );
+
+        ASSERT_EQ( output.size(), input.size() );
+
+        constexpr float tolerance = 1e-4f;
 
         for ( size_t i = 0; i < input.size(); ++i )
         {
-            input.data()[ i ] = static_cast<float>( i ) / input.size() * 4.0f - 2.0f;
-        }
+            const float expected = geluReference( input.data()[ i ] );
 
-        d.gelu->build( d.shape );
-
-        auto& out = d.gelu->forward( input );
-
-        EXPECT_EQ( out.size(), input.size() );
-    }
-
-    TEST_F( GeluCpuTests, Forward_OutputMatchesReference )
-    {
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
-        {
-            GTEST_SKIP() << "GeluOp not registered for CPU FP32";
-        }
-
-        DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
-
-        shape_t shape = { 2, 3, 4 };
-
-        Tensor<dtype_t::FP32, MR> input( device_id, shape );
-
-        for ( size_t i = 0; i < input.size(); ++i )
-        {
-            input.data()[ i ] = static_cast<float>( i ) / input.size() * 4.0f - 2.0f;
-        }
-
-        gelu->build( shape );
-
-        auto& out = gelu->forward( input );
-
-        const float tolerance = 1e-4f;
-
-        for ( size_t i = 0; i < input.size(); ++i )
-        {
-            float input_val = input.data()[ i ];
-            float expected = geluReference( input_val );
-            float actual = out.data()[ i ];
-            float diff = std::abs( expected - actual );
-
-            EXPECT_LT( diff, tolerance )
-                << "Forward mismatch at index " << i
-                << ": input=" << input_val
-                << ", expected=" << expected
-                << ", actual=" << actual;
+            EXPECT_NEAR( output.data()[ i ], expected, tolerance )
+                << "forward mismatch at index " << i << " input=" << input.data()[ i ];
         }
     }
 
-    // ========================================================================
-    // Backward Pass Tests
-    // ========================================================================
+    // ====================================================================
+    // F. Backward (numeric vs analytic gradient)
+    // ====================================================================
 
-    TEST_F( GeluCpuTests, Backward_ExecutesWithoutError )
+    TEST_F( GeluCpuTests, Backward_MatchesGradientReference )
     {
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
+        const shape_t shape{ 2, 3, 4 };
+
+        // Training build allocates the input-gradient buffer the backward pass needs.
+        auto gelu = builtGelu( shape, RuntimeMode::Training );
+
+        TensorFp32 input( Device::Cpu(), shape );
+        TensorFp32 output_grad( Device::Cpu(), shape );
+        fillSpread( input );
+
+        for ( size_t i = 0; i < output_grad.size(); ++i )
         {
-            GTEST_SKIP() << "GeluOp not registered for CPU FP32";
-        }
-
-        DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
-
-        shape_t shape = { 2, 4, 8 };
-
-        Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
-
-        for ( size_t i = 0; i < input.size(); ++i )
-        {
-            input.data()[ i ] = static_cast<float>( i ) / input.size() * 4.0f - 2.0f;
             output_grad.data()[ i ] = 1.0f;
         }
 
-        gelu->build( shape );
-        gelu->setTraining( true );
         gelu->forward( input );
+        auto& input_grad = gelu->backward( input, output_grad );
 
-        auto& in_grad = gelu->backward( input, output_grad );
+        ASSERT_EQ( input_grad.size(), input.size() );
 
-        (void)in_grad; // silence unused-variable in release builds
-    }
-
-    TEST_F( GeluCpuTests, Backward_ProducesCorrectShape )
-    {
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
-        {
-            GTEST_SKIP() << "GeluOp not registered for CPU FP32";
-        }
-
-        DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
-
-        shape_t shape = { 3, 5, 7 };
-
-        Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
-
-        gelu->build( shape );
-        gelu->setTraining( true );
-        gelu->forward( input );
-
-        auto& in_grad = gelu->backward( input, output_grad );
-
-        EXPECT_EQ( in_grad.shape(), input.shape() );
-        EXPECT_EQ( in_grad.size(), input.size() );
-    }
-
-    TEST_F( GeluCpuTests, Backward_GradientsMatchReference )
-    {
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
-        {
-            GTEST_SKIP() << "GeluOp not registered for CPU FP32";
-        }
-
-        DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
-
-        shape_t shape = { 2, 3, 4 };
-
-        Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
+        constexpr float tolerance = 1e-3f;
 
         for ( size_t i = 0; i < input.size(); ++i )
         {
-            input.data()[ i ] = static_cast<float>( i ) / input.size() * 4.0f - 2.0f;
-            output_grad.data()[ i ] = 1.0f;
-        }
+            const float expected = geluGradientReference( input.data()[ i ] ) * output_grad.data()[ i ];
 
-        gelu->build( shape );
-        gelu->setTraining( true );
-        gelu->forward( input );
-
-        auto& in_grad = gelu->backward( input, output_grad );
-
-        const float tolerance = 1e-3f;
-
-        for ( size_t i = 0; i < input.size(); ++i )
-        {
-            float x = input.data()[ i ];
-            float grad_out = output_grad.data()[ i ];
-            float expected = geluGradientReference( x ) * grad_out;
-            float actual = in_grad.data()[ i ];
-            float diff = std::abs( expected - actual );
-
-            EXPECT_LT( diff, tolerance )
-                << "Backward gradient mismatch at index " << i
-                << ": input=" << x
-                << ", expected=" << expected
-                << ", actual=" << actual;
+            EXPECT_NEAR( input_grad.data()[ i ], expected, tolerance )
+                << "backward mismatch at index " << i << " input=" << input.data()[ i ];
         }
     }
 
-    TEST_F( GeluCpuTests, Backward_ChainRuleWithNonUniformGradients )
+    TEST_F( GeluCpuTests, Backward_ChainsNonUniformOutputGradient )
     {
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
+        const shape_t shape{ 2, 3, 4 };
+        auto gelu = builtGelu( shape, RuntimeMode::Training );
+
+        TensorFp32 input( Device::Cpu(), shape );
+        TensorFp32 output_grad( Device::Cpu(), shape );
+        fillSpread( input );
+
+        for ( size_t i = 0; i < output_grad.size(); ++i )
         {
-            GTEST_SKIP() << "GeluOp not registered for CPU FP32";
-        }
-
-        DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
-
-        shape_t shape = { 2, 3, 4 };
-
-        Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
-
-        for ( size_t i = 0; i < input.size(); ++i )
-        {
-            input.data()[ i ] = static_cast<float>( i ) / input.size() * 4.0f - 2.0f;
             output_grad.data()[ i ] = static_cast<float>( i + 1 ) * 0.1f;
         }
 
-        gelu->build( shape );
-        gelu->setTraining( true );
         gelu->forward( input );
+        auto& input_grad = gelu->backward( input, output_grad );
 
-        auto& in_grad = gelu->backward( input, output_grad );
-
-        const float tolerance = 1e-3f;
+        constexpr float tolerance = 1e-3f;
 
         for ( size_t i = 0; i < input.size(); ++i )
         {
-            float x = input.data()[ i ];
-            float grad_out = output_grad.data()[ i ];
-            float expected = geluGradientReference( x ) * grad_out;
-            float actual = in_grad.data()[ i ];
-            float diff = std::abs( expected - actual );
+            const float expected = geluGradientReference( input.data()[ i ] ) * output_grad.data()[ i ];
 
-            EXPECT_LT( diff, tolerance )
-                << "Chain rule gradient mismatch at index " << i;
+            EXPECT_NEAR( input_grad.data()[ i ], expected, tolerance )
+                << "chain-rule mismatch at index " << i;
         }
     }
 
-    TEST_F( GeluCpuTests, Backward_HandlesZeroOutputGradient )
+    // ====================================================================
+    // G. Parameters & Gradients (Gelu is stateless)
+    // ====================================================================
+
+    TEST_F( GeluCpuTests, Parameters_AreEmpty )
     {
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
-        {
-            GTEST_SKIP() << "GeluOp not registered for CPU FP32";
-        }
+        auto gelu = builtGelu( shape_t{ 2, 4 }, RuntimeMode::Inference );
 
-        DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
-
-        shape_t shape = { 2, 3, 4 };
-
-        Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
-
-        for ( size_t i = 0; i < input.size(); ++i )
-        {
-            input.data()[ i ] = static_cast<float>( i ) / input.size() * 2.0f;
-            output_grad.data()[ i ] = 0.0f;
-        }
-
-        gelu->build( shape );
-        gelu->setTraining( true );
-        gelu->forward( input );
-
-        auto& in_grad = gelu->backward( input, output_grad );
-
-        for ( size_t i = 0; i < in_grad.size(); ++i )
-        {
-            EXPECT_FLOAT_EQ( in_grad.data()[ i ], 0.0f )
-                << "Expected zero gradient at index " << i;
-        }
+        EXPECT_EQ( gelu->parameterCount(), 0u );
+        EXPECT_TRUE( gelu->getParameters().empty() );
+        EXPECT_TRUE( gelu->getGradients().empty() );
     }
 
-    TEST_F( GeluCpuTests, Backward_HandlesEdgeCaseInputs )
+    // H. Serialization (save_/round-trip) — deferred to the serialization pass;
+    // requires a ModelArchive fixture. GeluConfig metadata round-trip is covered
+    // in GeluConfig.cpp.
+
+    // ====================================================================
+    // I. Diagnostics
+    // ====================================================================
+
+    TEST_F( GeluCpuTests, ToString_NamesComponent )
     {
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
-        {
-            GTEST_SKIP() << "GeluOp not registered for CPU FP32";
-        }
+        GeluCpu gelu( "my_gelu", GeluConfig(), Device::Cpu() );
 
-        DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
+        const std::string text = gelu.toString();
 
-        shape_t shape = { 1, 8 };
-
-        Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
-
-        std::vector<float> test_values = { -10.0f, -1.0f, -0.1f, 0.0f, 0.1f, 1.0f, 10.0f, 100.0f };
-
-        for ( size_t i = 0; i < test_values.size(); ++i )
-        {
-            input.data()[ i ] = test_values[ i ];
-            output_grad.data()[ i ] = 1.0f;
-        }
-
-        gelu->build( shape );
-        gelu->setTraining( true );
-
-        EXPECT_NO_THROW( gelu->forward( input ) );
-
-        auto& in_grad = gelu->backward( input, output_grad );
-
-        for ( size_t i = 0; i < in_grad.size(); ++i )
-        {
-            EXPECT_FALSE( std::isnan( in_grad.data()[ i ] ) )
-                << "NaN gradient at index " << i << " for input " << test_values[ i ];
-            EXPECT_FALSE( std::isinf( in_grad.data()[ i ] ) )
-                << "Inf gradient at index " << i << " for input " << test_values[ i ];
-        }
+        EXPECT_NE( text.find( "Gelu" ), std::string::npos );
+        EXPECT_NE( text.find( "my_gelu" ), std::string::npos );
     }
 
-    TEST_F( GeluCpuTests, Backward_ThrowsWhenNotBuilt )
+    // ====================================================================
+    // J. Type identity
+    // ====================================================================
+
+    TEST_F( GeluCpuTests, GetType_IsGelu )
     {
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
-        {
-            GTEST_SKIP() << "GeluOp not registered for CPU FP32";
-        }
+        GeluCpu gelu( "gelu", GeluConfig(), Device::Cpu() );
 
-        DeviceId device_id = Device::Cpu();
-        auto gelu = std::make_shared<GeluCpu>( "gelu", GeluConfig(), device_id );
-
-        shape_t shape = { 2, 3 };
-
-        Tensor<dtype_t::FP32, MR> input( device_id, shape );
-        Tensor<dtype_t::FP32, MR> output_grad( device_id, shape );
-
-        EXPECT_THROW( gelu->backward( input, output_grad ), std::runtime_error );
-    }
-
-    // ========================================================================
-    // Metadata and Configuration Tests
-    // ========================================================================
-
-    TEST_F( GeluCpuTests, ToString_ContainsGeluOrConstructorThrows )
-    {
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
-        {
-            DeviceId cpu_id = Device::Cpu();
-            EXPECT_THROW(
-                GeluCpu( "gelu", GeluConfig(), cpu_id ),
-                std::runtime_error
-            );
-            return;
-        }
-
-        auto d = GeluCpuTestData::Create( batch_, seq_, chan_ );
-        auto s = d.gelu->toString();
-
-        EXPECT_FALSE( s.empty() );
-        EXPECT_NE( s.find( "Gelu" ), std::string::npos );
-    }
-
-    TEST_F( GeluCpuTests, DefaultApproximationMethod_IsTanhOrConstructorThrows )
-    {
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
-        {
-            DeviceId cpu_id = Device::Cpu();
-            EXPECT_THROW(
-                GeluCpu( "gelu", GeluConfig(), cpu_id ),
-                std::runtime_error
-            );
-            return;
-        }
-
-        auto d = GeluCpuTestData::Create( batch_, seq_, chan_ );
-
-        EXPECT_EQ( d.gelu->getApproximationMethod(), ApproximationMethod::Tanh );
-    }
-
-    TEST_F( GeluCpuTests, DeviceId_DeviceTypeMatchesOrConstructorThrows )
-    {
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
-        {
-            DeviceId cpu_id = Device::Cpu();
-            EXPECT_THROW(
-                GeluCpu( "gelu", GeluConfig(), cpu_id ),
-                std::runtime_error
-            );
-            return;
-        }
-
-        auto d = GeluCpuTestData::Create( batch_, seq_, chan_ );
-        auto dev = d.gelu->getDeviceId();
-
-        EXPECT_EQ( dev.type, DeviceType::Cpu );
-    }
-
-    TEST_F( GeluCpuTests, Construct_WithDeviceId_WorksOrThrows )
-    {
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
-        {
-            EXPECT_THROW(
-                GeluCpu( "gelu", GeluConfig(), Device::Cpu() ),
-                std::runtime_error
-            );
-
-            return;
-        }
-
-        auto d = GeluCpuTestData::Create( batch_, seq_, chan_ );
-
-        EXPECT_EQ( d.gelu->getDeviceId().type, DeviceType::Cpu );
-    }
-
-    TEST_F( GeluCpuTests, Synchronize_ParameterCount_SetTraining )
-    {
-        if ( !isOperationRegistered<DeviceType::Cpu, dtype_t::FP32>( "GeluOp" ) )
-        {
-            GTEST_SKIP() << "GeluOp not registered for CPU FP32";
-        }
-
-        auto d = GeluCpuTestData::Create( batch_, seq_, chan_ );
-        d.gelu->build( d.shape );
-
-        EXPECT_NO_THROW( d.gelu->synchronize() );
-
-        EXPECT_EQ( d.gelu->parameterCount(), 0u );
-
-        d.gelu->setTraining( true );
-        EXPECT_TRUE( d.gelu->isTraining() );
-
-        d.gelu->setTraining( false );
-        EXPECT_FALSE( d.gelu->isTraining() );
+        EXPECT_EQ( gelu.getType(), ComponentType::Gelu );
     }
 }

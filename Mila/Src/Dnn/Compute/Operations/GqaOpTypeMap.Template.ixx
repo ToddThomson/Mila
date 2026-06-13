@@ -1,3 +1,6 @@
+// RETIRED (Alpha.6): superseded by compile-time OperationTraits dispatch (Compute.OperationTraits);
+// removed from the build, retained on disk for reference. See ROADMAP/BACKLOG Alpha.6 dispatch close-out.
+
 /**
  * @file GqaOpDispatch.Template.ixx
  * @brief Compile-time dispatch mapping (DeviceType, TComputePrecision, TWeight) to the 
@@ -18,7 +21,7 @@
 //     * @brief Primary traits template for GQA operation dispatch.
 //     *
 //     * Specializations must provide a nested `type` alias naming the concrete op class.
-//     * An unspecialized instantiation is a hard compile error — the correct diagnostic
+//     * An unspecialized instantiation is a hard compile error ï¿½ the correct diagnostic
 //     * for an unsupported (DeviceType, TComputePrecision, TKvCache) combination.
 //     *
 //     * @tparam TDeviceType  Target device.

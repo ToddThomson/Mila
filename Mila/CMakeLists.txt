@@ -209,9 +209,8 @@ PUBLIC
         "Src/Dnn/Components/Losses/SoftmaxCrossEntropy.ixx"
         "Src/Dnn/Components/Losses/CrossEntropyConfig.ixx"
         
-        #"Src/Dnn/Components/Regularization/Dropout.ixx"
-        #"Src/Dnn/Components/Regularization/DropoutConfig.ixx"
-        
+        # Dropout parked at Dev/Components/Regularization/ pending Alpha.8 re-authoring (see BACKLOG).
+
         "Src/Dnn/Components/FFN/MLP.ixx"
         "Src/Dnn/Components/FFN/MLP.Config.ixx"
         "Src/Dnn/Components/FFN/MLP.Dispatch.ixx"

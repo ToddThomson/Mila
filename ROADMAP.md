@@ -48,9 +48,8 @@ the test and training revivals depend on**: the `CompositeComponent`/`setTrainin
 work properly — not re-stubbing it — makes the tree training-ready as an honest byproduct of
 consolidation.
 
-- [ ] OperationTraits close-out — CPU Linear traits specialization (retires the last `CpuLinearOpTypeMap` holdout)
-- [ ] OperationTraits close-out — migrate `Dropout` to a `DropoutOp` specialization and re-enable it
-- [ ] OperationTraits close-out — physically delete the retired registry / registrar / typemap / arity-base files
+- [x] OperationTraits close-out — CPU Linear traits specialization live; the `CpuLinearOpTypeMap` holdout retired (out of build + `RETIRED` banner)
+- [~] OperationTraits close-out — retire the legacy dispatch files in place (out of build + `RETIRED` banner, not deleted): done for the Linear/Gqa typemaps, registry/registrar helpers, `OperationsRegistrar`, `FusedComponent`; `OperationRegistry` + the arity bases remain until the Alpha.8 loss-path re-authoring (still referenced by the disabled CrossEntropy/fused ops kept in `Src`). `Dropout` parked at `Dev/Components/Regularization/`; its `DropoutOp` re-authoring moves to Alpha.8 — training-only, net-new op work outside this freeze
 - [ ] FIXME/TODO burndown — backward-pass stubs (bucket D)
 - [ ] FIXME/TODO burndown — training-lifecycle `isTraining()` demotes (bucket E; the `CompositeComponent` setTraining/build bug — the revival linchpin)
 - [ ] FIXME/TODO burndown — design `REVIEW` notes (bucket G)
@@ -134,7 +133,7 @@ from `master`.
 
 GPU-first: the CUDA backend is the validated inference path (HuggingFace is the correctness oracle);
 full CPU op parity is not a gate. Engineering detail (packaging, module hygiene, public-API
-narrowing, CI) lives in [BACKLOG.md](BACKLOG.md).
+narrowing, dispatch diagnostics, CI) lives in [BACKLOG.md](BACKLOG.md).
 
 ---
 

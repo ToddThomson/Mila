@@ -1,3 +1,6 @@
+// RETIRED (Alpha.6): the runtime OperationRegistry dispatch is superseded by compile-time
+// OperationTraits. Removed from the build, retained on disk for reference. See ROADMAP/BACKLOG Alpha.6.
+
 /**
  * @file OperationRegistryHelpers.ixx
  * @brief Compile-time templated helpers for querying the OperationRegistry.

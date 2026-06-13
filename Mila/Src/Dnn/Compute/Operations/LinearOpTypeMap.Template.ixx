@@ -1,3 +1,6 @@
+// RETIRED (Alpha.6): superseded by compile-time OperationTraits dispatch (Compute.OperationTraits);
+// removed from the build, retained on disk for reference. See ROADMAP/BACKLOG Alpha.6 dispatch close-out.
+
 /**
  * @file LinearOpTypeMap.Template.ixx
  * @brief Primary compile-time dispatch template mapping (DeviceType, TPrecision, TWeightQuant)
@@ -21,7 +24,7 @@
 //     *
 //     * Each specialization must provide a nested `op_type` alias naming the concrete op class
 //     * for the given (DeviceType, compute precision, weight quantization policy) combination.
-//     * An unspecialized instantiation is a hard compile error — the correct diagnostic for an
+//     * An unspecialized instantiation is a hard compile error ï¿½ the correct diagnostic for an
 //     * unsupported combination.
 //     *
 //     * @tparam TDeviceType   Target device.

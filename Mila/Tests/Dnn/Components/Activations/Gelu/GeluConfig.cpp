@@ -1,164 +1,171 @@
+/**
+ * @file GeluConfig.cpp
+ * @brief Config-archetype tests for GeluConfig.
+ *
+ * Reference instance of the config test archetype (see Specifications/Testing.md):
+ * defaults, fluent setters, validation, and the metadata round-trip. No
+ * forward/backward — that is the concrete-component archetype (Gelu.Cpu.cpp).
+ */
+
 #include <gtest/gtest.h>
-#include <memory>
+#include <string>
 #include <stdexcept>
 
 import Mila;
 
-namespace Dnn::Components::Activations::Tests
+namespace Mila::Tests::Dnn::Components::Activations::Gelu
 {
     using namespace Mila::Dnn;
-    using namespace Mila::Dnn::Compute;
     using Mila::Dnn::Serialization::SerializationMetadata;
 
-    class GeluConfigTests : public ::testing::Test {
-    protected:
-        void SetUp() override {
-            // GeluConfig uses default initialization
-        }
+    class GeluConfigTests : public ::testing::Test
+    {
     };
 
-    TEST_F( GeluConfigTests, DefaultConstructor ) {
+    // ====================================================================
+    // A. Construction & Defaults
+    // ====================================================================
+
+    TEST_F( GeluConfigTests, Default_IsTanh )
+    {
         GeluConfig config;
+
         EXPECT_EQ( config.getApproximationMethod(), ApproximationMethod::Tanh );
     }
 
-    TEST_F( GeluConfigTests, SetApproximationMethod_Tanh ) {
-        GeluConfig config;
-        auto&& result = config.withApproximationMethod( ApproximationMethod::Tanh );
-
-        EXPECT_EQ( config.getApproximationMethod(), ApproximationMethod::Tanh );
-        EXPECT_EQ( &result, &config );
+    TEST_F( GeluConfigTests, EnumValues_AreStable )
+    {
+        // The numeric values are part of the serialized wire format.
+        EXPECT_EQ( static_cast<int>( ApproximationMethod::Exact ), 0 );
+        EXPECT_EQ( static_cast<int>( ApproximationMethod::Tanh ), 1 );
+        EXPECT_EQ( static_cast<int>( ApproximationMethod::Sigmoid ), 2 );
     }
 
-    TEST_F( GeluConfigTests, SetApproximationMethod_Exact ) {
+    // ====================================================================
+    // Fluent interface
+    // ====================================================================
+
+    TEST_F( GeluConfigTests, WithApproximationMethod_SetsValue )
+    {
         GeluConfig config;
         config.withApproximationMethod( ApproximationMethod::Exact );
+
         EXPECT_EQ( config.getApproximationMethod(), ApproximationMethod::Exact );
     }
 
-    TEST_F( GeluConfigTests, SetApproximationMethod_Sigmoid ) {
+    TEST_F( GeluConfigTests, WithApproximationMethod_ReturnsSameObjectOnLvalue )
+    {
         GeluConfig config;
-        config.withApproximationMethod( ApproximationMethod::Sigmoid );
-        EXPECT_EQ( config.getApproximationMethod(), ApproximationMethod::Sigmoid );
-    }
-
-    TEST_F( GeluConfigTests, FluentInterfaceChaining ) {
-        GeluConfig config;
-        auto&& result = config.withApproximationMethod( ApproximationMethod::Exact );
+        auto&& result = config.withApproximationMethod( ApproximationMethod::Sigmoid );
 
         EXPECT_EQ( &result, &config );
+    }
+
+    TEST_F( GeluConfigTests, WithApproximationMethod_ChainsOnRvalue )
+    {
+        auto config = GeluConfig().withApproximationMethod( ApproximationMethod::Exact );
+
         EXPECT_EQ( config.getApproximationMethod(), ApproximationMethod::Exact );
     }
 
-    TEST_F( GeluConfigTests, ValidationSuccess_TanhMethod ) {
+    TEST_F( GeluConfigTests, WithApproximationMethod_MultipleCallsTakeLast )
+    {
         GeluConfig config;
+        config.withApproximationMethod( ApproximationMethod::Exact );
         config.withApproximationMethod( ApproximationMethod::Tanh );
+
+        EXPECT_EQ( config.getApproximationMethod(), ApproximationMethod::Tanh );
+    }
+
+    // ====================================================================
+    // A. Validation (only Tanh is currently supported)
+    // ====================================================================
+
+    TEST_F( GeluConfigTests, Validate_PassesForTanh )
+    {
+        GeluConfig config;
 
         EXPECT_NO_THROW( config.validate() );
     }
 
-    TEST_F( GeluConfigTests, ValidationFailure_ExactMethod ) {
+    TEST_F( GeluConfigTests, Validate_ThrowsForExact )
+    {
         GeluConfig config;
         config.withApproximationMethod( ApproximationMethod::Exact );
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
 
-    TEST_F( GeluConfigTests, ValidationFailure_SigmoidMethod ) {
+    TEST_F( GeluConfigTests, Validate_ThrowsForSigmoid )
+    {
         GeluConfig config;
         config.withApproximationMethod( ApproximationMethod::Sigmoid );
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
     }
 
-    TEST_F( GeluConfigTests, ValidationErrorMessage ) {
+    TEST_F( GeluConfigTests, Validate_ErrorMentionsTanh )
+    {
         GeluConfig config;
         config.withApproximationMethod( ApproximationMethod::Exact );
 
-        try {
+        try
+        {
             config.validate();
-            FAIL() << "Expected std::invalid_argument to be thrown";
+            FAIL() << "expected std::invalid_argument";
         }
-        catch ( const std::invalid_argument& e ) {
-            std::string error_msg = e.what();
-            EXPECT_TRUE( error_msg.find( "only the Tanh approximation method is currently supported" ) != std::string::npos );
+        catch ( const std::invalid_argument& e )
+        {
+            EXPECT_NE( std::string( e.what() ).find( "Tanh" ), std::string::npos );
         }
     }
 
-    TEST_F( GeluConfigTests, ConfigurationPersistence ) {
-        GeluConfig config;
-        config.withApproximationMethod( ApproximationMethod::Sigmoid );
+    // ====================================================================
+    // H. Serialization round-trip
+    // ====================================================================
 
-        GeluConfig copied_config = config;
+    TEST_F( GeluConfigTests, Metadata_RoundTripPreservesMethod )
+    {
+        GeluConfig source;
+        source.withApproximationMethod( ApproximationMethod::Sigmoid );
 
-        EXPECT_EQ( copied_config.getApproximationMethod(), ApproximationMethod::Sigmoid );
-    }
-
-    TEST_F( GeluConfigTests, EnumValues ) {
-        EXPECT_EQ( static_cast<int>(ApproximationMethod::Exact), 0 );
-        EXPECT_EQ( static_cast<int>(ApproximationMethod::Tanh), 1 );
-        EXPECT_EQ( static_cast<int>(ApproximationMethod::Sigmoid), 2 );
-    }
-
-    TEST_F( GeluConfigTests, DefaultStateValidation ) {
-        GeluConfig config;
-
-        EXPECT_NO_THROW( config.validate() );
-        EXPECT_EQ( config.getApproximationMethod(), ApproximationMethod::Tanh );
-    }
-
-    TEST_F( GeluConfigTests, MethodChaining ) {
-        GeluConfig config;
-        auto&& result = config.withApproximationMethod( ApproximationMethod::Tanh );
-
-        EXPECT_EQ( &result, &config );
-        EXPECT_EQ( config.getApproximationMethod(), ApproximationMethod::Tanh );
-        EXPECT_NO_THROW( config.validate() );
-    }
-
-    TEST_F( GeluConfigTests, MultipleMethodCalls ) {
-        GeluConfig config;
-
-        config.withApproximationMethod( ApproximationMethod::Exact );
-        EXPECT_EQ( config.getApproximationMethod(), ApproximationMethod::Exact );
-
-        config.withApproximationMethod( ApproximationMethod::Tanh );
-        EXPECT_EQ( config.getApproximationMethod(), ApproximationMethod::Tanh );
-
-        config.withApproximationMethod( ApproximationMethod::Sigmoid );
-        EXPECT_EQ( config.getApproximationMethod(), ApproximationMethod::Sigmoid );
-    }
-
-    TEST_F( GeluConfigTests, ValidationAfterMethodChange ) {
-        GeluConfig config;
-
-        config.withApproximationMethod( ApproximationMethod::Tanh );
-        EXPECT_NO_THROW( config.validate() );
-
-        config.withApproximationMethod( ApproximationMethod::Exact );
-        EXPECT_THROW( config.validate(), std::invalid_argument );
-
-        config.withApproximationMethod( ApproximationMethod::Tanh );
-        EXPECT_NO_THROW( config.validate() );
-    }
-
-    TEST_F( GeluConfigTests, RvalueFluentChaining ) {
-        // Ensure fluent API works on temporaries and preserves chaining for approximation method
-        auto cfg = GeluConfig()
-            .withApproximationMethod( ApproximationMethod::Exact );
-
-        EXPECT_EQ( cfg.getApproximationMethod(), ApproximationMethod::Exact );
-    }
-
-    TEST_F( GeluConfigTests, MetadataSerializationRoundTrip ) {
-        GeluConfig config;
-        config.withApproximationMethod( ApproximationMethod::Sigmoid );
-
-        SerializationMetadata meta = config.toMetadata();
+        SerializationMetadata meta = source.toMetadata();
 
         GeluConfig loaded;
         loaded.fromMetadata( meta );
 
         EXPECT_EQ( loaded.getApproximationMethod(), ApproximationMethod::Sigmoid );
+    }
+
+    TEST_F( GeluConfigTests, FromMetadata_IgnoresMissingKeys )
+    {
+        GeluConfig config;
+        config.withApproximationMethod( ApproximationMethod::Exact );
+
+        SerializationMetadata empty;
+        config.fromMetadata( empty );
+
+        EXPECT_EQ( config.getApproximationMethod(), ApproximationMethod::Exact );
+    }
+
+    TEST_F( GeluConfigTests, FromMetadata_UnknownMethodThrows )
+    {
+        SerializationMetadata meta;
+        meta.set( "approximation_method", std::string( "Bogus" ) );
+
+        GeluConfig config;
+
+        EXPECT_THROW( config.fromMetadata( meta ), std::invalid_argument );
+    }
+
+    // ====================================================================
+    // I. Diagnostics
+    // ====================================================================
+
+    TEST_F( GeluConfigTests, ToString_NonEmpty )
+    {
+        GeluConfig config;
+
+        EXPECT_FALSE( config.toString().empty() );
     }
 }

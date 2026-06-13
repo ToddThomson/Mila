@@ -114,6 +114,13 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
     },
     {
+      "name": "x64-coverage",
+      "displayName": "x64 Coverage",
+      "description": "x64-debug plus /PROFILE on MilaTests for Visual Studio native C++ code coverage (Debug symbols, true line mapping). Build, then Test > Analyze Code Coverage. Use x64-debug for normal iteration -- /PROFILE disables incremental linking.",
+      "inherits": "x64-debug",
+      "cacheVariables": { "MILA_ENABLE_COVERAGE": "ON" }
+    },
+    {
       "name": "x64-validate",
       "displayName": "x64 Release (full validation - run before committing)",
       "description": "Pre-commit validation build. The default x64-release already builds the unit tests and samples; this adds the heavy network-free packaging gates (find_package + FetchContent install/embed consumers). Build, then run ctest. Does NOT enable the CPM release-access gate -- that needs a pushed tag; use x64-release-cpm-gate at release time.",

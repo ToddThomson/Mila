@@ -77,7 +77,8 @@
       "WebFetch(domain:api.github.com)",
       "Bash(git -C D:\\\\Repos\\\\Mila log --oneline -8)",
       "Bash(Measure-Object -Line)",
-      "Bash(Select-Object -Last 5)"
+      "Bash(Select-Object -Last 5)",
+      "Bash(git -C D:/Repos/Mila log --oneline -12)"
     ]
   }
 }
