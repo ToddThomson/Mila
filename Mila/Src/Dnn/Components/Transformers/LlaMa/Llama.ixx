@@ -303,9 +303,10 @@ namespace Mila::Dnn
             if ( !this->isBuilt() )
                 throw std::runtime_error( "LlamaTransformer must be built before calling backward()." );
 
-            // FIXME: isTraining should be a member function or use isTraingMode?
-            // if ( !this->isTraining() )
-            //    throw std::runtime_error( "LlamaTransformer: backward requires training mode (setTraining(true))." );
+            if ( !this->isTrainingMode() )
+            {
+                throw std::runtime_error( "LlamaTransformer: backward requires training mode (setTraining(true))." );
+            }
 
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
             {

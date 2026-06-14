@@ -452,7 +452,8 @@ namespace Mila::Dnn
          * @param blob Serialized tensor blob from PretrainedModelReader.
          *
          * @throws std::invalid_argument if the blob dtype does not match the expected
-         *         source precision, or if the blob shape does not match the config.
+         *         source precision, if the blob shape does not match the config, or if
+         *         name is neither "weight" nor "bias".
          */
         void loadParameter( const std::string& name, const ITensorBlob& blob ) override
         {
@@ -481,7 +482,9 @@ namespace Mila::Dnn
             }
             else
             {
-                this->loadParameter( name, blob );
+                throw std::invalid_argument( std::format(
+                    "Linear '{}': unknown parameter '{}' (expected 'weight' or 'bias')",
+                    this->getName(), name ) );
             }
         }
 

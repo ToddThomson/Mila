@@ -117,7 +117,9 @@ mechanics live in [BACKLOG.md](BACKLOG.md).
 **Success criteria:** `@file`/`@param`/`@tparam` drift cleared; file-level and symbol Doxygen
 reflects the `OperationTraits` world and the spelled-out naming style; the published docs scope
 matches the public API surface; the docs job renders C++23 module units faithfully and publishes
-from `master`.
+from `master`; Doxygen's own warnings (`WARN_IF_DOC_ERROR`/`WARN_NO_PARAMDOC`) gated as errors in
+the docs job so doc drift fails the build instead of silently re-accumulating — the documentation
+analogue of the Alpha.7 test-CI ratchet.
 
 ### Milestone: Beta.1 — Production Hardening
 

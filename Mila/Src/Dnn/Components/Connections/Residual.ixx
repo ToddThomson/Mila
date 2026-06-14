@@ -240,7 +240,7 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "Residual: " << this->getName() << std::endl;
-            // REVEIW: oss << "Training mode: " << (this->isTraining() ? "true" : "false") << std::endl;
+            oss << "Training mode: " << (this->isTrainingMode() ? "true" : "false") << std::endl;
             oss << "Built: " << (this->isBuilt() ? "true" : "false") << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
 
@@ -276,11 +276,10 @@ namespace Mila::Dnn
          */
         std::vector<ITensor*> getGradients() const override
         {
-            // REVIEW:
-            /*if ( !this->isTraining() )
+            if ( !this->isTrainingMode() )
             {
                 throw std::runtime_error( "Residual: getGradients called when not in training mode" );
-            }*/
+            }
 
             return {};
         }

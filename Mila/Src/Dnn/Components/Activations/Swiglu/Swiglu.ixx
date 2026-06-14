@@ -111,11 +111,10 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Swiglu::backward: component must be built before backward pass" );
             }
 
-            // REVIEW:
-            /*if ( !this->isTraining() )
+            if ( !this->isTrainingMode() )
             {
-                throw std::runtime_error( "Swiglu::backward: component must be in training mode to compute gradients" );
-            }*/
+                throw std::runtime_error( "Swiglu::backward: component must be in training mode" );
+            }
 
             zero( *input_grad_ );
 

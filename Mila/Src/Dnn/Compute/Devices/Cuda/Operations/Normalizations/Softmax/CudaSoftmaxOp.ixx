@@ -289,6 +289,7 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
         }
 
     private:
+
         SoftmaxConfig config_;
         CudaExecutionContext* context_;
         Detail::cuda_softmax_impl<NativeType> impl_;
@@ -300,5 +301,4 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
         int cached_inner_size_{ 0 };   // product of dimensions after axis
         bool use_optimized_kernel_{ false };  // kernel variant selection
     };
-
 }

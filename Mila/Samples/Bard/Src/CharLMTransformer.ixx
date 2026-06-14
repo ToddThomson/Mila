@@ -28,6 +28,7 @@ import Mila;
 import Dnn.Network;
 import Cuda.Error; // Debugging
 
+// RETIRED:
 // DEPRECATED: This transformer in the Bard sample has been moved to general GPT open source compatible transformer
 
 //namespace Bard

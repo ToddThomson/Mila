@@ -189,8 +189,7 @@ namespace Mila::Dnn
 
             this->getExecutionContext()->synchronize();
 
-            // FIXME:
-            // forward_executed_ = this->isTraining();
+            forward_executed_ = this->isTrainingMode();
 
             return res2_out;
         }

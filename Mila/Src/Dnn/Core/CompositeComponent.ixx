@@ -152,8 +152,11 @@ namespace Mila::Dnn
             if ( this->hasExecutionContext() )
             {
                 component->setExecutionContext( this->getExecutionContext() );
-                // FIXME: This is a bug: setTraining cannot be called until after build()!
-                // component->setTraining( this->isTraining() );
+                // No training-state propagation here by design: RuntimeMode reaches children
+                // at build() time (the parent's onBuilding() builds each child with its
+                // RuntimeMode), and the runtime TrainingMode toggle propagates post-build via
+                // onTrainingModeChanging(). addComponent() runs pre-build, so a setTrainingMode()
+                // call here could never satisfy its built precondition.
             }
 
             std::string name = component->getName();

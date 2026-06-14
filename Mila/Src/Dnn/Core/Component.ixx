@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file Component.ixx
  * @brief Base component interface for Mila DNN components.
  *
@@ -537,7 +537,7 @@ namespace Mila::Dnn
         /**
          * @brief Return non-owning pointers to parameter gradient tensors.
          *
-         * Only valid when isTraining() is true.
+         * Only valid when isTrainingMode() is true.
          *
          * @throws std::runtime_error if called when not in training mode or
          *         before the component has been built.
@@ -557,7 +557,7 @@ namespace Mila::Dnn
          * Key uses:
          * - build_config_.allocationSeqLen() — use when sizing output buffers
          *   in onBuilding(). Returns 1 for Inference, leading_shape[1] for Training.
-         * - build_config_.isInference() / isTraining() — query the policy.
+         * - build_config_.isInference() / isTrainingMode() — query the policy.
          * - build_config_.batchSize() — the batch dimension.
          *
          * Initialized to a placeholder before build() completes. Only valid

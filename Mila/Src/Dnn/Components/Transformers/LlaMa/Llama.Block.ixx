@@ -184,7 +184,7 @@ namespace Mila::Dnn
             last_ffn_out_ = &ffn_out;
             last_res2_out_ = &res2_out;
 
-            // FIXME: forward_executed_ = this->isTraining();
+            forward_executed_ = this->isTrainingMode();
 
             return res2_out;
         }
@@ -354,10 +354,10 @@ namespace Mila::Dnn
                 throw std::runtime_error( "LlamaBlock must be built before backward()." );
             }
 
-            /*if ( !this->isTraining() )
+            if ( !this->isTrainingMode() )
             {
                 throw std::runtime_error( "LlamaBlock must be in training mode to call backward()." );
-            }*/
+            }
 
             if ( !forward_executed_ )
             {

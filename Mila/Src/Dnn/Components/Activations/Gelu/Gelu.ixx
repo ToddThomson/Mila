@@ -220,11 +220,10 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Gelu::backward: component must be built before backward pass" );
             }
 
-            // REVIEW
-            /*if ( !this->isTraining() )
+            if ( !this->isTrainingMode() )
             {
-                throw std::runtime_error( "Gelu::backward: component must be in training mode to compute gradients" );
-            }*/
+                throw std::runtime_error( "Gelu::backward: component must be in training mode" );
+            }
 
             // Zero input gradient buffer before backward pass. No exeptions.
             // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed buffers

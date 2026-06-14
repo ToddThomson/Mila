@@ -1,566 +1,245 @@
+/**
+ * @file Softmax.Cpu.cpp
+ * @brief Concrete-component tests for Softmax<DeviceType::Cpu, FP32>.
+ *
+ * Concrete-component archetype for a stateless activation leaf (see
+ * Specifications/Testing.md). Softmax over the configured axis (default -1):
+ *   y_i = exp(x_i - max) / sum_j exp(x_j - max)
+ * Backward: dX_i = Y_i * (dY_i - sum_j Y_j * dY_j).
+ *
+ * CPU is FP32-only (CpuSoftmaxOp). Re-greened from the pre-methodology version.
+ */
+
 #include <gtest/gtest.h>
-#include <memory>
-#include <vector>
-#include <string>
-#include <random>
 #include <cmath>
 #include <cstdint>
+#include <memory>
+#include <string>
 #include <stdexcept>
+#include <vector>
 
 import Mila;
 
-namespace Components_Normalization_Tests
+namespace Mila::Tests::Dnn::Components::Normalization
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    template<TensorDataType TPrecision>
-    using CpuTensor = Tensor<TPrecision, CpuMemoryResource>;
-
-    // ====================================================================
-    // Test Shape Definitions
-    // ====================================================================
-
-    enum class TestShapeSize
+    namespace
     {
-        Small,
-        Medium,
-        Large,
-        Minimal
-    };
+        using SoftmaxCpu = Mila::Dnn::Softmax<DeviceType::Cpu, TensorDataType::FP32>;
+        using TensorFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
 
-    struct TestShape
-    {
-        TestShapeSize size;
-        shape_t dimensions;
-        std::string name;
+        static_assert( SoftmaxCpu::getDeviceType() == DeviceType::Cpu );
+        static_assert( SoftmaxCpu::getPrecision() == TensorDataType::FP32 );
 
-        static TestShape Small()
+        constexpr int64_t kRows = 4;
+        constexpr int64_t kChannels = 8;
+
+        // Row-wise softmax over the trailing dimension.
+        void referenceSoftmax( const float* X, int64_t rows, int64_t channels, std::vector<float>& Y )
         {
-            return { TestShapeSize::Small, { 2, 3, 4 }, "Small" };
-        }
+            Y.assign( static_cast<size_t>( rows * channels ), 0.0f );
 
-        static TestShape Medium()
-        {
-            return { TestShapeSize::Medium, { 4, 128, 1024 }, "Medium" };
-        }
-
-        static TestShape Large()
-        {
-            return { TestShapeSize::Large, { 8, 256, 2048 }, "Large" };
-        }
-
-        static TestShape Minimal()
-        {
-            return { TestShapeSize::Minimal, { 1, 1, 8 }, "Minimal" };
-        }
-
-        static TestShape FromSize( TestShapeSize size )
-        {
-            switch ( size )
+            for ( int64_t r = 0; r < rows; ++r )
             {
-                case TestShapeSize::Small:
-                    return Small();
-                case TestShapeSize::Medium:
-                    return Medium();
-                case TestShapeSize::Large:
-                    return Large();
-                case TestShapeSize::Minimal:
-                    return Minimal();
-                default:
-                    return Small();
+                const float* x = X + r * channels;
+
+                float maxv = -INFINITY;
+                for ( int64_t i = 0; i < channels; ++i )
+                {
+                    maxv = std::max( maxv, x[ i ] );
+                }
+
+                double sum = 0.0;
+                for ( int64_t i = 0; i < channels; ++i )
+                {
+                    sum += std::exp( static_cast<double>( x[ i ] - maxv ) );
+                }
+
+                for ( int64_t i = 0; i < channels; ++i )
+                {
+                    Y[ r * channels + i ] = static_cast<float>( std::exp( static_cast<double>( x[ i ] - maxv ) ) / sum );
+                }
             }
         }
-    };
 
-    // ====================================================================
-    // Test Fixture Structure
-    // ====================================================================
-
-    struct SoftmaxTestFixture
-    {
-        TestShape test_shape;
-        SoftmaxConfig config;
-        std::shared_ptr<Softmax<DeviceType::Cpu, TensorDataType::FP32>> component;
-        int64_t axis;
-        bool is_training;
-
-        static SoftmaxTestFixture Create(
-            TestShape shape,
-            int64_t axis = -1,
-            bool is_training = false )
+        void fillSpread( TensorFp32& t )
         {
-            SoftmaxTestFixture fixture;
-            fixture.test_shape = shape;
-            fixture.axis = axis;
-            fixture.is_training = is_training;
-
-            fixture.config = SoftmaxConfig();
-            fixture.config.withAxis( axis );
-
-            // Generate a stable valid name for the component (must start with a letter)
-            std::string name = std::string( "softmax_" ) + shape.name;
-
-            // Construct in standalone mode so component owns its ExecutionContext
-            fixture.component = std::make_shared<Softmax<DeviceType::Cpu, TensorDataType::FP32>>(
-                name,
-                fixture.config,
-                Device::Cpu() );
-
-            // Note: Do not call setTraining() here. Tests must call build() before setTraining()
-            // because setTraining() is propagated to the backend operation which is initialized
-            // during build().
-
-            return fixture;
+            for ( size_t i = 0; i < t.size(); ++i )
+            {
+                t.data()[ i ] = static_cast<float>( i ) / t.size() * 4.0f - 2.0f;
+            }
         }
-
-        const shape_t& shape() const
-        {
-            return test_shape.dimensions;
-        }
-    };
-
-    // ====================================================================
-    // Test Fixture Class
-    // ====================================================================
+    }
 
     class SoftmaxCpuTests : public ::testing::Test
     {
     protected:
-        void SetUp() override
+        std::unique_ptr<SoftmaxCpu> builtSoftmax( const shape_t& shape, RuntimeMode mode, int64_t axis = -1 )
         {
-            default_axis_ = -1;
+            auto softmax = std::make_unique<SoftmaxCpu>( "softmax", SoftmaxConfig().withAxis( axis ), Device::Cpu() );
+            softmax->build( BuildContext( shape, mode, false ) );
+
+            return softmax;
         }
-
-        void TearDown() override
-        {
-            inference_fixtures_.clear();
-            training_fixtures_.clear();
-        }
-
-        SoftmaxTestFixture& GetInferenceFixture( TestShapeSize size )
-        {
-            auto it = inference_fixtures_.find( size );
-
-            if ( it == inference_fixtures_.end() )
-            {
-                TestShape shape = TestShape::FromSize( size );
-                auto fixture = SoftmaxTestFixture::Create( shape, default_axis_, false );
-                auto result = inference_fixtures_.emplace( size, std::move( fixture ) );
-                it = result.first;
-            }
-
-            return it->second;
-        }
-
-        SoftmaxTestFixture& GetTrainingFixture( TestShapeSize size )
-        {
-            auto it = training_fixtures_.find( size );
-
-            if ( it == training_fixtures_.end() )
-            {
-                TestShape shape = TestShape::FromSize( size );
-                auto fixture = SoftmaxTestFixture::Create( shape, default_axis_, true );
-
-                // Build the component before enabling training so the backend operation
-                // is initialized and can receive the training flag and gradient setup.
-                fixture.component->build( fixture.shape() );
-                fixture.component->setTraining( true );
-
-                auto result = training_fixtures_.emplace( size, std::move( fixture ) );
-                it = result.first;
-            }
-
-            return it->second;
-        }
-
-        int64_t default_axis_;
-        std::map<TestShapeSize, SoftmaxTestFixture> inference_fixtures_;
-        std::map<TestShapeSize, SoftmaxTestFixture> training_fixtures_;
     };
 
     // ====================================================================
-    // Helper Functions
+    // A. Construction
     // ====================================================================
 
-    void ValidateNormalization( const CpuTensor<TensorDataType::FP32>& output, int64_t axis )
+    TEST_F( SoftmaxCpuTests, Construct_StandaloneSucceeds )
     {
-        const auto& shape = output.shape();
-        const int64_t ndim = static_cast<int64_t>(shape.size());
+        SoftmaxCpu softmax( "softmax", SoftmaxConfig(), Device::Cpu() );
 
-        int64_t normalized_axis = axis;
-        if ( normalized_axis < 0 )
+        EXPECT_EQ( softmax.getDeviceId().type, DeviceType::Cpu );
+    }
+
+    TEST_F( SoftmaxCpuTests, Construct_DeviceTypeMismatchThrows )
+    {
+        EXPECT_THROW( SoftmaxCpu( "softmax", SoftmaxConfig(), Device::Cuda( 0 ) ), std::invalid_argument );
+    }
+
+    // ====================================================================
+    // B. Build Lifecycle (preconditions)
+    // ====================================================================
+
+    TEST_F( SoftmaxCpuTests, Forward_ThrowsBeforeBuild )
+    {
+        SoftmaxCpu softmax( "softmax", SoftmaxConfig(), Device::Cpu() );
+        TensorFp32 input( Device::Cpu(), shape_t{ kRows, kChannels } );
+        TensorFp32 output( Device::Cpu(), shape_t{ kRows, kChannels } );
+
+        EXPECT_THROW( softmax.forward( input, output ), std::runtime_error );
+    }
+
+    TEST_F( SoftmaxCpuTests, Build_ThrowsOnAxisOutOfBounds )
+    {
+        SoftmaxCpu softmax( "softmax", SoftmaxConfig().withAxis( 5 ), Device::Cpu() );
+
+        // Axis 5 is out of bounds for a rank-2 input.
+        EXPECT_THROW(
+            softmax.build( BuildContext( shape_t{ kRows, kChannels }, RuntimeMode::Inference, false ) ),
+            std::invalid_argument );
+    }
+
+    // ====================================================================
+    // E. Forward (numeric vs reference)
+    // ====================================================================
+
+    TEST_F( SoftmaxCpuTests, Forward_MatchesReference )
+    {
+        const shape_t shape{ kRows, kChannels };
+        auto softmax = builtSoftmax( shape, RuntimeMode::Inference );
+
+        TensorFp32 input( Device::Cpu(), shape );
+        TensorFp32 output( Device::Cpu(), shape );
+        fillSpread( input );
+
+        softmax->forward( input, output );
+
+        std::vector<float> expected;
+        referenceSoftmax( input.data(), kRows, kChannels, expected );
+
+        ASSERT_EQ( output.size(), expected.size() );
+
+        for ( size_t i = 0; i < output.size(); ++i )
         {
-            normalized_axis = ndim + normalized_axis;
+            EXPECT_NEAR( output.data()[ i ], expected[ i ], 1e-5f ) << "forward mismatch at index " << i;
         }
 
-        int64_t outer_size = 1;
-        for ( int64_t i = 0; i < normalized_axis; ++i )
+        // Each row must sum to 1.
+        for ( int64_t r = 0; r < kRows; ++r )
         {
-            outer_size *= shape[ i ];
-        }
-
-        int64_t dim_size = shape[ normalized_axis ];
-
-        int64_t inner_size = 1;
-        for ( int64_t i = normalized_axis + 1; i < ndim; ++i )
-        {
-            inner_size *= shape[ i ];
-        }
-
-        auto output_ptr = output.data();
-
-        for ( int64_t outer = 0; outer < outer_size; ++outer )
-        {
-            for ( int64_t inner = 0; inner < inner_size; ++inner )
+            double row_sum = 0.0;
+            for ( int64_t c = 0; c < kChannels; ++c )
             {
-                float sum = 0.0f;
+                row_sum += output.data()[ r * kChannels + c ];
+            }
 
-                for ( int64_t i = 0; i < dim_size; ++i )
-                {
-                    size_t idx = (outer * dim_size * inner_size) + (i * inner_size) + inner;
-                    sum += static_cast<float>( output_ptr[ idx ] );
-                }
+            EXPECT_NEAR( row_sum, 1.0, 1e-5 ) << "row " << r << " does not sum to 1";
+        }
+    }
 
-                EXPECT_NEAR( sum, 1.0f, 1e-4f )
-                    << "Softmax sum not normalized at outer=" << outer << ", inner=" << inner;
+    // ====================================================================
+    // D/F. Backward (training mode + numeric gradient)
+    // ====================================================================
+
+    TEST_F( SoftmaxCpuTests, Backward_ThrowsWhenBuiltForInference )
+    {
+        const shape_t shape{ kRows, kChannels };
+        auto softmax = builtSoftmax( shape, RuntimeMode::Inference );
+
+        TensorFp32 input( Device::Cpu(), shape );
+        TensorFp32 output_grad( Device::Cpu(), shape );
+        TensorFp32 input_grad( Device::Cpu(), shape );
+        fillSpread( input );
+
+        EXPECT_THROW( softmax->backward( input, output_grad, input_grad ), std::runtime_error );
+    }
+
+    TEST_F( SoftmaxCpuTests, Backward_MatchesReferenceGradient )
+    {
+        const shape_t shape{ kRows, kChannels };
+        auto softmax = builtSoftmax( shape, RuntimeMode::Training );
+
+        TensorFp32 input( Device::Cpu(), shape );
+        TensorFp32 output_grad( Device::Cpu(), shape );
+        TensorFp32 input_grad( Device::Cpu(), shape );
+        fillSpread( input );
+        for ( size_t i = 0; i < output_grad.size(); ++i )
+        {
+            output_grad.data()[ i ] = 0.1f * static_cast<float>( ( i % 7 ) + 1 );
+        }
+
+        softmax->backward( input, output_grad, input_grad );
+
+        std::vector<float> y;
+        referenceSoftmax( input.data(), kRows, kChannels, y );
+
+        // dX_i = Y_i * (dY_i - sum_j Y_j * dY_j), per row.
+        std::vector<float> expected_dx( static_cast<size_t>( kRows * kChannels ), 0.0f );
+        for ( int64_t r = 0; r < kRows; ++r )
+        {
+            double dot = 0.0;
+            for ( int64_t c = 0; c < kChannels; ++c )
+            {
+                dot += static_cast<double>( y[ r * kChannels + c ] ) * output_grad.data()[ r * kChannels + c ];
+            }
+
+            for ( int64_t c = 0; c < kChannels; ++c )
+            {
+                const double yi = y[ r * kChannels + c ];
+                const double dyi = output_grad.data()[ r * kChannels + c ];
+                expected_dx[ r * kChannels + c ] = static_cast<float>( yi * ( dyi - dot ) );
             }
         }
-    }
 
-    // ====================================================================
-    // Construction Tests
-    // ====================================================================
-
-    TEST_F( SoftmaxCpuTests, Constructor_WithValidDeviceId_CreatesComponent )
-    {
-        SoftmaxConfig config;
-        config.withAxis( -1 );
-
-        std::shared_ptr<Softmax<DeviceType::Cpu, TensorDataType::FP32>> component;
-
-        ASSERT_NO_THROW(
-            ( component = std::make_shared<Softmax<DeviceType::Cpu, TensorDataType::FP32>>(
-                "ctor_device_cpu",
-                config,
-                Device::Cpu()
-            ))
-        );
-
-        ASSERT_NE( component, nullptr );
-        EXPECT_EQ( component->getDeviceType(), DeviceType::Cpu );
-    }
-
-    TEST_F( SoftmaxCpuTests, Constructor_WithoutDeviceId_CreatesComponent )
-    {
-        SoftmaxConfig config;
-        config.withAxis( -1 );
-
-        std::shared_ptr<Softmax<DeviceType::Cpu, TensorDataType::FP32>> component;
-
-        ASSERT_NO_THROW(
-            ( component = std::make_shared<Softmax<DeviceType::Cpu, TensorDataType::FP32>>(
-                "ctor_shared_cpu",
-                config ) )
-        );
-
-        ASSERT_NE( component, nullptr );
-    }
-
-    // ====================================================================
-    // Device Type Tests
-    // ====================================================================
-
-    TEST_F( SoftmaxCpuTests, GetDeviceType_AfterConstruction_ReturnsCpu )
-    {
-        auto& fixture = GetInferenceFixture( TestShapeSize::Small );
-
-        EXPECT_EQ( fixture.component->getDeviceType(), DeviceType::Cpu );
-
-        auto device = fixture.component->getDeviceId();
-
-        EXPECT_EQ( device.type, DeviceType::Cpu );
-    }
-
-    // ====================================================================
-    // Training Mode Tests
-    // ====================================================================
-
-    TEST_F( SoftmaxCpuTests, IsTraining_InferenceFixture_ReturnsFalse )
-    {
-        auto& fixture = GetInferenceFixture( TestShapeSize::Small );
-
-        EXPECT_FALSE( fixture.component->isTraining() );
-    }
-
-    TEST_F( SoftmaxCpuTests, IsTraining_TrainingFixture_ReturnsTrue )
-    {
-        auto& fixture = GetTrainingFixture( TestShapeSize::Medium );
-
-        EXPECT_TRUE( fixture.component->isTraining() );
-    }
-
-    TEST_F( SoftmaxCpuTests, SetTraining_TogglingMode_UpdatesState )
-    {
-        auto& fixture = GetInferenceFixture( TestShapeSize::Small );
-
-        // Build before toggling training so the backend operation is initialized.
-        fixture.component->build( fixture.shape() );
-
-        EXPECT_FALSE( fixture.component->isTraining() );
-
-        fixture.component->setTraining( true );
-        EXPECT_TRUE( fixture.component->isTraining() );
-
-        fixture.component->setTraining( false );
-        EXPECT_FALSE( fixture.component->isTraining() );
-    }
-
-    // ====================================================================
-    // Build State Tests
-    // ====================================================================
-
-    TEST_F( SoftmaxCpuTests, IsBuilt_BeforeBuild_ReturnsFalse )
-    {
-        auto& fixture = GetInferenceFixture( TestShapeSize::Small );
-
-        EXPECT_FALSE( fixture.component->isBuilt() );
-    }
-
-    TEST_F( SoftmaxCpuTests, Build_WithSmallShape_SetsBuiltState )
-    {
-        auto& fixture = GetInferenceFixture( TestShapeSize::Small );
-
-        EXPECT_NO_THROW( fixture.component->build( fixture.shape() ) );
-        EXPECT_TRUE( fixture.component->isBuilt() );
-    }
-
-    TEST_F( SoftmaxCpuTests, IsBuilt_AfterBuild_ReturnsTrue )
-    {
-        auto& fixture = GetInferenceFixture( TestShapeSize::Small );
-
-        fixture.component->build( fixture.shape() );
-
-        EXPECT_TRUE( fixture.component->isBuilt() );
-    }
-
-    // ====================================================================
-    // Parameter Count Tests
-    // ====================================================================
-
-    TEST_F( SoftmaxCpuTests, ParameterCount_AfterConstruction_ReturnsZero )
-    {
-        auto& fixture = GetInferenceFixture( TestShapeSize::Small );
-
-        EXPECT_EQ( fixture.component->parameterCount(), 0 );
-    }
-
-    // ====================================================================
-    // String Representation Tests
-    // ====================================================================
-
-    TEST_F( SoftmaxCpuTests, ToString_AfterConstruction_ContainsComponentInfo )
-    {
-        auto& fixture = GetInferenceFixture( TestShapeSize::Small );
-        std::string output = fixture.component->toString();
-
-        EXPECT_NE( output.find( "Softmax" ), std::string::npos );
-        EXPECT_NE( output.find( "Device:" ), std::string::npos );
-        EXPECT_NE( output.find( "Axis:" ), std::string::npos );
-    }
-
-    // ====================================================================
-    // Forward Pass Tests - Basic Functionality
-    // ====================================================================
-
-    TEST_F( SoftmaxCpuTests, Forward_BeforeBuild_ThrowsRuntimeError )
-    {
-        auto fixture = SoftmaxTestFixture::Create( TestShape::Medium() );
-
-        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), fixture.shape() );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), fixture.shape() );
-
-        EXPECT_THROW(
-            fixture.component->forward( input, output ),
-            std::runtime_error
-        );
-    }
-
-    TEST_F( SoftmaxCpuTests, Forward_WithSmallShape_ProducesValidOutput )
-    {
-        auto& fixture = GetInferenceFixture( TestShapeSize::Small );
-        fixture.component->build( fixture.shape() );
-
-        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), fixture.shape() );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), fixture.shape() );
-
-        random( input, -5.0f, 5.0f );
-
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
-        EXPECT_EQ( output.shape(), input.shape() );
-    }
-
-    TEST_F( SoftmaxCpuTests, Forward_WithMediumShape_ProducesValidOutput )
-    {
-        auto& fixture = GetInferenceFixture( TestShapeSize::Medium );
-        fixture.component->build( fixture.shape() );
-
-        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), fixture.shape() );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), fixture.shape() );
-
-        random( input, -5.0f, 5.0f );
-
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
-        EXPECT_EQ( output.shape(), input.shape() );
-    }
-
-    TEST_F( SoftmaxCpuTests, Forward_WithLargeShape_ProducesValidOutput )
-    {
-        auto& fixture = GetInferenceFixture( TestShapeSize::Large );
-        fixture.component->build( fixture.shape() );
-
-        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), fixture.shape() );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), fixture.shape() );
-
-        random( input, -5.0f, 5.0f );
-
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
-        EXPECT_EQ( output.shape(), input.shape() );
-    }
-
-    TEST_F( SoftmaxCpuTests, Forward_MultipleIterations_ProducesConsistentResults )
-    {
-        auto& fixture = GetInferenceFixture( TestShapeSize::Medium );
-        fixture.component->build( fixture.shape() );
-
-        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), fixture.shape() );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), fixture.shape() );
-
-        for ( int iter = 0; iter < 10; ++iter )
+        ASSERT_EQ( input_grad.size(), expected_dx.size() );
+        for ( size_t i = 0; i < input_grad.size(); ++i )
         {
-            random( input, -5.0f, 5.0f );
-
-            EXPECT_NO_THROW( fixture.component->forward( input, output ) )
-                << "Forward pass failed at iteration " << iter;
+            EXPECT_NEAR( input_grad.data()[ i ], expected_dx[ i ], 1e-5f ) << "dX mismatch at index " << i;
         }
     }
 
     // ====================================================================
-    // Forward Pass Tests - Normalization Validation
+    // G. Parameters (stateless) & J. Type
     // ====================================================================
 
-    TEST_F( SoftmaxCpuTests, Forward_WithDefaultAxis_ProducesNormalizedOutput )
+    TEST_F( SoftmaxCpuTests, Parameters_AreEmpty )
     {
-        auto& fixture = GetInferenceFixture( TestShapeSize::Medium );
-        fixture.component->build( fixture.shape() );
+        auto softmax = builtSoftmax( shape_t{ kRows, kChannels }, RuntimeMode::Inference );
 
-        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), fixture.shape() );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), fixture.shape() );
-
-        random( input, -5.0f, 5.0f );
-
-        fixture.component->forward( input, output );
-
-        ValidateNormalization( output, fixture.axis );
+        EXPECT_EQ( softmax->parameterCount(), 0u );
+        EXPECT_TRUE( softmax->getParameters().empty() );
+        EXPECT_TRUE( softmax->getGradients().empty() );
     }
 
-    // ====================================================================
-    // Forward Pass Tests - Different Axes
-    // ====================================================================
-
-    TEST_F( SoftmaxCpuTests, Forward_WithAxis0_ProducesValidOutput )
+    TEST_F( SoftmaxCpuTests, GetType_IsSoftmax )
     {
-        TestShape test_shape = TestShape::Small();
-        auto fixture = SoftmaxTestFixture::Create( test_shape, 0 );
+        SoftmaxCpu softmax( "softmax", SoftmaxConfig(), Device::Cpu() );
 
-        fixture.component->build( fixture.shape() );
-
-        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), fixture.shape() );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), fixture.shape() );
-
-        random( input, -5.0f, 5.0f );
-
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
-    }
-
-    TEST_F( SoftmaxCpuTests, Forward_WithAxis1_ProducesValidOutput )
-    {
-        TestShape test_shape = TestShape::Small();
-        auto fixture = SoftmaxTestFixture::Create( test_shape, 1 );
-
-        fixture.component->build( fixture.shape() );
-
-        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), fixture.shape() );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), fixture.shape() );
-
-        random( input, -5.0f, 5.0f );
-
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
-    }
-
-    TEST_F( SoftmaxCpuTests, Forward_WithAxis2_ProducesValidOutput )
-    {
-        TestShape test_shape = TestShape::Small();
-        auto fixture = SoftmaxTestFixture::Create( test_shape, 2 );
-
-        fixture.component->build( fixture.shape() );
-
-        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), fixture.shape() );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), fixture.shape() );
-
-        random( input, -5.0f, 5.0f );
-
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
-    }
-
-    // ====================================================================
-    // Edge Case Tests
-    // ====================================================================
-
-    TEST_F( SoftmaxCpuTests, Forward_WithMinimalShape_ProducesValidOutput )
-    {
-        TestShape minimal_shape = TestShape::Minimal();
-        auto fixture = SoftmaxTestFixture::Create( minimal_shape );
-
-        fixture.component->build( fixture.shape() );
-
-        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), fixture.shape() );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), fixture.shape() );
-
-        random( input, -5.0f, 5.0f );
-
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
-    }
-
-    TEST_F( SoftmaxCpuTests, Forward_WithLargeVocabulary_ProducesValidOutput )
-    {
-        auto& fixture = GetInferenceFixture( TestShapeSize::Large );
-        fixture.component->build( fixture.shape() );
-
-        CpuTensor<TensorDataType::FP32> input( Device::Cpu(), fixture.shape() );
-        CpuTensor<TensorDataType::FP32> output( Device::Cpu(), fixture.shape() );
-
-        random( input, -5.0f, 5.0f );
-
-        EXPECT_NO_THROW( fixture.component->forward( input, output ) );
-        EXPECT_EQ( output.size(), input.size() );
-    }
-
-    // ====================================================================
-    // Synchronization Tests
-    // ====================================================================
-
-    TEST_F( SoftmaxCpuTests, Synchronize_AfterConstruction_Succeeds )
-    {
-        auto& fixture = GetInferenceFixture( TestShapeSize::Small );
-
-        EXPECT_NO_THROW( fixture.component->synchronize() );
+        EXPECT_EQ( softmax.getType(), ComponentType::Softmax );
     }
 }

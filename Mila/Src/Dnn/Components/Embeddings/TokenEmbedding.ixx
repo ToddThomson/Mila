@@ -243,11 +243,10 @@ namespace Mila::Dnn
 
         std::vector<ITensor*> getGradients() const override
         {
-            // REVIEW: Needed here?
-            /*if ( !this->isTraining() )
+            if ( !this->isTrainingMode() )
             {
                 throw std::runtime_error( "TokenEmbedding: getGradients() called when not in training mode" );
-            }*/
+            }
 
             std::vector<ITensor*> grads;
             

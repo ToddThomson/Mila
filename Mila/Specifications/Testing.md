@@ -43,18 +43,56 @@ enclosing namespace. Note two distinct uniqueness rules:
 
 ---
 
-## 1. Three archetypes — test inherited machinery exactly once
+## 1. Four archetypes — test inherited machinery exactly once
 
 | Archetype | Files | Tests | Does NOT test |
 |---|---|---|---|
 | **Base contract** | `Core/Component.cpp`, `Core/ComponentConfig.cpp` | the inherited lifecycle / state machine, via a spy-capable harness | anything component-specific |
 | **Config** | `*Config.cpp` (e.g. `GeluConfig.cpp`) | fluent setters, `validate()`, metadata round-trip | forward / backward |
 | **Concrete component** | `*.Cpu.cpp` / `*.Cuda.cpp` (e.g. `Gelu.Cpu.cpp`) | the *delta*: construction, build, forward/backward numerics, component-specific accessors, parameter load | the base machinery (already guaranteed by `Component.cpp`) |
+| **Operation** | `<Op>.Cpu.cpp` / `<Op>.Cuda.cpp` under `Tests/Dnn/Compute/.../Operations/` (e.g. `CudaLinearOp.Cuda.cpp`) | the backend op's *internal* surface the component cannot reach: kernel/quantization-internal correctness, the prefill-GEMM vs decode-matvec path split, op-level `@throws` | the component orchestration (build, buffer reuse, mode gating — owned by the component test) |
 
 The payoff is leverage: because `Component.cpp` proves the base contract once,
 every concrete component test is short — it asserts only what is new. A new
 component test is "copy the skeleton, fill in the numeric reference and the
 component-specific accessors."
+
+### The Operation archetype (and the component/operation division of labor)
+
+Components are thin orchestrators; the substance — the kernels, the cuBLASLt
+plans, `quantize()` (per-channel/per-group absmax scales, FP4 E2M1 nibble
+packing), and the dedicated `matvec_decode_*` kernels — lives in the **operation**
+that `OperationTraits` resolves. The weight-quantization axis in particular is
+*invisible at the component surface*: `Linear::loadParameter` just forwards a BF16
+blob to `operation_->quantize()`, so it can only be verified at the op layer.
+
+The division of labor is the rule that prevents double-testing:
+
+- The **component** test owns the public contract and its numerics — the
+  `NoWeightQuant` forward/backward references, the build lifecycle, parameter
+  ownership, mode gating, `loadParameter` routing. For a quantized path it adds
+  only a **black-box** wiring proof: build the quantized component, let
+  `loadParameter` drive `quantize()`, assert `forward()` ~= the BF16 reference
+  within a format-appropriate tolerance, and assert `backward()` throws.
+- The **operation** test owns the **internal** surface the component cannot reach:
+  the weight-quantization axis as a typed sweep, the prefill-GEMM vs
+  decode-matvec path split, and the op's own `@throws`. The *white-box* quant
+  checks (scales == host absmax, nibble packing, exactly-representable
+  round-trip) live here, not in the component test.
+
+Two conventions:
+
+- **Instantiate the op via `OperationTraits<...>::type`**, not by naming the
+  concrete class. This exercises the dispatch table itself and catches a poisoned
+  specialization (the class of bug the Gelu BF16 typed test surfaced — an entry
+  that advertises a type whose kernel does not support that precision).
+- The op harness **owns what the component's `onBuilding` normally does**:
+  allocate and bind the parameter / scale / gradient tensors via
+  `setParameters()` / `setWeightScales()` / `setGradients()`, then `build()`. A
+  single op is driven standalone, without a parent component.
+
+CPU op tests (`CpuLinearOp.Cpu.cpp`) ride the `MILA_ENABLE_CUDA=OFF` gate; CUDA op
+tests are GPU-local, like the CUDA component tests.
 
 ---
 
@@ -109,11 +147,20 @@ these tests is what flushes out stale comments for the Alpha.9 documentation pas
 
 ---
 
-## 5. Device and precision axes — no `#ifdef`
+## 5. The testing axes — type axes vs the runtime axis — no `#ifdef`
 
-Concrete components are templated on two independent axes, `TDeviceType` and
-`TPrecision`. They are **not** symmetric, and the asymmetry decides the file
-structure.
+A component's behavior varies along four axes, and they fall into two kinds that
+are handled differently:
+
+- **Type axes** — compile-time template parameters: `TDeviceType`, `TPrecision`,
+  and (on quantizable components) `TWeightQuantization`. These drive the *file
+  structure* — a file split (device) or a typed sweep (precision, quantization).
+- **The runtime axis** — `BuildContext` values: `RuntimeMode`,
+  `initialize_parameters`, and the runtime input shape. This is a *value* axis,
+  not a type axis; it cannot be a file split or a typed sweep, so it is exercised
+  *inside* test bodies (section D + the build-lifecycle shape behavior).
+
+The axes are **not** symmetric, and the asymmetry decides the structure.
 
 ### Device is a physical file split (forced by the CI gate)
 
@@ -135,23 +182,90 @@ and runs the CPU set without ever instantiating the CUDA path.
 
 A given device's supported precisions all compile together (no gate involved), so
 precision is **not** a file split and **not** a namespace segment — it is a type
-parameter within the device file:
+parameter within the device file, driven by a `TYPED_TEST` sweep over a
+per-precision tag list (`::testing::Types<...>`).
 
-- When a device supports a **single** precision, test it explicitly — no
-  machinery. (CPU `Gelu` is FP32-only, so `Gelu.Cpu.cpp` is a plain `Gelu<Cpu,
-  FP32>` test.) **CPU tests are pragmatic this way by default.**
-- When a device supports **multiple** precisions, parameterize the device file
-  with a `TYPED_TEST` over that device's supported set. (`Gelu.Cuda.cpp` runs the
-  same bodies for `Gelu<Cuda, FP32>` and `Gelu<Cuda, BF16>` over
-  `::testing::Types<...>`.)
+**The sweep scaffold is the default for every concrete-component test, even one
+that currently supports a single precision.** Any component *could* be templated on
+a precision it does not have a kernel for yet — single-precision-ness is almost
+always *contingent* (nobody has written the BF16 kernel) rather than *fundamental*
+(the operation is mathematically FP32-only). Attention proves the point: MHA is
+FP32 today, but `GroupedQueryAttention` runs BF16, so a BF16 MHA kernel is a
+plausible future, not an impossibility. Collapsing a single-precision test to a
+plain `TEST_F` bakes in the contingent assumption and turns "add a precision" into
+a full re-scaffold; keeping the sweep makes it a one-line edit.
+
+So:
+
+- **Single supported precision** — a one-entry list, e.g.
+  `using MhaPrecisions = ::testing::Types<Fp32Precision>;`, with a comment naming
+  why the others are absent (no kernel yet) and how to add one. The bodies are
+  already precision-general.
+- **Multiple supported precisions** — list them all, e.g. `Gelu.Cuda.cpp` over
+  `Types<Fp32Precision, Bf16Precision>` for `Gelu<Cuda, FP32>` / `Gelu<Cuda, BF16>`.
 
 The supported-precision list is the **single point of change**: the day a device
-gains a precision, add one entry and the suite re-runs for it.
+gains a precision, add one tag and the suite re-runs every body for it — no
+structural edit.
+
+(A handful of early revival tests — e.g. `Gelu.Cpu.cpp`, `LayerNorm.Cuda.cpp` —
+were written as plain single-precision `TEST_F`s before this rule settled. They are
+correct as-is; migrate them to the one-entry sweep opportunistically when next
+touched, not as a dedicated pass. The base-contract and config archetypes are not
+precision-swept — this rule is about concrete-component forward/backward tests.)
 
 Numeric references are precision-independent — compute them once in `float`. Only
 two things vary per precision, so they go in a small per-precision traits struct:
 the **tolerance** (FP32 ~`1e-4`, BF16 ~`1e-2`) and a **read-as-float accessor**
 for comparing a reduced-precision tensor element against the float reference.
+
+### Weight quantization is a type axis — but an op-layer one
+
+`TWeightQuantization` (on `Linear`, e.g. `PerChannelFp8<>`, `PerGroupFp4<128>`) is
+a compile-time type like precision, but it is **not** a symmetric precision-style
+sweep, for three reasons: it is **CUDA-only** (no CPU specialization),
+**inference-only** (`backward` throws `std::logic_error`), and it **changes the
+testable surface** — the weight tensor is a packed reduced-precision dtype (FP4 /
+INT4 store two nibbles per byte, so the column count is `input_features/2`), a
+`weight_scales_` tensor appears, and loading runs `quantize()` rather than a plain
+copy. Same bodies do not fit.
+
+So the quantization sweep lives at the **operation layer** (see §1, the Operation
+archetype), where the surface (`forward` + `quantize`) *is* uniform — a
+`TYPED_TEST` over `Types<Fp8, Fp4<128>, Fp4<64>, ...>` in the op test. The
+component only proves the wiring black-box. Two reference strategies:
+
+- **White-box quantize round-trip** (op test): use weights **exactly
+  representable** in the target format (small values / powers of two) so the
+  dequantized result matches losslessly and the scale/packing assertion is tight
+  and deterministic.
+- **Realistic forward accuracy** (op and component): compare against the **BF16
+  forward of the same weights** with a format-appropriate tolerance — FP8 is a few
+  percent; FP4 E2M1 is coarse and needs a generous budget.
+
+### The build context is the runtime axis — section D, not a split
+
+`BuildContext` is a runtime **value** axis, so it is never a file split or a typed
+sweep — it is driven by building / forwarding with different contexts inside test
+bodies, under section **D (Runtime + Training Mode)** plus the build-lifecycle
+shape behavior (section B). It has three dimensions:
+
+1. **`RuntimeMode` Inference vs Training** — gradient buffers exist only for
+   Training; `backward` throws on an Inference-built component; `setTrainingMode`
+   (`Normal`<->`Eval`) is legal only on a Training-built one, and the component's
+   `onTrainingModeChanging` effect (clearing / rebinding gradients) is part of the
+   delta.
+2. **Prefill -> decode runtime shapes** — build for a prefill shape `{B, T, C}`,
+   then `forward` a decode shape `{B, 1, C}` (`outer_size == 1`). This is the
+   inference hot path. For a quantized op, `outer_size == 1` selects the
+   `matvec_decode_*` kernels — so this dimension and the quant decode-path coverage
+   are the **same test seen from two axes**. Assert output shape and values; do
+   **not** assert buffer-reuse internals (an implementation detail).
+3. **`initialize_parameters` true / false** — `false` (pretrained load; values
+   filled later by `loadParameter`) is what inference uses — test it now. The
+   `true` (train-from-scratch) assertions are **deferred to Alpha.8**, because the
+   active `xavier` is currently a no-op stub; asserting init=true now would only
+   codify a known gap.
 
 ### Naming recap
 
@@ -200,5 +314,12 @@ is deliberately not a prerequisite for the revival.
    `getApproximationMethod()` for Gelu, `getInputFeatures()` for Linear).
 5. Do **not** re-test the inherited base contract — it is covered by
    `Component.cpp`.
-6. Put CUDA-instantiation tests in the `*.Cuda.cpp` companion.
-7. Run VS 2026 coverage on the module; close any section gap.
+6. Cover the **runtime axis** in section D: Inference vs Training (gradients,
+   backward legality, `setTrainingMode` transitions), the prefill->decode shape
+   regime, and the `initialize_parameters=false` path.
+7. If the component has a quantization axis or non-trivial kernels, add the
+   **operation** test (`<Op>.Cuda.cpp` / `.Cpu.cpp`) for the internal surface — the
+   quantization sweep and the prefill/decode path split — keeping the
+   component/operation division of labor from §1.
+8. Put CUDA-instantiation tests in the `*.Cuda.cpp` companion.
+9. Run VS 2026 coverage on the module; close any section gap.

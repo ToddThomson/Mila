@@ -187,6 +187,7 @@ export import Dnn.Components.Gelu;
 export import Dnn.Components.Swiglu;
 export import Dnn.Components.LayerNorm;
 export import Dnn.Components.RmsNorm;
+export import Dnn.Components.TokenEmbedding;
 
 // TODO: Alpha.5 OperationTraits supercedes individual operation OpTypeMaps 
 //export import Compute.GqaOpTypeMap;

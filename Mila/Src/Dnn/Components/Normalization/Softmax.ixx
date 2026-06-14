@@ -169,9 +169,9 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Softmax module must be built before calling backward." );
             }
 
-            if (!this->isTraining())
+            if (!this->isTrainingMode())
             {
-                throw std::runtime_error( "Softmax module must be in training mode to call backward. Call setTraining(true) first." );
+                throw std::runtime_error( "Softmax module must be built with RuntimeMode::Training to call backward." );
             }
 
             operation_->backward( input, output_grad, input_grad );

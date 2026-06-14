@@ -1,257 +1,175 @@
+/**
+ * @file Residual.Cpu.cpp
+ * @brief Concrete-component tests for Residual<DeviceType::Cpu, FP32>.
+ *
+ * Concrete-component archetype for a stateless BINARY leaf (see
+ * Specifications/Testing.md). Residual computes out = a + b (Addition,
+ * scaling 1.0) and backward returns the pair {da, db}; for plain addition both
+ * input gradients equal the upstream gradient. CPU is FP32-only.
+ */
+
 #include <gtest/gtest.h>
+#include <cmath>
+#include <cstdint>
 #include <memory>
-#include <vector>
 #include <string>
 #include <stdexcept>
-#include <cstdint>
 
 import Mila;
 
-namespace Components::Connections::Tests
+namespace Mila::Tests::Dnn::Components::Connections
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    template<TensorDataType TPrecision>
-    using CpuTensor = Tensor<TPrecision, CpuMemoryResource>;
+    namespace
+    {
+        using ResidualCpu = Mila::Dnn::Residual<DeviceType::Cpu, TensorDataType::FP32>;
+        using TensorFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+        static_assert( ResidualCpu::getDeviceType() == DeviceType::Cpu );
+        static_assert( ResidualCpu::getPrecision() == TensorDataType::FP32 );
+
+        void fillRamp( TensorFp32& t, float start, float step )
+        {
+            for ( size_t i = 0; i < t.size(); ++i )
+            {
+                t.data()[ i ] = start + step * static_cast<float>( i );
+            }
+        }
+    }
 
     class ResidualCpuTests : public ::testing::Test
     {
     protected:
-        void SetUp() override
+        std::unique_ptr<ResidualCpu> builtResidual( const shape_t& shape, RuntimeMode mode )
         {
-            small_shape_ = { 2, 3, 4 }; // small 3D tensor for elementwise checks
-        }
+            auto residual = std::make_unique<ResidualCpu>( "residual", ResidualConfig(), Device::Cpu() );
+            residual->build( BuildContext( shape, mode, false ) );
 
-        shape_t small_shape_;
+            return residual;
+        }
     };
 
-    TEST_F( ResidualCpuTests, Constructor_WithValidDeviceId_CreatesComponent )
+    // ====================================================================
+    // A. Construction
+    // ====================================================================
+
+    TEST_F( ResidualCpuTests, Construct_StandaloneSucceeds )
     {
-        ResidualConfig cfg;
-        auto component = std::shared_ptr<Residual<DeviceType::Cpu, TensorDataType::FP32>>( nullptr );
+        ResidualCpu residual( "residual", ResidualConfig(), Device::Cpu() );
 
-        ASSERT_NO_THROW(
-            (component = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>(
-                "ctor_device_cpu",
-                cfg,
-                Device::Cpu()
-            ))
-        );
-
-        ASSERT_NE( component, nullptr );
-        EXPECT_EQ( component->getDeviceType(), DeviceType::Cpu );
-
-        auto device = component->getDeviceId();
-        EXPECT_EQ( device.type, DeviceType::Cpu );
+        EXPECT_EQ( residual.getDeviceId().type, DeviceType::Cpu );
     }
 
-    TEST_F( ResidualCpuTests, Constructor_WithoutDeviceId_CreatesComponent )
+    TEST_F( ResidualCpuTests, Construct_DeviceTypeMismatchThrows )
     {
-        ResidualConfig cfg;
-        auto component = std::shared_ptr<Residual<DeviceType::Cpu, TensorDataType::FP32>>( nullptr );
-
-        ASSERT_NO_THROW(
-            (component = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>(
-                "ctor_shared_cpu",
-                cfg ))
-        );
-
-        ASSERT_NE( component, nullptr );
+        EXPECT_THROW( ResidualCpu( "residual", ResidualConfig(), Device::Cuda( 0 ) ), std::invalid_argument );
     }
 
-    TEST_F( ResidualCpuTests, IsBuilt_BeforeBuild_ReturnsFalse )
-    {
-        ResidualConfig cfg;
-        auto component = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>(
-            "res_not_built",
-            cfg,
-            Device::Cpu() );
+    // ====================================================================
+    // B. Build Lifecycle
+    // ====================================================================
 
-        EXPECT_FALSE( component->isBuilt() );
+    TEST_F( ResidualCpuTests, Forward_ThrowsBeforeBuild )
+    {
+        ResidualCpu residual( "residual", ResidualConfig(), Device::Cpu() );
+        TensorFp32 a( Device::Cpu(), shape_t{ 2, 4 } );
+        TensorFp32 b( Device::Cpu(), shape_t{ 2, 4 } );
+
+        EXPECT_THROW( residual.forward( a, b ), std::runtime_error );
     }
 
-    TEST_F( ResidualCpuTests, Build_WithSmallShape_SetsBuiltState )
+    // ====================================================================
+    // E. Forward (numeric vs reference)
+    // ====================================================================
+
+    TEST_F( ResidualCpuTests, Forward_MatchesSum )
     {
-        ResidualConfig cfg;
-        auto component = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>(
-            "res_build",
-            cfg,
-            Device::Cpu() );
+        const shape_t shape{ 2, 3, 4 };
+        auto residual = builtResidual( shape, RuntimeMode::Inference );
 
-        EXPECT_NO_THROW( component->build( small_shape_ ) );
-        EXPECT_TRUE( component->isBuilt() );
-    }
+        TensorFp32 a( Device::Cpu(), shape );
+        TensorFp32 b( Device::Cpu(), shape );
+        fillRamp( a, -1.0f, 0.1f );
+        fillRamp( b, 0.5f, -0.05f );
 
-    TEST_F( ResidualCpuTests, IsBuilt_AfterBuild_ReturnsTrue )
-    {
-        ResidualConfig cfg;
-        auto component = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>(
-            "res_built",
-            cfg,
-            Device::Cpu() );
+        auto& output = residual->forward( a, b );
 
-        component->build( small_shape_ );
+        ASSERT_EQ( output.size(), a.size() );
 
-        EXPECT_TRUE( component->isBuilt() );
-    }
-
-    TEST_F( ResidualCpuTests, ParameterCount_DefaultsToZero )
-    {
-        ResidualConfig cfg;
-        auto component = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>(
-            "res_paramcount",
-            cfg,
-            Device::Cpu() );
-
-        EXPECT_EQ( component->parameterCount(), 0u );
-    }
-
-    TEST_F( ResidualCpuTests, ToString_ContainsComponentInfo )
-    {
-        ResidualConfig cfg;
-        auto component = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>(
-            "res_info",
-            cfg,
-            Device::Cpu() );
-
-        std::string s = component->toString();
-
-        EXPECT_NE( s.find( "Residual" ), std::string::npos );
-        EXPECT_NE( s.find( "Device:" ), std::string::npos );
-    }
-
-    TEST_F( ResidualCpuTests, Forward_BeforeBuild_ThrowsRuntimeError )
-    {
-        ResidualConfig cfg;
-        auto component = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>(
-            "res_forward_no_build",
-            cfg,
-            Device::Cpu() );
-
-        CpuTensor<TensorDataType::FP32> A( Device::Cpu(), small_shape_ );
-        CpuTensor<TensorDataType::FP32> B( Device::Cpu(), small_shape_ );
-
-        EXPECT_THROW( component->forward( A, B ), std::runtime_error );
-    }
-
-    TEST_F( ResidualCpuTests, Forward_ElementwiseAdd )
-    {
-        ResidualConfig cfg;
-        cfg.withScalingFactor( 1.0f );
-
-        auto component = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>(
-            "res_forward",
-            cfg,
-            Device::Cpu() );
-
-        // Build before running forward so backends are initialized
-        component->build( small_shape_ );
-
-        // Create CPU tensors on the device
-        CpuTensor<TensorDataType::FP32> A( Device::Cpu(), small_shape_ );
-        CpuTensor<TensorDataType::FP32> B( Device::Cpu(), small_shape_ );
-
-        // Populate inputs deterministically
-        float* a_ptr = A.data();
-        float* b_ptr = B.data();
-
-        for ( size_t i = 0; i < A.size(); ++i )
+        for ( size_t i = 0; i < output.size(); ++i )
         {
-            a_ptr[ i ] = static_cast<float>( i ) * 0.125f;
-            b_ptr[ i ] = static_cast<float>( i ) * 0.375f;
-        }
-
-        // Execute forward through the Residual component (new API returns component-owned Tensor&)
-        auto& out_tensor = component->forward( A, B );
-
-        float* y_ptr = out_tensor.data();
-        for ( size_t i = 0; i < out_tensor.size(); ++i )
-        {
-            EXPECT_FLOAT_EQ( y_ptr[ i ], a_ptr[ i ] + b_ptr[ i ] );
+            EXPECT_NEAR( output.data()[ i ], a.data()[ i ] + b.data()[ i ], 1e-5f )
+                << "sum mismatch at index " << i;
         }
     }
 
-    TEST_F( ResidualCpuTests, Backward_ReturnsInputGradients )
+    // ====================================================================
+    // D/F. Backward (training mode + gradient routing)
+    // ====================================================================
+
+    TEST_F( ResidualCpuTests, Backward_ThrowsWhenBuiltForInference )
     {
-        ResidualConfig cfg;
-        cfg.withScalingFactor( 1.0f );
+        const shape_t shape{ 2, 4 };
+        auto residual = builtResidual( shape, RuntimeMode::Inference );
 
-        auto component = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>(
-            "res_backward",
-            cfg,
-            Device::Cpu() );
+        TensorFp32 a( Device::Cpu(), shape );
+        TensorFp32 b( Device::Cpu(), shape );
+        TensorFp32 grad( Device::Cpu(), shape );
 
-        // Build to allocate component-owned buffers
-        component->build( small_shape_ );
+        residual->forward( a, b );
 
-        // Enable training mode so backward is allowed
-        component->setTraining( true );
-        EXPECT_TRUE( component->isTraining() );
+        EXPECT_THROW( residual->backward( a, b, grad ), std::runtime_error );
+    }
 
-        // Prepare inputs
-        CpuTensor<TensorDataType::FP32> A( Device::Cpu(), small_shape_ );
-        CpuTensor<TensorDataType::FP32> B( Device::Cpu(), small_shape_ );
+    TEST_F( ResidualCpuTests, Backward_RoutesGradientToBothInputs )
+    {
+        const shape_t shape{ 2, 3, 4 };
+        auto residual = builtResidual( shape, RuntimeMode::Training );
 
-        for ( size_t i = 0; i < A.size(); ++i )
+        TensorFp32 a( Device::Cpu(), shape );
+        TensorFp32 b( Device::Cpu(), shape );
+        TensorFp32 grad( Device::Cpu(), shape );
+        fillRamp( a, -1.0f, 0.1f );
+        fillRamp( b, 0.5f, -0.05f );
+        fillRamp( grad, 0.2f, 0.03f );
+
+        residual->forward( a, b );
+        auto [da, db] = residual->backward( a, b, grad );
+
+        ASSERT_EQ( da.size(), grad.size() );
+        ASSERT_EQ( db.size(), grad.size() );
+
+        // d(a+b)/da = d(a+b)/db = 1, so both gradients equal the upstream gradient.
+        for ( size_t i = 0; i < grad.size(); ++i )
         {
-            A.data()[ i ] = static_cast<float>( i ) * 0.1f;
-            B.data()[ i ] = static_cast<float>( i ) * 0.2f;
-        }
-
-        // Prepare output gradient (same shape)
-        CpuTensor<TensorDataType::FP32> output_grad( Device::Cpu(), small_shape_ );
-
-        for ( size_t i = 0; i < output_grad.size(); ++i )
-        {
-            output_grad.data()[ i ] = static_cast<float>( (i % 97) ) * 0.01f;
-        }
-
-        // Call backward: returns pair of references to component-owned input gradients
-        auto grads = component->backward( A, B, output_grad );
-
-        auto& a_grad = grads.first;
-        auto& b_grad = grads.second;
-
-        // Shapes and sizes should match inputs
-        EXPECT_EQ( a_grad.shape(), small_shape_ );
-        EXPECT_EQ( b_grad.shape(), small_shape_ );
-
-        EXPECT_EQ( a_grad.size(), A.size() );
-        EXPECT_EQ( b_grad.size(), B.size() );
-
-        // For elementwise addition y = a + b, gradients w.r.t inputs should equal output_grad
-        float* og_ptr = output_grad.data();
-        float* a_grad_ptr = a_grad.data();
-        float* b_grad_ptr = b_grad.data();
-
-        for ( size_t i = 0; i < output_grad.size(); ++i )
-        {
-            EXPECT_FLOAT_EQ( a_grad_ptr[ i ], og_ptr[ i ] );
-            EXPECT_FLOAT_EQ( b_grad_ptr[ i ], og_ptr[ i ] );
+            EXPECT_NEAR( da.data()[ i ], grad.data()[ i ], 1e-5f ) << "da mismatch at " << i;
+            EXPECT_NEAR( db.data()[ i ], grad.data()[ i ], 1e-5f ) << "db mismatch at " << i;
         }
     }
 
-    TEST_F( ResidualCpuTests, EdgeCase_MinimalShape )
+    // ====================================================================
+    // G. Parameters (Residual is stateless)
+    // ====================================================================
+
+    TEST_F( ResidualCpuTests, Parameters_AreEmpty )
     {
-        ResidualConfig cfg;
-        auto component = std::make_shared<Residual<DeviceType::Cpu, TensorDataType::FP32>>(
-            "res_minimal",
-            cfg,
-            Device::Cpu() );
+        auto residual = builtResidual( shape_t{ 2, 4 }, RuntimeMode::Inference );
 
-        component->build( small_shape_ );
+        EXPECT_EQ( residual->parameterCount(), 0u );
+        EXPECT_TRUE( residual->getParameters().empty() );
+        EXPECT_TRUE( residual->getGradients().empty() );
+    }
 
-        shape_t minimal = { 1 };
-        CpuTensor<TensorDataType::FP32> A( Device::Cpu(), minimal );
-        CpuTensor<TensorDataType::FP32> B( Device::Cpu(), minimal );
+    // ====================================================================
+    // J. Type identity
+    // ====================================================================
 
-        *A.data() = 1.0f;
-        *B.data() = 2.5f;
+    TEST_F( ResidualCpuTests, GetType_IsResidual )
+    {
+        ResidualCpu residual( "residual", ResidualConfig(), Device::Cpu() );
 
-        auto& out_tensor = component->forward( A, B );
-
-        float got = out_tensor.data()[ 0 ];
-        EXPECT_FLOAT_EQ( got, 3.5f );
+        EXPECT_EQ( residual.getType(), ComponentType::Residual );
     }
 }
