@@ -926,11 +926,25 @@ namespace Mila::Dnn
                         oss << indent << "[" << std::endl;
 
                         std::string inner = outputBuffer( index + offset, depth + 1 );
-                        std::istringstream iss( inner );
-                        std::string line;
-                        while ( std::getline( iss, line ) ) {
-                            // Recursive output already includes the correct indentation for its depth.
-                            oss << line << std::endl;
+
+                        // Re-emit each line of the child block (its recursive output already carries
+                        // the correct indentation). A manual split on '\n' replaces std::getline +
+                        // std::istringstream: instantiating getline inside this module trips an MSVC
+                        // bug (C2079: basic_istream::sentry undefined) even with <sstream> in the
+                        // global module fragment.
+                        size_t line_start = 0;
+                        while ( line_start <= inner.size() ) {
+                            size_t newline = inner.find( '\n', line_start );
+
+                            if ( newline == std::string::npos ) {
+                                if ( line_start < inner.size() ) {
+                                    oss << inner.substr( line_start ) << std::endl;
+                                }
+                                break;
+                            }
+
+                            oss << inner.substr( line_start, newline - line_start ) << std::endl;
+                            line_start = newline + 1;
                         }
 
                         oss << indent << "]" << std::endl;

@@ -51,6 +51,7 @@ enclosing namespace. Note two distinct uniqueness rules:
 | **Config** | `*Config.cpp` (e.g. `GeluConfig.cpp`) | fluent setters, `validate()`, metadata round-trip | forward / backward |
 | **Concrete component** | `*.Cpu.cpp` / `*.Cuda.cpp` (e.g. `Gelu.Cpu.cpp`) | the *delta*: construction, build, forward/backward numerics, component-specific accessors, parameter load | the base machinery (already guaranteed by `Component.cpp`) |
 | **Operation** | `<Op>.Cpu.cpp` / `<Op>.Cuda.cpp` under `Tests/Dnn/Compute/.../Operations/` (e.g. `CudaLinearOp.Cuda.cpp`) | the backend op's *internal* surface the component cannot reach: kernel/quantization-internal correctness, the prefill-GEMM vs decode-matvec path split, op-level `@throws` | the component orchestration (build, buffer reuse, mode gating — owned by the component test) |
+| **Value type / god-module** | `<Subject>.<Area>.cpp` / `.Cuda.cpp` (e.g. `Tensor.Constructors.cpp`) | a large non-component module (no Component/Operation lifecycle) split by API *area*, each area file exhaustive against the source surface; throws as negative tests; dtype as a typed sweep only where behavior varies by dtype | the component/operation machinery (there is none) |
 
 The payoff is leverage: because `Component.cpp` proves the base contract once,
 every concrete component test is short — it asserts only what is new. A new
@@ -93,6 +94,28 @@ Two conventions:
 
 CPU op tests (`CpuLinearOp.Cpu.cpp`) ride the `MILA_ENABLE_CUDA=OFF` gate; CUDA op
 tests are GPU-local, like the CUDA component tests.
+
+### The value-type / god-module archetype
+
+Some subjects are neither components nor operations: `Tensor`, and the
+infrastructure types (`Device`, `ExecutionContext`, the registries). They have no
+Component/Operation lifecycle, and the largest — `Tensor.ixx` — is a single module
+far too big for the "one test file per module" rule of §0. For these:
+
+- **Split by API area, not by module.** One file per cohesive area
+  (`Tensor.Constructors.cpp`, `Tensor.MemoryProperties.cpp`,
+  `Tensor.ShapeTransform.cpp`, ...), and the split must be *exhaustive* — every
+  public member maps to exactly one area file, audited against a per-subject
+  coverage matrix (e.g. `Specifications/Testing.Tensors.md`).
+- **The device axis is still a file split.** `<Area>.cpp` (CPU, always compiled)
+  plus `<Area>.Cuda.cpp` (device instantiations), never an inline `#ifdef
+  MILA_HAS_CUDA`. The host-only contract — accessors constrained by `requires
+  is_host_accessible` — is asserted in the `.Cuda.cpp` companion with a
+  `requires`-expression proving they are *not callable* on a device-only resource.
+- **Sweep dtype only where behavior varies.** `elementSize` / `getStorageSize` /
+  `item()` / `data()` host-type mapping vary by data type; shape/stride/view/name/uid
+  do not. Sweep the former, single-instantiate the latter — unlike a concrete
+  component, where the precision sweep is the blanket default.
 
 ---
 

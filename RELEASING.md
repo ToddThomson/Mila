@@ -5,34 +5,42 @@ is going; this document is the home for the *mechanics* — the version scheme, 
 milestones map to GitHub, label conventions, and the release procedure — kept out of the ROADMAP so
 that stays a clean, public-facing narrative.
 
-Two things to internalize up front: the version scheme carries a milestone-tied **stage** and a
-ticking **build** counter (next section), and there are **two distinct validation moments**, only
-one of which involves a tag (further down).
+Two things to internalize up front: the version scheme carries a **stage** (the codebase's maturity,
+not a milestone label) and a ticking **build** counter held in semver build metadata (next section),
+and there are **two distinct validation moments**, only one of which involves a tag (further down).
 
 ---
 
 ## Versioning
 
-Mila uses a repeating **release-cycle** model: `MAJOR.MINOR.PATCH-stage.N.build` (e.g.
-`0.20.0-alpha.6.53`).
+Mila uses a repeating **release-cycle** model: `MAJOR.MINOR.PATCH-stage.X+build` (e.g.
+`0.20.0-alpha.6+56`).
 
 - **minor** — feature-set era.
 - **patch** — part of the target release (usually `.0`).
-- **stage** — maturity: `alpha.N -> beta.N -> rc.N ->` unsuffixed stable.
-- **build** — a running counter carried as the **trailing pre-release identifier**, so it ticks
-  every build without disturbing semver ordering (the stage token is compared first).
+- **stage** — the codebase's maturity: `alpha.X -> beta.X -> rc.X ->` unsuffixed stable. `X` is the
+  stage **checkpoint ordinal** — it ticks each time a checkpoint is tagged within a stage, and is
+  **decoupled from milestones** (it does not name or count them). Milestones are named by theme and
+  namespaced by their planned release (see below), so a stage number never appears in a milestone
+  title.
+- **build** — a running per-commit counter carried as **semver build metadata** (after `+`). It ticks
+  every commit as provenance and is **ignored for version precedence** by the spec.
 
 Each feature set opens a new minor and runs its own ladder; features never land inside a hardening
 ladder — a stabilizing release takes only patch-level fixes. Mila is pre-1.0, so any release may
 carry breaking changes: `0.20.0` "production" means validated and polished, **not** API-frozen. An
 API-stability promise is a separate, deliberate `1.0.0` decision, intentionally deferred.
 
-**Why the build counter sits in the pre-release tail.** Everything before the dash is the *target
-release*, which must not move every build — so a free-running counter cannot live in the patch slot
-while an `-alpha.N` tag is present. Semver compares pre-release identifiers left-to-right, so the
-stage dominates (`alpha.6.99 < beta.1.100`) and the build ticks cleanly within a stage
-(`alpha.6.53 < alpha.6.54`). This keeps a milestone-tied stage *and* a ticking counter, both
-semver-correct.
+**Why the build counter sits in build metadata.** Everything before the dash is the *target
+release*, which must not move every commit, so a free-running counter cannot live in the patch slot.
+Putting it after `+` makes it **build metadata**, which semver compares as equal regardless of value
+(`alpha.6+56` and `alpha.6+57` have the same precedence). That is safe here for two reasons: tag
+resolution is by **exact tag string** (the CPM gate pins an explicit `GIT_TAG`, never a semver
+range), so precedence is never used to pick a build; and every tagged checkpoint **ticks `stage.X`**,
+so no two checkpoints ever differ by build metadata alone. The build counter is therefore pure
+provenance — it distinguishes dev commits between checkpoints, never two releases. (Caveat: OCI/Docker
+image tags forbid `+`, so the optional runtime-image tag must sanitize it — drop the metadata or map
+`+` to `-`.)
 
 **The `0.13 -> 0.20` jump.** The minor jumps to mark the production tier, and the jump lands now:
 the current pre-releases rebase onto the `0.20.0` target. This stays forward in semver
@@ -42,17 +50,19 @@ sort *below* what is already released).
 
 | Stage | Meaning | Example |
 |---|---|---|
-| `alpha.N` | features still landing; unstable | `0.20.0-alpha.6.53` (now) |
-| `beta.N` | feature-frozen; hardening only | `0.20.0-beta.1.N` |
-| `rc.N` | release candidate | `0.20.0-rc.1.N` |
+| `alpha.X` | features still landing; unstable | `0.20.0-alpha.6+56` (now) |
+| `beta.X` | feature-frozen; hardening only | `0.20.0-beta.1+N` |
+| `rc.X` | release candidate | `0.20.0-rc.1+N` |
 | _(none)_ | production-tagged | `0.20.0` |
 
 **`Version.txt`** at the repo root is the single source of truth. It feeds `project(VERSION ...)`
-(the numeric triple) and the prerelease label separately; see `cmake/MilaVersion.cmake` — which must
-parse the `-stage.N.build` tail (the new `.build` segment is the change from the old `-alpha.5`
-form). `Version.txt` is bumped **before committing** — every commit carries the version it
-introduces — so the tag `vX.Y.Z-stage.N.build` always points at a tree whose `Version.txt` matches
-it, and a consumer fetching that tag gets a Mila that reports that exact version.
+(the numeric triple) and the prerelease label separately; see `cmake/MilaVersion.cmake` — which
+parses the numeric triple and carries the `-stage.X+build` tail as the prerelease label. (Today it
+carries `+build` verbatim inside that label, which still reports correctly; a future one-line regex
+tweak can split the `+build` metadata into its own field.) `Version.txt` is bumped **before
+committing** — every commit carries the version it introduces — so the tag `vX.Y.Z-stage.X+build`
+always points at a tree whose `Version.txt` matches it, and a consumer fetching that tag gets a Mila
+that reports that exact version.
 
 ---
 
@@ -67,20 +77,28 @@ The ROADMAP shows **two production releases at a time** — the one in flight (t
   tag crystallize when it promotes to Current.
 - **Future Directions** — uncommitted vision; no milestone, no date.
 
-A **milestone** is a step inside a release box. Because the milestones of a box share its version,
-they are distinguished by **stage**, not version.
+A **milestone** is a step inside a release box. The milestones of a box share its version and are
+distinguished by **theme** (a short descriptive name), **not** by stage or number. Stage is a
+property of the codebase's maturity, not a milestone label: several milestones can land within the
+same stage, and the `alpha -> beta` transition is a maturity judgment over the whole box (it opens
+with Production Hardening), not the closing of any one milestone. Milestones are therefore namespaced
+by their planned **release**, never by stage — which is also how a recurring theme (e.g. API
+Documentation, Production Hardening) stays unique across releases.
 
 ---
 
 ## Milestones <-> GitHub Milestones
 
 Every milestone maps **1:1 to a GitHub Milestone**. The GitHub Milestone title uses the form
-**`Release v<version>, <Stage> - <phrase>`** — release version, stage, short phrase — so it is
-readable and self-locating in GitHub's flat namespace:
+**`Release v<version> - <theme>`** — release version (the namespace) plus a short theme, **no
+stage** — so it is readable, self-locating in GitHub's flat namespace, and a recurring theme stays
+unique by release:
 
-- `Release v0.20.0, Alpha.6 - Consolidation`
-- `Release v0.20.0, Beta - Production Hardening` — the **single** hardening milestone; `beta.N` and
-  `rc.N` are *tags* cut from it as it converges, **not** separate milestones (only the build counter
+- `Release v0.20.0 - Consolidation`
+- `Release v0.20.0 - API Documentation` (a recurring theme; next cycle is `Release v0.21.0 - API
+  Documentation` — the **release** disambiguates, never the stage)
+- `Release v0.20.0 - Production Hardening` — the **single** hardening milestone; `beta.X` and `rc.X`
+  are *tags* cut from it as it converges, **not** separate milestones (only the checkpoint ordinal
   and the tag iteration move; the milestone does not split)
 - `vNext - Qwen 3` — the exception: no version yet, so no `Release v…` prefix; it is renamed to the
   full form when it promotes to Current

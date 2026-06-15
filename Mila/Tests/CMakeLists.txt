@@ -68,6 +68,17 @@ add_executable( MilaTests
     "Dnn/Components/Normalization/SoftmaxConfig.cpp"
     "Dnn/Core/Component.cpp"
     "Dnn/Core/ComponentConfig.cpp"
+    "Dnn/Tensors/Tensor.Constructors.cpp"
+    "Dnn/Tensors/Tensor.DataAccess.cpp"
+    "Dnn/Tensors/Tensor.DataPointers.cpp"
+    "Dnn/Tensors/Tensor.Identity.cpp"
+    "Dnn/Tensors/Tensor.Io.cpp"
+    "Dnn/Tensors/Tensor.MemoryProperties.cpp"
+    "Dnn/Tensors/Tensor.Properties.cpp"
+    "Dnn/Tensors/Tensor.ShapeTransform.cpp"
+    "Dnn/Tensors/TensorOps/Fill.Cpu.cpp"
+    "Dnn/Tensors/TensorOps/Math.Cpu.cpp"
+    "Dnn/Tensors/TensorOps/Zero.Cpu.cpp"
 
     # ==============================================================
     # Section 2 - Active, not yet revisited (pre-methodology)
@@ -82,13 +93,7 @@ add_executable( MilaTests
     "Dnn/Compute/ExecutionContext/CpuExecutionContext.cpp"
     "Dnn/Compute/ExecutionContext/ExecutionContext.cpp"
     "Dnn/Compute/Operations/OperationBase.cpp"
-    "Dnn/Tensors/Tensor.Constructors.cpp"
-    "Dnn/Tensors/Tensor.DataAccess.cpp"
-    "Dnn/Tensors/Tensor.DataPointers.cpp"
-    "Dnn/Tensors/Tensor.MemoryProperties.cpp"
     "Dnn/Tensors/TensorBuffer.cpp"
-    "Dnn/Tensors/TensorOps/Fill.Cpu.cpp"
-    "Dnn/Tensors/TensorOps/Math.Cpu.cpp"
     "Dnn/Tensors/TensorOps/TensorOps.Transfer.cpp"
 
     # ==============================================================
@@ -120,6 +125,8 @@ add_executable( MilaTests
     #"Dnn/Components/Transformers/Gpt/Gpt.Presets.cpp"
     #"Dnn/Components/Transformers/Gpt/GptTransformer.Cpu.cpp"
     #"Dnn/Components/Transformers/Llama/Llama.Presets.cpp"
+    # NOTE: Tensor.Identity / Tensor.Io / Tensor.Properties revived to the value-type
+    # methodology (Section 1 above) in the Alpha.7 Tensor slice; ShapeTransform is new.
     #"Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuGeluOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOpTests.cpp"
@@ -138,10 +145,7 @@ add_executable( MilaTests
     #"Dnn/Optimizers/AdamW.Cpu.cpp"
     #"Dnn/Serialization/ModelArchive.cpp"
     #"Dnn/Serialization/ZipSerializer.cpp"
-    #"Dnn/Tensors/Tensor.Identity.cpp"
     #"Dnn/Tensors/Tensor.Initializers.cpp"
-    #"Dnn/Tensors/Tensor.Io.cpp"
-    #"Dnn/Tensors/Tensor.Properties.cpp"
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
 )
 
@@ -167,14 +171,19 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Normalization/LayerNorm/LayerNorm.Cuda.cpp"
         "Dnn/Components/Normalization/RmsNorm/RmsNorm.Cuda.cpp"
         "Dnn/Components/Normalization/Softmax.Cuda.cpp"
+        "Dnn/Tensors/Tensor.Constructors.Cuda.cpp"
+        "Dnn/Tensors/Tensor.DataAccess.Cuda.cpp"
+        "Dnn/Tensors/Tensor.MemoryProperties.Cuda.cpp"
+        "Dnn/Tensors/Tensor.ShapeTransform.Cuda.cpp"
+        "Dnn/Tensors/TensorOps/Fill.Cuda.cpp"
+        "Dnn/Tensors/TensorOps/Math.Cuda.cpp"
+        "Dnn/Tensors/TensorOps/Zero.Cuda.cpp"
 
         # ----------------------------------------------------------
         # Section 2 - Active, not yet revisited (pre-methodology)
         # ----------------------------------------------------------
         "Dnn/Compute/Devices/Cuda/CudaDeviceRegistrar.cpp"
         "Dnn/Compute/ExecutionContext/CudaExecutionContext.cpp"
-        "Dnn/Tensors/TensorOps/Fill.Cuda.cpp"
-        "Dnn/Tensors/TensorOps/Math.Cuda.cpp"
 
         # ----------------------------------------------------------
         # Section 3 - Commented, awaiting revival (retired in place)

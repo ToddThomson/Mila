@@ -1,3 +1,12 @@
+/**
+ * @file Fill.Cpu.cpp
+ * @brief CPU tests for TensorOps fill() (Dnn.TensorOps:Fill).
+ *
+ * Operation-layer area file of the Tensor value-type archetype (see
+ * Specifications/Testing.Tensors.md). Covers the scalar and vector fill() overloads
+ * on CPU memory resources; the device path is in Fill.Cuda.cpp.
+ */
+
 #include <gtest/gtest.h>
 #include <vector>
 #include <cstdint>
@@ -5,7 +14,7 @@
 
 import Mila;
 
-namespace Dnn::Tensors::TensorOps::Tests
+namespace Mila::Tests::Dnn::Tensors::TensorOps
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;

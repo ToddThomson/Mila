@@ -1,3 +1,14 @@
+/**
+ * @file TensorOps.Transfer.cpp
+ * @brief Tests for TensorOps copy()/toHost() (Dnn.TensorOps:Transfer).
+ *
+ * Operation-layer area file of the Tensor value-type archetype (see
+ * Specifications/Testing.Tensors.md). Transfer is inherently cross-device (host<->device
+ * copy with optional dtype conversion), so the device cases are still inline under
+ * MILA_HAS_CUDA here pending a clean split into a TensorOps.Transfer.Cuda.cpp companion
+ * with its own fixture (tracked in Testing.Tensors.md).
+ */
+
 #include <gtest/gtest.h>
 #include <memory>
 #include <vector>
@@ -10,11 +21,9 @@
 #include <utility>
 #include <exception>
 
-// Gerb
-
 import Mila;
 
-namespace Dnn::Tensors::TensorOps::Tests
+namespace Mila::Tests::Dnn::Tensors::TensorOps
 {
     using namespace Mila::Dnn;
 	using namespace Mila::Dnn::Compute;

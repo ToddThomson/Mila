@@ -8,7 +8,7 @@ Where Mila is going — the durable narrative of each release and what it means.
 
 The roadmap shows two releases at a time — the one in flight and the one after (**vNext**) — plus a
 **Future Directions** tail. Each release is reached through **milestones** tracked by task completion
-(see [RELEASING.md](RELEASING.md)). Current version: **`0.20.0-alpha.6.53`**.
+(see [RELEASING.md](RELEASING.md)). Current version: **`0.20.0-alpha.6+56`**.
 
 ---
 
@@ -36,7 +36,7 @@ lands the shared architectural foundation; the test suite is revived to become t
 oracle; training is resurrected against green tests; documentation describes the stabilized surface;
 beta validates and packages it for the public.
 
-### Milestone: Alpha.6 — Consolidation
+### Milestone: Consolidation
 
 *Feature freeze + debt burndown — earn the right to call it beta, and lay the foundation the
 revival milestones build on. No new features.*
@@ -49,7 +49,7 @@ work properly — not re-stubbing it — makes the tree training-ready as an hon
 consolidation.
 
 - [x] OperationTraits close-out — CPU Linear traits specialization live; the `CpuLinearOpTypeMap` holdout retired (out of build + `RETIRED` banner)
-- [~] OperationTraits close-out — retire the legacy dispatch files in place (out of build + `RETIRED` banner, not deleted): done for the Linear/Gqa typemaps, registry/registrar helpers, `OperationsRegistrar`, `FusedComponent`; `OperationRegistry` + the arity bases remain until the Alpha.8 loss-path re-authoring (still referenced by the disabled CrossEntropy/fused ops kept in `Src`). `Dropout` parked at `Dev/Components/Regularization/`; its `DropoutOp` re-authoring moves to Alpha.8 — training-only, net-new op work outside this freeze
+- [~] OperationTraits close-out — retire the legacy dispatch files in place (out of build + `RETIRED` banner, not deleted): done for the Linear/Gqa typemaps, registry/registrar helpers, `OperationsRegistrar`, `FusedComponent`; `OperationRegistry` + the arity bases remain until the Training Revival loss-path re-authoring (still referenced by the disabled CrossEntropy/fused ops kept in `Src`). `Dropout` parked at `Dev/Components/Regularization/`; its `DropoutOp` re-authoring moves to Training Revival — training-only, net-new op work outside this freeze
 - [ ] FIXME/TODO burndown — backward-pass stubs (bucket D)
 - [ ] FIXME/TODO burndown — training-lifecycle `isTraining()` demotes (bucket E; the `CompositeComponent` setTraining/build bug — the revival linchpin)
 - [ ] FIXME/TODO burndown — design `REVIEW` notes (bucket G)
@@ -59,7 +59,7 @@ consolidation.
 **Exit:** every box checked, no literal `FIXME` in public source, debug instrumentation gone, and the
 Component lifecycle is sound enough to re-enable the component/training tests.
 
-### Milestone: Alpha.7 — Test Suite Revival
+### Milestone: Test Suite Revival
 
 *Re-green the authored test suite to the current API and gate it in CI — the anti-rot ratchet and
 the correctness oracle for everything after it.*
@@ -68,7 +68,7 @@ The first year of Mila was test-driven; ~70 test files exist in the tree, but on
 The rest were commented out during the inference-era refactors (the CMake note is explicit: "too
 many tests to refactor for Component lifecycle changes"). This is recovery, not greenfield — the
 test *logic* is authored; the work is re-aligning it to the post-refactor API (`OperationTraits`
-dispatch, the `Operation` base-class collapse, the precision axes, the lifecycle fix from Alpha.6).
+dispatch, the `Operation` base-class collapse, the precision axes, the lifecycle fix from Consolidation).
 A distinct, genuinely-new slice remains: the inference features built *during* the test drought
 (quantization, the Llama path) need coverage the old suite never had.
 
@@ -80,7 +80,7 @@ green against the current API; new coverage for the quantization and Llama infer
 gated in CI (building on the `MILA_ENABLE_CUDA=OFF` CPU-only gate) so a future API churn fails loudly
 instead of silently rotting coverage.
 
-### Milestone: Alpha.8 — Training Revival
+### Milestone: Training Revival
 
 *Resurrect the validated GPT-2 / MLP training path — MNIST and Bard — to current-API quality, proven
 by its own revived tests. Scope is GPT-2 / MLP only; Llama 3.1/3.2 training stays a Future Direction.*
@@ -94,14 +94,14 @@ oracle — a sample "converges" only when its test says so.
 
 Known correctness work beyond mechanical API re-alignment: the CUDA `fill_normal`/`fill_uniform`
 FP32-only gap (corrupts BF16 train-from-scratch init), the AdamW test re-enablement, and the
-Component-lifecycle fix landed in Alpha.6.
+Component-lifecycle fix landed in Consolidation.
 
 **Success criteria:** the MNIST and Bard samples re-enabled in the build and running against the
 current API; MNIST trains to its target accuracy and Bard generates coherent text; the AdamW,
 loss, and training-path tests green and CI-gated; train-from-scratch validated at the precisions the
 samples use.
 
-### Milestone: Alpha.9 — API Documentation
+### Milestone: API Documentation
 
 *Reconcile the Doxygen surface to the post-refactor reality and publish it — documentation held to
 the same standard as the code.*
@@ -119,9 +119,9 @@ reflects the `OperationTraits` world and the spelled-out naming style; the publi
 matches the public API surface; the docs job renders C++23 module units faithfully and publishes
 from `master`; Doxygen's own warnings (`WARN_IF_DOC_ERROR`/`WARN_NO_PARAMDOC`) gated as errors in
 the docs job so doc drift fails the build instead of silently re-accumulating — the documentation
-analogue of the Alpha.7 test-CI ratchet.
+analogue of the Test Suite Revival test-CI ratchet.
 
-### Milestone: Beta.1 — Production Hardening
+### Milestone: Production Hardening
 
 *Validate, package, and distribute for external contributors. No new features beyond the frozen set.*
 
