@@ -25,9 +25,17 @@ using namespace Mila::Dnn::Compute;
 using namespace Mila::Dnn::Optimizers;
 using namespace Mila::Mnist;
 
+// MILA_DATASETS_DIR is injected by the MNIST CMakeLists as the absolute source-tree
+// dataset path, so the sample finds its data regardless of working directory (the
+// executable runs from the build output dir, not the source root). Keep a relative
+// fallback for any build that does not define it.
+#ifndef MILA_DATASETS_DIR
+#define MILA_DATASETS_DIR "./Data/Datasets"
+#endif
+
 struct MnistConfig
 {
-    std::string data_directory = "./Data/DataSets/Mnist";
+    std::string data_directory = MILA_DATASETS_DIR "/Mnist";
     int64_t batch_size = 128;
     size_t epochs = 20;
     float learning_rate = 0.001f;
@@ -37,7 +45,6 @@ struct MnistConfig
     float weight_decay = 0.01f;
     DeviceType compute_device = DeviceType::Cuda;
 	TensorDataType precision = TensorDataType::FP32;
-    ComputePrecision::Policy precisionPolicy = ComputePrecision::Policy::Auto;
 };
 
 void printUsage()
@@ -53,7 +60,6 @@ void printUsage()
     std::cout << "  --weight-decay <float>       Weight decay (default: 0.01)\n";
     std::cout << "  --device <string>            Compute device (cpu or cuda, default: cuda)\n";
 	std::cout << "  --precision <string>         Precision ( FP32, FP16, etc.)\n";
-    std::cout << "  --precision-policy <string>  Precision policy (auto, performance, accuracy, disabled, default: auto)\n";
     std::cout << "  --help                       Show this help message\n";
 }
 
@@ -112,30 +118,6 @@ bool parseCommandLine( int argc, char** argv, MnistConfig& config )
                 std::cerr << "Unknown device type: " << device << ". Using default: cuda" << std::endl;
             }
         }
-        else if (arg == "--precision-policy" && i + 1 < argc)
-        {
-            std::string precision = argv[++i];
-            if (precision == "auto")
-            {
-                config.precisionPolicy = ComputePrecision::Policy::Auto;
-            }
-            else if (precision == "performance")
-            {
-                config.precisionPolicy = ComputePrecision::Policy::Performance;
-            }
-            else if (precision == "accuracy")
-            {
-                config.precisionPolicy = ComputePrecision::Policy::Accuracy;
-            }
-            else if (precision == "disabled")
-            {
-                config.precisionPolicy = ComputePrecision::Policy::Native;
-            }
-            else
-            {
-                std::cerr << "Unknown precision policy: " << precision << ". Using default: auto" << std::endl;
-            }
-        }
         else if (arg.substr( 0, 2 ) == "--")
         {
             std::cerr << "Unknown option: " << arg << std::endl;
@@ -153,7 +135,6 @@ bool parseCommandLine( int argc, char** argv, MnistConfig& config )
     std::cout << "  Beta2: " << config.beta2 << std::endl;
     std::cout << "  Weight decay: " << config.weight_decay << std::endl;
     std::cout << "  Device: " << (config.compute_device == DeviceType::Cuda ? "CUDA" : "CPU") << std::endl;
-    // FIXME: std::cout << "  Precision policy: " << config.precisionPolicy.toString() << std::endl;
 
     if (!fs::exists( config.data_directory ))
     {

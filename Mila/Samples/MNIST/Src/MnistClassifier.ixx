@@ -425,21 +425,26 @@ namespace Mila::Mnist
             output_shape_ = input_shape;
             output_shape_.back() = MNIST_NUM_CLASSES;
 
-            // Cache typed pointers to children
+            // Cache typed pointers to children. Each child must be built with the
+            // shape it actually receives: Linear::onBuilding throws if the build
+            // context's trailing dimension does not match its in_features, so a
+            // single build_config cannot be shared across layers of different
+            // widths. withShape() rewrites the input shape while preserving the
+            // RuntimeMode and parameter-initialization fields.
             fc1_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_1" );
-            fc1_->build( build_config ); // was input_shape );
+            fc1_->build( build_config.withShape( input_shape_ ) );
 
             gelu1_ = this->template getComponentAs<GeluType>( this->getName() + ".gelu_1" );
-            gelu1_->build( build_config ); // was hidden1_shape_ );
+            gelu1_->build( build_config.withShape( hidden1_shape_ ) );
 
             fc2_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_2" );
-            fc2_->build( build_config );// was hidden1_shape_ );
+            fc2_->build( build_config.withShape( hidden1_shape_ ) );
 
             gelu2_ = this->template getComponentAs<GeluType>( this->getName() + ".gelu_2" );
-            gelu2_->build( build_config ); // was hidden2_shape_ );
+            gelu2_->build( build_config.withShape( hidden2_shape_ ) );
 
             output_fc_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_output" );
-            output_fc_->build( build_config ); // was hidden2_shape_ );
+            output_fc_->build( build_config.withShape( hidden2_shape_ ) );
 
             // Allocate network-owned output buffer (logits)
             auto device = this->getDeviceId();
