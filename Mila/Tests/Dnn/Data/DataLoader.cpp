@@ -1,164 +1,124 @@
+/**
+ * @file DataLoader.cpp
+ * @brief Base-contract tests for DataLoader<TInput, TTarget, TMemoryResource> (CPU).
+ *
+ * DataLoader is the base every concrete loader on the training path derives from
+ * (MnistDataLoader, TokenSequenceLoader). This proves the device-agnostic iteration
+ * contract once -- batch counting, hasNext/reset, the tensor-access surface, the
+ * data-type/mixed-precision traits, and getDatasetInfo/validateCurrentBatch -- via
+ * a mock loader, so concrete loaders need only assert their own data semantics.
+ *
+ * DataLoader is abstract, so the mock IS the surface: MockDataLoader implements the
+ * pure-virtual remainder (numBatches / nextBatch / inputs / targets) over fixed
+ * input {batch,10} and target {batch,5} tensors. The mock does not fill values --
+ * allocated tensors are already non-empty, which is all the contract tests need.
+ *
+ * CPU device, so this rides the MILA_ENABLE_CUDA=OFF CI gate. The pinned-memory
+ * (CudaPinnedMemoryResource / PinnedDataLoader) cases are CUDA-only in the Src and
+ * live in the DataLoader.Cuda.cpp companion.
+ */
+
 #include <gtest/gtest.h>
 #include <memory>
-#include <cmath>
 #include <cstdint>
 #include <string>
 #include <stdexcept>
 
 import Mila;
 
-namespace Data::Loaders::Tests
+namespace Mila::Tests::Dnn::Data
 {
     using namespace Mila::Data;
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    template<TensorDataType TInput, TensorDataType TTarget = TInput, typename TMemoryResource = CpuMemoryResource>
-    class MockDataLoader : public DataLoader<TInput, TTarget, TMemoryResource>
+    namespace
     {
-    public:
-        MockDataLoader( int64_t batch_size, int64_t num_batches, DeviceId device_id = Device::Cpu() )
-            : DataLoader<TInput, TTarget, TMemoryResource>( batch_size ),
-            num_batches_( num_batches ),
-            device_id_( device_id ),
-            input_tensor_( device_id, { static_cast<int64_t>(batch_size), 10 } ),
-            target_tensor_( device_id, { static_cast<int64_t>(batch_size), 5 } )
+        template<TensorDataType TInput, TensorDataType TTarget = TInput, typename TMemoryResource = CpuMemoryResource>
+        class MockDataLoader : public DataLoader<TInput, TTarget, TMemoryResource>
         {
-            // Initialize tensors using Mila tensor initialization helpers
-            initializeTensors();
-        }
+        public:
+            using Base = DataLoader<TInput, TTarget, TMemoryResource>;
+            using InputTensor = typename Base::InputTensor;
+            using TargetTensor = typename Base::TargetTensor;
 
-        int64_t numBatches() const override
-        {
-            return num_batches_;
-        }
+            MockDataLoader( int64_t batch_size, int64_t num_batches, DeviceId device_id = Device::Cpu() )
+                : Base( batch_size ),
+                num_batches_( num_batches ),
+                input_tensor_( device_id, shape_t{ batch_size, 10 } ),
+                target_tensor_( device_id, shape_t{ batch_size, 5 } )
+            {}
 
-        void nextBatch() override
-        {
-            if (this->hasNext())
+            int64_t numBatches() const override
             {
-                // Simulate loading a new batch by reinitializing with different values
-                // based on current batch index
-                updateTensorsForBatch( this->currentBatch() );
-
-                this->incrementBatch();
-            }
-        }
-
-        typename DataLoader<TInput, TTarget, TMemoryResource>::InputTensor& inputs() override
-        {
-            return input_tensor_;
-        }
-
-        const typename DataLoader<TInput, TTarget, TMemoryResource>::InputTensor& inputs() const override
-        {
-            return input_tensor_;
-        }
-
-        typename DataLoader<TInput, TTarget, TMemoryResource>::TargetTensor& targets() override
-        {
-            return target_tensor_;
-        }
-
-        const typename DataLoader<TInput, TTarget, TMemoryResource>::TargetTensor& targets() const override
-        {
-            return target_tensor_;
-        }
-
-    private:
-        void initializeTensors()
-        {
-            // Use Mila tensor initialization helpers
-            if constexpr (TensorDataTypeTraits<TInput>::is_integer_type)
-            {
-                random( input_tensor_, 0, 100 );
-            }
-            else
-            {
-                random( input_tensor_, 0.0f, 1.0f );
+                return num_batches_;
             }
 
-            if constexpr (TensorDataTypeTraits<TTarget>::is_integer_type)
+            void nextBatch() override
             {
-                random( target_tensor_, 0, 10 );
-            }
-            else
-            {
-                random( target_tensor_, -1.0f, 1.0f );
-            }
-        }
-
-        void updateTensorsForBatch( size_t batch_idx )
-        {
-            // Simulate different data per batch using different random ranges
-            float offset = static_cast<float>(batch_idx) * 0.1f;
-
-            if constexpr (TensorDataTypeTraits<TInput>::is_integer_type)
-            {
-                int32_t int_offset = static_cast<int32_t>(batch_idx);
-                random( input_tensor_, int_offset, int_offset + 100 );
-            }
-            else
-            {
-                random( input_tensor_, offset, offset + 1.0f );
+                if ( this->hasNext() )
+                {
+                    this->incrementBatch();
+                }
             }
 
-            if constexpr (TensorDataTypeTraits<TTarget>::is_integer_type)
+            InputTensor& inputs() override
             {
-                int32_t int_offset = static_cast<int32_t>(batch_idx);
-                random( target_tensor_, int_offset, int_offset + 10 );
+                return input_tensor_;
             }
-            else
+
+            const InputTensor& inputs() const override
             {
-                random( target_tensor_, -1.0f + offset, 1.0f + offset );
+                return input_tensor_;
             }
-        }
 
-        int64_t num_batches_;
-        DeviceId device_id_;
-        typename DataLoader<TInput, TTarget, TMemoryResource>::InputTensor input_tensor_;
-        typename DataLoader<TInput, TTarget, TMemoryResource>::TargetTensor target_tensor_;
-    };
+            TargetTensor& targets() override
+            {
+                return target_tensor_;
+            }
 
-    class DataLoaderTest : public ::testing::Test
+            const TargetTensor& targets() const override
+            {
+                return target_tensor_;
+            }
+
+        private:
+            int64_t num_batches_;
+            InputTensor input_tensor_;
+            TargetTensor target_tensor_;
+        };
+    }
+
+    class DataLoaderTests : public ::testing::Test
     {
     protected:
-        void SetUp() override
-        {
-            batch_size_ = 32;
-            num_batches_ = 10;
-        }
-
-        int64_t batch_size_;
-        int64_t num_batches_;
+        static constexpr int64_t kBatchSize = 32;
+        static constexpr int64_t kNumBatches = 10;
     };
 
     // ====================================================================
-    // Constructor and Basic Properties Tests
+    // Construction & properties
     // ====================================================================
 
-    TEST_F( DataLoaderTest, Constructor_ValidBatchSize )
+    TEST_F( DataLoaderTests, Construct_ValidBatchSize )
     {
-        MockDataLoader<TensorDataType::FP32> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::FP32> loader( kBatchSize, kNumBatches );
 
-        EXPECT_EQ( loader.batchSize(), batch_size_);
-        EXPECT_EQ( loader.numBatches(), num_batches_ );
-        EXPECT_EQ( loader.currentBatch(), 0);
+        EXPECT_EQ( loader.batchSize(), kBatchSize );
+        EXPECT_EQ( loader.numBatches(), kNumBatches );
+        EXPECT_EQ( loader.currentBatch(), 0 );
     }
 
-    TEST_F( DataLoaderTest, Constructor_ZeroBatchSize_ThrowsException )
+    TEST_F( DataLoaderTests, Construct_ThrowsOnZeroBatchSize )
     {
-        EXPECT_THROW(
-            (MockDataLoader<TensorDataType::FP32>( 0, num_batches_ )),
-            std::invalid_argument
-        );
+        EXPECT_THROW( ( MockDataLoader<TensorDataType::FP32>( 0, kNumBatches ) ), std::invalid_argument );
     }
 
-    TEST_F( DataLoaderTest, GetDatasetInfo )
+    TEST_F( DataLoaderTests, GetDatasetInfo_DescribesLoader )
     {
-        MockDataLoader<TensorDataType::FP32> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::FP32> loader( kBatchSize, kNumBatches );
 
-        std::string info = loader.getDatasetInfo();
+        const std::string info = loader.getDatasetInfo();
 
         EXPECT_NE( info.find( "DataLoader" ), std::string::npos );
         EXPECT_NE( info.find( "batches" ), std::string::npos );
@@ -166,150 +126,135 @@ namespace Data::Loaders::Tests
     }
 
     // ====================================================================
-    // Batch Iteration Tests
+    // Batch iteration
     // ====================================================================
 
-    TEST_F( DataLoaderTest, BatchIteration_Sequential )
+    TEST_F( DataLoaderTests, Iteration_AdvancesSequentially )
     {
-        MockDataLoader<TensorDataType::FP32> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::FP32> loader( kBatchSize, kNumBatches );
 
         EXPECT_EQ( loader.currentBatch(), 0 );
         EXPECT_TRUE( loader.hasNext() );
 
         loader.nextBatch();
         EXPECT_EQ( loader.currentBatch(), 1 );
-        EXPECT_TRUE( loader.hasNext() );
 
         loader.nextBatch();
         EXPECT_EQ( loader.currentBatch(), 2 );
         EXPECT_TRUE( loader.hasNext() );
     }
 
-    TEST_F( DataLoaderTest, BatchIteration_HasNext )
+    TEST_F( DataLoaderTests, Iteration_HasNextTracksRemaining )
     {
-        MockDataLoader<TensorDataType::FP32> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::FP32> loader( kBatchSize, kNumBatches );
 
-        // Should have next before loading any batches
         EXPECT_TRUE( loader.hasNext() );
 
-        // Load all but last batch
-        for (size_t i = 0; i < num_batches_ - 1; ++i)
+        for ( int64_t i = 0; i < kNumBatches - 1; ++i )
         {
             loader.nextBatch();
             EXPECT_TRUE( loader.hasNext() );
         }
 
-        // Load last batch
         loader.nextBatch();
         EXPECT_FALSE( loader.hasNext() );
-        EXPECT_EQ( loader.currentBatch(), num_batches_ );
+        EXPECT_EQ( loader.currentBatch(), kNumBatches );
     }
 
-    TEST_F( DataLoaderTest, BatchIteration_Exhaustion )
+    TEST_F( DataLoaderTests, Iteration_DoesNotAdvancePastExhaustion )
     {
-        MockDataLoader<TensorDataType::FP32> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::FP32> loader( kBatchSize, kNumBatches );
 
-        // Process all batches
-        for (size_t i = 0; i < num_batches_; ++i)
+        for ( int64_t i = 0; i < kNumBatches; ++i )
         {
             EXPECT_TRUE( loader.hasNext() );
             loader.nextBatch();
         }
 
-        EXPECT_EQ( loader.currentBatch(), num_batches_ );
+        EXPECT_EQ( loader.currentBatch(), kNumBatches );
         EXPECT_FALSE( loader.hasNext() );
 
-        // Try to move beyond available batches - should not change state
+        // Past exhaustion, nextBatch() is a guarded no-op.
         loader.nextBatch();
-        EXPECT_EQ( loader.currentBatch(), num_batches_ );
+        EXPECT_EQ( loader.currentBatch(), kNumBatches );
         EXPECT_FALSE( loader.hasNext() );
     }
 
-    TEST_F( DataLoaderTest, Reset_ResetsToBeginning )
+    TEST_F( DataLoaderTests, Reset_ReturnsToBeginning )
     {
-        MockDataLoader<TensorDataType::FP32> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::FP32> loader( kBatchSize, kNumBatches );
 
-        // Advance several batches
         loader.nextBatch();
         loader.nextBatch();
         loader.nextBatch();
         EXPECT_EQ( loader.currentBatch(), 3 );
 
-        // Reset should return to batch 0
         loader.reset();
         EXPECT_EQ( loader.currentBatch(), 0 );
         EXPECT_TRUE( loader.hasNext() );
     }
 
-    TEST_F( DataLoaderTest, Reset_AfterFullIteration )
+    TEST_F( DataLoaderTests, Reset_RestartsAfterFullIteration )
     {
-        MockDataLoader<TensorDataType::FP32> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::FP32> loader( kBatchSize, kNumBatches );
 
-        // Exhaust all batches
-        for (size_t i = 0; i < num_batches_; ++i)
+        for ( int64_t i = 0; i < kNumBatches; ++i )
         {
             loader.nextBatch();
         }
-
         EXPECT_FALSE( loader.hasNext() );
 
-        // Reset and verify we can iterate again
         loader.reset();
         EXPECT_EQ( loader.currentBatch(), 0 );
         EXPECT_TRUE( loader.hasNext() );
     }
 
     // ====================================================================
-    // Tensor Access Tests
+    // Tensor access
     // ====================================================================
 
-    TEST_F( DataLoaderTest, TensorAccess_InputShape )
+    TEST_F( DataLoaderTests, Inputs_HaveBatchShape )
     {
-        MockDataLoader<TensorDataType::FP32> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::FP32> loader( kBatchSize, kNumBatches );
 
         const auto& inputs = loader.inputs();
 
-        EXPECT_EQ( inputs.shape()[0], static_cast<int64_t>(batch_size_) );
-        EXPECT_EQ( inputs.shape()[1], 10 );
+        EXPECT_EQ( inputs.shape()[ 0 ], kBatchSize );
+        EXPECT_EQ( inputs.shape()[ 1 ], 10 );
     }
 
-    TEST_F( DataLoaderTest, TensorAccess_TargetShape )
+    TEST_F( DataLoaderTests, Targets_HaveBatchShape )
     {
-        MockDataLoader<TensorDataType::FP32> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::FP32> loader( kBatchSize, kNumBatches );
 
         const auto& targets = loader.targets();
 
-        EXPECT_EQ( targets.shape()[0], static_cast<int64_t>(batch_size_) );
-        EXPECT_EQ( targets.shape()[1], 5 );
+        EXPECT_EQ( targets.shape()[ 0 ], kBatchSize );
+        EXPECT_EQ( targets.shape()[ 1 ], 5 );
     }
 
-    TEST_F( DataLoaderTest, TensorAccess_NonEmptyAfterInitialization )
+    TEST_F( DataLoaderTests, Tensors_AreNonEmpty )
     {
-        MockDataLoader<TensorDataType::FP32> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::FP32> loader( kBatchSize, kNumBatches );
 
         EXPECT_FALSE( loader.inputs().empty() );
         EXPECT_FALSE( loader.targets().empty() );
-        EXPECT_GT( loader.inputs().size(), 0 );
-        EXPECT_GT( loader.targets().size(), 0 );
+        EXPECT_GT( loader.inputs().size(), 0u );
+        EXPECT_GT( loader.targets().size(), 0u );
     }
 
-    TEST_F( DataLoaderTest, TensorAccess_ConstAccess )
+    TEST_F( DataLoaderTests, Tensors_ConstAccess )
     {
-        MockDataLoader<TensorDataType::FP32> loader( batch_size_, num_batches_ );
-
+        MockDataLoader<TensorDataType::FP32> loader( kBatchSize, kNumBatches );
         const auto& const_loader = loader;
 
-        // Test const access to tensors
-        const auto& const_inputs = const_loader.inputs();
-        const auto& const_targets = const_loader.targets();
-
-        EXPECT_EQ( const_inputs.shape()[0], static_cast<int64_t>(batch_size_) );
-        EXPECT_EQ( const_targets.shape()[0], static_cast<int64_t>(batch_size_) );
+        EXPECT_EQ( const_loader.inputs().shape()[ 0 ], kBatchSize );
+        EXPECT_EQ( const_loader.targets().shape()[ 0 ], kBatchSize );
     }
 
-    TEST_F( DataLoaderTest, ValidateCurrentBatch_ValidData )
+    TEST_F( DataLoaderTests, ValidateCurrentBatch_PassesForAllocatedTensors )
     {
-        MockDataLoader<TensorDataType::FP32> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::FP32> loader( kBatchSize, kNumBatches );
 
         EXPECT_TRUE( loader.validateCurrentBatch() );
 
@@ -318,190 +263,98 @@ namespace Data::Loaders::Tests
     }
 
     // ====================================================================
-    // Different Data Type Tests
+    // Data-type axis (single + mixed precision)
     // ====================================================================
 
-    TEST_F( DataLoaderTest, FloatPrecision_FP32 )
+    TEST_F( DataLoaderTests, DataType_FP32 )
     {
-        MockDataLoader<TensorDataType::FP32> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::FP32> loader( kBatchSize, kNumBatches );
 
-        EXPECT_EQ( loader.batchSize(), batch_size_ );
         EXPECT_EQ( loader.input_data_type, TensorDataType::FP32 );
         EXPECT_EQ( loader.target_data_type, TensorDataType::FP32 );
         EXPECT_FALSE( loader.supportsMixedPrecision() );
     }
 
-    TEST_F( DataLoaderTest, IntegerType_INT32 )
+    TEST_F( DataLoaderTests, DataType_INT32 )
     {
-        MockDataLoader<TensorDataType::INT32> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::INT32> loader( kBatchSize, kNumBatches );
 
-        EXPECT_EQ( loader.batchSize(), batch_size_ );
         EXPECT_EQ( loader.input_data_type, TensorDataType::INT32 );
         EXPECT_EQ( loader.target_data_type, TensorDataType::INT32 );
     }
 
-    TEST_F( DataLoaderTest, MixedPrecision_FP32_INT32 )
+    TEST_F( DataLoaderTests, DataType_MixedPrecisionFP32InputInt32Target )
     {
-        MockDataLoader<TensorDataType::FP32, TensorDataType::INT32> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::FP32, TensorDataType::INT32> loader( kBatchSize, kNumBatches );
 
         EXPECT_EQ( loader.input_data_type, TensorDataType::FP32 );
         EXPECT_EQ( loader.target_data_type, TensorDataType::INT32 );
         EXPECT_TRUE( loader.supportsMixedPrecision() );
 
         loader.nextBatch();
-        EXPECT_EQ( loader.inputs().shape()[0], static_cast<int64_t>(batch_size_) );
-        EXPECT_EQ( loader.targets().shape()[0], static_cast<int64_t>(batch_size_) );
+        EXPECT_EQ( loader.inputs().shape()[ 0 ], kBatchSize );
+        EXPECT_EQ( loader.targets().shape()[ 0 ], kBatchSize );
     }
 
     // ====================================================================
-    // Memory Resource Tests
+    // CPU memory resource + alias
     // ====================================================================
 
-    TEST_F( DataLoaderTest, CpuMemoryResource )
+    TEST_F( DataLoaderTests, CpuMemoryResource_NotPinned )
     {
-        MockDataLoader<TensorDataType::FP32, TensorDataType::FP32, CpuMemoryResource> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::FP32, TensorDataType::FP32, CpuMemoryResource> loader( kBatchSize, kNumBatches );
 
-        EXPECT_EQ( loader.batchSize(), batch_size_ );
+        EXPECT_EQ( loader.batchSize(), kBatchSize );
         EXPECT_FALSE( loader.usesPinnedMemory() );
 
         loader.nextBatch();
         EXPECT_EQ( loader.currentBatch(), 1 );
     }
 
-    TEST_F( DataLoaderTest, CudaPinnedMemoryResource )
+    TEST_F( DataLoaderTests, CpuDataLoaderAlias_IsCpuMemoryResource )
     {
-        MockDataLoader<TensorDataType::FP32, TensorDataType::FP32, CudaPinnedMemoryResource> loader(
-            batch_size_, num_batches_, Device::Cuda(0) );
-
-        EXPECT_EQ( loader.batchSize(), batch_size_ );
-        EXPECT_TRUE( loader.usesPinnedMemory() );
-
-        loader.nextBatch();
-        EXPECT_EQ( loader.currentBatch(), 1 );
-    }
-
-    // ====================================================================
-    // Type Alias Tests
-    // ====================================================================
-
-    TEST_F( DataLoaderTest, CpuDataLoader_Alias )
-    {
+        // The CpuDataLoader<> alias resolves to DataLoader<..., CpuMemoryResource>;
+        // a concrete loader over it must be CPU (non-pinned).
         class TestCpuLoader : public CpuDataLoader<TensorDataType::FP32>
         {
         public:
-            TestCpuLoader( size_t batch_size, size_t num_batches )
+            TestCpuLoader( int64_t batch_size, int64_t num_batches )
                 : CpuDataLoader<TensorDataType::FP32>( batch_size ),
                 num_batches_( num_batches ),
-                input_( Device::Cpu(), { static_cast<int64_t>(batch_size), 10 } ),
-                target_( Device::Cpu(), { static_cast<int64_t>(batch_size), 5 } )
-            {
-                zeros( input_ );
-                zeros( target_ );
-            }
+                input_( Device::Cpu(), shape_t{ batch_size, 10 } ),
+                target_( Device::Cpu(), shape_t{ batch_size, 5 } )
+            {}
 
-            int64_t numBatches() const override
-            {
-                return num_batches_;
-            }
-            void nextBatch() override
-            {
-                this->incrementBatch();
-            }
-
-            InputTensor& inputs() override
-            {
-                return input_;
-            }
-            const InputTensor& inputs() const override
-            {
-                return input_;
-            }
-            TargetTensor& targets() override
-            {
-                return target_;
-            }
-            const TargetTensor& targets() const override
-            {
-                return target_;
-            }
+            int64_t numBatches() const override { return num_batches_; }
+            void nextBatch() override { this->incrementBatch(); }
+            InputTensor& inputs() override { return input_; }
+            const InputTensor& inputs() const override { return input_; }
+            TargetTensor& targets() override { return target_; }
+            const TargetTensor& targets() const override { return target_; }
 
         private:
-            size_t num_batches_;
+            int64_t num_batches_;
             InputTensor input_;
             TargetTensor target_;
         };
 
-        TestCpuLoader loader( batch_size_, num_batches_ );
+        TestCpuLoader loader( kBatchSize, kNumBatches );
 
-        EXPECT_EQ( loader.batchSize(), batch_size_ );
+        EXPECT_EQ( loader.batchSize(), kBatchSize );
         EXPECT_FALSE( loader.usesPinnedMemory() );
     }
 
-    TEST_F( DataLoaderTest, PinnedDataLoader_Alias )
-    {
-        class TestPinnedLoader : public PinnedDataLoader<TensorDataType::FP32>
-        {
-        public:
-            TestPinnedLoader( size_t batch_size, size_t num_batches )
-                : PinnedDataLoader<TensorDataType::FP32>( batch_size ),
-                num_batches_( num_batches ),
-                input_( Device::Cuda(0), { static_cast<int64_t>(batch_size), 10 } ),
-                target_( Device::Cuda(0), { static_cast<int64_t>(batch_size), 5 } )
-            {
-                zeros( input_ );
-                zeros( target_ );
-            }
-
-            int64_t numBatches() const override
-            {
-                return num_batches_;
-            }
-            void nextBatch() override
-            {
-                this->incrementBatch();
-            }
-
-            InputTensor& inputs() override
-            {
-                return input_;
-            }
-            const InputTensor& inputs() const override
-            {
-                return input_;
-            }
-            TargetTensor& targets() override
-            {
-                return target_;
-            }
-            const TargetTensor& targets() const override
-            {
-                return target_;
-            }
-
-        private:
-            size_t num_batches_;
-            InputTensor input_;
-            TargetTensor target_;
-        };
-
-        TestPinnedLoader loader( batch_size_, num_batches_ );
-
-        EXPECT_EQ( loader.batchSize(), batch_size_ );
-        EXPECT_TRUE( loader.usesPinnedMemory() );
-    }
-
     // ====================================================================
-    // Complete Iteration Workflow Test
+    // Complete iteration workflow (two epochs)
     // ====================================================================
 
-    TEST_F( DataLoaderTest, CompleteIteration_Workflow )
+    TEST_F( DataLoaderTests, CompleteIteration_Workflow )
     {
-        MockDataLoader<TensorDataType::FP32> loader( batch_size_, num_batches_ );
+        MockDataLoader<TensorDataType::FP32> loader( kBatchSize, kNumBatches );
 
-        size_t iteration_count = 0;
+        int64_t iterations = 0;
 
-        // Simulate training loop
-        while (loader.hasNext())
+        while ( loader.hasNext() )
         {
             loader.nextBatch();
 
@@ -509,13 +362,12 @@ namespace Data::Loaders::Tests
             EXPECT_FALSE( loader.inputs().empty() );
             EXPECT_FALSE( loader.targets().empty() );
 
-            ++iteration_count;
+            ++iterations;
         }
 
-        EXPECT_EQ( iteration_count, num_batches_ );
-        EXPECT_EQ( loader.currentBatch(), num_batches_ );
+        EXPECT_EQ( iterations, kNumBatches );
+        EXPECT_EQ( loader.currentBatch(), kNumBatches );
 
-        // Reset and verify second epoch
         loader.reset();
         EXPECT_EQ( loader.currentBatch(), 0 );
         EXPECT_TRUE( loader.hasNext() );

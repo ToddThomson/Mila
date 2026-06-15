@@ -69,16 +69,23 @@ The rest were commented out during the inference-era refactors (the CMake note i
 many tests to refactor for Component lifecycle changes"). This is recovery, not greenfield — the
 test *logic* is authored; the work is re-aligning it to the post-refactor API (`OperationTraits`
 dispatch, the `Operation` base-class collapse, the precision axes, the lifecycle fix from Consolidation).
-A distinct, genuinely-new slice remains: the inference features built *during* the test drought
-(quantization, the Llama path) need coverage the old suite never had.
+Two distinct, genuinely-new slices remain. The inference features built *during* the test drought
+(quantization, the Llama path) need coverage the old suite never had. And — the larger gap — the
+authored suite was **forward-only**: inference validated forward passes against HuggingFace, so every
+`backward()` the training samples drive (per-component gradients, the optimizer step, train-from-scratch
+init at the sample precision) has *zero* coverage. A finite-difference gradient-check archetype is the
+precondition for Training Revival — reviving the samples without it validates convergence by eye, not
+by test. That oracle is built MNIST-spine first (Linear / Gelu / Network / AdamW — the simplest graph)
+before the Bard transformer stack, mirroring the sample-revival order in the next milestone.
 
 The deliverable is not just green tests — it is the **CI ratchet** that keeps them green. The suite
 atrophied because nothing gated it; revival without a gate merely reschedules the next rot.
 
 **Success criteria:** the authored component / operation / tensor / tokenizer suites re-enabled and
-green against the current API; new coverage for the quantization and Llama inference paths; the suite
-gated in CI (building on the `MILA_ENABLE_CUDA=OFF` CPU-only gate) so a future API churn fails loudly
-instead of silently rotting coverage.
+green against the current API; new coverage for the quantization and Llama inference paths; a
+per-component gradient-check archetype covering the training backward path (MNIST spine first, Bard
+transformer stack second); the suite gated in CI (building on the `MILA_ENABLE_CUDA=OFF` CPU-only gate)
+so a future API churn fails loudly instead of silently rotting coverage.
 
 ### Milestone: Training Revival
 
@@ -92,14 +99,25 @@ backward kernels, gradient flow, and train-from-scratch parameter initialization
 init subsystem was restored in Alpha.5). The revived tests from the previous milestone are the
 oracle — a sample "converges" only when its test says so.
 
+The work is sequenced **MNIST first, then Bard**, for both the test revival and the source edits:
+MNIST is a pure MLP (Linear / Gelu / Network / AdamW) with no transformer, tokenizer, or BPE surface,
+so it exercises the full training spine — forward, gradient-check, optimizer step, train-from-scratch
+init, loader contract, end-to-end convergence — on the smallest possible graph. Bard then stacks the
+`GptTransformer` (Lpe / GptBlock / MLP / MHA / LayerNorm / Residual), the BPE/char tokenizers, and the
+`TokenSequenceLoader` on top of an already-proven spine. Both samples currently compute loss and the
+output gradient host-side, so the library `CrossEntropy` path is *not* on the critical path to a
+converging sample — it is decoupled, later work.
+
 Known correctness work beyond mechanical API re-alignment: the CUDA `fill_normal`/`fill_uniform`
 FP32-only gap (corrupts BF16 train-from-scratch init), the AdamW test re-enablement, and the
 Component-lifecycle fix landed in Consolidation.
 
 **Success criteria:** the MNIST and Bard samples re-enabled in the build and running against the
-current API; MNIST trains to its target accuracy and Bard generates coherent text; the AdamW,
-loss, and training-path tests green and CI-gated; train-from-scratch validated at the precisions the
-samples use.
+current API; MNIST trains to its target accuracy and Bard generates coherent text; a per-sample
+end-to-end convergence test (loss strictly decreases over a fixed step budget) is the green/red
+oracle, backed by the gradient-check archetype, the AdamW step-convergence test, and the concrete
+data-loader contract tests; train-from-scratch validated at the precisions the samples use; all
+training-path tests CI-gated.
 
 ### Milestone: API Documentation
 
