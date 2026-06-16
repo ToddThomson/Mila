@@ -127,13 +127,22 @@ namespace Mila::Dnn
             {
                 throw std::invalid_argument( "MLPConfig: Hidden size must be greater than zero" );
             }
+
+            // MLP is the dense GELU feed-forward block. Gated activations (SwiGLU
+            // and friends) have a different 2H -> H shape contract and live in the
+            // GatedMLP component, not here. Reject any non-GELU activation honestly
+            // rather than silently ignoring it. The generalized elementwise
+            // Activation component will relax this later (see FfnAndMoE.md).
+            if (activation_type_ != ActivationType::Gelu)
+            {
+                throw std::invalid_argument( "MLPConfig: only the Gelu activation is currently supported" );
+            }
         }
 
         /**
          * @brief Convert configuration into SerializationMetadata.
          *
          * Produces keys:
-         * - "precision" : integer (underlying value of ComputePrecision::Policy)
          * - "input_features" : integer
          * - "hidden_size" : integer
          * - "has_bias" : boolean
@@ -199,6 +208,7 @@ namespace Mila::Dnn
         }
 
     private:
+
         dim_t input_features_{ 0 };
         dim_t hidden_size_{ 0 };
         bool has_bias_{ true };

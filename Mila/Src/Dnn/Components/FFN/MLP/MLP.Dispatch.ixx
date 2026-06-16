@@ -3,6 +3,13 @@
  * @brief Activation dispatch helpers for MLP.
  */
 
+// RETIRED (FFN consolidation, see Specifications/FfnAndMoE.md): MLP is now pinned to
+// a concrete Gelu child, so the runtime activation dispatch (mlp_activation_impl,
+// the std::function bridge, the SwiGLU branch) no longer exists. This partition is
+// out of the build (removed from Mila/CMakeLists.txt) and is no longer imported by
+// MLP.ixx. Kept on disk for reference until the generalized elementwise Activation
+// component replaces Gelu; delete once that lands.
+
 module;
 #include <memory>
 #include <functional>

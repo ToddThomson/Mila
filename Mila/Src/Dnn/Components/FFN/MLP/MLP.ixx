@@ -1,6 +1,6 @@
 /**
  * @file MLP.ixx
- * @brief Multi-Layer Perceptron (MLP) block for neural networks.
+ * @brief Dense feed-forward (MLP) block: Linear -> GELU -> Linear.
  */
 
 module;
@@ -13,11 +13,9 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <optional>
-#include <functional>
 
 export module Dnn.Components.MLP;
 export import :Config;
-import :Dispatch;
 
 import Dnn.ITensor;
 import Dnn.Tensor;
@@ -27,7 +25,6 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.CompositeComponent;
-import Dnn.ActivationType;
 import Compute.MemoryResource;
 import Compute.Device;
 import Compute.DeviceId;
@@ -39,8 +36,6 @@ import Compute.ExecutionContextFactory;
 import Compute.CpuMemoryResource;
 import Dnn.Components.Linear;
 import Dnn.Components.Gelu;
-import Dnn.Components.Swiglu;
-import Dnn.Components.LayerNorm;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 
@@ -50,25 +45,30 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief Multi-Layer Perceptron (MLP) composite component.
+     * @brief Dense feed-forward (MLP) composite component.
      *
-     * Device-templated composite component that implements a standard MLP structure:
-     *   Input -> Linear(in_features, hidden_size) -> [LayerNorm] -> Activation -> Linear(hidden_size, in_features) -> Output
+     * Device-templated composite implementing the GPT-2 dense FFN:
+     *   Input -> Linear(in_features, hidden_size) -> GELU -> Linear(hidden_size, in_features) -> Output
      *
-     * When the configured activation is SwiGLU, fc1 projects to 2*hidden_size; the Swiglu
-     * component splits that into two halves and computes x1 * GELU(x2), producing hidden_size
-     * output fed into fc2. For all other activations fc1 projects to hidden_size directly.
+     * The component is honest about the single activation it supports: GELU. The
+     * gated FFN family (SwiGLU and friends) is a separate component (GatedMLP) with
+     * a different 2H -> H shape contract; it is not expressible here and is not a
+     * runtime option. A future generalized elementwise Activation component will
+     * replace the fixed Gelu child, at which point the activation function becomes a
+     * compile-time parameter (see Specifications/FfnAndMoE.md). Until then MLP is the
+     * dense GELU FFN, full stop.
      *
-     * The component composes child components (Linear, optional LayerNorm, Activation) and
-     * delegates forward/backward calls to them. Child components own intermediate tensors;
-     * MLP stores non-owning pointers to those tensors after forward() to chain backward().
+     * The component composes child components (two Linear projections and a GELU)
+     * and delegates forward/backward calls to them. Child components own their
+     * intermediate tensors; MLP stores non-owning pointers to those tensors after
+     * forward() to chain backward().
      *
-     * Threading: call sites must ensure that forward/backward/zeroGradients are invoked
-     * in a thread-safe manner relative to one another; this class does not provide internal
-     * synchronization.
+     * Threading: call sites must ensure that forward/backward/zeroGradients are
+     * invoked in a thread-safe manner relative to one another; this class does not
+     * provide internal synchronization.
      *
      * @tparam TDeviceType Device type for execution (CPU, CUDA, ...).
-     * @tparam TPrecision  Tensor data precision (Fp32, Fp16, etc.). Must be supported on the device.
+     * @tparam TPrecision  Tensor data precision. Must be supported on the device.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -81,22 +81,21 @@ namespace Mila::Dnn
         using TensorType = Tensor<TPrecision, MR>;
         using LinearType = Linear<TDeviceType, TPrecision>;
         using GeluType = Gelu<TDeviceType, TPrecision>;
-        using SwigluType = Swiglu<TDeviceType, TPrecision>;
-        using LayerNormType = LayerNorm<TDeviceType, TPrecision>;
 
         /**
          * @brief Construct an MLP component.
          *
          * The constructor validates the provided `config`, constructs the internal
-         * child component graph, and optionally creates and assigns an execution context
-         * when `device_id` is provided.
+         * child component graph (fc1 -> gelu -> fc2), and optionally creates and
+         * assigns an execution context when `device_id` is provided.
          *
          * @param name      Component name used to name child subcomponents.
-         * @param config    MLP configuration (input features, hidden size, activation, bias, layer-norm flag).
+         * @param config    MLP configuration (input features, hidden size, bias).
          * @param device_id Optional device identifier; when present the MLP creates an owned execution context
          *                  bound to that device and sets it on the component. If the provided `device_id`
          *                  type does not match the template `TDeviceType`, an exception is thrown.
          *
+         * @throws std::invalid_argument if `config` is invalid (via config.validate()).
          * @throws std::invalid_argument if `device_id` is present but has a mismatched device type.
          */
         explicit MLP( const std::string& name, const MLPConfig& config, std::optional<DeviceId> device_id = std::nullopt )
@@ -131,7 +130,7 @@ namespace Mila::Dnn
          *
          * Chains child component forward calls:
          *   - fc1_->forward(input)
-         *   - activation_forward_(...)  [Gelu or Swiglu, bound at construction]
+         *   - gelu_->forward(...)
          *   - fc2_->forward(...)
          *
          * The function stores non-owning pointers to child-owned intermediate tensors produced
@@ -155,7 +154,7 @@ namespace Mila::Dnn
 
             last_fc1_out_ = &fc1_->forward( input );
 
-            last_act_out_ = &activation_forward_( *last_fc1_out_ );
+            last_act_out_ = &gelu_->forward( *last_fc1_out_ );
 
             last_final_out_ = &fc2_->forward( *last_act_out_ );
 
@@ -168,7 +167,7 @@ namespace Mila::Dnn
          * Uses the child-owned tensors captured by the most recent `forward()` invocation
          * to chain backward calls without recomputing forward:
          *   - fc2_->backward(captured_activation_output, output_grad)
-         *   - activation_backward_(...)
+         *   - gelu_->backward(...)
          *   - fc1_->backward(input, ...)
          *
          * The method clears the cached forward pointers before returning to avoid accidental reuse.
@@ -197,8 +196,7 @@ namespace Mila::Dnn
 
             auto& fc2_grad = fc2_->backward( *last_act_out_, output_grad );
 
-            // last_fc1_out_ is the pre-activation tensor: [B,T,H] for Gelu, [B,T,2H] for Swiglu.
-            auto& act_grad = activation_backward_( *last_fc1_out_, fc2_grad );
+            auto& act_grad = gelu_->backward( *last_fc1_out_, fc2_grad );
 
             auto& input_grad = fc1_->backward( input, act_grad );
 
@@ -207,36 +205,36 @@ namespace Mila::Dnn
             return input_grad;
         }
 
+        /**
+         * @brief Single-token inference convenience: fc1 -> gelu -> fc2 with no gradient capture.
+         *
+         * Relies on single-stream ordering for inter-op dependencies; the caller
+         * synchronizes before reading results on the host.
+         */
         TensorType& decode( const TensorType& input ) const
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "MLP must be built before decode()." );
 
             auto& fc1_out = fc1_->forward( input );
-            this->getExecutionContext()->synchronize();
 
-            auto& act_out = activation_forward_( fc1_out );
-            this->getExecutionContext()->synchronize();
+            auto& act_out = gelu_->forward( fc1_out );
 
             auto& fc2_out = fc2_->forward( act_out );
-            this->getExecutionContext()->synchronize();
 
             return fc2_out;
         }
 
         /**
          * @brief Zero gradients for all child components.
-         *
-         * Recursively zeroes optimizer/parameter gradients in children. Safe to call
-         * regardless of build state; child pointers are checked before use.
          */
         void zeroGradients() override
         {
             fc1_->zeroGradients();
 
-            if ( activation_ )
+            if ( gelu_ )
             {
-                activation_->zeroGradients();
+                gelu_->zeroGradients();
             }
 
             fc2_->zeroGradients();
@@ -254,9 +252,9 @@ namespace Mila::Dnn
         {
             fc1_->save_( archive, mode );
 
-            if ( activation_ )
+            if ( gelu_ )
             {
-                activation_->save_( archive, mode );
+                gelu_->save_( archive, mode );
             }
 
             fc2_->save_( archive, mode );
@@ -286,9 +284,6 @@ namespace Mila::Dnn
         /**
          * @brief Human-readable status and configuration summary.
          *
-         * Produces a multi-line string describing the component name, shapes, parameter counts,
-         * activation and layer-norm usage, device assignment (if set), and child component names.
-         *
          * @return String containing component introspection information suitable for logging.
          */
         std::string toString() const override
@@ -299,7 +294,7 @@ namespace Mila::Dnn
             oss << "Input features: " << config_.getInputFeatures() << std::endl;
             oss << "Hidden size: " << config_.getHiddenSize() << std::endl;
             oss << "Bias: " << ( config_.hasBias() ? "enabled" : "disabled" ) << std::endl;
-            oss << "Activation: " << activationTypeToString( config_.getActivationType() ) << std::endl;
+            oss << "Activation: Gelu" << std::endl;
 
             if ( this->hasExecutionContext() )
             {
@@ -340,9 +335,9 @@ namespace Mila::Dnn
                 oss << "  - fc1: " << fc1_->getName() << std::endl;
             }
 
-            if ( activation_ )
+            if ( gelu_ )
             {
-                oss << "  - activation: " << activation_->getName() << std::endl;
+                oss << "  - gelu: " << gelu_->getName() << std::endl;
             }
 
             if ( fc2_ )
@@ -358,14 +353,13 @@ namespace Mila::Dnn
         /**
          * @brief Build-time callback invoked by the CompositeComponent framework.
          *
-         * Validates the provided `input_shape`, computes the hidden shape, and builds
-         * each child component with the appropriate shape. For SwiGLU, the activation is
-         * built with 2*hidden_size along the feature axis; fc2 always receives hidden_size.
-         * After building, any cached forward pointers are cleared.
+         * Validates the input shape, computes the hidden shape, and builds each child
+         * with the appropriate shape: fc1 receives the input shape, the GELU and fc2
+         * receive the hidden shape. After building, cached forward pointers are cleared.
          *
-         * @param input_shape Shape of the input tensor. The last dimension must equal config_.getInputFeatures().
+         * @param context Build context; `inputShape().back()` must equal config_.getInputFeatures().
          *
-         * @throws std::invalid_argument if `input_shape` rank < 1 or last dimension mismatches config.
+         * @throws std::invalid_argument if the input shape rank < 1 or last dimension mismatches config.
          */
         void onBuilding( const BuildContext& context ) override
         {
@@ -380,37 +374,26 @@ namespace Mila::Dnn
             fc1_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_1" );
             fc1_->build( context );
 
-            // For SwiGLU: activation input is 2*H (fused gate+up); output collapses back to H.
-            // For all other activations: activation input and output are both H.
-            shape_t activation_input_shape = cached_hidden_shape_;
-
-            if ( config_.getActivationType() == ActivationType::Swiglu )
-            {
-                activation_input_shape.back() *= 2;
-            }
-
-            BuildContext activation_context( activation_input_shape, context.getRuntimeMode() ); // , context.getPrefillSize() );
-            activation_->build( activation_context );
+            gelu_ = this->template getComponentAs<GeluType>( this->getName() + ".gelu" );
+            BuildContext gelu_context( cached_hidden_shape_, context.getRuntimeMode() );
+            gelu_->build( gelu_context );
 
             fc2_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_2" );
-            BuildContext fc2_context( cached_hidden_shape_, context.getRuntimeMode() ); // , context.getPrefillSize() );
+            BuildContext fc2_context( cached_hidden_shape_, context.getRuntimeMode() );
             fc2_->build( fc2_context );
 
             clearForwardCache();
         }
 
         /**
-         * @brief Called when the training/inference mode changes.
+         * @brief Propagate training-mode changes to child components.
          *
-         * Propagates the training flag to child components so they can adjust behavior
-         * (dropout, batch/statistics, etc.) as needed.
-         *
-         * @param is_training True if switching to training mode; false for evaluation mode.
+         * @param training_mode New training mode.
          */
         void onTrainingModeChanging( TrainingMode training_mode ) override
         {
             fc1_->setTrainingMode( training_mode );
-            activation_->setTrainingMode( training_mode );
+            gelu_->setTrainingMode( training_mode );
             fc2_->setTrainingMode( training_mode );
         }
 
@@ -424,16 +407,8 @@ namespace Mila::Dnn
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
         std::shared_ptr<LinearType> fc1_{ nullptr };
+        std::shared_ptr<GeluType> gelu_{ nullptr };
         std::shared_ptr<LinearType> fc2_{ nullptr };
-
-        // Polymorphic activation: holds either Gelu or Swiglu via the Component base.
-        using ActivationBase = Component<TDeviceType, TPrecision>;
-        using ActivationForwardFn = std::function<TensorType& (const TensorType&)>;
-        using ActivationBackwardFn = std::function<TensorType&(const TensorType&, const TensorType&)>;
-
-        std::shared_ptr<ActivationBase> activation_{ nullptr };
-        ActivationForwardFn activation_forward_;
-        ActivationBackwardFn activation_backward_;
 
         // Captured child-owned tensors from the most recent forward() call.
         // These are non-owning raw pointers to tensors owned by the child components.
@@ -442,44 +417,19 @@ namespace Mila::Dnn
         TensorType* last_final_out_{ nullptr };
 
         /**
-         * @brief Build the internal component graph according to `config_`.
+         * @brief Build the internal component graph: fc1 -> gelu -> fc2.
          *
-         * For SwiGLU, fc1 projects to 2*hidden_size so that the Swiglu activation can split
-         * the output into gate and up halves. For all other activations fc1 projects to hidden_size.
          * Called from the constructor; does not perform shape-dependent build calls.
          */
         void createGraph()
         {
-            // REVIEW: fc_in, fc_out general naming. We could also have Swiglu specific naming?
-
-            // SwiGLU fuses gate and up projections: fc1 must output 2*H for the split.
-            dim_t fc1_out = ( config_.getActivationType() == ActivationType::Swiglu )
-                ? config_.getHiddenSize() * 2
-                : config_.getHiddenSize();
-
-            addLinear( "fc_1", config_.getInputFeatures(), fc1_out );
-            addActivation( activationChildName() );
+            addLinear( "fc_1", config_.getInputFeatures(), config_.getHiddenSize() );
+            addGelu( "gelu" );
             addLinear( "fc_2", config_.getHiddenSize(), config_.getInputFeatures() );
         }
 
         /**
-         * @brief Returns the child component name suffix for the configured activation type.
-         *
-         * @return Suffix string used to name the activation child component.
-         */
-        std::string activationChildName() const
-        {
-            switch ( config_.getActivationType() )
-            {
-                case ActivationType::Swiglu: return "swiglu";
-                default: return "gelu";
-            }
-        }
-
-        /**
          * @brief Helper to create and add a Linear child component.
-         *
-         * The created Linear component uses the parent's name plus the provided suffix.
          *
          * @param suffix       Suffix appended to parent name for the child component.
          * @param in_features  Number of input features for the linear layer.
@@ -496,57 +446,15 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Helper to create and add a LayerNorm child component.
-         *
-         * The LayerNorm is constructed with axis=-1 by default to normalize the last dimension.
-         *
-         * @param suffix Suffix appended to parent name for the child component.
-         */
-        // DEPRECATED: void addLayerNorm( const std::string& suffix )
-        //{
-        //    auto cfg = LayerNormConfig().withAxis( -1 );
-        //
-        //    auto component = std::make_shared<LayerNormType>( this->getName() + "." + suffix, cfg, std::nullopt );
-        //
-        //    this->addComponent( component );
-        //}
-
-        /**
-         * @brief Create and register the activation child component for the configured type.
-         *
-         * Uses mlp_activation_impl to construct the concrete activation, bind type-erased
-         * forward/backward lambdas, and register the component with the composite framework.
-         * Supports ActivationType::Gelu and ActivationType::Swiglu.
+         * @brief Helper to create and add the GELU activation child component.
          *
          * @param suffix Suffix appended to parent name for the activation child component.
-         *
-         * @throws std::invalid_argument if the activation type in config_ is unsupported.
          */
-        void addActivation( const std::string& suffix )
+        void addGelu( const std::string& suffix )
         {
-            switch ( config_.getActivationType() )
-            {
-                case ActivationType::Gelu:
-                {
-                    using Impl = Detail::mlp_activation_impl<ActivationType::Gelu, TDeviceType, TPrecision>;
-                    auto act = Impl::create( this->getName() + "." + suffix );
-                    Impl::bind( act, activation_, activation_forward_, activation_backward_ );
-                    this->addComponent( act );
-                    break;
-                }
+            auto gelu = std::make_shared<GeluType>( this->getName() + "." + suffix, GeluConfig(), std::nullopt );
 
-                case ActivationType::Swiglu:
-                {
-                    using Impl = Detail::mlp_activation_impl<ActivationType::Swiglu, TDeviceType, TPrecision>;
-                    auto act = Impl::create( this->getName() + "." + suffix );
-                    Impl::bind( act, activation_, activation_forward_, activation_backward_ );
-                    this->addComponent( act );
-                    break;
-                }
-
-                default:
-                    throw std::invalid_argument( "MLP: unsupported activation type" );
-            }
+            this->addComponent( gelu );
         }
 
         /**
@@ -579,9 +487,6 @@ namespace Mila::Dnn
 
         /**
          * @brief Clear cached non-owning forward pointers.
-         *
-         * Safe to call at any time; used to avoid accidental reuse of child-owned
-         * tensors across forward/backward cycles. No side effects beyond pointer reset.
          */
         void clearForwardCache() noexcept
         {

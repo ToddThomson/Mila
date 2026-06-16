@@ -173,8 +173,6 @@ PUBLIC
         "Src/Dnn/Components/Activations/ActivationType.ixx"
         "Src/Dnn/Components/Activations/Gelu/Gelu.ixx"
         "Src/Dnn/Components/Activations/Gelu/Gelu.Config.ixx"
-        "Src/Dnn/Components/Activations/Swiglu/Swiglu.ixx"
-        "Src/Dnn/Components/Activations/Swiglu/Swiglu.Config.ixx"
         
         # Components - Connections
         "Src/Dnn/Components/Connections/ConnectionType.ixx"
@@ -211,9 +209,14 @@ PUBLIC
         
         # Dropout parked at Dev/Components/Regularization/ pending Alpha.8 re-authoring (see BACKLOG).
 
-        "Src/Dnn/Components/FFN/MLP.ixx"
-        "Src/Dnn/Components/FFN/MLP.Config.ixx"
-        "Src/Dnn/Components/FFN/MLP.Dispatch.ixx"
+        "Src/Dnn/Components/FFN/MLP/MLP.ixx"
+        "Src/Dnn/Components/FFN/MLP/MLP.Config.ixx"
+        # MLP.Dispatch.ixx RETIRED: the runtime activation dispatch (mlp_activation_impl)
+        # is gone now that MLP is pinned to a concrete Gelu child. Kept on disk for
+        # reference until the generalized Activation component lands (see FfnAndMoE.md).
+        #"Src/Dnn/Components/FFN/MLP/MLP.Dispatch.ixx"
+        "Src/Dnn/Components/FFN/Swiglu/Swiglu.ixx"
+        "Src/Dnn/Components/FFN/Swiglu/Swiglu.Config.ixx"
         "Src/Dnn/Components/Transformers/Gpt/GptBlock.ixx"
         "Src/Dnn/Components/Transformers/Gpt/GptBlock.Config.ixx"
 

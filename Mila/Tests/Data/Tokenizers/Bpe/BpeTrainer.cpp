@@ -1,12 +1,11 @@
 #include <gtest/gtest.h>
-
-import Mila;
-
 #include <filesystem>
 #include <sstream>
 #include <chrono>
 #include <random>
 #include <fstream>
+
+import Mila;
 
 namespace Data::Tokenizers::BpeTrainer_Tests
 {

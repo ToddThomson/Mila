@@ -54,6 +54,9 @@ consolidation.
 - [ ] FIXME/TODO burndown — training-lifecycle `isTraining()` demotes (bucket E; the `CompositeComponent` setTraining/build bug — the revival linchpin)
 - [ ] FIXME/TODO burndown — design `REVIEW` notes (bucket G)
 - [ ] Debug-instrumentation strip — kernel anomaly guards removed (Residual/Gelu/LayerNorm/RmsNorm; `Swiglu.Fp32.v1.cu` deleted) and BPE tokenizer console routed to `Logging::Logger` or removed; remaining: the `TokenSequenceLoader` verbose dump and the already-gated diagnostics; training-path instrumentation (AdamW, `BpeVocabulary` progress) deferred to Training Revival
+- [ ] Debug-instrumentation strip — per-step `synchronize()` removed from `GptBlock`/`LlamaBlock` `forward()`/`backward()` (inference `prefill`/`decode` already run sync-free; single-stream ordering + the caller's host-read boundary sync suffice)
+- [ ] FFN consolidation — de-polymorphize `MLP` to a compile-time `Activation<…, TActivation = Gelu>` dense FFN (drop the runtime activation switch / `mlp_activation_impl` / `std::function` bridge / SwiGLU branch / `fc1` doubling / dead LayerNorm), unblocking `MLP<Cpu>` / `GptBlock<Cpu>` / `GptTransformer<Cpu>`; relocate `Swiglu` `Activations/` -> `FFN/Swiglu/`; relocate `MLP` into `FFN/MLP/`. Design: `Specifications/FfnAndMoE.md`
+- [ ] FFN consolidation — `Activation` elementwise primitive: compile-time `TFn`, the `MILA_HD` functor library, and the Cpu/Cuda `ElementwiseActivationOp` (functor-templated, not a traits axis); `Gelu` folds in. Remaining 7 elementwise functors + CPU `SwigluOp` tracked in BACKLOG
 - [ ] Hardening — couple the `initialize_parameters` default to `RuntimeMode`
 
 **Exit:** every box checked, no literal `FIXME` in public source, debug instrumentation gone, and the
@@ -184,7 +187,9 @@ version, date, GitHub Milestone) when it is scheduled.
 - **Training (advanced)** — beyond the revived GPT-2 / MLP training foundation now in v0.20: a full
   LLaMA fine-tuning pipeline, loss-function GPU migration, gradient checkpointing, and checkpoint
   save/restore.
-- **Architecture** — Mixture-of-Experts components, speculative decoding, additional attention
-  variants.
+- **Architecture** — Mixture-of-Experts components (the `GatedMLP` reusable gated FFN, the grouped
+  `MoeOp` over stacked expert weights, `Router` + `MixtureOfExperts`; design and the MoE-readiness
+  seams already specified in `Specifications/FfnAndMoE.md`, with the FFN-layer foundation landing in
+  v0.20 Consolidation), speculative decoding, additional attention variants.
 - **Performance** — Flash Attention integration, tensor parallelism, deterministic gradient
   accumulation for training reproducibility.

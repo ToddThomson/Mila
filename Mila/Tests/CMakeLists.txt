@@ -15,7 +15,7 @@
 
 include(FetchContent)
    FetchContent_Declare(
-     googletest
+   googletest
      URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.zip
 )
 
@@ -47,9 +47,9 @@ add_executable( MilaTests
     # ==============================================================
     # Section 1 - Current test methodology (Specifications/Testing.md)
     # ==============================================================
+    "Data/Loaders/DataLoader.cpp"
     "Dnn/Components/Activations/Gelu/Gelu.Cpu.cpp"
     "Dnn/Components/Activations/Gelu/GeluConfig.cpp"
-    "Dnn/Components/Activations/Swiglu/SwigluConfig.cpp"
     "Dnn/Components/Attention/GQA/GqaConfig.cpp"
     "Dnn/Components/Attention/MHA/MultiHeadAttention.Cpu.cpp"
     "Dnn/Components/Attention/MHA/MultiHeadAttentionConfig.cpp"
@@ -59,6 +59,9 @@ add_executable( MilaTests
     "Dnn/Components/Encodings/Lpe/Lpe.Cpu.cpp"
     "Dnn/Components/Encodings/Lpe/LpeConfig.cpp"
     "Dnn/Components/Encodings/Rope/RopeConfig.cpp"
+    "Dnn/Components/FFN/MLP/MLP.Cpu.cpp"
+    "Dnn/Components/FFN/MLP/MLPConfig.cpp"
+    "Dnn/Components/FFN/Swiglu/SwigluConfig.cpp"
     "Dnn/Components/Linear/Linear.Cpu.cpp"
     "Dnn/Components/Linear/LinearConfig.cpp"
     "Dnn/Components/Normalization/LayerNorm/LayerNorm.Cpu.cpp"
@@ -66,10 +69,13 @@ add_executable( MilaTests
     "Dnn/Components/Normalization/RmsNorm/RmsNormConfig.cpp"
     "Dnn/Components/Normalization/Softmax.Cpu.cpp"
     "Dnn/Components/Normalization/SoftmaxConfig.cpp"
+    "Dnn/Components/Transformers/Gpt/Gpt.Presets.cpp"
+    "Dnn/Components/Transformers/Gpt/GptBlock.Config.cpp"
+    "Dnn/Components/Transformers/Gpt/GptBlock.Cpu.cpp"
+    "Dnn/Components/Transformers/Gpt/GptTransformer.Cpu.cpp"
     "Dnn/Core/Component.cpp"
     "Dnn/Core/ComponentConfig.cpp"
     "Dnn/Core/CompositeComponent.cpp"
-    "Dnn/Data/DataLoader.cpp"
     "Dnn/Modeling/Network.Cpu.cpp"
     "Dnn/Optimizers/AdamW.Cpu.cpp"
     "Dnn/Tensors/Tensor.Constructors.cpp"
@@ -88,6 +94,14 @@ add_executable( MilaTests
     # ==============================================================
     # Section 2 - Active, not yet revisited (pre-methodology)
     # ==============================================================
+    "Data/Tokenizers/Bpe/BpeTokenizer.cpp"
+    "Data/Tokenizers/Bpe/BpeTokenizer.Gpt2.cpp"
+    "Data/Tokenizers/Bpe/BpeTokenizer.Llama32.cpp"
+    "Data/Tokenizers/Bpe/BpeTrainer.cpp"
+    "Data/Tokenizers/Bpe/BpeVocabulary.cpp"
+    "Data/Tokenizers/Char/CharTokenizer.cpp"
+    "Data/Tokenizers/Char/CharTrainer.cpp"
+    "Data/Tokenizers/Char/CharVocabulary.cpp"
     "Dnn/Components/Transformers/Llama/Llama.Config.cpp"
     "Dnn/Compute/DeviceId.cpp"
     "Dnn/Compute/DeviceTypes.cpp"
@@ -104,21 +118,10 @@ add_executable( MilaTests
     # ==============================================================
     # Section 3 - Commented, awaiting revival (retired in place)
     # ==============================================================
-    #"Data/Tokenizers/Bpe/BpeTokenizer.cpp"
-    #"Data/Tokenizers/Bpe/BpeTokenizer.Gpt2.cpp"
-    #"Data/Tokenizers/Bpe/BpeTokenizer.Llama32.cpp"
-    #"Data/Tokenizers/Bpe/BpeTrainer.cpp"
-    #"Data/Tokenizers/Bpe/BpeVocabulary.cpp"
-    #"Data/Tokenizers/Char/CharTokenizer.cpp"
-    #"Data/Tokenizers/Char/CharTrainer.cpp"
-    #"Data/Tokenizers/Char/CharVocabulary.cpp"
+    #"Data/Loaders/TokenSequenceLoader.cpp"
     #"Dnn/Components/Attention/GQA/GQA.Config.cpp"
     #"Dnn/Components/Attention/MHA/MHA.Config.cpp"
     #"Dnn/Components/Attention/MHA/MHA.Cpu.cpp"
-    #"Dnn/Components/Composites/GptBlock.Config.cpp"
-    #"Dnn/Components/Composites/GptBlock.Cpu.cpp"
-    #"Dnn/Components/Composites/MLP.Cpu.cpp"
-    #"Dnn/Components/Composites/MLPConfig.cpp"
     #"Dnn/Components/Connections/Residual.Config.cpp"
     #"Dnn/Components/Connections/Residual.Cpu.cpp"
     #"Dnn/Components/Encodings/Lpe/Encoder.Cpu.cpp"
@@ -127,8 +130,6 @@ add_executable( MilaTests
     #"Dnn/Components/Losses/CrossEntropy.Cpu.cpp"
     #"Dnn/Components/Normalization/Softmax.Cpu.cpp"
     #"Dnn/Components/Normalization/SoftmaxConfig.cpp"
-    #"Dnn/Components/Transformers/Gpt/Gpt.Presets.cpp"
-    #"Dnn/Components/Transformers/Gpt/GptTransformer.Cpu.cpp"
     #"Dnn/Components/Transformers/Llama/Llama.Presets.cpp"
     # NOTE: Tensor.Identity / Tensor.Io / Tensor.Properties revived to the value-type
     # methodology (Section 1 above) in the Alpha.7 Tensor slice; ShapeTransform is new.
@@ -141,7 +142,6 @@ add_executable( MilaTests
     #"Dnn/Compute/Operations/BinaryOperation.cpp"
     #"Dnn/Compute/Operations/UnaryOperation.cpp"
     #"Dnn/Core/Network.cpp"
-    #"Dnn/Data/TokenSequenceLoader.cpp"
     #"Dnn/Model.cpp"
     #"Dnn/Modeling/Model.Cpu.cpp"
     #"Dnn/Serialization/ModelArchive.cpp"
@@ -160,19 +160,19 @@ if(MILA_ENABLE_CUDA)
         # ----------------------------------------------------------
         # Section 1 - Current test methodology
         # ----------------------------------------------------------
+        "Data/Loaders/DataLoader.Cuda.cpp"
         "Dnn/Components/Activations/Gelu/Gelu.Cuda.cpp"
-        "Dnn/Components/Activations/Swiglu/Swiglu.Cuda.cpp"
         "Dnn/Components/Attention/GQA/GroupedQueryAttention.Cuda.cpp"
         "Dnn/Components/Attention/MHA/MultiHeadAttention.Cuda.cpp"
         "Dnn/Components/Connections/Residual.Cuda.cpp"
         "Dnn/Components/Embeddings/TokenEmbedding.Cuda.cpp"
         "Dnn/Components/Encodings/Lpe/Lpe.Cuda.cpp"
         "Dnn/Components/Encodings/Rope/Rope.Cuda.cpp"
+        "Dnn/Components/FFN/Swiglu/Swiglu.Cuda.cpp"
         "Dnn/Components/Linear/Linear.Cuda.cpp"
         "Dnn/Components/Normalization/LayerNorm/LayerNorm.Cuda.cpp"
         "Dnn/Components/Normalization/RmsNorm/RmsNorm.Cuda.cpp"
         "Dnn/Components/Normalization/Softmax.Cuda.cpp"
-        "Dnn/Data/DataLoader.Cuda.cpp"
         "Dnn/Tensors/Tensor.Constructors.Cuda.cpp"
         "Dnn/Tensors/Tensor.DataAccess.Cuda.cpp"
         "Dnn/Tensors/Tensor.MemoryProperties.Cuda.cpp"
@@ -193,12 +193,12 @@ if(MILA_ENABLE_CUDA)
         #"Dnn/Components/Activations/Gelu/Gelu.Cuda.cpp"
         #"Dnn/Components/Attention/GQA/GQA.Cuda.cpp"
         #"Dnn/Components/Attention/MHA/MHA.Cuda.cpp"
-        #"Dnn/Components/Composites/GptBlock.Cuda.cpp"
-        #"Dnn/Components/Composites/MLP.Cuda.cpp"
         #"Dnn/Components/Connections/Residual.Cuda.cpp"
         #"Dnn/Components/Encodings/Lpe/Encoder.Cuda.cpp"
+        #"Dnn/Components/FFN/MLP.Cuda.cpp"
         #"Dnn/Components/Losses/SoftmaxCrossEntropy.Cuda.cpp"
         #"Dnn/Components/Normalization/Softmax.Cuda.cpp"
+        #"Dnn/Components/Transformers/Gpt/GptBlock.Cuda.cpp"
         #"Dnn/Components/Transformers/Gpt/GptTransformer.Cuda.cpp"
         #"Dnn/Components/Transformers/Llama/Llama.Cuda.cpp"
         #"Dnn/Compute/Devices/Cuda/CudaDevice.cpp"

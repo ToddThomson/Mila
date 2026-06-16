@@ -1,12 +1,11 @@
 #include <gtest/gtest.h>
-
-import Mila;
-
 #include <filesystem>
 #include <sstream>
 #include <vector>
 #include <chrono>
 #include <random>
+
+import Mila;
 
 namespace Data::Tokenizers::Tests
 {
