@@ -16,6 +16,35 @@ release notes.
 The bridge from "the features work" to a tree honest enough to call beta. Milestone vision
 is in ROADMAP; open triage buckets are in BACKLOG.
 
+### TensorOps element-wise math revival — DONE + VALIDATED (0.20.0-alpha.6+62)
+
+The generic `add`/`subtract`/`multiply`/`divide` wrappers in `TensorOps.Math.ixx` were silent
+no-ops — their device-dispatch bodies were commented out (`// FIXME: TensorOps<device>::add(...)`)
+in the alpha.5 FP8/modularization refactor (0.13.24) to work around an MSVC C1116 ICE on the
+`CpuTensorOps:Math` partition import. The stubs went unnoticed because element-wise math is exercised
+only by the **training/backward** gradient-accumulation path, dormant the entire inference-focused
+alpha.5/.6 line. The moment Bard's backward returned, `GptBlock::backward`'s residual-gradient
+accumulation (`add(...)` into `d_res1_accum_`/`d_input_`) did nothing — gradient reached only the
+final block's MLP, the final norm, and the LM head, so the model trained to the bigram floor
+(loss stuck ~2.4, incoherent text) and never trained attention or earlier layers.
+
+- Diagnosed with a per-parameter gradient-L2-norm probe in the Bard trainer: every group from the
+  last block's attention backward through layers 0-4 + embeddings was exactly `0.0` — the dead
+  boundary was the residual `add`
+- `TensorOps.Math.ixx` — re-wired the four dispatch calls, each guarded `if constexpr (device == Cuda)`
+  so CUDA (the path Bard exercises) computes while CPU stays compilable; the CUDA `MathOps` impls
+  already existed and were complete
+- `Math.Elementwise.cu` — added the missing `__nv_bfloat16` explicit instantiations for
+  `launch_elementwise_{add,subtract,multiply,divide}_kernel` (only `float`/`double`/`int`/`__half`
+  existed). Wiring the dispatch made the BF16 Llama apps (Chat, ProfileModel) reference
+  `MathOps::addImpl<BF16>` -> the bf16 launcher, which had no instantiation (Bard linked because it is
+  FP32); link error `LNK2019`/`LNK1120`
+- CPU `MathOps` stays disabled — the C1116 ICE is real and unresolved, so CPU element-wise math is a
+  documented no-op gap (tracked in BACKLOG; the `GptBlock<Cpu>` finite-difference sentinel guards it)
+- Validated: Bard trains from the bigram floor down to perplexity <3 (loss ~1.09 by epoch 17) with
+  coherent Shakespeare-structured text — the full CUDA training-backward path (Linear, MHA, LayerNorm,
+  Residual, MLP, embeddings) now receives gradient
+
 ### Parameter initialization subsystem restored — DONE + VALIDATED (0.13.53-alpha.6)
 
 The host `Tensor.Initializers` facade was deprecated (host-side init is wrong for CUDA) in

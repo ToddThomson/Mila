@@ -8,7 +8,7 @@ Where Mila is going — the durable narrative of each release and what it means.
 
 The roadmap shows two releases at a time — the one in flight and the one after (**vNext**) — plus a
 **Future Directions** tail. Each release is reached through **milestones** tracked by task completion
-(see [RELEASING.md](RELEASING.md)). Current version: **`0.20.0-alpha.6+59`**.
+(see [RELEASING.md](RELEASING.md)). Current version: **`0.20.0-alpha.6+62`**.
 
 ---
 

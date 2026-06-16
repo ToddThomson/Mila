@@ -88,7 +88,15 @@ namespace Mila::Dnn
         IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        // FIXME: TensorOps<device>::add( a, b, result, exec_context );
+        // CPU dispatch is gated off: CpuTensorOps:Math cannot be imported (MSVC C1116 ICE
+        // in <stop_token>/Compute.MemoryResource), so TensorOps<Cpu> has no math members.
+        // CUDA is the training path Bard exercises; CPU math stays a no-op until the module
+        // ICE is resolved (see CpuTensorOps.ixx). The GptBlock<Cpu> finite-difference
+        // gradient-check sentinel guards against the CPU no-op silently shipping.
+        if constexpr ( device == DeviceType::Cuda )
+        {
+            TensorOps<device>::add( a, b, result, exec_context );
+        }
     }
 
     /**
@@ -112,7 +120,11 @@ namespace Mila::Dnn
         IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        // FIXME: TensorOps<device>::subtract( a, b, result, exec_context );
+        // CPU gated off (see add): CpuTensorOps:Math is ICE-blocked under MSVC.
+        if constexpr ( device == DeviceType::Cuda )
+        {
+            TensorOps<device>::subtract( a, b, result, exec_context );
+        }
     }
 
     /**
@@ -136,7 +148,11 @@ namespace Mila::Dnn
         IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        // FIXME: TensorOps<device>::multiply( a, b, result, exec_context );
+        // CPU gated off (see add): CpuTensorOps:Math is ICE-blocked under MSVC.
+        if constexpr ( device == DeviceType::Cuda )
+        {
+            TensorOps<device>::multiply( a, b, result, exec_context );
+        }
     }
 
     /**
@@ -160,7 +176,11 @@ namespace Mila::Dnn
         IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        // FIXME: TensorOps<device>::divide( a, b, result, exec_context );
+        // CPU gated off (see add): CpuTensorOps:Math is ICE-blocked under MSVC.
+        if constexpr ( device == DeviceType::Cuda )
+        {
+            TensorOps<device>::divide( a, b, result, exec_context );
+        }
     }
 
     /**

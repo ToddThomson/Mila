@@ -344,24 +344,28 @@ namespace Mila::Dnn::Compute::Cuda::Kernels
     template void launch_elementwise_add_kernel<double>( const double*, const double*, double*, size_t, cudaStream_t );
     template void launch_elementwise_add_kernel<int>( const int*, const int*, int*, size_t, cudaStream_t );
     template void launch_elementwise_add_kernel<__half>( const __half*, const __half*, __half*, size_t, cudaStream_t );
+    template void launch_elementwise_add_kernel<__nv_bfloat16>( const __nv_bfloat16*, const __nv_bfloat16*, __nv_bfloat16*, size_t, cudaStream_t );
 
     // Subtraction kernels
     template void launch_elementwise_subtract_kernel<float>( const float*, const float*, float*, size_t, cudaStream_t );
     template void launch_elementwise_subtract_kernel<double>( const double*, const double*, double*, size_t, cudaStream_t );
     template void launch_elementwise_subtract_kernel<int>( const int*, const int*, int*, size_t, cudaStream_t );
     template void launch_elementwise_subtract_kernel<__half>( const __half*, const __half*, __half*, size_t, cudaStream_t );
+    template void launch_elementwise_subtract_kernel<__nv_bfloat16>( const __nv_bfloat16*, const __nv_bfloat16*, __nv_bfloat16*, size_t, cudaStream_t );
 
     // Multiplication kernels
     template void launch_elementwise_multiply_kernel<float>( const float*, const float*, float*, size_t, cudaStream_t );
     template void launch_elementwise_multiply_kernel<double>( const double*, const double*, double*, size_t, cudaStream_t );
     template void launch_elementwise_multiply_kernel<int>( const int*, const int*, int*, size_t, cudaStream_t );
     template void launch_elementwise_multiply_kernel<__half>( const __half*, const __half*, __half*, size_t, cudaStream_t );
+    template void launch_elementwise_multiply_kernel<__nv_bfloat16>( const __nv_bfloat16*, const __nv_bfloat16*, __nv_bfloat16*, size_t, cudaStream_t );
 
     // Division kernels
     template void launch_elementwise_divide_kernel<float>( const float*, const float*, float*, size_t, cudaStream_t );
     template void launch_elementwise_divide_kernel<double>( const double*, const double*, double*, size_t, cudaStream_t );
     template void launch_elementwise_divide_kernel<int>( const int*, const int*, int*, size_t, cudaStream_t );
     template void launch_elementwise_divide_kernel<__half>( const __half*, const __half*, __half*, size_t, cudaStream_t );
+    template void launch_elementwise_divide_kernel<__nv_bfloat16>( const __nv_bfloat16*, const __nv_bfloat16*, __nv_bfloat16*, size_t, cudaStream_t );
 
     // Max/Min kernels
     template void launch_elementwise_max_kernel<float>( const float*, const float*, float*, size_t, cudaStream_t );
