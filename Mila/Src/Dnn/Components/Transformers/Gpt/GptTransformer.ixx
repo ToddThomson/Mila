@@ -609,6 +609,13 @@ namespace Mila::Dnn
             const auto& input_shape = context.inputShape();
             validateBuildContext( context );
 
+            // Capture the build geometry for diagnostics (toString). Input is [B, T]
+            // token ids; the network emits [B, T, vocab] logits.
+            leading_shape_ = input_shape;
+            batch_size_ = input_shape[ 0 ];
+            seq_length_ = input_shape[ 1 ];
+            output_shape_ = { input_shape[ 0 ], input_shape[ 1 ], config_.getVocabSize() };
+
             // encoder receives token ids — same shape as incoming context [B, T]
             encoder_ = this->template getComponentAs<EncoderType>(
                 this->getName() + ".lenc" );
@@ -620,6 +627,7 @@ namespace Mila::Dnn
                 input_shape[ 1 ],
                 config_.getEmbeddingSize()
             };
+            embedding_shape_ = embedding_shape;
             BuildContext embedding_context( embedding_shape, context.getRuntimeMode() );
 
             transformer_blocks_.clear();

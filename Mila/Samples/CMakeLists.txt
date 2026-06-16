@@ -1,16 +1,15 @@
 # CMake project for Mila Samples
 
-# MNIST is a CPU/CUDA MLP training sample, but as written it links CUDA::cudart
-# and instantiates the CudaPinnedMemoryResource training path unconditionally, so
-# it only compiles with CUDA enabled. Gate it the same way Chat is until the
-# CPU-only build coherence work lands. Bard (GPT-2) revival is the next Training
-# Revival slice and stays parked.
+# MNIST (MLP) and Bard (GPT-2) are CPU/CUDA training samples, but as written they
+# link CUDA::cudart and instantiate the CudaPinnedMemoryResource training path
+# unconditionally, so they only compile with CUDA enabled. Gate them the same way
+# Chat is until the CPU-only build coherence work lands.
 if(MILA_ENABLE_CUDA)
     add_subdirectory( MNIST )
+    add_subdirectory( Bard )
 else()
-    message(STATUS "MILA_ENABLE_CUDA is OFF - skipping MNIST (CUDA-only build today)")
+    message(STATUS "MILA_ENABLE_CUDA is OFF - skipping MNIST and Bard (CUDA-only build today)")
 endif()
-#add_subdirectory( Bard ) FIXME:Re-enable after alpha.5 completed
 
 # Chat is an instruct, CUDA-targeted harness. CPU's only supported precision is
 # FP32 and GPT-2 (the only CPU-practical model) is a base completion model, not

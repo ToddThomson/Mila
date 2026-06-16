@@ -578,6 +578,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     const float alpha = 1.0f;
                     const float beta  = 0.0f;
 
+                    // Bias intentionally omitted from the plan (built has_bias=false) and
+                    // added post-GEMM below — see buildCublasLtPlans for why the FP32
+                    // bias epilogue is unsupported.
                     execute_linear_plan<TComputePrecision>(
                         cached_cublaslt_handle_,
                         forward_plan_cache_.get( outer_size ),
@@ -586,11 +589,16 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                         weight_,
                         &beta,
                         output_ptr,
-                        bias_,
+                        nullptr,
                         nullptr,
                         stream,
                         context_->getCublasLtWorkspace(),
                         context_->getCublasLtWorkspaceSize() );
+
+                    if ( bias_ != nullptr )
+                    {
+                        cuda_add_bias( output_ptr, bias_, outer_size, out_features_, stream );
+                    }
                 }
 
                 return;
@@ -913,6 +921,12 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 return;
             }
 
+            // has_bias=false: bias is added post-GEMM by cuda_add_bias. cuBLASLt's
+            // heuristic returns CUBLAS_STATUS_NOT_SUPPORTED for CUBLAS_COMPUTE_32F with
+            // CUBLASLT_EPILOGUE_BIAS (and the bias epilogue carries the Ada multi-row
+            // INVALID_VALUE constraint), so the non-quantized path mirrors the FP8 path
+            // and keeps bias out of the plan. GPT-2 (biased Linears) is the first model
+            // to exercise this; bias-free models (MNIST, Llama) never hit the epilogue.
             forward_plan_cache_ = CublasLtPlanCache<CublasLtLinearPlan<TComputePrecision>>(
                 cached_outer_size_,
                 [&]( int bucket )
@@ -922,7 +936,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                         bucket,
                         cached_in_features_,
                         out_features_,
-                        config_.hasBias(),
+                        false,
                         compute_type_,
                         scale_type_ );
                 } );

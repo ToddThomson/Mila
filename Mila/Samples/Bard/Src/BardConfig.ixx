@@ -16,9 +16,11 @@ namespace Bard
      */
     export struct BardConfig
     {
-        // Root data directory containing the dataset subfolders (encoded, vocabularies, ...)
-        // Defaults to the repository layout under Data/Shakespeare
-        std::string data_dir = "./Data/Shakespeare";
+        // Root data directory containing the dataset subfolders (encoded, vocabularies, ...).
+        // Defaults to the repository layout under Data/Datasets/Shakespeare; main() overrides
+        // this with the absolute MILA_DATASETS_DIR path so the sample finds data regardless of
+        // the working directory it is launched from.
+        std::string data_dir = "./Data/Datasets/Shakespeare";
         TokenizerType tokenizer = TokenizerType::Char;
         int64_t batch_size = 32;
         int64_t seq_length = 128;
@@ -30,7 +32,6 @@ namespace Bard
         float weight_decay = 0.01f;
         DeviceType compute_device = DeviceType::Cuda;
         TensorDataType precision = TensorDataType::FP32;
-        ComputePrecision::Policy precisionPolicy = ComputePrecision::Policy::Auto;
 
         int64_t embedding_dim = 384;
         int64_t num_heads = 6;

@@ -549,9 +549,9 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         {
             assert( this->isBuilt() && "CudaAttentionOp must be built before calling backward()" );
 
-            if ( !this->isEvalMode() )
+            if ( this->isEvalMode() )
             {
-                throw std::runtime_error( "CudaAttentionOp::backward called in inference mode" );
+                throw std::runtime_error( "CudaAttentionOp::backward called in eval mode" );
             }
 
             const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());

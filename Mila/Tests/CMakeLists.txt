@@ -94,6 +94,7 @@ add_executable( MilaTests
     # ==============================================================
     # Section 2 - Active, not yet revisited (pre-methodology)
     # ==============================================================
+    "Data/Loaders/TokenSequenceLoader.cpp"
     "Data/Tokenizers/Bpe/BpeTokenizer.cpp"
     "Data/Tokenizers/Bpe/BpeTokenizer.Gpt2.cpp"
     "Data/Tokenizers/Bpe/BpeTokenizer.Llama32.cpp"
@@ -118,7 +119,6 @@ add_executable( MilaTests
     # ==============================================================
     # Section 3 - Commented, awaiting revival (retired in place)
     # ==============================================================
-    #"Data/Loaders/TokenSequenceLoader.cpp"
     #"Dnn/Components/Attention/GQA/GQA.Config.cpp"
     #"Dnn/Components/Attention/MHA/MHA.Config.cpp"
     #"Dnn/Components/Attention/MHA/MHA.Cpu.cpp"

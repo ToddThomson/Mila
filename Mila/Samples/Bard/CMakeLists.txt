@@ -13,15 +13,12 @@ target_sources( Bard
 PUBLIC
 	FILE_SET module_files
        TYPE CXX_MODULES FILES
-		#"Src/BardTransformer.ixx"
-		#"Src/BardTransformer.Config.ixx"
-		#"Src/BardDataLoader.ixx"
-		#"Tools/CharVocabulary.ixx"
-		#"Src/BardTokenizer.ixx"
 		"Src/BardTrainer.ixx"
 		"Src/BardConfig.ixx"
 )
 
-target_compile_definitions( Bard PRIVATE MILA_DATA_DIR="${MILA_DATA_DIR}" )
+# Absolute source-tree dataset path, mirroring MNIST, so the sample finds its
+# Shakespeare data regardless of the working directory it is launched from.
+target_compile_definitions( Bard PRIVATE MILA_DATASETS_DIR="${CMAKE_SOURCE_DIR}/Data/Datasets" )
 
 target_link_libraries( Bard PRIVATE Mila CUDA::cudart )

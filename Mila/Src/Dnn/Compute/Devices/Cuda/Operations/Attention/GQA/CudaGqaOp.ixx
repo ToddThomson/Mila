@@ -337,10 +337,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         {
             assert( this->isBuilt() );
 
-            if ( !this->isEvalMode() )
+            if ( this->isEvalMode() )
             {
                 throw std::runtime_error(
-                    "CudaGroupedQueryAttentionOp::backward called in inference mode" );
+                    "CudaGroupedQueryAttentionOp::backward called in eval mode" );
             }
 
             const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());

@@ -75,4 +75,25 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         int outer_size,
         int out_features,
         cudaStream_t stream );
+
+    /**
+     * @brief FP32 overload of cuda_add_bias.
+     *
+     * The non-quantized FP32 prefill path also builds its cuBLASLt plan with
+     * has_bias=false and adds bias post-GEMM: cuBLASLt's heuristic returns
+     * CUBLAS_STATUS_NOT_SUPPORTED for CUBLAS_COMPUTE_32F combined with
+     * CUBLASLT_EPILOGUE_BIAS on this configuration, so the epilogue cannot be used.
+     *
+     * @param output      Device FP32 tensor [outer_size, out_features], modified in-place.
+     * @param bias        Device FP32 tensor [out_features], read-only.
+     * @param outer_size  Number of tokens (rows of the output matrix).
+     * @param out_features Number of output features (columns of the output matrix).
+     * @param stream      CUDA stream.
+     */
+    void cuda_add_bias(
+        float* output,
+        const float* bias,
+        int outer_size,
+        int out_features,
+        cudaStream_t stream );
 }

@@ -150,4 +150,38 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         add_bias_kernel<<<grid_size, kBlockSize, 0, stream>>>(
             output, bias, outer_size, out_features );
     }
+
+    // FP32 counterpart for the non-quantized prefill path (see header note).
+    __global__ void add_bias_kernel_f32(
+        float* __restrict__ output,
+        const float* __restrict__ bias,
+        int outer_size,
+        int out_features )
+    {
+        const int out = static_cast<int>( blockIdx.x ) * blockDim.x + static_cast<int>( threadIdx.x );
+        if ( out >= out_features )
+            return;
+
+        const float bias_val = bias[ out ];
+
+        for ( int t = 0; t < outer_size; ++t )
+        {
+            const int index = t * out_features + out;
+            output[ index ] += bias_val;
+        }
+    }
+
+    void cuda_add_bias(
+        float* output,
+        const float* bias,
+        int outer_size,
+        int out_features,
+        cudaStream_t stream )
+    {
+        constexpr int kBlockSize = 256;
+        const int grid_size = ( out_features + kBlockSize - 1 ) / kBlockSize;
+
+        add_bias_kernel_f32<<<grid_size, kBlockSize, 0, stream>>>(
+            output, bias, outer_size, out_features );
+    }
 }
