@@ -121,24 +121,43 @@ add_executable( MilaTests
     "Dnn/Tensors/TensorOps/TensorOps.Transfer.cpp"
 
     # ==============================================================
-    # Section 3 - Commented, awaiting revival (retired in place)
+    # Section 3 - Disabled, by disposition (see Specifications/Testing.md s1)
     # ==============================================================
-    #"Dnn/Components/Losses/CrossEntropy.Config.cpp"
-    #"Dnn/Components/Losses/CrossEntropy.Cpu.cpp"
+    # -- DELETE (redundant op-layer mirror): backend ops are implementation detail
+    #    (not in import Mila;) and their numerics are reachable through the component,
+    #    so these op tests duplicate the component suite. The only legitimate op-layer
+    #    coverage is the quantization white-box, which is net-new (the "quantization
+    #    backfill" BACKLOG item), not a revival of these. Files kept on disk pending
+    #    an explicit delete.
     #"Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuGeluOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuLinearOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuResidualOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOpTests.cpp"
+    #
+    # -- DELETE with the base-class removal: tests for the UnaryOperation/BinaryOperation
+    #    arity bases being retired (Consolidation). Remove alongside the bases.
     #"Dnn/Compute/Operations/BinaryOperation.cpp"
     #"Dnn/Compute/Operations/UnaryOperation.cpp"
+    #
+    # -- DELETE: target module retired to Dnn.TensorInitializers_RETIRED; live init is
+    #    Dnn.TensorOps:Random, covered by TensorOps/Random.Cpu.cpp.
+    #"Dnn/Tensors/Tensor.Initializers.cpp"
+    #
+    # -- REVIVE later (MNIST/training spine): thin Core/Network delta beyond the
+    #    container coverage in CompositeComponent.cpp.
     #"Dnn/Core/Network.cpp"
+    #
+    # -- PARK (loss-on-device milestone): both samples compute loss host-side.
+    #"Dnn/Components/Losses/CrossEntropy.Config.cpp"
+    #"Dnn/Components/Losses/CrossEntropy.Cpu.cpp"
+    #
+    # -- PARK (serialization WIP; Model-abstraction target source not current):
     #"Dnn/Model.cpp"
     #"Dnn/Modeling/Model.Cpu.cpp"
     #"Dnn/Serialization/ModelArchive.cpp"
     #"Dnn/Serialization/ZipSerializer.cpp"
-    #"Dnn/Tensors/Tensor.Initializers.cpp"
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
 )
 
@@ -186,15 +205,16 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Compute/ExecutionContext/CudaExecutionContext.cpp"
 
         # ----------------------------------------------------------
-        # Section 3 - Commented, awaiting revival (retired in place)
+        # Section 3 - Disabled, by disposition (see Specifications/Testing.md s1)
         # ----------------------------------------------------------
-        #"Dnn/Components/Losses/SoftmaxCrossEntropy.Cuda.cpp"
-        #"Dnn/Compute/Devices/Cuda/CudaDevice.cpp"
-        #"Dnn/Modeling/Network.Cuda.cpp"
-        #"Dnn/Optimizers/AdamW.Cuda.cpp"
-        # NOTE: the commented CUDA operation tests below carry their original
-        # (pre-move) path "Dnn/Compute/Operations/Cuda/...". The files now live at
-        # "Dnn/Compute/Devices/Cuda/Operations/..." -- correct the path on revival.
+        # -- DELETE (redundant op-layer mirror; see the CPU Section 3 note): these
+        #    re-check GEMM / attention numerics reachable through Linear.Cuda /
+        #    MultiHeadAttention.Cuda. They also carry the stale pre-move path
+        #    "Dnn/Compute/Operations/Cuda/..." (files now live at
+        #    "Dnn/Compute/Devices/Cuda/Operations/..."). The one op test that SHOULD
+        #    exist is a newly-written CudaLinearOp quantization white-box (FP8/FP4
+        #    scales + nibble packing), tracked as the quantization backfill BACKLOG
+        #    item -- not a revival of these.
         #"Dnn/Compute/Operations/Cuda/CudaEncoderOpTests.cpp"
         #"Dnn/Compute/Operations/Cuda/CudaGeluOpTests.cpp"
         #"Dnn/Compute/Operations/Cuda/CudaLayerNormOpTests.cpp"
@@ -202,6 +222,16 @@ if(MILA_ENABLE_CUDA)
         #"Dnn/Compute/Operations/Cuda/CudaMultHeadAttentionOpTests.cpp"
         #"Dnn/Compute/Operations/Cuda/CudaResidualOpTests.cpp"
         #"Dnn/Compute/Operations/Cuda/CudaSoftmaxOpTests.cpp"
+        #
+        # -- REVIVE later (MNIST/training spine GPU companions):
+        #"Dnn/Modeling/Network.Cuda.cpp"
+        #"Dnn/Optimizers/AdamW.Cuda.cpp"
+        #
+        # -- PARK (loss-on-device milestone):
+        #"Dnn/Components/Losses/SoftmaxCrossEntropy.Cuda.cpp"
+        #
+        # -- PARK (infra value-type test; group with the Section 2 infra tests):
+        #"Dnn/Compute/Devices/Cuda/CudaDevice.cpp"
     )
 endif()
 

@@ -84,8 +84,11 @@ before the Bard transformer stack, mirroring the sample-revival order in the nex
 The deliverable is not just green tests — it is the **CI ratchet** that keeps them green. The suite
 atrophied because nothing gated it; revival without a gate merely reschedules the next rot.
 
-**Success criteria:** the authored component / operation / tensor / tokenizer suites re-enabled and
-green against the current API; new coverage for the quantization and Llama inference paths; a
+**Success criteria:** the authored component / tensor / tokenizer suites re-enabled and
+green against the current API; the redundant op-layer mirror tests retired (backend ops are
+implementation detail, tested through the public component — the sole op-level exception is the
+unreachable weight-quantization white-box); new coverage for the quantization and Llama inference
+paths; a
 per-component gradient-check archetype covering the training backward path (MNIST spine first, Bard
 transformer stack second); the suite gated in CI (building on the `MILA_ENABLE_CUDA=OFF` CPU-only gate)
 so a future API churn fails loudly instead of silently rotting coverage.

@@ -50,7 +50,7 @@ enclosing namespace. Note two distinct uniqueness rules:
 | **Base contract** | `Core/Component.cpp`, `Core/ComponentConfig.cpp` | the inherited lifecycle / state machine, via a spy-capable harness | anything component-specific |
 | **Config** | `*Config.cpp` (e.g. `GeluConfig.cpp`) | fluent setters, `validate()`, metadata round-trip | forward / backward |
 | **Concrete component** | `*.Cpu.cpp` / `*.Cuda.cpp` (e.g. `Gelu.Cpu.cpp`) | the *delta*: construction, build, forward/backward numerics, component-specific accessors, parameter load | the base machinery (already guaranteed by `Component.cpp`) |
-| **Operation** | `<Op>.Cpu.cpp` / `<Op>.Cuda.cpp` under `Tests/Dnn/Compute/.../Operations/` (e.g. `CudaLinearOp.Cuda.cpp`) | the backend op's *internal* surface the component cannot reach: kernel/quantization-internal correctness, the prefill-GEMM vs decode-matvec path split, op-level `@throws` | the component orchestration (build, buffer reuse, mode gating — owned by the component test) |
+| **Operation** | `<Op>.Cuda.cpp` under `Tests/Dnn/Compute/.../Operations/` (e.g. `CudaLinearOp.Cuda.cpp`) | ONLY the residue **unreachable** through the public component API — in practice the weight-quantization white-box (per-channel/per-group absmax scales, FP4 nibble packing, exactly-representable round-trip). See the reachability rule below | kernel forward/backward numerics and the prefill/decode path split — both reachable through the component, so re-checking them at the op layer is a redundant mirror; all component orchestration |
 | **Value type / god-module** | `<Subject>.<Area>.cpp` / `.Cuda.cpp` (e.g. `Tensor.Constructors.cpp`) | a large non-component module (no Component/Operation lifecycle) split by API *area*, each area file exhaustive against the source surface; throws as negative tests; dtype as a typed sweep only where behavior varies by dtype | the component/operation machinery (there is none) |
 
 The payoff is leverage: because `Component.cpp` proves the base contract once,
@@ -58,42 +58,62 @@ every concrete component test is short — it asserts only what is new. A new
 component test is "copy the skeleton, fill in the numeric reference and the
 component-specific accessors."
 
-### The Operation archetype (and the component/operation division of labor)
+### The Operation archetype — the reachability boundary
 
-Components are thin orchestrators; the substance — the kernels, the cuBLASLt
-plans, `quantize()` (per-channel/per-group absmax scales, FP4 E2M1 nibble
-packing), and the dedicated `matvec_decode_*` kernels — lives in the **operation**
-that `OperationTraits` resolves. The weight-quantization axis in particular is
-*invisible at the component surface*: `Linear::loadParameter` just forwards a BF16
-blob to `operation_->quantize()`, so it can only be verified at the op layer.
+Backend operations are **not** part of the public `import Mila;` surface — they are
+implementation detail behind `OperationTraits` dispatch. The default is therefore
+the standard rule: **test observable behavior through the public component, not the
+implementation.** A component drives its op on every forward/backward, so op
+correctness is already exercised transitively; a separate op test that re-checks
+the same numerics is a redundant *mirror* that couples the suite to internal
+structure and breaks on a kernel refactor that changed nothing a user can see.
 
-The division of labor is the rule that prevents double-testing:
+So an op test is justified by exactly one question: **is this behavior observable
+and assertable through the public component API?**
 
-- The **component** test owns the public contract and its numerics — the
-  `NoWeightQuant` forward/backward references, the build lifecycle, parameter
-  ownership, mode gating, `loadParameter` routing. For a quantized path it adds
-  only a **black-box** wiring proof: build the quantized component, let
-  `loadParameter` drive `quantize()`, assert `forward()` ~= the BF16 reference
-  within a format-appropriate tolerance, and assert `backward()` throws.
-- The **operation** test owns the **internal** surface the component cannot reach:
-  the weight-quantization axis as a typed sweep, the prefill-GEMM vs
-  decode-matvec path split, and the op's own `@throws`. The *white-box* quant
-  checks (scales == host absmax, nibble packing, exactly-representable
-  round-trip) live here, not in the component test.
+- **Reachable -> test it only at the component.** Forward/backward numerics, the
+  prefill->decode shape regime (section D / §5), mode gating, `loadParameter`
+  routing. No op mirror.
+- **Genuinely unreachable -> this is the only legitimate op-test residue.**
 
-Two conventions:
+In this codebase the residue is essentially **one thing: weight quantization.**
+`Linear::loadParameter` just forwards a BF16 blob to `operation_->quantize()`, so
+the per-channel/per-group absmax scales, the FP4 E2M1 nibble packing, and the
+exactly-representable round-trip are invisible at the component surface. The
+component can prove only the *black-box* wiring (build the quantized component, let
+`loadParameter` drive `quantize()`, assert `forward()` ~= the BF16 reference within
+a format-appropriate tolerance, assert `backward()` throws); the *white-box* checks
+(scales == host absmax, nibble packing) can only live at the op layer. This residue
+is **net-new** coverage — drought-era code with no authored test — tracked as the
+quantization backfill item in BACKLOG, *not* a revival of the old op tests.
+
+Consequences of the boundary:
+
+- **CPU op tests have no residue.** CPU has no quantization and its kernels are
+  plain reference loops fully exercised by the component, so the authored
+  `Cpu*OpTests` are pure mirrors — **delete, do not revive.**
+- **CUDA op tests that re-check GEMM / attention numerics** (`CudaMatMulBiasOpTests`,
+  `CudaMultHeadAttentionOpTests`, ...) are reachable via `Linear.Cuda` /
+  `MultiHeadAttention.Cuda` — **delete.** The only CUDA op test that should *exist*
+  is the quantization white-box for `CudaLinearOp`, written fresh against the
+  current surface rather than revived.
+- **A component whose behavior cannot be reached is a component bug, not an op-test
+  mandate.** `GroupedQueryAttention` numerics look "op-only" solely because its
+  standalone `forward()` is a no-op stub (a filed bug); the fix is to repair the
+  component so the numerics become reachable and test them there — not to enshrine
+  the stub by testing the op around it.
+
+Conventions for the quantization op test that does belong here:
 
 - **Instantiate the op via `OperationTraits<...>::type`**, not by naming the
   concrete class. This exercises the dispatch table itself and catches a poisoned
   specialization (the class of bug the Gelu BF16 typed test surfaced — an entry
   that advertises a type whose kernel does not support that precision).
-- The op harness **owns what the component's `onBuilding` normally does**:
-  allocate and bind the parameter / scale / gradient tensors via
-  `setParameters()` / `setWeightScales()` / `setGradients()`, then `build()`. A
-  single op is driven standalone, without a parent component.
-
-CPU op tests (`CpuLinearOp.Cpu.cpp`) ride the `MILA_ENABLE_CUDA=OFF` gate; CUDA op
-tests are GPU-local, like the CUDA component tests.
+- The op harness **owns what the component's `onBuilding` normally does**: allocate
+  and bind the parameter / scale / gradient tensors via `setParameters()` /
+  `setWeightScales()` / `setGradients()`, then `build()`. A single op is driven
+  standalone, without a parent component. It is GPU-local, like the CUDA component
+  tests.
 
 ### The value-type / god-module archetype
 
