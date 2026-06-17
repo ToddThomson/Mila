@@ -175,7 +175,7 @@ namespace Mila::Dnn
 
             if ( this->isInferenceMode() )
             {
-                throw std::runtime_error( "MultiHeadAttention must be in training mode to call backward. Call setTraining(true) first." );
+                throw std::runtime_error( "MultiHeadAttention must be in training mode to call backward." );
             }
 
             validateConcatenatedQKVShape( input.shape() );

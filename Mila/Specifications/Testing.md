@@ -117,6 +117,55 @@ far too big for the "one test file per module" rule of §0. For these:
   do not. Sweep the former, single-instantiate the latter — unlike a concrete
   component, where the precision sweep is the blanket default.
 
+### The gradient-check archetype (finite-difference backward verification)
+
+The authored suite was **forward-only** — inference validated forward passes
+against HuggingFace, so every `backward()` the training samples drive had zero
+coverage. Section F is where that gap is closed, and the reusable verifier lives
+in `Tests/Common/GradientCheck.h` so no component re-derives an analytic
+reference.
+
+The check is **black-box**. For a fixed upstream gradient `g`, form the scalar
+loss `L = sum_j output[j] * g[j]`; then the analytic gradient `backward()`
+produces for any buffer (the input, or a parameter tensor) must equal `dL/dbuffer`
+measured by central differences of the component's own `forward()`, because
+`dL/dx_i = sum_j g[j] * d output[j]/d x_i = (J^T g)_i` — exactly what `backward()`
+computes from the same `g`. The verifier therefore carries no per-component math.
+
+Two free functions:
+
+- `centralDifferenceGradient(perturbable, size, upstream_gradient, output_size,
+  evaluateOutput, epsilon)` — perturbs each element of `perturbable` by `+/-eps`,
+  re-evaluates `L`, and returns the numeric gradient. `evaluateOutput` is a
+  `() -> const float*` lambda that runs the component's forward against the
+  *current* buffer contents — this is the single seam that absorbs the
+  non-uniform forward/backward signatures (e.g. `forward(input)->output&` vs
+  `forward(input, output)`), so the helper itself is signature-agnostic.
+- `expectGradientsClose(analytic, numeric, abs_tol, rel_tol, label)` — elementwise
+  assert with a combined absolute/relative tolerance (relative is required because
+  finite-difference magnitudes span orders of magnitude across one layer).
+
+Conventions for a `Backward_MatchesNumericGradient` case:
+
+- **Snapshot the analytic gradient** (`backward()`'s `input_grad`, and each
+  `getGradients()` entry) into a `std::vector<float>` *before* probing — the probe
+  re-runs `forward()`, which may reuse component-internal buffers.
+- **One helper call per differentiated buffer.** A leaf with parameters checks the
+  input gradient and each parameter gradient with the same `evaluate` lambda
+  (`Linear`/`LayerNorm`: dX, dW, dB).
+- **FP32 defaults**: `epsilon = 1e-2`, tolerance `abs ~1e-2 / rel ~1e-2` (stateless
+  elementwise leaves like `Gelu` tighten `abs` to `1e-3`). `1e-2` half-steps keep
+  cancellation roundoff below the `O(eps^2)` truncation error.
+- This is the **precondition for Training Revival's convergence oracle** — a
+  per-component numeric gradient check is what makes "the sample converges" a test
+  result rather than an eyeball. Reference applications: `Gelu.Cpu.cpp` (stateless
+  input grad) and `LayerNorm.Cpu.cpp` (input + parameter grads).
+
+The earlier ad-hoc analytic backward cases (`LayerNorm`, `Softmax`, `Lpe`) stay as
+a second, independent oracle — an analytic reference and a finite-difference probe
+catch different mistakes (a wrong derivation vs a wrong implementation), so keep
+both where they already exist rather than deleting one.
+
 ---
 
 ## 2. The shared section taxonomy

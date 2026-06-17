@@ -30,7 +30,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
-import Dnn.TensorInitializers;
+// DEPRECATED: import Dnn.TensorInitializers;
 import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.CompositeComponent;

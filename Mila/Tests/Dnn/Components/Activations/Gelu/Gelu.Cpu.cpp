@@ -20,6 +20,8 @@
 #include <string>
 #include <stdexcept>
 
+#include "Common/GradientCheck.h"
+
 import Mila;
 
 namespace Mila::Tests::Dnn::Components::Activations::Gelu
@@ -220,6 +222,42 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
             EXPECT_NEAR( input_grad.data()[ i ], expected, tolerance )
                 << "chain-rule mismatch at index " << i;
         }
+    }
+
+    // Reference application of the finite-difference gradient-check archetype
+    // (Specifications/Testing.md). Unlike Backward_MatchesGradientReference above
+    // -- which checks against a hand-derived analytic GELU derivative -- this
+    // verifies backward() against a numeric gradient of the component's own
+    // forward(), so it needs no per-component math and generalizes verbatim to
+    // every leaf with the forward(input)->output& signature.
+    TEST_F( GeluCpuTests, Backward_MatchesNumericGradient )
+    {
+        const shape_t shape{ 2, 3, 4 };
+        auto gelu = builtGelu( shape, RuntimeMode::Training );
+
+        TensorFp32 input( Device::Cpu(), shape );
+        TensorFp32 output_grad( Device::Cpu(), shape );
+        fillSpread( input );
+
+        for ( size_t i = 0; i < output_grad.size(); ++i )
+        {
+            output_grad.data()[ i ] = static_cast<float>( i + 1 ) * 0.1f;
+        }
+
+        gelu->forward( input );
+        auto& input_grad = gelu->backward( input, output_grad );
+
+        // Snapshot the analytic gradient: the finite-difference probe re-runs
+        // forward(), which may reuse component-internal buffers.
+        std::vector<float> analytic( input_grad.data(), input_grad.data() + input_grad.size() );
+
+        const auto numeric = Mila::Tests::Common::centralDifferenceGradient(
+            input.data(), input.size(),
+            output_grad.data(), output_grad.size(),
+            [&]() -> const float* { return gelu->forward( input ).data(); },
+            1e-2f );
+
+        Mila::Tests::Common::expectGradientsClose( analytic.data(), numeric, 1e-3f, 1e-2f, "Gelu dX" );
     }
 
     // ====================================================================

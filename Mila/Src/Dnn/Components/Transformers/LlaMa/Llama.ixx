@@ -305,7 +305,7 @@ namespace Mila::Dnn
 
             if ( !this->isTrainingMode() )
             {
-                throw std::runtime_error( "LlamaTransformer: backward requires training mode (setTraining(true))." );
+                throw std::runtime_error( "LlamaTransformer: backward requires training mode." );
             }
 
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
@@ -748,7 +748,8 @@ namespace Mila::Dnn
                 .withNumKVHeads( static_cast<dim_t>(metadata.num_kv_heads) )
                 .withHiddenDimension( static_cast<dim_t>(metadata.hidden_dim) )
                 .withRoPETheta( metadata.rope_theta )
-                // FIXME: .withRoPEScalingFactor( metadata.rope_scaling )
+                // REVIEW: There is a scaling factor but the exact reason this was commented out is unclear.
+                // .withRoPEScalingFactor( metadata.rope_scaling )
                 .withBias( metadata.use_bias );
 
             return config;

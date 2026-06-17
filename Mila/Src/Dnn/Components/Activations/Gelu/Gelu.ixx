@@ -211,7 +211,7 @@ namespace Mila::Dnn
          *
          * @note GELU has no parameters, so no parameter gradients are computed.
          * @note The implementation may accumulate into the returned tensor (backend-dependent).
-         * @note Requires setTraining(true) for gradient computation in some backends.
+         * @note Requires isTrainingMode == true for gradient computation in some backends.
          */
         TensorType& backward( const TensorType& input, const TensorType& output_grad )
         {
@@ -522,7 +522,7 @@ namespace Mila::Dnn
          * @brief Hook invoked when training mode changes.
          *
          * Propagates training mode to the backend operation. Called by
-         * Component::setTraining() with the training mutex held.
+         * Component::setTrainingMode() with the training mutex held.
          *
          * State guards:
          * - Expects operation to be initialized (should be created in onExecutionContextSet)
@@ -530,7 +530,7 @@ namespace Mila::Dnn
          *
          * @param is_training New training mode state.
          *
-         * @note Do not call setTraining() from this hook (reentrancy prohibited).
+         * @note Do not call setTrainingMode() from this hook (reentrancy prohibited).
          * @note If operation is not initialized, silently returns (may occur during construction).
          */
         void onTrainingModeChanging( TrainingMode training_mode ) override

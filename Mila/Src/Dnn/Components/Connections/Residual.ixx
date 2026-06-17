@@ -364,7 +364,7 @@ namespace Mila::Dnn
          * training, explicitly unbind any parameter-gradient pointers on the
          * backend to avoid accidental use or pinned memory.
          *
-         * Called with Component's training mutex held; do not call setTraining() here.
+         * Called with Component's training mutex held; do not call setTrainingMode() here.
          */
         void onTrainingModeChanging( TrainingMode training_mode ) override
         {

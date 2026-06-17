@@ -207,6 +207,10 @@ endif()
 
 target_compile_definitions( MilaTests PRIVATE TEST_DATA_DIR="${MILA_DATA_DIR}" )
 
+# Shared, non-module test helpers (e.g. Common/GradientCheck.h) are included from
+# the Tests root so any test file can reference them as "Common/<helper>.h".
+target_include_directories( MilaTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" )
+
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")

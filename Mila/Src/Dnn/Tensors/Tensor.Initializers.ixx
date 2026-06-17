@@ -13,7 +13,7 @@ module;
 //#include <cstdint>
 #include <stdexcept>
 
-export module Dnn.TensorInitializers;
+export module Dnn.TensorInitializers_RETIRED;
 
 //import Core.RandomGenerator;
 import Dnn.Tensor;
@@ -228,7 +228,7 @@ import Dnn.TensorDataType;
 //    /**
 //     * @brief Fill tensor with values from normal (Gaussian) distribution.
 //     *
-//     * Generates pseudorandom values using normal distribution N(mean, stddev²) and
+//     * Generates pseudorandom values using normal distribution N(mean, stddevÂ²) and
 //     * writes them into the provided tensor. Works with both host-backed and device-backed tensors.
 //     * Initialization is reproducible when the framework RNG seed is controlled.
 //     *

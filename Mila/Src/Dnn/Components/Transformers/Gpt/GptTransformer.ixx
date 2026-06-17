@@ -218,7 +218,7 @@ namespace Mila::Dnn
 
             if ( !this->isTrainingMode() )
             {
-                throw std::runtime_error( "GptTransformer: backward requires training mode (setTraining(true))." );
+                throw std::runtime_error( "GptTransformer: backward requires training mode." );
             }
 
             if ( !encoder_out_ptr_ )

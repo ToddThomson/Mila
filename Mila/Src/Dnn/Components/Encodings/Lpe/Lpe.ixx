@@ -181,8 +181,11 @@ namespace Mila::Dnn
 
             if ( !this->isTrainingMode() )
             {
-                throw std::runtime_error( "Encoder module must be in training mode to call backward. Call setTraining(true) first." );
+                throw std::runtime_error( "Encoder module must be in training mode to call backward." );
             }
+
+            // REVIEW: The following checks are not required. If built and in training mode,
+            // these buffers should always be initialized in onBuilding. If not, it's a bug.
 
             if ( !wte_grad_ || !wpe_grad_ )
             {

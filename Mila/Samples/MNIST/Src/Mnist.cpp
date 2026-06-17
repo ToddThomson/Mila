@@ -669,7 +669,7 @@ int main( int argc, char** argv )
             {
                 std::cout << "Using CUDA device" << std::endl;
 
-                // TODO: Configurable dtype_t. Add FP16 and BF16 first
+                // FUTURE: Add a BF16 Configurable dtype_t rather than just FP32
                 trainMnist<DeviceType::Cuda, TensorDataType::FP32, CudaPinnedMemoryResource>( config );
             }
             catch (const std::exception& e)

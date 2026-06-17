@@ -377,11 +377,11 @@ namespace Mila::Dnn
          * @brief Hook invoked when training mode changes.
          *
          * Propagates training mode to the backend operation. Called by
-         * Component::setTraining() with the training mutex held.
+         * Component::setTrainingMode() with the training mutex held.
          *
          * @param is_training New training mode state.
          *
-         * @note Do not call setTraining() from this hook (reentrancy prohibited).
+         * @note Do not call setTrainingMode() from this hook (reentrancy prohibited).
          */
         void onTrainingModeChanging( TrainingMode training_mode ) override
         {

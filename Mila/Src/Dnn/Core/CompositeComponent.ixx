@@ -729,7 +729,7 @@ namespace Mila::Dnn
          * @brief Hook invoked when training mode is about to change.
          *
          * Propagates the new mode to all child components. The hook runs with
-         * the Component's training mutex held; it MUST NOT call setTraining().
+         * the Component's training mutex held; it MUST NOT call setTrainingMode().
          *
          * @param is_training New training mode (true = training, false = eval)
          */

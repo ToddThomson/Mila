@@ -21,6 +21,8 @@
 #include <string>
 #include <stdexcept>
 
+#include "Common/GradientCheck.h"
+
 import Mila;
 import Serialization.Tensor;
 
@@ -339,6 +341,55 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
             EXPECT_NEAR( weight_grad[ i ], static_cast<float>( dweight[ i ] ), 1e-3f ) << "dW mismatch at " << i;
             EXPECT_NEAR( bias_grad[ i ], static_cast<float>( dbias[ i ] ), 1e-3f ) << "dB mismatch at " << i;
         }
+    }
+
+    // Reference application of the finite-difference gradient-check archetype for a
+    // leaf WITH parameters (Specifications/Testing.md): the same helper verifies the
+    // input gradient and both parameter gradients (weight, bias) against numeric
+    // gradients of the component's own forward(), with no hand-derived reference.
+    TEST_F( LayerNormCpuTests, Backward_MatchesNumericGradient )
+    {
+        const shape_t shape{ 2, 3, kChannels };
+        auto norm = builtLayerNorm( shape, true, RuntimeMode::Training );
+        setKnownParameters( *norm, true );
+
+        TensorFp32 input( Device::Cpu(), shape );
+        TensorFp32 output_grad( Device::Cpu(), shape );
+        fillSpread( input );
+        for ( size_t i = 0; i < output_grad.size(); ++i )
+        {
+            output_grad.data()[ i ] = 0.1f * static_cast<float>( ( i % 7 ) + 1 );
+        }
+
+        norm->forward( input );
+        auto& input_grad = norm->backward( input, output_grad );
+
+        // Snapshot analytic gradients before the probe re-runs forward().
+        std::vector<float> analytic_dx( input_grad.data(), input_grad.data() + input_grad.size() );
+
+        auto params = norm->getParameters();
+        auto grads = norm->getGradients();
+        ASSERT_EQ( grads.size(), 2u );
+        float* weight = static_cast<float*>( params[ 0 ]->rawData() );
+        float* bias = static_cast<float*>( params[ 1 ]->rawData() );
+        const float* weight_grad = static_cast<const float*>( grads[ 0 ]->rawData() );
+        const float* bias_grad = static_cast<const float*>( grads[ 1 ]->rawData() );
+        std::vector<float> analytic_dw( weight_grad, weight_grad + kChannels );
+        std::vector<float> analytic_db( bias_grad, bias_grad + kChannels );
+
+        auto evaluate = [&]() -> const float* { return norm->forward( input ).data(); };
+
+        const auto numeric_dx = Mila::Tests::Common::centralDifferenceGradient(
+            input.data(), input.size(), output_grad.data(), output_grad.size(), evaluate, 1e-2f );
+        Mila::Tests::Common::expectGradientsClose( analytic_dx.data(), numeric_dx, 1e-2f, 1e-2f, "LayerNorm dX" );
+
+        const auto numeric_dw = Mila::Tests::Common::centralDifferenceGradient(
+            weight, kChannels, output_grad.data(), output_grad.size(), evaluate, 1e-2f );
+        Mila::Tests::Common::expectGradientsClose( analytic_dw.data(), numeric_dw, 1e-2f, 1e-2f, "LayerNorm dW" );
+
+        const auto numeric_db = Mila::Tests::Common::centralDifferenceGradient(
+            bias, kChannels, output_grad.data(), output_grad.size(), evaluate, 1e-2f );
+        Mila::Tests::Common::expectGradientsClose( analytic_db.data(), numeric_db, 1e-2f, 1e-2f, "LayerNorm dB" );
     }
 
     // ====================================================================

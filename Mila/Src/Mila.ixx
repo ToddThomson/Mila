@@ -168,11 +168,6 @@ export import Dnn.TensorHostTypeMap;
 export import Dnn.TensorOps;
 
 // ====================================================================
-// Dnn - Tensor Initializers
-// ====================================================================
-export import Dnn.TensorInitializers;
-
-// ====================================================================
 // Dnn - Components
 // ====================================================================
 export import Dnn.ActivationType;
@@ -190,16 +185,13 @@ export import Dnn.Components.LayerNorm;
 export import Dnn.Components.RmsNorm;
 export import Dnn.Components.TokenEmbedding;
 
-// TODO: Alpha.5 OperationTraits supercedes individual operation OpTypeMaps 
-//export import Compute.GqaOpTypeMap;
-//export import Compute.LinearOpTypeMap;
 export import Compute.OperationTraits;
 
 export import Dnn.Components.Linear;
 
 export import Dnn.Components.Residual;
 export import Dnn.Components.Softmax;
-//export import Dnn.Components.SoftmaxCrossEntropy;
+// BACKLOG: export import Dnn.Components.SoftmaxCrossEntropy;
 
 // ============================================================================
 // Dnn - Composite Components

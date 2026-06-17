@@ -177,9 +177,9 @@ namespace Mila::Dnn
                 throw std::runtime_error( "TokenEmbedding must be built before calling backward()." );
 
             if ( !this->isTrainingMode() )
-                throw std::runtime_error( "TokenEmbedding must be in training mode to call backward(). "
-                    "Call setTraining(true) first." );
+                throw std::runtime_error( "TokenEmbedding must be in training mode to call backward()." );
 
+            // REVIEW: If built and in training mode, these buffers should always be initialized in onBuilding. If not, it's a bug.
             if ( !wte_grad_ )
                 throw std::runtime_error( "TokenEmbedding: wte_grad not initialized. This is a bug." );
 

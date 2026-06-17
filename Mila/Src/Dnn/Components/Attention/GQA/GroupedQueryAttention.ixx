@@ -173,7 +173,8 @@ namespace Mila::Dnn
                     cache_initialized_ = true;
                 }
 
-                // FIXME: positional_op_->prefill( input, *output_view_, 0 );
+                // REVIEW: Needs triage to understand the reason for this FIXME commented out code.
+                // positional_op_->prefill( input, *output_view_, 0 );
                 return *output_view_;
             }
 
@@ -199,8 +200,7 @@ namespace Mila::Dnn
             if ( !this->isTrainingMode() )
             {
                 throw std::runtime_error(
-                    "GroupedQueryAttention must be in training mode to call backward. "
-                    "Call setTraining(true) first." );
+                    "GroupedQueryAttention must be in training mode to call backward." );
             }
 
             validateConcatenatedQKVShape( input.shape() );
@@ -286,7 +286,9 @@ namespace Mila::Dnn
             }
 
             // Fallback — backend does not support KV caching or cache not yet initialized.
-            // FIXME:
+
+            // REVIEW: The Fallback here is stale and needs to be reviewed for correctness.
+
             //shape_t output_shape = input.shape();
             //output_shape.back() = config_.getModelDim();
 

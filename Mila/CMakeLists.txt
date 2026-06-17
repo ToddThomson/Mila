@@ -338,9 +338,6 @@ PUBLIC
         "Src/Dnn/Components/MilaComponents.ixx"
         "Src/Dnn/Core/Loss.ixx"
         "Src/Dnn/Serialization/SerializationMetadata.ixx"
-        # DEPRECATED: retired with the OperationRegistry (compile-time OperationTraits dispatch).
-        # Kept on disk; removed from the build.
-        #"Src/Dnn/Compute/Operations/OperationRegistrarHelpers.ixx"
         
         "Src/Dnn/Tensors/Operations/TensorOps.Zero.ixx"
 
@@ -355,7 +352,6 @@ PUBLIC
         "Src/Dnn/Core/ModelReader.ixx"
         "Src/Dnn/Components/Transformers/Gpt/GptTransformer.ixx"
         
-        
         "Src/Dnn/Components/Transformers/Gpt/Gpt.Config.ixx"
         "Src/Dnn/Components/Transformers/LlaMa/Llama.ixx"
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Config.ixx"
@@ -363,23 +359,12 @@ PUBLIC
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Presets.ixx"
 
         "Src/Data/Tokenizers/Tokenizer.ixx"
-        # DEPRECATED: "Src/Dnn/Data/Gpt2Tokenizer.ixx"
-        # DEPRECATED: "Src/Dnn/Data/Llama3Tokenizer.ixx"
         "Src/Data/Tokenizers/TokenizerVocabulary.ixx"
         "Src/Data/Tokenizers/TokenizerType.ixx"
 
         "Src/Data/Core/FileHeader.ixx"        
         "Src/Data/Core/TokenizerTrainer.ixx"
         "Src/Data/Core/TrainerFactory.ixx"
-
-        # REVIEW: Unified Bpe tockenizer
-        #"Src/Data/Tokenizers/Bpe/Gpt2/BPETokenizer.ixx"
-        #"Src/Data/Tokenizers/Bpe/Gpt2/BpeTrainer.ixx"
-        #"Src/Data/Tokenizers/Bpe/Gpt2/BPEVocabulary.ixx"
-        #"Src/Data/Tokenizers/Bpe/Gpt2/BpeVocabularyConfig.ixx"
-        #"Src/Data/Tokenizers/Bpe/Gpt4/Gpt4Tokenizer.ixx"
-        #"Src/Data/Tokenizers/Bpe/Gpt4/Gpt4Vocabulary.ixx"
-        #"Src/Data/Tokenizers/Bpe/Gpt4/Gpt4Vocabulary.Config.ixx"
 
         "Src/Data/Tokenizers/Char/CharTokenizer.ixx"
         "Src/Data/Tokenizers/Char/CharVocabularyConfig.ixx"
@@ -613,7 +598,6 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTypeTraits.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaError.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaHelpers.ixx"
-                # DEPRECATED Remove at Beta.1 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaBadAlloc.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CublasLtError.ixx"
                 
@@ -627,8 +611,6 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/CudaManagedMemoryResource.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/CudaPinnedMemoryResource.ixx"
                 
-                # DEPRECATED - remove at Beta.1 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTraits.ixx"
-
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Specializations.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Maps.ixx"

@@ -70,10 +70,13 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
                 float* dX, const float* dY, const float* Y,
                 int N, int axis, cudaStream_t stream )
             {
-                // FIXME: cuda_softmax_backward<float>( dX, dY, Y, N, axis, stream );
+                // REVIEW: Why does the FP32 backward kernel need review?
+                // cuda_softmax_backward<float>( dX, dY, Y, N, axis, stream );
                 throw std::runtime_error( "cuda_softmax_backwards<float>() needs review" );
             }
         };
+
+        // REVIEW: The FP16 implementations need to be refactored to use bf16, the Mila half type standard
 
         template <>
         struct cuda_softmax_impl<half>
@@ -97,7 +100,8 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
                 half* dX, const half* dY, const half* Y,
                 int N, int axis, cudaStream_t stream )
             {
-                // FIXME: cuda_softmax_backward<half>( dX, dY, Y, N, axis, stream );
+                // REVIEW: Why was this commented out? the half data type is likely key
+                // cuda_softmax_backward<half>( dX, dY, Y, N, axis, stream );
                 throw std::runtime_error( "cuda_softmax_backwards<half>() needs review" );
             }
         };

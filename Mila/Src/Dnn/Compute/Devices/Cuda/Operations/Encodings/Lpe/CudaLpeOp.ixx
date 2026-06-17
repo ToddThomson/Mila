@@ -11,7 +11,7 @@ module;
 #include <string>
 #include <stdexcept>
 #include <cstdint>
-//#include <format>
+#include <format>
 
 export module Compute.CudaLpeOp;
 import :Dispatch;
@@ -232,11 +232,10 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
 
             if ( B > batch_size_ || T > seq_length_ )
             {
-                throw std::runtime_error( "CudaLpeOp: input shape [{}, {}] exceeds built max [{}, {}]" );
-                    //FIXME: Possible ICE:
-                    // std::format(
-                    //    "CudaLpeOp: input shape [{}, {}] exceeds built max [{}, {}]",
-                    //    B, T, batch_size_, seq_length_ ) );
+                throw std::runtime_error(
+                     std::format(
+                        "CudaLpeOp: input shape [{}, {}] exceeds built max [{}, {}]",
+                        B, T, batch_size_, seq_length_ ) );
             }
 
             const int32_t* X  = static_cast<const int32_t*>( input.rawData() );
