@@ -76,6 +76,7 @@ add_executable( MilaTests
     "Dnn/Components/Transformers/Gpt/GptBlock.Config.cpp"
     "Dnn/Components/Transformers/Gpt/GptBlock.Cpu.cpp"
     "Dnn/Components/Transformers/Gpt/GptTransformer.Cpu.cpp"
+    "Dnn/Components/Transformers/Llama/Llama.Presets.cpp"
     "Dnn/Core/Component.cpp"
     "Dnn/Core/ComponentConfig.cpp"
     "Dnn/Core/CompositeComponent.cpp"
@@ -122,20 +123,8 @@ add_executable( MilaTests
     # ==============================================================
     # Section 3 - Commented, awaiting revival (retired in place)
     # ==============================================================
-    #"Dnn/Components/Attention/GQA/GQA.Config.cpp"
-    #"Dnn/Components/Attention/MHA/MHA.Config.cpp"
-    #"Dnn/Components/Attention/MHA/MHA.Cpu.cpp"
-    #"Dnn/Components/Connections/Residual.Config.cpp"
-    #"Dnn/Components/Connections/Residual.Cpu.cpp"
-    #"Dnn/Components/Encodings/Lpe/Encoder.Cpu.cpp"
-    #"Dnn/Components/Encodings/Lpe/EncoderConfig.cpp"
     #"Dnn/Components/Losses/CrossEntropy.Config.cpp"
     #"Dnn/Components/Losses/CrossEntropy.Cpu.cpp"
-    #"Dnn/Components/Normalization/Softmax.Cpu.cpp"
-    #"Dnn/Components/Normalization/SoftmaxConfig.cpp"
-    #"Dnn/Components/Transformers/Llama/Llama.Presets.cpp"
-    # NOTE: Tensor.Identity / Tensor.Io / Tensor.Properties revived to the value-type
-    # methodology (Section 1 above) in the Alpha.7 Tensor slice; ShapeTransform is new.
     #"Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuGeluOpTests.cpp"
     #"Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOpTests.cpp"
@@ -173,11 +162,15 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Encodings/Lpe/Lpe.Cuda.cpp"
         "Dnn/Components/Encodings/Rope/Rope.Cuda.cpp"
         "Dnn/Components/FFN/GatedMLP/GatedMLP.Cuda.cpp"
+        "Dnn/Components/FFN/MLP/MLP.Cuda.cpp"
         "Dnn/Components/FFN/Swiglu/Swiglu.Cuda.cpp"
         "Dnn/Components/Linear/Linear.Cuda.cpp"
         "Dnn/Components/Normalization/LayerNorm/LayerNorm.Cuda.cpp"
         "Dnn/Components/Normalization/RmsNorm/RmsNorm.Cuda.cpp"
         "Dnn/Components/Normalization/Softmax.Cuda.cpp"
+        "Dnn/Components/Transformers/Gpt/GptBlock.Cuda.cpp"
+        "Dnn/Components/Transformers/Gpt/GptTransformer.Cuda.cpp"
+        "Dnn/Components/Transformers/Llama/Llama.Cuda.cpp"
         "Dnn/Tensors/Tensor.Constructors.Cuda.cpp"
         "Dnn/Tensors/Tensor.DataAccess.Cuda.cpp"
         "Dnn/Tensors/Tensor.MemoryProperties.Cuda.cpp"
@@ -195,17 +188,7 @@ if(MILA_ENABLE_CUDA)
         # ----------------------------------------------------------
         # Section 3 - Commented, awaiting revival (retired in place)
         # ----------------------------------------------------------
-        #"Dnn/Components/Activations/Gelu/Gelu.Cuda.cpp"
-        #"Dnn/Components/Attention/GQA/GQA.Cuda.cpp"
-        #"Dnn/Components/Attention/MHA/MHA.Cuda.cpp"
-        #"Dnn/Components/Connections/Residual.Cuda.cpp"
-        #"Dnn/Components/Encodings/Lpe/Encoder.Cuda.cpp"
-        #"Dnn/Components/FFN/MLP.Cuda.cpp"
         #"Dnn/Components/Losses/SoftmaxCrossEntropy.Cuda.cpp"
-        #"Dnn/Components/Normalization/Softmax.Cuda.cpp"
-        #"Dnn/Components/Transformers/Gpt/GptBlock.Cuda.cpp"
-        #"Dnn/Components/Transformers/Gpt/GptTransformer.Cuda.cpp"
-        #"Dnn/Components/Transformers/Llama/Llama.Cuda.cpp"
         #"Dnn/Compute/Devices/Cuda/CudaDevice.cpp"
         #"Dnn/Modeling/Network.Cuda.cpp"
         #"Dnn/Optimizers/AdamW.Cuda.cpp"

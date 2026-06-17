@@ -38,8 +38,11 @@ namespace Mila::Tests::Dnn::Components::Embeddings
 
     namespace
     {
-        constexpr int64_t kVocab = 8;
-        constexpr int64_t kEmbed = 4;
+        constexpr int64_t kVocab = 16;
+        // Embedding dim must be a multiple of 8: the BF16 kernel vectorizes 8 bf16
+        // per int4 load and asserts C % 8 == 0 (FP32 only needs % 4). Kept distinct
+        // from kVocab so a row-stride bug cannot hide behind a square shape.
+        constexpr int64_t kEmbed = 8;
 
         // wte[v, c]; spread so adjacent rows/columns are distinguishable.
         float wteValue( int64_t v, int64_t c )

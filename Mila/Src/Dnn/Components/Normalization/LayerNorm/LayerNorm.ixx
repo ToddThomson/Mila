@@ -236,11 +236,8 @@ namespace Mila::Dnn
 
         std::vector<ITensor*> getGradients() const override
         {
-            if ( !this->build_context_.isTrainingMode() )
-            {
-                throw std::runtime_error( "LayerNorm: getGradients called when not in training mode" );
-            }
-
+            // Gradient buffers exist only when built for training; inference
+            // yields an empty vector (see Component::getGradients contract).
             std::vector<ITensor*> grads;
 
             if ( weight_grad_ )

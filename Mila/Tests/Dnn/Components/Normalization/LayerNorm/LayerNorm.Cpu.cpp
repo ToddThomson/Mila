@@ -188,11 +188,11 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
         EXPECT_THROW( norm->backward( input, output_grad ), std::runtime_error );
     }
 
-    TEST_F( LayerNormCpuTests, GetGradients_ThrowsWhenBuiltForInference )
+    TEST_F( LayerNormCpuTests, GetGradients_EmptyWhenBuiltForInference )
     {
         auto norm = builtLayerNorm( shape_t{ 2, 3, kChannels }, true, RuntimeMode::Inference );
 
-        EXPECT_THROW( norm->getGradients(), std::runtime_error );
+        EXPECT_TRUE( norm->getGradients().empty() );
     }
 
     // ====================================================================

@@ -537,10 +537,13 @@ namespace Mila::Dnn
         /**
          * @brief Return non-owning pointers to parameter gradient tensors.
          *
-         * Only valid when isTrainingMode() is true.
+         * Gradient buffers are allocated only when the component is built in
+         * training mode, so a component built for inference returns an empty
+         * vector. Stateless components return empty in either mode. This is the
+         * accessor counterpart to getParameters() and does not throw on mode.
          *
-         * @throws std::runtime_error if called when not in training mode or
-         *         before the component has been built.
+         * @return Vector of gradient pointers; empty when built for inference.
+         * @throws std::runtime_error if called before the component has been built.
          */
         virtual std::vector<ITensor*> getGradients() const = 0;
 

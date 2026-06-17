@@ -318,14 +318,10 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
     // stack (file in BACKLOG + GTEST_SKIP), not a problem with this test.
     TEST_F( GptBlockCpuTests, Backward_InputGradientMatchesFiniteDifference )
     {
-        // SKIPPED: the composed-backward finite-difference check fails (the structural
-        // backward tests above pass). Root cause unconfirmed -- prime suspect is the
-        // MHA CPU backward, which is only shape-tested elsewhere, never numerically.
-        // Tracked in BACKLOG (Bugs surfaced by the test revival). Re-enable once the
-        // stack backward numerics are verified MHA-first. Kept (not deleted) so the
-        // check is ready the moment the bug is fixed.
-        GTEST_SKIP() << "composed-backward gradient mismatch; see BACKLOG (MHA CPU backward suspect)";
-
+        // Re-enabled 2026-06-17: the prior skip was due to the CPU TensorOps math
+        // no-op (the residual-gradient `add` did nothing on CPU), now fixed. If this
+        // still mismatches, the remaining suspect is the MHA CPU backward (only
+        // shape-tested elsewhere, never numerically) -- see BACKLOG.
         auto block = builtBlock( model_dim_, num_heads_, hidden_, RuntimeMode::Training );
 
         const shape_t shape{ batch_, seq_, model_dim_ };

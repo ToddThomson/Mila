@@ -185,6 +185,7 @@ namespace Mila::Tests::Dnn::Components::Normalization
         auto softmax = builtSoftmax( shape, RuntimeMode::Training );
 
         TensorFp32 input( Device::Cpu(), shape );
+        TensorFp32 output( Device::Cpu(), shape );
         TensorFp32 output_grad( Device::Cpu(), shape );
         TensorFp32 input_grad( Device::Cpu(), shape );
         fillSpread( input );
@@ -193,7 +194,16 @@ namespace Mila::Tests::Dnn::Components::Normalization
             output_grad.data()[ i ] = 0.1f * static_cast<float>( ( i % 7 ) + 1 );
         }
 
-        softmax->backward( input, output_grad, input_grad );
+        // Softmax backward consumes the forward output Y (not the raw input X),
+        // and the op accumulates into input_grad, so produce Y and zero the
+        // accumulation target first.
+        softmax->forward( input, output );
+        for ( size_t i = 0; i < input_grad.size(); ++i )
+        {
+            input_grad.data()[ i ] = 0.0f;
+        }
+
+        softmax->backward( output, output_grad, input_grad );
 
         std::vector<float> y;
         referenceSoftmax( input.data(), kRows, kChannels, y );

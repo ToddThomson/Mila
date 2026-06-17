@@ -19,7 +19,6 @@ module;
 //#include <source_location>
 //#include <cmath>
 #include <algorithm>
-#include <execution>
 
 export module Compute.CpuTensorOps:Math;
 
@@ -234,27 +233,13 @@ namespace Mila::Dnn::Compute::Cpu
             const auto* data = static_cast<const HostType*>(tensor.data());
             const size_t num_elements = tensor.size();
 
-            // Use parallel reduction for large tensors
-            if (num_elements > 10000)
+            float result = 0.0f;
+            for (size_t i = 0; i < num_elements; ++i)
             {
-                return std::reduce(
-                    std::execution::par_unseq,
-                    data, data + num_elements,
-                    static_cast<float>(0),
-                    []( float acc, HostType val ) {
-                        return acc + static_cast<float>(val);
-                    }
-                );
+                result += static_cast<float>( data[i] );
             }
-            else
-            {
-                float result = 0.0f;
-                for (size_t i = 0; i < num_elements; ++i)
-                {
-                    result += static_cast<float>( data[i] );
-                }
-                return result;
-            }
+
+            return result;
         }
 
     private:
@@ -327,28 +312,18 @@ namespace Mila::Dnn::Compute::Cpu
 
             const size_t num_elements = a.size();
 
-            // Use parallel execution for better performance on large tensors
-            // Threshold of 10000 elements balances parallelization overhead
-            // with performance gains from multi-core execution
-            if (num_elements > 10000)
-            {
-                std::transform(
-                    std::execution::par_unseq,
-                    a_typed, a_typed + num_elements,
-                    b_typed,
-                    result_typed,
-                    op
-                );
-            }
-            else
-            {
-                std::transform(
-                    a_typed, a_typed + num_elements,
-                    b_typed,
-                    result_typed,
-                    op
-                );
-            }
+            // Serial transform only: the parallel-STL overload pulls <execution>
+            // into this module partition, which transitively includes <stop_token>
+            // and triggers an MSVC C1116 ICE when the partition is imported. The
+            // CUDA path carries the heavy element-wise workload; CPU math is a
+            // correctness/reference backend, so the >10000-element parallel fast
+            // path is not worth re-introducing that dependency.
+            std::transform(
+                a_typed, a_typed + num_elements,
+                b_typed,
+                result_typed,
+                op
+            );
         }
     };
 }

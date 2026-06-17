@@ -607,9 +607,13 @@ namespace Mila::Dnn
         /**
          * @brief Get all parameter gradients from all children.
          *
-         * @return Vector of non-owning pointers to gradient tensors
+         * Gradient buffers are allocated only when built in training mode, so a
+         * component built for inference yields an empty result. This mirrors the
+         * leaf-component contract (e.g. Linear) and the symmetry with getParameters().
          *
-         * @throws std::runtime_error if called before build() or not in training mode
+         * @return Vector of non-owning pointers to gradient tensors (empty in inference mode)
+         *
+         * @throws std::runtime_error if called before build()
          */
         std::vector<ITensor*> getGradients() const override
         {
@@ -617,13 +621,6 @@ namespace Mila::Dnn
             {
                 throw std::runtime_error(
                     "Cannot get parameter gradients before build()"
-                );
-            }
-
-            if ( !this->build_context_.isTrainingMode() )
-            {
-                throw std::runtime_error(
-                    "Cannot get parameter gradients when not in training mode"
                 );
             }
 

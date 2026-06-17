@@ -165,13 +165,19 @@ namespace Data::Tokenizers::Tests
 
     TEST( CharTokenizerTests, Encode_EmptyString_ReturnsEmptyVector )
     {
+        std::string corpus = "abc";
+
         CharVocabularyConfig cfg;
         SpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
         cfg.withSpecialTokens( st );
 
-        CharVocabulary vocab = CharTrainer( cfg ).train();
+        std::istringstream stream( corpus );
+        CharTrainer trainer( cfg );
+        trainer.addCorpusFromStream( stream );
+
+        CharVocabulary vocab = trainer.train();
         CharTokenizer tokenizer( std::move( vocab ) );
 
         auto encoded = tokenizer.encode( "" );
@@ -180,13 +186,19 @@ namespace Data::Tokenizers::Tests
 
     TEST( CharTokenizerTests, Decode_EmptyVector_ReturnsEmptyString )
     {
+        std::string corpus = "abc";
+
         CharVocabularyConfig cfg;
         SpecialTokens st = {};
         st.use_pad = false;
         st.use_unk = false;
         cfg.withSpecialTokens( st );
 
-        CharVocabulary vocab = CharTrainer( cfg ).train();
+        std::istringstream stream( corpus );
+        CharTrainer trainer( cfg );
+        trainer.addCorpusFromStream( stream );
+
+        CharVocabulary vocab = trainer.train();
         CharTokenizer tokenizer( std::move( vocab ) );
 
         std::vector<Mila::Data::TokenId> empty;

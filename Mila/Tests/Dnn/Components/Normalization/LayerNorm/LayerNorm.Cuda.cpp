@@ -210,11 +210,11 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
         EXPECT_EQ( norm->parameterCount(), static_cast<size_t>( 2 * kChannels ) );
     }
 
-    TEST_F( LayerNormCudaTests, GetGradients_ThrowsForInferenceBuild )
+    TEST_F( LayerNormCudaTests, GetGradients_EmptyForInferenceBuild )
     {
         auto norm = builtLayerNorm( shape_t{ 2, 3, kChannels }, RuntimeMode::Inference );
 
-        EXPECT_THROW( norm->getGradients(), std::runtime_error );
+        EXPECT_TRUE( norm->getGradients().empty() );
     }
 
     TEST_F( LayerNormCudaTests, GetGradients_PresentForTrainingBuild )

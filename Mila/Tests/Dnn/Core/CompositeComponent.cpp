@@ -37,8 +37,9 @@ namespace Mila::Tests::Dnn::Core
     namespace
     {
         // ================================================================
-        // Mock leaf child: carries num_params parameter/gradient tensors so
-        // the composite's aggregation paths have something to collect.
+        // Mock leaf child: carries num_params parameter tensors (always) plus
+        // matching gradient tensors (only when built for training) so the
+        // composite's aggregation paths have something to collect.
         // ================================================================
         class MockChild : public Component<DeviceType::Cpu, TensorDataType::FP32>
         {
@@ -47,12 +48,11 @@ namespace Mila::Tests::Dnn::Core
             using TensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
 
             explicit MockChild( const std::string& name, size_t num_params = 0 )
-                : Base( name )
+                : Base( name ), num_params_( num_params )
             {
                 for ( size_t i = 0; i < num_params; ++i )
                 {
                     parameters_.push_back( std::make_shared<TensorType>( Device::Cpu(), shape_t{ 1 } ) );
-                    gradients_.push_back( std::make_shared<TensorType>( Device::Cpu(), shape_t{ 1 } ) );
                 }
             }
 
@@ -115,10 +115,22 @@ namespace Mila::Tests::Dnn::Core
             }
 
         protected:
-            void onBuilding( const BuildContext& ) override
-            {}
+            void onBuilding( const BuildContext& context ) override
+            {
+                // Mirror the real leaves (e.g. Linear): gradient buffers are allocated
+                // only when built for training, so getGradients() is empty after an
+                // inference build.
+                if ( context.isTrainingMode() )
+                {
+                    for ( size_t i = 0; i < num_params_; ++i )
+                    {
+                        gradients_.push_back( std::make_shared<TensorType>( Device::Cpu(), shape_t{ 1 } ) );
+                    }
+                }
+            }
 
         private:
+            size_t num_params_;
             std::vector<std::shared_ptr<TensorType>> parameters_;
             std::vector<std::shared_ptr<TensorType>> gradients_;
         };
@@ -468,13 +480,13 @@ namespace Mila::Tests::Dnn::Core
         EXPECT_THROW( composite->getGradients(), std::runtime_error );
     }
 
-    TEST_F( CompositeComponentTests, GetGradients_ThrowsWhenBuiltForInference )
+    TEST_F( CompositeComponentTests, GetGradients_EmptyWhenBuiltForInference )
     {
         auto composite = contextual();
         composite->addComponent( std::make_shared<MockChild>( "a", 2 ) );
         composite->build( build( RuntimeMode::Inference ) );
 
-        EXPECT_THROW( composite->getGradients(), std::runtime_error );
+        EXPECT_TRUE( composite->getGradients().empty() );
     }
 
     TEST_F( CompositeComponentTests, GetGradients_AggregatesWhenBuiltForTraining )

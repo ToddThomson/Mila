@@ -39,8 +39,10 @@ final block's MLP, the final norm, and the LM head, so the model trained to the 
   existed). Wiring the dispatch made the BF16 Llama apps (Chat, ProfileModel) reference
   `MathOps::addImpl<BF16>` -> the bf16 launcher, which had no instantiation (Bard linked because it is
   FP32); link error `LNK2019`/`LNK1120`
-- CPU `MathOps` stays disabled — the C1116 ICE is real and unresolved, so CPU element-wise math is a
-  documented no-op gap (tracked in BACKLOG; the `GptBlock<Cpu>` finite-difference sentinel guards it)
+- CPU `MathOps` stayed disabled here — the C1116 ICE was unresolved at this point, so CPU element-wise
+  math was a documented no-op gap (the `GptBlock<Cpu>` finite-difference sentinel guarded it).
+  **Resolved in 0.20.0-alpha.6+64**: the ICE was `#include <execution>` (pulls `<stop_token>`), not
+  `Compute.MemoryResource`; dropping it (serial loops) un-gated CPU math (see BACKLOG)
 - Validated: Bard trains from the bigram floor down to perplexity <3 (loss ~1.09 by epoch 17) with
   coherent Shakespeare-structured text — the full CUDA training-backward path (Linear, MHA, LayerNorm,
   Residual, MLP, embeddings) now receives gradient

@@ -395,11 +395,11 @@ namespace Mila::Tests::Dnn::Modeling
         EXPECT_THROW( net->backward( input, output_grad ), std::runtime_error );
     }
 
-    TEST_F( MlpNetworkCpuTests, GetGradients_ThrowsWhenBuiltForInference )
+    TEST_F( MlpNetworkCpuTests, GetGradients_EmptyWhenBuiltForInference )
     {
         auto net = builtMlp( RuntimeMode::Inference );
 
-        EXPECT_THROW( net->getGradients(), std::runtime_error );
+        EXPECT_TRUE( net->getGradients().empty() );
     }
 
     TEST_F( MlpNetworkCpuTests, GetParameters_AggregatesChildrenInOrder )

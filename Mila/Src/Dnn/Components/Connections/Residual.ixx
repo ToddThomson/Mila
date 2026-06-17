@@ -272,15 +272,10 @@ namespace Mila::Dnn
         /**
          * @brief Return non-owning pointers to parameter gradient tensors.
          *
-         * Only valid in training mode. Residual has no trainable parameters by default.
+         * Residual has no trainable parameters by default; return empty list.
          */
         std::vector<ITensor*> getGradients() const override
         {
-            if ( !this->isTrainingMode() )
-            {
-                throw std::runtime_error( "Residual: getGradients called when not in training mode" );
-            }
-
             return {};
         }
 

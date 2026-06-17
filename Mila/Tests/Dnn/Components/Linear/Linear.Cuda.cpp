@@ -252,13 +252,10 @@ namespace Mila::Tests::Dnn::Components::Linear
 
     TYPED_TEST( LinearCudaTests, Forward_MatchesReference )
     {
-        // BLOCKED: the non-quantized cuBLASLt batch GEMM plan (NT row-major) returns
-        // CUBLAS_STATUS_NOT_SUPPORTED at plan-build time on Ada, so the batch forward
-        // path is unavailable. Shipping models use the quantized kernels instead, so
-        // this reference path is unexercised. Re-enable once the BACKLOG bug is fixed.
-        // The decode (matvec) numeric oracle is covered by Forward_DecodeMatchesReference.
-        GTEST_SKIP() << "non-quantized cuBLASLt batch GEMM is CUBLAS_STATUS_NOT_SUPPORTED — see BACKLOG";
-
+        // Re-enabled 2026-06-17: the non-quantized cuBLASLt batch GEMM
+        // CUBLAS_STATUS_NOT_SUPPORTED was root-caused to the bias epilogue (not the
+        // NT row-major layout) and fixed 2026-06-16 by adding bias post-GEMM. The
+        // decode (matvec) oracle is covered by Forward_DecodeMatchesReference.
         const shape_t shape{ 2, 4, kInFeatures };
 
         auto linear = this->builtLinear( shape, true, RuntimeMode::Inference );
@@ -342,12 +339,10 @@ namespace Mila::Tests::Dnn::Components::Linear
 
     TYPED_TEST( LinearCudaTests, Backward_MatchesReferenceGradients )
     {
-        // BLOCKED: backward uses the same non-quantized cuBLASLt plans as the batch
-        // forward, which return CUBLAS_STATUS_NOT_SUPPORTED on Ada (see BACKLOG). CPU
-        // backward numerics are covered in Linear.Cpu.cpp; re-enable when the cuBLASLt
-        // non-quantized path is fixed.
-        GTEST_SKIP() << "non-quantized cuBLASLt backward is CUBLAS_STATUS_NOT_SUPPORTED — see BACKLOG";
-
+        // Re-enabled 2026-06-17: backward shares the non-quantized cuBLASLt plans with
+        // the batch forward; the CUBLAS_STATUS_NOT_SUPPORTED was the bias epilogue,
+        // fixed 2026-06-16 (backward plans carry no bias epilogue, so once forward
+        // builds, use_cublaslt_ stays true). CPU backward numerics: Linear.Cpu.cpp.
         const shape_t input_shape{ 2, 4, kInFeatures };
         const shape_t output_shape{ 2, 4, kOutFeatures };
 
