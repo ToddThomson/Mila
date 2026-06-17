@@ -19,6 +19,7 @@ import Compute.OperationTraits.Template;
 import Compute.CudaLinearOp;
 import Compute.CudaGqaOp;
 import Compute.CudaGeluOp;
+import Compute.CudaElementwiseActivationOp;
 import Compute.CudaResidualOp;
 import Compute.CudaRmsNormOp;
 import Compute.CudaLayerNormOp;
@@ -127,6 +128,28 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::GeluOp, DeviceType::Cuda, TensorDataType::BF16, void>
     {
         using type = Cuda::Gelu::CudaGeluOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // ElementwiseActivationOp — CUDA specializations (FP32, BF16)
+    //
+    // Resolves the op *template*: the Activation component maps its compile-time
+    // ActivationType to a functor and instantiates op_for<Functor>. No fifth traits
+    // axis (see FfnAndMoE.md section 5.1).
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::ElementwiseActivationOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        template<typename TFunctor>
+        using op_for = Cuda::Activation::CudaElementwiseActivationOp<TensorDataType::FP32, TFunctor>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::ElementwiseActivationOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        template<typename TFunctor>
+        using op_for = Cuda::Activation::CudaElementwiseActivationOp<TensorDataType::BF16, TFunctor>;
     };
 
     // -------------------------------------------------------------------------

@@ -184,6 +184,7 @@ export import Dnn.Components.Gqa;
 export import Dnn.Components.Lpe;
 export import Dnn.Components.Rope;
 export import Dnn.Components.Gelu;
+export import Dnn.Components.Activation;
 export import Dnn.Components.Swiglu;
 export import Dnn.Components.LayerNorm;
 export import Dnn.Components.RmsNorm;
@@ -204,6 +205,7 @@ export import Dnn.Components.Softmax;
 // Dnn - Composite Components
 // ============================================================================
 export import Dnn.Components.MLP;
+export import Dnn.Components.GatedMLP;
 export import Dnn.Components.GptBlock;
 
 // ============================================================================

@@ -24,6 +24,7 @@ export module Compute.OperationTraits:Cpu;
 import Compute.OperationTraits.Template;
 import Compute.CpuLinearOp;
 import Compute.CpuGeluOp;
+import Compute.CpuElementwiseActivationOp;
 import Compute.CpuLayerNormOp;
 import Compute.CpuResidualOp;
 import Compute.CpuSoftmaxOp;
@@ -57,6 +58,21 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::GeluOp, DeviceType::Cpu, TensorDataType::FP32, void>
     {
         using type = CpuGeluOp;
+    };
+
+    // -------------------------------------------------------------------------
+    // ElementwiseActivationOp — CPU specialization (FP32 only)
+    //
+    // Unlike concrete CPU ops, this resolves the op *template*: the Activation
+    // component maps its compile-time ActivationType to a functor and instantiates
+    // op_for<Functor>. No fifth traits axis (see FfnAndMoE.md section 5.1).
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::ElementwiseActivationOp, DeviceType::Cpu, TensorDataType::FP32, void>
+    {
+        template<typename TFunctor>
+        using op_for = CpuElementwiseActivationOp<TFunctor>;
     };
 
     // -------------------------------------------------------------------------

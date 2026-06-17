@@ -48,6 +48,8 @@ add_executable( MilaTests
     # Section 1 - Current test methodology (Specifications/Testing.md)
     # ==============================================================
     "Data/Loaders/DataLoader.cpp"
+    "Dnn/Components/Activations/Activation/Activation.Cpu.cpp"
+    "Dnn/Components/Activations/Activation/ActivationConfig.cpp"
     "Dnn/Components/Activations/Gelu/Gelu.Cpu.cpp"
     "Dnn/Components/Activations/Gelu/GeluConfig.cpp"
     "Dnn/Components/Attention/GQA/GqaConfig.cpp"
@@ -59,6 +61,7 @@ add_executable( MilaTests
     "Dnn/Components/Encodings/Lpe/Lpe.Cpu.cpp"
     "Dnn/Components/Encodings/Lpe/LpeConfig.cpp"
     "Dnn/Components/Encodings/Rope/RopeConfig.cpp"
+    "Dnn/Components/FFN/GatedMLP/GatedMLPConfig.cpp"
     "Dnn/Components/FFN/MLP/MLP.Cpu.cpp"
     "Dnn/Components/FFN/MLP/MLPConfig.cpp"
     "Dnn/Components/FFN/Swiglu/SwigluConfig.cpp"
@@ -161,6 +164,7 @@ if(MILA_ENABLE_CUDA)
         # Section 1 - Current test methodology
         # ----------------------------------------------------------
         "Data/Loaders/DataLoader.Cuda.cpp"
+        "Dnn/Components/Activations/Activation/Activation.Cuda.cpp"
         "Dnn/Components/Activations/Gelu/Gelu.Cuda.cpp"
         "Dnn/Components/Attention/GQA/GroupedQueryAttention.Cuda.cpp"
         "Dnn/Components/Attention/MHA/MultiHeadAttention.Cuda.cpp"
@@ -168,6 +172,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Embeddings/TokenEmbedding.Cuda.cpp"
         "Dnn/Components/Encodings/Lpe/Lpe.Cuda.cpp"
         "Dnn/Components/Encodings/Rope/Rope.Cuda.cpp"
+        "Dnn/Components/FFN/GatedMLP/GatedMLP.Cuda.cpp"
         "Dnn/Components/FFN/Swiglu/Swiglu.Cuda.cpp"
         "Dnn/Components/Linear/Linear.Cuda.cpp"
         "Dnn/Components/Normalization/LayerNorm/LayerNorm.Cuda.cpp"

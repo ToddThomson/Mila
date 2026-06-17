@@ -173,6 +173,9 @@ PUBLIC
         "Src/Dnn/Components/Activations/ActivationType.ixx"
         "Src/Dnn/Components/Activations/Gelu/Gelu.ixx"
         "Src/Dnn/Components/Activations/Gelu/Gelu.Config.ixx"
+        # Unified elementwise activation (added alongside Gelu; folds it in later -- FfnAndMoE.md s5)
+        "Src/Dnn/Components/Activations/Activation/Activation.ixx"
+        "Src/Dnn/Components/Activations/Activation/Activation.Config.ixx"
         
         # Components - Connections
         "Src/Dnn/Components/Connections/ConnectionType.ixx"
@@ -217,6 +220,8 @@ PUBLIC
         #"Src/Dnn/Components/FFN/MLP/MLP.Dispatch.ixx"
         "Src/Dnn/Components/FFN/Swiglu/Swiglu.ixx"
         "Src/Dnn/Components/FFN/Swiglu/Swiglu.Config.ixx"
+        "Src/Dnn/Components/FFN/GatedMLP/GatedMLP.ixx"
+        "Src/Dnn/Components/FFN/GatedMLP/GatedMLP.Config.ixx"
         "Src/Dnn/Components/Transformers/Gpt/GptBlock.ixx"
         "Src/Dnn/Components/Transformers/Gpt/GptBlock.Config.ixx"
 
@@ -479,6 +484,7 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/Operations/OperationTraits.Cpu.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuElementwiseActivationOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuAttentionOp.ixx"
@@ -545,6 +551,7 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Elementwise/Kernels/ElementwiseActivation.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/Kernels/RmsNorm.Fp32.cu"
@@ -593,6 +600,10 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Elementwise/Kernels/ElementwiseActivation.cuh"
+                # Shared elementwise-activation functor library (consumed by the CPU op, the
+                # Activation component, and the CUDA kernel; shipped here for CUDA consumers).
+                "Src/Dnn/Components/Activations/Activation/Kernels/ElementwiseActivation.h"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/Kernels/RmsNorm.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.cuh"
@@ -665,6 +676,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CublasLtMatMulBias.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Elementwise/CudaElementwiseActivationOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/LayerNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/LayerNormOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/CudaSoftmaxOp.ixx"

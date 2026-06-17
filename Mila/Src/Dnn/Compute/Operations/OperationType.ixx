@@ -34,6 +34,7 @@ namespace Mila::Dnn::Compute
 		FusedOp,					///< Fused operation combining multiple operations for performance optimization
 		LinearOp,					///< Linear (fully connected/dense) layer operation
 		GeluOp,						///< Gaussian Error Linear Unit activation function
+        ElementwiseActivationOp,	///< Functor-templated elementwise activation (GELU/SiLU/ReLU/Tanh/Sigmoid/LeakyReLU/Mish)
         SwigluOp,					///< SwiGLU activation function
 		LayerNormOp,				///< Layer normalization operation
         RmsNormOp,					///< RMS normalization operation
@@ -56,6 +57,7 @@ namespace Mila::Dnn::Compute
 		constexpr std::string_view Fused                = "FusedOp";
 		constexpr std::string_view Linear               = "LinearOp";
 		constexpr std::string_view Gelu                 = "GeluOp";
+		constexpr std::string_view ElementwiseActivation = "ElementwiseActivationOp";
 		constexpr std::string_view Swiglu               = "SwigluOp";
 		constexpr std::string_view LayerNorm            = "LayerNormOp";
 		constexpr std::string_view RmsNorm              = "RmsNormOp";
@@ -79,6 +81,7 @@ namespace Mila::Dnn::Compute
 			case OperationType::FusedOp:                 return OperationNames::Fused;
 			case OperationType::LinearOp:                return OperationNames::Linear;
 			case OperationType::GeluOp:                  return OperationNames::Gelu;
+			case OperationType::ElementwiseActivationOp: return OperationNames::ElementwiseActivation;
 			case OperationType::SwigluOp:                return OperationNames::Swiglu;
 			case OperationType::LayerNormOp:             return OperationNames::LayerNorm;
 			case OperationType::RmsNormOp:               return OperationNames::RmsNorm;
