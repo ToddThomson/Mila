@@ -297,11 +297,9 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
             if ( position < 0 || position >= wpe_max_seq_len_ )
             {
 
-                throw std::invalid_argument( "CudaLpeOp::decode: position {} out of range [0, {})" );
-                    //FIXME: Possible ICE
-                    // std::format(
-                    //"CudaLpeOp::decode: position {} out of range [0, {})",
-                    //position, wpe_max_seq_len_ ) );
+                throw std::invalid_argument(
+                    std::format( "CudaLpeOp::decode: position {} out of range [0, {})",
+                    position, wpe_max_seq_len_ ) );
             }
 
             int B = static_cast<int>( input.shape()[ 0 ] );

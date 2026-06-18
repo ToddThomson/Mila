@@ -80,7 +80,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         int                  group_size,
         cudaStream_t         stream );
 
-    // TODO: Enable these functions when implemented
+    // REVIEW: Are these functions required. Full analysis is required.
+    // Should we enable these functions when implemented
+
     //void cuda_reduce_sum_batch_fp16(
     //    half* dBias,
     //    const half* dY,

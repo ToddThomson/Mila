@@ -583,7 +583,7 @@ namespace Mila::Mnist
         static void loadComponentWeights( ModelArchive& /*archive*/,
             MnistClassifier* /*classifier*/ )
         {
-            // TODO: Implement weight loading
+            // FUTURE: Implement weight loading
             // For each component in classifier->getComponents():
             //   - Read component weights from archive
             //   - Set weights on component via setParameters()

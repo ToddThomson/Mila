@@ -15,6 +15,10 @@ export module Compute.CudaLpeOp:Dispatch;
 
 namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
 {
+    // REVIEW: See the BF16 related REVIEW: below
+    // Specifically here we should remove the half specialization and all related code
+    // if we are not going to support FP16 for LPE in the near future.
+
     /**
      * @brief CUDA kernel dispatcher for Lpe forward, backward, and positional decode.
      *
@@ -98,6 +102,10 @@ namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
         }
     };
 
+    // REVIEW: FP16/Half is no longer the MILA 16-bit type of choice for transformer training workloads,
+    // The LPE is used by the GPT2 transformer reference implementation which supports FP32
+    // Implementations are currently TODOs but the structure is in place for when we want to add them.
+
     /**
      * @brief FP16 specialization of the Lpe CUDA kernel dispatcher.
      */
@@ -141,7 +149,8 @@ namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
             int B, int T, int C,
             cudaStream_t stream )
         {
-            // TODO: cuda_encoder_backward_fp16( dwte, dwpe, dY, X, B, T, C, stream );
+            // REVIEW: See REVIEW: above
+            // cuda_encoder_backward_fp16( dwte, dwpe, dY, X, B, T, C, stream );
         }
 
         /**
@@ -161,7 +170,8 @@ namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
             int B, int position, int C,
             cudaStream_t stream )
         {
-            // TODO: cuda_encoder_decode_fp16( Y, X, wte, wpe, B, position, C, stream );
+            // REVIEW: See REVIEW: above
+            // cuda_encoder_decode_fp16( Y, X, wte, wpe, B, position, C, stream );
         }
     };
 }

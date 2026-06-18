@@ -104,12 +104,7 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
                 throw std::invalid_argument( "CudaGeluOp: output tensors must be greater or equal to the input size." );
             }
 
-            // TODO: Validate tensor data types match TPrecision
-
             cudaStream_t stream = context_->getStream();
-
-            // TODO: Use precision policy from config
-            // ComputePrecision::Policy policy = config_.getPrecisionPolicy();
 
             auto X = static_cast<const NativeType*>(input.rawData());
             auto Y = static_cast<NativeType*>(output.rawData());

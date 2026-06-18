@@ -586,7 +586,7 @@ namespace Mila::Dnn::Compute::Cuda
             cudaStream_t stream,
             int device_id )
         {
-			// TODO: Implement sum reduction kernel.
+			// FUTURE: Implement sum reduction kernel.
             throw std::runtime_error( "CUDA sum reduction kernels are not implemented yet" );
 
             if (!tensor_data || count == 0)

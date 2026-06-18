@@ -30,22 +30,11 @@ export import Logging.FileSink;
 export import Logging.NullSink;
 
 // ====================================================================
-// Cuda 
-// REVIEW: TODO: Make internal. We don't want to expose CUDA details
-// in the main API.
-// ====================================================================
-//export import Cuda.Error;
-//export import Cuda.Helpers;
-
-// ====================================================================
 // Compute - Base
 // ====================================================================
 // REVIEW: Should we make Operations internal only?
 export import Compute.OperationBase;
 export import Compute.OperationType;
-// DEPRECATED: UnaryOperation/BinaryOperation/PairedOperation arity base classes retired.
-// Concrete ops now derive directly from Operation<TDeviceType, TPrecision> and components
-// hold the concrete op type via OperationTraits. Kept on disk, removed from the build.
 
 // ====================================================================
 // Compute - Execution Context

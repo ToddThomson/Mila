@@ -14,7 +14,7 @@
 namespace Mila::Dnn::Compute::Cuda::Gelu
 {
     constexpr float GELU_CUBIC_COEFF = 0.044715f;
-    constexpr float GELU_SCALING_FACTOR = 0.7978845608028654f; // sqrt(2/pi)
+    constexpr float GELU_SCALING_FACTOR = 0.7978845608028654f; // = sqrt( 2/pi )
 
     /**
      * @brief CUDA kernel for GELU activation forward pass with FP32 precision
@@ -63,7 +63,7 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
             float tanh_arg = GELU_SCALING_FACTOR * (x + cube);
 
             // REVIEW: This should be the numerically stable implementation
-            // TODO: Alternative implementation using sech^2
+            // Alternative implementation using sech^2
             //float tanh_out = tanhf( tanh_arg );
             //float sech_squared = 1.0f - tanh_out * tanh_out;
             //float local_grad = 0.5f * (1.0f + tanh_out) + x * 0.5f * sech_squared * GELU_SCALING_FACTOR * (1.0f + 3.0f * GELU_CUBIC_COEFF * x * x);

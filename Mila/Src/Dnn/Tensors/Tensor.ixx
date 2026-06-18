@@ -470,8 +470,13 @@ namespace Mila::Dnn
         /**
          * @brief Check if tensor is in a valid state (not moved-from)
          */
-        bool isValid() const noexcept {
-            return true; // FIXME: Do we need a moved from state? device_id_;
+        bool isValid() const noexcept
+        {
+            // REVIEW: Do we need a moved from state? device_id_;
+            // Why do would it always return true?
+            // Full analysis required to see who uses this?
+
+            return true;
         }
 
         // ====================================================================
@@ -794,14 +799,6 @@ namespace Mila::Dnn
         int64_t computeSize( const shape_t& shape ) const
         {
             return std::ranges::fold_left( shape, int64_t{ 1 }, std::multiplies{} );
-
-            // REVIEW: Improbably bug in the std::accumulate version with 1ull initial value causing overflow for large shapes.
-            // std::ranges::fold_left with int64_t initial value works correctly.
-            // 
-            // TODO: Remove the old version after testing and validation of the new implementation.
-            // 
-            // Product of empty sequence is 1 (multiplicative identity) for scalar construction
-            // return std::accumulate( shape.begin(), shape.end(), 1ull, std::multiplies<int64_t>() );
         }
 
         /**

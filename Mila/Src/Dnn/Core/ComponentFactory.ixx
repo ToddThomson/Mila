@@ -4,7 +4,7 @@
  *
  * Provides helpers that read component-scoped metadata using the
  * ModelArchive scoping API and SerializationMetadata abstraction.
- * Full dispatch/instantiation is TODO and should use the scoped metadata
+ * Full dispatch/instantiation is FUTURE: and should use the scoped metadata
  * to call the appropriate component fromArchive_() factory methods.
  */
 
@@ -26,6 +26,9 @@ namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
+
+    // REVIEW: The ComponentFactory is a half baked concept that requires full analysis
+    //  to decide on what to do for the long term.
 
     /**
      * @brief Factory for reconstructing components from serialized archives.
@@ -171,7 +174,7 @@ namespace Mila::Dnn
          *
          * @throws std::runtime_error Always throws - dispatch not yet implemented
          *
-         * @note Returning std::shared_ptr<void> is an intentional placeholder type —
+         * @note Returning std::shared_ptr<void> is an intentional placeholder type â€”
          *       replace with the project's chosen type-erased component handle once
          *       the dispatch plumbing is implemented.
          *
@@ -193,7 +196,7 @@ namespace Mila::Dnn
 
             std::string precision = getPrecision( meta );
 
-            // TODO: Implement full dispatch to concrete component factory methods.
+            // FUTURE: Implement full dispatch to concrete component factory methods.
             // Example pattern (pseudo):
             //  if (kind == ComponentType::Linear) {
             //      return dispatchPrecision<TDeviceType, Linear>( precision, archive, component_name, exec_context );

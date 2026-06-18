@@ -715,6 +715,9 @@ namespace Mila::Dnn
             {
                 if ( context.shouldInitializeParameters() )
                 {
+                    // REVIEW: Let's get rid of these ugly static_casts. we should be using dim_t everywhere for shape dimensions,
+                    // and the config should be updated to reflect that.
+
                     xavier( *weight_, static_cast<size_t>( input_features ), static_cast<size_t>( output_features ), this->getExecutionContext() );
                 }
             }

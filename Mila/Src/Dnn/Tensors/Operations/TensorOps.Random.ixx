@@ -18,7 +18,6 @@ import Dnn.Tensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps.Base;
-//import Compute.DeviceTraits;
 import Compute.ExecutionContext;
 import Compute.DeviceType;
 
@@ -65,6 +64,7 @@ namespace Mila::Dnn
         IExecutionContext* exec_context = nullptr )
     {
         const float limit = std::sqrt( 6.0f / static_cast<float>( fan_in + fan_out ) );
+
         fill_uniform( tensor,
             static_cast<host_value_t<TDataType>>( -limit ),
             static_cast<host_value_t<TDataType>>( limit ),

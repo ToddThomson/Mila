@@ -166,14 +166,16 @@ namespace Mila::Dnn::Compute
             m_data_.push_back( reinterpret_cast<float*>(m_state->rawData()) );
             v_data_.push_back( reinterpret_cast<float*>(v_state->rawData()) );
 
+            // REVIEW: This precision check and master parameter logic here is outdated.
+            // Full analysis is required before deciding on the final approach
+
             // For mixed precision, optionally create master parameters
             if constexpr (TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16)
             {
                 auto master_param = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
                 master_param->setName( param->getName() + ".master" );
 
-                // Initialize master param from current param values
-                // TODO: Implement copy with type conversion
+                // REVIEW: Initialize master param from current param values. Implement copy with type conversion
                 // For now, initialize to zero
                 zero( *master_param );
 

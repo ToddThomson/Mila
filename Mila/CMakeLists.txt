@@ -148,7 +148,6 @@ PUBLIC
         "Src/Dnn/Tensors/Tensor.Types.ixx"
 
         "Src/Dnn/Tensors/TensorDataType.ixx"
-        "Src/Dnn/Tensors/Tensor.Initializers.ixx"
         "Src/Dnn/Tensors/Tensor.Serialization.ixx"
 
         "Src/Dnn/Tensors/TensorDataTypeMap.ixx"
@@ -349,7 +348,7 @@ PUBLIC
         "Src/Dnn/Components/Attention/AttentionType.ixx"
         "Src/Dnn/Components/Normalization/NormType.ixx"
         "Src/Dnn/Components/Encodings/EncodingType.ixx"
-        "Src/Dnn/Core/ModelReader.ixx"
+        
         "Src/Dnn/Components/Transformers/Gpt/GptTransformer.ixx"
         
         "Src/Dnn/Components/Transformers/Gpt/Gpt.Config.ixx"
@@ -619,7 +618,6 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Fill.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
                 
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/OperationTraits.Cuda.ixx"
 
                 # CUDA Attention Ops
@@ -642,7 +640,6 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.Cache.ixx"
 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CublasLtMatMulBias.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Elementwise/CudaElementwiseActivationOp.ixx"
