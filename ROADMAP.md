@@ -8,7 +8,7 @@ Where Mila is going — the durable narrative of each release and what it means.
 
 The roadmap shows two releases at a time — the one in flight and the one after (**vNext**) — plus a
 **Future Directions** tail. Each release is reached through **milestones** tracked by task completion
-(see [RELEASING.md](RELEASING.md)). Current version: **`0.20.0-alpha.6+62`**.
+(see [RELEASING.md](RELEASING.md)). Current version: **`0.20.0-alpha.6+68`**.
 
 ---
 
@@ -50,9 +50,7 @@ consolidation.
 
 - [x] OperationTraits close-out — CPU Linear traits specialization live; the `CpuLinearOpTypeMap` holdout retired (out of build + `RETIRED` banner)
 - [~] OperationTraits close-out — retire the legacy dispatch files in place (out of build + `RETIRED` banner, not deleted): done for the Linear/Gqa typemaps, registry/registrar helpers, `OperationsRegistrar`, `FusedComponent`; `OperationRegistry` + the arity bases remain until the Training Revival loss-path re-authoring (still referenced by the disabled CrossEntropy/fused ops kept in `Src`). `Dropout` parked at `Dev/Components/Regularization/`; its `DropoutOp` re-authoring moves to Training Revival — training-only, net-new op work outside this freeze
-- [ ] FIXME/TODO burndown — backward-pass stubs (bucket D)
-- [ ] FIXME/TODO burndown — training-lifecycle `isTraining()` demotes (bucket E; the `CompositeComponent` setTraining/build bug — the revival linchpin)
-- [ ] FIXME/TODO burndown — design `REVIEW` notes (bucket G)
+- [~] Marker burndown — all `FIXME:`/`TODO:` converted to `REVIEW:` (2026-06-19) so public source reads clean; the ~94 surviving `REVIEW:` markers are triaged into buckets A-H with dispositions and homes in the BACKLOG "Marker debt triage" item. Remaining burndown: bucket-C `dim_t` canonicalization, bucket-D correctness items (incl. the `Llama.Block.ixx:132` aliasing check in the primary target), bucket-H org/docs, and demoting the E/F/G design/lifecycle/nit notes. The old lifecycle linchpin (the `CompositeComponent` setTraining/build concern) was already resolved by the RuntimeMode/TrainingMode two-axis redesign — `isTraining()` is gone
 - [ ] Debug-instrumentation strip — kernel anomaly guards removed (Residual/Gelu/LayerNorm/RmsNorm; `Swiglu.Fp32.v1.cu` deleted) and BPE tokenizer console routed to `Logging::Logger` or removed; remaining: the `TokenSequenceLoader` verbose dump and the already-gated diagnostics; training-path instrumentation (AdamW, `BpeVocabulary` progress) deferred to Training Revival
 - [ ] Debug-instrumentation strip — per-step `synchronize()` removed from `GptBlock`/`LlamaBlock` `forward()`/`backward()` (inference `prefill`/`decode` already run sync-free; single-stream ordering + the caller's host-read boundary sync suffice)
 - [ ] FFN consolidation — de-polymorphize `MLP` to a compile-time `Activation<…, TActivation = Gelu>` dense FFN (drop the runtime activation switch / `mlp_activation_impl` / `std::function` bridge / SwiGLU branch / `fc1` doubling / dead LayerNorm), unblocking `MLP<Cpu>` / `GptBlock<Cpu>` / `GptTransformer<Cpu>`; relocate `Swiglu` `Activations/` -> `FFN/Swiglu/`; relocate `MLP` into `FFN/MLP/`. Design: `Specifications/FfnAndMoE.md`

@@ -82,6 +82,18 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         using CublasLtMatMulPlan = CublasLtMatMulPlan<TNative>;
 
         // ====================================================================
+        // DORMANT — expanded [B,NH,T,HS]-layout plan builders.
+        //
+        // The live inference op (CudaGqaOp) builds only the _optimized (compact
+        // NKV-layout) plans further below; the builders in this block are no
+        // longer called. They are retained, NOT deleted, as the substrate for a
+        // future GQA training path: the expanded-layout forward/backward derived
+        // from a working MHA, and the clean expand_kv <-> reduce_kv_grad gradient
+        // pairing makes the expanded layout the likely training vehicle. See the
+        // BACKLOG "Retire the CudaGqaOp legacy A/B path" item and GqaMemory.md.
+        // ====================================================================
+
+        // ====================================================================
         // Forward training plans — square [T x T] attention matrices
         // ====================================================================
 
@@ -536,8 +548,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         //   K           = 128         (HS)
         //   N           = 4096        (T)
         //
-        // TEMP: Remove legacy plan builders and these _optimized builders once
-        //       the optimized path is validated and the gate is removed.
+        // LIVE: these compact-NKV builders are the only ones CudaGqaOp calls.
+        // The expanded-layout builders above are dormant training substrate.
         // ====================================================================
 
         /**

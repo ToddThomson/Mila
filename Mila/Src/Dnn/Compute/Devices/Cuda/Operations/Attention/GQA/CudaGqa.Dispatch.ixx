@@ -22,6 +22,25 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         struct cuda_gqa_kernels;
 
         // ====================================================================
+        // Live vs dormant kernel dispatchers
+        //
+        // CudaGqaOp's inference path (prefill/decode) calls only:
+        //   kvcache_write_kv, permute_q_compact, prefill_softmax,
+        //   prefill_unpermute_output_padded, softmax_decode_forward, unpermute_output.
+        //
+        // The remaining dispatchers (kvcache_write_q, kvcache_expand_kv, expand_kv,
+        // permute_qkv*, reduce_kv_grad, permute_backward, softmax_forward/backward,
+        // unpermute_*_padded/backward) are DORMANT — no longer called after the
+        // compact NKV-layout cleanup. They are retained, NOT deleted, as the
+        // substrate for a future GQA training path (expanded-layout forward/backward
+        // derived from a working MHA). This banner resolves the per-method "REVIEW:
+        // legacy / cleanup analysis required" markers below: the disposition is
+        // "retire in place as dormant training substrate." The FP32 dispatchers are
+        // intact; several BF16 ones are stubs to restore when training is built.
+        // See BACKLOG "Retire the CudaGqaOp legacy A/B path" and GqaMemory.md.
+        // ====================================================================
+
+        // ====================================================================
         // FP32 specialization
         // ====================================================================
 
