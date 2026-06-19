@@ -649,6 +649,8 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/CudaSoftmaxCrossEntropyOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/CudaSoftmaxCrossEntropyOp.Dispatch.ixx"
+
                 "Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Zero.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaDebug.ixx"

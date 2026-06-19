@@ -129,21 +129,6 @@ add_executable( MilaTests
     #    coverage is the quantization white-box, which is net-new (the "quantization
     #    backfill" BACKLOG item), not a revival of these. Files kept on disk pending
     #    an explicit delete.
-    #"Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOpTests.cpp"
-    #"Dnn/Compute/Devices/Cpu/Operations/CpuGeluOpTests.cpp"
-    #"Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOpTests.cpp"
-    #"Dnn/Compute/Devices/Cpu/Operations/CpuLinearOpTests.cpp"
-    #"Dnn/Compute/Devices/Cpu/Operations/CpuResidualOpTests.cpp"
-    #"Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOpTests.cpp"
-    #
-    # -- DELETE with the base-class removal: tests for the UnaryOperation/BinaryOperation
-    #    arity bases being retired (Consolidation). Remove alongside the bases.
-    #"Dnn/Compute/Operations/BinaryOperation.cpp"
-    #"Dnn/Compute/Operations/UnaryOperation.cpp"
-    #
-    # -- DELETE: target module retired to Dnn.TensorInitializers_RETIRED; live init is
-    #    Dnn.TensorOps:Random, covered by TensorOps/Random.Cpu.cpp.
-    #"Dnn/Tensors/Tensor.Initializers.cpp"
     #
     # -- REVIVE later (MNIST/training spine): thin Core/Network delta beyond the
     #    container coverage in CompositeComponent.cpp.
@@ -215,13 +200,6 @@ if(MILA_ENABLE_CUDA)
         #    exist is a newly-written CudaLinearOp quantization white-box (FP8/FP4
         #    scales + nibble packing), tracked as the quantization backfill BACKLOG
         #    item -- not a revival of these.
-        #"Dnn/Compute/Operations/Cuda/CudaEncoderOpTests.cpp"
-        #"Dnn/Compute/Operations/Cuda/CudaGeluOpTests.cpp"
-        #"Dnn/Compute/Operations/Cuda/CudaLayerNormOpTests.cpp"
-        #"Dnn/Compute/Operations/Cuda/CudaMatMulBiasOpTests.cpp"
-        #"Dnn/Compute/Operations/Cuda/CudaMultHeadAttentionOpTests.cpp"
-        #"Dnn/Compute/Operations/Cuda/CudaResidualOpTests.cpp"
-        #"Dnn/Compute/Operations/Cuda/CudaSoftmaxOpTests.cpp"
         #
         # -- REVIVE later (MNIST/training spine GPU companions):
         #"Dnn/Modeling/Network.Cuda.cpp"

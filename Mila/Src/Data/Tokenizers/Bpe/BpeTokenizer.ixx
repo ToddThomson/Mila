@@ -350,8 +350,6 @@ namespace Mila::Data
 
         /**
          * @brief Encode a plain text segment (guaranteed to contain no special tokens).
-                 /**
-         * @brief Encode a plain text segment (guaranteed to contain no special tokens).
          *
          * Dispatches to the BPE merge path when explicit merge rules are present,
          * or to the max-munch path for TikToken-style vocabularies (Llama 3.x).
