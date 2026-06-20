@@ -25,6 +25,7 @@ import Compute.CudaRmsNormOp;
 import Compute.CudaLayerNormOp;
 import Compute.CudaSoftmaxOp;
 import Compute.CudaSwigluOp;
+import Compute.CudaGegluOp;
 import Compute.CudaMultiHeadAttentionOp;
 import Compute.CudaRopeOp;
 import Compute.CudaLpeOp;
@@ -233,6 +234,22 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::SwigluOp, DeviceType::Cuda, TensorDataType::BF16, void>
     {
         using type = Cuda::Swiglu::CudaSwigluOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // GegluOp — CUDA specializations (GELU-gated GLU; Gemma FFN, forward only)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::GegluOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::Geglu::CudaGegluOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::GegluOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::Geglu::CudaGegluOp<TensorDataType::BF16>;
     };
 
     // -------------------------------------------------------------------------

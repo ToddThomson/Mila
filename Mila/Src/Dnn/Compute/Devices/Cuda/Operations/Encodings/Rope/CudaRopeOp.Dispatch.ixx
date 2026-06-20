@@ -44,11 +44,12 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             int    max_seq_len,
             int    head_dim,
             float  base,
+            int    rotary_dim,
             cudaStream_t stream )
         {
             cuda_rope_build_cache_fp32(
                 cos_cache, sin_cache,
-                max_seq_len, head_dim, base, stream );
+                max_seq_len, head_dim, base, rotary_dim, stream );
         }
 
         /**
@@ -121,12 +122,13 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             int   max_seq_len,
             int   head_dim,
             float base,
+            int   rotary_dim,
             cudaStream_t stream )
         {
             // REVIEW: Why is cache building going through the dispatcher. Call directly.
             cuda_rope_build_cache_fp32(
                 cos_cache, sin_cache,
-                max_seq_len, head_dim, base, stream );
+                max_seq_len, head_dim, base, rotary_dim, stream );
         }
 
         static void forward(

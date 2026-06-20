@@ -357,6 +357,10 @@ PUBLIC
         
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Presets.ixx"
 
+        "Src/Dnn/Components/Transformers/Gemma/Gemma.Config.ixx"
+        "Src/Dnn/Components/Transformers/Gemma/IDecoderLayer.ixx"
+        "Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx"
+
         "Src/Data/Tokenizers/Tokenizer.ixx"
         "Src/Data/Tokenizers/TokenizerVocabulary.ixx"
         "Src/Data/Tokenizers/TokenizerType.ixx"
@@ -522,6 +526,7 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Geglu/Kernels/Geglu.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Elementwise/Kernels/ElementwiseActivation.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp16.cu"
@@ -571,6 +576,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Geglu/Kernels/Geglu.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Elementwise/Kernels/ElementwiseActivation.cuh"
                 # Shared elementwise-activation functor library (consumed by the CPU op, the
                 # Activation component, and the CUDA kernel; shipped here for CUDA consumers).
@@ -642,6 +648,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Geglu/CudaGegluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Elementwise/CudaElementwiseActivationOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/LayerNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/LayerNormOp.Dispatch.ixx"

@@ -209,6 +209,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             HS_ = static_cast<int>(config_.getHeadDim());
             C_ = static_cast<int>(config_.getModelDim());
             GS_ = NH_ / NKV_;
+            window_ = static_cast<int>(config_.getWindow());
+            attention_scale_ = config_.getAttentionScale();
 
             // Tuned prefill chunk size, threaded down from LlamaTransformer via BuildContext.
             // Training-mode contexts carry no prefill size; fall back to the full sequence
@@ -322,6 +324,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int NKV_{ 0 }; ///< Number of KV heads
         int HS_{ 0 };  ///< Head dim   = C / NH
         int GS_{ 0 };  ///< Group size = NH / NKV
+        int window_{ 0 }; ///< Sliding-window size (0 = global/unbounded causal)
+        float attention_scale_{ 0.0f }; ///< QK softmax scale (config-derived; 1/sqrt(HS) for Llama, 1.0 for Gemma)
 
         int prefill_chunk_size_{ 0 };
         int active_max_seq_len_{ 0 };
@@ -513,7 +517,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             const float alpha = 1.0f;
             const float beta = 0.0f;
-            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
+            const float scale = attention_scale_;   // config-derived: 1/sqrt(HS) (Llama) or explicit (Gemma 1.0)
 
             // Write K/V into compact [B, NKV, T, HS] cache at position_offset
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
@@ -541,7 +545,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             Detail::cuda_gqa_kernels<NativeType>::prefill_softmax(
                 att_opt_, preatt_opt_,
-                B_, NH_, T_, prefill_chunk_size_, chunk_len, position_offset, stream );
+                B_, NH_, T_, prefill_chunk_size_, chunk_len, position_offset, window_, stream );
 
             execute_plan<NativeType>(
                 cublaslt_handle_, av_plan,
@@ -579,7 +583,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             const float alpha = 1.0f;
             const float beta = 0.0f;
-            const float scale = 1.0f / sqrtf( static_cast<float>(HS_) );
+            const float scale = attention_scale_;   // config-derived: 1/sqrt(HS) (Llama) or explicit (Gemma 1.0)
 
             // Write K/V into compact [B, NKV, T, HS] cache at position
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
@@ -599,7 +603,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             Detail::cuda_gqa_kernels<NativeType>::softmax_decode_forward(
                 att_decode_opt_, 1.0f, preatt_decode_opt_,
-                B_, NH_, T_, actual_len, stream );
+                B_, NH_, T_, actual_len, window_, stream );
 
             execute_plan<NativeType>(
                 cublaslt_handle_, att_value_decode_plan_optimized_,

@@ -7,8 +7,10 @@ Where Mila is going — the durable narrative of each release and what it means.
 - **Design rationale** -> `Mila/Specifications/`
 
 The roadmap shows two releases at a time — the one in flight and the one after (**vNext**) — plus a
-**Future Directions** tail. Each release is reached through **milestones** tracked by task completion
-(see [RELEASING.md](RELEASING.md)). Current version: **`0.20.0-alpha.6+68`**.
+committed **Gemma 4** architecture milestone (promoted from Future Directions; release sequencing
+relative to Qwen 3 to be assigned) and a **Future Directions** tail. Each release is reached through
+**milestones** tracked by task completion (see [RELEASING.md](RELEASING.md)). Current version:
+**`0.20.0-alpha.6+69`**.
 
 ---
 
@@ -178,19 +180,59 @@ Tasks are itemized when the milestone opens.
 
 ---
 
+## Gemma 4 — Dense Chassis (SWA + Dual-RoPE Foundation)
+
+**Release Date:** _Committed milestone — release sequencing vs Qwen 3 (vNext) to be assigned at
+promotion. Honest estimate ~6-8 weeks._
+
+Mila's entry into 2026-era transformer architecture, and the deliberate stepping stone to
+Mixture-of-Experts. The target is **Gemma 4 12B Unified** (dense), validated against the HuggingFace
+oracle. The 12B dense model and the 26B-A4B MoE model share **one chassis**, differing only in the
+FFN block; proving the chassis on the dense model first isolates the attention / RoPE / normalization
+subsystems from the router / grouped-GEMM risk that the MoE Future Direction carries. This milestone
+is built as a **new `Components/Transformers/Gemma` family** modeled on the validated Llama work — not
+a modification of it — because Gemma differs on eight orthogonal axes and bending `LlamaBlock` would
+corrupt a validated inference path.
+
+The design is governed by one principle: **template axes are for types and layouts, runtime config is
+for arithmetic.** Two new orthogonal compile-time axes are introduced through the existing
+`OperationTraits` policy machinery — `TRopePolicy` (default vs proportional partial-rotary RoPE) and
+`TAttentionKind` (local vs the global layer's single-shared-KV-head, K=V, head_dim-512 geometry) —
+while the sliding-window mask stays a runtime field and bounded-window KV caching folds onto the
+existing KV-cache policy axis. The full design rationale, confirmed config, and the
+template-vs-runtime decision table live in [Gemma.md](Mila/Specifications/Gemma.md).
+
+The one genuinely new architectural piece is a virtual **`IDecoderLayer`** boundary: templating
+attention/RoPE makes a local and a global layer different types, so the transformer holds a
+heterogeneous layer list (Gemma interleaves 5 local : 1 global over 48 layers, final layer global) —
+every prior Mila model is homogeneous and has no such interface.
+
+**Success criteria:** greedy decode of Gemma 4 12B Unified (dense, text) matches HuggingFace
+token-for-token at the validated precision; `head_dim` decoupled from the residual stream across
+`GqaConfig`/`RopeConfig`; the local/global attention fork and the default/proportional RoPE fork each
+resolve through `OperationTraits` (missing specialization = hard compile error); sliding-window
+masking correct on prefill and decode with a bounded-KV ring cache for sliding layers; GeGLU FFN via
+`TGate = GeluTanh`; per-step shape and numeric coverage for the new attention/RoPE paths, built
+tests-first. The MoE follow-on (26B-A4B) remains a Future Direction this milestone de-risks.
+
+---
+
 ## Future Directions
 
 Uncommitted vision — no milestone, no date. An item **promotes** into a real milestone (its own
 version, date, GitHub Milestone) when it is scheduled.
 
 - **Ministral** — Ministral transformer with Sliding Window Attention; 3B Instruct (BF16) and 8B
-  Instruct (FP8). Builds on the Llama foundation and the Qwen 3 tool-calling pipeline.
+  Instruct (FP8). Builds on the Llama foundation and the Qwen 3 tool-calling pipeline, and reuses the
+  SWA mask + bounded-KV ring cache landed by the Gemma 4 milestone.
 - **Training (advanced)** — beyond the revived GPT-2 / MLP training foundation now in v0.20: a full
   LLaMA fine-tuning pipeline, loss-function GPU migration, gradient checkpointing, and checkpoint
   save/restore.
 - **Architecture** — Mixture-of-Experts components (the `GatedMLP` reusable gated FFN, the grouped
   `MoeOp` over stacked expert weights, `Router` + `MixtureOfExperts`; design and the MoE-readiness
   seams already specified in `Specifications/FfnAndMoE.md`, with the FFN-layer foundation landing in
-  v0.20 Consolidation), speculative decoding, additional attention variants.
+  v0.20 Consolidation). The committed **Gemma 4** milestone is the dense precursor that de-risks this:
+  the 26B-A4B MoE model reuses the Gemma chassis, swapping only the FFN block. Also: speculative
+  decoding, additional attention variants.
 - **Performance** — Flash Attention integration, tensor parallelism, deterministic gradient
   accumulation for training reproducibility.

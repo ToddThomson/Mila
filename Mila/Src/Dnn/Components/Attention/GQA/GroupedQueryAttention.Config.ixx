@@ -17,6 +17,7 @@ module;
 #include <string>
 #include <utility>
 #include <sstream>
+#include <cmath>
 
 export module Dnn.Components.GqaConfig;
 
@@ -93,6 +94,36 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
+        /**
+         * @brief Fluent setter for the sliding-attention window size.
+         *
+         * The number of most-recent keys a query may attend to. 0 (the default)
+         * means unbounded/global causal attention - every query attends over
+         * [0, abs_t], which is the behavior for Llama / Qwen / Gemma global layers.
+         * A positive value bounds the lower edge to [abs_t - window + 1, abs_t]
+         * (Gemma sliding layers: 1024).
+         */
+        template <typename Self>
+        decltype(auto) withWindow( this Self&& self, dim_t window )
+        {
+            self.window_ = window;
+            return std::forward<Self>( self );
+        }
+
+        /**
+         * @brief Fluent setter for the attention logit scale (QK softmax multiplier).
+         *
+         * 0 (the default) means "derive 1/sqrt(head_dim)" — the standard scaling for
+         * Llama/Qwen/MHA. A positive value overrides it; Gemma uses 1.0 because its
+         * QK-norm already controls the dot-product magnitude (HF self.scaling = 1.0).
+         */
+        template <typename Self>
+        decltype(auto) withAttentionScale( this Self&& self, float scale )
+        {
+            self.attention_scale_ = scale;
+            return std::forward<Self>( self );
+        }
+
         // ====================================================================
         // Accessors
         // ====================================================================
@@ -143,6 +174,29 @@ namespace Mila::Dnn
         dim_t getGroupSize() const noexcept
         {
             return num_heads_ / num_kv_heads_;
+        }
+
+        /**
+         * @brief Sliding-attention window size (0 = unbounded/global causal).
+         */
+        dim_t getWindow() const noexcept
+        {
+            return window_;
+        }
+
+        /**
+         * @brief Attention logit scale: the explicit value, or 1/sqrt(head_dim) when unset.
+         */
+        float getAttentionScale() const noexcept
+        {
+            if ( attention_scale_ > 0.0f )
+            {
+                return attention_scale_;
+            }
+
+            const dim_t head_dim = model_dim_ / num_heads_;
+
+            return (head_dim > 0) ? (1.0f / std::sqrt( static_cast<float>(head_dim) )) : 1.0f;
         }
 
         // ====================================================================
@@ -203,6 +257,18 @@ namespace Mila::Dnn
                     << ") must be divisible by num_kv_heads (" << num_kv_heads_ << ")";
                 throw std::invalid_argument( oss.str() );
             }
+
+            if ( window_ < 0 )
+            {
+                throw std::invalid_argument(
+                    "GroupedQueryAttentionConfig: window must be >= 0 (0 = global)" );
+            }
+
+            if ( attention_scale_ < 0.0f )
+            {
+                throw std::invalid_argument(
+                    "GroupedQueryAttentionConfig: attention_scale must be >= 0 (0 = derive 1/sqrt(head_dim))" );
+            }
         }
 
         // ====================================================================
@@ -221,7 +287,9 @@ namespace Mila::Dnn
 
             meta.set( "model_dim", static_cast<int64_t>(model_dim_) )
                 .set( "num_heads", static_cast<int64_t>(num_heads_) )
-                .set( "num_kv_heads", static_cast<int64_t>(num_kv_heads_) );
+                .set( "num_kv_heads", static_cast<int64_t>(num_kv_heads_) )
+                .set( "window", static_cast<int64_t>(window_) )
+                .set( "attention_scale", attention_scale_ );
 
             return meta;
         }
@@ -250,6 +318,16 @@ namespace Mila::Dnn
             {
                 num_kv_heads_ = static_cast<dim_t>(*nkv);
             }
+
+            if ( auto w = meta.tryGetInt( "window" ) )
+            {
+                window_ = static_cast<dim_t>(*w);
+            }
+
+            if ( auto s = meta.tryGetFloat( "attention_scale" ) )
+            {
+                attention_scale_ = *s;
+            }
         }
 
         // ====================================================================
@@ -267,7 +345,9 @@ namespace Mila::Dnn
             oss << "num_heads=" << num_heads_ << ", ";
             oss << "num_kv_heads=" << num_kv_heads_ << ", ";
             oss << "head_dim=" << getHeadDim() << ", ";
-            oss << "group_size=" << getGroupSize() << " }";
+            oss << "group_size=" << getGroupSize() << ", ";
+            oss << "window=" << window_ << ", ";
+            oss << "attention_scale=" << getAttentionScale() << " }";
 
             return oss.str();
         }
@@ -276,5 +356,7 @@ namespace Mila::Dnn
         dim_t model_dim_;
         dim_t num_heads_;
         dim_t num_kv_heads_;
+        dim_t window_{ 0 };           ///< 0 = unbounded/global causal; > 0 = sliding window
+        float attention_scale_{ 0.0f }; ///< 0 = derive 1/sqrt(head_dim); > 0 = explicit (Gemma uses 1.0)
     };
 }

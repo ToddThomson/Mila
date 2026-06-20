@@ -64,14 +64,14 @@ namespace Mila::Dnn
      *
      * @tparam TDeviceType Device type for execution.
      * @tparam TPrecision  Tensor data precision. Must be supported on the device.
-     * @tparam TGate       Gate activation. Currently constrained to SiLU.
+     * @tparam TGate       Gate activation: Silu (SwiGLU) or Gelu (GeGLU, Gemma).
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision, ActivationType TGate = ActivationType::Silu>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class GatedMLP : public CompositeComponent<TDeviceType, TPrecision>
     {
-        static_assert( TGate == ActivationType::Silu,
-            "GatedMLP currently realizes only the SiLU gate (existing SwigluOp); other gates await the activation unification." );
+        static_assert( TGate == ActivationType::Silu || TGate == ActivationType::Gelu,
+            "GatedMLP gate must be Silu (SwiGLU) or Gelu (GeGLU); other gates await the activation unification." );
 
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
@@ -79,7 +79,7 @@ namespace Mila::Dnn
         using ComponentPtr = typename CompositeComponentBase::ComponentPtr;
         using TensorType = Tensor<TPrecision, MR>;
         using LinearType = Linear<TDeviceType, TPrecision>;
-        using SwigluType = Swiglu<TDeviceType, TPrecision>;
+        using SwigluType = Swiglu<TDeviceType, TPrecision, TGate>;
 
         explicit GatedMLP( const std::string& name, const GatedMLPConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : CompositeComponentBase( name ), config_( config )

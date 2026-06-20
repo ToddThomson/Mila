@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 #include <string>
 #include <stdexcept>
+#include <cmath>
 
 import Mila;
 
@@ -58,12 +59,65 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA
     }
 
     // ====================================================================
+    // Sliding-window
+    // ====================================================================
+
+    TEST_F( GqaConfigTests, Window_DefaultsToZeroGlobal )
+    {
+        GqaConfig config( 64, 8, 2 );
+
+        EXPECT_EQ( config.getWindow(), 0 );
+    }
+
+    TEST_F( GqaConfigTests, WithWindow_SetsValue )
+    {
+        auto config = GqaConfig( 64, 8, 2 ).withWindow( 1024 );
+
+        EXPECT_EQ( config.getWindow(), 1024 );
+    }
+
+    TEST_F( GqaConfigTests, Validate_ThrowsForNegativeWindow )
+    {
+        EXPECT_THROW( GqaConfig( 64, 8, 2 ).withWindow( -1 ).validate(), std::invalid_argument );
+    }
+
+    // ====================================================================
+    // Attention scale
+    // ====================================================================
+
+    TEST_F( GqaConfigTests, AttentionScale_DefaultsToInvSqrtHeadDim )
+    {
+        // head_dim = 64 / 8 = 8 -> 1/sqrt(8).
+        GqaConfig config( 64, 8, 2 );
+
+        EXPECT_FLOAT_EQ( config.getAttentionScale(), 1.0f / std::sqrt( 8.0f ) );
+    }
+
+    TEST_F( GqaConfigTests, WithAttentionScale_OverridesDerivedValue )
+    {
+        // Gemma uses 1.0 (QK-norm controls magnitude).
+        auto config = GqaConfig( 64, 8, 2 ).withAttentionScale( 1.0f );
+
+        EXPECT_FLOAT_EQ( config.getAttentionScale(), 1.0f );
+    }
+
+    TEST_F( GqaConfigTests, Validate_ThrowsForNegativeAttentionScale )
+    {
+        EXPECT_THROW( GqaConfig( 64, 8, 2 ).withAttentionScale( -1.0f ).validate(), std::invalid_argument );
+    }
+
+    // ====================================================================
     // A. Validation (each documented @throws is one negative test)
     // ====================================================================
 
     TEST_F( GqaConfigTests, Validate_PassesForValid )
     {
         EXPECT_NO_THROW( GqaConfig( 64, 8, 2 ).validate() );
+    }
+
+    TEST_F( GqaConfigTests, Validate_PassesForPositiveWindow )
+    {
+        EXPECT_NO_THROW( GqaConfig( 64, 8, 2 ).withWindow( 1024 ).validate() );
     }
 
     TEST_F( GqaConfigTests, Validate_PassesForMqa )
@@ -118,6 +172,18 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA
         EXPECT_EQ( loaded.getModelDim(), 128 );
         EXPECT_EQ( loaded.getNumHeads(), 16 );
         EXPECT_EQ( loaded.getNumKvHeads(), 4 );
+    }
+
+    TEST_F( GqaConfigTests, Metadata_RoundTripPreservesWindow )
+    {
+        GqaConfig source = GqaConfig( 128, 16, 4 ).withWindow( 1024 );
+
+        SerializationMetadata meta = source.toMetadata();
+
+        GqaConfig loaded( 1, 1, 1 );
+        loaded.fromMetadata( meta );
+
+        EXPECT_EQ( loaded.getWindow(), 1024 );
     }
 
     // ====================================================================

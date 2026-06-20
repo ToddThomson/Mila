@@ -302,36 +302,220 @@ missing specialization is a hard compile error. What makes it **more than adding
 
 ---
 
-## Sliding Window Attention — Future Direction (no milestone)
+## Gemma 4 — Dense Chassis (SWA + Dual-RoPE Foundation)
 
-**Make GQA's attention window a per-layer parameter, not a hardcoded global causal mask.** Today
-`GroupedQueryAttention` is purely causal-global: every query row attends over `[0, abs_t]` with no
-lower bound. That is correct for Llama/Qwen but blocks the two SWA targets in ROADMAP Future
-Directions — **Ministral** (SWA named explicitly) and **Gemma 4** (interleaved local/global layers,
-see [[project_gemma4_moe_target]]; SWA pairs with the dual-RoPE + MoE work, not a 0.20 gate). Captured
-here so the work starts from the analysis. The kernel delta is small; the plumbing and KV-cache
-interaction are the real work.
+Committed milestone (promoted 2026-06-19 from the former "Sliding Window Attention — Future Direction"
+section, which this absorbs). Target: **Gemma 4 12B Unified** (dense, text) validated token-for-token
+vs HuggingFace. New `Components/Transformers/Gemma` family modeled on the Llama work, **not** a bent
+`LlamaBlock`. Full design + confirmed config + the template-vs-runtime decision table:
+[Gemma.md](Mila/Specifications/Gemma.md); design decisions recorded in [[project_gemma_chassis_design]],
+model target in [[project_gemma4_moe_target]]. Governing principle: **template axes for types/layouts,
+runtime config for arithmetic.** Built tests-first (MNIST/Bard methodology) on the now-clean
+compact-NKV GQA op (alpha.6+69). Tasks below are the Gemma.md §9 foundation sequence, in dependency
+order.
 
-- [ ] **[deferred]** **Per-layer window config.** `GqaConfig` ([GroupedQueryAttention.Config.ixx](Mila/Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx))
-  carries only `model_dim`/`num_heads`/`num_kv_heads` — no window field. SWA is a **per-layer**
-  property (Gemma interleaves ~5 local : 1 global, with a *different RoPE base* per type), so the
-  window size (0/absent = global) must be a per-`LlamaBlock` parameter threaded from model config,
-  not a model-wide build axis. This is the bulk of the work — config plumbing, not kernel math. The
-  per-layer RoPE-base seam is the same plumbing change and should land together.
-- [ ] **[deferred]** **Prefill + decode kernel lower-bound.** The causal mask is hardcoded as an
-  upper bound in the softmax kernels: `max_t2 = min( abs_t, T_stride - 1 )` with the inner loops
-  running `t2 = 0 .. max_t2` ([Gqa.Prefill.Bf16.cu:65-66](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Bf16.cu),
-  mirrored in `Gqa.Prefill.Fp32.cu`). SWA adds a lower bound `window_start = max( 0, abs_t - window + 1 )`
-  and zeros both tails. The decode path (`softmax_decode_forward` over the cache) needs the same
-  lower bound or long-context generation silently attends outside the window. Pass `window` (0 =
-  global) through the dispatch alongside `position_offset`.
-- [ ] **[deferred]** **Bounded KV cache (the actual payoff).** The cache currently grows to full `T`
-  and decode sweeps the whole valid length. A true SWA layer only needs the last `window` keys —
-  that is the *point* of SWA (bounded KV memory + bandwidth). Adding only the mask gives Gemma's
-  numerics with none of its memory win. Sizing the per-layer cache to `min(T, window)` and the
-  ring-buffer write/wrap logic is a follow-on once mask + config are correct.
-- [ ] **[deferred]** **Correctness oracle.** SWA numerics are untestable at the component level
-  until the `GroupedQueryAttention::forward` standalone-stub bug is resolved (see the GQA no-op-stub
-  item under Test Suite Revival) — they belong to an operation-level `CudaGqaOp` test owning the
-  `GqaState` scratch + cache. Add a windowed-vs-global reference case there once the window plumbing
-  exists.
+- [~] **[gate] Step 0 — explicit `head_dim` in the new `GemmaConfig` (NOT the leaf configs).** Blast
+  radius confirmed by reading the configs + op (2026-06-19): **the leaf configs already decouple.**
+  `GqaConfig` ([GroupedQueryAttention.Config.ixx](Mila/Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx))
+  and `RopeConfig` ([Rope.Config.ixx](Mila/Src/Dnn/Components/Encodings/Rope/Rope.Config.ixx)) both take
+  the **Q-projection width** (`num_heads*head_dim`) as their first ctor arg (documented as such) and
+  derive `head_dim = width/num_heads`; fed `num_heads*head_dim` they are correct for Gemma with **no
+  change** (`GqaConfig(8192,16,1).getHeadDim()==512` today). `CudaGqaOp` reads `HS_=config_.getHeadDim()`
+  and packs via `(getNumHeads()+2*getNumKvHeads())*getHeadDim()` ([CudaGqaOp.ixx:209,378](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOp.ixx))
+  — it does NOT re-derive head_dim from a residual dim, so it picks up Q-width correctly with zero op
+  change. The coincidence is baked in ONLY at the model/block level: `LlamaConfig` stores `embedding_dim_`
+  (residual) and `withNumHeads` validates `embedding_dim % num_heads == 0` ([Llama.Config.ixx:72](Mila/Src/Dnn/Components/Transformers/LlaMa/Llama.Config.ixx)),
+  hard-deriving `head_dim=embedding_dim/num_heads` — for Gemma that passes silently (3840%16==0) but
+  yields the wrong 240. **So Step 0 = `GemmaConfig` carries `head_dim` explicit + separate from
+  `embedding_dim` (residual); leaf configs untouched (Option A — minimal, no risk to validated Llama
+  code).** The `GemmaBlock` (Step 5) feeds `num_heads*head_dim` into `GqaConfig`/`RopeConfig` and wires
+  **non-square o_proj** `Linear(num_heads*head_dim, embedding_dim)` (4096->3840 sliding / 8192->3840
+  global; Llama's square o_proj is the `num_heads*head_dim==embedding_dim` special case). Tests-first:
+  `GemmaConfig` sliding (`embedding_dim=3840,num_heads=16,num_kv_heads=8,head_dim=256`) + global
+  (`head_dim=512,num_kv_heads=1`) asserting derived Q-width, QKV packing dim, o_proj shape — no kernel.
+  **LANDED 2026-06-19 (awaiting VS2026 build):** standalone module `Dnn.Components.GemmaConfig`
+  ([Gemma.Config.ixx](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.Config.ixx)) with explicit
+  `withHeadDim` (default 0 = derive `embedding_dim/num_heads`, Llama-compatible fallback), decoupled
+  derived geometry (`getQProjectionWidth`/`getKVProjectionWidth`/`getPackedQKVWidth`), validate() that
+  accepts `num_heads*head_dim != embedding_dim` (drops the Llama `embedding_dim % num_heads` check),
+  metadata round-trip. Test [Gemma.Config.cpp](Mila/Tests/Dnn/Components/Transformers/Gemma/Gemma.Config.cpp)
+  (13 cases incl. the 240-vs-256 decoupling, sliding+global derived widths, Q-width!=residual validate,
+  metadata head_dim preservation). Wired: Mila/CMakeLists.txt module source, Mila.ixx umbrella export,
+  Tests/CMakeLists.txt Section 1. Leaf `GqaConfig`/`RopeConfig` untouched (Option A). NEXT: Step 1
+  (global K=V geometry -> `TAttentionKind`).
+- [~] **Step 1 — global-layer geometry in `GemmaConfig` (config only; NO op/traits/`TAttentionKind`).**
+  Walked back the `TAttentionKind`-as-op-axis plan 2026-06-19 after reading `CudaGqaOp`: the global
+  geometry (`head_dim` 512, single KV head, K=V) **already rides the existing GQA op**. `CudaGqaOp`
+  derives every dim from config (`HS_=getHeadDim()`, `NKV_=getNumKvHeads()`, `GS_=NH/NKV`) and its live
+  `prefill`/`decode` take *separate* q/k/v pointers — so `head_dim 512` is just config, single KV head
+  is MQA (`NKV=1`, already supported), and K=V is the caller aliasing the V pointer to K
+  (`prefill(q,k,/*v=*/k,...)` -> `kvcache_write_kv` writes K into both caches). The
+  `(num_heads+2*num_kv_heads)*head_dim` packing lives only in the stubbed standalone `forward()` +
+  `validateConcatenatedQKVShape`, NOT the live path, so K=V packing is a *block* concern. **Result: NO
+  `TAttentionKind` policy, NO new `OperationType`, NO new traits row, NO new op class, NO new template
+  param on `GroupedQueryAttention`, ZERO change to the Llama path.** The local/global distinction is a
+  `GemmaBlock` wiring selector (the two instantiations differ in `qkv_proj` width / V split / `GqaConfig`),
+  used only for `if constexpr` block wiring — never reaching the op/traits. So Step 1 = extend
+  `GemmaConfig` with `global_head_dim` (512), `num_global_kv_heads` (1), `key_equals_value` (true) +
+  a K=V packed-width helper `(num_heads + num_kv_heads)*head_dim` (8704), tests-first. Block wiring +
+  V-aliasing deferred to Step 5. **Runtime check deferred to Step 5:** confirm the hand-written GQA
+  kernels (`permute_q_compact`, prefill/decode softmax, unpermute) carry no static `head_dim`
+  assumption that breaks at 512 (Llama only runs 128/256; cuBLASLt GEMMs handle 512). See Gemma.md §5/§8.
+  **LANDED 2026-06-19 (awaiting VS2026 build):** `GemmaConfig` extended with `withGlobalHeadDim`/
+  `withNumGlobalKVHeads`/`withKeyEqualsValue` (Gemma defaults 512/1/true, fallback-0 to the sliding
+  fields) + derived `getGlobalQProjectionWidth`/`getGlobalKVProjectionWidth`/`getGlobalPackedQKVWidth`
+  (K=V-aware: 8704 vs 9216), validate() (even global_head_dim, divisibility), metadata round-trip.
+  Tests added (global widths incl. K=V vs not, fallback, divisor throw, odd-dim throw, defaults). ZERO
+  op/traits/Llama touch confirmed. Also a Step 0 consistency fix folded in: `head_dim_` default 0->256
+  (a default-constructed `GemmaConfig` is now Gemma-12B-correct on head_dim, was deriving 240); the
+  derive-fallback is now tested via explicit `withHeadDim(0)`. NEXT: Step 2 (sliding-window mask runtime
+  + bounded-KV TKvPolicy sibling).
+- [~] **Step 2a — sliding-window mask (runtime `window`).** The causal mask is a hardcoded upper bound
+  `max_t2 = min( abs_t, T_stride - 1 )`, inner loops `t2 = 0 .. max_t2`
+  ([Gqa.Prefill.Bf16.cu:65-66](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Bf16.cu),
+  mirrored in `Gqa.Prefill.Fp32.cu`). Add a lower bound `window_start = max( 0, abs_t - window + 1 )`
+  and zero both tails; the decode path (`softmax_decode_forward` over the cache) needs the same bound
+  or long-context generation silently attends outside the window. Pass `window` (0 = global) through
+  the dispatch beside `position_offset`. Identical shapes -> **runtime field, not a template** (Gemma.md §6).
+  **LANDED 2026-06-19 (awaiting VS2026 build, GPU). Option (a) chosen for the shared decode softmax.**
+  `GqaConfig.window` (default 0; `withWindow`/`getWindow`/validate/metadata + tests). Op reads `window_`
+  at build, threads to both softmax calls. Mask = `window_start = (window>0)?max(0,abs_t-window+1):0`
+  (prefill) / `max(0,actual_len-window)` (decode); attends `[window_start, ...]`, zeros below-window +
+  future. **`window=0` reproduces the unbounded path byte-for-byte -> Llama unchanged (prefill AND decode).**
+  Files: GQA prefill softmax kernels (`Gqa.Prefill.{Fp32,Bf16}.cu`) + `.cuh` + dispatch (GQA-specific);
+  shared common decode softmax (`CudaAttention.Softmax.{Fp32,Bf16}.cu`) with a **trailing defaulted
+  `int window = 0`** in `CudaAttention.cuh` so existing callers are unchanged. NOTE: MHA does NOT call the
+  common decode softmax (uses its own `cuda_softmax_decode_forward_*`), so the touch is effectively
+  GQA-contained anyway. Windowed numerics need GPU + the Step-5 oracle; the window=0 regression is
+  checkable now by running chat. NEXT: Step 2b.
+- [ ] **[deferred -> after Step 5 HF validation] Step 2b — bounded KV ring cache as a `TKvPolicy` sibling (the payoff).**
+  Resequenced 2026-06-19: 2b is a **memory optimization, not a correctness gate** — the Step 2a mask gives
+  correct sliding numerics against the full `[B,NKV,T,HS]` cache, so Gemma runs correctly (and fine at
+  modest context) without it; the payoff is long-context only (~20GB->~80MB across 40 sliding layers at
+  256K). The **prefill ring is the hardest kernel work in the chassis** (a chunk's queries need >W keys
+  at once -> needs a block-sparse/flash-style windowed rewrite; prefill+decode share one K/V buffer so
+  it's all-or-nothing). Doing it before HF parity = optimizing an unproven path with no oracle. So defer
+  until the full-cache Gemma is HF-validated (Step 5), then build the ring and diff against the validated
+  full-cache path. Mechanism foreshadowed in [Policy.ixx](Mila/Src/Dnn/Quantization/KvCache/Policy.ixx)
+  ("future SlidingWindow" KvCachePolicy, no dtype fields, consumed via `if constexpr`); note TKvPolicy
+  currently conflates compression with bounding (orthogonal) — a standalone `SlidingWindowKvCache`
+  (bounded, uncompressed) suffices for Gemma; bounded+FP8 is a later combinatorial concern. Original:
+   The cache grows to
+  full `T` and decode sweeps the whole valid length; a sliding layer only needs the last `window` keys.
+  Size the per-layer cache to `min(T, window)` with ring-buffer write/wrap + modular decode indexing.
+  This is a layout+kernel difference -> fold onto the existing KV-cache policy axis
+  ([Quantization/KvCache/Policy.ixx](Mila/Src/Dnn/Quantization/KvCache/Policy.ixx)), NOT a new axis and
+  NOT conflated with the window number. Mask-only gives Gemma's numerics with none of its memory win.
+- [~] **Step 3 — proportional partial-rotary RoPE (cache-build change; extend Rope, NO component).** Two variants threaded
+  through `Rope`'s `OperationTraits`: `RopeDefault` (full rotation, theta 10000, sliding) and
+  `RopeProportional<Num,Den>` (rotate first `partial_rotary_factor`=0.25 of head_dim -> 128 of 512,
+  pass the rest through, theta 1e6, global). Partial-rotary is a structural skip -> specialized
+  branch-free kernel, mirroring the `GeluTanh` activation-functor pattern. **`RopeConfig` already
+  carries `rotary_dim`** (`withRotaryDim`, default 0 = full head_dim, [Rope.Config.ixx:78](Mila/Src/Dnn/Components/Encodings/Rope/Rope.Config.ixx))
+  and base theta (`withBase`) as runtime fields — so `partial_rotary_factor 0.25` of head_dim 512 =
+  `withRotaryDim(128)` is plumbed at the config level. Open: confirm the Rope **kernel** honors
+  `rotary_dim` (rotates the first `rotary_dim`, passes the rest through) and what "proportional"
+  rope_type adds beyond partial rotation; only then decide whether `TRopePolicy` needs a distinct op
+  specialization or whether the existing runtime `rotary_dim`/`base` suffices. The per-layer RoPE seam
+  is the same plumbing as the per-layer window and lands alongside it. See Gemma.md §4.
+  **INVESTIGATED + REORDERED 2026-06-19 (now AFTER Step 4):** `rotary_dim` is plumbed in `RopeConfig`
+  but **the op/kernel IGNORE it** — `CudaRopeOp` forward/backward/prefill/decode + `build_cache` all pass
+  `config_.getHeadDim()`, never `getRotaryDim()` ([CudaRopeOp.ixx](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.ixx)),
+  so RoPE always rotates the FULL head_dim. The cache key honors `base` (per-layer theta works) but not
+  `rotary_dim`. So Step 3 = (1) thread `rotary_dim` op->kernel (4 call sites + cache build), (2) kernel
+  change to rotate first `rotary_dim` dims + pass through the rest, (3) **HF-reference check on the
+  "proportional" frequency denominator** (`base^(-2i/rotary_dim)` vs `/head_dim` — do NOT guess, silent
+  wrong numerics). Llama-shared but `rotary_dim=0` default = full rotation = Llama unchanged. NOTE the
+  **sliding-layer RoPE already works** (full rotation + per-layer base via `withBase`); only the 8 GLOBAL
+  layers need partial/proportional. Parked for an HF-reference pass; do Step 4 (GeGLU) first (genuinely
+  easy: existing GatedMLP + GeluTanh functor).
+  **HF-REFERENCE RESOLVED 2026-06-19 + ARCHITECTURE DECIDED (extend Rope, NO new PRoPE component):**
+  `_compute_proportional_rope_parameters` (transformers `modeling_rope_utils.py`): `rope_angles =
+  int(partial_rotary_factor * head_dim // 2)` = `int(0.25*512//2)` = 64 pairs (first 128 of 512 dims);
+  `inv_freq_rotated = 1/base**(arange(0,2*rope_angles,2)/head_dim)` -- **denominator is head_dim (512),
+  NOT rotary_dim**; then PAD the remaining `head_dim/2 - rope_angles` = 192 pairs with **ZERO**. So
+  "proportional" = full head_dim/2 freq table with only the first rotary_dim/2 pairs real, rest zeroed.
+  KEY: a **zero frequency -> cos=1, sin=0 -> rotation is identity (pass-through)**, so feeding the
+  EXISTING rotation kernel a cache with zeroed upper freqs yields partial-rotary with **ZERO kernel
+  change**. So Step 3 = (1) `build_cache` zeroes freq pairs at index >= rotary_dim/2; (2) add `rotary_dim`
+  to the `RopeCacheRegistry::CacheKey` + `makeCacheKey` + hash. NO rotation-kernel change, NO op-path
+  change, NO new component. Llama byte-identical (`rotary_dim=0` -> all freqs real -> identical cache;
+  no intrinsic shift, unlike GeGLU). Completes the intent of the already-present `RopeConfig::rotary_dim`
+  field. `TRopePolicy` compile-time selector NOT needed -- runtime cache-build difference. Confirm the
+  exact `base^(-2i/head_dim)` formula in Mila's `build_cache` (Rope.Bf16/Fp32.cu) when implementing.
+  **LANDED 2026-06-19 (awaiting VS2026 GPU build).** Confirmed Mila's `rope_build_cache_kernel`
+  ([Rope.Fp32.cu](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Fp32.cu))
+  uses exactly `theta = base^(-2i/head_dim)` -- matches HF. Change: kernel gains `rope_pairs`; for
+  `i >= rope_pairs` writes `cos=1,sin=0` (identity). Launcher `cuda_rope_build_cache_fp32` gains
+  `rotary_dim` -> `rope_pairs = (rotary_dim>0 && rotary_dim<head_dim) ? rotary_dim/2 : half_dim`.
+  Threaded through: `.cuh` decl, both Dispatch `build_cache` wrappers (FP32+BF16, cache is always FP32),
+  `RopeCacheRegistry::CacheKey` (+`rotary_dim` field +hash mix), op `makeCacheKey` + `build_cache` call.
+  **Rotation kernel, forward/prefill/decode, op dispatch: ALL untouched.** Llama byte-identical
+  (`rotary_dim=0` -> `rope_pairs=half_dim` -> every pair real -> identical cache). Test: `Rope.Cuda.cpp`
+  `Forward_PartialRotary_PassesThroughUpperDims` (rotary_dim=4 of head_dim=8 -> first 2 pairs rotated,
+  upper 2 pass through; `ropeRotate` reference gained a `rope_pairs` arg). NOTE the global layer's theta
+  1e6 already works via `withBase`; the block (Step 5) sets `withRotaryDim(128)` + `withBase(1e6)` for
+  global layers. NO new files (extended existing Rope op cluster + test).
+- [~] **Step 4 — GeGLU via `TGate` (option C: separate kernel/op, SiLU path untouched).** Gemma FFN =
+  `GatedMLP<..., TGate=Gelu>` (`gelu_pytorch_tanh`, `intermediate 15360`). **LANDED 2026-06-19 (awaiting
+  VS2026 GPU build).** Chose **option C** over functor-templatizing the optimized SiLU kernel, because
+  the shared `Silu` functor uses portable `expf` while the SiLU kernel uses fast `__expf`/`__frcp_rn` --
+  templatizing would shift Llama's SiLU bits. C leaves the SiLU kernel + `CudaSwigluOp` byte-for-byte
+  untouched. **Forward-only** (Gemma inference-only; GeGLU backward = throwing stub, deferred to Training
+  Revival). New: `Geglu.cuh`/`Geglu.cu` (scalar `GeluTanh(gate)*up`, shared functor via file-relative
+  include like the Elementwise kernel), `CudaGegluOp` (FP32+BF16 forward, throwing backward),
+  `OperationType::GegluOp` (+name+case), 2 `OperationTraits<GegluOp,Cuda,{FP32,BF16},void>` rows. Component
+  `Swiglu<Device, Precision, ActivationType TGate = Silu>` (static_assert Silu|Gelu) selects the op by gate
+  (`kGateOp = Silu?SwigluOp:GegluOp`) -- **Llama byte-identical** (`Swiglu<…>` defaults to Silu ->
+  existing SwigluOp). `GatedMLP` static_assert lifted to Silu|Gelu + `SwigluType = Swiglu<…,TGate>`.
+  CMake: Geglu.cu (kernel sources), Geglu.cuh (cuda_headers), CudaGegluOp.ixx (cuda_modules). Test:
+  `Swiglu.Cuda.cpp` `Forward_GeGLU_MatchesReference` (FP32+BF16, `Swiglu<…,Gelu>` vs `GeluTanh(gate)*up`).
+  DEFERRED (not Gemma-blocking): CPU `SwigluOp`/`GegluOp` (Gemma is CUDA), GeGLU backward (training),
+  uint4 vectorization of the GeGLU kernel, kernel unification of SiLU+GeGLU (would need a SiLU
+  numeric-parity test). See Gemma.md §7.
+- [~] **Step 5 — `GemmaBlock` + `IDecoderLayer` + `GemmaTransformer` + converter.** **HF block topology
+  confirmed 2026-06-19** (`Gemma4TextDecoderLayer`): FOUR Gemma-specific structural deltas beyond Steps
+  0-4 — (a) **sandwich norm, 4 RMSNorms/layer** (input / post_attention / pre_feedforward /
+  post_feedforward) vs Llama's 2; (b) **QK-norm** = RMSNorm over head_dim applied per-head to Q and K
+  BEFORE RoPE (`q_norm`/`k_norm`, normalized_shape=head_dim); (c) **embedding x sqrt(hidden_size)**;
+  (d) **final logit softcap** `tanh(logits/30)*30` post-lm_head. ONE detail to verify in 5c: HF reports
+  attention `scaling=1.0` (not 1/sqrt(head_dim)) but Mila's GQA op hardcodes 1/sqrt(HS) in softmax --
+  confirm Gemma's effective query scaling (QK-norm changes the convention). **Decomposed into sub-steps
+  (build between each, the established rhythm):**
+  **5a GemmaConfig completion** -- **LANDED 2026-06-19 (awaiting build):** added window(1024),
+  sliding_window_pattern(6), global_rotary_dim(128), rope_theta_local(10000)/global(1e6),
+  final_logit_softcapping(30) + setters/getters/validate/metadata/toString + `getEmbeddingScale`
+  (sqrt(embedding_dim)) + per-layer helpers (`isGlobalLayer`, `getHeadDimForLayer`/`getNumKVHeadsForLayer`/
+  `keyEqualsValueForLayer`/`getWindowForLayer`/`getRoPEThetaForLayer`/`getRotaryDimForLayer`/
+  `getQProjectionWidthForLayer`/`getPackedQKVWidthForLayer`) -- the interface 5c consumes. Tests:
+  isGlobalLayer 5:1 (global at 5,11,..,47), per-layer sliding+global geometry, defaults, metadata
+  round-trip. No new files. **5b QK-norm wiring -- INVESTIGATED 2026-06-19 (2 findings, both keep
+  RmsNorm/Llama untouched):** (1) QK-norm needs NO new component -- the RmsNorm kernel works on an
+  `[outer, norm_dim, inner]` layout normalizing each `norm_dim` group, so per-head QK-norm = view Q
+  `[B,T,n_heads*head_dim]` as `[B, T*n_heads, head_dim]` (valid contiguous view) + `RmsNorm(shape{head_dim})`;
+  weight is `[head_dim]` shared across heads = Gemma's q_norm/k_norm. Pure 5c wiring. (2) **Gemma RMSNorm
+  uses `x_norm*(1+weight)`** but Mila's kernel does standard `x_norm*weight` -> resolve in the CONVERTER
+  (5e) by adding 1.0 to every RMSNorm weight at load (`weight'=1+weight_hf`); applies to all 6 norms/block
+  + final norm; keeps the kernel Llama-safe. **Query-scaling resolved 2026-06-19 + FIXED:** HF Gemma4
+  `self.scaling=1.0` (NO 1/sqrt(head_dim) -- QK-norm controls magnitude); QK-norm is applied BEFORE RoPE.
+  Mila GQA op hardcoded 1/sqrt(HS) -> parameterized: `GqaConfig.withAttentionScale`/`getAttentionScale`
+  (0 = derive 1/sqrt(head_dim) = Llama-identical; Gemma sets 1.0); op reads `attention_scale_` at build,
+  both prefill+decode use it (was `1.0f/sqrtf(HS_)`). Tests added. LANDED (awaiting build). **5c GemmaBlock
+  + IDecoderLayer** (two instantiations, sandwich norm,
+  QK-norm, GeGLU, geometry; HAS design decisions -- align before building). **5d GemmaTransformer**
+  (scaled embedding -> heterogeneous layers -> final norm -> lm_head -> logit softcap -> KV-cache
+  orchestration). **5e GemmaModel::fromPretrained + HF->Mila Python converter.** **5f HF parity.**
+  Original: Assemble Steps 0-4
+  into the two block instantiations (local/global), add QK-norm wiring + `final_logit_softcapping 30.0`
+  (runtime scalar), and introduce the virtual **`IDecoderLayer`** interface (`prefill`/`decode`/`forward`)
+  so the transformer holds the heterogeneous 5:1 layer list (final layer global) — every existing model
+  is homogeneous and lacks this (`std::variant` alternative rejected; Gemma.md §8). Then `GemmaTransformer`,
+  the HF->Mila converter (`Tools/Converters/`), and the HF token-for-token parity oracle.
+- [ ] **Correctness-oracle dependency.** Component-level attention numerics are blocked until the
+  `GroupedQueryAttention::forward` standalone-stub bug is resolved (see the GQA no-op-stub item under
+  Test Suite Revival's bug list) — windowed-vs-global + local/global-geometry reference cases belong to
+  an operation-level `CudaGqaOp` test owning the `GqaState` scratch + cache. Build that oracle as Steps
+  1-2 land, not after.
+
+**Reuse note:** the Step 2 SWA mask + bounded-KV ring cache are the foundation the **Ministral** Future
+Direction reuses (SWA named explicitly there).

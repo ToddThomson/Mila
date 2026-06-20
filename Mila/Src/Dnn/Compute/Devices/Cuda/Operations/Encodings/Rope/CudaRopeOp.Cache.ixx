@@ -42,6 +42,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             int                    device_id;
             std::size_t            max_seq_len;
             std::size_t            head_dim;
+            std::size_t            rotary_dim;   ///< 0 = full rotation; > 0 = proportional partial-rotary
             float                  base;
             Dnn::TensorDataType    precision;
 
@@ -60,6 +61,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 std::size_t seed = std::hash<int>{}( k.device_id );
                 seed = mix( seed, std::hash<std::size_t>{}( k.max_seq_len ) );
                 seed = mix( seed, std::hash<std::size_t>{}( k.head_dim ) );
+                seed = mix( seed, std::hash<std::size_t>{}( k.rotary_dim ) );
                 seed = mix( seed, std::hash<uint32_t>{}( std::bit_cast<uint32_t>( k.base ) ) );
                 seed = mix( seed, std::hash<int>{}( static_cast<int>( k.precision ) ) );
                 return seed;
@@ -128,7 +130,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
          * @brief Release a reference to the shared cache.
          *
          * Decrements the reference count. Frees device memory when it reaches zero.
-         * Safe to call from destructors — cudaFree errors are silently ignored as
+         * Safe to call from destructors ï¿½ cudaFree errors are silently ignored as
          * they are not actionable during cleanup.
          */
         void release( const CacheKey& key ) noexcept

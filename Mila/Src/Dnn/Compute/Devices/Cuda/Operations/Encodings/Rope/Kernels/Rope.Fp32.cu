@@ -29,19 +29,33 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         float* __restrict__ sin_out,
         int half_dim,
         int max_seq_len,
-        float base )
+        float base,
+        int rope_pairs )
     {
         int pos = blockIdx.x * blockDim.x + threadIdx.x;
         int i = blockIdx.y * blockDim.y + threadIdx.y;
 
         if ( pos >= max_seq_len || i >= half_dim ) return;
 
-        float theta = __powf( base, -2.0f * static_cast<float>(i) / static_cast<float>(half_dim * 2) );
-        float angle = static_cast<float>(pos) * theta;
-
         int idx = pos * half_dim + i;
-        cos_out[ idx ] = cosf( angle );
-        sin_out[ idx ] = sinf( angle );
+
+        if ( i < rope_pairs )
+        {
+            float theta = __powf( base, -2.0f * static_cast<float>(i) / static_cast<float>(half_dim * 2) );
+            float angle = static_cast<float>(pos) * theta;
+
+            cos_out[ idx ] = cosf( angle );
+            sin_out[ idx ] = sinf( angle );
+        }
+        else
+        {
+            // Proportional partial-rotary (Gemma global layers): the upper
+            // (head_dim - rotary_dim) dimensions carry zero frequency, so cos=1,
+            // sin=0 makes the rotation the identity (pass-through). With
+            // rope_pairs == half_dim (rotary_dim 0 / full) this branch never runs.
+            cos_out[ idx ] = 1.0f;
+            sin_out[ idx ] = 0.0f;
+        }
     }
 
     // ========================================================================
@@ -288,10 +302,20 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         int    max_seq_len,
         int    head_dim,
         float  base,
+        int    rotary_dim,
         cudaStream_t stream )
     {
         assert( head_dim % 2 == 0 );
         const int half_dim = head_dim / 2;
+
+        // Number of rotated frequency pairs. rotary_dim 0 (or >= head_dim) means
+        // full rotation (every pair real) — the Llama/Qwen default and byte-identical
+        // to the prior behavior. A positive rotary_dim < head_dim (Gemma global
+        // layers) rotates only the first rotary_dim/2 pairs; the rest get zero
+        // frequency (identity) via the kernel's else-branch.
+        const int rope_pairs = ( rotary_dim > 0 && rotary_dim < head_dim )
+            ? (rotary_dim / 2)
+            : half_dim;
 
         constexpr int TX = 32;
         constexpr int TY = 16;
@@ -302,7 +326,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             (half_dim + TY - 1) / TY );
 
         rope_build_cache_kernel << <grid, block, 0, stream >> > (
-            cos_cache, sin_cache, half_dim, max_seq_len, base);
+            cos_cache, sin_cache, half_dim, max_seq_len, base, rope_pairs);
 
         cudaCheck( cudaGetLastError() );
     }

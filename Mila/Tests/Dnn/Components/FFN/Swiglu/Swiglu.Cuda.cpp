@@ -31,6 +31,7 @@
 #include <vector>
 
 import Mila;
+import Dnn.ActivationType;
 // Instantiating Swiglu<Cuda, P> forces CudaSwigluOp's member bodies, which call
 // concrete ExecutionContext<Cuda> methods (getStream). The Mila umbrella does not
 // complete that type for a consumer TU, so import it directly.
@@ -51,6 +52,34 @@ namespace Mila::Tests::Dnn::Components::Activations::Swiglu
         float silu( float x )
         {
             return x / ( 1.0f + std::exp( -x ) );
+        }
+
+        // Matches the shared GeluTanh functor (ElementwiseActivation.h) the GeGLU
+        // kernel uses: 0.5x(1 + tanh(sqrt(2/pi)(x + 0.044715 x^3))).
+        float geluTanh( float x )
+        {
+            constexpr float kScale = 0.7978845608f;
+            constexpr float kCoeff = 0.044715f;
+            const float cube = kCoeff * x * x * x;
+            return 0.5f * x * ( 1.0f + std::tanh( kScale * ( x + cube ) ) );
+        }
+
+        // GeGLU forward reference: Y[j] = GeluTanh(gate[j]) * up[j].
+        void referenceForwardGeglu(
+            const float* X, int64_t outer, int64_t half_width, std::vector<float>& Y )
+        {
+            Y.assign( static_cast<size_t>( outer * half_width ), 0.0f );
+
+            for ( int64_t t = 0; t < outer; ++t )
+            {
+                const float* gate = X + t * 2 * half_width;
+                const float* up = gate + half_width;
+
+                for ( int64_t j = 0; j < half_width; ++j )
+                {
+                    Y[ t * half_width + j ] = geluTanh( gate[ j ] ) * up[ j ];
+                }
+            }
         }
 
         // Forward reference: per token (flattened B*T), Y[j] = SiLU(gate[j]) * up[j],
@@ -278,6 +307,43 @@ namespace Mila::Tests::Dnn::Components::Activations::Swiglu
 
             EXPECT_NEAR( out.data()[ i ], expected[ i ], tolerance )
                 << "forward mismatch at index " << i;
+        }
+    }
+
+    // GeGLU gate (Swiglu<..., ActivationType::Gelu>): forward = GeluTanh(gate) * up,
+    // routed to the separate CudaGegluOp / kernel. The SiLU path is untouched.
+    TYPED_TEST( SwigluCudaTests, Forward_GeGLU_MatchesReference )
+    {
+        using GegluType = Mila::Dnn::Swiglu<DeviceType::Cuda, TestFixture::P, ActivationType::Gelu>;
+
+        const shape_t shape{ 2, 3, kInFeatures };
+
+        auto geglu = std::make_unique<GegluType>( "geglu", SwigluConfig(), Device::Cuda( 0 ) );
+        geglu->build( BuildContext( shape, RuntimeMode::Inference, false ) );
+
+        auto host_in = this->spreadHost( shape );
+        auto device_in = this->toDevice( host_in );
+
+        auto& device_out = geglu->forward( device_in );
+        geglu->synchronize();
+
+        auto out = this->toFloat( device_out );
+        auto in = this->toFloat( device_in );
+
+        const int64_t outer = 2 * 3;
+        ASSERT_EQ( out.shape(), ( shape_t{ 2, 3, kHalfWidth } ) );
+
+        std::vector<float> expected;
+        referenceForwardGeglu( in.data(), outer, kHalfWidth, expected );
+
+        ASSERT_EQ( out.size(), expected.size() );
+
+        for ( size_t i = 0; i < out.size(); ++i )
+        {
+            const float tolerance = TypeParam::forward_atol + TypeParam::forward_rtol * std::fabs( expected[ i ] );
+
+            EXPECT_NEAR( out.data()[ i ], expected[ i ], tolerance )
+                << "GeGLU forward mismatch at index " << i;
         }
     }
 

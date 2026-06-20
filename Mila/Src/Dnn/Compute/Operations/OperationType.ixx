@@ -35,7 +35,8 @@ namespace Mila::Dnn::Compute
 		LinearOp,					///< Linear (fully connected/dense) layer operation
 		GeluOp,						///< Gaussian Error Linear Unit activation function
         ElementwiseActivationOp,	///< Functor-templated elementwise activation (GELU/SiLU/ReLU/Tanh/Sigmoid/LeakyReLU/Mish)
-        SwigluOp,					///< SwiGLU activation function
+        SwigluOp,					///< SwiGLU (SiLU-gated) GLU FFN activation
+        GegluOp,					///< GeGLU (GELU-gated) GLU FFN activation — Gemma
 		LayerNormOp,				///< Layer normalization operation
         RmsNormOp,					///< RMS normalization operation
 		MultiHeadAttentionOp,		///< Multi-head attention operation (MHA) for transformers
@@ -59,6 +60,7 @@ namespace Mila::Dnn::Compute
 		constexpr std::string_view Gelu                 = "GeluOp";
 		constexpr std::string_view ElementwiseActivation = "ElementwiseActivationOp";
 		constexpr std::string_view Swiglu               = "SwigluOp";
+		constexpr std::string_view Geglu                = "GegluOp";
 		constexpr std::string_view LayerNorm            = "LayerNormOp";
 		constexpr std::string_view RmsNorm              = "RmsNormOp";
 		constexpr std::string_view MultiHeadAttention   = "MultiHeadAttentionOp";
@@ -83,6 +85,7 @@ namespace Mila::Dnn::Compute
 			case OperationType::GeluOp:                  return OperationNames::Gelu;
 			case OperationType::ElementwiseActivationOp: return OperationNames::ElementwiseActivation;
 			case OperationType::SwigluOp:                return OperationNames::Swiglu;
+			case OperationType::GegluOp:                 return OperationNames::Geglu;
 			case OperationType::LayerNormOp:             return OperationNames::LayerNorm;
 			case OperationType::RmsNormOp:               return OperationNames::RmsNorm;
 			case OperationType::MultiHeadAttentionOp:    return OperationNames::MultiHeadAttention;

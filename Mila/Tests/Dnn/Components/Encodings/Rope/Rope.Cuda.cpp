@@ -50,11 +50,15 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
 
         // Rotate a flat [B, T, n_heads, head_dim] host buffer in place.
         // inverse = true applies the transpose (backward) rotation.
+        // rope_pairs < 0 rotates all head_dim/2 pairs (full RoPE); a smaller value
+        // rotates only the first rope_pairs pairs and passes the rest through
+        // unchanged (proportional partial-rotary).
         void ropeRotate(
             float* d, int64_t B, int64_t T, int64_t n_heads, int64_t head_dim,
-            float base, int position_offset, bool inverse )
+            float base, int position_offset, bool inverse, int rope_pairs = -1 )
         {
             const int64_t half = head_dim / 2;
+            const int64_t pairs = ( rope_pairs < 0 || rope_pairs > half ) ? half : rope_pairs;
 
             for ( int64_t b = 0; b < B; ++b )
             {
@@ -66,7 +70,7 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
                     {
                         const int64_t base_idx = ( ( b * T + t ) * n_heads + h ) * head_dim;
 
-                        for ( int64_t i = 0; i < half; ++i )
+                        for ( int64_t i = 0; i < pairs; ++i )
                         {
                             const double theta = std::pow( static_cast<double>( base ),
                                 -2.0 * static_cast<double>( i ) / static_cast<double>( head_dim ) );
@@ -278,6 +282,38 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
 
         this->expectClose( this->toFloat( device_q ), expected_q, "forward Q" );
         this->expectClose( this->toFloat( device_k ), expected_k, "forward K" );
+    }
+
+    // Proportional partial-rotary (Gemma global layers): with rotary_dim < head_dim,
+    // only the first rotary_dim dimensions are rotated; the rest pass through
+    // unchanged because their cos/sin cache entries are 1/0 (zero frequency).
+    TYPED_TEST( RopeCudaTests, Forward_PartialRotary_PassesThroughUpperDims )
+    {
+        const int64_t B = 2;
+        const int64_t T = 4;
+        const int64_t rotary_dim = 4;   // of kHeadDim=8 -> rotate first 2 pairs, pass through 2
+
+        auto cfg = RopeConfig( kChannels, kHeads, kKvHeads, kMaxSeq ).withRotaryDim( rotary_dim );
+        auto rope = std::make_unique<typename TestFixture::RopeType>( "rope", cfg, Device::Cuda( 0 ) );
+        rope->build( BuildContext( shape_t{ B, T }, RuntimeMode::Inference, false ) );
+
+        auto device_q = this->toDevice( this->spreadHost( shape_t{ B, T, kChannels }, 0.0f ) );
+        auto device_k = this->toDevice( this->spreadHost( shape_t{ B, T, kKvChannels }, 1.7f ) );
+
+        auto q_in = this->toFloat( device_q );
+        auto k_in = this->toFloat( device_k );
+
+        rope->forward( device_q, device_k );
+        rope->synchronize();
+
+        std::vector<float> expected_q( q_in.data(), q_in.data() + q_in.size() );
+        std::vector<float> expected_k( k_in.data(), k_in.data() + k_in.size() );
+        const int rope_pairs = static_cast<int>( rotary_dim / 2 );
+        ropeRotate( expected_q.data(), B, T, kHeads, kHeadDim, kBase, 0, false, rope_pairs );
+        ropeRotate( expected_k.data(), B, T, kKvHeads, kHeadDim, kBase, 0, false, rope_pairs );
+
+        this->expectClose( this->toFloat( device_q ), expected_q, "partial-rotary Q" );
+        this->expectClose( this->toFloat( device_k ), expected_k, "partial-rotary K" );
     }
 
     TYPED_TEST( RopeCudaTests, Prefill_AppliesPositionOffset )

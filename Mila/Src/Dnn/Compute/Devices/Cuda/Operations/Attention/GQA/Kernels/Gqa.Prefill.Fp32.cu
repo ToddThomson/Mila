@@ -16,12 +16,13 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int T_stride,
         int chunk_stride,
         int chunk_len,
-        int position_offset )
+        int position_offset,
+        int window )
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
         int total_rows = B * NH * chunk_len;
 
-        if ( idx >= total_rows ) 
+        if ( idx >= total_rows )
             return;
 
         // Decode batch, head, and query index within chunk
@@ -41,14 +42,18 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int abs_t = position_offset + t;        // global query index
         int max_t2 = min( abs_t, T_stride - 1 );  // last key index to attend
 
+        // Sliding-window lower bound. window <= 0 means global causal (window_start
+        // = 0), which reproduces the unbounded behavior exactly.
+        int window_start = ( window > 0 ) ? max( 0, abs_t - window + 1 ) : 0;
+
         // Step 1: find max for numerical stability
         float max_val = -CUDART_INF_F;
-        for ( int t2 = 0; t2 <= max_t2; ++t2 )
+        for ( int t2 = window_start; t2 <= max_t2; ++t2 )
             max_val = fmaxf( max_val, preatt_row[ t2 ] );
 
         // Step 2: exponentiate & sum
         float sum = 0.0f;
-        for ( int t2 = 0; t2 <= max_t2; ++t2 )
+        for ( int t2 = window_start; t2 <= max_t2; ++t2 )
         {
             float val = expf( preatt_row[ t2 ] - max_val );
             sum += val;
@@ -57,10 +62,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
         // Step 3: normalize
         float inv_sum = 1.0f / sum;
-        for ( int t2 = 0; t2 <= max_t2; ++t2 )
+        for ( int t2 = window_start; t2 <= max_t2; ++t2 )
             att_row[ t2 ] *= inv_sum;
 
-        // Step 4: zero out future tokens
+        // Step 4: zero out positions outside the attended window — below the
+        // window [0, window_start) and the future [max_t2+1, T_stride).
+        for ( int t2 = 0; t2 < window_start; ++t2 )
+            att_row[ t2 ] = 0.0f;
+
         for ( int t2 = max_t2 + 1; t2 < T_stride; ++t2 )
             att_row[ t2 ] = 0.0f;
     }
@@ -106,7 +115,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
     void cuda_gqa_prefill_softmax_fp32(
         float* att, const float* preatt,
         int B, int NH, int T_stride, int chunk_stride,
-        int chunk_len, int position_offset,
+        int chunk_len, int position_offset, int window,
         cudaStream_t stream )
     {
         int total_rows = B * NH * chunk_len;
@@ -116,7 +125,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         prefill_softmax_fp32_kernel_v2 <<<grid_size, block_size, 0, stream >>> (
             att, preatt,
             B, NH, T_stride, chunk_stride,
-            chunk_len, position_offset);
+            chunk_len, position_offset, window);
 
         cudaCheck( cudaGetLastError() );
     }

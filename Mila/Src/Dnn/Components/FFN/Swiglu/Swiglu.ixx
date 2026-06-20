@@ -21,6 +21,7 @@ export module Dnn.Components.Swiglu;
 export import Dnn.Components.SwigluConfig;
 
 import Dnn.Components.Gelu;
+import Dnn.ActivationType;
 import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.Tensor;
@@ -47,17 +48,23 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
 
     /**
-     * @brief SwiGLU activation component.
+     * @brief Gated-linear-unit (GLU-family) activation component.
      *
-     * SwiGLU splits input along the feature axis into two halves x1,x2 and computes:
-     *   out = x1 * GELU(x2)
+     * Splits the input along the feature axis into gate|value halves and computes
+     *   out = TGate(gate) * value
+     * The gate function is a compile-time parameter: TGate = Silu realizes SwiGLU
+     * (the existing optimized SwigluOp), TGate = Gelu realizes GeGLU (GegluOp, the
+     * Gemma FFN). The default keeps the historical SwiGLU behavior unchanged.
      *
-     * Delegates work to a device-specific UnaryOperation named "SwigluOp".
+     * Delegates work to the device operation selected by the gate (SwigluOp / GegluOp).
      */
-    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+    export template<DeviceType TDeviceType, TensorDataType TPrecision, ActivationType TGate = ActivationType::Silu>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class Swiglu : public Component<TDeviceType, TPrecision>
     {
+        static_assert( TGate == ActivationType::Silu || TGate == ActivationType::Gelu,
+            "Swiglu gate must be Silu (SwiGLU) or Gelu (GeGLU)." );
+
     public:
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TPrecision, MR>;
@@ -264,7 +271,11 @@ namespace Mila::Dnn
         }
 
     private:
-        using OpType = typename OperationTraits<OperationType::SwigluOp, TDeviceType, TPrecision>::type;
+        // The gate selects the backend op: SiLU -> the existing optimized SwigluOp,
+        // GELU -> GegluOp. The optimized SiLU kernels are untouched by GeGLU.
+        static constexpr OperationType kGateOp =
+            (TGate == ActivationType::Silu) ? OperationType::SwigluOp : OperationType::GegluOp;
+        using OpType = typename OperationTraits<kGateOp, TDeviceType, TPrecision>::type;
 
         SwigluConfig config_;
         shape_t input_shape_;

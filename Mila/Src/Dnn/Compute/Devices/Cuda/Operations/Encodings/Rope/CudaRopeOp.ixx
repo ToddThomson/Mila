@@ -183,6 +183,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                     static_cast<int>(config_.getMaxSequenceLength()),
                     static_cast<int>(config_.getHeadDim()),
                     config_.getBase(),
+                    static_cast<int>(config_.getRotaryDim()),
                     context_->getStream() );
 
                 // Ensure cache is ready before any op can use it.
@@ -394,6 +395,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 context_->getDeviceId().index,
                 config_.getMaxSequenceLength(),
                 config_.getHeadDim(),
+                config_.getRotaryDim(),
                 config_.getBase(),
                 TensorDataType::FP32
             };

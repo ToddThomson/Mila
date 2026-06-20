@@ -20,6 +20,10 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      * @param max_seq_len Maximum sequence length.
      * @param head_dim   Per-head embedding dimension (must be even).
      * @param base       Frequency base (default 10000.0f).
+     * @param rotary_dim Number of dimensions to rotate; 0 (or >= head_dim) = full
+     *                   rotation (default). A positive value < head_dim rotates only
+     *                   the first rotary_dim dims (proportional partial-rotary); the
+     *                   remainder get zero frequency (identity / pass-through).
      * @param stream     CUDA stream.
      */
     void cuda_rope_build_cache_fp32(
@@ -28,6 +32,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         int    max_seq_len,
         int    head_dim,
         float  base,
+        int    rotary_dim,
         cudaStream_t stream );
 
     // ========================================================================

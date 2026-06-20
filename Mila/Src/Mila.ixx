@@ -194,6 +194,9 @@ export import Dnn.Components.GptBlock;
 // ============================================================================
 export import Dnn.Components.GptTransformer;
 export import Dnn.Components.LlamaTransformer;
+export import Dnn.Components.GemmaConfig;
+export import Dnn.Components.IDecoderLayer;
+export import Dnn.Components.GemmaBlock;
 
 // ============================================================================
 // Models - Open Source Models
