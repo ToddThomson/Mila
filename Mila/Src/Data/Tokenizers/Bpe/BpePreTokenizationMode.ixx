@@ -21,7 +21,8 @@ namespace Mila::Data
         None,           // No pre-tokenization (byte level only)
         Whitespace,     // Simple whitespace splitting
         Gpt2Regex,      // GPT-2 style regex pattern
-        Llama3Regex     // GPT-4 / TikToken pattern used by Llama 3.x
+        Llama3Regex,    // GPT-4 / TikToken pattern used by Llama 3.x
+        SentencePiece   // SentencePiece Metaspace: space -> U+2581, split at marks (Gemma)
     };
 
     // =========================================================================

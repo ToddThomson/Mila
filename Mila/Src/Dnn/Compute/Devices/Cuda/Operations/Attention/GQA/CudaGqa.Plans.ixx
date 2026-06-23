@@ -262,14 +262,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // Mathematical operation: v_out[chunk_rows, HS] = att[chunk_rows, T] @ v_exp[T, HS]
             //
 
-            // POSSIBLE BUG: strideA must also use chunk_rows, not prefill_window_size
-            // WAS const long long strideA = static_cast<long long>(prefill_window_size) * max_seq_length;
             const long long strideA = static_cast<long long>(chunk_rows) * max_seq_length;
-
             const long long strideB = static_cast<long long>(max_seq_length) * head_size;
-
-            // POSSIBLE BUG: strideC must use chunk_rows, not prefill_window_size, to match the actual output layout and softmax read pattern.
-            // WAS: const long long strideC = static_cast<long long>(prefill_window_size) * head_size;
             const long long strideC = static_cast<long long>(chunk_rows) * head_size;
 
             auto plan = build_strided_plan<TNative>(

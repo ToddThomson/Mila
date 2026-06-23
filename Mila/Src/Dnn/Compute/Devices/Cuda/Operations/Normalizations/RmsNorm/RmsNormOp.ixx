@@ -278,7 +278,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
                 weight_, bias_,
                 rstd_,
                 outer_size_, inner_size_, norm_dim_,
-                config_.getEpsilon(),
+                config_.getEpsilon(), config_.getUnitOffset(),
                 stream );
         }
 

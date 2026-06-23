@@ -90,6 +90,7 @@ namespace Mila::Dnn::Serialization
         uint32_t num_layers;
         uint32_t num_heads;
         uint32_t num_kv_heads;
+        uint32_t head_dim;          // explicit per-head width (Gemma decouples it from embedding_dim/num_heads); 0 = derive
         uint32_t hidden_dim;
         bool use_bias;
 
@@ -100,6 +101,19 @@ namespace Mila::Dnn::Serialization
 
         float rope_theta;
         float norm_epsilon;
+
+        // Gemma-specific geometry (0 / false for other architectures). The global
+        // (full-attention) layers diverge from the sliding layers; the chassis fields
+        // drive the 5:1 interleave, dual RoPE, and logit softcap. See GemmaConfig.
+        uint32_t global_head_dim;
+        uint32_t num_global_kv_heads;
+        bool     key_equals_value;
+        uint32_t window;
+        uint32_t sliding_window_pattern;
+        uint32_t global_rotary_dim;
+        float    rope_theta_local;
+        float    rope_theta_global;
+        float    final_logit_softcapping;
     };
 
     enum class DType : uint32_t {
@@ -828,6 +842,7 @@ namespace Mila::Dnn::Serialization
             metadata_.num_layers          = extract_int( "num_layers" );
             metadata_.num_heads           = extract_int( "num_heads" );
             metadata_.num_kv_heads        = extract_int( "num_kv_heads" );
+            metadata_.head_dim            = extract_int( "head_dim" );
             metadata_.hidden_dim          = extract_int( "hidden_dim" );
             metadata_.use_bias            = extract_bool( "use_bias" );
             metadata_.activation          = extract_string( "activation" );
@@ -836,6 +851,16 @@ namespace Mila::Dnn::Serialization
             metadata_.positional_encoding = extract_string( "positional_encoding" );
             metadata_.rope_theta          = extract_float( "rope_theta" );
             metadata_.norm_epsilon        = extract_float( "norm_epsilon" );
+
+            metadata_.global_head_dim         = extract_int( "global_head_dim" );
+            metadata_.num_global_kv_heads     = extract_int( "num_global_kv_heads" );
+            metadata_.key_equals_value        = extract_bool( "key_equals_value" );
+            metadata_.window                  = extract_int( "window" );
+            metadata_.sliding_window_pattern  = extract_int( "sliding_window_pattern" );
+            metadata_.global_rotary_dim       = extract_int( "global_rotary_dim" );
+            metadata_.rope_theta_local        = extract_float( "rope_theta_local" );
+            metadata_.rope_theta_global       = extract_float( "rope_theta_global" );
+            metadata_.final_logit_softcapping = extract_float( "final_logit_softcapping" );
         }
 
         void readTensorIndex()

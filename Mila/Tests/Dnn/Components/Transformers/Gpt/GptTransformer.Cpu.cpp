@@ -307,6 +307,8 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
     {
         GptCpu net( "gpt", smallConfig(), Device::Cpu() );
 
-        EXPECT_EQ( net.getType(), ComponentType::Gpt2 );
+        // Structural kind is Network; the GPT-2 architecture identity is ModelType.
+        EXPECT_EQ( net.getType(), ComponentType::Network );
+        EXPECT_EQ( net.getModelType(), ModelType::Gpt2 );
     }
 }

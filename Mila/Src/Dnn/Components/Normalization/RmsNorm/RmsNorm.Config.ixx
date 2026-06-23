@@ -102,6 +102,22 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
+        /**
+         * @brief Set the unit offset added to the loaded weight before scaling.
+         *
+         * The normalized activation is scaled by (weight + unit_offset). Default 0.0
+         * reproduces standard RMSNorm (x_norm * weight) -- used by Llama 3 / GPT-2.
+         * Gemma sets 1.0: its RMSNorm is x_norm * (1 + weight), with weights stored
+         * raw (zero-centered, weight-decay-friendly). The offset is applied at the
+         * kernel so the stored/loaded weights remain identical to the source checkpoint.
+         */
+        template <typename Self>
+        decltype(auto) withUnitOffset( this Self&& self, float unit_offset )
+        {
+            self.unit_offset_ = unit_offset;
+            return std::forward<Self>( self );
+        }
+
         // ====================================================================
         // Accessors
         // ====================================================================
@@ -129,6 +145,11 @@ namespace Mila::Dnn
         float getEpsilon() const noexcept
         {
             return epsilon_;
+        }
+
+        float getUnitOffset() const noexcept
+        {
+            return unit_offset_;
         }
 
         // ====================================================================
@@ -174,7 +195,8 @@ namespace Mila::Dnn
             SerializationMetadata meta;
 
             meta.set( "has_bias", has_bias_ )
-                .set( "epsilon", epsilon_ );
+                .set( "epsilon", epsilon_ )
+                .set( "unit_offset", unit_offset_ );
 
             if ( !normalized_shape_.empty() )
             {
@@ -224,6 +246,11 @@ namespace Mila::Dnn
             {
                 epsilon_ = *v;
             }
+
+            if ( auto v = meta.tryGetFloat( "unit_offset" ) )
+            {
+                unit_offset_ = *v;
+            }
         }
 
         std::string toString() const override
@@ -251,6 +278,7 @@ namespace Mila::Dnn
 
             oss << ", has_bias=" << (has_bias_ ? "true" : "false");
             oss << ", epsilon=" << epsilon_;
+            oss << ", unit_offset=" << unit_offset_;
             oss << " )";
 
             return oss.str();
@@ -262,5 +290,6 @@ namespace Mila::Dnn
         std::optional<dim_t> axis_{ std::nullopt };
         bool                 has_bias_{ true };
         float                epsilon_{ 1e-5f };
+        float                unit_offset_{ 0.0f };
     };
 }

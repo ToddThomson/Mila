@@ -18,14 +18,16 @@ namespace Mila::ChatApp
     export enum class ModelType
     {
         Gpt,
-        Llama
+        Llama,
+        Gemma
     };
 
     export enum class ModelSize
     {
         B1,  // 1B parameters (Llama 3.2 1B)
         B3,  // 3B parameters (Llama 3.2 3B)
-        B8   // 8B parameters (Llama 3.1 8B)
+        B8,  // 8B parameters (Llama 3.1 8B)
+        B12  // 12B parameters (Gemma 4 12B)
     };
 
     export enum class ModelPrecision
@@ -40,6 +42,28 @@ namespace Mila::ChatApp
         FP8,   ///< FP8 weights + FP8 KV cache (PerChannelFp8 + PerChannelKvFp8).
         FP4,   ///< INT4 weights + FP8 KV cache (PerGroupInt4 + PerChannelKvFp8). W4A16 kernel path.
     };
+
+    /**
+     * @brief Default maximum sequence length for a model type when not set explicitly.
+     *
+     * The KV cache + activation working set ("State") scales with this value, so it
+     * is the primary VRAM lever. Gemma 4 12B is deliberately conservative: even at
+     * FP4 the resident weights are ~9 GB (the lm_head is untied from the embedding,
+     * adding a ~2 GB BF16 copy), so on a 12 GB card only ~2 GB remains for State.
+     * Raise it on larger cards via --context-length; drop to 512 if the model load
+     * memory-stats line shows the device total spilling past the physical VRAM.
+     */
+    export constexpr std::size_t defaultContextLength( ModelType type )
+    {
+        switch ( type )
+        {
+            case ModelType::Gpt:   return 1024;  // GPT-2 architectural maximum.
+            case ModelType::Gemma: return 512;   // 12B FP4 leaves little headroom on a 12 GB card.
+            case ModelType::Llama: return 4096;
+        }
+
+        return 4096;
+    }
 
     /**
      * @brief Runtime configuration for a Chat session.

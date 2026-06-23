@@ -125,6 +125,7 @@ PUBLIC
         #----------------------------------------------------------------------
         "Src/Dnn/Core/Component.ixx"
         "Src/Dnn/Core/ComponentType.ixx"
+        "Src/Dnn/Core/ModelType.ixx"
         "Src/Dnn/Core/CompositeComponent.ixx"
         "Src/Dnn/Core/ComponentConfig.ixx"
         "Src/Dnn/Core/ComponentFactory.ixx"
@@ -360,6 +361,7 @@ PUBLIC
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Config.ixx"
         "Src/Dnn/Components/Transformers/Gemma/IDecoderLayer.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx"
+        "Src/Dnn/Components/Transformers/Gemma/Gemma.ixx"
 
         "Src/Data/Tokenizers/Tokenizer.ixx"
         "Src/Data/Tokenizers/TokenizerVocabulary.ixx"
@@ -390,6 +392,7 @@ PUBLIC
         
         "Src/Dnn/Models/GptModel.ixx"
         "Src/Dnn/Models/LlamaModel.ixx"
+        "Src/Dnn/Models/GemmaModel.ixx"
 
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
         
@@ -416,6 +419,7 @@ PUBLIC
         #"Src/Dnn/Core/ModelQuantizationConfig.ixx"
         "Src/Dnn/Core/ModelConfig.ixx"
         "Src/Dnn/Models/LlamaModelConfig.ixx"
+        "Src/Dnn/Models/GemmaModelConfig.ixx"
         #"Src/Dnn/Compute/Operations/GqaOpTypeMap.ixx"
         #"Src/Dnn/Compute/Operations/GqaOpTypeMap.Template.ixx"
         "Src/Dnn/Compute/Operations/GqaState.ixx"

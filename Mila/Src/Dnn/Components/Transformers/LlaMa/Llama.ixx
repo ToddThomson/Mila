@@ -15,7 +15,7 @@ module;
 #include <cstdint>
 #include <format>
 #include <optional>
-#include <filesystem>
+// #include <filesystem>
 #include <algorithm>
 
 export module Dnn.Components.LlamaTransformer;
@@ -31,6 +31,7 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.LanguageNetwork;
 import Dnn.Component;
 import Dnn.ComponentType;
+import Dnn.ModelType;
 import Dnn.Components.TokenEmbedding;
 import Dnn.Components.Linear;
 import Dnn.Components.RmsNorm;
@@ -141,46 +142,6 @@ namespace Mila::Dnn
 
         ~LlamaTransformer() override = default;
 
-        // REVIEW: DEPRECATED: Is this a deprecated path? 
-        // The LlamaModel::fromPretrained() method is the new standard way to load a pretrained LLaMA model,
-        // and it sources all architectural parameters from checkpoint metadata.
-        // This method is still public and callable, but it doesn't have the same level of deployment configuration
-        // control as the LlamaModel::fromPretrained() method (e.g. no precision policy or quantization settings).
-        /*static std::unique_ptr<LlamaTransformer<TDeviceType, TPrecision>> fromPretrained(
-            const std::filesystem::path& model_path,
-            std::size_t batch_size,
-            std::size_t seq_length,
-            DeviceId device_id = DeviceId{ TDeviceType, 0 } )
-        {
-            PretrainedModelReader reader( model_path );
-            const auto& metadata = reader.getPretrainedMetadata();
-
-            LlamaConfig config = createConfigFromMetadata( metadata );
-
-            auto llama = std::make_unique<LlamaTransformer<TDeviceType, TPrecision>>(
-                metadata.model_name,
-                config,
-                device_id );
-
-            if ( batch_size == 0 )
-                throw std::invalid_argument( "LlamaTransformer::fromPretrained: batch_size must be > 0" );
-
-            if ( seq_length == 0 )
-                throw std::invalid_argument( "LlamaTransformer::fromPretrained: seq_length must be > 0" );
-
-            std::size_t runtime_seq = std::min<std::size_t>(
-                seq_length, static_cast<std::size_t>(config.getMaxSequenceLength()) );
-
-            auto build_config =  BuildContext( 
-                shape_t{ static_cast<dim_t>(batch_size), static_cast<dim_t>(runtime_seq) },
-                RuntimeMode::Inference );
-
-            llama->build( build_config );
-
-            llama->loadParameters( reader );
-
-            return llama;
-        }*/
 
         TensorType& forward( const TokenIndexType& input ) override
         {
@@ -188,7 +149,6 @@ namespace Mila::Dnn
                 throw std::runtime_error( "LlamaTransformer must be built before calling forward()." );
 
             auto& embed_out = token_embedding_->forward( input );
-            //this->getExecutionContext()->synchronize();
 
             token_embed_out_ptr_ = &embed_out;
 
@@ -200,7 +160,6 @@ namespace Mila::Dnn
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
                 auto& block_out = transformer_blocks_[ i ]->forward( *block_input_ptrs_[ i ] );
-                //this->getExecutionContext()->synchronize();
 
                 block_output_ptrs_[ i ] = &block_out;
 
@@ -209,10 +168,8 @@ namespace Mila::Dnn
             }
 
             normalized_ptr_ = &final_rmsnorm_->forward( *block_output_ptrs_.back() );
-            //this->getExecutionContext()->synchronize();
 
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
-            //this->getExecutionContext()->synchronize();
 
             return *logits_ptr_;
         }
@@ -238,12 +195,11 @@ namespace Mila::Dnn
 
                 // Embed directly — output buffer lives in token_embedding_
                 TensorType* block_input = &token_embedding_->forward( chunk_input );
-                // DEBUG: this->getExecutionContext()->synchronize();
 
                 for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
                 {
                     auto& block_out = transformer_blocks_[ i ]->prefill( *block_input, static_cast<int>( offset ) );
-                    // DEBUG: this->getExecutionContext()->synchronize();
+
                     block_input = &block_out;
                 }
 
@@ -258,10 +214,8 @@ namespace Mila::Dnn
                 last_pos_offset );
             
             normalized_ptr_ = &final_rmsnorm_->forward( last_pos );
-            // DEBUG: this->getExecutionContext()->synchronize();
 
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
-            // DEBUG: this->getExecutionContext()->synchronize();
 
             return *logits_ptr_;
         }
@@ -269,7 +223,6 @@ namespace Mila::Dnn
         TensorType& decode( const TokenIndexType& input, int position ) override
         {
             auto& embed_out = token_embedding_->forward( input );
-            // DEBUG: this->getExecutionContext()->synchronize();
 
             token_embed_out_ptr_ = &embed_out;
 
@@ -281,7 +234,6 @@ namespace Mila::Dnn
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
                 auto& block_out = transformer_blocks_[ i ]->decode( *block_input_ptrs_[ i ], position );
-                // DEBUG: this->getExecutionContext()->synchronize();
 
                 block_output_ptrs_[ i ] = &block_out;
 
@@ -290,10 +242,8 @@ namespace Mila::Dnn
             }
 
             normalized_ptr_ = &final_rmsnorm_->forward( *block_output_ptrs_.back() );
-            // DEBUG: this->getExecutionContext()->synchronize();
 
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
-            // DEBUG: this->getExecutionContext()->synchronize();
 
             return *logits_ptr_;
         }
@@ -363,9 +313,11 @@ namespace Mila::Dnn
         // Accessors / Diagnostics
         // ====================================================================
 
-        const ComponentType getType() const override
+        // Structural kind comes from the Network base (ComponentType::Network);
+        // the architecture family is reported here.
+        ModelType getModelType() const
         {
-            return ComponentType::Llama;
+            return ModelType::Llama;
         }
 
         MemoryStats getMemoryStats() const override

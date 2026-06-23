@@ -100,6 +100,18 @@ namespace Mila::Dnn::Compute::Cuda::Kernels
         }
     }
 
+    // Float-scalar variant: the float->T conversion is done here in DEVICE code (where
+    // __float2bfloat16 etc. are defined), so host-only callers never construct a bf16 from
+    // a float. Arithmetic is in float for accuracy.
+    template<typename T>
+    __global__ void scalar_multiply_float_kernel(const T* __restrict__ src,
+                                                 T* __restrict__ dst, float scalar, size_t n) {
+        const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx < n) {
+            dst[idx] = static_cast<T>( static_cast<float>( src[idx] ) * scalar );
+        }
+    }
+
     template<typename T>
     __global__ void scalar_divide_kernel(const T* __restrict__ src,
                                         T* __restrict__ dst, T scalar, size_t n) {
@@ -259,6 +271,15 @@ namespace Mila::Dnn::Compute::Cuda::Kernels
     }
 
     template<typename T>
+    void launch_scalar_multiply_float_kernel(const T* src, T* dst, float scalar,
+                                            size_t n, cudaStream_t stream) {
+        if (n == 0) return;
+        constexpr int block = 256;
+        const int grid = static_cast<int>((n + block - 1) / block);
+        scalar_multiply_float_kernel<T><<<grid, block, 0, stream>>>(src, dst, scalar, n);
+    }
+
+    template<typename T>
     void launch_scalar_divide_kernel(const T* src, T* dst, T scalar,
                                     size_t n, cudaStream_t stream) {
         if (n == 0) return;
@@ -388,6 +409,13 @@ namespace Mila::Dnn::Compute::Cuda::Kernels
     template void launch_scalar_multiply_kernel<double>( const double*, double*, double, size_t, cudaStream_t );
     template void launch_scalar_multiply_kernel<int>( const int*, int*, int, size_t, cudaStream_t );
     template void launch_scalar_multiply_kernel<__half>( const __half*, __half*, __half, size_t, cudaStream_t );
+
+    // Float-scalar multiply (float->T conversion inside the kernel; used by TensorOps::scale).
+    template void launch_scalar_multiply_float_kernel<float>( const float*, float*, float, size_t, cudaStream_t );
+    template void launch_scalar_multiply_float_kernel<double>( const double*, double*, float, size_t, cudaStream_t );
+    template void launch_scalar_multiply_float_kernel<int>( const int*, int*, float, size_t, cudaStream_t );
+    template void launch_scalar_multiply_float_kernel<__half>( const __half*, __half*, float, size_t, cudaStream_t );
+    template void launch_scalar_multiply_float_kernel<__nv_bfloat16>( const __nv_bfloat16*, __nv_bfloat16*, float, size_t, cudaStream_t );
 
     template void launch_scalar_divide_kernel<float>( const float*, float*, float, size_t, cudaStream_t );
     template void launch_scalar_divide_kernel<double>( const double*, double*, double, size_t, cudaStream_t );

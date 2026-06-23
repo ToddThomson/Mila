@@ -89,6 +89,17 @@ namespace Mila::Dnn::Compute::Cuda::Kernels
         size_t n, cudaStream_t stream );
 
     /**
+     * @brief Launch scalar multiplication with a float scalar: dst = T(float(src) * scalar).
+     *
+     * The float->T conversion happens inside the kernel (device code), so callers in pure
+     * host translation units (e.g. C++23 module .ixx compiled by MSVC, not nvcc) never need
+     * a host-side float->bf16 cast, which is undefined there. Arithmetic is done in float.
+     */
+    template<typename T>
+    void launch_scalar_multiply_float_kernel( const T* src, T* dst, float scalar,
+        size_t n, cudaStream_t stream );
+
+    /**
      * @brief Launch scalar division: dst = src / scalar
      */
     template<typename T>

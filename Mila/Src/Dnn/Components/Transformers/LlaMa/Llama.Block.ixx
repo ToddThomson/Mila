@@ -211,15 +211,12 @@ namespace Mila::Dnn
             // Preserve skip connection
             auto res1_view = res1_prefill_->view( shape_t{ B, T_actual, config_.getModelDim() }, 0 );
             copy( input, res1_view );
-            // DEBUG: this->getExecutionContext()->synchronize();
 
             // Pre-attention RMSNorm
             auto& rms1_out = rms1_->forward( input );
-            // DEBUG: this->getExecutionContext()->synchronize();
 
             // Fused QKV projection
             auto& qkv_out = qkv_proj_->forward( rms1_out );
-            // DEBUG: this->getExecutionContext()->synchronize();
 
             // Split the fused QKV output into separate Q, K and V for RoPE and GQA
             // Create T-trimmed views into the pre-allocated chunk buffers so split()'s
@@ -233,43 +230,33 @@ namespace Mila::Dnn
                 q_view, k_view, v_view,
                 this->getExecutionContext() );
 
-            //this->getExecutionContext()->synchronize();
 
             // RoPE
             rope_->prefill( q_view, k_view, position_offset );
-            //this->getExecutionContext()->synchronize();
 
             // GQA prefill
             auto& attn_out = attn_->prefill( q_view, k_view, v_view, position_offset );
-            //this->getExecutionContext()->synchronize();
 
             // 5. Output projection
             auto& out_proj_out = out_proj_->forward( attn_out );
-            //this->getExecutionContext()->synchronize();
 
             // 6. First residual
             auto& res1_out = res1_->forward( res1_view, out_proj_out );
-            //this->getExecutionContext()->synchronize();
 
             // 7. Post-attention RMSNorm
             auto& rms2_out = rms2_->forward( res1_out );
-            //this->getExecutionContext()->synchronize();
 
             // 8. Fused gate+up projection
             auto& gate_up_out = fc_gate_up_->forward( rms2_out );
-            //this->getExecutionContext()->synchronize();
 
             // 9. SwiGLU
             auto& swiglu_out = swiglu_->forward( gate_up_out );
-            //this->getExecutionContext()->synchronize();
 
             // 10. Down projection
             auto& ffn_out = fc_down_->forward( swiglu_out );
-            //this->getExecutionContext()->synchronize();
 
             // 11. Second residual
             auto& res2_out = res2_->forward( res1_out, ffn_out );
-            //this->getExecutionContext()->synchronize();
             
             return res2_out;
         }

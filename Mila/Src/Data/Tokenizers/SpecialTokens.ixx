@@ -279,6 +279,26 @@ namespace Mila::Data
         }
 
         /**
+         * @brief Gemma (SentencePiece) configuration.
+         *
+         * Gemma's four named control tokens: <pad>=0, <eos>=1, <bos>=2, <unk>=3.
+         * The instruct turn-boundary tokens <start_of_turn>/<end_of_turn> are NOT
+         * hardcoded here — BpeVocabulary::loadGemma registers them from the loaded
+         * vocabulary so their ids come from the checkpoint, not a constant.
+         */
+        static SpecialTokens gemmaStyle()
+        {
+            return SpecialTokens{
+                .use_pad = true, .use_unk = true, .use_bos = true, .use_eos = true,
+                .use_mask = false, .use_sep = false, .use_cls = false,
+                .pad_token = "<pad>",
+                .unk_token = "<unk>",
+                .bos_token = "<bos>",
+                .eos_token = "<eos>"
+            };
+        }
+
+        /**
          * @brief Configuration with no special tokens.
          */
         static SpecialTokens none()

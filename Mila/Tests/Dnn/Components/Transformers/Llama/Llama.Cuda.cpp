@@ -262,6 +262,8 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
     {
         LlamaCuda net( "llama", smallConfig(), Device::Cuda( 0 ) );
 
-        EXPECT_EQ( net.getType(), ComponentType::Llama );
+        // Structural kind is Network; the Llama architecture identity is ModelType.
+        EXPECT_EQ( net.getType(), ComponentType::Network );
+        EXPECT_EQ( net.getModelType(), ModelType::Llama );
     }
 }

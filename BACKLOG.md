@@ -41,6 +41,31 @@ Project Hygiene below; the migration/cleanup tasks specific to closing alpha are
 - [~] **`Activation` elementwise primitive** — collapse the 8 elementwise `ActivationType` entries into one compile-time `Activation<Device, Precision, ActivationType TFn>` over a shared `MILA_HD` functor library + Cpu/Cuda `ElementwiseActivationOp` (functor-templated, NOT a 5th `OperationTraits` axis; design in FfnAndMoE.md §5/§5.1). `Gelu` folds in (its tests become a function-sweep). One CPU op = all eight elementwise functions on CPU. The Gelu-only foundation is what `MLP` de-polymorphization holds; the remaining 7 functors land incrementally after it. The CPU `SwigluOp` gate op stays the demand-driven contributor item below — now near-free once the shared functor library exists, since the gate reuses it. **DONE (component + op layer, added alongside `Gelu`):** `ElementwiseActivation.h` functor library (`MILA_HD`; all 8 functions Identity/GeluTanh/SiLU/ReLU/Tanh/Sigmoid/LeakyReLU/Mish), `CpuElementwiseActivationOp<Functor>` (FP32, all eight), `CudaElementwiseActivationOp<Precision, Functor>` + functor-templated kernels (FP32+BF16, grid-stride, explicit-instantiation bridge), `OperationType::ElementwiseActivationOp` + the member-template `op_for<Functor>` traits specializations (Cpu FP32 / Cuda FP32+BF16 — the "resolve the op template, no 5th axis" shape), and the `Activation<…, TFn>` component (`functor_of` enum->functor map, undefined-primary => hard error on non-elementwise) + `ActivationConfig`. Tests: `Activation.Cpu` typed function-sweep (7 functions, fwd+backward numeric), `ActivationConfig`, `Activation.Cuda` (FP32+BF16 SiLU sweep + FP32 multi-functor). **REMAINING:** fold `Gelu` (and `MLP`'s child) onto `Activation` (deferred — keep `Gelu` for now); CPU `SwigluOp` (contributor item below); CPU-only **install** shipping of `ElementwiseActivation.h` (registered in the CUDA `cuda_headers` set only — builds fine everywhere via file-relative include; a core HEADERS file set for the CPU-only install tree is the gap)
 - [ ] **`GatedMLP` (gated FFN + MoE-expert reference)** — DONE for the single-expert reference: `GatedMLP<Device, Precision, ActivationType TGate = Silu>` composite (`fc_gate_up` Linear(in->2H, fused) -> `Swiglu` gate -> `fc_down` Linear(H->in)), `GatedMLPConfig`, `ComponentType::GatedMlp`, with the FfnAndMoE.md §9 MoE-readiness seams (injected-context norm, trailing-dim-agnostic forward). Tests: `GatedMLPConfig` (CPU) + `GatedMLP.Cuda` (FP32+BF16 wiring: shape contract, parameter count, bias-free zero-input identity, backward shape). **`TGate` is currently constrained to `Silu` by `static_assert`** — the existing `SwigluOp` is SiLU-fixed; generalizing the gate (GeGLU/ReGLU) needs `Swiglu<…, TGate>` over the shared functor library + the CPU `SwigluOp`, pairing with the activation-unification follow-ups. **REMAINING (Future Direction — Architecture/MoE, not a 0.20 gate):** `LlamaBlock` delegating to `GatedMLP` (delete its inline FFN); grouped `MoeOp` + `Router`/`MixtureOfExperts`
 
+- [x] **`ComponentType` / `ModelType` axis split (resolves the `ComponentType.ixx:58` REVIEW marker).**
+  The REVIEW questioned whether named architectures (`Gpt2`/`Llama`/`Mistral`/`Bert`) belong in
+  `ComponentType`. They do not: `ComponentType` is the structural *kind* (Linear / Transformer block /
+  Network), and architecture identity is an orthogonal axis. Confirmed dead/miswired before removal —
+  the four values were absent from all four converters (so `toString(ComponentType::Llama) == "Unknown"`),
+  `getType()` has NO production consumer (only self-asserting unit tests read it), and model
+  serialization already self-identifies via a string literal (`save_` writes `"LlamaTransformer"`).
+  **Done 2026-06-20:** removed the four values; the three top-level networks (`LlamaTransformer`,
+  `GptTransformer`, `GemmaTransformer`) drop their `getType()` override (inheriting
+  `Network::getType() == ComponentType::Network`) and gain a `getModelType()` accessor returning the new
+  `ModelType` enum ([ModelType.ixx](Mila/Src/Dnn/Core/ModelType.ixx): `Unknown`/`Gpt2`/`Llama`/`Gemma`/
+  `Mistral`/`Bert` + `toString`/`modelTypeFromString`). The three `GetType_Is*` tests now assert
+  `getType()==Network` (kind) AND `getModelType()==ModelType::X` (architecture). Wired into
+  Mila/CMakeLists.txt + Mila.ixx. `Network`'s enum value is unchanged (it precedes the removed values;
+  `CustomComponentStart`/`MockComponent` are pinned at 1000), so no serialization value drift.
+- [ ] **[deferred] `ComponentType` vitality — does `getType()` earn its keep?** The REVIEW above is the
+  visible tip of a larger question: `getType()` and all four `ComponentType` converters
+  (`toString`/`fromString`/`toTypeId`/`fromTypeId`) have NO production consumer — the accessor is read
+  only by tautological self-asserting tests, and the converters are not called anywhere. Either wire them
+  to a real consumer (e.g. a typed serialization/registry key replacing the `save_` string literals) or
+  retire the unused surface. A `ComponentType`-wide decision, larger than the architecture-axis split;
+  deferred so it does not bloat that focused cleanup. Same latent question applies to the new
+  `ModelType` accessor — keep it anchored to a real consumer (the model-agnostic Chat layer on the
+  Qwen 3 roadmap is the natural one) rather than letting it drift into the same test-only limbo.
+
 Deferred / not alpha-close gates:
 
 - [ ] **[deferred, milestone TBD]** Token sampling (temperature / top-k / top-p) — `OperationTraits<SamplingOp, Cuda, FP32>` and `<…, BF16>` specializations; `TokenSampler` component + `CudaSamplingOp` per `Specifications/TokenSampling.md`. **Pushed out of Consolidation** (feature freeze — no new features); milestone undecided, to be assigned later. Not a 0.20 gate — greedy decode is already validated, so this is additive
@@ -503,8 +528,640 @@ order.
   both prefill+decode use it (was `1.0f/sqrtf(HS_)`). Tests added. LANDED (awaiting build). **5c GemmaBlock
   + IDecoderLayer** (two instantiations, sandwich norm,
   QK-norm, GeGLU, geometry; HAS design decisions -- align before building). **5d GemmaTransformer**
-  (scaled embedding -> heterogeneous layers -> final norm -> lm_head -> logit softcap -> KV-cache
-  orchestration). **5e GemmaModel::fromPretrained + HF->Mila Python converter.** **5f HF parity.**
+  (heterogeneous layers -> final norm -> lm_head -> KV-cache orchestration). **Design decisions
+  2026-06-20:** (1) **Embedding scale (sqrt(hidden_size)) folds into the CONVERTER (5e), not the
+  transformer** -- Mila keeps token-embedding and lm_head UNTIED (separate blobs; see the weight-tying
+  optimization item below), so the converter scales the embedding table by sqrt(3840) and writes lm_head
+  its own UNSCALED copy from the same (tied-in-HF) tensor. 5d's forward stays structurally identical to
+  LlamaTransformer (no runtime `scale` primitive). Nuance: pre-store fold rounds fp32->bf16 vs HF's
+  bf16 runtime multiply -- negligible for greedy; revisit at 5f if a token flips. (2) **Logit softcap
+  (30*tanh(logits/30)) deferred to host-side at the sampler** -- strictly monotonic, so it does NOT
+  change greedy argmax (5f parity unaffected); only reshapes the distribution for temperature/top-p
+  sampling. `GemmaConfig::getFinalLogitSoftcapping()` carries the scalar; no device kernel in 5d.
+  (3) **Heterogeneous layers**: `vector<IDecoderLayer*>` over two `GemmaBlock` instantiations (kGlobal
+  false/true), `config_.isGlobalLayer(i)` selects per layer. (4) **One shared `GqaState` workspace** sized
+  at the MAX head_dim (global 512) for q_permute/v_out and [B,NH,chunk,T] for preatt/att (NH=16 shared);
+  `CudaGqaOp::setState` takes only the raw pointer and indexes with its own HS_, so the local (HS=256)
+  layers use a prefix of the 512-sized buffer. **LANDED 2026-06-20 (awaiting VS2026 build):** new module
+  `Dnn.Components.GemmaTransformer` ([Gemma.ixx](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.ixx)) —
+  `LanguageNetwork` subclass, inference-only (forward/backward throw; prefill/decode drive generation),
+  heterogeneous `vector<IDecoderLayer*>` built from the two GemmaBlock instantiations per `isGlobalLayer`,
+  one shared `GqaState` workspace at max head_dim, chunked prefill + single-token decode mirroring
+  LlamaTransformer, `loadParameters` via `PretrainedModelReader`. Wired: Mila/CMakeLists.txt source +
+  Mila.ixx umbrella export. NO runtime `scale` primitive and NO softcap kernel (folded to converter /
+  sampler per the decisions above). Transformer-level validation is 5f HF parity + the GQA operation-level
+  oracle (the "Correctness-oracle dependency" item below). **Structural tests LANDED 2026-06-20 (TDD
+  catch-up; 5c/5d had drifted to config-tests-only):** [Gemma.Block.Cuda.cpp](Mila/Tests/Dnn/Components/Transformers/Gemma/Gemma.Block.Cuda.cpp)
+  — both GemmaBlock instantiations: construction, build contract, getType, 15-child graph, and the Gemma
+  GEOMETRY deltas (decoupled head_dim; local 256 vs global K=V 320 packed-QKV widths); inference-only, no
+  forward/backward (modeled on Llama, not GptBlock's training path). [Gemma.Cuda.cpp](Mila/Tests/Dnn/Components/Transformers/Gemma/Gemma.Cuda.cpp)
+  — GemmaTransformer: construction/build/type/getModelType, inference-only throw contract, heterogeneous
+  (local+global) BUILD, and prefill/decode logits-shape + finiteness on an ALL-LOCAL config (validated
+  compact-NKV GQA path). Registered in Tests/CMakeLists.txt CUDA section. **The test instantiation
+  immediately earned its keep — concretely instantiating GemmaBlock/GemmaTransformer for the first time
+  surfaced (and fixed) two latent gaps the library-only build never compiled: (1) `GroupedQueryAttention`
+  had no public `resetKVCache()` (its header comment claimed one; `GemmaBlock`'s virtual IDecoderLayer
+  override forced it) -- added, delegating to the internal `kv_cache_op_->resetKvCache()`; the latent
+  `LlamaBlock::resetKVCache()` typo is now valid too. (2) the Gemma global K=V split `[Q|K]` needs a
+  2-output `split`, but the Cuda backend only implemented the 3-output one (Llama only ever splits Q|K|V)
+  -- added `Cuda::StructuralOps::split(in, out0, out1, ctx)` reusing the 3-way kernel with a zero-width
+  third output (no new .cu). Both were invisible until the types were instantiated.** **Still blocked (deferred, not
+  skipped):** numeric correctness + the global K=V / head_dim-512 execution path (run only at 5f against
+  the HF oracle, or via the GQA operation-level oracle below) — these are genuinely gated, not an
+  oversight. A standalone `Llama.Block` test does not exist either; Gemma's block coverage now exceeds it. **5e GemmaModel::fromPretrained + HF->Mila
+  Python converter** (folds the embedding sqrt(d) scale + the (1+weight) RMSNorm convention; writes untied
+  lm_head). **LANDED 2026-06-20 (awaiting VS2026 build + a real Gemma 4 checkpoint to validate):**
+  (a) `PretrainedMetadata` extended with `head_dim` + the Gemma chassis fields (`global_head_dim`,
+  `num_global_kv_heads`, `key_equals_value`, `window`, `sliding_window_pattern`, `global_rotary_dim`,
+  `rope_theta_local`/`global`, `final_logit_softcapping`) + JSON parsing
+  ([PretrainedReader.ixx](Mila/Src/Dnn/Serialization/PretrainedReader.ixx)); (b)
+  `Dnn.Models.GemmaModelConfig` (mirror of LlamaModelConfig, deployment-only); (c) `Dnn.Models.GemmaModel`
+  ([GemmaModel.ixx](Mila/Src/Dnn/Models/GemmaModel.ixx)) — `fromPretrained` None/FP8/FP4 dispatch +
+  `configFromMetadata` building the full `GemmaConfig`, inference-only (onTraining throws); (d) Python
+  `Tools/Converters/Gemma/convert_weights.py` folding the sqrt(d) embedding scale (untied unscaled
+  lm_head), the (1+weight) RMSNorm on all 6 norms + QK-norms + final norm, per-layer K=V QKV fusing
+  (`[Q|K]` global / `[Q|K|V]` sliding), GeGLU gate+up fuse, and the full metadata. Wired into
+  Mila/CMakeLists.txt + Mila.ixx. **TWO things to confirm at 5f (flagged in-code as `REVIEW:`):** the
+  Gemma EOS / `<end_of_turn>` stop-token ids (`GemmaModel::eosToken`/`stopTokens` use 1 / 106), and the
+  HF Gemma 4 config attribute names + state_dict keys (read defensively with Gemma.md defaults; the
+  converter prints every resolved value on first run). **Gemma tokenizer converter LANDED 2026-06-20:**
+  [Tools/Converters/Gemma/convert_tokenizer.py](Mila/Tools/Converters/Gemma/convert_tokenizer.py) modeled
+  on the validated [Llama/convert_tokenizer.py](Mila/Tools/Converters/Llama/convert_tokenizer.py) — HF
+  `AutoTokenizer` but **fact-driven** (NO SentencePiece runtime dependency — convert-time HF gives vocab +
+  scores + merges, the Mila runtime decodes over the extracted data): parses the fast tokenizer's
+  serialized `model` block to detect **BPE vs Unigram**, extracts **merges** (BPE) or per-piece **scores**
+  (Unigram), and writes a Gemma-extended binary (adds a `model_type` byte + `num_merges` section to the
+  shared format) so `loadGemma` picks the matching decode path. Special tokens read off the tokenizer
+  (also prints the real `<start_of_turn>`/`<end_of_turn>` ids, resolving the `GemmaModel` stop-token
+  REVIEW) + HF round-trip sanity print. Wired into the Converters README.
+  **REMAINING in 5e — runtime `BpeVocabulary::loadGemma` / `BpeTokenizer::loadGemma`, GATED on the model
+  type the converter reports (run it once to confirm):** common to both = `byte_level=false` (pieces are
+  raw UTF-8), a NEW SentencePiece pre-tokenization (Metaspace: space->U+2581 + add_prefix_space, no
+  tiktoken regex), `SpecialTokens::gemmaStyle()`, byte-fallback (`<0xNN>` pieces, gated so Llama/GPT-2 are
+  byte-for-byte unaffected). **If BPE** (expected): reuse Mila's existing merge-by-rank path
+  (`encodeSegmentBpe`) with a Gemma initial-unit step = UTF-8 *character* split + byte-fallback for unknown
+  chars (not the per-byte / GPT-2-byte-encode splits Llama/GPT-2 use). **If Unigram:** a NEW Viterbi
+  decode over the scores (Mila has none). Per [[feedback_minimal_reversible_change]] build the matching
+  path on the CONFIRMED type, not the assumption. Confirmed necessary by reading the runtime: `loadLlama32`
+  sets `byte_level=true` + Llama3 regex + GPT-2 byte-encoder ([BpeVocabulary.ixx:1150](Mila/Src/Data/Tokenizers/Bpe/BpeVocabulary.ixx),
+  [BpeTokenizer.ixx](Mila/Src/Data/Tokenizers/Bpe/BpeTokenizer.ixx)), none of which match Gemma's pieces.
+  Validate with an encode round-trip vs the HF tokens the converter prints. **5f HF parity** then runs
+  end-to-end through Mila's own tokenizer.
+  **UPDATE 2026-06-20 — type CONFIRMED BPE** (real run: 262144 vocab, 514906 merges) **and the runtime
+  LANDED (awaiting VS2026 build + the round-trip test):** new `PreTokenizationMode::SentencePiece`
+  Metaspace pre-tokenization (space->U+2581, split at marks, NO leading prefix — HF showed `The` not
+  `_The`), `SpecialTokens::gemmaStyle()` + `<start_of_turn>`/`<end_of_turn>` registered from the loaded
+  vocab, `BpeVocabulary::containsToken` (raw lookup; the byte-fallback test can't use `tokenToId` which
+  substitutes UNK), `BpeVocabulary::loadGemma` reading the extended binary, and in `BpeTokenizer` a
+  SentencePiece encode (UTF-8 *character* initial units + `<0xNN>` byte-fallback, then the shared merge
+  loop extracted as `applyMerges`) + decode (U+2581->space, `<0xNN>`->byte). All gated behind
+  `is_sentencepiece_` so the Llama/GPT-2 byte-level paths are byte-for-byte untouched. Gated test
+  [BpeTokenizer.Gemma.cpp](Mila/Tests/Data/Tokenizers/Bpe/BpeTokenizer.Gemma.cpp) asserts HF encode parity
+  (`"The capital of France is Paris."` -> `{818,5279,529,7001,563,9079,236761}`) + round-trip + atomic
+  special tokens; skips unless the binary is at `<TEST_DATA_DIR>/models/gemma/gemma_tokenizer.bin`.
+  **5f greedy-parity harness LANDED 2026-06-20:** building on the existing Llama validation pattern
+  ([Dev/Scripts/llama_32_BF16/hf_llama_greedy_validation.py](Dev/Scripts/llama_32_BF16/hf_llama_greedy_validation.py)),
+  [Dev/Scripts/gemma_4_BF16/hf_gemma_greedy_validation.py](Dev/Scripts/gemma_4_BF16/hf_gemma_greedy_validation.py)
+  is the HF reference (Gemma 4 12B-it, bf16/CUDA): it greedy-decodes once and prints the prompt +
+  generated token ids (copy-paste `kPromptIds`/`kExpectedGen` lines). **5f parity is an in-suite C++
+  TEST, not a Python comparison:** those ids are hardcoded as ground truth in
+  [Tests/Dnn/Models/GemmaModel.Parity.Cuda.cpp](Mila/Tests/Dnn/Models/GemmaModel.Parity.Cuda.cpp), which
+  loads `GemmaModel::fromPretrained` and asserts greedy decode reproduces them token-for-token (Mila omits
+  the trailing EOS HF emits, so the assertion is a token-exact PREFIX). Same pattern as the tokenizer
+  suite's HF ground truth; uses `GemmaModel` directly (no Python / no binding at test time). Gated: skips
+  without a CUDA device, populated ids, AND the checkpoint at
+  `<TEST_DATA_DIR>/models/gemma/gemma4_12b_it_bf16.bin` (opt-in integration, never in CI). Feeding the HF
+  prompt ids isolates MODEL parity (incl. the global K=V / head_dim-512 path); the tokenizer is validated
+  separately (BpeTokenizerGemma). **To run 5f:** convert the weights (`convert_weights.py`, ~24 GB bf16),
+  run the HF script, paste the two id lines into the test, rebuild + run. Locks in the `<end_of_turn>`
+  stop-token id the converter now prints.
+  **2026-06-20 — ground truth applied + FP4 dev-card fit; test is RED (structural bug, NOT FP4 noise).**
+  `kPromptIds`/`kExpectedGen` are populated; the test loads with `.withFP4Quantization()` because the 12B
+  BF16 weights (~24 GB) do not fit the 12 GB dev card — FP4 (`PerGroupFp4<128>`) brings the resident
+  footprint to ~1/4 BF16 (BF16 checkpoint still read from disk + quantized host-side at load). First run
+  diverges at generated token 0 with garbage high-vocab argmax (e.g. 255999) and stays wrong for all 9
+  tokens. That is NOT FP4 rounding (quant noise accumulates gradually and at worst flips a LATE argmax;
+  it does not produce garbage from token 0). **Root-cause framing:** 5f is the FIRST numeric validation
+  of (a) the full Gemma stack end-to-end and (b) the global K=V / head_dim-512 attention path — by design
+  ([Gemma.Cuda.cpp](Mila/Tests/Dnn/Components/Transformers/Gemma/Gemma.Cuda.cpp) header: the global path
+  is BUILD-only/finiteness-only, numerics deferred to 5f; the all-local compact-NKV path is the only
+  executed one). The 12B checkpoint uses a 5:1 local:global pattern, so the parity run is the first time
+  the global path AND the full-stack integration (embedding sqrt(d) scale, dual RoPE, QK-norm, sandwich
+  norm) execute against a real reference. FP4 is a SECOND, unseparated confound: a BF16 12B baseline does
+  not fit the 12 GB card, so "run BF16" cannot isolate model-correctness from FP4 here. **Next step:**
+  layer-wise activation diff vs HF — instrument `hf_gemma_greedy_validation.py` to dump per-layer hidden
+  states for `kPromptIds`, add a matching Mila activation dump (FP4, fits), and find the FIRST divergent
+  layer. Divergence at the first GLOBAL layer => global-attention kernel bug; divergence from layer 0
+  across the board => embedding scale / RoPE / norm (full-stack), FP4-independent. Logit softcap is ruled
+  OUT as a greedy cause (tanh softcap is monotonic; argmax unaffected). The `REVIEW:` markers in
+  [GemmaModel.ixx](Mila/Src/Dnn/Models/GemmaModel.ixx) `eosToken()`/`stopTokens()` are confirmed by the
+  ground truth (`<end_of_turn>`=106, `<eos>`=1) and can be retired independently of parity going green.
+  **Chat sample now selects Gemma (2026-06-20):** [Samples/Chat/Src](Mila/Samples/Chat/Src) gained
+  `ModelType::Gemma`/`ModelSize::B12`, a `gemma-12b` alias (instruct, BF16 compute, **defaults to FP4** so
+  it fits the dev card), the Gemma instruct chat template (`<start_of_turn>{user,model}\n...<end_of_turn>`
+  with the system turn folded into the first user turn), `loadGemma` tokenizer wiring, and Gemma special
+  tokens added to the response stripper. Paths: `<models>/gemma/gemma4_12b_it_bf16.bin` +
+  `<models>/gemma/gemma_tokenizer.bin`. Chat-only edits (no core API change).
+  **VRAM reality on the 12 GB dev card (2026-06-20) — FP4 12B does NOT fit 12 GB, by a wide margin.**
+  Resident = ~9.14 GB params (FP4 transformer ~5.4 GB; embedding BF16 ~2 GB; `lm_head` **deliberately
+  untied** — [Gemma.ixx:27,496](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.ixx) "writes lm_head its
+  own unscaled copy" so the embedding can carry the sqrt(d) scale — a second BF16 262144x3840 matrix,
+  ~2 GB) + ~5.9 GB State = ~15 GB. WDDM spills to shared system RAM -> per-forward PCIe paging ->
+  95-100% util thrash (correct values, just slow; the parity test runs this way — 42 s for 9 tokens).
+  **State does NOT scale with `context_length` (earlier assumption was wrong):** ctx 4096->1024->512 gave
+  State 7.2->6.10->5.92 GB. The ~5.8 GB floor is **per-layer prefill ACTIVATION buffers across all 48
+  layers, sized at the prefill CHUNK (512), dominated by the GeGLU FFN (gate_up=30720, hidden=15360)**:
+  ~4.4 GB activations + ~0.6 GB block scratch + ~0.4 GB shared RoPE cache. Only the small KV part
+  (~0.35 MB/token) tracks context. **Root cause of the over-budget chunk:**
+  `computeGemmaPrefillChunkSize` ([Gemma.ixx:96](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.ixx))
+  picks the largest chunk in {512,256,128} whose GQA attention scratch fits a 1536 MB cap — it is BLIND
+  to the 48xFFN activation cost (the dominant term), so it returns 512 (attn scratch there is only
+  ~25 MB). The chunk is not exposed as a config/CLI knob. **Lever = smaller prefill chunk** (chunk 128 ->
+  activations ~1.1 GB; chunk 64 -> ~0.6 GB), but even chunk 64 is marginal because params alone (9.14 GB)
+  + driver overhead (~1 GB) leave <2 GB. **Fix shipped (partial, chat-only):** Gemma chat default context
+  lowered (4096 -> 512) via `defaultContextLength()` in
+  [Chat.Config.ixx](Mila/Samples/Chat/Src/Chat.Config.ixx) — necessary but NOT sufficient (context is not
+  the lever). **Open core options (need a decision, all internal-impl):** (A) make
+  `computeGemmaPrefillChunkSize` activation-aware (budget num_layers x per-token activation bytes, not
+  just attn scratch) so it auto-drops to 128/64 under a real VRAM budget; (B) expose a prefill-chunk /
+  VRAM-budget override on `GemmaModelConfig` + a `--prefill-chunk` CLI flag; (C) **reclaim the ~2 GB
+  untied lm_head** by sharing storage with the embedding via an unscaled read-path view (params
+  9.14 -> ~7.1 GB; the comfortable win) — deferred, needs care because the scale decoupling is why it is
+  untied; (D) pool the 48 per-layer activation buffers (only one layer is live at a time in the
+  sequential forward — the real architectural waste) — biggest win, biggest refactor. **Sequencing note:**
+  footprint work is independent of and lower-priority than the 5f structural correctness bug above —
+  coherent chat is blocked on correctness regardless, the parity test already exercises the model
+  (thrash-but-correct) at ctx 512, and a 16 GB Blackwell card (where 12B-FP4 fits comfortably) is
+  inbound. Recommend: fix correctness first, treat footprint as a separate track.
+  **Decode-past-context crash FIXED (2026-06-20).** With a small prefill chunk (the run finally went fast
+  enough to reach it), Gemma chat crashed in `CudaGqaOp::decode_optimized`
+  ([CudaGqaOp.ixx:572](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOp.ixx)) with
+  `position >= active_max_seq_len_` (position_offset 512, capacity 512). Root cause: `GemmaModel` bounded
+  the prompt AND ran the decode loop against the ARCHITECTURAL max (`config_.getMaxSequenceLength()` =
+  262144), not the deployment context the KV cache was actually built with (512). With max_new_tokens=2048
+  > context=512, decode wrote past the cache. Fix: `GemmaModel` now stores the build `context_length_` and
+  bounds both `truncateIfNeeded` (prompt) and the decode loop (`if (position >= context_length_) break;`)
+  against it — generation stops cleanly at the context boundary. **Latent in Llama too:**
+  `LlamaModel::onGenerating` ([LlamaModel.ixx:320](Mila/Src/Dnn/Models/LlamaModel.ixx)) has the identical
+  unguarded loop + architectural-max truncation; never triggers only because the Llama default context
+  (4096) exceeds max_new_tokens (2048). Apply the same `context_length_` bound to `LlamaModel` (TODO).
+  **Activation-diff instrumentation in flight (2026-06-20, TEMPORARY — remove once localized).** Simple
+  print-to-screen (no files): to find WHERE Gemma diverges from HF, both sides PRINT a one-line summary of
+  each prefill layer's LAST-TOKEN hidden state (l2 / mean / min / max + first 3 values) and you eyeball the
+  two consoles top-down — first stage whose magnitudes diverge by orders of magnitude is the culprit.
+  (1) `kGemmaDumpActivations` constexpr toggle in
+  [Gemma.ixx](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.ixx) -> `printActivationSummary` prints
+  `[GEMMA-DUMP] {embed,layer_00..47,final_norm} ...`; only fires when the whole prompt is ONE chunk, so keep
+  `kGemmaPrefillChunkOverride` >= prompt length. (2)
+  [hf_gemma_activation_dump.py](Mila/Tools/Converters/Gemma/gemma_4_BF16/hf_gemma_activation_dump.py)
+  prints `[HF-DUMP] ...` in the same format, capturing each layer's output via forward hooks (robust to
+  Gemma-4's `.language_model` wrapper). Run the PARITY TEST (single prefill of kPromptIds) with the toggle
+  on for the Mila side; run the script where the HF ground truth was captured. Interpretation: embed
+  off=front-end/sqrt(d) scale; first GLOBAL layer (5:1 -> layers 5,11,17,..)=global K=V/head_dim-512 path;
+  a local layer=QK-norm/RoPE/GeGLU/sandwich-norm. Remove the toggle + `printActivationSummary` + the temp
+  `<iostream>`/`<cmath>` includes once the divergent stage is found.
+  **Localized to the FIRST decoder block (2026-06-20).** Per-layer dump result: `embed` MATCHES HF
+  (Mila l2=64.08 vs HF 64.12, mean/min/max identical) -> embedding load + sqrt(d) scale are CORRECT.
+  `layer_00` EXPLODES (Mila l2=1619 vs HF 88, ~25x, non-uniform per-element ratios 11-39x -> structural,
+  not a scalar). layer 0 is LOCAL (globals at 5,11,..). All downstream layers (incl. the layer-11 jump to
+  ~5100) are accumulation on top. So the bug is in the first local `GemmaBlock` forward (never value-
+  validated; Gemma.Cuda.cpp only checked finiteness). Suspects, in order: the FP4 Linears (qkv/o/gate_up/
+  down -- first FP4 ops in the net, embed proved the unquantized path) vs the block wiring (QK-norm / local
+  GQA scale / GeGLU / sandwich-norm). NEXT PROBE LANDED: `kGemmaBlockDumpActivations` in
+  [Gemma.Block.ixx](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx) prints per-sub-step
+  LAST-TOKEN magnitudes (`[BLOCK-DUMP]`) for the first prefill call of each block kind -- self-contained
+  (no HF; the explosion is 25-80x, far beyond FP4 rounding), so the first sub-step whose l2 jumps to the
+  thousands names the culprit op. Also TEMPORARY, remove with the rest.
+  **Localized to the ATTENTION sub-block; FP4 + norms EXONERATED (2026-06-20).** Sub-step + HF compare:
+  Mila `input_norm.W`(1103, min-142/max+194) == HF `input_norm.W(1+w)` EXACTLY -> norm weights load
+  correctly and ARE legitimately large (Gemma quirk; the earlier "corrupted weight" guess was WRONG).
+  Mila `input_norm` output (1157) == HF (1132). First DIVERGENCE is the attention output: Mila `o_proj`
+  l2=**1567** vs HF `self_attn` l2=**50.5** (~31x). Since everything upstream matches and the FP4 Linears
+  feed off a correct `input_norm`, FP4 is NOT the cause. Prime suspect: the **attention scale**. The block
+  hardcodes `GqaConfig.withAttentionScale(1.0f)` per the 2026-06-19 decision above ("HF Gemma self.scaling
+  =1.0, QK-norm controls magnitude") -- a judgment call that the 31x attention divergence contradicts. NEXT
+  (HF probe extended, no Mila rebuild needed): print HF `self_attn.scaling` / `query_pre_attn_scalar` /
+  `head_dim`, and dump HF `q_norm`/`k_norm`/pre-`o_proj` attention to compare against Mila `qk_norm(q)`=130
+  / `attn`=1893. If HF scaling != 1.0 (e.g. 256^-0.5=0.0625) the hardcoded 1.0 is the bug; if HF
+  pre-o_proj attention << 1893 it is the attention math (scale), if ~1893 it is `o_proj`. Re-validate the
+  2026-06-19 "scaling=1.0" conclusion against the loaded model.
+  **Root cause near-certain: QK-norm `(1+w)` over-application (2026-06-20).** HF `self_attn.scaling=1.0`
+  (matches Mila -> scale exonerated, the 2026-06-19 call was right). HF attention internals: `q_norm` out
+  RMS 1.02, `k_norm` out RMS **0.12** (tiny K -> small scores -> SOFT softmax -> `attn_pre_oproj` RMS 0.78,
+  heavy averaging). Mila `qk_norm(q)` RMS **2.03 (exactly 2x HF)** and `attn_pre_oproj`=1893 (RMS 29.6 ~ V
+  -> over-SHARP softmax, ~argmax). So Mila's Q (and K) are too large -> ~4x scores -> softmax flips
+  soft->sharp -> 38x attention blowup; `o_proj` is just a passthrough (exonerated). The exact-2x on q_norm
+  fits the converter applying the **`(1+w)`** convention to q_norm/k_norm when Gemma's per-head QK-norms
+  use the weight DIRECTLY: q raw w~1.02 -> `1+1.02`=2.02 (2x, matches); k raw w~0.12 -> `1.12` (~9x, the +1
+  dominates the small weight). `input_norm` (a sandwich norm, genuinely `(1+w)`) is unaffected -> matches
+  HF exactly. CONFIRM: Mila now prints `qk_norm(k)`/`q_norm.W`/`k_norm.W`; HF prints `q_norm.W_raw` vs
+  `(1+w)`. Whichever HF weight the q_norm OUTPUT RMS (1.02) matches is the convention HF applies -- if RAW,
+  the [convert_weights.py](Mila/Tools/Converters/Gemma/convert_weights.py) `_rmsnorm_to_numpy(+1)` must NOT
+  be applied to `q_norm`/`k_norm` (they are NOT sandwich norms). FIX is converter-side (re-convert) or a
+  load-time compensation; the (1+w) `_RMSNORM_KEYS` set should exclude the two QK-norms.
+  **CONFIRMED + FIXED in converter (2026-06-20).** Decisive numbers: HF `q_norm.W_raw`=1.0234,
+  `(1+w)`=2.0312; HF q_norm OUTPUT RMS=1.02 == RAW. HF `k_norm.W_raw`=0.1221, `(1+w)`=1.1250; HF k_norm
+  OUTPUT RMS=0.122 == RAW. Mila loaded `q_norm.W`=2.0312 / `k_norm.W`=1.1250 == HF `(1+w)`. So Gemma's
+  per-head QK-norms apply the RAW weight; the layer/sandwich norms use `(1+w)` (input_norm matched HF on
+  `(1+w)`). The converter wrongly ran `_rmsnorm_to_numpy(+1)` on q_norm/k_norm -> Q 2x, K ~9x (the +1
+  swamps the ~0.12 weight) -> ~18x scores -> over-sharp softmax -> 38x attention blowup -> garbage. FIX:
+  `q_norm`/`k_norm` now written via `_tensor_to_numpy` (raw), not `_rmsnorm_to_numpy`. FP4, the attention
+  scale (1.0, correct), o_proj, RoPE, and the norm LOAD path are all exonerated.
+  **STILL RED after the converter fix (2026-06-20 EOD) -- a SECOND bug remains (or the re-convert did not
+  land).** The QK-norm fix is correct (data-proven) but insufficient. RESUME PLAN (instrumentation is still
+  in place, toggles ON): (1) Re-run the parity test with `kGemmaBlockDumpActivations` ON and FIRST verify
+  the fix is actually in the loaded checkpoint -- `[BLOCK-DUMP] tf_layer_0 q_norm.W` should now read RMS
+  ~1.02 (l2~65, was 2.03/l2 32.5 over n=256... note q_norm.W is [head_dim], so check the printed value
+  ~1.02 not ~2.03) and `k_norm.W` ~0.12 (was 1.12), and `qk_norm(q)` RMS ~1.02 / `qk_norm(k)` ~0.12, and
+  `attn`/`attn_pre_oproj` should have dropped from ~1893 toward HF's ~50. If those are UNCHANGED, the
+  re-convert did not regenerate `gemma4_12b_it_bf16.bin` (check the converter output path / that the test
+  loaded the new file) -- cheap to rule out first. (2) If the QK-norm values ARE fixed but the model still
+  diverges, walk the per-layer `[GEMMA-DUMP]` vs `[HF-DUMP]` table for the NEW first divergent layer and
+  repeat the sub-step localization there. HF ground truth (`hf_gemma_activation_dump.py`) is captured and
+  reusable. Do NOT strip the instrumentation yet.
+  **2026-06-21: QK-norm fix VERIFIED in checkpoint; SECOND bug is in the LOCAL attention op.** Re-convert
+  landed: Mila `q_norm.W`=1.0234 / `k_norm.W`=0.1221 == HF raw; `qk_norm(q)` RMS 1.02 / `qk_norm(k)` 0.12
+  == HF exactly. BUT local `attn` still RMS 24.5 (HF 0.78), barely moved from the pre-fix value -- that
+  INSENSITIVITY to the now-correct Q/K means the local softmax is effectively one-hot regardless of
+  scores. Verified correct in code: scale=1.0 in the QK GEMM, the prefill_softmax causal+window mask
+  (local window=1024 -> window_start=0 for 18 tokens, == global; max_t2 excludes the uninitialized
+  [18:512] cache), and the converter QKV packing `[Q|K|V]` == block split. (Global's small `attn` is NOT
+  proof of health -- global V=K is QK-normed tiny ~0.06, so its output is small just from small V; the
+  clean signal is LOCAL Mila 24.5 vs HF 0.78.) NEXT PROBE LANDED:
+  [CudaGqaOp.ixx](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOp.ixx) `dumpScoreRow`
+  (static-once, first Gemma GQA prefill = layer 0 local) prints `[GQA-DUMP]` preatt (raw scores) + att
+  (softmax weights) for head 0 / last query. Read: att sum~1 & max~1 => one-hot (scores wrong -> QK GEMM);
+  att soft (max~1/n) but block `attn` still ~V => att*V GEMM/grouping wrong; preatt min/max huge =>
+  scale/GEMM. TEMPORARY, strip with the rest.
+  **2026-06-21 GQA dump result: ONE-HOT on key 0 (BOS) via a huge preatt[0].** `[GQA-DUMP]` layer 0 head 0
+  last query: `att` sum=1.0004 (softmax healthy), max=0.957, argmax=0; `preatt` max=+23.875 at key 0 vs
+  +-4.5 elsewhere. So the last query attends ~96% to the FIRST token (BOS) -> output collapses to V0 (~24).
+  Classic ATTENTION-SINK signature. Two opposite-fix hypotheses, decided by HF's layer0/head0/lastq
+  attention distribution (HF script now loads `attn_implementation="eager"` + `output_attentions=True`,
+  prints `[HF-ATTN]`): (A) HF ALSO sinks on key 0 (argmax 0, max ~0.95) -> the PATTERN is correct and the
+  bug is Mila's **V0**: sinks work because the sink token's VALUE is ~0 (absorbs attention, injects no
+  content); Mila V0 ~24 (==its attn output 24.5) vs HF V0 ~0.78 (==HF attn output) means Mila's BOS value
+  is wrong. (B) HF SPREADS -> Mila's preatt[0] score is spurious -> QK/RoPE bug. NOTE: because both sides'
+  attn output ~= V0 when sinking, comparing the existing attn outputs (Mila 24.5 vs HF 0.78) already
+  doubles as the V0 comparison IF (A). Strong prior: attention sink is real, so (A)/V0 is likely.
+  **2026-06-21 CONFIRMED (A): both sink on BOS, the bug is V0 DIRECTION.** `[HF-ATTN]` layer0/head0/lastq:
+  argmax=0 max=0.941 == Mila att 0.957. So the attention pattern is correct; the BOS value vector is wrong.
+  Note the V0 MAGNITUDE (~24) is what the pipeline produces for any token; HF's V0 is small by DIRECTION
+  (BOS aligned with v_proj null space = the learned sink), which magnitude dumps can't see (they matched
+  on the LAST token). NEXT PROBE LANDED: token-0 (BOS) DIRECTION trace -- Mila `printBlockToken0`
+  (`[BLOCK-T0]` input(t0)/input_norm(t0)/V(t0) with head values) + HF `t0()` (`[HF-T0]` embed/input_norm/
+  v_proj first token). Walk embed -> input_norm -> V at token 0: first stage whose head values diverge is
+  the bug (embed differs => BOS embedding row/scale; input_norm differs => norm; V differs => qkv/V proj).
+  **2026-06-21 ROOT CAUSE (airtight) + FIXED: the converter `(1+w)` is wrong for ALL norms; Gemma 4 uses
+  RAW weights.** Token-0 trace: `input(t0)` (BOS embedding) MATCHES HF exactly; `input_norm(t0)` diverges.
+  Element-wise effective weight (output/(x/rms)): Mila == HF + **exactly 1.0** on every channel
+  ([0] 18.9 vs 17.9, [1] 31.5 vs 30.4, [2] +1.0 vs -0.0001, [3] 17.1 vs 16.1). So HF applies the RAW
+  stored weight (Mila kernel is raw x*weight -- proven by Llama + the QK-norm fix); the converter's `+1`
+  over-applies. The killer is element [2], a MASSIVE-ACTIVATION channel (embedding 12.375): HF's raw
+  weight ~0 SUPPRESSES it; the spurious +1 (->1.0) turns it back on -> v_proj makes a large V0 -> the BOS
+  attention sink (both Mila & HF put ~95% on BOS) injects garbage instead of ~nothing -> residual
+  explodes. The QK-norm fix was the first instance of this same bug. FIX:
+  [convert_weights.py](Mila/Tools/Converters/Gemma/convert_weights.py) `_rmsnorm_to_numpy` no longer adds
+  1.0 (all norms -- sandwich/QK/final -- written RAW); header + GemmaBlock header comments corrected.
+  **ACTION: re-run `convert_weights.py` to regenerate the checkpoint, then the 5f parity test with ALL
+  dump toggles OFF.** If green, STRIP the instrumentation: `printActivationSummary`/`printBlockActivation`/
+  `printBlockToken0` + toggles + temp includes in Gemma.ixx & Gemma.Block.ixx; `dumpScoreRow` + temp
+  includes in CudaGqaOp.ixx; the `[HF-BLOCK]`/`[HF-ATTN]`/`[HF-T0]` hooks in hf_gemma_activation_dump.py;
+  and retire the GemmaModel eos/stop `REVIEW:` markers.
+  **2026-06-21 norm fix VERIFIED but NOT the last bug: local attention still wrong (multi-head).** After
+  re-convert: `input_norm(t0)` head[2]=-0.0012 == HF (dead channel suppressed), `V(t0)` l2 266 == HF 267,
+  input_norm/QK all match. `layer_00` head ratios dropped ~25x->~16x (real progress) but residual still
+  explodes (L0 1634 vs HF 88). Sharpest remaining divergence: attn output still l2=1503 (RMS 23.5) vs HF
+  attn_pre_oproj 49.8 (RMS 0.78), ~30x -- DESPITE head-0 BOS sink now correct (att max 0.94 argmax 0 ==
+  HF) and V0 correct. So head 0 contributes ~0 now; the large output is from the OTHER heads not
+  averaging/sinking. Prime suspect: the GQA head->KV-head grouping (local NKV=8/GS=2) -- head 0 lands on
+  the right KV head, others may pair with the wrong K/V. (post_attn_norm normalizes the bad attn to the
+  right MAGNITUDE (314 == HF 326) but the DIRECTION is wrong, so the residual still diverges; magnitude
+  dumps can't see it. The HF [HF-BLOCK] post-norm hook values (326/1594) are inconsistent with HF's small
+  residual growth (64->88) by triangle inequality -- they over-capture; trust the LAYER outputs.) NEXT
+  PROBE LANDED: GQA dump extended to heads {0,1,NH/2,NH-1} with the paired KV head in the label -- if
+  head 0 sinks but the others don't, the grouping/pairing is the bug. FP4 not yet ruled in/out for the
+  ~28% FFN delta (Mila fc_down 875 vs HF mlp 680) but that is secondary to the 30x attn divergence.
+  **2026-06-21 multi-head GQA dump: pairing OK, scores too SHARP.** Heads attend to distinct keys
+  (h0->BOS k0 max0.94, h1->k15 max0.77, h8->k12 max0.20 soft, h15->self k17 max0.98), sums~1 -- normal
+  multi-head, grouping not scrambled. But most heads are SHARP (latch one key); non-BOS V is ~23 RMS
+  (only BOS V suppressed), so a sharp head outputs ~V=23 -> the 1503. HF full attn RMS 0.78 => HF heads
+  must AVERAGE, so Mila's softmax over-sharpens despite correct Q/K/scale. DECISIVE next: HF per-head att
+  (HF script extended to heads {0,1,NH/2,NH-1}). The h15 SELF-score (query==key==17) is RoPE-INDEPENDENT
+  (rotation cancels in Q.K), so it must match HF. If HF h15 is soft but Mila 0.98 -> Q/K DIRECTION wrong
+  (qk_norm direction or qkv_proj FP4), NOT RoPE; if HF h15 matches (0.98) but h1 (relative-pos k15)
+  differs -> RoPE rotation wrong (changes off-diagonal scores, preserves magnitude -> invisible to all
+  dumps so far); if HF matches all -> pattern right, chase V/output. No Mila rebuild needed.
+  **split() checked (2026-06-21): CORRECT for Gemma dims, but a LATENT validation gap found.** The BF16
+  3-way split kernel `split3_bf16_vectorized_kernel`
+  ([Structural.cu:106](Mila/Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Structural.cu)) routes
+  one `uint4` = 8 BF16 elements at a time by the vector's START column, so it is only correct when every
+  output boundary is 8-aligned. `SplitOps::split` validates only `% 4`
+  ([CudaTensorOps.Structural.ixx:217](Mila/Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Structural.ixx)).
+  Gemma local (D0=4096,D1=2048,D2=2048) and global (8192,512) are all multiples of 8 -> not triggered, so
+  split is NOT the parity bug. BUG TO FIX: tighten the split validation to `% 8` (or handle a
+  boundary-straddling vector), else a future `%4`-not-`%8` split silently corrupts at the boundary.
+  **2026-06-21 BIG narrowing: the entire attention SCORE path is correct; bug is V or att*V.** HF per-head
+  att == Mila: h0 0/0.94, h1 15/0.77, h8 soft~0.20, h15 17/0.98 (self-sink matches => Q/K direction right;
+  h1 off-diagonal matches => RoPE right). So split, QK-norm, RoPE, GQA grouping, scale, softmax are ALL
+  exonerated. Yet attn output still 30x (1503 vs 49.8). att==HF and output!=HF => the difference is V (the
+  values averaged) or the att*V GEMM. `V(t0)` matched HF, so suspect V at NON-BOS positions (the heads
+  attend to k15/k17/...) or the AV GEMM. NEXT PROBE LANDED: `printBlockTokenN` dumps input_norm + V at
+  token 0 AND the LAST token (the self-attended query) with head VALUES; HF script dumps the same
+  (`input_norm(tL)`, `V(tL)`). If Mila V(tL) != HF V(tL) -> V projection wrong for non-BOS (trace to
+  input_norm(tL) direction or FP4 on qkv_proj's V section); if V(tL) == HF but attn output still 30x ->
+  the att*V GEMM is broken (output exceeds the att-weighted V). Mila rebuild + HF rerun.
+  **2026-06-21 V(tL) MATCHES HF too (991.6 vs 990.9) -> att AND V both correct, att*V output still 30x.**
+  So the bug is purely in how att*V COMBINES them. The tell: overall V(tL) matches but att*V pulls V
+  PER-KV-HEAD -- an l2-preserving PERMUTATION of the V KV-heads (vs K) would match the overall V dump, keep
+  att correct (att uses K, right order), yet make every query head pull the WRONG kv head's V. NEXT PROBE
+  LANDED: dump V per-kv-head l2 for the last token (`[V-KVHEAD]` Mila / `[HF-V-KVHEAD]` HF). If the per-head
+  l2 set matches HF but in a DIFFERENT ORDER -> V kv-head ordering is permuted (bug in the V cache write /
+  per-head V arrangement vs K); if same order -> V per-head fine and the att*V (AV) plan/stride combines
+  wrong. This is the last localization step before the fix. Mila rebuild + HF rerun.
+  **2026-06-21 V per-kv-head MATCHES HF in value AND order (no permutation) -> attention FULLY correct;
+  HF sub-step hooks are UNRELIABLE.** kv0..7: Mila 275/398/212/319/503/338/212/436 == HF
+  273/393/211/321/506/337/211/437. So att (per head) + V (per kv head, right order) both match HF -> the
+  attention is correct, and Mila's attn output ~1503 is RIGHT (sharp att on V~27 RMS -> output ~V). The HF
+  o_proj-input hook (49.8) is mathematically IMPOSSIBLE (att 0.98 on key17 x V17[kv7] l2 437 must give
+  ~428 for that one head alone > the claimed 49.8 for the whole vector) -- same failure as the HF
+  post-norm hooks (326/1594 vs residual growth 64->88). So the forward-hook reference for the post-V
+  attention/FFN/post-norm steps cannot be trusted; only HF LAYER outputs (output_hidden_states, validated)
+  and the element-wise dumps that cross-check are reliable. PROVEN CORRECT element-wise vs HF: embed,
+  input_norm (incl. dead-channel suppression), V (per-kv, right order), att (per head), GeGLU gate/up
+  order. STILL: Mila L0 1634 vs HF 88. Remaining unverified (needs a RELIABLE HF reference, not the
+  forward hooks): the attention-output HEAD ORDERING (prefill_unpermute_output_padded could scramble heads
+  -> right magnitude, wrong direction -> res1 wrong -> FFN can't cancel -> residual grows to ~post_ffn_norm
+  magnitude), o_proj (FP4) direction, and whether the post-norm contributions cancel (HF) vs add (Mila).
+  NEXT (two clean options): (A) get RELIABLE HF intermediate residuals via a forward_PRE_hook on
+  pre_feedforward_layernorm (= res1, an actual residual tensor) and compare res1 head values -> splits
+  attention-output-direction (unpermute) from FFN; (B) read/审 prefill_unpermute_output_padded for a
+  head-ordering bug. The att*V GEMM folds GS into M (batch=B*NKV); verify the unpermute inverts that fold
+  in the SAME head order the rest of the stack expects.
+  **2026-06-22 OPTION (A) RAN -> ATTENTION FULLY EXONERATED; BUG IS IN THE FFN SUB-BLOCK; the "unreliable
+  HF hooks" verdict was WRONG.** Added the reliable `res1` reference -- a `forward_pre_hook` on
+  `pre_feedforward_layernorm` ([hf_gemma_activation_dump.py](Mila/Tools/Converters/Gemma/gemma_4_BF16/hf_gemma_activation_dump.py),
+  printed as `res1(+attn)` to match Mila's existing [Gemma.Block.ixx:298](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx)
+  dump). Result: **Mila `res1`=320.6 (min-84/max+96.5) == HF `res1`=333.3 (min-79/max+87), ~4%.** Since
+  `res1 = res0 + post_attn_norm(attn)`, the WHOLE attention sub-block (incl. `prefill_unpermute_output_padded`
+  head ordering -- option B) lands where HF lands AFTER the post-norm renormalizes it. So the raw-attn
+  magnitude gap the backlog chased (Mila 1503 vs the HF o_proj-input hook 49.8) was a RED HERRING:
+  `post_attn_norm` normalizes it away, and the direction was right all along (consistent with att/V/RoPE
+  already matching). **Correction to the 2026-06-21 "hooks unreliable" conclusion:** the HF
+  `post_attn_norm` hook (326) was being compared to the LAYER output (88); the correct anchor is `res1`,
+  and `embed(64) (+) post_attn_norm(326) -> res1(333)` reconciles exactly (l2 of two ~orthogonal vectors
+  in [262,390]). The hooks are RELIABLE; only the anchor was wrong -> the HF `mlp`/`post_ffn_norm` hooks
+  are trustworthy when compared against `res1`/the layer output, not each other. **The explosion is
+  entirely `res1 -> res2`:** Mila `res2`/L0 ~1634 vs HF L0 88 (18x), through
+  `pre_ffn_norm -> fc_gate_up -> geglu -> fc_down -> post_ffn_norm -> res2`. `pre_ffn_norm` is fine
+  (Mila 235.8 vs HF 219.9; the 7% is the inherited ~4% `res1` direction error amplified by normalization)
+  -- a 4% input error cannot make 18x through a normalizing FFN, so the FFN itself is broken. NEXT: read
+  the Mila FFN sub-step dump (`gate_up`/`geglu`/`fc_down`/`post_ffn_norm`/`res2`) against HF `mlp`/
+  `post_ffn_norm` + the reliable bookends (HF `res1`=333, HF L0=88). Decisive pair: Mila `fc_down` vs HF
+  `mlp` (were ~28% apart, 875 vs 680, pre-norm-fix) -- if close now, the bug is `post_ffn_norm` (weight
+  load) or the residual add; if `fc_down` is wild, it is `geglu`/the FP4 FFN Linears. FP4 on
+  `fc_gate_up`/`fc_down` is the first FFN-path FP4 not yet isolated.
+  **2026-06-22 FFN dump (intermediate, SUPERSEDED -> see CORRECTION below).** Full FFN chain, Mila vs HF
+  forward-hooks: `res1` 320.6 vs 333.3; `pre_ffn_norm` 235.8 vs 219.9; `fc_down`/`mlp` 875.8 vs 680.6;
+  `post_ffn_norm` 1578.4 vs 1595.4; Mila `res2`/layer_00 1634.8. A first reading concluded "layer 0 is
+  correct, the 88 is stale" by trusting the HF `post_ffn_norm` forward-hook (1595). That was WRONG -- the
+  norm forward-hooks over-capture (see correction); the layer-output 88 is the truth.
+  **2026-06-22 CORRECTION + FULL PER-LAYER TRAJECTORY: bug is the LAYER-0 FFN; HF norm FORWARD-hooks
+  over-capture (the backlog's original "hooks unreliable" instinct was right).** HF's own hooks are
+  mutually inconsistent: `post_ffn_norm`(1595) (+) `res1`(333) forces layer_00 >= 1262, but `[HF-DUMP]
+  layer_00`=88. Three checks prove the 88 (layer-output) is truth and the norm forward-hooks lie:
+  (1) the layer trajectory is smooth/Gemma-plausible (88,79,75,76,68,84,77,49,111,72,35,33,72,132,161,
+  193,220(peak L16),...,6.6 @L47, final_norm 304); (2) **`final_norm` scale-invariance** -- RMSNorm output
+  is input-magnitude-independent, HF final_norm 304 from a 6.6 residual vs Mila 14357 from a 4665 residual:
+  if the residual were really ~1600 HF's final_norm would be huge too, it isn't -> Mila's residual is
+  garbage (per-channel outliers +-668..844 vs HF +-200); (3) embed(64)/`res1`(333)/layer_00(88) are
+  genuine residual TENSORS (input-capture/pre-hook/layer-output, cannot be norm-inflated) and are
+  self-consistent. **So DISCARD the `[HF-BLOCK]` post_attn_norm/mlp/post_ffn_norm forward-hook numbers.**
+  Reliable layer-0 picture: embed 64==64; **`res1` 320==333 (attention CORRECT)**; **`res2` 1634 vs 88
+  (18x, FFN BROKEN)**. HF's FFN REDUCES the residual (333->88); Mila's INFLATES it (320->1634). Mila's
+  effective FFN contribution (post_ffn_norm 1578) is ~4-6x HF's true contribution (must be in [245,421]
+  to take 333->88). It then compounds (Mila L0 1634 -> L47 4665; HF stays 30-220) with a SECOND jump at
+  the first global layer 11 (Mila 2117->4673) -- but the PRIMARY bug is the layer-0 FFN; fix first.
+  **FP4 likely EXONERATED:** the attention Linears (qkv_proj/o_proj) are also FP4 and attention is correct
+  (res1 matches) -- same mechanism -> the bug is FFN-SPECIFIC logic, not quantization. Prime suspects:
+  the **GeGLU** (gate/up fusion order / GeluTanh applied to the wrong half of the fused fc_gate_up) or the
+  fc_gate_up/fc_down packing, or post_ffn_norm.W. NEXT PROBES (split them): (1) dump Mila
+  post_ffn_norm.W / pre_ffn_norm.W / post_attn_norm.W vs HF RAW post_feedforward/pre_feedforward/
+  post_attention_layernorm.weight -- only input_norm.W + the QK-norms were element-wise verified after the
+  RAW-weight re-convert; the other 3 sandwich norms were NOT (pre_ffn_norm 235 vs 219 ~matches, so likely
+  fine, but confirm). (2) Dump the gate vs up halves of fc_gate_up separately and confirm GeluTanh hits
+  the GATE half AND that the converter's fused [gate|up] packing order matches the geglu split (a swap
+  gives GeluTanh(up)*gate -> wrong direction -> FFN stops cancelling). Mila per-layer l2: L00-10
+  1634.8/1753.5/1778.8/1784.7/1788.1/1808.8/1829.8/1843.6/1906.4/1971.2/2117.9, L11 4673.6 (global jump),
+  L12-47 ~4640-4665, final_norm 14357.6. HF per-layer in the trajectory above.
+  **2026-06-22 PROBES RAN: sandwich-norm weights load PERFECTLY -> bug is the FFN BODY (fc_down direction),
+  FP4 on the large FFN Linears the prime suspect (REVERSES the "FP4 exonerated" line above).** Element-wise:
+  Mila loaded post_attn_norm.W/pre_ffn_norm.W/post_ffn_norm.W == HF RAW to 4 decimals (172.35/786.59/
+  1173.34, same min/max). **Weight-load RULED OUT.** The `88` is now triple-confirmed (layer-0 forward-hook
+  AND layer-1 input pre-hook both 88) and the post_ffn_norm forward-hook (1595) is provably bogus by law of
+  cosines (`||333 + 1595 v|| = 88` needs cos=-2.49). HF `ffn_reliable` pre-hook (680.6) == HF `mlp` hook
+  (680.6) -> the mlp ACTIVATION hook is reliable; only the NORM forward-hooks over-capture. Reliable
+  picture: HF FFN CANCELS (res1 333 -> res2 88, true contribution ~-330); Mila INFLATES (res1 320 +
+  post_ffn_norm 1578 -> res2 1634). Since W is exact, GeGLU is VERIFIED ([Geglu.cu:33-39] reads gate=first
+  half/up=second half; converter cats [gate|up] [convert_weights.py:306-310]), and RMSNorm normalizes away
+  magnitude, the only explanation is **Mila `fc_down` output DIRECTION is wrong** -- it lands on
+  post_ffn_norm.W's outlier channels (effective w 1578/62=25.5 > W rms 18.9) while HF lands on small-w
+  channels (330/62=5.3); the 28% fc_down magnitude gap (875 vs 680) is the visible tip. **Prime suspect:
+  FP4 on fc_gate_up/fc_down** -- far larger than the attention Linears, and post_ffn_norm.W's max-+37
+  outliers AMPLIFY a small FP4 direction error into the lost cancellation (o_proj FP4 being only mostly-fine,
+  4% res1 error, fits same-noise/amplified). **DECISIVE ISOLATION (no code change): re-run FP8 not FP4**
+  (`/model gemma-12b fp8` or `.withFP8Quantization()`); ~half the error -> res2 toward 88 = FP4 precision is
+  the cause (FFN path needs FP8 / higher-precision fc_down / tighter FP4 group); res2 stays ~1634 =
+  STRUCTURAL FFN bug, drill fc_gate_up/fc_down packing. PROBES LANDED for next run: Mila [BLOCK-T]
+  head-value dumps of res1/post_ffn_norm/res2 + HF [HF-BLOCK] head values -- compare post_ffn_norm[i]
+  direction (HF ~ -res1[i] cancel vs Mila additive). NEXT: run FP8; if structural, compare fc_down head
+  direction Mila vs HF mlp.
+  **2026-06-22 PINPOINTED to the GeGLU step (FP4 dropped per user: Llama's FFN uses the same FP4 Linears).**
+  Element-wise head values at the last token (token 17) finally localize it. FFN contribution to the
+  residual (`res2 - res1`, head): HF `[1.71, 1.65, +47.55, -2.10]` -- small everywhere EXCEPT channel 2,
+  where +47.55 CANCELS `res1[2]=-50.75` -> `res2[2]=-3.20`. Mila `[31.4, 24.9, -43.5, -0.86]`: channel 2
+  is **-43.5 -- same magnitude (~45), OPPOSITE sign** -> doubles `res1[2]=-48.5` -> `res2[2]=-92`. That
+  sign flip on the dominant channel IS the blow-up. (Also confirms element-wise that the HF post_ffn_norm
+  FORWARD hook `[36.75,39.25,-9.75]` is NOT the residual contribution -- bogus, as the magnitudes said.)
+  Magnitude trace through the FFN body (HF genuine-activation hooks now captured): pre_ffn_norm 235.8/219.9
+  (1.07), gate_up combined 817.8 / HF sqrt(gate692.4^2+up490.2^2)=848.4 (0.96 -- MATCHES), **geglu 1448 /
+  1161 (1.25 -- JUMP)**, fc_down 875.8/680.6 (1.29). **The jump is at GeGLU**: gate_up matches HF but geglu
+  leaps 1.25x. HF `gate_proj` head is all-NEGATIVE `[-7.16,-0.31,-2.97,-7.81]` so `GeluTanh(gate)~=0` and
+  HF `geglu` head is `[-0.0,+0.23,-0.009,-0.0]` (near zero); if Mila's gate half is less-negative (wrong
+  gate input direction, or a gate/up identity issue), GeluTanh passes far more through -> geglu too big ->
+  fc_down wrong -> post_ffn_norm sign-flips channel 2. NOTE res1 also has channel-level errors (head[1]
+  0.457 HF vs 1.508 Mila, ~3.3x) from attention, but res1[2] (the killer channel) MATCHES (-50.75 vs
+  -48.5) -- so the FFN itself flips channel 2, not just inherited res1 error. PROBE LANDED: Mila
+  [BLOCK-T] head dumps of gate_up/geglu/fc_down. NEXT (decisive): compare Mila gate_up head[0:4] vs HF
+  gate_proj `[-7.16,-0.31,-2.97,-7.81]` (if NOT all-negative -> fc_gate_up output wrong: gate input
+  direction or weights), Mila geglu head vs HF `[-0.0,+0.23,-0.009,-0.0]` (GeluTanh), Mila fc_down head vs
+  HF mlp `[+10.875,+19.25,-2.89,-17.75]`.
+  **2026-06-22 REDIRECT -- the FFN is INNOCENT (faithful amplifier); the SEED is res1 DIRECTION = the
+  ATTENTION OUTPUT. Back to the never-checked option B (unpermute head ordering).** Head values settle it:
+  Mila gate_up[0:4]=`[-5.31,+0.95,-2.27,-7.81]` vs HF gate_proj `[-7.16,-0.31,-2.97,-7.81]` -- channel 3
+  is EXACT, channel 1 SIGN-FLIPPED. fc_gate_up can only get channel 3 exact if its weights+GEMM are
+  correct, so it is computing right and the INPUT (pre_ffn_norm<-res1) is what's off. The flip then
+  cascades through GeluTanh's knee: gate_up[1] +0.95 (HF -0.31) -> GeluTanh +0.78 (HF -0.12) -> geglu[1]
+  -1.59 (HF +0.23, flipped+6.7x) -> fc_down -> post_ffn_norm outlier channels amplify -> res2 explodes.
+  **So GeGLU/FFN is a catastrophic AMPLIFIER of res1 direction error, not the source.** The seed: res1 L2
+  MATCHES (320 vs 333) but DIRECTION is wrong -- res1 head Mila `[0.25,1.51,-48.5,2.28]` vs HF
+  `[0.25,0.46,-50.75,2.17]`; backing out post_attn_norm = res1 - embed gives channel 1 Mila +0.19 vs HF
+  -0.86, SIGN-FLIPPED. **A direction error preserves L2 -- exactly what a head-ordering/permutation bug
+  does, and exactly why option A (res1 L2) gave false confidence.** This resurrects backlog option B
+  (`prefill_unpermute_output_padded`, never audited): att-weights/V/scores all match HF (verified) but the
+  attention OUTPUT direction was never checked element-wise -- a permuted unpermute scrambles direction
+  while preserving magnitude (att 1503, res1 320 both "right" size). PROBE LANDED: Mila [BLOCK-T] head
+  dumps of attn/o_proj/post_attn_norm. NEXT: compare Mila post_attn_norm head vs HF reliable hook
+  `[-0.0001,-0.8633,-50.75,+0.1445]` (confirm attention-output direction divergence), then AUDIT
+  `prefill_unpermute_output_padded` head ordering (the att*V GEMM folds GS into M=B*NKV; verify the
+  unpermute inverts that fold in the head order the rest of the stack expects). The fix is in the GQA
+  attention output, NOT the FFN.
+  **2026-06-22 CONFIRMED attention-output direction is the seed + isolated to the PARTIAL-CHUNK path (test
+  pending).** Reliable `post_attn_norm` head: Mila `[-0.003, +0.193, -48.5, +0.258]` vs HF
+  `[-0.0001, -0.863, -50.75, +0.144]` -- channel 1 SIGN-FLIPPED, channel 3 ~1.8x, **dominant channel 2
+  matches**. All in head 0 (channels 0-255), and head 0 does NOT uniformly match/mismatch -> NOT a clean
+  head permutation; it is a per-channel/within-head direction error. Audited
+  [CudaGqaOp.ixx:583-633](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOp.ixx): the
+  `POSSIBLE BUG` padded_T comment is a since-fixed red herring -- the partial path builds partial plans at
+  chunk_len and padded_T=chunk_len, internally consistent. BUT the dump runs the PARTIAL path
+  (`kGemmaPrefillChunkOverride` ~64 > prompt 18 -> is_full_chunk=false), and the whole attention pipeline
+  mixes prefill_chunk_size_ and chunk_len (softmax line 600 takes BOTH; partial QK/AV plans; unpermute) --
+  a Gemma-specific config (forced small override + short prompt) the Llama path rarely hits the same way.
+  **DECISIVE TEST (one constant, fits 12GB): set kGemmaPrefillChunkOverride = exact prompt length (18) ->
+  is_full_chunk=true -> all prefill_chunk_size_/chunk_len mixing collapses to one value.** If res2 -> ~88,
+  the bug is the partial-chunk attention path (stride handling across softmax/AV-plan/unpermute); if res2
+  stays ~1634, chunking is innocent and the per-channel error is in core attention (att*V combine /
+  per-channel V). Confirmed-correct so far: GeGLU op+kernel+fusion, all 6 norm weights ==HF raw, FP4 path
+  (=Llama), converter FFN writes, fc_gate_up (gate_up[3] exact). The FFN is a faithful amplifier; the bug
+  is upstream in the GQA attention output, likely the partial-chunk path.
+  **2026-06-22 MAJOR REVERSAL via an fp32 ORACLE: the ATTENTION IS CORRECT; the HF sub-step forward-hooks
+  (post_attn_norm / res1-pre-hook) were BOGUS IN DIRECTION too -> the entire attention-output investigation
+  (the chunk test, option B, "res1 direction wrong") was chasing bad reference data. The bug is the FFN.**
+  Built a numpy fp32 oracle in [hf_gemma_activation_dump.py](Mila/Tools/Converters/Gemma/gemma_4_BF16/hf_gemma_activation_dump.py)
+  that computes layer-0 att*V -> o_proj -> post_attn_norm from RELIABLE inputs only (softmax weights from
+  output_attentions + the v_proj activation), bypassing the magnitude-bogus attn/o_proj hooks. Result:
+  oracle `attn`=1480.5 head`[-1.65,-8.54,-6.02,-1.23]` == Mila 1503 `[-1.48,-8.50,-6.09,-1.11]`; oracle
+  `post_attn_norm`=314.3 `[-0.001,+0.286,-50.44,+0.326]` == Mila 313.7 `[-0.003,+0.193,-48.5,+0.258]`. So
+  **Mila's att*V combine, V-per-channel, o_proj, and res1 are all CORRECT** (oracle used HF's V and
+  reproduced Mila's attn -> V matches per-channel; combine matches). DECISIVE: oracle post_attn_norm[1]
+  =+0.286 and Mila=+0.193 BOTH disagree with the HF forward-hook's -0.863 -> the HF post_attn_norm/res1
+  hooks are bogus IN DIRECTION (not just magnitude). The "res1 head[1] 0.457 vs Mila 1.508" divergence was
+  the bogus HF res1 pre-hook; Mila's res1 (head[1]~1.5) matches the oracle = CORRECT. So ALL L0 heads' att
+  match HF (user-verified) AND the attention output is oracle-correct -> attention fully exonerated.
+  **Therefore: a CORRECT res1 (~320) enters the FFN and Mila yields res2=1634 vs the reliable HF layer-0
+  output 88 -> the FFN is the bug** (prior FFN "clearing" relied on the bogus HF post_ffn hooks, so it is
+  void). Only the LAYER OUTPUTS (embed 64, res2 88/79/.../6.6) and the oracle are trustworthy; every HF
+  sub-step forward-hook is bogus. NEXT (landed): oracle extended through the FFN (res1=embed+post_attn ->
+  pre_ffn_norm -> GeGLU(GeluTanh) -> fc_down -> post_ffn_norm -> res2) all fp32 from HF weights. Re-run:
+  if oracle res2 ~= 88, the FFN bug is confirmed and the per-step oracle vs Mila [BLOCK-T17]
+  (pre_ffn_norm/geglu/fc_down/post_ffn_norm) pinpoints the failing op; if oracle res2 ~= 1634 then 88 is
+  wrong (unlikely -- triple-confirmed). FFN suspects to re-examine WITHOUT the bogus hooks: GeluTanh exact
+  form, fc_down FP4, post_ffn_norm application.
+  **2026-06-22 ROOT CAUSE FOUND (HF SOURCE): Gemma RMSNorm is `x_norm * (1 + weight)`, Mila uses RAW
+  `x_norm * weight` -> the +1 removal was WRONG; restore it.** `output_hidden_states` (canonical, reliable
+  -- NOT a forward hook) confirms HF residual is SMALL: embed 64 -> L0 88 -> ... -> L47 304, matching the
+  earlier layer-output hooks (those WERE reliable; only the norm/res1 sub-step forward hooks are bogus).
+  Mila residual 64 -> 1634 -> ... -> 14357 (18-47x). The fp32 oracle (standard sandwich-norm, HF weights,
+  RAW) gave res2=1643 == Mila, NOT 88 -> the standard RAW math is wrong and Mila faithfully implements the
+  same wrong math. Fetched the HF transformers Gemma3 source: `Gemma3RMSNorm.forward` = `_norm(x.float())
+  * (1.0 + self.weight.float())` -- **(1 + weight)**, and `Gemma3DecoderLayer` is standard sandwich-norm
+  with NO scaling. So HF applies (1+w); Mila applies raw w (the backlog removed the +1 in convert_weights.py
+  `_rmsnorm_to_numpy`). The "raw" proof (input_norm dead-channel suppression) was a BOGUS forward-hook
+  artifact: with (1+w) that channel is 1+(-0.0001)~=1 (active), not suppressed -- the hook lied, like every
+  other sub-step hook. **FIX: restore `+1` in convert_weights.py `_rmsnorm_to_numpy` for ALL norms (input/
+  post_attn/pre_ffn/post_ffn/QK/final) so Mila's raw kernel computes normalize*(1+w_hf)=HF; OR apply (1+w)
+  in a Gemma-specific RmsNorm path (kernel is shared with Llama which is genuinely raw, so the converter
+  route is cleaner).** VERIFY: oracle switched to (1+w) (pan + FFN rmsnorm); re-run -> if [ORACLE] res2 ~=
+  88, confirmed and `[[project_gemma_rmsnorm_raw_weights]]` memory is WRONG (the "+1 caused garbage" was the
+  bogus-hook-era misattribution; the 15-turn attention detour was all on lying forward hooks). After the
+  re-convert, re-run 5f parity; the attention/GeGLU/FP4/att*V were all correct (oracle-matched) and need no
+  change.
+  **2026-06-22 FIX LANDED (awaiting VS2026 build + 5f re-run): `(1+weight)` applied at the KERNEL via a new
+  `RmsNormConfig::withUnitOffset` -- NO re-convert needed.** Added `unit_offset` (default 0.0 = raw =
+  Llama/GPT-2) to [RmsNorm.Config.ixx](Mila/Src/Dnn/Components/Normalization/RmsNorm/RmsNorm.Config.ixx)
+  (setter/getter/metadata/toString); threaded through the FORWARD path only -- RmsNorm.cuh decls,
+  RmsNorm.{Fp32,Bf16}.cu kernels+launchers (`w = weight[i] + weight_offset`), RmsNormOp.Dispatch.ixx,
+  RmsNormOp.ixx forward (`config_.getUnitOffset()`). Offset 0 is byte-identical -> Llama/GPT-2 untouched;
+  backward left raw (Gemma inference-only, all training models use offset 0). Gemma sets
+  `withUnitOffset(1.0)` on ALL norms: the `rms()` helper in Gemma.Block.ixx (input/post_attn/pre_ffn/
+  post_ffn + QK q_norm/k_norm) + the final norm in Gemma.ixx. Converter UNCHANGED (writes RAW = HF
+  weights); only stale "Gemma uses raw" comments corrected (convert_weights.py + Gemma.Block.ixx header).
+  Memory [[project_gemma_rmsnorm_raw_weights]] rewritten (was wrong). VERIFY: build in VS2026, re-run 5f
+  parity on the EXISTING checkpoint -> expect coherent generation / token-match. CPU RmsNorm op left raw
+  (Gemma is CUDA-only). TODO after green: strip the temporary [GQA-DUMP]/[BLOCK-DUMP]/[GEMMA-DUMP]/oracle
+  instrumentation (Gemma.ixx, Gemma.Block.ixx, CudaGqaOp.ixx, hf_gemma_activation_dump.py).
+  **2026-06-22 (1+w) WAS WRONG -- REVERTED to raw; residual bug is NOT the norm convention; Gemma 4 !=
+  Gemma 3.** Built + ran 5f with (1+w) on all Gemma norms: (a) attention went ONE-HOT (att max 1.0 on most
+  heads; qk_norm(q) 65->129 x2, qk_norm(k) 5.5->50.8 x9 -> Q.K ~18x -> argmax softmax) whereas HF
+  `output_attentions` is SOFT (max ~0.94) -> **Gemma 4's QK-norm is effectively RAW; (1+w) is wrong for
+  it**; (b) res2 still 1620 (was 1634 raw) vs HF 88 -> **(1+w) does NOT fix the residual**. With raw the
+  att is already soft/correct (matches HF) AND res2 is 1634 -> the ~18x residual blow-up is INDEPENDENT of
+  the norm convention. So the Gemma3 `(1+weight)` source I used is wrong for Gemma 4 (it one-hots the att):
+  REVERTED the Gemma block + final-norm `withUnitOffset(1.0)` back to raw (offset 0). The generic
+  `RmsNormConfig::withUnitOffset` infra (config + FP32/BF16 forward kernels + dispatch + op) is harmless
+  (default 0 = Llama-byte-identical) and KEPT for potential later use. Converter unchanged (raw). The
+  residual bug remains OPEN and is architectural: an fp32 oracle (HF weights + reliable att/V, standard
+  sandwich GeGLU) reproduces Mila's ~1640 not 88, so Mila implements the *standard* layer correctly but
+  Gemma 4's real layer/FFN/norm math differs (post_ffn_norm.W RMS 18.9 makes a standard post-norm ~1234+,
+  incompatible with res2=88 under a plain add; HF's fc_down must land on small-weight channels). NEXT
+  (landed in hf_gemma_activation_dump.py): `inspect.getsource` dump of the LOADED Gemma 4
+  RMSNorm.forward/_norm + DecoderLayer.forward + MLP.forward + Attention.forward + config.architectures --
+  read the real Gemma-4 layer math and diff vs Mila's GemmaBlock; the residual/FFN delta is there. Reliable
+  HF refs ONLY: output_attentions + output_hidden_states + the fp32 oracle -- the per-submodule FORWARD
+  hooks all lie (caused the ~15-turn attention detour). Memory [[project_gemma_rmsnorm_raw_weights]]
+  rewritten to reflect UNSOLVED state.
+  **2026-06-22 ROOT CAUSE FOUND via `inspect.getsource` of the LOADED model (arch
+  `Gemma4UnifiedForConditionalGeneration`, `Gemma4UnifiedTextDecoderLayer`/`Gemma4UnifiedRMSNorm` -- NOT
+  Gemma3). THREE Gemma-4 deltas Mila is missing:** (1) **`hidden_states *= self.layer_scalar`** at the END
+  of every decoder layer (after the FFN residual add) -- THIS is the 18x residual bug; Mila has no such
+  multiply so the residual grows unbounded (1634->4665) while HF scales each layer output back to ~88-220.
+  From L0: layer_scalar ~= 88/1634 ~= 0.054 (exact value/per-layer TBD). (2) **`v_norm`** on the value
+  states (`value_states = self.v_norm(value_states)`) -- Gemma4 has q_norm/k_norm AND v_norm; Mila's block
+  only does QK-norm, missing V-norm (the oracle missed it too -- used pre-v_norm v_proj). (3) **RMSNorm is
+  RAW** `normed * weight` gated by a `with_scale` flag (NO (1+weight)) -- confirms Gemma4 != Gemma3, the
+  (1+w) detour was from trusting the Gemma3 source; raw was right. Some norms may have `with_scale=False`
+  (pure normalize, no weight). ALSO (later layers, not L0): `is_kv_shared_layer`/`shared_kv_states` -- Gemma4
+  shares KV across layers from a sharing point onward. MLP is plain GeGLU (`down(act(gate)*up)`),
+  attention scaling=1.0 (both already match Mila). NEXT: read layer_scalar value(s) + with_scale flags +
+  v_norm (prints added to hf_gemma_activation_dump.py), then wire into GemmaBlock: (a) multiply res2 by
+  layer_scalar at end of prefill+decode, (b) add v_norm_ (per-head RmsNorm on V like q/k_norm), (c) honor
+  with_scale (skip weight where False). KV-sharing is a follow-up after L0 parity.
+  **2026-06-22 STEP 1a LANDED: `layer_scalar` (the dominant 18x fix) wired end-to-end (awaiting VS2026
+  build + RE-CONVERT + 5f run).** (1) New reusable `TensorOps::scale(in, float, out, ctx)` in-place scalar
+  multiply: interface in TensorOps.Math.ixx, Cuda `MathOps::scale`+`scaleImpl` (reuses existing
+  `launch_scalar_multiply_kernel`, +added the missing `__nv_bfloat16` instantiation in Math.Elementwise.cu),
+  Cpu `MathOps::scale`. Default-safe; Llama/GPT-2 unaffected. (2) Converter writes `tf_layer_{i}.layer_scalar`
+  (HF `[1]` scalar, FP32). (3) `GemmaBlock`: `float layer_scalar_` (default 1.0), `loadParameter("layer_scalar")`
+  override (loads [1] FP32 blob -> temp device tensor -> host copy -> float), and `scale(res2, layer_scalar_,
+  res2)` at end of prefill+decode (dumped res2 reflects the scaled output). **RE-CONVERT REQUIRED** (an old
+  checkpoint loads fine with layer_scalar_=1.0 = no-op). Expected: L0 res2 1634 -> ~86.6 (HF 88), residual
+  trajectory tracks HF (no 18x). Remaining ~1.6% L0 gap is the still-missing `v_norm` (STEP 1b: per-head
+  no-scale RMSNorm on V, converter writes ones[head_dim]). Global layers (5+) also need V=v_norm(k_proj) +
+  KV-sharing (STEP 2). Norms RAW (Gemma4 != Gemma3) + attention scale 1.0 already correct.
+  **2026-06-22 STEP 1a VALIDATED + STEP 1b (`v_norm`) LANDED.** After build+reconvert, `layer_scalar`
+  fixed the WHOLE residual trajectory: Mila now tracks HF across all 48 layers (L0 86.6 vs 88.1, L8 111 vs
+  111, L16 219 vs 220, L47 6.63 vs 6.63 EXACT; was 86->14357). **The first generated token now MATCHES HF**
+  (greedy divergence moved from token 0 to token 1; was garbage 255999 from the start). Remaining: DIRECTION
+  drift accumulates -> tokens 1+ diverge and degenerate (Mila loops 236786/495), final_norm 284 vs 304
+  (~6.5%). STEP 1b `v_norm` (per-head V normalize, with_scale=False) wired: converter writes
+  `tf_layer_{i}.v_norm.weight = ones[head_dim]` (256 local / 512 global; HF has no v_norm weight, ones makes
+  Mila's RmsNorm a pure normalize); GemmaBlock adds `v_norm_` (per-head RmsNorm, built like k_norm) applied
+  to V in the LOCAL prefill+decode attention branch (global V still uses the K=V alias -> STEP 2). Component
+  present on global blocks too (loads the weight; unused until step 2). **RE-CONVERT REQUIRED** (v_norm.weight
+  new). Expect local layers (0-4,6-10,...) to tighten in direction; parity should improve. If still
+  diverging, STEP 2 = global `V = v_norm(k_proj)` (not the current k_norm+RoPE'd K alias) + KV-sharing.
+  **Inference-server groundwork (kept, not the 5e/5f mechanism):** a `GemmaSession` (CUDA BF16) mirroring
+  `LlamaSession` was added to the pybind layer ([Mila_py.Wrappers.ixx](Mila/Inference/Bindings/Mila_py.Wrappers.ixx)/
+  `.cpp` + [Mila_py.cpp](Mila/Inference/Bindings/Mila_py.cpp)) — retained for the future Gemma-in-the-
+  Inference-Server integration, independent of the converter/parity work above.
+- [ ] **[minor, pre-existing] Llama metadata `norm_eps` vs reader `norm_epsilon` key mismatch.** The Llama
+  converter writes `'norm_eps'` ([convert_weights.py](Mila/Tools/Converters/Llama/convert_weights.py)) but
+  `PretrainedModelReader::parseMetadataJSON` reads `'norm_epsilon'`, so `metadata.norm_epsilon` is always 0
+  for Llama checkpoints. Harmless today only because `LlamaModel::configFromMetadata` never calls
+  `withRMSNormEpsilon` (RmsNorm uses the `LlamaConfig` default). Surfaced while wiring Gemma's eps through
+  metadata (Gemma DOES read it, and its converter writes `'norm_epsilon'` to match the reader). Fix: align
+  the Llama converter key to `'norm_epsilon'` (and have `LlamaModel` read it) when the Llama load path is
+  next touched.
   Original: Assemble Steps 0-4
   into the two block instantiations (local/global), add QK-norm wiring + `final_logit_softcapping 30.0`
   (runtime scalar), and introduce the virtual **`IDecoderLayer`** interface (`prefill`/`decode`/`forward`)
@@ -516,6 +1173,15 @@ order.
   Test Suite Revival's bug list) — windowed-vs-global + local/global-geometry reference cases belong to
   an operation-level `CudaGqaOp` test owning the `GqaState` scratch + cache. Build that oracle as Steps
   1-2 land, not after.
+
+- [ ] **Weight-tying optimization (Llama + Gemma) — Future Direction.** Mila currently stores the token
+  embedding table and the `lm_head` projection as two SEPARATE parameter blobs even when the source model
+  ties them (Llama 3.2 1B/3B, Gemma 4). Untied is the simpler load path and is what lets Gemma fold the
+  embedding sqrt(d) scale into the table while keeping lm_head unscaled (Step 5d/5e decision above).
+  Tying them back (lm_head reuses the embedding storage) would save one `vocab x model_dim` tensor in
+  VRAM (Gemma 4: 262144 x 3840 x 2B ~= 2 GB at BF16) at the cost of a shared-ownership / load-aliasing
+  path and re-introducing the scale-conflict the untied design sidesteps. Memory optimization, not a
+  correctness gate; no milestone owns it yet.
 
 **Reuse note:** the Step 2 SWA mask + bounded-KV ring cache are the foundation the **Ministral** Future
 Direction reuses (SWA named explicitly there).

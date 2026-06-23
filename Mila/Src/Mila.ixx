@@ -122,6 +122,7 @@ export import Compute.CudaPinnedMemoryResource;
 // ====================================================================
 export import Dnn.Component;
 export import Dnn.ComponentType;
+export import Dnn.ModelType;
 export import Dnn.ComponentConfig;
 export import Dnn.CompositeComponent;
 
@@ -197,6 +198,7 @@ export import Dnn.Components.LlamaTransformer;
 export import Dnn.Components.GemmaConfig;
 export import Dnn.Components.IDecoderLayer;
 export import Dnn.Components.GemmaBlock;
+export import Dnn.Components.GemmaTransformer;
 
 // ============================================================================
 // Models - Open Source Models
@@ -205,6 +207,9 @@ export import Dnn.Models.GptModel;
 
 export import Dnn.Models.LlamaModel;
 export import Dnn.Models.LlamaModelConfig;
+
+export import Dnn.Models.GemmaModel;
+export import Dnn.Models.GemmaModelConfig;
 
 // ============================================================================
 // Dnn - Optimizers

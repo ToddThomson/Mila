@@ -35,6 +35,7 @@ namespace Mila::Bindings
     using namespace Mila::Dnn::Compute;
 
     using LlamaCudaBf16 = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
+    using GemmaCudaBf16 = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>;
 
     void initialize( const std::string& log_level )
     {
@@ -173,6 +174,72 @@ namespace Mila::Bindings
     }
 
     std::string LlamaSession::repr() const
+    {
+        return impl_->model->toString();
+    }
+
+    // ---- GemmaSession -------------------------------------------------------
+
+    struct GemmaSession::Impl
+    {
+        std::unique_ptr<GemmaCudaBf16> model;
+    };
+
+    GemmaSession::GemmaSession( std::unique_ptr<Impl> impl ) : impl_( std::move( impl ) ) {}
+    GemmaSession::~GemmaSession() = default;
+
+    std::unique_ptr<GemmaSession> GemmaSession::fromPretrained(
+        const std::string& path, int64_t context_length, int device_index )
+    {
+        DeviceId device_id{ DeviceType::Cuda, device_index };
+        GemmaModelConfig model_config( static_cast<dim_t>( context_length ) );
+
+        auto impl = std::make_unique<Impl>();
+        impl->model = GemmaCudaBf16::fromPretrained(
+            std::filesystem::path( path ), model_config, device_id );
+
+        return std::unique_ptr<GemmaSession>( new GemmaSession( std::move( impl ) ) );
+    }
+
+    std::vector<int32_t> GemmaSession::generate(
+        const std::vector<int32_t>& prompt_tokens,
+        std::size_t max_new_tokens, float temperature, int top_k )
+    {
+        return impl_->model->generate( prompt_tokens, max_new_tokens, temperature, top_k );
+    }
+
+    void GemmaSession::generateStreaming(
+        const std::vector<int32_t>& prompt_tokens,
+        const std::function<void( int32_t )>& on_token,
+        std::size_t max_new_tokens, float temperature, int top_k,
+        std::stop_token stop )
+    {
+        impl_->model->generateStreaming(
+            prompt_tokens, on_token, max_new_tokens, temperature, top_k, std::move( stop ) );
+    }
+
+    GemmaConfigInfo GemmaSession::getConfig() const
+    {
+        const auto& cfg = impl_->model->getConfig();
+
+        return GemmaConfigInfo{
+            .vocab_size              = static_cast<int64_t>( cfg.getVocabSize() ),
+            .max_sequence_length     = static_cast<int64_t>( cfg.getMaxSequenceLength() ),
+            .model_dim               = static_cast<int64_t>( cfg.getModelDim() ),
+            .num_layers              = static_cast<int64_t>( cfg.getNumLayers() ),
+            .num_heads               = static_cast<int64_t>( cfg.getNumHeads() ),
+            .num_kv_heads            = static_cast<int64_t>( cfg.getNumKVHeads() ),
+            .head_dim                = static_cast<int64_t>( cfg.getHeadDim() ),
+            .global_head_dim         = static_cast<int64_t>( cfg.getGlobalHeadDim() ),
+            .hidden_dim              = static_cast<int64_t>( cfg.getHiddenDimension() ),
+            .window                  = static_cast<int64_t>( cfg.getWindow() ),
+            .rope_theta_local        = static_cast<double>( cfg.getRoPEThetaLocal() ),
+            .rope_theta_global       = static_cast<double>( cfg.getRoPEThetaGlobal() ),
+            .final_logit_softcapping = static_cast<double>( cfg.getFinalLogitSoftcapping() ),
+        };
+    }
+
+    std::string GemmaSession::repr() const
     {
         return impl_->model->toString();
     }

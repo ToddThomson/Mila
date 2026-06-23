@@ -13,6 +13,9 @@ Converters/
   Llama/
     convert_weights.py    — Llama 3.1 (8B) and Llama 3.2 (1B, 3B)
     convert_tokenizer.py
+  Gemma/
+    convert_weights.py    — Gemma 4 12B (dense text chassis)
+    convert_tokenizer.py
 ```
 
 ## Setup
@@ -92,6 +95,68 @@ python Llama/convert_weights.py --model meta-llama/Llama-3.1-8B-Instruct --outpu
 | `--dtype` | `float32`, `bfloat16` | `bfloat16` |
 
 > **Llama 3.1 8B note:** `tie_word_embeddings=False` — `lm_head.weight` is a separate tensor and is written directly. Llama 3.2 1B/3B tie embeddings; the converter handles both cases automatically.
+
+---
+
+## Gemma
+
+Gemma models are gated on HuggingFace. Accept Google's license agreement and authenticate before running:
+
+```powershell
+hf auth login
+```
+
+> **Requires a recent transformers.** Gemma 4 is the `gemma4_unified` architecture, which older
+> `transformers` releases do not recognize. Validated on **5.12.1**; upgrade if a load fails with an
+> unknown/`gemma4` model type: `pip install -U "transformers>=5.12.1"`.
+
+Target is the **Gemma 4 12B Unified** dense text chassis (the 5:1 sliding/global layer interleave,
+decoupled `head_dim`, K=V global layers, GeGLU FFN, sandwich norm, and QK-norm are all read from the
+model config, so the converter adapts to the geometry rather than hardcoding it).
+
+### Supported models
+
+| Model | Parameters |
+|---|---|
+| `google/gemma-4-12b` | 12B base |
+| `google/gemma-4-12b-it` | 12B instruct |
+
+```powershell
+# Tokenizer (shared across Gemma 4 variants)
+python Gemma/convert_tokenizer.py --model google/gemma-4-12b-it --output <weights-dir>/gemma/gemma_tokenizer.bin
+
+# Gemma 4 12B — load in bf16 to stay within host RAM; ~24 GB required
+python Gemma/convert_weights.py --model google/gemma-4-12b-it --output <weights-dir>/gemma/gemma4_12b_it_bf16.bin
+```
+
+| Option | Values | Default |
+|---|---|---|
+| `--model` | any supported model name above | required |
+| `--output` | path to write `.bin` file | required |
+| `--dtype` | `float32`, `bfloat16` | `bfloat16` |
+
+**Three Gemma-specific transforms are folded in at convert time** (so the Mila inference path stays
+identical to Llama and needs no Gemma-only kernels):
+
+1. **Embedding scale** — HF multiplies embedded hidden states by `sqrt(hidden_size)` at runtime. Mila
+   keeps the token embedding and `lm_head` **untied**, so the scale is folded into the written
+   embedding table (`temb.wte`) and `lm_head` gets its own **unscaled** copy of the (HF-tied) tensor.
+2. **`(1 + weight)` RMSNorm** — Gemma's RMSNorm computes `x_norm * (1 + weight)`; Mila's kernel does the
+   standard `x_norm * weight`. The converter adds `1.0` to every RMSNorm weight (all sandwich norms,
+   both QK-norms, and the final norm).
+3. **K=V global layers** — the 1-in-N global (full-attention) layers share K=V and have no `v_proj`, so
+   their fused QKV blob is `[Q | K]` only; the sliding layers are the usual `[Q | K | V]`.
+
+> **Gemma 4 verification:** the exact HuggingFace config attribute names and `state_dict` keys for
+> Gemma 4 are read defensively with the `Gemma.md` design defaults as fallbacks. The script prints every
+> resolved value on first run — verify them against the installed `transformers` Gemma 4 implementation.
+
+> **Tokenizer:** `convert_tokenizer.py` writes the Gemma vocabulary in the shared Mila tokenizer binary
+> format (same layout as the Llama tokenizer). Gemma uses a SentencePiece tokenizer (262K vocab) with
+> `▁` (U+2581) spaces and byte fallback, so the Mila *runtime* loader (`BpeVocabulary::loadGemma`, with a
+> SentencePiece pre-tokenization) is the piece that makes it usable end-to-end — that loader is the
+> follow-up to this converter and is validated by an encode round-trip against the HF tokens the script
+> prints.
 
 ---
 

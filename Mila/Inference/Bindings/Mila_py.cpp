@@ -23,6 +23,8 @@ import Mila.Bindings;
 
 namespace py = pybind11;
 
+using Mila::Bindings::GemmaConfigInfo;
+using Mila::Bindings::GemmaSession;
 using Mila::Bindings::LlamaConfigInfo;
 using Mila::Bindings::LlamaSession;
 using Mila::Bindings::Tokenizer;
@@ -202,6 +204,101 @@ static void bind_llama_model( py::module_& m )
 }
 
 // ============================================================================
+// GemmaModel bindings — Gemma 4 12B, CUDA BF16
+// ============================================================================
+
+static void bind_gemma_model( py::module_& m )
+{
+    py::class_<GemmaSession>( m, "GemmaModel" )
+        .def_static( "from_pretrained",
+            []( const std::string& path,
+                int64_t context_length,
+                int device_index ) -> std::unique_ptr<GemmaSession>
+            {
+                py::gil_scoped_release _;
+
+                return GemmaSession::fromPretrained( path, context_length, device_index );
+            },
+            py::arg( "path" ),
+            py::arg( "context_length" ),
+            py::arg( "device_index" ) = 0,
+            "Load Gemma 4 pretrained weights from a Mila artifact.\n\n"
+            "Args:\n"
+            "    path:           Path to the Mila pretrained artifact.\n"
+            "    context_length: Maximum sequence length to build for.\n"
+            "    device_index:   CUDA device index (default: 0)." )
+        .def( "generate",
+            []( GemmaSession& self,
+                const std::vector<int32_t>& prompt_tokens,
+                std::size_t max_new_tokens,
+                float temperature,
+                int top_k ) -> std::vector<int32_t>
+            {
+                py::gil_scoped_release _;
+                return self.generate( prompt_tokens, max_new_tokens, temperature, top_k );
+            },
+            py::arg( "prompt_tokens" ),
+            py::arg( "max_new_tokens" ) = 64,
+            py::arg( "temperature" ) = 1.0f,
+            py::arg( "top_k" ) = 0,
+            "Blocking generation. Returns prompt tokens followed by all generated tokens.\n"
+            "For HF token-for-token parity use temperature=0.0 (greedy argmax)." )
+        .def( "generate_streaming",
+            []( GemmaSession& self,
+                const std::vector<int32_t>& prompt_tokens,
+                py::function on_token,
+                std::size_t max_new_tokens,
+                float temperature,
+                int top_k,
+                StopController* stop_ctrl )
+            {
+                std::stop_token stop = stop_ctrl
+                    ? stop_ctrl->get_token()
+                    : std::stop_token{};
+
+                py::gil_scoped_release release;
+
+                self.generateStreaming(
+                    prompt_tokens,
+                    [&on_token]( int32_t tok ) {
+                        py::gil_scoped_acquire acquire;
+                        on_token( tok );
+                    },
+                    max_new_tokens, temperature, top_k,
+                    std::move( stop ) );
+            },
+            py::arg( "prompt_tokens" ),
+            py::arg( "on_token" ),
+            py::arg( "max_new_tokens" ) = 64,
+            py::arg( "temperature" ) = 1.0f,
+            py::arg( "top_k" ) = 0,
+            py::arg( "stop_controller" ) = py::none(),
+            "Stream generation token by token. on_token(id: int) is called for each "
+            "generated token (EOS excluded)." )
+        .def( "get_config",
+            []( const GemmaSession& self ) {
+                const GemmaConfigInfo cfg = self.getConfig();
+                py::dict d;
+                d["vocab_size"] = cfg.vocab_size;
+                d["max_sequence_length"] = cfg.max_sequence_length;
+                d["model_dim"] = cfg.model_dim;
+                d["num_layers"] = cfg.num_layers;
+                d["num_heads"] = cfg.num_heads;
+                d["num_kv_heads"] = cfg.num_kv_heads;
+                d["head_dim"] = cfg.head_dim;
+                d["global_head_dim"] = cfg.global_head_dim;
+                d["hidden_dim"] = cfg.hidden_dim;
+                d["window"] = cfg.window;
+                d["rope_theta_local"] = cfg.rope_theta_local;
+                d["rope_theta_global"] = cfg.rope_theta_global;
+                d["final_logit_softcapping"] = cfg.final_logit_softcapping;
+                return d;
+            } )
+        .def( "__repr__",
+            []( const GemmaSession& self ) { return self.repr(); } );
+}
+
+// ============================================================================
 // StopController binding
 // ============================================================================
 
@@ -232,4 +329,5 @@ PYBIND11_MODULE( mila, m )
     bind_stop_controller( m );
     bind_tokenizer( m );
     bind_llama_model( m );
+    bind_gemma_model( m );
 }

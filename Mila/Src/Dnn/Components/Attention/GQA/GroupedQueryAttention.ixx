@@ -66,12 +66,13 @@ namespace Mila::Dnn
      * both IPositionalUnaryOp (prefill/decode dispatch) and IKVCacheLifecycle
      * (cache init/reset). Both pointers are resolved once at build time.
      *
-     * The KV cache lifecycle (initializeKVCache / resetKVCache) is intended to
-     * be driven exclusively by the owning transformer's generate() method.
+     * The cache self-initializes on the first prefill/forward; resetKVCache() is
+     * the public hook the owning decoder layer / transformer drives to start a new
+     * generation session.
      *
-     * REVIEW: initializeKVCache() and resetKVCache() are currently public.
+     * REVIEW: resetKVCache() is public (initialization stays internal to prefill).
      * When TransformerBase<> is introduced as the common base for GptTransformer,
-     * LlamaTransformer, MistralTransformer etc., revisit whether these should
+     * LlamaTransformer, MistralTransformer etc., revisit whether it should
      * become private with 'friend class TransformerBase<TDeviceType, TPrecision>'
      * to enforce that only the generate() orchestration path may manage the
      * KV cache lifecycle.
@@ -325,6 +326,23 @@ namespace Mila::Dnn
         void setState( const GqaState& state )
         {
             operation_->setState( state );
+        }
+
+        /**
+         * @brief Reset the KV cache for a new generation session.
+         *
+         * Drops any active decode state so the next prefill starts a fresh
+         * sequence. A no-op on backends without KV-cache support, and harmless
+         * when no decode session is active.
+         */
+        void resetKVCache()
+        {
+            if ( kv_cache_op_ && cache_initialized_ )
+            {
+                kv_cache_op_->resetKvCache();
+                cache_initialized_ = false;
+                decode_active_ = false;
+            }
         }
 
         // ====================================================================

@@ -43,6 +43,23 @@ namespace Mila::Bindings
         double rope_theta;
     };
 
+    export struct GemmaConfigInfo
+    {
+        int64_t vocab_size;
+        int64_t max_sequence_length;
+        int64_t model_dim;
+        int64_t num_layers;
+        int64_t num_heads;
+        int64_t num_kv_heads;
+        int64_t head_dim;
+        int64_t global_head_dim;
+        int64_t hidden_dim;
+        int64_t window;
+        double rope_theta_local;
+        double rope_theta_global;
+        double final_logit_softcapping;
+    };
+
     export void initialize( const std::string& log_level );
 
     export class Tokenizer
@@ -92,6 +109,42 @@ namespace Mila::Bindings
     private:
         struct Impl;
         explicit LlamaSession( std::unique_ptr<Impl> impl );
+
+        std::unique_ptr<Impl> impl_;
+    };
+
+    /**
+     * @brief Gemma 4 inference session (CUDA, BF16).
+     *
+     * Mirrors LlamaSession. The primary consumer is the HF token-for-token parity
+     * harness: feed HuggingFace-tokenized prompt ids and compare greedy generate()
+     * (temperature 0) against the HF reference, which sidesteps the Mila
+     * SentencePiece-tokenizer gap.
+     */
+    export class GemmaSession
+    {
+    public:
+        static std::unique_ptr<GemmaSession> fromPretrained(
+            const std::string& path, int64_t context_length, int device_index );
+
+        std::vector<int32_t> generate(
+            const std::vector<int32_t>& prompt_tokens,
+            std::size_t max_new_tokens, float temperature, int top_k );
+
+        void generateStreaming(
+            const std::vector<int32_t>& prompt_tokens,
+            const std::function<void( int32_t )>& on_token,
+            std::size_t max_new_tokens, float temperature, int top_k,
+            std::stop_token stop );
+
+        GemmaConfigInfo getConfig() const;
+        std::string repr() const;
+
+        ~GemmaSession();
+
+    private:
+        struct Impl;
+        explicit GemmaSession( std::unique_ptr<Impl> impl );
 
         std::unique_ptr<Impl> impl_;
     };

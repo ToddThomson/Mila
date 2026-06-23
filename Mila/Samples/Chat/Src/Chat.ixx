@@ -48,11 +48,13 @@ namespace Mila::ChatApp
     using GptModelFP32Type   = GptModel<DeviceType::Cuda, TensorDataType::FP32>;
     using LlamaModelFP32Type = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>;
     using LlamaModelBF16Type = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
+    using GemmaModelBF16Type = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>;
 
     using ModelVariant = std::variant<
         std::unique_ptr<GptModelFP32Type>,
         std::unique_ptr<LlamaModelFP32Type>,
-        std::unique_ptr<LlamaModelBF16Type>
+        std::unique_ptr<LlamaModelBF16Type>,
+        std::unique_ptr<GemmaModelBF16Type>
     >;
 
     export class Chat
@@ -151,15 +153,26 @@ namespace Mila::ChatApp
                             continue;
                         }
 
-                        const auto quant = parseQuantization( quant_sv );
-                        if ( !quant )
+                        // An omitted quantization argument falls back to the alias default
+                        // (FP4 for Gemma, whose BF16 weights do not fit the dev card).
+                        QuantizationMode quant;
+                        if ( quant_sv.empty() )
                         {
-                            renderer_.printInfo( std::format(
-                                "Unknown quantization '{}'. Use none, fp8, or fp4.", quant_sv ) );
-                            continue;
+                            quant = desc->default_quantization;
+                        }
+                        else
+                        {
+                            const auto parsed = parseQuantization( quant_sv );
+                            if ( !parsed )
+                            {
+                                renderer_.printInfo( std::format(
+                                    "Unknown quantization '{}'. Use none, fp8, or fp4.", quant_sv ) );
+                                continue;
+                            }
+                            quant = *parsed;
                         }
 
-                        switchModel( *desc, *quant );
+                        switchModel( *desc, quant );
                         continue;
                     }
 
@@ -265,7 +278,9 @@ namespace Mila::ChatApp
         {
             static constexpr std::string_view kTokens[] = {
                 "<|eot_id|>", "<|eom_id|>", "<|python_tag|>",
-                "<|begin_of_text|>", "<|end_of_text|>"
+                "<|begin_of_text|>", "<|end_of_text|>",
+                // Gemma 4 instruct special tokens.
+                "<end_of_turn>", "<start_of_turn>", "<bos>", "<eos>", "<pad>"
             };
 
             std::string result = text;
@@ -403,6 +418,8 @@ namespace Mila::ChatApp
 
             if ( config_.model_type == ModelType::Llama && config_.is_instruct )
                 prompt = MessageFormatter::format( history_ );
+            else if ( config_.model_type == ModelType::Gemma && config_.is_instruct )
+                prompt = formatGemmaPrompt( history_ );
             else
                 prompt = history_.back().content;
 
@@ -411,23 +428,68 @@ namespace Mila::ChatApp
             return std::vector<int32_t>( token_ids.begin(), token_ids.end() );
         }
 
+        /**
+         * @brief Render a conversation history into the Gemma instruct chat template.
+         *
+         * Gemma 4 wraps each turn as <start_of_turn>{role}\n{content}<end_of_turn>\n
+         * with roles "user" and "model" (the assistant), and terminates with a
+         * <start_of_turn>model\n primer to prime generation. Gemma has no dedicated
+         * system role, so a System turn is folded into the start of the next user
+         * turn. The Gemma tokenizer encodes <bos>/<start_of_turn>/<end_of_turn> as
+         * atomic special tokens, so they are emitted as literal text here.
+         */
+        static std::string formatGemmaPrompt( const std::vector<ChatMessage>& history )
+        {
+            std::string prompt = "<bos>";
+            std::string pending_system;
+
+            for ( const auto& message : history )
+            {
+                if ( message.role == MessageRole::System )
+                {
+                    pending_system = message.content;
+                    continue;
+                }
+
+                const bool is_model = (message.role == MessageRole::Assistant);
+                prompt += is_model ? "<start_of_turn>model\n" : "<start_of_turn>user\n";
+
+                if ( !is_model && !pending_system.empty() )
+                {
+                    prompt += pending_system;
+                    prompt += "\n\n";
+                    pending_system.clear();
+                }
+
+                prompt += message.content;
+                prompt += "<end_of_turn>\n";
+            }
+
+            prompt += "<start_of_turn>model\n";
+
+            return prompt;
+        }
+
         struct ModelDescriptor
         {
-            ModelType      type;
-            ModelSize      size;
-            ModelPrecision precision;
-            bool           is_instruct;
+            ModelType        type;
+            ModelSize        size;
+            ModelPrecision   precision;
+            bool             is_instruct;
+            QuantizationMode default_quantization;  ///< Used when /model omits the quant argument.
         };
 
         static std::optional<ModelDescriptor> resolveAlias( std::string_view alias )
         {
-            if ( alias == "gpt2" )          return ModelDescriptor{ ModelType::Gpt,   ModelSize::B3, ModelPrecision::FP32, false };
-            if ( alias == "llama-1b" )      return ModelDescriptor{ ModelType::Llama, ModelSize::B1, ModelPrecision::BF16, true  };
-            if ( alias == "llama-3b" )      return ModelDescriptor{ ModelType::Llama, ModelSize::B3, ModelPrecision::BF16, true  };
-            if ( alias == "llama-8b" )      return ModelDescriptor{ ModelType::Llama, ModelSize::B8, ModelPrecision::BF16, true  };
-            if ( alias == "llama-1b-fp32" ) return ModelDescriptor{ ModelType::Llama, ModelSize::B1, ModelPrecision::FP32, true  };
-            if ( alias == "llama-3b-fp32" ) return ModelDescriptor{ ModelType::Llama, ModelSize::B3, ModelPrecision::FP32, true  };
-            if ( alias == "llama-8b-fp32" ) return ModelDescriptor{ ModelType::Llama, ModelSize::B8, ModelPrecision::FP32, true  };
+            if ( alias == "gpt2" )          return ModelDescriptor{ ModelType::Gpt,   ModelSize::B3,  ModelPrecision::FP32, false, QuantizationMode::None };
+            if ( alias == "llama-1b" )      return ModelDescriptor{ ModelType::Llama, ModelSize::B1,  ModelPrecision::BF16, true,  QuantizationMode::None };
+            if ( alias == "llama-3b" )      return ModelDescriptor{ ModelType::Llama, ModelSize::B3,  ModelPrecision::BF16, true,  QuantizationMode::None };
+            if ( alias == "llama-8b" )      return ModelDescriptor{ ModelType::Llama, ModelSize::B8,  ModelPrecision::BF16, true,  QuantizationMode::None };
+            if ( alias == "llama-1b-fp32" ) return ModelDescriptor{ ModelType::Llama, ModelSize::B1,  ModelPrecision::FP32, true,  QuantizationMode::None };
+            if ( alias == "llama-3b-fp32" ) return ModelDescriptor{ ModelType::Llama, ModelSize::B3,  ModelPrecision::FP32, true,  QuantizationMode::None };
+            if ( alias == "llama-8b-fp32" ) return ModelDescriptor{ ModelType::Llama, ModelSize::B8,  ModelPrecision::FP32, true,  QuantizationMode::None };
+            // Gemma 4 12B: BF16 weights (~24 GB) do not fit the dev card, so FP4 is the default.
+            if ( alias == "gemma-12b" )     return ModelDescriptor{ ModelType::Gemma, ModelSize::B12, ModelPrecision::BF16, true,  QuantizationMode::FP4 };
             return std::nullopt;
         }
 
@@ -451,12 +513,17 @@ namespace Mila::ChatApp
 
             // Preserve context_length across same-architecture switches; reset on arch change.
             if ( prev_type != config_.model_type )
-                config_.context_length = (config_.model_type == ModelType::Gpt) ? 1024 : 4096;
+                config_.context_length = defaultContextLength( config_.model_type );
 
             if ( config_.model_type == ModelType::Gpt )
             {
                 config_.model_path     = config_.models_dir / "gpt2" / "gpt2_small_fp32.bin";
                 config_.tokenizer_path = config_.models_dir / "gpt2" / "gpt2_tokenizer.bin";
+            }
+            else if ( config_.model_type == ModelType::Gemma )
+            {
+                config_.model_path     = config_.models_dir / "gemma" / "gemma4_12b_it_bf16.bin";
+                config_.tokenizer_path = config_.models_dir / "gemma" / "gemma_tokenizer.bin";
             }
             else
             {
@@ -494,19 +561,7 @@ namespace Mila::ChatApp
                 default:                    quant_str = "none"; break;
             }
 
-            std::string alias;
-            if ( config_.model_type == ModelType::Gpt )
-            {
-                alias = "gpt2";
-            }
-            else
-            {
-                const char* size_str = (config_.model_size == ModelSize::B1) ? "1b"
-                                     : (config_.model_size == ModelSize::B8) ? "8b" : "3b";
-                alias = (config_.precision == ModelPrecision::FP32)
-                    ? std::format( "llama-{}-fp32", size_str )
-                    : std::format( "llama-{}",      size_str );
-            }
+            const std::string alias = modelAlias();
 
             std::cout << std::format(
                 "  Model:        {}\n"
@@ -533,6 +588,10 @@ namespace Mila::ChatApp
 
                     case ModelType::Llama:
                         tokenizer_ = BpeTokenizer::loadLlama32( config_.tokenizer_path );
+                        break;
+
+                    case ModelType::Gemma:
+                        tokenizer_ = BpeTokenizer::loadGemma( config_.tokenizer_path );
                         break;
                 }
 
@@ -588,6 +647,24 @@ namespace Mila::ChatApp
                             config_.model_path, llama_config, device );
 
                     std::cout << "Model loaded successfully\n";
+                    break;
+                }
+
+                case ModelType::Gemma:
+                {
+                    GemmaModelConfig gemma_config = GemmaModelConfig( config_.context_length );
+
+                    if ( config_.quantization_mode == QuantizationMode::FP8 )
+                        gemma_config.withFP8Quantization();
+                    else if ( config_.quantization_mode == QuantizationMode::FP4 )
+                        gemma_config.withFP4Quantization();
+
+                    auto gemma = GemmaModelBF16Type::fromPretrained(
+                        config_.model_path, gemma_config, device );
+                    std::cout << gemma->toString();
+                    std::cout << gemma->getMemoryStats().toString() << "\n";
+                    std::cout << "Model loaded successfully\n";
+                    model_ = std::move( gemma );
                     break;
                 }
             }
@@ -664,6 +741,10 @@ namespace Mila::ChatApp
         {
             if ( config_.model_type == ModelType::Gpt )
                 return "gpt2";
+
+            if ( config_.model_type == ModelType::Gemma )
+                return "gemma-12b";
+
             const char* size_str = (config_.model_size == ModelSize::B1) ? "1b"
                                   : (config_.model_size == ModelSize::B8) ? "8b" : "3b";
             return (config_.precision == ModelPrecision::FP32)
@@ -688,13 +769,14 @@ Available commands:
   /model <alias> [quant]     Switch model (clears history)
   /exit                      Exit the application
 
-Model aliases:  llama-3b (default), llama-1b, llama-8b, llama-3b-fp32, llama-1b-fp32, llama-8b-fp32, gpt2
-Quantization:   none (default), fp8, fp4
+Model aliases:  llama-3b (default), llama-1b, llama-8b, llama-3b-fp32, llama-1b-fp32, llama-8b-fp32, gemma-12b, gpt2
+Quantization:   none (default), fp8, fp4  (gemma-12b defaults to fp4)
 
 Examples:
   /model llama-3b
   /model llama-3b fp8
   /model llama-8b fp4
+  /model gemma-12b
 )" << "\n";
         }
 

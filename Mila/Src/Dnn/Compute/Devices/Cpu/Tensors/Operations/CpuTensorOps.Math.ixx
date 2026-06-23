@@ -148,6 +148,41 @@ namespace Mila::Dnn::Compute::Cpu
         }
 
         /**
+         * @brief Scale a tensor by a scalar: result[i] = input[i] * scalar (CPU implementation).
+         *
+         * Supports in-place (input and result may alias). Computes in float then narrows back
+         * to the host type so bf16/half scale cleanly. Used by Gemma 4's per-layer layer_scalar.
+         */
+        template<TensorDataType TDataType, typename TMemoryResource>
+            requires isValidTensor<TDataType, TMemoryResource>
+        static void scale(
+            const Tensor<TDataType, TMemoryResource>& input,
+            float scalar,
+            Tensor<TDataType, TMemoryResource>& result,
+            [[maybe_unused]] IExecutionContext* exec_context = nullptr )
+        {
+            if ( input.shape() != result.shape() )
+            {
+                throw std::invalid_argument( "scale: input and result must have the same shape" );
+            }
+
+            if ( input.empty() )
+            {
+                throw std::invalid_argument( "scale: cannot operate on an empty tensor" );
+            }
+
+            using HostType = typename TensorHostTypeMap<TDataType>::host_type;
+            const auto* in = static_cast<const HostType*>( input.data() );
+            auto* out = static_cast<HostType*>( result.data() );
+            const size_t num_elements = input.size();
+
+            for ( size_t i = 0; i < num_elements; ++i )
+            {
+                out[ i ] = static_cast<HostType>( static_cast<float>( in[ i ] ) * scalar );
+            }
+        }
+
+        /**
          * @brief Element-wise division of two tensors (CPU implementation)
          *
          * Performs element-wise division a[i] / b[i] for all elements and stores

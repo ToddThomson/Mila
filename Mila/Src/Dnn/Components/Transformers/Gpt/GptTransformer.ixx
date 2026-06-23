@@ -41,6 +41,7 @@ import Dnn.Components.Lpe;
 import Dnn.Components.GptBlock;
 import Dnn.Component;
 import Dnn.ComponentType;
+import Dnn.ModelType;
 import Dnn.RuntimeMode;
 import Dnn.ActivationType;
 import Compute.Device;
@@ -412,9 +413,11 @@ namespace Mila::Dnn
             lm_head_->zeroGradients();
         }
 
-        const ComponentType getType() const override
+        // Structural kind comes from the Network base (ComponentType::Network);
+        // the architecture family is reported here.
+        ModelType getModelType() const
         {
-            return ComponentType::Gpt2;
+            return ModelType::Gpt2;
         }
 
         MemoryStats getMemoryStats() const override

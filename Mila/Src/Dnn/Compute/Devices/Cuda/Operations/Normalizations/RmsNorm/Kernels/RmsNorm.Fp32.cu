@@ -23,7 +23,8 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const float* __restrict__ inp,
         const float* __restrict__ weight,
         const float* __restrict__ bias,
-        int num_slices, int norm_dim, int inner_size, float epsilon )
+        int num_slices, int norm_dim, int inner_size, float epsilon,
+        float weight_offset )
     {
         int lane_id = threadIdx.x % WARP_SIZE;
         int warp_id = threadIdx.x / WARP_SIZE;
@@ -75,7 +76,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         {
             size_t offset = static_cast<size_t>( i ) * static_cast<size_t>( inner_size );
             float xv = x[ offset ];
-            float w = weight ? weight[ i ] : 1.0f;
+            float w = weight ? (weight[ i ] + weight_offset) : 1.0f;
             float b = bias ? bias[ i ] : 0.0f;
             float xhat = xv * rstd_val;
             float res = xhat * w + b;
@@ -180,6 +181,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const float* X, const float* weight, const float* bias,
         int outer_size, int inner_size, int norm_dim,
         float epsilon,
+        float weight_offset,
         cudaStream_t stream )
     {
         const int block_size = 512;
@@ -188,7 +190,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const int grid_size = (num_slices + warps_per_block - 1) / warps_per_block;
 
         rmsnorm_forward_fp32_kernel << <grid_size, block_size, 0, stream >> > (
-            Y, rstd, X, weight, bias, num_slices, norm_dim, inner_size, epsilon);
+            Y, rstd, X, weight, bias, num_slices, norm_dim, inner_size, epsilon, weight_offset);
 
         cudaCheck( cudaGetLastError() );
     }

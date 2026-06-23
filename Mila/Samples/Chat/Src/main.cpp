@@ -41,6 +41,11 @@ static std::filesystem::path llama_weights_path( ModelSize size, ModelPrecision 
         / std::format( "{}_{}_instruct_{}.bin", family_str, size_str, prec_str );
 }
 
+static std::filesystem::path gemma_weights_path()
+{
+    return std::filesystem::path( MODELS_DIR ) / "gemma" / "gemma4_12b_it_bf16.bin";
+}
+
 static void printUsage( const char* prog_name )
 {
     std::cerr
@@ -53,18 +58,20 @@ static void printUsage( const char* prog_name )
         << "  --model           Model alias (recommended). Available aliases:\n"
         << "                      gpt2          GPT-2 small, FP32\n"
         << "                      llama-1b      Llama 3.2 1B Instruct, BF16\n"
+        << "                      llama-3b      Llama 3.2 3B Instruct, BF16\n"
         << "                      llama-8b      Llama 3.1 8B Instruct, BF16  (default)\n"
-        << "                      llama-8b      Llama 3.1 8B Instruct, BF16\n"
         << "                      llama-1b-fp32 Llama 3.2 1B Instruct, FP32\n"
         << "                      llama-3b-fp32 Llama 3.2 3B Instruct, FP32\n"
         << "                      llama-8b-fp32 Llama 3.1 8B Instruct, FP32\n"
+        << "                      gemma-12b     Gemma 4 12B Instruct, BF16 weights, FP4 by default\n"
         << "  --quantization    Weight quantization: none, fp8, or fp4. Default: fp4.\n"
         << "                    fp8 enables FP8 weights and FP8 KV cache compression.\n"
         << "                    fp4 enables INT4 weights (W4A16) and FP8 KV cache compression.\n"
         << "  --tokenizer       Path to the tokenizer file.\n"
         << "  --context-length  Maximum sequence length for inference.\n"
-        << "                    Defaults to 1024 for GPT-2, 4096 for Llama.\n"
-        << "                    Reduce to lower GPU memory usage.\n"
+        << "                    Defaults to 1024 for GPT-2/Gemma, 4096 for Llama.\n"
+        << "                    Reduce to lower GPU memory usage (Gemma 12B on a 12 GB\n"
+        << "                    card may need 512; watch the model-load memory stats).\n"
         << "  --system-prompt   JSON file with system_prompt string and optional tools array.\n"
         << "  model_path        Path to the pretrained weights file (overrides --model path).\n"
         << "\n"
@@ -114,6 +121,10 @@ static bool resolveModelAlias(
     else if ( alias == "llama-8b-fp32" )
     {
         type = ModelType::Llama; size = ModelSize::B8; prec = ModelPrecision::FP32; is_instruct = true;
+    }
+    else if ( alias == "gemma-12b" )
+    {
+        type = ModelType::Gemma; size = ModelSize::B12; prec = ModelPrecision::BF16; is_instruct = true;
     }
     else
     {
@@ -173,6 +184,8 @@ static void applyConfigFile(
             model_type = ModelType::Gpt;
         else if ( v == "llama" )
             model_type = ModelType::Llama;
+        else if ( v == "gemma" )
+            model_type = ModelType::Gemma;
     }
 
     if ( !explicit_size && j.contains( "model_size" ) && j[ "model_size" ].is_string() )
@@ -185,6 +198,8 @@ static void applyConfigFile(
             model_size = ModelSize::B3;
         else if ( v == "8b" )
             model_size = ModelSize::B8;
+        else if ( v == "12b" )
+            model_size = ModelSize::B12;
     }
 
     if ( !explicit_precision && j.contains( "precision" ) && j[ "precision" ].is_string() )
@@ -411,8 +426,14 @@ static ChatConfig parseArgs( int argc, char* argv[] )
             []( unsigned char c ) { return static_cast<char>(std::tolower( c )); } );
 
         if ( !explicit_type )
-            model_type = lower.find( "llama" ) != std::string::npos
-                ? ModelType::Llama : ModelType::Gpt;
+        {
+            if ( lower.find( "gemma" ) != std::string::npos )
+                model_type = ModelType::Gemma;
+            else if ( lower.find( "llama" ) != std::string::npos )
+                model_type = ModelType::Llama;
+            else
+                model_type = ModelType::Gpt;
+        }
 
         if ( !explicit_size )
             model_size = lower.find( "_1b_" ) != std::string::npos
@@ -425,9 +446,12 @@ static ChatConfig parseArgs( int argc, char* argv[] )
 
     if ( !model_path )
     {
-        model_path = (model_type == ModelType::Gpt)
-            ? gpt2_weights_path()
-            : llama_weights_path( model_size, precision );
+        switch ( model_type )
+        {
+            case ModelType::Gpt:   model_path = gpt2_weights_path(); break;
+            case ModelType::Gemma: model_path = gemma_weights_path(); break;
+            case ModelType::Llama: model_path = llama_weights_path( model_size, precision ); break;
+        }
     }
 
     if ( !explicit_instruct )
@@ -435,14 +459,19 @@ static ChatConfig parseArgs( int argc, char* argv[] )
         std::string lower = model_path->string();
         std::ranges::transform( lower, lower.begin(),
             []( unsigned char c ) { return static_cast<char>(std::tolower( c )); } );
-        is_instruct = lower.find( "instruct" ) != std::string::npos;
+        // Gemma marks instruct-tuned checkpoints with "_it_" rather than "instruct".
+        is_instruct = lower.find( "instruct" ) != std::string::npos
+                   || lower.find( "_it_" ) != std::string::npos;
     }
 
     if ( !tokenizer_path )
     {
-        tokenizer_path = (model_type == ModelType::Gpt)
-            ? models_dir / "gpt2" / "gpt2_tokenizer.bin"
-            : models_dir / "llama" / "llama32_tokenizer.bin";
+        switch ( model_type )
+        {
+            case ModelType::Gpt:   tokenizer_path = models_dir / "gpt2" / "gpt2_tokenizer.bin"; break;
+            case ModelType::Gemma: tokenizer_path = models_dir / "gemma" / "gemma_tokenizer.bin"; break;
+            case ModelType::Llama: tokenizer_path = models_dir / "llama" / "llama32_tokenizer.bin"; break;
+        }
     }
 
     ChatConfig config;
@@ -463,7 +492,7 @@ static ChatConfig parseArgs( int argc, char* argv[] )
     }
     else
     {
-        config.context_length = (model_type == ModelType::Gpt) ? 1024 : 4096;
+        config.context_length = defaultContextLength( model_type );
     }
 
     if ( max_new_tokens.has_value() )
