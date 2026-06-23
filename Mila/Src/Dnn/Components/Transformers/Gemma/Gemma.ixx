@@ -42,9 +42,6 @@ module;
 #include <format>
 #include <algorithm>
 #include <type_traits>
-// TEMPORARY (activation-diff instrumentation): console output for the per-layer hidden-state summary.
-#include <iostream>
-#include <cmath>
 
 export module Dnn.Components.GemmaTransformer;
 
@@ -99,13 +96,6 @@ namespace Mila::Dnn
     // activation footprint (all N layers, dominated by the GeGLU FFN) scales with this,
     // so it is the primary prefill VRAM lever on memory-constrained cards.
     inline constexpr int64_t kGemmaPrefillChunkOverride = 32;
-
-    // TEMPORARY (remove once Gemma HF parity is localized): print a one-line summary of
-    // each prefill layer's LAST-TOKEN hidden state (l2 / mean / min / max + first values)
-    // so it can be eyeballed against the HF reference (hf_gemma_activation_dump.py prints
-    // the same). Set true and run the PARITY TEST (single prefill of kPromptIds) with a
-    // chunk >= prompt length so the whole prompt is one chunk.
-    inline constexpr bool kGemmaDumpActivations = true;
 
     // Largest prefill chunk in {512, 256, 128, 64, 32, 16} whose attention scratch
     // stays under the cap. head_dim is the MAX over local/global so the budget is
@@ -226,32 +216,10 @@ namespace Mila::Dnn
 
                 TensorType* block_input = &token_embedding_->forward( chunk_input );
 
-                // TEMPORARY activation-diff instrumentation: only dump when the whole
-                // prompt is a single chunk, so the dumped [T, model_dim] is the full
-                // sequence and lines up with HF's single full-sequence forward.
-                [[maybe_unused]] const bool dump_this_chunk =
-                    kGemmaDumpActivations && offset == 0 && T_actual == T_prompt;
-
-                if constexpr ( kGemmaDumpActivations )
-                {
-                    if ( dump_this_chunk )
-                        printActivationSummary( "embed", *block_input );
-                }
-
-                int layer_index = 0;
-
                 for ( auto* layer : layers_ )
                 {
                     auto& block_out = layer->prefill( *block_input, static_cast<int>( offset ) );
                     block_input = &block_out;
-
-                    if constexpr ( kGemmaDumpActivations )
-                    {
-                        if ( dump_this_chunk )
-                            printActivationSummary( std::format( "layer_{:02d}", layer_index ), block_out );
-                    }
-
-                    ++layer_index;
                 }
 
                 last_block_out = block_input;
@@ -264,9 +232,6 @@ namespace Mila::Dnn
                 shape_t{ B, 1, config_.getModelDim() }, last_pos_offset );
 
             normalized_ptr_ = &final_rmsnorm_->forward( last_pos );
-
-            if constexpr ( kGemmaDumpActivations )
-                printActivationSummary( "final_norm", *normalized_ptr_ );
 
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
 
@@ -508,51 +473,6 @@ namespace Mila::Dnn
         // Declared last so it is destroyed first — cudaStreamSynchronize() fires in
         // releaseResources() before any tensor cudaFree() from members above.
         std::unique_ptr<IExecutionContext> exec_context_{ nullptr };
-
-        // ====================================================================
-        // TEMPORARY: activation-diff instrumentation (remove after Gemma parity)
-        // ====================================================================
-
-        // Host staging for the dump readback: pinned FP32 on CUDA (one-shot device-BF16
-        // -> host-FP32 conversion via copy(), mirroring the logits staging path),
-        // pageable FP32 on CPU.
-#ifdef MILA_HAS_CUDA
-        using DumpStagingMR = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaPinnedMemoryResource, CpuMemoryResource>;
-#else
-        using DumpStagingMR = CpuMemoryResource;
-#endif
-
-        void printActivationSummary( const std::string& label, const TensorType& tensor ) const
-        {
-            Tensor<TensorDataType::FP32, DumpStagingMR> host(
-                TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), tensor.shape() );
-
-            copy( tensor, host );
-            this->getExecutionContext()->synchronize();
-
-            // Summarize the LAST-TOKEN row -- the vector that drives the next-token logits.
-            const int64_t model_dim = config_.getModelDim();
-            const size_t n = host.size();
-            const float* row = host.data() + ( n - static_cast<size_t>( model_dim ) );
-
-            double sum = 0.0, sumsq = 0.0;
-            float mn = row[ 0 ], mx = row[ 0 ];
-
-            for ( int64_t i = 0; i < model_dim; ++i )
-            {
-                const float v = row[ i ];
-                sum += v;
-                sumsq += static_cast<double>( v ) * v;
-                mn = std::min( mn, v );
-                mx = std::max( mx, v );
-            }
-
-            std::cout << std::format(
-                "[GEMMA-DUMP] {:<11} l2={:>11.4f} mean={:>+10.5f} min={:>+10.4f} max={:>+10.4f} "
-                "head=[{:+.4f}, {:+.4f}, {:+.4f}]\n",
-                label, std::sqrt( sumsq ), sum / static_cast<double>( model_dim ), mn, mx,
-                row[ 0 ], row[ 1 ], row[ 2 ] );
-        }
 
         // ====================================================================
         // Graph construction

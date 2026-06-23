@@ -15,11 +15,6 @@ module;
 #include <type_traits>
 #include <sstream>
 #include <unordered_map>
-// TEMPORARY (activation-diff instrumentation): preatt/att score dump.
-#include <vector>
-#include <cmath>
-#include <cstring>
-#include <iostream>
 #include "Kernels/CudaGqa.cuh"
 
 export module Compute.CudaGqaOp;
@@ -501,62 +496,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // buffers. See GqaMemory.md Phase 1 and Phase 2.
         // ====================================================================
 
-        // TEMPORARY (activation-diff instrumentation): copy one device score/weight row to
-        // host and print min/max/sum/argmax. For `att` (softmax) sum~1.0 and max~1.0 means
-        // one-hot (sharp); max~1/n means uniform. For `preatt` min/max is the raw score range.
-        void dumpScoreRow( const char* label, const NativeType* dev, size_t offset, int n ) const
-        {
-            if ( n <= 0 )
-                return;
-
-            std::vector<NativeType> host( static_cast<size_t>( n ) );
-            cudaMemcpy( host.data(), dev + offset, static_cast<size_t>( n ) * sizeof( NativeType ), cudaMemcpyDeviceToHost );
-            cudaStreamSynchronize( context_->getStream() );
-
-            auto toF = []( const NativeType& v ) -> float
-            {
-                if constexpr ( std::is_same_v<NativeType, float> )
-                    return v;
-                else
-                {
-                    uint16_t r;
-                    std::memcpy( &r, &v, sizeof( uint16_t ) );
-                    uint32_t b = static_cast<uint32_t>( r ) << 16;
-                    float f;
-                    std::memcpy( &f, &b, sizeof( float ) );
-                    return f;
-                }
-            };
-
-            float mn = toF( host[ 0 ] ), mx = toF( host[ 0 ] );
-            double sum = 0.0;
-            int argmax = 0;
-
-            for ( int i = 0; i < n; ++i )
-            {
-                const float f = toF( host[ i ] );
-
-                if ( f > mx ) { mx = f; argmax = i; }
-
-                mn = std::min( mn, f );
-                sum += f;
-            }
-
-            std::cerr << std::format(
-                "[GQA-DUMP] {:<20} n={:>4} min={:>+12.5f} max={:>+12.5f} sum={:>12.5f} argmax={:>4}\n",
-                label, n, mn, mx, sum, argmax );
-
-            // Full row (small n only): the per-key distribution, to compare element-wise vs HF.
-            // "att too sharp" shows as Mila weights shifted toward the BOS/argmax key vs HF.
-            if ( n <= 64 )
-            {
-                std::string row = std::format( "[GQA-ROW]  {:<20}", label );
-                for ( int i = 0; i < n; ++i )
-                    row += std::format( " {:.4f}", toF( host[ i ] ) );
-                std::cerr << row << "\n";
-            }
-        }
-
         void prefill_optimized(
             const ITensor& q, const ITensor& k, const ITensor& v,
             ITensor& output,
@@ -608,27 +547,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             Detail::cuda_gqa_kernels<NativeType>::prefill_softmax(
                 att_opt_, preatt_opt_,
                 B_, NH_, T_, prefill_chunk_size_, chunk_len, position_offset, window_, stream );
-
-            // TEMPORARY: dump the last-query-row scores/weights for the first 2 LOCAL blocks
-            // (calls 0,1) and the first GLOBAL block (call 5, the 5:1 pattern), ALL heads.
-            // prefill_optimized is shared across layers and called once per layer in order for a
-            // single-chunk prompt, so the call index == the decoder layer index. ALL NH heads are
-            // dumped so a per-head divergence vs HF [HF-ATTN-ROW] is visible across the whole layer.
-            static int gqa_call = 0;
-            const int this_call = gqa_call++;
-            if ( this_call == 0 || this_call == 1 || this_call == 5 )
-            {
-                const int last_q = chunk_len - 1;
-                const int valid = position_offset + chunk_len;            // valid keys for the last query
-                //std::cerr << std::format( "[GQA-DUMP] L{} NKV={} HS={} GS={} window={} scale={} chunk={} valid_keys={}\n",
-                //    this_call, NKV_, HS_, GS_, window_, attention_scale_, chunk_len, valid );
-                for ( int h = 0; h < NH_; ++h )
-                {
-                    const size_t row = ( static_cast<size_t>(0 * NH_ + h) * chunk_len + last_q ) * T_;
-                    //dumpScoreRow( std::format( "L{} preatt(h{},kv{})", this_call, h, h / GS_ ).c_str(), preatt_opt_, row, valid );
-                    dumpScoreRow( std::format( "L{} att(h{})", this_call, h ).c_str(), att_opt_, row, valid );
-                }
-            }
 
             execute_plan<NativeType>(
                 cublaslt_handle_, av_plan,

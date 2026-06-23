@@ -1150,6 +1150,73 @@ order.
   present on global blocks too (loads the weight; unused until step 2). **RE-CONVERT REQUIRED** (v_norm.weight
   new). Expect local layers (0-4,6-10,...) to tighten in direction; parity should improve. If still
   diverging, STEP 2 = global `V = v_norm(k_proj)` (not the current k_norm+RoPE'd K alias) + KV-sharing.
+  **2026-06-22 STEP 2 PART A (global `V = v_norm(k_proj)`) LANDED (awaiting VS2026 build + run; NO
+  re-convert -- the global `v_norm.weight = ones[512]` was already written at step 1b).** GemmaBlock's
+  global (kGlobal) prefill+decode no longer alias V to the k_norm'd + RoPE'd K. V is now derived from
+  the RAW key projection: the k_proj still lives untouched in the `k_` buffer (RmsNorm::forward is
+  out-of-place -> k_norm writes its own output, and RoPE runs in-place on THAT output, not on k_), so
+  the global branch views `k_` per-head and runs it through `v_norm_` (no RoPE on V) -> V = v_norm(k_proj),
+  distinct from K = RoPE(k_norm(k_proj)). The GQA op already stores K and V in separate caches (local
+  layers always passed distinct K/V), so feeding distinct global K/V is exactly the existing contract.
+  File header + createGraph + split comments updated to drop the "V aliased to K" language. Expect the
+  global layers (5,11,...,47) to tighten in DIRECTION and the token-1+ divergence to shrink. **PART B
+  (cross-layer `is_kv_shared_layer` sharing) DEFERRED** -- no GemmaConfig field, no converter support,
+  and the per-layer sharing flags + anchor layer are NOT confirmed in-repo (only obtainable from the HF
+  `hf_gemma_activation_dump.py` `is_kv_shared`/`v_proj`/`layer_type` prints on the user's GPU). Reassess
+  whether Part B is even needed after running Part A; if divergence persists, run the dump to confirm the
+  sharing pattern (which layers reuse which anchor's KV) BEFORE building config/converter/transformer
+  support -- a guessed pattern would regress the now-correct token 0.
+  **2026-06-23 PART B IS NOT NEEDED -- `is_kv_shared_layer=False` on EVERY sampled layer (0,1 local
+  and 5,11 global) per the HF dump.** Gemma 4 12B (`Gemma4UnifiedForConditionalGeneration`) has no
+  cross-layer KV-sharing (that was a Gemma-3n on-device feature). So STEP 2 is complete with Part A
+  alone; the remaining token-1+ drift is elsewhere. The dump also CONFIRMS the rest of the chassis:
+  every norm `with_scale=True` EXCEPT `v_norm` (`with_scale=False` -> pure normalize, matches Mila's
+  ones[head_dim]); `self_attn.scaling=1.0` (no 1/sqrt(d), QK-norm controls magnitude -- matches Mila's
+  `withAttentionScale(1.0)`); global layers `v_proj=None` (K=V confirmed). NOTE on global k_norm: its
+  weight_l2 ~1.37 over 512 elems ~= 0.06/elem (tiny), so K is scaled WAY down while V=v_norm(k_proj) is
+  pure-normalized (~1.0/elem) -- Part A made global V ~16x larger than the old tiny-K alias, the intended
+  magnitude correction. NEXT: localize the residual `[HF-HS]` vs Mila `[GEMMA-DUMP]` per-layer l2 to find
+  the first diverging layer (global vs local) now that Part A has landed.
+  **2026-06-23 HF `inspect.getsource` (Gemma4Unified) CONFIRMS the ENTIRE structure now matches Mila --
+  the remaining divergence is NUMERICAL, not structural.** Definitive layer math:
+  (1) `DecoderLayer.forward`: `h = input_norm(x); h = post_attn_norm(self_attn(h)); h = x + h;
+  r = h; h = post_ffn_norm(mlp(pre_ffn_norm(h))); h = r + h; h *= layer_scalar` -- layer_scalar is a
+  FULL-stream multiply at the layer END (Mila's `res2 *= layer_scalar` is CORRECT; the branch-scaling
+  hypothesis was WRONG). (2) `Attention.forward`: global (v_proj=None) sets `value_states = key_states`
+  (raw k_proj) then `v_norm(value_states)`, NO RoPE on V -- EXACTLY Part A. (3) `RMSNorm.forward`:
+  `_norm(x.float()) * weight` (RAW, no (1+w)), `_norm = x * (mean(x^2)+eps)^-0.5` -- matches Mila offset 0.
+  (4) MLP `down(act(gate)*up)` -- matches. So layer_scalar / v_norm / global-V / norm-convention / MLP /
+  no-KV-sharing ALL confirmed correct. BUT the canonical `[HF-HS]` residual GROWS 88->220(L16)->304(L47)
+  while Mila stays ~40-110 and COLLAPSES to 13 at L47 (L00 70.6 vs 88.1, L08 113 vs 111 CLOSE, L16 37.6
+  vs 220 FAR). HF develops huge negative outlier channels (L16 min -198) Mila lacks (L16 min -8.8). The
+  step-1a "L47 6.63 EXACT match" was vs the LYING per-layer forward hooks (`[HF-DUMP]`), NOT canonical
+  `[HF-HS]` (L47=304) -- Mila never actually matched the real residual. NEXT: localize the FIRST divergent
+  OP via the layer-0 sub-step trace (Mila `[BLOCK-DUMP] tf_layer_0` vs HF `[HF-BLOCK]` + fp32 `[ORACLE]`),
+  since L00 is already 20% low (70.6 vs 88.1). Suspects: a weight-LOAD issue on the large-RMS sandwich
+  norms (post_ffn_norm.W RMS ~18.9 drives the branch growth HF shows and Mila lacks), RoPE detail, or
+  per-head V ordering. Structure is DONE; this is an op-level numerics hunt.
+  **2026-06-23 ROOT CAUSE: the checkpoint is MISSING `v_norm.weight` -> zero attention.** The layer-0
+  sub-step dump showed `attn` l2 EXACTLY 0.0000 (-> o_proj 0 -> post_attn_norm 0 -> res1 == input, the
+  whole attention sub-block contributes nothing; the downstream FFN blow-up was a red herring from the
+  wrong res1 direction). Mechanism: `RmsNorm::onBuilding` only `fill(weight, 1.0)` when
+  `shouldInitializeParameters()` is TRUE; on `fromPretrained` it is FALSE (proven: q/k_norm.W load real
+  HF values, not 1.0), so an UNLOADED norm weight stays at its zero-allocated default. The dump shows
+  input/q/k_norm.W loaded but `v_norm.W` ABSENT -> `v_norm` computes `normalize(V)*0 = 0` -> V=0 ->
+  `att@V=0` -> attn EXACTLY 0. `layer_scalar` IS loaded (res2 scaled to 70.6), so the checkpoint was
+  converted AFTER step 1a (layer_scalar) but BEFORE/without step 1b (v_norm.weight). FIX = RE-CONVERT
+  (the converter already writes `tf_layer_{i}.v_norm.weight = ones[head_dim]` for local 256 + global 512).
+  Confirms step-2 Part A is correct -- it just needs v_norm.weight present. NOTE: the earlier
+  "no re-convert needed for step 2" advice was wrong (it assumed step 1b's re-convert had happened).
+- [ ] **[defensive, core-lib] RmsNorm silently zeroes on a missing weight blob.** When a checkpoint
+  lacks an expected norm weight and `shouldInitializeParameters()` is false, `RmsNorm::weight_` keeps its
+  zero-allocated value, so the norm multiplies its input by 0 and silently annihilates the activation
+  (this is exactly what hid the Gemma `v_norm` missing-tensor bug as "zero attention" for a whole
+  debugging session). Options: (a) default-init norm weight to 1.0 (identity) even when not initializing,
+  so a missing weight degrades to "no scale" instead of "zero everything"; or (b) have the
+  PretrainedModelReader / loadParameters track which expected parameters were never visited and ERROR
+  (or at least WARN) on a missing one. (a) risks masking load bugs; (b) is the safer choice. File:
+  [RmsNorm.ixx:326](Mila/Src/Dnn/Components/Normalization/RmsNorm/RmsNorm.ixx) + the Gemma/Llama
+  `loadParameters` consume loops.
   **Inference-server groundwork (kept, not the 5e/5f mechanism):** a `GemmaSession` (CUDA BF16) mirroring
   `LlamaSession` was added to the pybind layer ([Mila_py.Wrappers.ixx](Mila/Inference/Bindings/Mila_py.Wrappers.ixx)/
   `.cpp` + [Mila_py.cpp](Mila/Inference/Bindings/Mila_py.cpp)) — retained for the future Gemma-in-the-
