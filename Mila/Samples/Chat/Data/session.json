@@ -1,11 +1,12 @@
 {
-  "model_type": "llama",
-  "model_size": "8b",
-  "precision": "bf16",
+  "model": "gemma-12b",
   "quantization": "fp4",
-  "context_length": 8192,
+  "context_length": 1024,
   "max_new_tokens": 2048,
-  "temperature": 0.2,
-  "top_k": 20,
+  "temperature": 1.0,
+  "top_k": 64,
+  "thinking": true,
+  "thinking_effort": 3,
+  "verbose": "thoughts",
   "system_prompt_path": "Data/assistant.json"
 }

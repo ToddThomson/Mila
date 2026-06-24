@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Mila is a C++23 module-based DNN library for CUDA/CPU inference. It is in active alpha development (currently **Alpha.6**). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
 
-Primary validated targets: Llama 3.2 3B Instruct (BF16, FP8, FP4) and Llama 3.1 8B Instruct (FP4 default, FP8 alternative). The chat CLI default is Llama 3.1 8B FP4.
+Primary validated targets: Llama 3.2 3B Instruct (BF16, FP8, FP4), Llama 3.1 8B Instruct (FP4 default, FP8 alternative), and Gemma 4 12B Instruct (FP4). The chat CLI default is Gemma 4 12B FP4.
 
 ---
 
@@ -137,7 +137,7 @@ Key files:
 - `Chat.ixx` — main chat loop, model hot-switching (`/model <alias> [quant]`), tool call dispatch
 - `Chat.Config.ixx` — `ChatConfig` with `ModelType`, `ModelSize`, `ModelPrecision` (compute), `QuantizationMode` (none/fp8/fp4)
 - `Chat.Renderer.ixx` — `ConsoleRenderer` (standalone non-exported module): braille spinner, solid-color response blocks, word-wrap with leading-indent preservation, Unicode welcome box, ANSI stats line
-- `main.cpp` — entry point; default model is Llama 3.1 8B FP4
+- `main.cpp` — entry point; default model is Gemma 4 12B FP4
 
 Model aliases: `gpt2`, `llama-1b`, `llama-3b`, `llama-8b`, and `-fp32` variants. `llama-8b` uses the `llama31` family prefix in filename construction; 1B/3B use `llama32`.
 

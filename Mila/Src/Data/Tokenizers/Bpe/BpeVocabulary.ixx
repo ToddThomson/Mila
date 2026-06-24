@@ -1452,18 +1452,47 @@ namespace Mila::Data
         read_special( st.pad_token );
         read_special( st.unk_token );
 
-        // Register the instruct turn-boundary tokens from the loaded vocabulary so
-        // their ids come from the checkpoint (the encode pre-pass then matches them
-        // atomically rather than as subword pieces).
-        for ( const char* name : { "<start_of_turn>", "<end_of_turn>" } )
+        // Register the Gemma 4 control tokens from the loaded vocabulary so their
+        // ids come from the checkpoint and the encode pre-pass matches them
+        // atomically rather than as subword pieces. This covers the turn-boundary
+        // tokens (<|turn>/<turn|>), the thinking-mode trigger (<|think|>), the
+        // channel markers, and the tool-calling tokens. Gemma 4 does NOT use the
+        // Gemma 3-style <start_of_turn>/<end_of_turn> (absent from its vocabulary).
+        // A token absent from this vocabulary is skipped and warned about below.
+        std::string registered_list;
+        std::string missing_list;
+
+        for ( const char* name : {
+                "<|turn>", "<turn|>", "<|think|>",
+                "<|channel>", "<channel|>",
+                "<|tool>", "<tool|>", "<|tool_call>", "<tool_call|>",
+                "<|tool_response>", "<tool_response|>" } )
         {
             auto it = vocab.token_to_id_.find( name );
 
             if ( it != vocab.token_to_id_.end() )
             {
                 vocab.special_token_ids_[ name ] = it->second;
+                registered_list += registered_list.empty() ? "" : " ";
+                registered_list += name;
+            }
+            else
+            {
+                missing_list += missing_list.empty() ? "" : " ";
+                missing_list += name;
             }
         }
+
+        Logging::Logger::info( "Gemma control tokens registered: " +
+            (registered_list.empty() ? std::string( "(none)" ) : registered_list) );
+
+        // A WARNING (visible even at the default quiet log level) when an expected
+        // control token is not in the checkpoint's vocabulary: it will encode as
+        // subword fragments, so any feature that depends on it (e.g. <|think|>
+        // activating the reasoning channel) will silently not work.
+        if ( !missing_list.empty() )
+            Logging::Logger::warning(
+                "Gemma control tokens absent from vocabulary (will encode as subwords): " + missing_list );
 
         vocab.buildMergeMap();
         vocab.buildSpecialTokenList();

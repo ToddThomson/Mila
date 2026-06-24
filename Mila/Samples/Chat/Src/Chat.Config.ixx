@@ -9,6 +9,7 @@
 module;
 #include <filesystem>
 #include <optional>
+#include <string_view>
 #include <cstddef>
 
 export module Chat.Config;
@@ -44,25 +45,75 @@ namespace Mila::ChatApp
     };
 
     /**
-     * @brief Default maximum sequence length for a model type when not set explicitly.
+     * @brief Display-verbosity ladder for a chat turn. Each level includes the lower ones.
      *
-     * The KV cache + activation working set ("State") scales with this value, so it
-     * is the primary VRAM lever. Gemma 4 12B is deliberately conservative: even at
-     * FP4 the resident weights are ~9 GB (the lm_head is untied from the embedding,
-     * adding a ~2 GB BF16 copy), so on a 12 GB card only ~2 GB remains for State.
-     * Raise it on larger cards via --context-length; drop to 512 if the model load
-     * memory-stats line shows the device total spilling past the physical VRAM.
+     * Controls how much of the model's internal activity is shown — independent of
+     * whether thinking mode is active (that is the model-side toggle). Off shows just
+     * the answer; All adds raw model output plus INFO logging and load dumps.
      */
-    export constexpr std::size_t defaultContextLength( ModelType type )
+    export enum class DetailLevel
     {
-        switch ( type )
+        Off,       ///< Answer only.
+        Thoughts,  ///< + the reasoning channel.
+        Tools,     ///< + tool calls and results.
+        All,       ///< + raw model output, INFO logging, and model/memory load dumps.
+    };
+
+    /**
+     * @brief Parse a detail keyword ("off"/"thoughts"/"tools"/"all") to a DetailLevel.
+     */
+    export constexpr std::optional<DetailLevel> parseDetailLevel( std::string_view s )
+    {
+        if ( s.empty() || s == "off" || s == "none" ) return DetailLevel::Off;
+        if ( s == "thoughts" )                        return DetailLevel::Thoughts;
+        if ( s == "tools" )                           return DetailLevel::Tools;
+        if ( s == "all" )                             return DetailLevel::All;
+        return std::nullopt;
+    }
+
+    /**
+     * @brief Display name for a DetailLevel.
+     */
+    export constexpr std::string_view detailLevelName( DetailLevel level )
+    {
+        switch ( level )
         {
-            case ModelType::Gpt:   return 1024;  // GPT-2 architectural maximum.
-            case ModelType::Gemma: return 512;   // 12B FP4 leaves little headroom on a 12 GB card.
-            case ModelType::Llama: return 4096;
+            case DetailLevel::Off:      return "off";
+            case DetailLevel::Thoughts: return "thoughts";
+            case DetailLevel::Tools:    return "tools";
+            case DetailLevel::All:      return "all";
         }
 
-        return 4096;
+        return "off";
+    }
+
+    /**
+     * @brief Parse a quantization keyword ("none"/"fp8"/"fp4") to a QuantizationMode.
+     *
+     * Returns std::nullopt for an unrecognized value. Shared by the session-config
+     * loader and the in-session /model command so both accept the same vocabulary.
+     */
+    export constexpr std::optional<QuantizationMode> parseQuantization( std::string_view s )
+    {
+        if ( s.empty() || s == "none" ) return QuantizationMode::None;
+        if ( s == "fp8" )               return QuantizationMode::FP8;
+        if ( s == "fp4" )               return QuantizationMode::FP4;
+        return std::nullopt;
+    }
+
+    /**
+     * @brief Display name for a QuantizationMode ("none"/"fp8"/"fp4").
+     */
+    export constexpr std::string_view quantizationName( QuantizationMode mode )
+    {
+        switch ( mode )
+        {
+            case QuantizationMode::FP8: return "fp8";
+            case QuantizationMode::FP4: return "fp4";
+            case QuantizationMode::None: return "none";
+        }
+
+        return "none";
     }
 
     /**
@@ -72,32 +123,25 @@ namespace Mila::ChatApp
      * generation hyper-parameters. All fields are plain value types so the
      * struct is cheap to copy and requires no JSON dependency.
      *
+     * ## model selection
+     *
+     * model_type / model_size / precision / is_instruct / quantization_mode /
+     * model_path / tokenizer_path are all resolved from a single model alias via
+     * the ModelEntry catalog (see Chat.ModelCatalog), either at startup (the
+     * session config "model" key) or by the /model command. They are not set
+     * field-by-field and are never inferred from the weight filename.
+     *
      * ## context_length
      *
-     * Controls the maximum sequence length allocated at build time.
-     * Must not exceed the model's architectural maximum; may be set lower
-     * to reduce GPU memory usage. parseArgs() resolves 0 (unset) to a
-     * model-type-aware default:
-     *   Gpt   — 1024  (GPT-2 architectural maximum)
-     *   Llama — 4096  (consumer GPU safe default for Llama 3.x)
-     *
-     * ## precision
-     *
-     * Selects the weight dtype used by the model at load time. Inferred
-     * from the model filename (bf16/fp32 substring) when not explicitly set.
-     * Must match the dtype stored in the weights file.
-     *
-     * ## model_size
-     *
-     * Selects the Llama parameter count variant. Ignored for GPT models.
-     * Inferred from the model filename (_1b_/_3b_ substring) when not
-     * explicitly set via --model-size.
+     * Maximum sequence length allocated at model build time, and the primary VRAM
+     * lever. Defaults to the selected model's per-model default (catalog
+     * default_context); the session config "context_length" key overrides it.
      *
      * ## config_path
      *
-     * Optional path to a JSON session config file. When set, parseArgs()
-     * loads it first and applies it as a baseline; explicit CLI arguments
-     * override any values it provides.
+     * Path to the JSON session config the run was built from (the single startup
+     * source of truth). Selected with --config; otherwise the default
+     * Data/session.json next to the executable.
      *
      * ## system_prompt_path
      *
@@ -112,6 +156,9 @@ namespace Mila::ChatApp
         ModelPrecision        precision{ ModelPrecision::BF16 };
         QuantizationMode      quantization_mode{ QuantizationMode::None };
         bool                  is_instruct{ false };
+        bool                  show_thinking{ false };  ///< Thinking mode: activate the model's reasoning (<|think|>).
+        int                   thinking_effort{ 3 };    ///< 1..5 token-budget scale for the reasoning (when thinking on).
+        DetailLevel           detail{ DetailLevel::Off };  ///< Display verbosity: thoughts / tool calls / all.
         std::filesystem::path model_path;
         std::filesystem::path tokenizer_path;
         size_t                max_new_tokens{ 2048 };

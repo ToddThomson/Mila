@@ -679,9 +679,9 @@ order.
   ~25 MB). The chunk is not exposed as a config/CLI knob. **Lever = smaller prefill chunk** (chunk 128 ->
   activations ~1.1 GB; chunk 64 -> ~0.6 GB), but even chunk 64 is marginal because params alone (9.14 GB)
   + driver overhead (~1 GB) leave <2 GB. **Fix shipped (partial, chat-only):** Gemma chat default context
-  lowered (4096 -> 512) via `defaultContextLength()` in
-  [Chat.Config.ixx](Mila/Samples/Chat/Src/Chat.Config.ixx) — necessary but NOT sufficient (context is not
-  the lever). **Open core options (need a decision, all internal-impl):** (A) make
+  lowered (4096 -> 512) via the `gemma-12b` entry's `default_context` in
+  [Chat.ModelCatalog.ixx](Mila/Samples/Chat/Src/Chat.ModelCatalog.ixx) — necessary but NOT sufficient
+  (context is not the lever). **Open core options (need a decision, all internal-impl):** (A) make
   `computeGemmaPrefillChunkSize` activation-aware (budget num_layers x per-token activation bytes, not
   just attn scratch) so it auto-drops to 128/64 under a real VRAM budget; (B) expose a prefill-chunk /
   VRAM-budget override on `GemmaModelConfig` + a `--prefill-chunk` CLI flag; (C) **reclaim the ~2 GB
