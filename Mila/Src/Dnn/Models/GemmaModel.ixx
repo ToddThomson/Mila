@@ -44,8 +44,6 @@ import Dnn.Component;
 import Dnn.RuntimeMode;
 import Dnn.Components.GemmaTransformer;
 import Dnn.Components.GemmaConfig;
-import Dnn.Samplers.TokenSampler;
-import Dnn.Samplers.SamplingConfig;
 import Dnn.GenerateParams;
 import Compute.Device;
 import Compute.DeviceId;
@@ -68,16 +66,6 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
     using namespace Mila::Dnn::Quant::Weight;
     using namespace Mila::Dnn::Quant::KvCache;
-
-    /**
-     * @brief A/B sampling path selector (TokenSampling.md section 8.1).
-     *
-     * HostA is the validated host baseline; DeviceB routes sampling through the device
-     * TokenSampler. Flip to DeviceB and rebuild to compare against a HostA build via the
-     * Chat harness on the sample prompt; path A is retired once B reproduces it.
-     */
-    enum class SamplingPath { HostA, DeviceB };
-    constexpr SamplingPath kSamplingPath = SamplingPath::DeviceB;
 
     /**
      * @brief Gemma 4 compatible inference model.
@@ -252,7 +240,9 @@ namespace Mila::Dnn
         {
             const auto stop_ids = stopTokens();
 
-            std::mt19937 rng( std::chrono::high_resolution_clock::now().time_since_epoch().count() );
+            SamplingParams sampling_params;
+            sampling_params.temperature = temperature;
+            sampling_params.top_k = top_k;
 
             // REVIEW: Why are we copying the prompt tokens?
             // FIX: There is no need to copy the prompt tokens. We can use the span directly.
@@ -284,7 +274,7 @@ namespace Mila::Dnn
             auto& logits = this->getLanguageNetwork().prefill( prefill_input );
             this->getLanguageNetwork().synchronize();
 
-            int32_t next_token = sampleNext( logits, temperature, top_k, rng );
+            int32_t next_token = this->sampleNext( logits, decode_token_device_, sampling_params );
 
             const auto prefill_end = std::chrono::high_resolution_clock::now();
 
@@ -319,17 +309,13 @@ namespace Mila::Dnn
                 if ( position >= context_length_ )
                     break;
 
-                // REVIEW: Copy for a single token is wasteful. We should have a single-token tensor on the device and just write to it.
-                // FIX: Once the refactor for the device DecoderOp is done, we can eliminate this copy and just use a single-token tensor on the device.
-                decode_token_staging_.data()[ 0 ] = next_token;
-                copy( decode_token_staging_, decode_token_device_ );
-
+                // The previous sampleNext() already wrote the sampled token into
+                // decode_token_device_ on the device, so it is ready to decode in place --
+                // no host round-trip.
                 auto& decode_logits = this->getLanguageNetwork().decode( decode_token_device_, position );
                 this->getLanguageNetwork().synchronize();
 
-                // REVIEW: The LanguageModel sampling should be done on the device, not the host.
-                // This is a temporary workaround until we implement a device-side sampler.
-                next_token = sampleNext( decode_logits, temperature, top_k, rng );
+                next_token = this->sampleNext( decode_logits, decode_token_device_, sampling_params );
 
                 if ( stop_ids.contains( next_token ) ) break;
 
@@ -385,14 +371,7 @@ namespace Mila::Dnn
             : ModelBase( std::move( network ), runtime_mode )
             , config_( config )
             , context_length_( context_length )
-            , decode_token_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1 } )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
-            , logits_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1, static_cast<int64_t>( config.getVocabSize() ) } )
-            , token_sampler_(
-                this->getLanguageNetwork().getExecutionContext(),
-                SamplingConfig{}
-                    .withVocabularySize( static_cast<int64_t>( config.getVocabSize() ) )
-                    .withFinalLogitSoftcap( config.getFinalLogitSoftcapping() ) )
         {}
 
         template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
@@ -454,10 +433,9 @@ namespace Mila::Dnn
         // which could just read it from config_.getContextLength(). It seems like an unnecessary duplication of state.
         int64_t context_length_;
 
-        Tensor<dtype_t::INT32, StagingMR> decode_token_staging_;
+        // Device decode-input buffer: the sampler writes the next token here in place,
+        // and decode() reads it directly -- no host staging round-trip.
         TokenIndexType decode_token_device_;
-        Tensor<TensorDataType::FP32, StagingMR> logits_staging_;
-        TokenSampler<TDeviceType, TPrecision> token_sampler_;
 
         /**
          * @brief Gemma end-of-sequence token: <eos> = 1.
@@ -480,6 +458,14 @@ namespace Mila::Dnn
         std::unordered_set<int32_t> stopTokens() const override
         {
             return { 1, 106 };
+        }
+
+        /**
+         * @brief Gemma applies a final logit softcap (30 * tanh(logits / 30)) at the sampler.
+         */
+        float finalLogitSoftcap() const noexcept override
+        {
+            return config_.getFinalLogitSoftcapping();
         }
 
         // ====================================================================
@@ -520,114 +506,6 @@ namespace Mila::Dnn
             copy( cpu_tensor, device_tensor );
 
             return device_tensor;
-        }
-
-        /**
-         * @brief A/B dispatch for next-token selection (TokenSampling.md section 8.1).
-         *
-         * HostA path: the validated host sampleFromLogits. DeviceB path: the device
-         * TokenSampler, which writes the token into decode_token_device_ in place and
-         * returns the host value. Both consume the last logits row.
-         */
-        int32_t sampleNext(
-            const TensorType& logits,
-            float temperature,
-            int top_k,
-            std::mt19937& rng )
-        {
-            if constexpr ( kSamplingPath == SamplingPath::HostA )
-            {
-                return sampleFromLogits( logits, 0, temperature, top_k, rng );
-            }
-            else
-            {
-                SamplingParams params;
-                params.temperature = temperature;
-                params.top_k = top_k;
-
-                return token_sampler_.sample( logits, decode_token_device_, params );
-            }
-        }
-
-        int32_t sampleFromLogits(
-            const TensorType& logits,
-            int64_t position,
-            float temperature,
-            int top_k,
-            std::mt19937& rng )
-        {
-            copy( logits, logits_staging_ );
-
-            const float* row = logits_staging_.data()
-                + static_cast<size_t>(position) * static_cast<size_t>(config_.getVocabSize());
-
-            return sampleToken(
-                row,
-                static_cast<size_t>(config_.getVocabSize()),
-                temperature, top_k, rng );
-        }
-
-        static int32_t sampleToken(
-            const float* logits,
-            size_t vocab_size,
-            float temperature,
-            int top_k,
-            std::mt19937& rng )
-        {
-            if ( temperature <= 0.0f || top_k == 1 )
-            {
-                return static_cast<int32_t>( std::max_element( logits, logits + vocab_size ) - logits );
-            }
-
-            float max_logit = *std::max_element( logits, logits + vocab_size );
-
-            std::vector<float> probs( vocab_size );
-            double sum = 0.0;
-
-            for ( size_t i = 0; i < vocab_size; ++i )
-            {
-                float v = std::exp( (logits[ i ] - max_logit) / temperature );
-                probs[ i ] = v;
-                sum += v;
-            }
-
-            for ( size_t i = 0; i < vocab_size; ++i )
-                probs[ i ] /= static_cast<float>( sum );
-
-            if ( top_k > 0 && top_k < static_cast<int>( vocab_size ) )
-            {
-                std::vector<size_t> indices( vocab_size );
-                std::iota( indices.begin(), indices.end(), 0 );
-                std::partial_sort( indices.begin(), indices.begin() + top_k,
-                    indices.end(),
-                    [&]( size_t a, size_t b ) { return probs[ a ] > probs[ b ]; } );
-
-                std::vector<float> filtered( vocab_size, 0.0f );
-                double filtered_sum = 0.0;
-
-                for ( int i = 0; i < top_k; ++i )
-                {
-                    filtered[ indices[ i ] ] = probs[ indices[ i ] ];
-                    filtered_sum += probs[ indices[ i ] ];
-                }
-
-                for ( size_t i = 0; i < vocab_size; ++i )
-                    probs[ i ] = filtered[ i ] / static_cast<float>( filtered_sum );
-            }
-
-            std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
-            float r = dist( rng );
-            float cumsum = 0.0f;
-
-            for ( size_t i = 0; i < vocab_size; ++i )
-            {
-                cumsum += probs[ i ];
-
-                if ( r < cumsum )
-                    return static_cast<int32_t>( i );
-            }
-
-            return static_cast<int32_t>( vocab_size - 1 );
         }
 
         static GemmaConfig configFromMetadata( const PretrainedMetadata& metadata )

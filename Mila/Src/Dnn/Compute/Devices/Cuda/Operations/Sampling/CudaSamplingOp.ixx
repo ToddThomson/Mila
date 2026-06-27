@@ -57,7 +57,9 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
         CudaSamplingOp( IExecutionContext* context, const SamplingConfig& config )
-            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaSamplingOp" ) ), config_( config )
+            : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaSamplingOp" ) ),
+              config_( config ),
+              prob_scratch_( context->getDeviceId(), shape_t{ config.getVocabularySize() } )
         {
             config_.validate();
         }
@@ -74,29 +76,34 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             const ITensor& logits,
             ITensor& token_out,
             const SamplingParams& params,
-            [[maybe_unused]] float r ) const
+            float r ) const
         {
-            const bool greedy = (params.temperature <= 0.0f || params.top_k == 1);
-
-            if (!greedy)
-            {
-                throw std::runtime_error(
-                    "CudaSamplingOp: stochastic sampling not implemented (Phase B). "
-                    "Set temperature <= 0 or top_k == 1 for greedy decode." );
-            }
-
             const int64_t vocab = config_.getVocabularySize();
             const int64_t offset = static_cast<int64_t>( logits.size() ) - vocab;
 
             const NativeType* row = static_cast<const NativeType*>( logits.rawData() ) + offset;
             int32_t* out = static_cast<int32_t*>( token_out.rawData() );
 
-            // Phase A runs on the default stream (0). The model synchronizes the network
+            // Phase A/B run on the default stream (0). The model synchronizes the network
             // before sampling, so the logits are complete, and the TokenSampler reads the
             // token back synchronously, so default-stream ordering is correct. Sharing the
             // decode stream (context_->getStream()) is a Phase D optimization.
             cudaStream_t stream = 0;
-            cuda_sample_argmax<NativeType>( row, out, static_cast<int>( vocab ), stream );
+
+            const bool greedy = (params.temperature <= 0.0f || params.top_k == 1);
+
+            if (greedy)
+            {
+                cuda_sample_argmax<NativeType>( row, out, static_cast<int>( vocab ), stream );
+                return;
+            }
+
+            float* scratch = static_cast<float*>( prob_scratch_.rawData() );
+
+            cuda_sample_stochastic<NativeType>(
+                row, out, scratch, static_cast<int>( vocab ),
+                config_.getFinalLogitSoftcap(), params.temperature,
+                params.top_k, params.top_p, r, stream );
         }
 
         OperationType getOperationType() const override
@@ -113,5 +120,8 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
 
         CudaExecutionContext* context_;
         SamplingConfig config_;
+        // Working store for the stochastic softmax/inverse-CDF (vocab FP32). Mutable so
+        // the const forward() can write through it (the op holds no logical state).
+        mutable Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> prob_scratch_;
     };
 }

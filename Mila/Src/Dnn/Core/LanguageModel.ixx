@@ -22,10 +22,15 @@ export module Dnn.LanguageModel;
 
 import Dnn.Model;
 import Dnn.LanguageNetwork;
+import Dnn.Tensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.RuntimeMode;
+import Dnn.GenerateParams;
+import Dnn.Samplers.TokenSampler;
+import Dnn.Samplers.SamplingConfig;
 import Compute.DeviceType;
+import Compute.DeviceTypeTraits;
 
 namespace Mila::Dnn
 {
@@ -148,6 +153,10 @@ namespace Mila::Dnn
 
     protected:
 
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+        using TensorType = Tensor<TPrecision, MR>;
+        using TokenTensor = Tensor<TensorDataType::INT32, MR>;
+
         /// Statistics populated by onGenerating() for each completed generation run.
         GenerationStatistics last_generation_statistics_{};
 
@@ -156,6 +165,46 @@ namespace Mila::Dnn
             RuntimeMode runtime_mode )
             : Base( std::move( network ), runtime_mode )
         {}
+
+        // ====================================================================
+        // Token sampling (shared device sampler)
+        // ====================================================================
+
+        /**
+         * @brief Optional final-logit softcap the sampler applies (0 disables).
+         *
+         * Gemma overrides this with its 30.0 cap; other models leave it at 0.
+         */
+        virtual float finalLogitSoftcap() const noexcept
+        {
+            return 0.0f;
+        }
+
+        /**
+         * @brief Sample the next token from a logits row on the device.
+         *
+         * Lazily constructs the model-owned TokenSampler on first use (the network is
+         * built and the execution context valid by the time generation runs), then samples
+         * from the final row of @p logits, writing the int32 token into @p token_out in
+         * place (ready for the next decode step) and returning the host value.
+         */
+        int32_t sampleNext(
+            const TensorType& logits,
+            TokenTensor& token_out,
+            const SamplingParams& params )
+        {
+            if ( !token_sampler_ )
+            {
+                SamplingConfig config = SamplingConfig{}
+                    .withVocabularySize( this->vocabSize() )
+                    .withFinalLogitSoftcap( this->finalLogitSoftcap() );
+
+                token_sampler_ = std::make_unique<TokenSampler<TDeviceType, TPrecision>>(
+                    this->getLanguageNetwork().getExecutionContext(), config );
+            }
+
+            return token_sampler_->sample( logits, token_out, params );
+        }
 
         // ====================================================================
         // Network accessor
@@ -211,5 +260,9 @@ namespace Mila::Dnn
 
         virtual int64_t maxSequenceLength() const noexcept = 0;
         virtual int64_t vocabSize() const noexcept = 0;
+
+    private:
+
+        std::unique_ptr<TokenSampler<TDeviceType, TPrecision>> token_sampler_;
     };
 }

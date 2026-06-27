@@ -180,6 +180,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Transformers/Gemma/Gemma.Block.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.Cuda.cpp"
         "Dnn/Models/GemmaModel.Parity.Cuda.cpp"
+        "Dnn/Samplers/Sampling.Cuda.cpp"
         "Dnn/Tensors/Tensor.Constructors.Cuda.cpp"
         "Dnn/Tensors/Tensor.DataAccess.Cuda.cpp"
         "Dnn/Tensors/Tensor.MemoryProperties.Cuda.cpp"

@@ -187,10 +187,13 @@ parity preserved); stochastic top-k / top-p validated against a host reference w
 injected uniform; the three copied host `sampleToken`s replaced by the one `LanguageModel`-owned
 `TokenSampler`; `OperationTraits<SamplingOp, Cuda, {FP32, BF16}>` specializations live.
 
-- [ ] Migrate Optimizer dispatch onto `OperationTraits` (follows Phase A — proves the pattern on working code)
-- [~] `Sampler` base + `TokenSampler` facade (`Dnn.Samplers`) + `SamplingConfig`, retiring the `Dnn/Decoders` skeleton — **landed (Phase A); skeleton files pending user deletion in VS2026**
-- [~] `CudaSamplingOp` (+ `CpuSamplingOp`) with `OperationTraits<SamplingOp, …>` specializations — **greedy/argmax landed (Phase A); stochastic top-k/top-p are Phase B/C**
-- [~] Wire `TokenSampler` into `onGenerating` behind the `SamplingPath` A/B toggle — **`GemmaModel` wired (Phase A, default `HostA`); `LanguageModel`-base hoist + `logits_staging_` removal are Phase D**
+- [ ] Migrate Optimizer dispatch onto `OperationTraits` (follows the sampler — proves the pattern on working code)
+- [x] `Sampler` base + `TokenSampler` facade (`Dnn.Samplers`) + `SamplingConfig`, retiring the `Dnn/Decoders` skeleton — green; skeleton files pending user deletion in VS2026
+- [x] `CudaSamplingOp` (+ `CpuSamplingOp`) with `OperationTraits<SamplingOp, …>` specializations — greedy + full-multinomial + top-k/top-p, green (single-block correctness-first kernel, threshold binary search; perf optimization deferred)
+- [x] Injected-`r` unit oracle (`Tests/Dnn/Samplers/Sampling.Cuda.cpp`) — greedy exactness, inverse-CDF boundaries, determinism, top-k/top-p support restriction, softcap monotonicity (caught + fixed a top-k off-by-one)
+- [x] **GemmaModel** on-device sampling — `TokenSampler` hoisted to the `LanguageModel` base (lazy, shared context) via `sampleNext()`; path A (host `sampleToken`) retired; `logits_staging_` + `decode_token_staging_` removed; per-step H2D restage gone; greedy validated token-for-token vs HostA, stochastic coherent in chat
+- [ ] Migrate `LlamaModel` (mechanical mirror) + `GptModel` (GPT-2 variant) onto the base `sampleNext()` + delete their host `sampleToken`s — deferred to when those paths are next built/run
+- [ ] Phase D tail — share the decode stream (real `getStream()`; currently the op runs on the default stream) + single-block kernel perf optimization
 
 ---
 
