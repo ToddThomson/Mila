@@ -30,6 +30,7 @@ import Compute.CpuResidualOp;
 import Compute.CpuSoftmaxOp;
 import Compute.CpuAttention;
 import Compute.CpuEncoderOp;
+import Compute.CpuSamplingOp;
 import Dnn.Quantization.Weight.Policies;
 
 namespace Mila::Dnn::Compute
@@ -123,6 +124,16 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::LpeOp, DeviceType::Cpu, TensorDataType::FP32, void>
     {
         using type = CpuEncoderOp;
+    };
+
+    // -------------------------------------------------------------------------
+    // SamplingOp — CPU specialization (FP32 only)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::SamplingOp, DeviceType::Cpu, TensorDataType::FP32, void>
+    {
+        using type = CpuSamplingOp;
     };
 
 }  // namespace Mila::Dnn::Compute

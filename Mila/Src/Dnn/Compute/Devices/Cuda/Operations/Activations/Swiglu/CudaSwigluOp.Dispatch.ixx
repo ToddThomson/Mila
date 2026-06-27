@@ -32,8 +32,7 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
     namespace Detail
     {
         template <typename TNative>
-            requires std::is_same_v<TNative, float>
-                  || std::is_same_v<TNative, __nv_bfloat16>
+            requires std::is_same_v<TNative, float> || std::is_same_v<TNative, __nv_bfloat16>
         struct cuda_swiglu_impl;
 
         template <>

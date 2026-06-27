@@ -155,6 +155,18 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
         }
 
+        /**
+         * @brief Public access to the network's shared execution context.
+         *
+         * Exposes the Component-level context so model-level orchestrator tools
+         * (e.g. TokenSampler) can be constructed on the network's context. Wraps the
+         * protected Component accessor.
+         */
+        IExecutionContext* getExecutionContext() const
+        {
+            return this->CompositeBase::getExecutionContext();
+        }
+
         // ====================================================================
         // Training Setup
         // ====================================================================

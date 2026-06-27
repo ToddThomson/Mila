@@ -6,14 +6,17 @@ Implementation Contract for Device-Side Logit Sampling in Mila's Decode Loop
 
 ## 1. Overview
 
-`LlamaModel::onGenerating` currently performs token sampling entirely on the CPU via
-`sampleFromLogits` → `sampleToken`. This requires a 512 KB device-to-host transfer of
-the full logits tensor (`[1, 1, vocab_size]`) on every decode step, followed by CPU-side
-softmax, top-k sort, and weighted sampling.
+Every `LanguageModel`'s `onGenerating` (`LlamaModel`, `GemmaModel`, `GptModel`) currently
+performs token sampling entirely on the CPU via `sampleFromLogits` → `sampleToken` — three
+near-identical copies of the same host code. Each requires a device-to-host transfer of the
+full logits tensor (`[1, 1, vocab_size]`) on every decode step, followed by CPU-side softmax,
+top-k sort, and weighted sampling. The transfer is vocab-dependent: ~512 KB for Llama
+(~128 K vocab × FP32), ~1 MB for Gemma 4 (~256 K vocab) — the default chat model.
 
-This specification introduces a `TokenSampler` component and corresponding backend
-operations (`CudaSamplingOp`, `CpuSamplingOp`) that move sampling to the compute device,
-reducing the per-step D2H transfer from 512 KB (full logits) to 4 bytes (single int32 token).
+This specification introduces a `TokenSampler` **orchestrator tool** (owned by the
+`LanguageModel` base, not a graph `Component`) and corresponding backend operations
+(`CudaSamplingOp`, `CpuSamplingOp`) that move sampling to the compute device, reducing the
+per-step D2H transfer from the full logits tensor to 4 bytes (single int32 token).
 
 The sampled token is written directly into the decode input buffer (`decode_token_device_`)
 on the device, eliminating the H2D path for the next decode step entirely. A 4-byte D2H
@@ -52,344 +55,265 @@ buffer added in the decode-loop refactor) is removed. `decode_token_staging_` is
 
 | Path | Current D2H | After |
 |---|---|---|
-| Greedy (temperature ≤ 0 or top_k == 1) | 512 KB | 4 bytes |
-| Stochastic top-k | 512 KB | 4 bytes |
+| Greedy (temperature ≤ 0 or top_k == 1) | full logits | 4 bytes |
+| Stochastic top-k | full logits | 4 bytes |
 
 ---
 
-## 3. Architecture
+## 3. Architecture — Dispatch and Ownership
 
-Mila's component/operation split applies directly:
+### 3.1 An orchestrator tool, not a graph component
 
-- **`TokenSampler`** — hardware-agnostic component, lives in the `Dnn` layer.
-  Holds an `ISamplingOperation`, delegates all compute to it.
-- **`ISamplingOperation`** — compute-layer interface, defines the device contract.
-- **`CudaSamplingOp`** — CUDA backend; implements argmax via CUB and stochastic
-  sampling via softmax + cuRAND.
-- **`CpuSamplingOp`** — CPU backend; implements the same logic with pre-allocated
-  scratch buffers.
+`TokenSampler` is an orchestration tool owned by the `LanguageModel` base, **not** a `Component`:
+
+- it owns no parameters or gradients and has no position in the module/operation graph;
+- it runs *after* `lm_head` produces logits — post-graph, never inside `forward()`;
+- it is invoked by the generation loop (`onGenerating`), exactly as an `Optimizer` is invoked
+  by the training loop.
+
+It is therefore the structural sibling of `Optimizer`: both take the model's
+`IExecutionContext*` (shared, never owned) and are model-level, not graph-level. A sampler that
+owned its own `ExecutionContext`/stream would force a per-step cross-stream sync and defeat the
+in-place device-token flow of Section 2 — the sampler **must share the model's context** so it
+reads `decode_logits` and writes `decode_token_device_` on the same stream as `decode`.
+
+The `LanguageModel` base owns the single `TokenSampler`, replacing the three copied host
+`sampleToken` implementations in `LlamaModel` / `GemmaModel` / `GptModel`.
+
+### 3.2 Compile-time dispatch via OperationTraits
+
+The device implementation is resolved through the unified `OperationTraits` table — the same
+mechanism graph operations use, **not** the legacy `std::conditional_t` + `#ifdef MILA_HAS_CUDA`
+facade dispatch that `AdamWOptimizer` currently uses (that path is being migrated onto
+`OperationTraits`; see BACKLOG → "Migrate Optimizer dispatch onto OperationTraits"):
+
+```cpp
+using SamplingOpType = typename OperationTraits<
+    OperationType::SamplingOp, TDeviceType, TPrecision>::type;
+```
+
+- `OperationType::SamplingOp` is the dispatch key (policy-free; `TPolicy = void`). Already in
+  the enum.
+- `SamplingOpConcept` (in `OperationTraits.Template.ixx`) enforces the op's method contract.
+- Specializations live in the `:Cuda` / `:Cpu` partitions:
+  `OperationTraits<SamplingOp, Cuda, BF16>::type = CudaSamplingOp<BF16>`, etc.
+- A missing specialization is a hard compile error.
+
+This makes `OperationTraits` the single compile-time dispatch for every device-backed compute
+unit — graph ops **and** model-level orchestrator tools alike. The `MILA_HAS_CUDA` guard lives
+only in the `OperationTraits.ixx` aggregator; the sampler and its facade carry none.
+
+### 3.3 One sampler, filters as parameters
+
+There is a single concrete `TokenSampler`, **not** a class per strategy (`TopK`, `TopP`, ...).
+top-k, top-p, min-p, and repetition penalty are *composable filters* over one shared pipeline:
+
+```
+softcap -> temperature -> [top-k] -> [top-p] -> [min-p / repetition penalty] -> normalize -> draw
+```
+
+They stack (AND), not choose (XOR) — inference routinely applies `temperature`, `top_k`, and
+`top_p` together. Only the masking step differs; softcap, softmax, the multinomial draw, RNG, the
+device buffers, and the int32 output are identical. Greedy is the degenerate
+`temperature <= 0 || top_k == 1` case inside the same pipeline. So filters are per-call
+parameters, not types, and there is one `OperationType::SamplingOp` key.
+
+The `Sampler<TDeviceType, TPrecision>` base is retained as the seam for a genuinely different
+*future* strategy that carries cross-step state (e.g. Mirostat's running `mu`). Such a strategy
+would be a sibling class with its own key — the test is **"different state/math ⇒ class;
+composable mask over the same softmax+draw ⇒ parameter."** Beam search is out of scope: it
+restructures the generation loop with multiple hypotheses and is not a per-token sampler.
+
+### 3.4 Module layout
+
+Mirrors the `Optimizer` / `AdamW` file structure, dispatched through `OperationTraits`:
+
+| Role | Type | Module | Location |
+|---|---|---|---|
+| Base interface | `Sampler<Device,Precision>` | `Compute.SamplerBase` | `Core/SamplerBase.ixx` |
+| Facade (owned by model) | `TokenSampler<Device,Precision>` | `Dnn.Samplers.TokenSampler` | `Samplers/TokenSampler.ixx` |
+| Construction-time config | `SamplingConfig` | `Dnn.Samplers.SamplingConfig` | `Samplers/SamplingConfig.ixx` |
+| Device op (CUDA) | `CudaSamplingOp<Precision>` | `Compute.CudaSamplingOp` | `Compute/Devices/Cuda/Operations/Sampling/` |
+| Device op (CPU) | `CpuSamplingOp<Precision>` | `Compute.CpuSamplingOp` | `Compute/Devices/Cpu/Operations/Sampling/` |
+
+This **retires the skeleton's `Dnn/Decoders/` naming**: `Decoder` base → `Sampler`,
+`TopKDecoder` → `TokenSampler`, `TopKConfig` → `SamplingConfig`. ("Decoder" collides with the
+network's `decode()` step; "Sampler" is unambiguous.)
+
+`TokenSampler` retains the `TPrecision` axis because its input (logits) is a
+`Tensor<TPrecision, MR>` (BF16 for Gemma), even though internal math runs in FP32.
 
 ---
 
-## 4. Design
+## 4. Interface Contract
 
-### 4.1 `SamplerConfig`
+### 4.1 Construction-time vs per-call split
 
-```cpp
-class SamplerConfig : public ComponentConfig
-{
-public:
-    explicit SamplerConfig( int vocab_size, int max_top_k = 100 )
-        : vocab_size_( vocab_size ), max_top_k_( max_top_k ) {}
+Unlike `AdamWConfig` (all hyperparameters fixed at construction), sampling parameters are
+per-request and vary every call. The split:
 
-    int getVocabSize() const noexcept { return vocab_size_; }
-    int getMaxTopK()   const noexcept { return max_top_k_; }
+- **`SamplingConfig`** (construction-time): `vocab_size`, `final_logit_softcap` — fixed by the
+  model.
+- **`SamplingParams`** (per-call): `temperature`, `top_k`, `top_p`, ... — the per-call slice of
+  `GenerateParams` (`Dnn.GenerateParams`); the two should unify rather than duplicate.
 
-private:
-    int vocab_size_;
-    int max_top_k_;
-};
-```
+### 4.2 The op contract
 
-`vocab_size` and `max_top_k` are fixed at build time. They determine device buffer
-allocation in `build()`. Per-request `temperature` and `top_k` are passed via
-`configure()` before each `forward()` call (§4.2).
-
-### 4.2 `ISamplingOperation` Interface
-
-Sampling does not fit `UnaryOperation` because: (a) the output data type is always
-`INT32` regardless of logits precision, and (b) per-request parameters must be set
-between calls without rebuilding. A new interface is introduced:
+`SamplingOpConcept` currently takes loose scalars `(logits, token_out, temperature, top_k)`.
+Because the filter set will grow (top_p / min_p / repetition penalty are already pencilled into
+`GenerateParams`), the contract takes the params struct by const-ref so adding a filter does not
+churn the concept or every call site:
 
 ```cpp
-export struct ISamplingOperation
-{
-    /// Set per-request sampling parameters. Must be called before each forward().
-    /// temperature: <= 0 selects argmax; > 0 enables stochastic sampling.
-    /// top_k:       0 or vocab_size disables top-k filtering.
-    virtual void configure( float temperature, int top_k ) = 0;
-
-    /// Sample one token index from logits on the compute device.
-    /// logits:    device tensor [1, 1, vocab_size] in model compute precision.
-    /// token_out: device tensor [1, 1] of INT32 — written in-place on the device.
-    virtual void forward( const ITensor& logits, ITensor& token_out ) = 0;
-
-    virtual ~ISamplingOperation() = default;
-};
+op.forward( const TLogits& logits, TToken& token_out,
+            const SamplingParams& params, float random_uniform );
 ```
 
-`configure()` + `forward()` are always called sequentially on the same thread.
-`token_out` is the caller-provided device INT32 buffer; in `LlamaModel` this is
-`decode_token_device_`, enabling the device-to-device token flow described in §2.
+- `logits` — device tensor `[1, 1, vocab_size]` at model precision, read in place (never copied
+  to host).
+- `token_out` — device INT32 `[1, 1]`, written in place (the model's `decode_token_device_`).
+- `random_uniform` — a single host-drawn uniform in `[0, 1)`; see 4.3.
+- Non-const `op` is permitted (`CpuSamplingOp` may hold scratch); the CUDA op is effectively
+  stateless.
 
-### 4.3 `TokenSampler` Component
+The op writes the device token only. The 4-byte D2H readback and the per-step `synchronize()`
+are the `TokenSampler` facade's responsibility, keeping sync placement in the orchestrator's
+control.
 
-**File:** `Mila/Src/Dnn/Components/Sampling/TokenSampler.ixx`
+### 4.3 RNG
 
-```
-TokenSampler<TDeviceType, TPrecision>
-  Members:
-    SamplerConfig config_
-    shared_ptr<ISamplingOperation> operation_
+Randomness stays on the host: the `TokenSampler` facade owns the `std::mt19937` (seeded per
+`SamplingParams::seed`, or a time seed) and draws a single uniform `r` per step, passing it to
+`forward()` as a scalar. The device op is then **pure and deterministic** given
+`(logits, params, r)`. This avoids device RNG state and makes the parity oracle trivial (inject a
+fixed `r`). The multinomial draw is a prefix-sum threshold against `r`.
 
-  Hooks (follow Softmax component pattern):
-    onExecutionContextSet() → creates operation via OperationRegistry
-    onBuilding( BuildContext ) → calls operation_->build()
+### 4.4 Softcap
 
-  Public:
-    void sample( const ITensor& logits,
-                 float temperature, int top_k,
-                 ITensor& token_device_out )
-      operation_->configure( temperature, top_k )
-      operation_->forward( logits, token_device_out )
-```
-
-Construction follows the same standalone/shared context pattern as other components.
-`sample()` is the single public method — `configure` + `forward` are always paired.
-
-### 4.4 `CudaSamplingOp` — CUDA Backend
-
-**File:** `Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/CudaSamplingOp.ixx`
-
-#### build() — cold path
-
-Pre-allocates all device buffers so the hot path is allocation-free:
-
-```
-// ArgMax / greedy path
-argmax_result_device_   : Tensor<INT32,    CudaDeviceMR> [1]     — CUB ArgMax output
-cub_argmax_temp_        : device byte buffer               — CUB temp storage (dry-run sized)
-
-// Stochastic path
-softmax_scratch_device_ : Tensor<FP32,     CudaDeviceMR> [vocab_size]  — scaled + softmaxed probs
-random_uniform_device_  : Tensor<FP32,     CudaDeviceMR> [1]           — cuRAND uniform draw
-sort_keys_in_           : Tensor<FP32,     CudaDeviceMR> [vocab_size]  — logit values for sort
-sort_keys_out_          : Tensor<FP32,     CudaDeviceMR> [vocab_size]  — sorted logit values
-sort_vals_in_           : Tensor<INT32,    CudaDeviceMR> [vocab_size]  — logit indices for sort
-sort_vals_out_          : Tensor<INT32,    CudaDeviceMR> [vocab_size]  — sorted indices
-cub_sort_temp_          : device byte buffer               — CUB temp storage (dry-run sized)
-```
-
-CUB temp storage sizes are determined via the standard dry-run pattern
-(`nullptr` output, `nullptr` temp_storage, size query) during `build()`.
-
-`max_top_k` from `SamplerConfig` determines the sort buffer size. If `top_k == 0` at
-runtime, the full vocab sort is used (buffers already sized to `vocab_size`).
-
-#### configure() — sets cached per-request state
-
-```cpp
-void configure( float temperature, int top_k ) override
-{
-    temperature_ = temperature;
-    top_k_       = top_k;
-}
-```
-
-#### forward() — hot path
-
-**Greedy branch** (`temperature_ <= 0.0f || top_k_ == 1`):
-
-```
-cub::DeviceReduce::ArgMax(
-    cub_argmax_temp_, cub_argmax_temp_bytes_,
-    logits_ptr, argmax_result_device_.data(),
-    vocab_size_, stream_ )
-
-// Write key (index) from KeyValuePair result to token_out
-cuda_write_int32_kernel<<<1,1,0,stream_>>>(
-    token_out_ptr, argmax_result_device_.data() )
-```
-
-D2H on the hot path: zero bytes. The token lives in `token_out` on the device.
-
-**Stochastic branch** (`temperature_ > 0.0f && top_k_ != 1`):
-
-```
-Step 1 — Temperature scaling + softmax (custom kernel, full vocab):
-  softmax_scratch_[i] = exp( (logits[i] - max_logit) / temperature ) / sum
-
-Step 2 — Top-k filtering (when top_k_ > 0 && top_k_ < vocab_size):
-  // Populate sort input buffers: keys = softmax_scratch_, vals = [0..vocab_size)
-  cub::DeviceRadixSort::SortPairsDescending(
-      cub_sort_temp_, sort_keys_in_, sort_keys_out_,
-      sort_vals_in_, sort_vals_out_, vocab_size_, stream_ )
-  // Zero out softmax_scratch_ for non-top-k positions (custom kernel)
-  // Renormalize top-k probabilities in-place (custom kernel)
-
-Step 3 — GPU uniform draw:
-  curandGenerateUniform( context_->getCurandGenerator(),
-      random_uniform_device_.data(), 1 )
-
-Step 4 — Prefix-sum sample (custom kernel):
-  // Sequential scan: cumsum over softmax_scratch_ until cumsum >= random_uniform
-  // Writes winning index to token_out
-```
-
-All four steps execute on the same CUDA stream. No synchronization between steps.
-
-#### CUB dependency
-
-CUB is a header-only library bundled with the CUDA Toolkit (≥ 11.0). Required headers:
-
-```cpp
-#include <cub/device/device_reduce.cuh>    // DeviceReduce::ArgMax
-#include <cub/device/device_radix_sort.cuh> // DeviceRadixSort::SortPairsDescending
-```
-
-No additional link target is required.
-
-### 4.5 `CpuSamplingOp` — CPU Backend
-
-**File:** `Mila/Src/Dnn/Compute/Devices/Cpu/Operations/Sampling/CpuSamplingOp.ixx`
-
-Implements the same algorithm as the removed `sampleToken` but with pre-allocated scratch
-buffers eliminating the three per-call heap allocations:
-
-```
-build():
-  probs_scratch_   : std::vector<float>  [vocab_size]   — softmax probabilities
-  indices_scratch_ : std::vector<size_t> [max_top_k]    — top-k index candidates
-  rng_             : std::mt19937        — moved from LlamaModel::onGenerating
-
-forward():
-  Greedy: std::max_element over logits → write index to token_out
-  Stochastic:
-    temperature scaling + softmax into probs_scratch_
-    if top_k: std::partial_sort_copy into indices_scratch_ (size k, not vocab_size)
-              renormalize over k entries only
-    std::uniform_real_distribution draw from rng_
-    linear scan of probs_scratch_ for cumsum threshold → write index to token_out
-```
-
-The `indices_scratch_` size is `max_top_k`, not `vocab_size` — fixing the current
-implementation which allocates a full-vocab index vector.
-
-### 4.6 Registration
-
-Follow the `CudaSoftmaxOpRegistrar` / `CpuSoftmaxOpRegistrar` pattern.
-Register under the name `"SamplingOp"` with a new `OperationType::SamplingOp` enum entry
-and corresponding `OperationNames::Sampling` string constant.
-
-`TokenSampler::onExecutionContextSet()` creates the operation via:
-
-```cpp
-operation_ = OperationRegistry::instance()
-    .createSamplingOperation<TDeviceType, TPrecision>(
-        OperationNames::Sampling,
-        this->getExecutionContext(),
-        config_ );
-```
-
-A `createSamplingOperation` overload is added to `OperationRegistry` alongside the
-existing `createUnaryOperation` / `createBinaryOperation` overloads, keyed on
-`(DeviceType, ComputePrecision)`.
+Gemma applies a final logit softcap `c * tanh(logits / c)` (`c = final_logit_softcap`) that the
+current host `sampleToken` **drops** — harmless for argmax (the softcap is monotonic) but wrong
+for stochastic sampling, where it changes the distribution after temperature. The `SamplingOp`
+applies softcap **first, before temperature**, whenever `final_logit_softcap > 0`. This is a
+latent correctness fix, not only a perf rewrite.
 
 ---
 
-## 5. `LlamaModel` Changes
+## 5. Device Algorithm (per branch)
 
-### 5.1 New member
+The op branches on `SamplingParams`; internal math is FP32 regardless of `TPrecision`:
+
+- **Greedy** (`temperature <= 0 || top_k == 1`): block-wide argmax reduction over vocab.
+  Deterministic, no RNG. Exactly validatable against the host argmax.
+- **Full multinomial** (`top_k == 0`, `top_p >= 1`): softcap → temperature → softmax →
+  prefix-sum threshold against `r`.
+- **Truncated** (`0 < top_k < vocab` and/or `top_p < 1`): the hard case — partial selection over
+  a large vocab (~256 K for Gemma). Candidate approaches (chosen in the implementation plan, not
+  here): radix-select, iterative value-threshold (histogram/bisection), or per-block top-k +
+  merge. top-p is a cumulative-probability cutoff applied after the k-mask on the sorted
+  survivors.
+
+---
+
+## 6. Buffer and Decode-Loop Changes
+
+Per Section 2:
+
+- **Remove `logits_staging_`** (the full-vocab pinned host buffer) — logits never leave the
+  device.
+- **Rename `decode_token_staging_` → `next_token_staging_`**, narrowed to a 1-element INT32
+  pinned buffer used only for the 4-byte D2H readback.
+- `decode_token_device_` is written in place by the op and read directly by the next `decode()`
+  — the per-step H2D restage is eliminated.
+- The per-step `synchronize()` **remains** (the host still needs the token for stop-sequence
+  detection and the `on_token` callback).
+
+---
+
+## 7. Validation
+
+- **Greedy path first**: deterministic, validated token-for-token against the existing host
+  argmax over the same logits. This is the first milestone and protects the Gemma parity already
+  achieved.
+- **Stochastic path**: validated with a fixed seed and injected `r` — given identical
+  `(logits, params, r)`, the device pipeline must select the same token as a reference host
+  pipeline applying the same softcap / temperature / top-k / top-p. A statistical check (KL of the
+  sampled histogram vs the reference distribution) is a secondary oracle.
+
+---
+
+## 8. Implementation Plan
+
+### 8.1 A/B transition path (divergence guard)
+
+The device sampler (**path B**) lands **alongside** the validated host `sampleToken` (**path A**),
+not replacing it — moving sampling to the device risks a silent divergence from the token-for-token
+Gemma parity already achieved. A two-state compile-time toggle selects the path:
 
 ```cpp
-TokenSampler<TDeviceType, TPrecision> token_sampler_;
+enum class SamplingPath { HostA, DeviceB };
+constexpr SamplingPath kSamplingPath = SamplingPath::HostA;   // flip to DeviceB to test B
 ```
 
-Initialized in the constructor after `config_` (requires `vocab_size`):
+- **`HostA`** — current behavior, the unchanged baseline.
+- **`DeviceB`** — the new `TokenSampler` device path.
 
-```cpp
-, token_sampler_( "token_sampler",
-    SamplerConfig{ static_cast<int>( config.getVocabSize() ), /*max_top_k=*/ 100 } )
-```
+Validation is **across builds, not in-process**: build with `HostA`, run the Chat harness on the
+sample prompt and capture the output; rebuild with `DeviceB` and run the same prompt; compare. For the
+greedy gate the decoded text must be identical token-for-token. This matches the project's
+edit-a-constant-then-rebuild workflow and side-steps the shared-RNG plumbing an in-process comparator
+would need. The rigorous stochastic check (fixed seed + injected `r` against a host reference) is the
+unit oracle in Section 7, not this toggle.
 
-Built in `onGenerating` on first call, or preferably in `fromPretrainedImpl` alongside
-the network build.
+**Retirement** — once `DeviceB` reproduces `HostA` across the validation prompts, delete path A
+(`sampleFromLogits` / `sampleToken`), apply the Section 6 buffer changes, and remove the toggle, all in
+a follow-up commit (Phase D). The toggle starts in `GemmaModel` (Phase A's target) and moves to the
+`LanguageModel` base when the sampler is hoisted there.
 
-### 5.2 Members removed
+### 8.2 Buffer-change sequencing
 
-| Member | Reason |
-|---|---|
-| `logits_staging_` (`Tensor<FP32, StagingMR> [1,1,vocab_size]`) | Logits no longer leave the device |
-| `sampleFromLogits()` | Replaced by `token_sampler_.sample()` |
-| `sampleToken()` | Logic moved into `CpuSamplingOp` |
+The Section 6 buffer changes are **deferred to A-retirement**, not done up front: `CompareAB` needs
+path A's host logits, so `logits_staging_` is retained through the transition and removed only when A
+is deleted. Phase A adds `decode_token_device_` in-place writes for B without yet removing A's
+buffers.
 
-### 5.3 Member renamed
+### 8.3 Phases (each advances only when its build-vs-build parity gate is clean)
 
-`decode_token_staging_` → `next_token_staging_` to reflect its narrowed role:
-a 1-element pinned INT32 buffer used only for the 4-byte D2H copy needed by
-stop-token detection and the `on_token` callback.
+- **Phase A — greedy on-device, end-to-end.** `Sampler` base (`Core/SamplerBase.ixx`, rewriting the
+  `Dnn/Decoders` skeleton), `SamplingConfig`, `SamplingParams`; `CudaSamplingOp` + `CpuSamplingOp`
+  with the argmax branch only; `OperationTraits<SamplingOp, {Cuda,Cpu}, {FP32,BF16}>`
+  specializations; `TokenSampler` facade (resolves the trait, owns RNG + the 4-byte readback); wired
+  into `GemmaModel::onGenerating` behind the toggle. **Gate:** a `DeviceB` build reproduces the
+  `HostA` build token-for-token on the Gemma sample prompt via the Chat harness.
+- **Phase B — full multinomial** (`top_k == 0`): softcap → temperature → softmax → prefix-sum
+  threshold against `r` in `CudaSamplingOp`; closes the softcap correctness gap. **Gate:** injected-`r`
+  token match vs the host reference.
+- **Phase C — truncated top-k / top-p:** device selection over the ~256 K vocab (correctness-first
+  simple kernel; algorithm choice — radix-select / threshold-iteration / per-block top-k+merge —
+  deferred and revisited only if profiled), top-p as a cumulative cutoff on the survivors. **Gate:**
+  same injected-`r` parity.
+- **Phase D — generalize + clean up:** hoist `TokenSampler` ownership to the `LanguageModel` base;
+  wire `LlamaModel` + `GptModel` `onGenerating`; delete the three copied `sampleToken`s; flip to
+  `DeviceB`, remove path A and apply the Section 6 buffer changes; retire the `Dnn/Decoders/`
+  skeleton.
 
-### 5.4 Updated `onGenerating` decode loop
+### 8.4 Locked decisions
 
-```
-// Phase 1 — prefill
-prefill_input  = makeTokenTensor( prefill_tokens )
-logits         = network.prefill( prefill_input )
-context.synchronize()
-token_sampler_.sample( logits, temperature, top_k, decode_token_device_ )
-context.synchronize()
-copy( decode_token_device_, next_token_staging_ )   // 4-byte D2H
-if stop_ids.contains( next_token_staging_[0] ): return
-on_token( next_token_staging_[0] )
+- **Config naming:** `SamplingConfig` (construction-time: `vocab_size`, `final_logit_softcap`).
+- **Per-call params:** extend `GenerateParams` (add `top_p`, `seed`) and pass it as `SamplingParams`
+  — no parallel struct.
+- **`CpuSamplingOp`** is included from Phase A (nearly free — it is the existing host `sampleToken`)
+  so the base-class wiring is device-agnostic for Phase D.
+- **Op signature:** `forward(const TLogits& logits, TToken& token_out, const SamplingParams&, float r)`
+  — widening the current scalar `SamplingOpConcept`; op writes the device token only, facade owns the
+  D2H readback + the per-step `synchronize()`.
+- **Sequencing note:** the Optimizer→`OperationTraits` migration follows Phase A (not before) — the
+  AdamW tests are disabled, so an optimizer-first migration proves only compile-time dispatch, whereas
+  Phase A's greedy slice proves the orchestrator-on-traits pattern including runtime, validated
+  against parity.
 
-// Phase 2 — decode loop
-for each step:
-    logits = network.decode( decode_token_device_, position )
-    context.synchronize()
-    token_sampler_.sample( logits, temperature, top_k, decode_token_device_ )
-    context.synchronize()
-    copy( decode_token_device_, next_token_staging_ )   // 4-byte D2H
-    if stop_ids.contains( next_token_staging_[0] ): break
-    on_token( next_token_staging_[0] )
-    ++position
-```
+### 8.5 Build / boundary notes
 
-`std::mt19937 rng` is removed from `onGenerating`; random state lives in `CpuSamplingOp`.
-
----
-
-## 6. Invariants
-
-| Invariant | Notes |
-|---|---|
-| `configure()` always precedes `forward()` within `sample()` | Enforced by `TokenSampler::sample()` — callers never call these separately |
-| `token_out` shape is `[1, 1]` INT32 | Validated in `forward()` pre-condition |
-| CUB sort buffers are sized to `vocab_size` at build time | Runtime `top_k` is always ≤ `vocab_size`; no runtime reallocation |
-| cuRAND generator is stream-bound | `getCurandGenerator()` lazy-initializes on first call; always returns a generator bound to the execution context's stream |
-| No D2H of logits on the hot path | Correctness depends on sampling staying entirely on device; `logits_staging_` must not be reintroduced |
-| CPU and CUDA paths produce equivalent distributions | Both implement temperature-scaled softmax → top-k mask → weighted sample; test parity at fixed seed |
-
----
-
-## 7. Open Questions
-
-| # | Question | Impact |
-|---|---|---|
-| 1 | Is `max_top_k = 100` a reasonable default for sort buffer pre-allocation, or should it match a project-wide convention? | Affects `SamplerConfig` default |
-| 2 | Should `TokenSampler` be built during `fromPretrainedImpl` (alongside the network) or lazily on first `onGenerating` call? | Affects where the CUDA device context is available for `token_sampler_.build()` |
-| 3 | Is the prefix-sum scan in Step 4 of the stochastic path acceptable as a sequential GPU kernel for small vocab sizes, or should a parallel CUB `DeviceScan` be used? | Affects stochastic path kernel complexity |
-
----
-
-## 8. Files Created / Modified
-
-### Created
-
-| File | Purpose |
-|---|---|
-| `Mila/Src/Dnn/Components/Sampling/TokenSampler.ixx` | Hardware-agnostic component |
-| `Mila/Src/Dnn/Compute/Operations/ISamplingOperation.ixx` | Compute-layer interface |
-| `Mila/Src/Dnn/Compute/Operations/SamplerConfig.ixx` | Build-time configuration |
-| `Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/CudaSamplingOp.ixx` | CUDA backend |
-| `Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/CudaSamplingOpRegistrar.ixx` | CUDA registrar |
-| `Mila/Src/Dnn/Compute/Devices/Cpu/Operations/Sampling/CpuSamplingOp.ixx` | CPU backend |
-| `Mila/Src/Dnn/Compute/Devices/Cpu/Operations/Sampling/CpuSamplingOpRegistrar.ixx` | CPU registrar |
-| `Mila/Specifications/TokenSampling.md` | This specification |
-
-### Modified
-
-| File | Change |
-|---|---|
-| `Mila/Src/Dnn/Compute/Operations/OperationType.ixx` | Add `SamplingOp` enum entry and `OperationNames::Sampling` constant |
-| `Mila/Src/Dnn/Compute/Operations/OperationRegistry.ixx` | Add `createSamplingOperation` overload |
-| `Mila/Src/Dnn/Models/LlamaModel.ixx` | Add `TokenSampler` member; remove `logits_staging_`, `sampleFromLogits`, `sampleToken`; rename `decode_token_staging_` → `next_token_staging_`; update `onGenerating` |
+Core `Mila/Src/` work touching **parity-protected** code (`GemmaModel::onGenerating`, the decode
+loop, the buffer members) — gated behind the greedy `CompareAB` result before anything stochastic.
+New module files and the `OperationTraits` partition specializations are registered in
+`Mila/CMakeLists.txt`; the user builds and runs in VS 2026 and reports results.

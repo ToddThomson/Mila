@@ -106,6 +106,9 @@ namespace Mila::Dnn
      */
     class UniqueIdGenerator {
     public:
+        
+        // REVIEW: Is a tensor's unique Id even necessary? Is it used anywhere? If not, remove it to simplify the design.
+
         /**
          * @brief Generates the next unique identifier atomically
          *
@@ -581,6 +584,7 @@ namespace Mila::Dnn
          */
         std::string getUId() const override
         {
+            // REVIEW: The getUId() is only used in tests. Do we need it? If not, remove it to simplify the design.
             return uid_;
         }
 

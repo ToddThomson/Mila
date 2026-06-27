@@ -4,7 +4,7 @@
  *
  * Defines the abstract Optimizer class template that provides a uniform interface
  * for parameter update algorithms (SGD, Adam, AdamW, etc.) across different devices
- * and precision levels.
+ * and precisions.
  */
 
 module;
@@ -18,11 +18,10 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.DeviceType;
 
-// REVIEW: Optimizer should be in Mila::Dnn.
-// It is a core DNN concept, not just Compute.
-
-namespace Mila::Dnn::Compute
+namespace Mila::Dnn
 {
+    using namespace Mila::Dnn::Compute;
+
     /**
      * @brief Abstract base class for parameter optimizers.
      *

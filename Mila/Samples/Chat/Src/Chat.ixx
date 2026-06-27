@@ -923,7 +923,7 @@ namespace Mila::ChatApp
                 model_ );
         }
 
-        static constexpr const char* kVersion = "v0.1";
+        static constexpr const char* kVersion = "v0.20";
 
         std::string modelAlias() const
         {
@@ -941,6 +941,8 @@ namespace Mila::ChatApp
 
         void printWelcome() const
         {
+            // REVIEW: When thinking is on we should display the current effort level here too, since it is a user-facing setting.
+
             renderer_.printWelcomeBox( std::format( "Mila Chat {}", kVersion ) );
             renderer_.printInfo( std::format( "  Model: {}  ·  Thinking: {}  ·  Detail: {}",
                 modelAlias(), config_.show_thinking ? "on" : "off", detailLevelName( config_.detail ) ) );

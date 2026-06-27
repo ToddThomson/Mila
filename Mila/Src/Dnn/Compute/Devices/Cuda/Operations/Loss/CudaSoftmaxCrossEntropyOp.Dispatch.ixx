@@ -20,20 +20,12 @@ namespace Mila::Dnn::Compute::Cuda::SoftmaxCrossEntropy
         /**
          * @brief CUDA kernel dispatcher for SoftmaxCrossEntropy operations.
          *
-         * Specialized for float ( FUTURE: and nv_bfloat16 ) CUDA types.
+         * Specialized for float (FP32), nv_bfloat16 (BF16) CUDA types.
          * Primary template - will cause compile error if no specialization exists.
          */
         template<typename TComputeType>
             requires std::is_same_v<TComputeType, float> || std::is_same_v<TComputeType, nv_bfloat16>
-        struct cuda_softmax_crossentropy_impl
-        {
-            static_assert(
-                always_false_v<TComputeType>,
-                "cuda_softmax_crossentropy_impl: unsupported TComputeType. "
-                "Supported types: float (FP32), nv_bfloat16 (BF16)." );
-        };
-
-        // Specialization for float (FP32)
+        struct cuda_softmax_crossentropy_impl;
 
         template<>
         struct cuda_softmax_crossentropy_impl<float>
@@ -68,8 +60,6 @@ namespace Mila::Dnn::Compute::Cuda::SoftmaxCrossEntropy
                     batch_size, seq_len, vocab_size, stream );
             }
         };
-
-        // Specialization for nv_bfloat16 (BF16)
 
         template<>
         struct cuda_softmax_crossentropy_impl<nv_bfloat16>

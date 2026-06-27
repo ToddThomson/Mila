@@ -8,6 +8,7 @@
 module;
 #include <memory>
 #include <vector>
+#include <span>
 #include <unordered_set>
 #include <string>
 #include <sstream>
@@ -43,6 +44,9 @@ import Dnn.Component;
 import Dnn.RuntimeMode;
 import Dnn.Components.GemmaTransformer;
 import Dnn.Components.GemmaConfig;
+import Dnn.Samplers.TokenSampler;
+import Dnn.Samplers.SamplingConfig;
+import Dnn.GenerateParams;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
@@ -64,6 +68,16 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Serialization;
     using namespace Mila::Dnn::Quant::Weight;
     using namespace Mila::Dnn::Quant::KvCache;
+
+    /**
+     * @brief A/B sampling path selector (TokenSampling.md section 8.1).
+     *
+     * HostA is the validated host baseline; DeviceB routes sampling through the device
+     * TokenSampler. Flip to DeviceB and rebuild to compare against a HostA build via the
+     * Chat harness on the sample prompt; path A is retired once B reproduces it.
+     */
+    enum class SamplingPath { HostA, DeviceB };
+    constexpr SamplingPath kSamplingPath = SamplingPath::DeviceB;
 
     /**
      * @brief Gemma 4 compatible inference model.
@@ -222,8 +236,14 @@ namespace Mila::Dnn
 
     protected:
 
+        // REVIEW: The onGenerating() should take a GenerationConfig struct instead of a long parameter list.
+        // This would make it easier to extend in the future and keep the interface clean.
+
+        // REVIEW: The onGenerating() should return a GenerateResult struct instead of void, containing the statistics and any other relevant information.
+        // See GenerateResult.ixx for a starting implementation.
+
         void onGenerating(
-            const std::vector<int32_t>& prompt_tokens,
+            std::span<const int32_t> prompt_tokens,
             const std::function<void( int32_t )>& on_token,
             size_t max_new_tokens,
             float temperature,
@@ -232,14 +252,31 @@ namespace Mila::Dnn
         {
             const auto stop_ids = stopTokens();
 
-            std::vector<int32_t> prefill_tokens = prompt_tokens;
-            std::mt19937 rng( std::chrono::high_resolution_clock::now()
-                .time_since_epoch().count() );
+            std::mt19937 rng( std::chrono::high_resolution_clock::now().time_since_epoch().count() );
 
-            truncateIfNeeded( prefill_tokens );
-            int64_t seq_len = static_cast<int64_t>(prefill_tokens.size());
+            // REVIEW: Why are we copying the prompt tokens?
+            // FIX: There is no need to copy the prompt tokens. We can use the span directly.
+            //std::vector<int32_t> prefill_tokens = prompt_tokens;
 
-            auto prefill_input = makeTokenTensor( prefill_tokens );
+            // REVIEW: This is weak. Requires a more robust solution
+            // truncateIfNeeded( prefill_tokens );
+
+            // FIX: The resolution is to return an error if the prompt exceeds the deployment context length.
+            // The context management is not our concern. The GemmaModel is built with a context length, and the prompt must fit within it.
+            // If the prompt exceeds it, we should throw an error instead of truncating it silently.
+
+            if ( prompt_tokens.size() > static_cast<size_t>( context_length_ ) )
+            {
+                throw std::invalid_argument( std::format(
+                    "GemmaModel::onGenerating: prompt length {} exceeds deployment context length {}",
+                    prompt_tokens.size(), context_length_ ) );
+            }
+
+            int64_t seq_len = static_cast<int64_t>(prompt_tokens.size());
+
+            // REVIEW: We should support a vector to tensor conversion utility in the Tensor class, to avoid this copy.
+            // FIX: The onGenerating() now uses a span which is supported by the Tensor::fill() method
+            auto prefill_input = makeTokenTensor( prompt_tokens );
 
             // ---- Phase 1: Prefill — measure to first token ----
             const auto prefill_start = std::chrono::high_resolution_clock::now();
@@ -247,11 +284,11 @@ namespace Mila::Dnn
             auto& logits = this->getLanguageNetwork().prefill( prefill_input );
             this->getLanguageNetwork().synchronize();
 
-            int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
+            int32_t next_token = sampleNext( logits, temperature, top_k, rng );
 
             const auto prefill_end = std::chrono::high_resolution_clock::now();
 
-            this->last_generation_statistics_.prompt_tokens    = prefill_tokens.size();
+            this->last_generation_statistics_.prompt_tokens    = prompt_tokens.size();
             this->last_generation_statistics_.tokens_generated = 0;
             this->last_generation_statistics_.prefill_time_ms  =
                 std::chrono::duration<float, std::milli>( prefill_end - prefill_start ).count();
@@ -282,13 +319,17 @@ namespace Mila::Dnn
                 if ( position >= context_length_ )
                     break;
 
+                // REVIEW: Copy for a single token is wasteful. We should have a single-token tensor on the device and just write to it.
+                // FIX: Once the refactor for the device DecoderOp is done, we can eliminate this copy and just use a single-token tensor on the device.
                 decode_token_staging_.data()[ 0 ] = next_token;
                 copy( decode_token_staging_, decode_token_device_ );
 
                 auto& decode_logits = this->getLanguageNetwork().decode( decode_token_device_, position );
                 this->getLanguageNetwork().synchronize();
 
-                next_token = sampleFromLogits( decode_logits, 0, temperature, top_k, rng );
+                // REVIEW: The LanguageModel sampling should be done on the device, not the host.
+                // This is a temporary workaround until we implement a device-side sampler.
+                next_token = sampleNext( decode_logits, temperature, top_k, rng );
 
                 if ( stop_ids.contains( next_token ) ) break;
 
@@ -300,6 +341,8 @@ namespace Mila::Dnn
             const auto decode_end = std::chrono::high_resolution_clock::now();
             const float decode_ms =
                 std::chrono::duration<float, std::milli>( decode_end - decode_start ).count();
+
+            // REVIEW: stats could be part of the returned GenerateResult struct instead of being stored in the model.
 
             this->last_generation_statistics_.tokens_generated         = 1 + decode_token_count;
             this->last_generation_statistics_.decode_time_ms           = decode_ms;
@@ -317,7 +360,8 @@ namespace Mila::Dnn
 
         int64_t maxSequenceLength() const noexcept override
         {
-            return static_cast<int64_t>(config_.getMaxSequenceLength());
+            // REVIEW: Settle this once and for all: int64_t vs dim_t. These static_casts are a code smell.
+            return static_cast<int64_t>( config_.getMaxSequenceLength() );
         }
 
         int64_t vocabSize() const noexcept override
@@ -326,6 +370,12 @@ namespace Mila::Dnn
         }
 
     private:
+
+        // REVIEW: context_length_ This differs from LlamaModel. Why?
+        // Hmmm, also, context_length is dependent on RuntimeMode. If we are in training mode,
+        // context_length_ should be the max sequence length.
+        // If we are in inference mode, context_length_ should be the deployment context length.
+        // This is a subtle but important distinction.
 
         explicit GemmaModel(
             std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
@@ -338,6 +388,11 @@ namespace Mila::Dnn
             , decode_token_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1 } )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
             , logits_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1, static_cast<int64_t>( config.getVocabSize() ) } )
+            , token_sampler_(
+                this->getLanguageNetwork().getExecutionContext(),
+                SamplingConfig{}
+                    .withVocabularySize( static_cast<int64_t>( config.getVocabSize() ) )
+                    .withFinalLogitSoftcap( config.getFinalLogitSoftcapping() ) )
         {}
 
         template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
@@ -381,16 +436,28 @@ namespace Mila::Dnn
                     static_cast<int64_t>( context_length ), RuntimeMode::Inference ) );
         }
 
+        // REVIEW: Why aren't we storing the model config instead of the network config?
+        // The model config is what we use to build the network, and it contains the deployment context length.
+        // The network config is what we read from the checkpoint metadata,
+        // and it contains the architectural max sequence length. We should store both, or at least make sure we are using the right one in the right place.
+
         GemmaConfig config_;
+
         // Deployment KV-cache capacity: the context length the network was BUILT with
         // (model_config.getContextLength()), which may be far below the architectural
         // max (config_.getMaxSequenceLength()). Prompt truncation and the decode loop
         // bound against THIS, not the architectural max, or the GQA op throws when a
         // write position reaches the cache size.
+        // REVIEW: Why isn't this a const int64_t? It is set in the constructor and never changed. It should be const.
+        // REVIEW: Why isn't this a dim_t? It is set from model_config.getContextLength(), which is a dim_t. It should be a dim_t.
+        // REVIEW: Why is this a member variable at all? It is only used in onGenerating(),
+        // which could just read it from config_.getContextLength(). It seems like an unnecessary duplication of state.
         int64_t context_length_;
+
         Tensor<dtype_t::INT32, StagingMR> decode_token_staging_;
         TokenIndexType decode_token_device_;
         Tensor<TensorDataType::FP32, StagingMR> logits_staging_;
+        TokenSampler<TDeviceType, TPrecision> token_sampler_;
 
         /**
          * @brief Gemma end-of-sequence token: <eos> = 1.
@@ -419,27 +486,31 @@ namespace Mila::Dnn
         // Generation helpers
         // ====================================================================
 
-        void truncateIfNeeded( std::vector<int32_t>& tokens ) const
+        //void truncateIfNeeded( std::vector<int32_t>& tokens ) const
+        //{
+        //    int64_t seq_len = static_cast<int64_t>(tokens.size());
+
+        //    // Bound the prompt by the deployment context (the KV-cache depth), not the
+        //    // architectural max: prefill writes positions 0..seq_len-1 into a cache of
+        //    // size context_length_, so a longer prompt overflows it.
+        //    if ( seq_len > context_length_ )
+        //    {
+        //        Logging::Logger::warning( std::format(
+        //            "GemmaModel: sequence length {} exceeds deployment context {}, truncating from start",
+        //            seq_len, context_length_ ) );
+
+        //        tokens.erase( tokens.begin(),
+        //            tokens.begin() + (seq_len - context_length_) );
+        //    }
+        //}
+
+        TokenIndexType makeTokenTensor( std::span<const int32_t> token_ids ) const
         {
-            int64_t seq_len = static_cast<int64_t>(tokens.size());
+            // REVIEW: The inference path data movement is suboptimal:
+            // the token_ids vector is copied to a CPU tensor, then copied to the device tensor.
+            // Ideally, we would construct the device tensor directly from the vector without an intermediate copy.
 
-            // Bound the prompt by the deployment context (the KV-cache depth), not the
-            // architectural max: prefill writes positions 0..seq_len-1 into a cache of
-            // size context_length_, so a longer prompt overflows it.
-            if ( seq_len > context_length_ )
-            {
-                Logging::Logger::warning( std::format(
-                    "GemmaModel: sequence length {} exceeds deployment context {}, truncating from start",
-                    seq_len, context_length_ ) );
-
-                tokens.erase( tokens.begin(),
-                    tokens.begin() + (seq_len - context_length_) );
-            }
-        }
-
-        TokenIndexType makeTokenTensor( const std::vector<int32_t>& token_ids ) const
-        {
-            shape_t shape = { 1, static_cast<int64_t>(token_ids.size()) };
+            shape_t shape = { 1, static_cast<int64_t>( token_ids.size() ) };
             TokenIndexType device_tensor( this->getDeviceId(), shape );
 
             Tensor<dtype_t::INT32, CpuMemoryResource> cpu_tensor( Device::Cpu(), shape );
@@ -449,6 +520,33 @@ namespace Mila::Dnn
             copy( cpu_tensor, device_tensor );
 
             return device_tensor;
+        }
+
+        /**
+         * @brief A/B dispatch for next-token selection (TokenSampling.md section 8.1).
+         *
+         * HostA path: the validated host sampleFromLogits. DeviceB path: the device
+         * TokenSampler, which writes the token into decode_token_device_ in place and
+         * returns the host value. Both consume the last logits row.
+         */
+        int32_t sampleNext(
+            const TensorType& logits,
+            float temperature,
+            int top_k,
+            std::mt19937& rng )
+        {
+            if constexpr ( kSamplingPath == SamplingPath::HostA )
+            {
+                return sampleFromLogits( logits, 0, temperature, top_k, rng );
+            }
+            else
+            {
+                SamplingParams params;
+                params.temperature = temperature;
+                params.top_k = top_k;
+
+                return token_sampler_.sample( logits, decode_token_device_, params );
+            }
         }
 
         int32_t sampleFromLogits(

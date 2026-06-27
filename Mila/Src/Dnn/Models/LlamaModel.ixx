@@ -263,7 +263,7 @@ namespace Mila::Dnn
          * @param stop           Stop token for cooperative cancellation.
          */
         void onGenerating(
-            const std::vector<int32_t>& prompt_tokens,
+            std::span<const int32_t> prompt_tokens,
             const std::function<void( int32_t )>& on_token,
             size_t max_new_tokens,
             float temperature,
@@ -272,14 +272,19 @@ namespace Mila::Dnn
         {
             const auto stop_ids = stopTokens();
 
-            std::vector<int32_t> prefill_tokens = prompt_tokens;
             std::mt19937 rng( std::chrono::high_resolution_clock::now()
                 .time_since_epoch().count() );
 
-            truncateIfNeeded( prefill_tokens );
-            int64_t seq_len = static_cast<int64_t>(prefill_tokens.size());
+            if ( prompt_tokens.size() > static_cast<size_t>( context_length_ ) )
+            {
+                throw std::invalid_argument( std::format(
+                    "LlamaModel::onGenerating: prompt length {} exceeds deployment context length {}",
+                    prompt_tokens.size(), context_length_ ) );
+            }
 
-            auto prefill_input = makeTokenTensor( prefill_tokens );
+            int64_t seq_len = static_cast<int64_t>(prompt_tokens.size());
+
+            auto prefill_input = makeTokenTensor( prompt_tokens );
 
             // ---- Phase 1: Prefill — measure to first token ----
             // synchronize() is called after prefill(), so the wall-clock measurement
@@ -295,7 +300,7 @@ namespace Mila::Dnn
             const auto prefill_end = std::chrono::high_resolution_clock::now();
 
             // Reset statistics for this generation run.
-            this->last_generation_statistics_.prompt_tokens    = prefill_tokens.size();
+            this->last_generation_statistics_.prompt_tokens    = prompt_tokens.size();
             this->last_generation_statistics_.tokens_generated = 0;
             this->last_generation_statistics_.prefill_time_ms  =
                 std::chrono::duration<float, std::milli>( prefill_end - prefill_start ).count();
@@ -381,9 +386,10 @@ namespace Mila::Dnn
         explicit LlamaModel(
             std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
             const LlamaConfig& config,
+            int64_t context_length,
             RuntimeMode runtime_mode )
             : ModelBase( std::move( network ), runtime_mode )
-            , config_( config )
+            , config_( config ), context_length_( context_length )
             , decode_token_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1 } )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
             , logits_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1, static_cast<int64_t>( config.getVocabSize() ) } )
@@ -403,8 +409,7 @@ namespace Mila::Dnn
             if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
             {
                 throw std::invalid_argument( std::format(
-                    "LlamaModel::fromPretrained: context_length {} exceeds "
-                    "trained max_seq_len {}",
+                    "LlamaModel::fromPretrained: context_length {} exceeds max_seq_len {}",
                     model_config.getContextLength(),
                     network_config.getMaxSequenceLength() ) );
             }
@@ -427,10 +432,12 @@ namespace Mila::Dnn
 
             return std::unique_ptr<LlamaModel<TDeviceType, TPrecision>>(
                 new LlamaModel<TDeviceType, TPrecision>(
-                    std::move( network ), network_config, RuntimeMode::Inference ) );
+                    std::move( network ), network_config,
+                    static_cast<int64_t>( context_length ), RuntimeMode::Inference ) );
         }
 
         LlamaConfig config_;
+        int64_t context_length_;
         Tensor<dtype_t::INT32, StagingMR> decode_token_staging_;
         TokenIndexType decode_token_device_;
         Tensor<TensorDataType::FP32, StagingMR> logits_staging_;
@@ -460,22 +467,7 @@ namespace Mila::Dnn
         // Generation helpers
         // ====================================================================
 
-        void truncateIfNeeded( std::vector<int32_t>& tokens ) const
-        {
-            int64_t seq_len = static_cast<int64_t>(tokens.size());
-
-            if ( seq_len > config_.getMaxSequenceLength() )
-            {
-                Logging::Logger::warning( std::format(
-                    "LlamaModel: sequence length {} exceeds max {}, truncating from start",
-                    seq_len, config_.getMaxSequenceLength() ) );
-
-                tokens.erase( tokens.begin(),
-                    tokens.begin() + (seq_len - config_.getMaxSequenceLength()) );
-            }
-        }
-
-        TokenIndexType makeTokenTensor( const std::vector<int32_t>& token_ids ) const
+        TokenIndexType makeTokenTensor( std::span<const int32_t> token_ids ) const
         {
             shape_t shape = { 1, static_cast<int64_t>(token_ids.size()) };
             TokenIndexType device_tensor( this->getDeviceId(), shape );

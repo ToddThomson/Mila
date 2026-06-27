@@ -93,22 +93,23 @@ namespace Mila::Dnn::Compute
     /**
      * @brief Contract for SamplingOp: in-place token sampling from a logits tensor.
      *
-     * temperature and top_k are per-call parameters -- no separate configure() step.
-     * token_out is a device INT32 tensor written in-place; the caller provides the
-     * buffer (typically decode_token_device_ in LlamaModel).
-     *
-     * Non-const because CpuSamplingOp holds an mt19937 rng_ updated on each call.
+     * Per-call sampling knobs travel in a SamplingParams struct (temperature/top_k/
+     * top_p/seed) -- a struct, not loose scalars, so adding a filter does not churn
+     * the signature. The host-drawn uniform `r` is passed as a scalar, keeping the op
+     * pure and deterministic. token_out is a device INT32 tensor written in-place; the
+     * caller provides the buffer (the model's decode_token_device_).
      *
      * @tparam TOp      Candidate op type.
      * @tparam TLogits  Logits tensor type (model compute precision).
      * @tparam TToken   Output tensor type (INT32 device tensor).
+     * @tparam TParams  Per-call sampling parameter struct (SamplingParams).
      */
-    export template<typename TOp, typename TLogits, typename TToken>
-    concept SamplingOpConcept = requires( TOp& op,
+    export template<typename TOp, typename TLogits, typename TToken, typename TParams>
+    concept SamplingOpConcept = requires( const TOp& op,
                                           const TLogits& logits, TToken& token_out,
-                                          float temperature, int top_k )
+                                          const TParams& params, float r )
     {
-        op.forward( logits, token_out, temperature, top_k );
+        op.forward( logits, token_out, params, r );
     };
 
 }  // namespace Mila::Dnn::Compute

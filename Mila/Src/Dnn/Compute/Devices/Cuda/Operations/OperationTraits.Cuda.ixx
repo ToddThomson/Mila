@@ -31,6 +31,7 @@ import Compute.CudaRopeOp;
 import Compute.CudaLpeOp;
 import Compute.CudaTokenEmbeddingOp;
 import Compute.CudaSoftmaxCrossEntropyOp;
+import Compute.CudaSamplingOp;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 
@@ -40,6 +41,7 @@ namespace Mila::Dnn::Compute
     using namespace Mila::Dnn::Quant::KvCache;
     using namespace Mila::Dnn::Compute::Cuda::Linear;
     using namespace Mila::Dnn::Compute::Cuda::Gqa;
+    using namespace Mila::Dnn::Compute::Cuda::Sampling;
 
     // -------------------------------------------------------------------------
     // LinearOp — CUDA specializations
@@ -333,6 +335,22 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::CrossEntropyOp, DeviceType::Cuda, TensorDataType::BF16, void>
     {
         using type = Cuda::SoftmaxCrossEntropy::CudaSoftmaxCrossEntropyOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // SamplingOp — CUDA specializations (logits precision; INT32 token output)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::SamplingOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::Sampling::CudaSamplingOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::SamplingOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::Sampling::CudaSamplingOp<TensorDataType::BF16>;
     };
 
 }  // namespace Mila::Dnn::Compute

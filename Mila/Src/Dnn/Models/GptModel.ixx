@@ -134,7 +134,7 @@ namespace Mila::Dnn
             network->build( build_context );
             network->loadParameters( reader, strict );
 
-            return std::unique_ptr<GptModel>( new GptModel( std::move( network ), config, RuntimeMode::Inference ) );
+            return std::unique_ptr<GptModel>( new GptModel( std::move( network ), config, context_length, RuntimeMode::Inference ) );
         }
 
         /**
@@ -198,25 +198,34 @@ namespace Mila::Dnn
         // LanguageModel overrides
         // ====================================================================
 
+        // REVIEW: onGenerating() is the core of the autoregressive generation loop for all LanguageModel subclasses.
+        // It is currently implemented in each subclass, but it could be refactored into a common implementation in the base class,
+        // with subclass-specific hooks for prefill and decode. This would reduce code duplication and make it easier to maintain.
+
         /**
          * @brief Prefill + KV-cache decode loop with per-token streaming.
          */
         void onGenerating(
-            const std::vector<int32_t>& prompt_tokens,
+            std::span<const int32_t> prompt_tokens,
             const std::function<void(int32_t)>& on_token,
             size_t max_new_tokens,
             float temperature,
             int top_k,
             std::stop_token stop ) override
         {
-            std::vector<int32_t> prefill_tokens = prompt_tokens;
             std::mt19937 rng( std::chrono::high_resolution_clock::now()
                 .time_since_epoch().count() );
 
-            truncateIfNeeded( prefill_tokens );
-            int64_t seq_len = static_cast<int64_t>(prefill_tokens.size());
+            int64_t seq_len = static_cast<int64_t>(prompt_tokens.size());
 
-            auto prefill_input = makeTokenTensor( prefill_tokens );
+            if ( prompt_tokens.size() > static_cast<size_t>( context_length_ ) )
+            {
+                throw std::invalid_argument( std::format(
+                    "GemmaModel::onGenerating: prompt length {} exceeds deployment context length {}",
+                    prompt_tokens.size(), context_length_ ) );
+            }
+
+            auto prefill_input = makeTokenTensor( prompt_tokens );
             auto& logits = this->getLanguageNetwork().prefill( prefill_input );
             this->getLanguageNetwork().synchronize();
 
@@ -233,7 +242,7 @@ namespace Mila::Dnn
             {
                 if ( stop.stop_requested() ) break;
 
-                auto decode_input = makeTokenTensor( { next_token } );
+                auto decode_input = makeTokenTensor( std::vector{ next_token } );
                 auto& decode_logits = this->getLanguageNetwork().decode( decode_input, position );
                 this->getLanguageNetwork().synchronize();
 
@@ -286,8 +295,9 @@ namespace Mila::Dnn
         explicit GptModel(
             std::unique_ptr<GptTransformerType> network,
             const GptConfig& config,
+            int64_t context_length,
             RuntimeMode runtime_mode )
-            : ModelBase( std::move( network ), runtime_mode ), config_( config )
+            : ModelBase( std::move( network ), runtime_mode ), context_length_( context_length ), config_( config )
         {}
 
         explicit GptModel(
@@ -297,6 +307,7 @@ namespace Mila::Dnn
         {}
 
         GptConfig config_;
+        int64_t context_length_;
 
         // REVIEW: Should come from tokenizer metadata when tokenizer support added.
         static constexpr int32_t eos_token_ = 50256;  // GPT-2 <|endoftext|>
@@ -320,7 +331,7 @@ namespace Mila::Dnn
             }
         }
 
-        TokenIndexType makeTokenTensor( const std::vector<int32_t>& token_ids ) const
+        TokenIndexType makeTokenTensor( std::span<const int32_t> token_ids ) const
         {
             shape_t shape = { 1, static_cast<int64_t>(token_ids.size()) };
             TokenIndexType device_tensor( this->getDeviceId(), shape );

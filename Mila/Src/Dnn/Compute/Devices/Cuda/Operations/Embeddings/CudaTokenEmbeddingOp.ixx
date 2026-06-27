@@ -45,8 +45,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
 
     export template<TensorDataType TInput, TensorDataType TPrecision = TInput>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaTokenEmbeddingOp
-        : public Operation<DeviceType::Cuda, TPrecision>
+    class CudaTokenEmbeddingOp : public Operation<DeviceType::Cuda, TPrecision>
     {
     public:
         using MR = CudaDeviceMemoryResource;

@@ -5,15 +5,10 @@
 
 module;
 #include <cuda_runtime.h>
-//#include <vector>
 #include <memory>
-//#include <iostream>
-//#include <cuda_fp16.h>
 #include <stdexcept>
-//#include <type_traits>
 #include <string>
 #include <cuda_runtime_api.h>  // cudaStream_t
-//#include "Kernels/Gelu.cuh"
 
 export module Compute.CudaGeluOp;
 import :Dispatch;

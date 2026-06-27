@@ -173,6 +173,7 @@ PUBLIC
         "Src/Dnn/Components/Activations/ActivationType.ixx"
         "Src/Dnn/Components/Activations/Gelu/Gelu.ixx"
         "Src/Dnn/Components/Activations/Gelu/Gelu.Config.ixx"
+        
         # Unified elementwise activation (added alongside Gelu; folds it in later -- FfnAndMoE.md s5)
         "Src/Dnn/Components/Activations/Activation/Activation.ixx"
         "Src/Dnn/Components/Activations/Activation/Activation.Config.ixx"
@@ -250,7 +251,7 @@ PUBLIC
         #----------------------------------------------------------------------
         # Dnn / Compute / Optimizers
         #----------------------------------------------------------------------
-        "Src/Dnn/Compute/Optimizers/OptimizerBase.ixx"
+        "Src/Dnn/Core/OptimizerBase.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute / Operations
@@ -284,7 +285,7 @@ PUBLIC
         "Src/Dnn/Serialization/ZipSerializer.ixx"
 
         #---------------------------------------------------------------
-        # Dnn / Visualization
+        # Dnn / Visualization (FUTURE: moved to Dev/Visualization; see BACKLOG)
         #---------------------------------------------------------------
         #"Src/Dnn/Visualization/Components/Block.Visualizer.ixx"
         #"Src/Dnn/Visualization/Core/ComponentVisualizer.ixx"
@@ -399,8 +400,6 @@ PUBLIC
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.ixx"
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
         
-        # DEPRECATED: arity base class retired (see UnaryOperation/BinaryOperation note above). Kept on disk.
-        #"Src/Dnn/Compute/Operations/PairedOperation.ixx"
         "Src/Dnn/Core/Component.MemoryStats.ixx"
         "Src/Dnn/Core/Model.RuntimeMode.ixx"
         "Src/Dnn/Core/Model.ixx"
@@ -433,7 +432,10 @@ PUBLIC
         "Src/Dnn/Quantization/Quantization.ixx"
         "Src/Dnn/Core/LanguageModelConfig.ixx"
         
-)
+        "Src/Dnn/Core/SamplerBase.ixx"
+        "Src/Dnn/Samplers/SamplingConfig.ixx"
+        "Src/Dnn/Samplers/TokenSampler.ixx"
+ "Src/Dnn/Models/GptModelConfig.ixx" "Src/Dnn/Core/GenerateStatus.ixx")
 
 # Initialize install file set args with core modules; backend blocks append to this.
 set( MILA_INSTALL_FILE_SET_ARGS
@@ -470,6 +472,7 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSamplingOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Zero.ixx"
 
@@ -538,6 +541,7 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/Kernels/RmsNorm.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.Fp16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/Kernels/Sampling.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.warp.cu"
@@ -588,6 +592,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/Kernels/RmsNorm.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/Kernels/Sampling.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h"
@@ -657,6 +662,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/LayerNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/LayerNormOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/CudaSoftmaxOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/CudaSamplingOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/CudaSoftmaxCrossEntropyOp.ixx"

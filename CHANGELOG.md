@@ -16,6 +16,48 @@ release notes.
 The bridge from "the features work" to a tree honest enough to call beta. Milestone vision
 is in ROADMAP; open triage buckets are in BACKLOG.
 
+### Gemma 4 12B Dense Chassis — DONE + HF-VALIDATED (0.20.0-alpha.6+73)
+
+Mila's entry into 2026-era transformer architecture: a new `Components/Transformers/Gemma` family
+(modeled on the validated Llama work, **not** a bent `LlamaBlock`), validated token-for-token against
+HuggingFace and running in the Chat sample as the default model (Gemma 4 12B FP4). The dense chassis is
+the deliberate precursor to the 26B-A4B MoE Future Direction, which reuses it unchanged but for the FFN
+block. Built tests-first over the Gemma.md §9 foundation sequence (design:
+[Gemma.md](Mila/Specifications/Gemma.md), [[project_gemma_chassis_design]]).
+
+Chassis (the eight axes where Gemma differs from Llama):
+
+- Decoupled `head_dim` — explicit in `GemmaConfig`, separate from `embedding_dim/num_heads` — threaded
+  through `GqaConfig`/`RopeConfig` for Gemma's local-256 / global-512 head geometry.
+- Heterogeneous layers via a virtual `IDecoderLayer` interface: the transformer holds a 5 local : 1
+  global layer list (48 layers, final global) over two `GemmaBlock` instantiations — the first
+  non-homogeneous Mila model.
+- Local/global attention fork: the global layer's single shared KV head, K=V (`value_states = raw
+  k_proj`, then `v_norm`, no RoPE on V), head_dim-512 geometry.
+- Dual-RoPE (local theta-10000 sliding / global proportional partial-rotary) and the sliding-window
+  mask (Step 2a, full-cache; the bounded-KV ring is a v0.20 follow-up in BACKLOG).
+- GeGLU FFN via `TGate`, sandwich norms (pre/post attention + pre/post FFN), per-head QK-norm, per-layer
+  `layer_scalar` full-stream multiply, final logit softcap (30*tanh) applied at the sampler, and untied
+  embeddings (the embedding folds the sqrt(d) scale; lm_head keeps its own unscaled copy).
+- HF->Mila weight + tokenizer converters (`Tools/Converters/Gemma/`), `GemmaModel::fromPretrained`
+  (None/FP8/FP4), and a token-for-token parity test against an HF reference dump.
+
+Token-for-token parity resolution (the multi-week numerics hunt, [[project_gemma_rmsnorm_raw_weights]]):
+
+- **RMSNorm uses RAW weights, not the Llama `(1+w)` convention** — the converter must NOT apply
+  `_rmsnorm_to_numpy(+1)` to any Gemma norm.
+- `layer_scalar` is a full-residual-stream multiply at the layer end (not branch scaling); global V =
+  `v_norm(raw k_proj)`; no cross-layer KV sharing in 12B.
+- **Final bug: the checkpoint was missing `v_norm.weight`** -> `RmsNorm` left it zero-allocated (it only
+  fills 1.0 when `shouldInitializeParameters()`, which is false on `fromPretrained`) -> V=0 ->
+  exactly-zero attention across all 48 layers. Fixed by re-converting; the underlying
+  silently-zeroes-on-missing-weight hazard is now a defensive BACKLOG item. Canonical HF reference is
+  `output_hidden_states`, never the per-layer forward hooks (which lie).
+
+Residual follow-ups (incl. the bounded-KV ring cache + weight-tying v0.20 memory gates that let 12B FP4
+fit a 12 GB card) are tracked in [BACKLOG.md](BACKLOG.md) under "Gemma 4 — Dense Chassis (residual /
+follow-ups)".
+
 ### TensorOps element-wise math revival — DONE + VALIDATED (0.20.0-alpha.6+62)
 
 The generic `add`/`subtract`/`multiply`/`divide` wrappers in `TensorOps.Math.ixx` were silent

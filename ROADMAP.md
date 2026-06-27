@@ -7,10 +7,12 @@ Where Mila is going — the durable narrative of each release and what it means.
 - **Design rationale** -> `Mila/Specifications/`
 
 The roadmap shows two releases at a time — the one in flight and the one after (**vNext**) — plus a
-committed **Gemma 4** architecture milestone (promoted from Future Directions; release sequencing
-relative to Qwen 3 to be assigned) and a **Future Directions** tail. Each release is reached through
-**milestones** tracked by task completion (see [RELEASING.md](RELEASING.md)). Current version:
-**`0.20.0-alpha.6+69`**.
+**Future Directions** tail. Each release is reached through **milestones** tracked by task completion
+(see [RELEASING.md](RELEASING.md)). Current version: **`0.20.0-alpha.6+73`**.
+
+The **Gemma 4 12B dense chassis** has been delivered into v0.20 (HF token-for-token parity, 2026-06-23
+— see CHANGELOG); its remaining memory-fit work (bounded-KV ring cache + weight-tying) folds into
+Production Hardening as a release gate, and the 26B-A4B MoE follow-on stays a Future Direction.
 
 ---
 
@@ -151,6 +153,7 @@ analogue of the Test Suite Revival test-CI ratchet.
 
 - [ ] Llama 3.2 1B FP32, 3.2 3B BF16, 3.1 8B FP8 validated against the HuggingFace oracle
 - [ ] Tool calling validated on Llama 3.2 3B and 3.1 8B Instruct
+- [ ] Gemma 4 12B FP4 fits a 12 GB card — bounded-KV ring cache + weight-tying (the two memory gates in BACKLOG)
 - [ ] `CONTRIBUTING.md` coding standards + `getting-started.md` onboarding guide
 - [ ] `find_package(Mila)` validated by an external consumer build
 - [ ] Published Docker runtime image (slim multi-stage GPU runtime, release-tagged)
@@ -161,13 +164,41 @@ GPU-first: the CUDA backend is the validated inference path (HuggingFace is the 
 full CPU op parity is not a gate. Engineering detail (packaging, module hygiene, public-API
 narrowing, dispatch diagnostics, CI) lives in [BACKLOG.md](BACKLOG.md).
 
+### Milestone: LanguageNetwork — Sample API
+
+Move token sampling off the host and behind a clean model-level API. Today each `LanguageModel`'s
+`onGenerating` copies the full logits tensor to the host every decode step and runs three
+near-identical CPU `sampleToken` implementations. The replacement is a single `TokenSampler`
+**orchestrator tool** owned by the `LanguageModel` base — the structural sibling of `Optimizer`
+(model-owned, shares the model's `ExecutionContext`, **not** a graph `Component`) — dispatching a
+device `CudaSamplingOp` / `CpuSamplingOp` through the unified `OperationTraits` table. Sampling runs
+on the device: logits never leave it, and only the 4-byte int32 token is read back. Full design in
+[TokenSampling.md](Mila/Specifications/TokenSampling.md).
+
+One concrete `TokenSampler` carries temperature / top-k / top-p / min-p as composable per-call
+*filters* (not a class per strategy); the `Sampler` base is the seam for a future stateful strategy
+(e.g. Mirostat). A prerequisite refactor migrates the `Optimizer` dispatch off its legacy
+`conditional_t` / `#ifdef` facade onto `OperationTraits`, so both model-level orchestrator tools
+dispatch identically (see BACKLOG).
+
+**Success criteria:** `onGenerating` samples on-device with the per-step D2H reduced from the full
+logits tensor to 4 bytes; greedy decode reproduces the current host argmax token-for-token (Gemma
+parity preserved); stochastic top-k / top-p validated against a host reference with a fixed seed and
+injected uniform; the three copied host `sampleToken`s replaced by the one `LanguageModel`-owned
+`TokenSampler`; `OperationTraits<SamplingOp, Cuda, {FP32, BF16}>` specializations live.
+
+- [ ] Migrate Optimizer dispatch onto `OperationTraits` (follows Phase A — proves the pattern on working code)
+- [~] `Sampler` base + `TokenSampler` facade (`Dnn.Samplers`) + `SamplingConfig`, retiring the `Dnn/Decoders` skeleton — **landed (Phase A); skeleton files pending user deletion in VS2026**
+- [~] `CudaSamplingOp` (+ `CpuSamplingOp`) with `OperationTraits<SamplingOp, …>` specializations — **greedy/argmax landed (Phase A); stochastic top-k/top-p are Phase B/C**
+- [~] Wire `TokenSampler` into `onGenerating` behind the `SamplingPath` A/B toggle — **`GemmaModel` wired (Phase A, default `HostA`); `LanguageModel`-base hoist + `logits_staging_` removal are Phase D**
+
 ---
 
 ## vNext — Qwen 3
 
 **Release Date:** _Target — 2027 (range; version and tag assigned at promotion)_
 
-Mila's second architecture family: Qwen 3 dense decoder with thinking mode, model-agnostic tool
+Mila's third architecture family: Qwen 3 dense decoder with thinking mode, model-agnostic tool
 calling, and FP8 KV cache compression — validated on Qwen 3 8B Instruct at BF16 and FP8. Reuses the
 Llama blocks (RMSNorm, SwiGLU, GQA, RoPE); the new work is the Chat layer (ChatML template,
 `ToolCallParser`, thinking-mode suppression) and FP8 KV cache (`PerChannelKvFp8<>`).
@@ -177,43 +208,6 @@ token-for-token; tool calling validated end-to-end; thinking-mode suppression co
 cache quality acceptable vs. the BF16 baseline.
 
 Tasks are itemized when the milestone opens.
-
----
-
-## Gemma 4 — Dense Chassis (SWA + Dual-RoPE Foundation)
-
-**Release Date:** _Committed milestone — release sequencing vs Qwen 3 (vNext) to be assigned at
-promotion. Honest estimate ~6-8 weeks._
-
-Mila's entry into 2026-era transformer architecture, and the deliberate stepping stone to
-Mixture-of-Experts. The target is **Gemma 4 12B Unified** (dense), validated against the HuggingFace
-oracle. The 12B dense model and the 26B-A4B MoE model share **one chassis**, differing only in the
-FFN block; proving the chassis on the dense model first isolates the attention / RoPE / normalization
-subsystems from the router / grouped-GEMM risk that the MoE Future Direction carries. This milestone
-is built as a **new `Components/Transformers/Gemma` family** modeled on the validated Llama work — not
-a modification of it — because Gemma differs on eight orthogonal axes and bending `LlamaBlock` would
-corrupt a validated inference path.
-
-The design is governed by one principle: **template axes are for types and layouts, runtime config is
-for arithmetic.** Two new orthogonal compile-time axes are introduced through the existing
-`OperationTraits` policy machinery — `TRopePolicy` (default vs proportional partial-rotary RoPE) and
-`TAttentionKind` (local vs the global layer's single-shared-KV-head, K=V, head_dim-512 geometry) —
-while the sliding-window mask stays a runtime field and bounded-window KV caching folds onto the
-existing KV-cache policy axis. The full design rationale, confirmed config, and the
-template-vs-runtime decision table live in [Gemma.md](Mila/Specifications/Gemma.md).
-
-The one genuinely new architectural piece is a virtual **`IDecoderLayer`** boundary: templating
-attention/RoPE makes a local and a global layer different types, so the transformer holds a
-heterogeneous layer list (Gemma interleaves 5 local : 1 global over 48 layers, final layer global) —
-every prior Mila model is homogeneous and has no such interface.
-
-**Success criteria:** greedy decode of Gemma 4 12B Unified (dense, text) matches HuggingFace
-token-for-token at the validated precision; `head_dim` decoupled from the residual stream across
-`GqaConfig`/`RopeConfig`; the local/global attention fork and the default/proportional RoPE fork each
-resolve through `OperationTraits` (missing specialization = hard compile error); sliding-window
-masking correct on prefill and decode with a bounded-KV ring cache for sliding layers; GeGLU FFN via
-`TGate = GeluTanh`; per-step shape and numeric coverage for the new attention/RoPE paths, built
-tests-first. The MoE follow-on (26B-A4B) remains a Future Direction this milestone de-risks.
 
 ---
 
@@ -231,8 +225,8 @@ version, date, GitHub Milestone) when it is scheduled.
 - **Architecture** — Mixture-of-Experts components (the `GatedMLP` reusable gated FFN, the grouped
   `MoeOp` over stacked expert weights, `Router` + `MixtureOfExperts`; design and the MoE-readiness
   seams already specified in `Specifications/FfnAndMoE.md`, with the FFN-layer foundation landing in
-  v0.20 Consolidation). The committed **Gemma 4** milestone is the dense precursor that de-risks this:
-  the 26B-A4B MoE model reuses the Gemma chassis, swapping only the FFN block. Also: speculative
+  v0.20 Consolidation). The **Gemma 4** dense chassis delivered in v0.20 is the precursor that de-risks
+  this: the 26B-A4B MoE model reuses the Gemma chassis, swapping only the FFN block. Also: speculative
   decoding, additional attention variants.
 - **Performance** — Flash Attention integration, tensor parallelism, deterministic gradient
   accumulation for training reproducibility.

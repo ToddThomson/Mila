@@ -8,6 +8,7 @@
  */
 module;
 #include <vector>
+#include <span>
 #include <unordered_set>
 #include <memory>
 #include <string>
@@ -135,7 +136,7 @@ namespace Mila::Dnn
          * @param stop           Stop token for cooperative cancellation.
          */
         void generateStreaming(
-            const std::vector<int32_t>& prompt_tokens,
+            std::span<const int32_t> prompt_tokens,
             std::function<void(int32_t)> on_token,
             size_t max_new_tokens = 64,
             float temperature = 1.0f,
@@ -190,7 +191,7 @@ namespace Mila::Dnn
          * @param stop           Stop token for cooperative cancellation.
          */
         virtual void onGenerating(
-            const std::vector<int32_t>& prompt_tokens,
+            std::span<const int32_t> prompt_tokens,
             const std::function<void(int32_t)>& on_token,
             size_t max_new_tokens,
             float temperature,
