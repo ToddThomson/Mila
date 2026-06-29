@@ -1,12 +1,13 @@
 module;
 #include <optional>
 #include <string_view>
+#include <cstdint>
 
 export module Dnn.GenerateStatus;
 
 namespace Mila::Dnn
 {
-    enum class [[nodiscard]] GenerateStatus : int32_t
+    export enum class [[nodiscard]] GenerateStatus : int32_t
     {
         Success = 0,
         MaxNewTokensReached,
@@ -14,7 +15,7 @@ namespace Mila::Dnn
         ClientCancelled
     };
 
-    inline std::string_view to_string( GenerateStatus status )
+    export inline std::string_view to_string( GenerateStatus status )
     {
         switch ( status )
         {

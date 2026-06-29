@@ -16,6 +16,7 @@ module;
 #include <filesystem>
 #include <format>
 #include <random>
+#include <optional>
 #include <chrono>
 #include <algorithm>
 #include <numeric>
@@ -29,6 +30,8 @@ export module Dnn.Models.LlamaModel;
 import Dnn.Models.LlamaModelConfig;
 import Dnn.LanguageModel;
 import Dnn.LanguageModelConfig;
+import Dnn.GenerateParams;
+import Dnn.GenerateStatus;
 import Dnn.LanguageNetwork;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
@@ -262,18 +265,19 @@ namespace Mila::Dnn
          * @param top_k          Restrict sampling to the top-k logits; 0 disables.
          * @param stop           Stop token for cooperative cancellation.
          */
-        void onGenerating(
+        GenerateResult onGenerating(
             std::span<const int32_t> prompt_tokens,
             const std::function<void( int32_t )>& on_token,
-            size_t max_new_tokens,
-            float temperature,
-            int top_k,
+            const GenerateConfig& config,
             std::stop_token stop ) override
         {
             const auto stop_ids = stopTokens();
 
-            std::mt19937 rng( std::chrono::high_resolution_clock::now()
-                .time_since_epoch().count() );
+            // Reproducible generation when config.seed is supplied; otherwise time-seeded.
+            std::mt19937 rng( config.seed
+                ? static_cast<std::mt19937::result_type>( *config.seed )
+                : static_cast<std::mt19937::result_type>(
+                    std::chrono::high_resolution_clock::now().time_since_epoch().count() ) );
 
             if ( prompt_tokens.size() > static_cast<size_t>( context_length_ ) )
             {
@@ -282,50 +286,48 @@ namespace Mila::Dnn
                     prompt_tokens.size(), context_length_ ) );
             }
 
-            int64_t seq_len = static_cast<int64_t>(prompt_tokens.size());
+            GenerateResult result;
+            result.statistics.prompt_tokens = prompt_tokens.size();
+
+            const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
 
             auto prefill_input = makeTokenTensor( prompt_tokens );
 
-            // ---- Phase 1: Prefill — measure to first token ----
-            // synchronize() is called after prefill(), so the wall-clock measurement
-            // accurately captures GPU prefill time plus first token sampling overhead.
-
+            // ---- Phase 1: Prefill — measured to first token ----
             const auto prefill_start = std::chrono::high_resolution_clock::now();
 
             auto& logits = this->getLanguageNetwork().prefill( prefill_input );
             this->getLanguageNetwork().synchronize();
 
-            int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
+            int32_t next_token = sampleFromLogits( logits, 0, config.temperature, config.top_k, rng );
 
             const auto prefill_end = std::chrono::high_resolution_clock::now();
-
-            // Reset statistics for this generation run.
-            this->last_generation_statistics_.prompt_tokens    = prompt_tokens.size();
-            this->last_generation_statistics_.tokens_generated = 0;
-            this->last_generation_statistics_.prefill_time_ms  =
+            result.statistics.prefill_time_ms =
                 std::chrono::duration<float, std::milli>( prefill_end - prefill_start ).count();
-            this->last_generation_statistics_.decode_time_ms               = 0.0f;
-            this->last_generation_statistics_.decode_tokens_per_second     = 0.0f;
 
             if ( stop_ids.contains( next_token ) )
-                return;
+            {
+                result.status = GenerateStatus::Success;
+                return result;
+            }
 
             on_token( next_token );
-            this->last_generation_statistics_.tokens_generated = 1;
+            result.tokens_generated = 1;
 
-            int position = static_cast<int>(seq_len);
+            int position = static_cast<int>( seq_len );
 
             // ---- Phase 2: Autoregressive decode ----
-            // Each decode step calls synchronize(), so wall-clock time correctly
-            // reflects GPU decode latency per token.
-
             const auto decode_start = std::chrono::high_resolution_clock::now();
             std::size_t decode_token_count = 0;
+            GenerateStatus status = GenerateStatus::MaxNewTokensReached;
 
-            for ( size_t step = 1; step < max_new_tokens; ++step )
+            for ( size_t step = 1; step < static_cast<size_t>( config.max_new_tokens ); ++step )
             {
                 if ( stop.stop_requested() )
+                {
+                    status = GenerateStatus::ClientCancelled;
                     break;
+                }
 
                 decode_token_staging_.data()[ 0 ] = next_token;
                 copy( decode_token_staging_, decode_token_device_ );
@@ -333,9 +335,13 @@ namespace Mila::Dnn
                 auto& decode_logits = this->getLanguageNetwork().decode( decode_token_device_, position );
                 this->getLanguageNetwork().synchronize();
 
-                next_token = sampleFromLogits( decode_logits, 0, temperature, top_k, rng );
+                next_token = sampleFromLogits( decode_logits, 0, config.temperature, config.top_k, rng );
 
-                if ( stop_ids.contains( next_token ) ) break;
+                if ( stop_ids.contains( next_token ) )
+                {
+                    status = GenerateStatus::Success;
+                    break;
+                }
 
                 on_token( next_token );
                 ++position;
@@ -346,12 +352,16 @@ namespace Mila::Dnn
             const float decode_ms =
                 std::chrono::duration<float, std::milli>( decode_end - decode_start ).count();
 
-            this->last_generation_statistics_.tokens_generated            = 1 + decode_token_count;
-            this->last_generation_statistics_.decode_time_ms              = decode_ms;
-            this->last_generation_statistics_.decode_tokens_per_second    =
+            result.status = status;
+            result.tokens_generated = 1 + decode_token_count;
+            result.statistics.tokens_generated = result.tokens_generated;
+            result.statistics.decode_time_ms = decode_ms;
+            result.statistics.decode_tokens_per_second =
                 (decode_ms > 0.0f && decode_token_count > 0)
                 ? static_cast<float>( decode_token_count ) / (decode_ms / 1000.0f)
                 : 0.0f;
+
+            return result;
         }
 
         /**

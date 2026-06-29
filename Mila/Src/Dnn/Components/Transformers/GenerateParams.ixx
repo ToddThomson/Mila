@@ -10,7 +10,7 @@ namespace Mila::Dnn
 {
     using TokenId = Data::TokenId;
 
-    export struct GenerateParams {
+    export struct GenerateConfig {
         int max_new_tokens = 128;
         float temperature = 1.0f;
         int top_k = 0;                  // 0 disables top-k truncation; 1 == greedy
@@ -23,7 +23,7 @@ namespace Mila::Dnn
     };
 
     // The per-call sampling slice consumed by TokenSampler / SamplingOp. Aliased
-    // (not duplicated) onto GenerateParams so temperature / top_k / top_p / seed have
+    // (not duplicated) onto GenerateConfig so temperature / top_k / top_p / seed have
     // a single source of truth (see TokenSampling.md section 4.1).
-    export using SamplingParams = GenerateParams;
+    export using SamplingParams = GenerateConfig;
 }

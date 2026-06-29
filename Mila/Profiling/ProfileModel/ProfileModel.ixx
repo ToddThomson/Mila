@@ -14,8 +14,8 @@
  *
  * The public API exposes generateStreaming() (prefill + decode together) and
  * profilePrefill(), but not a decode-only entry point, so the decode and
- * generate phases both run the full generate path. The model reports prefill
- * and decode timing separately via getLastGenerationStatistics().
+ * generate phases both run the full generate path. generateStreaming() returns
+ * a GenerateResult carrying prefill and decode timing separately.
  *
  * All Mila template instantiation (model loading via fromPretrained) is confined
  * to this module interface unit. See [[feedback-build-in-vs]]: the latest VS2026
@@ -284,21 +284,25 @@ namespace Mila::Profiling
             if ( profiled )
                 cudaProfilerStart();
 
+            Mila::Dnn::GenerateConfig gen_config;
+            gen_config.max_new_tokens = static_cast<int>( options.max_new_tokens );
+            gen_config.temperature = 0.0f;
+            gen_config.top_k = 0;
+
+            Mila::Dnn::GenerateResult result;
             {
                 Mila::Profiling::NvtxRange range( label );
-                model->generateStreaming(
+                result = model->generateStreaming(
                     prompt_tokens,
                     [&]( int32_t ) { ++produced; },
-                    options.max_new_tokens,
-                    /*temperature=*/0.0f,
-                    /*top_k=*/0,
+                    gen_config,
                     {} );
             }
 
             if ( profiled )
                 cudaProfilerStop();
 
-            const auto& statistics = model->getLastGenerationStatistics();
+            const auto& statistics = result.statistics;
 
             std::cout << std::format(
                 "[{}] prompt_tokens={} tokens_generated={} prefill_ms={:.2f} "

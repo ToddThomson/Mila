@@ -17,6 +17,7 @@ module;
 #include <filesystem>
 #include <format>
 #include <random>
+#include <optional>
 #include <chrono>
 #include <algorithm>
 #include <numeric>
@@ -45,6 +46,7 @@ import Dnn.RuntimeMode;
 import Dnn.Components.GemmaTransformer;
 import Dnn.Components.GemmaConfig;
 import Dnn.GenerateParams;
+import Dnn.GenerateStatus;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
@@ -192,9 +194,22 @@ namespace Mila::Dnn
         // Accessors
         // ====================================================================
 
-        const GemmaConfig& getConfig() const noexcept
+        /// Architecture/network configuration (read from the checkpoint metadata).
+        const GemmaConfig& getNetworkConfig() const noexcept
         {
             return config_;
+        }
+
+        /// Deployment configuration (context length, weight-quant, kv-compression) this model was loaded with.
+        const GemmaModelConfig& getModelConfig() const noexcept
+        {
+            return model_config_;
+        }
+
+        /// Deployment context length: the KV-cache depth the network was built with.
+        int64_t contextLength() const noexcept
+        {
+            return static_cast<int64_t>( model_config_.getContextLength() );
         }
 
         // ====================================================================
@@ -207,6 +222,7 @@ namespace Mila::Dnn
             oss << "GemmaModel\n";
             oss << "Device: " << this->getDeviceId().toString() << "\n";
             oss << config_.toString();
+            oss << model_config_.toString();
 
             return oss.str();
         }
@@ -224,90 +240,83 @@ namespace Mila::Dnn
 
     protected:
 
-        // REVIEW: The onGenerating() should take a GenerationConfig struct instead of a long parameter list.
-        // This would make it easier to extend in the future and keep the interface clean.
-
-        // REVIEW: The onGenerating() should return a GenerateResult struct instead of void, containing the statistics and any other relevant information.
-        // See GenerateResult.ixx for a starting implementation.
-
-        void onGenerating(
+        GenerateResult onGenerating(
             std::span<const int32_t> prompt_tokens,
             const std::function<void( int32_t )>& on_token,
-            size_t max_new_tokens,
-            float temperature,
-            int top_k,
+            const GenerateConfig& config,
             std::stop_token stop ) override
         {
-            const auto stop_ids = stopTokens();
-
-            SamplingParams sampling_params;
-            sampling_params.temperature = temperature;
-            sampling_params.top_k = top_k;
-
-            // REVIEW: Why are we copying the prompt tokens?
-            // FIX: There is no need to copy the prompt tokens. We can use the span directly.
-            //std::vector<int32_t> prefill_tokens = prompt_tokens;
-
-            // REVIEW: This is weak. Requires a more robust solution
-            // truncateIfNeeded( prefill_tokens );
-
-            // FIX: The resolution is to return an error if the prompt exceeds the deployment context length.
-            // The context management is not our concern. The GemmaModel is built with a context length, and the prompt must fit within it.
-            // If the prompt exceeds it, we should throw an error instead of truncating it silently.
-
-            if ( prompt_tokens.size() > static_cast<size_t>( context_length_ ) )
+            // The prompt must fit the deployment context (the KV-cache depth the network
+            // was built with). Context management is the caller's concern; reject rather
+            // than silently truncate.
+            if ( prompt_tokens.size() > static_cast<size_t>( contextLength() ) )
             {
                 throw std::invalid_argument( std::format(
                     "GemmaModel::onGenerating: prompt length {} exceeds deployment context length {}",
-                    prompt_tokens.size(), context_length_ ) );
+                    prompt_tokens.size(), contextLength() ) );
             }
 
-            int64_t seq_len = static_cast<int64_t>(prompt_tokens.size());
+            // Reproducible generation when a seed is supplied: seed the sampler once,
+            // at the start of the run (not per token).
+            if ( config.seed )
+                this->seedSampler( *config.seed );
 
-            // REVIEW: We should support a vector to tensor conversion utility in the Tensor class, to avoid this copy.
-            // FIX: The onGenerating() now uses a span which is supported by the Tensor::fill() method
+            // Model-default stop tokens, plus the harness-supplied eos override when present
+            // (the library owns no tokenizer; the harness does).
+            auto stop_ids = stopTokens();
+            if ( config.eos_token_id )
+                stop_ids.insert( static_cast<int32_t>( *config.eos_token_id ) );
+
+            GenerateResult result;
+            result.statistics.prompt_tokens = prompt_tokens.size();
+
+            const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
             auto prefill_input = makeTokenTensor( prompt_tokens );
 
-            // ---- Phase 1: Prefill — measure to first token ----
+            // ---- Phase 1: Prefill — measured to first token ----
             const auto prefill_start = std::chrono::high_resolution_clock::now();
 
             auto& logits = this->getLanguageNetwork().prefill( prefill_input );
             this->getLanguageNetwork().synchronize();
 
-            int32_t next_token = this->sampleNext( logits, decode_token_device_, sampling_params );
+            int32_t next_token = this->sampleNext( logits, decode_token_device_, config );
 
             const auto prefill_end = std::chrono::high_resolution_clock::now();
-
-            this->last_generation_statistics_.prompt_tokens    = prompt_tokens.size();
-            this->last_generation_statistics_.tokens_generated = 0;
-            this->last_generation_statistics_.prefill_time_ms  =
+            result.statistics.prefill_time_ms =
                 std::chrono::duration<float, std::milli>( prefill_end - prefill_start ).count();
-            this->last_generation_statistics_.decode_time_ms           = 0.0f;
-            this->last_generation_statistics_.decode_tokens_per_second = 0.0f;
 
             if ( stop_ids.contains( next_token ) )
-                return;
+            {
+                result.status = GenerateStatus::Success;
+                return result;
+            }
 
             on_token( next_token );
-            this->last_generation_statistics_.tokens_generated = 1;
+            result.tokens_generated = 1;
 
-            int position = static_cast<int>(seq_len);
+            int position = static_cast<int>( seq_len );
 
             // ---- Phase 2: Autoregressive decode ----
             const auto decode_start = std::chrono::high_resolution_clock::now();
             std::size_t decode_token_count = 0;
+            GenerateStatus status = GenerateStatus::MaxNewTokensReached;
 
-            for ( size_t step = 1; step < max_new_tokens; ++step )
+            for ( size_t step = 1; step < static_cast<size_t>( config.max_new_tokens ); ++step )
             {
                 if ( stop.stop_requested() )
+                {
+                    status = GenerateStatus::ClientCancelled;
                     break;
+                }
 
                 // The KV cache is only as deep as the deployment context length; decode
                 // cannot write at a position past it. Stop cleanly instead of letting the
-                // GQA op throw "position out of range" (hit when max_new_tokens would run
-                // generation beyond context_length_).
-                if ( position >= context_length_ )
+                // GQA op throw "position out of range".
+                if ( position >= contextLength() )
+                {
+                    status = GenerateStatus::ContextOverflow;
                     break;
+                }
 
                 // The previous sampleNext() already wrote the sampled token into
                 // decode_token_device_ on the device, so it is ready to decode in place --
@@ -315,9 +324,13 @@ namespace Mila::Dnn
                 auto& decode_logits = this->getLanguageNetwork().decode( decode_token_device_, position );
                 this->getLanguageNetwork().synchronize();
 
-                next_token = this->sampleNext( decode_logits, decode_token_device_, sampling_params );
+                next_token = this->sampleNext( decode_logits, decode_token_device_, config );
 
-                if ( stop_ids.contains( next_token ) ) break;
+                if ( stop_ids.contains( next_token ) )
+                {
+                    status = GenerateStatus::Success;
+                    break;
+                }
 
                 on_token( next_token );
                 ++position;
@@ -328,14 +341,16 @@ namespace Mila::Dnn
             const float decode_ms =
                 std::chrono::duration<float, std::milli>( decode_end - decode_start ).count();
 
-            // REVIEW: stats could be part of the returned GenerateResult struct instead of being stored in the model.
-
-            this->last_generation_statistics_.tokens_generated         = 1 + decode_token_count;
-            this->last_generation_statistics_.decode_time_ms           = decode_ms;
-            this->last_generation_statistics_.decode_tokens_per_second =
+            result.status = status;
+            result.tokens_generated = 1 + decode_token_count;
+            result.statistics.tokens_generated = result.tokens_generated;
+            result.statistics.decode_time_ms = decode_ms;
+            result.statistics.decode_tokens_per_second =
                 (decode_ms > 0.0f && decode_token_count > 0)
                 ? static_cast<float>( decode_token_count ) / (decode_ms / 1000.0f)
                 : 0.0f;
+
+            return result;
         }
 
         void onTraining() override
@@ -357,20 +372,14 @@ namespace Mila::Dnn
 
     private:
 
-        // REVIEW: context_length_ This differs from LlamaModel. Why?
-        // Hmmm, also, context_length is dependent on RuntimeMode. If we are in training mode,
-        // context_length_ should be the max sequence length.
-        // If we are in inference mode, context_length_ should be the deployment context length.
-        // This is a subtle but important distinction.
-
         explicit GemmaModel(
             std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
             const GemmaConfig& config,
-            int64_t context_length,
+            const GemmaModelConfig& model_config,
             RuntimeMode runtime_mode )
             : ModelBase( std::move( network ), runtime_mode )
             , config_( config )
-            , context_length_( context_length )
+            , model_config_( model_config )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
         {}
 
@@ -412,52 +421,40 @@ namespace Mila::Dnn
             return std::unique_ptr<GemmaModel<TDeviceType, TPrecision>>(
                 new GemmaModel<TDeviceType, TPrecision>(
                     std::move( network ), network_config,
-                    static_cast<int64_t>( context_length ), RuntimeMode::Inference ) );
+                    model_config, RuntimeMode::Inference ) );
         }
 
-        // REVIEW: Why aren't we storing the model config instead of the network config?
-        // The model config is what we use to build the network, and it contains the deployment context length.
-        // The network config is what we read from the checkpoint metadata,
-        // and it contains the architectural max sequence length. We should store both, or at least make sure we are using the right one in the right place.
-
+        // Architecture config (from checkpoint metadata): the trained network geometry.
         GemmaConfig config_;
 
-        // Deployment KV-cache capacity: the context length the network was BUILT with
-        // (model_config.getContextLength()), which may be far below the architectural
-        // max (config_.getMaxSequenceLength()). Prompt truncation and the decode loop
-        // bound against THIS, not the architectural max, or the GQA op throws when a
-        // write position reaches the cache size.
-        // REVIEW: Why isn't this a const int64_t? It is set in the constructor and never changed. It should be const.
-        // REVIEW: Why isn't this a dim_t? It is set from model_config.getContextLength(), which is a dim_t. It should be a dim_t.
-        // REVIEW: Why is this a member variable at all? It is only used in onGenerating(),
-        // which could just read it from config_.getContextLength(). It seems like an unnecessary duplication of state.
-        int64_t context_length_;
+        // Deployment config this model was loaded with. The deployment context length
+        // (model_config_.getContextLength(), exposed via contextLength()) is the KV-cache depth the
+        // network was BUILT with -- it may be far below the architectural max
+        // (config_.getMaxSequenceLength()), and the prompt check + decode loop bound against THIS,
+        // not the architectural max, or the GQA op throws when a write position reaches the cache
+        // size. Retained for diagnostics/provenance: the weight-quant / kv-compression were
+        // previously discarded after the dispatch switch.
+        GemmaModelConfig model_config_;
 
         // Device decode-input buffer: the sampler writes the next token here in place,
         // and decode() reads it directly -- no host staging round-trip.
         TokenIndexType decode_token_device_;
 
-        /**
-         * @brief Gemma end-of-sequence token: <eos> = 1.
-         *
-         * REVIEW: confirm against the Gemma 4 tokenizer config in 5e/5f — the
-         * Gemma family uses <eos>=1 and <end_of_turn> as the instruct turn
-         * boundary; the exact <end_of_turn> id is verified when the tokenizer
-         * is converted.
-         */
+        // Gemma 4 instruct stop tokens: <eos> = 1, <end_of_turn> = 106 (validated by the
+        // token-for-token HF parity run + the live chat). These are the MODEL defaults; the
+        // library does not parse the tokenizer -- a harness that owns the tokenizer may add its
+        // own stop id per call via GenerateConfig::eos_token_id (unioned in onGenerating).
+        static constexpr int32_t kEosToken = 1;
+        static constexpr int32_t kEndOfTurnToken = 106;
+
         int32_t eosToken() const noexcept override
         {
-            return 1;
+            return kEosToken;
         }
 
-        /**
-         * @brief Gemma generation stop tokens: <eos> (1) and <end_of_turn> (106).
-         *
-         * REVIEW: <end_of_turn> id pending tokenizer-config confirmation (see eosToken).
-         */
         std::unordered_set<int32_t> stopTokens() const override
         {
-            return { 1, 106 };
+            return { kEosToken, kEndOfTurnToken };
         }
 
         /**
@@ -471,24 +468,6 @@ namespace Mila::Dnn
         // ====================================================================
         // Generation helpers
         // ====================================================================
-
-        //void truncateIfNeeded( std::vector<int32_t>& tokens ) const
-        //{
-        //    int64_t seq_len = static_cast<int64_t>(tokens.size());
-
-        //    // Bound the prompt by the deployment context (the KV-cache depth), not the
-        //    // architectural max: prefill writes positions 0..seq_len-1 into a cache of
-        //    // size context_length_, so a longer prompt overflows it.
-        //    if ( seq_len > context_length_ )
-        //    {
-        //        Logging::Logger::warning( std::format(
-        //            "GemmaModel: sequence length {} exceeds deployment context {}, truncating from start",
-        //            seq_len, context_length_ ) );
-
-        //        tokens.erase( tokens.begin(),
-        //            tokens.begin() + (seq_len - context_length_) );
-        //    }
-        //}
 
         TokenIndexType makeTokenTensor( std::span<const int32_t> token_ids ) const
         {

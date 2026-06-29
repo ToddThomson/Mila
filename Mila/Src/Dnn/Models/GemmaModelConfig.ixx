@@ -51,6 +51,7 @@ namespace Mila::Dnn
         {
             std::string result = "GemmaModelConfig:\n";
             result += baseToString();
+
             return result;
         }
     };

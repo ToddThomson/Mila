@@ -144,7 +144,11 @@ namespace Mila::Bindings
         const std::vector<int32_t>& prompt_tokens,
         std::size_t max_new_tokens, float temperature, int top_k )
     {
-        return impl_->model->generate( prompt_tokens, max_new_tokens, temperature, top_k );
+        GenerateConfig config;
+        config.max_new_tokens = static_cast<int>( max_new_tokens );
+        config.temperature = temperature;
+        config.top_k = top_k;
+        return impl_->model->generate( prompt_tokens, config );
     }
 
     void LlamaSession::generateStreaming(
@@ -153,8 +157,12 @@ namespace Mila::Bindings
         std::size_t max_new_tokens, float temperature, int top_k,
         std::stop_token stop )
     {
+        GenerateConfig config;
+        config.max_new_tokens = static_cast<int>( max_new_tokens );
+        config.temperature = temperature;
+        config.top_k = top_k;
         impl_->model->generateStreaming(
-            prompt_tokens, on_token, max_new_tokens, temperature, top_k, std::move( stop ) );
+            prompt_tokens, on_token, config, std::move( stop ) );
     }
 
     LlamaConfigInfo LlamaSession::getConfig() const
@@ -205,7 +213,11 @@ namespace Mila::Bindings
         const std::vector<int32_t>& prompt_tokens,
         std::size_t max_new_tokens, float temperature, int top_k )
     {
-        return impl_->model->generate( prompt_tokens, max_new_tokens, temperature, top_k );
+        GenerateConfig config;
+        config.max_new_tokens = static_cast<int>( max_new_tokens );
+        config.temperature = temperature;
+        config.top_k = top_k;
+        return impl_->model->generate( prompt_tokens, config );
     }
 
     void GemmaSession::generateStreaming(
@@ -214,13 +226,17 @@ namespace Mila::Bindings
         std::size_t max_new_tokens, float temperature, int top_k,
         std::stop_token stop )
     {
+        GenerateConfig config;
+        config.max_new_tokens = static_cast<int>( max_new_tokens );
+        config.temperature = temperature;
+        config.top_k = top_k;
         impl_->model->generateStreaming(
-            prompt_tokens, on_token, max_new_tokens, temperature, top_k, std::move( stop ) );
+            prompt_tokens, on_token, config, std::move( stop ) );
     }
 
     GemmaConfigInfo GemmaSession::getConfig() const
     {
-        const auto& cfg = impl_->model->getConfig();
+        const auto& cfg = impl_->model->getNetworkConfig();
 
         return GemmaConfigInfo{
             .vocab_size              = static_cast<int64_t>( cfg.getVocabSize() ),

@@ -115,8 +115,12 @@ to `OperationTraits` dispatch as part of this alpha. The component type system
 across all leaf components.
 
 **Alpha.6 — In Progress (Consolidation)**
-Feature freeze and debt burndown to earn the beta label, plus the architectural foundation for
-recovering the parked training path. The first release (v0.20) then proceeds through Alpha.7
+Debt burndown to earn the beta label, plus the architectural foundation for recovering the parked
+training path. Alpha.6 also delivered the **Gemma 4 12B dense chassis** — validated token-for-token
+against HuggingFace (per-layer sliding-window local/global attention, dual RoPE, GeGLU, RMSNorm, final
+logit softcap), now the chat CLI default at FP4. It runs within a 12 GB budget at a reduced context
+window today; the bounded-KV ring cache and weight-tying gates (in progress) unlock a much larger
+context window within the same budget. The first release (v0.20) then proceeds through Alpha.7
 (test-suite revival), Alpha.8 (training revival — the GPT-2 / MLP samples MNIST and Bard re-aligned
 to the current API; Llama 3.1/3.2 training is not part of this release), and Alpha.9 (API
 documentation), before Beta.1 production hardening.
@@ -131,18 +135,23 @@ See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for th
 
 ## Validated Capabilities
 
+Primary inference targets, in priority order: **Gemma 4 12B**, **Llama 3.x** (1B / 3B / 8B), and **GPT-2**.
+
 | Capability | Status |
 |---|---|
-| GPT-2 inference — greedy and sampled | Validated against HuggingFace |
-| Llama 3.2 1B inference — greedy decode at FP32 | Validated against HuggingFace |
-| Llama 3.2 3B inference — greedy decode at BF16 | Validated against HuggingFace |
-| Llama 3.2 3B inference — FP8 E4M3 per-channel quantization | Validated — coherent generation, ~41 tok/s decode |
+| Gemma 4 12B Instruct inference — greedy decode | Validated against HuggingFace (token-for-token) |
+| Gemma 4 12B Instruct — FP4 E2M1 per-group quantization | Validated — chat CLI default; runs in 12 GB at a reduced context window |
+| Llama 3.1 8B inference — FP4 E2M1 per-group quantization | Validated — ~6 GB, ~57 tok/s decode, fits 12 GB |
+| Llama 3.1 8B inference — FP8 E4M3 per-channel quantization | Validated — ~11.6 GB at ctx 8192 |
 | Llama 3.2 3B inference — FP4 E2M1 per-group quantization | Validated — coherent generation, 44–48 tok/s decode |
-| Llama 3.1 8B inference — FP8 E4M3 per-channel quantization | Validated — fits 12 GB VRAM budget, ~11.6 GB at ctx 8192 |
-| Llama 3.1 8B inference — FP4 E2M1 per-group quantization | Validated — production default, ~6 GB, ~57 tok/s decode |
+| Llama 3.2 3B inference — FP8 E4M3 per-channel quantization | Validated — coherent generation, ~41 tok/s decode |
+| Llama 3.2 3B inference — greedy decode at BF16 | Validated against HuggingFace |
+| Llama 3.2 1B inference — greedy decode at FP32 | Validated against HuggingFace |
+| GPT-2 inference — greedy and sampled | Validated against HuggingFace |
 | Two-phase KV-cache — prefill + decode | Complete |
-| HuggingFace GPT-2 weight converter | Complete |
+| HuggingFace Gemma weight converter | Complete |
 | HuggingFace Llama weight converter | Complete |
+| HuggingFace GPT-2 weight converter | Complete |
 | Instruction following — Llama 3.2 3B Instruct | Validated |
 | Tool calling framework | Complete |
 | Chat CLI | Complete |
@@ -153,6 +162,9 @@ See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for th
 | SwiGLU MLP — forward + CUDA kernel | Complete |
 | Multi-Head Attention — forward + backward | Complete |
 | Grouped Query Attention — GQA with KV-cache | Complete |
+| Sliding-window attention — per-layer local/global, dual RoPE (Gemma 4) | Complete |
+| GeGLU FFN (Gemma 4) | Complete |
+| Final logit softcap (Gemma 4) | Complete |
 | RoPE — rotary positional encoding | Complete |
 | BPE tokenizer | Complete |
 | SentencePiece tokenizer | Complete |
@@ -170,8 +182,10 @@ Mila: It stores the key and value tensors from earlier tokens so each new token 
 ```
 
 Located under `Samples/Chat`. An instruction-following chat harness — the default model is
-Llama 3.1 8B Instruct at FP4, loaded via the two-phase (prefill + decode) KV-cache pipeline,
-with model hot-switching (`/model <alias> [quant]`) and tool calling.
+Gemma 4 12B Instruct at FP4, loaded via the two-phase (prefill + decode) KV-cache pipeline,
+with model hot-switching (`/model <alias> [quant]`) and tool calling. On a 12 GB card, Gemma 4
+12B FP4 runs at a reduced context window today; the bounded-KV ring cache and weight-tying work
+(see ROADMAP) expand that context within the same budget.
 
 ### MNIST Classifier
 

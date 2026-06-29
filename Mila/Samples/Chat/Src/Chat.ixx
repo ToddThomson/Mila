@@ -515,20 +515,25 @@ namespace Mila::ChatApp
 
             stop_src_ = std::stop_source{};
 
+            GenerateConfig gen_config;
+            gen_config.max_new_tokens = config_.max_new_tokens;
+            gen_config.temperature = config_.temperature;
+            gen_config.top_k = config_.top_k;
+
             std::visit(
                 [&]( auto& m )
                 {
-                    m->generateStreaming(
+                    auto result = m->generateStreaming(
                         input_tokens,
                         [&]( int32_t tok )
                         {
                             response += tokenizer_->decode(
                                 std::vector<TokenId>{ static_cast<TokenId>(tok) } );
                         },
-                        config_.max_new_tokens,
-                        config_.temperature,
-                        config_.top_k,
+                        gen_config,
                         stop_src_.get_token() );
+
+                    last_statistics_ = result.statistics;
                 },
                 model_ );
 
@@ -907,20 +912,13 @@ namespace Mila::ChatApp
          */
         void printGenerationStatistics() const
         {
-            std::visit(
-                [this]( const auto& model )
-                {
-                    const auto& stats = model->getLastGenerationStatistics();
+            if ( !last_statistics_.valid() )
+                return;
 
-                    if ( !stats.valid() )
-                        return;
-
-                    renderer_.printStats(
-                        stats.prefill_time_ms,
-                        stats.decode_tokens_per_second,
-                        static_cast<int>( stats.tokens_generated ) );
-                },
-                model_ );
+            renderer_.printStats(
+                last_statistics_.prefill_time_ms,
+                last_statistics_.decode_tokens_per_second,
+                static_cast<int>( last_statistics_.tokens_generated ) );
         }
 
         static constexpr const char* kVersion = "v0.20";
@@ -1031,5 +1029,8 @@ Examples:
         std::stop_source stop_src_;
         std::unordered_map<std::string, std::function<std::string( const std::string& )>> tool_handlers_;
         ConsoleRenderer renderer_;
+
+        // Statistics from the most recent generateResponse() call, for printGenerationStatistics().
+        GenerationStatistics last_statistics_{};
     };
 }

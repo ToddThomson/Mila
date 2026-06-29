@@ -195,6 +195,23 @@ injected uniform; the three copied host `sampleToken`s replaced by the one `Lang
 - [ ] Migrate `LlamaModel` (mechanical mirror) + `GptModel` (GPT-2 variant) onto the base `sampleNext()` + delete their host `sampleToken`s — deferred to when those paths are next built/run
 - [ ] Phase D tail — share the decode stream (real `getStream()`; currently the op runs on the default stream) + single-block kernel perf optimization
 
+### Milestone: Generation API
+
+The Sample API milestone moved sampling onto the device; this one makes `LanguageModel::generate` a lean,
+fast **token generator** with a **config-in / result-out** contract — `GenerateConfig` in, a
+`GenerateResult` (`GenerationStatistics` + the `GenerateStatus` finish-reason enum + token count) out,
+tokens streamed via the callback. Sessions, prompt caching, and multi-conversation routing are *harness*
+concerns the apps (Chat, the Mila Inference server) build on the library's compute primitives
+(`prefill`/`decode`, later `prefillFrom`/`rewindKvCache`) — the library exposes the primitives, not the
+policy. The contract reshape landed and is validated (green build + green Gemma chat); engineering detail
+and the remaining items in [BACKLOG.md](BACKLOG.md).
+
+**Success criteria:** `generate`/`generateStreaming`/`onGenerating` take `const GenerateConfig&` and
+return `GenerateResult` with a populated `GenerateStatus` (DONE); `top_p` reachable end-to-end (DONE) and
+`seed` yields reproducible output; the mutable `last_generation_statistics_` member is gone (DONE); stop
+tokens come from checkpoint/tokenizer metadata, not literals; `getNetworkConfig()`/`getModelConfig()`
+accessors land and `context_length_` is cleaned up.
+
 ---
 
 ## vNext — Qwen 3

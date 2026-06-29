@@ -23,6 +23,7 @@ module;
 #include <filesystem>
 #include <format>
 #include <random>
+#include <optional>
 #include <chrono>
 #include <algorithm>
 #include <numeric>
@@ -35,6 +36,8 @@ export module Dnn.Models.GptModel;
 
 import Dnn.LanguageModel;
 import Dnn.LanguageNetwork;
+import Dnn.GenerateParams;
+import Dnn.GenerateStatus;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -205,54 +208,76 @@ namespace Mila::Dnn
         /**
          * @brief Prefill + KV-cache decode loop with per-token streaming.
          */
-        void onGenerating(
+        GenerateResult onGenerating(
             std::span<const int32_t> prompt_tokens,
             const std::function<void(int32_t)>& on_token,
-            size_t max_new_tokens,
-            float temperature,
-            int top_k,
+            const GenerateConfig& config,
             std::stop_token stop ) override
         {
-            std::mt19937 rng( std::chrono::high_resolution_clock::now()
-                .time_since_epoch().count() );
-
-            int64_t seq_len = static_cast<int64_t>(prompt_tokens.size());
+            // Reproducible generation when config.seed is supplied; otherwise time-seeded.
+            std::mt19937 rng( config.seed
+                ? static_cast<std::mt19937::result_type>( *config.seed )
+                : static_cast<std::mt19937::result_type>(
+                    std::chrono::high_resolution_clock::now().time_since_epoch().count() ) );
 
             if ( prompt_tokens.size() > static_cast<size_t>( context_length_ ) )
             {
                 throw std::invalid_argument( std::format(
-                    "GemmaModel::onGenerating: prompt length {} exceeds deployment context length {}",
+                    "GptModel::onGenerating: prompt length {} exceeds deployment context length {}",
                     prompt_tokens.size(), context_length_ ) );
             }
+
+            GenerateResult result;
+            result.statistics.prompt_tokens = prompt_tokens.size();
+
+            const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
 
             auto prefill_input = makeTokenTensor( prompt_tokens );
             auto& logits = this->getLanguageNetwork().prefill( prefill_input );
             this->getLanguageNetwork().synchronize();
 
-            int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
+            int32_t next_token = sampleFromLogits( logits, 0, config.temperature, config.top_k, rng );
 
             if ( next_token == eos_token_ )
-                return;
+            {
+                result.status = GenerateStatus::Success;
+                return result;
+            }
 
             on_token( next_token );
+            result.tokens_generated = 1;
 
-            int position = static_cast<int>(seq_len);
+            int position = static_cast<int>( seq_len );
+            GenerateStatus status = GenerateStatus::MaxNewTokensReached;
 
-            for ( size_t step = 1; step < max_new_tokens; ++step )
+            for ( size_t step = 1; step < static_cast<size_t>( config.max_new_tokens ); ++step )
             {
-                if ( stop.stop_requested() ) break;
+                if ( stop.stop_requested() )
+                {
+                    status = GenerateStatus::ClientCancelled;
+                    break;
+                }
 
                 auto decode_input = makeTokenTensor( std::vector{ next_token } );
                 auto& decode_logits = this->getLanguageNetwork().decode( decode_input, position );
                 this->getLanguageNetwork().synchronize();
 
-                next_token = sampleFromLogits( decode_logits, 0, temperature, top_k, rng );
+                next_token = sampleFromLogits( decode_logits, 0, config.temperature, config.top_k, rng );
 
-                if ( next_token == eos_token_ ) break;
+                if ( next_token == eos_token_ )
+                {
+                    status = GenerateStatus::Success;
+                    break;
+                }
 
                 on_token( next_token );
                 ++position;
+                ++result.tokens_generated;
             }
+
+            result.status = status;
+            result.statistics.tokens_generated = result.tokens_generated;
+            return result;
         }
 
         /**

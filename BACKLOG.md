@@ -400,3 +400,105 @@ a 12 GB card.
   cache, not the public component (whose standalone forward is a throwing stub because GQA is
   inference-only). End-to-end parity is already covered by the HF token-for-token test; this is the
   missing per-op unit oracle.
+
+---
+
+## Generation API
+
+The library's `LanguageModel::generate` is a **fast token generator** — `GenerateConfig` in, tokens out
+(via callback), `GenerateResult` out — and nothing else. Sessions, prompt caching, and multi-conversation
+routing are **harness/app concerns** (Chat, the Mila Inference server) built on the library's compute
+primitives (`prefill`/`decode`, later `prefillFrom`/`rewindKvCache`); the library exposes those primitives
+but does not implement the policy. Design: [[project_ongenerating_overhaul]].
+
+**DONE 2026-06-29 — the config-in / result-out contract (validated: green build + green Gemma chat):**
+- [x] `GenerateStatus.ixx` now `export`s the enum + `to_string` (was compiled-but-unreachable); `<cstdint>` added.
+- [x] `GenerateResult { GenerateStatus status; GenerationStatistics statistics; size_t tokens_generated }`
+  authored in [LanguageModel.ixx](Mila/Src/Dnn/Core/LanguageModel.ixx) — the base class owns it, no separate
+  file (the stale `GenerateResult.ixx` REVIEW marker is gone).
+- [x] `generate`/`generateStreaming`/`onGenerating` take `const GenerateConfig&` and return `GenerateResult`.
+  The mutable `last_generation_statistics_` member + `getLastGenerationStatistics()` are removed — the model
+  is reentrant.
+- [x] `top_p` now reaches the device sampler (whole config forwarded). Struct `GenerateParams` renamed to
+  `GenerateConfig` in place (`using SamplingParams = GenerateConfig` kept; module/file name `Dnn.GenerateParams`
+  unchanged). `GenerateConfig`/`GenerateStatus` exported through the `Mila` umbrella.
+- [x] Gemma `onGenerating` wires the four `GenerateStatus` exits + drops the dead comment blocks; Llama/Gpt
+  mechanically adapted (host sampler path frozen); Chat / ProfileModel / pybind wrappers / parity test updated.
+  Python-facing wrapper signatures unchanged.
+
+**Remaining (library):**
+- [x] **`seed` -> sampler RNG (reproducibility) — DONE 2026-06-29 (green build + run).** `TokenSampler::reseed(uint64_t)`
+  seeds the host RNG; base `seedSampler()`/`ensureSampler()` extracted; Gemma `onGenerating` reseeds once at
+  run start when `config.seed` is set; Llama/Gpt seed their host `mt19937` from `config.seed` (else time).
+  `<optional>` added to the three model TUs. Now reachable via the library API (`generate(prompt,
+  GenerateConfig{...seed...})`); Chat/pybind don't yet expose a seed knob (app-layer choice, left out).
+- [ ] **[polish] Module/file rename `Dnn.GenerateParams` -> `Dnn.GenerateConfig`** — cosmetic; the struct is
+  already `GenerateConfig`. Best done as a VS2026 IDE rename (file + module + 8 import sites + CMake). Also add
+  a doc line distinguishing `GenerateConfig` (per-call) from `SamplingConfig` (construction-time, model-fixed).
+- [~] **Config ownership + accessors — DONE 2026-06-29 for Gemma (green build + run); Llama/Gpt + base hoist remain.**
+  GemmaModel now stores `GemmaModelConfig model_config_` (replaces bare `int64_t context_length_`,
+  recovers the discarded weight-quant/kv-compression for diagnostics); accessors `getNetworkConfig()` +
+  `getModelConfig()` + derived `contextLength()`; ctor takes the deployment config; `toString()` shows it;
+  all four `context_length_` REVIEWs + config-storage REVIEW + RuntimeMode comment resolved; Gemma pybind
+  wrapper uses `getNetworkConfig()`. STILL OPEN: `GemmaTransformer::getConfig()` self-description hygiene;
+  hoist `contextLength()` to the `LanguageModel` base + make it mode-aware (training -> arch max);
+  propagate the accessor pair to Llama/Gpt; settle `int64_t`-vs-`dim_t`. Original design below:
+- [ ] **(design ref) Config ownership + accessors (REVIEWs [GemmaModel.ixx:360](Mila/Src/Dnn/Models/GemmaModel.ixx:360),
+  [:418](Mila/Src/Dnn/Models/GemmaModel.ixx:418), [:430](Mila/Src/Dnn/Models/GemmaModel.ixx:430), [:349](Mila/Src/Dnn/Models/GemmaModel.ixx:349)).**
+  Decided 2026-06-28:
+  - **Store the deployment config object** (`GemmaModelConfig model_config_`) instead of the bare
+    `int64_t context_length_`. The model is a long-lived, shareable artifact (Chat hot-swaps + holds it
+    after the caller's config local is gone), so deployment provenance — context length AND the
+    weight-quant / kv-compression currently DISCARDED after the dispatch switch — belongs with the
+    artifact for diagnostics/`toString()`. Not a pure echo to the caller.
+  - **Two whole-struct const-ref accessors:** `getNetworkConfig() const -> const GemmaConfig&`
+    (architecture, from metadata) and `getModelConfig() const -> const GemmaModelConfig&` (deployment).
+    Return the struct, NOT per-field forwarding getters: both configs already carry their own getters, so
+    a model-level `getContextLength()` would be a getter-wrapping-a-getter that drifts as fields grow; the
+    structs are already public types. **Rule: never write a getter whose body is just `return
+    config_.getX()`.**
+  - **Promote individual scalars ONLY when earned** — hot/cross-cutting call site, mode-dependent
+    resolution, or base-class contract. Qualifying set: `maxSequenceLength()` + `vocabSize()` (exist,
+    pure-virtual on `LanguageModel`) + new `contextLength()` (decode-loop bound; mode-aware: inference ->
+    deployment ctx, training -> arch max — the clean home for the RuntimeMode note at [:360]). Hoist the
+    deployment scalar + `contextLength()` to the `LanguageModel` base so Llama gets the same treatment.
+  - **Architectural-config duplication is ACCEPTED, not deduped:** `GemmaTransformer::config_` and
+    `GemmaModel::config_` both build from one `configFromMetadata(metadata)` call (single source). The
+    model is policy-erased (`LanguageNetwork<TDev,TPrec>` handle), the config-holder is policy-templated
+    (`GemmaTransformer<...,TWeightQuant,TKvPolicy>`), and there is no policy-independent config accessor
+    at the `LanguageNetwork` layer — so reading through the network would require either re-introducing
+    the policy type (defeats erasure) or a heavy facts-interface virtual. Two immutable copies of a small
+    value type is the pragmatic call; document the why.
+  - **Add `GemmaTransformer::getConfig() -> const GemmaConfig&`** for network self-description
+    (serialization already calls `config_.toMetadata()`; diagnostics want it). Concrete-transformer
+    method, NOT a `Network`/`LanguageNetwork` virtual (no common arch-config type across MNIST/Gpt/Llama/
+    Gemma). Note: this is hygiene; it does NOT let the model drop its copy (erasure boundary above).
+  - **Type names kept as-is** (`GemmaConfig`/`LlamaConfig`/`GptConfig`): consistent two-tier convention
+    (`<Arch>Config` = architecture, `<Arch>ModelConfig` = deployment); the `getNetworkConfig()`/
+    `getModelConfig()` accessors carry the disambiguation at the call site. Gemma's standalone config
+    MODULE (`Dnn.Components.GemmaConfig`, vs Llama/Gpt's `:Config` partition) is purposeful — lets the
+    policy-erased model import the config without the templated transformer — and stays.
+  - Make the stored deployment context `const dim_t`; settle `int64_t`-vs-`dim_t` static_cast smell in
+    the same pass.
+- [x] **Stop tokens / EOS — DONE 2026-06-29 (green build + run; library-clean, NOT metadata-sourced).**
+  Resolved as named, validated defaults + per-call harness override. The ids are NOT in the checkpoint
+  metadata or `GemmaConfig`, so "from metadata" would need a Python converter + checkpoint-format change +
+  re-conversion — out of the library and against the harness-owns-tokenizer split. GemmaModel now uses
+  `kEosToken=1` / `kEndOfTurnToken=106` constants (validated by HF parity + live chat; the stale
+  "unconfirmed" REVIEW caveats removed); `onGenerating` unions the harness-supplied
+  `GenerateConfig.eos_token_id` into the stop set. DEFERRED (only if needed): a full per-call stop-SET
+  override (`GenerateConfig.stop_token_ids`) to replace the defaults entirely; and the converter route if
+  library-side metadata sourcing is ever wanted.
+- [ ] **Eager sampler construction (TTFT hygiene).** The lazy `make_unique<TokenSampler>` in
+  [sampleNext](Mila/Src/Dnn/Core/LanguageModel.ixx:196) first fires on the post-prefill sample inside the
+  timed prefill region, inflating first-run `prefill_time_ms`/TTFT by op allocation + trait resolution.
+  Construct it once before the first timed region.
+
+**Deferred — harness layer, NOT the library (only if multi-turn prefill latency actually bites):**
+- [ ] **Prompt-caching / KV reuse as a harness concern.** The library exposes the primitives —
+  `prefillFrom(input, start_offset)` + `rewindKvCache(position)` per
+  [PromptCaching.md](Mila/Specifications/PromptCaching.md) §4.1-4.6; an app (Chat, the inference server)
+  builds the session / cache / routing policy on top. A per-conversation `GenerateSession` (single,
+  append-only, model-owned: KV continuity + seedable RNG + accumulated stats) is the optional convenience —
+  NOT a multi-tenant caching server (no pools / eviction / prefix-routing in the library). Gated on the
+  bounded-KV ring cache for Gemma's sliding layers. Do this only when a real latency need shows up.

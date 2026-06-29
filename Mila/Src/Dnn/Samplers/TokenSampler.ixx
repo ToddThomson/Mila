@@ -90,6 +90,16 @@ namespace Mila::Dnn
             return host_token_.data()[ 0 ];
         }
 
+        /**
+         * @brief Reseed the host RNG for reproducible sampling.
+         *
+         * Called once per generation run (not per token) when the caller supplies a seed.
+         */
+        void reseed( uint64_t seed )
+        {
+            rng_.seed( static_cast<std::mt19937::result_type>( seed ) );
+        }
+
     private:
         IExecutionContext* context_;
         SamplingConfig config_;

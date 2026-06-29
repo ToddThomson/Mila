@@ -99,9 +99,12 @@ namespace Mila::Tests::Dnn::Models
         auto model = GemmaCudaBf16::fromPretrained(
             checkpoint_, model_config, DeviceId{ DeviceType::Cuda, 0 } );
 
-        // temperature 0 + top_k 1 -> greedy argmax (GemmaModel::sampleToken).
-        auto out = model->generate(
-            kPromptIds, kExpectedGen.size(), /*temperature=*/0.0f, /*top_k=*/1 );
+        // temperature 0 + top_k 1 -> greedy argmax on the device sampler.
+        GenerateConfig gen_config;
+        gen_config.max_new_tokens = static_cast<int>( kExpectedGen.size() );
+        gen_config.temperature = 0.0f;
+        gen_config.top_k = 1;
+        auto out = model->generate( kPromptIds, gen_config );
 
         ASSERT_GE( out.size(), kPromptIds.size() );
         const std::vector<int32_t> gen( out.begin() + kPromptIds.size(), out.end() );

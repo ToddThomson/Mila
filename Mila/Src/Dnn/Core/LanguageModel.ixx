@@ -17,6 +17,7 @@ module;
 #include <functional>
 #include <stop_token>
 #include <cstddef>
+#include <cstdint>
 
 export module Dnn.LanguageModel;
 
@@ -27,6 +28,7 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.RuntimeMode;
 import Dnn.GenerateParams;
+import Dnn.GenerateStatus;
 import Dnn.Samplers.TokenSampler;
 import Dnn.Samplers.SamplingConfig;
 import Compute.DeviceType;
@@ -39,9 +41,7 @@ namespace Mila::Dnn
     /**
      * @brief Statistics captured during a single generateStreaming() call.
      *
-     * Populated by the derived model's onGenerating() implementation after each
-     * generation run. Retrieve via getLastGenerationStatistics() once
-     * generateStreaming() returns.
+     * Carried on the GenerateResult returned by generate() / generateStreaming().
      */
     export struct GenerationStatistics
     {
@@ -65,6 +65,26 @@ namespace Mila::Dnn
         {
             return prefill_time_ms > 0.0f;
         }
+    };
+
+    /**
+     * @brief Outcome of a single generate() / generateStreaming() call.
+     *
+     * Returned by value so generation is reentrant and the model holds no
+     * per-run mutable state. @ref status reports why generation stopped,
+     * @ref statistics carries the timing/throughput figures, and
+     * @ref tokens_generated counts emitted tokens (EOS excluded).
+     */
+    export struct GenerateResult
+    {
+        /// Why generation stopped.
+        GenerateStatus status{ GenerateStatus::Success };
+
+        /// Timing and throughput for this run.
+        GenerationStatistics statistics{};
+
+        /// Tokens emitted to on_token (EOS excluded).
+        std::size_t tokens_generated{ 0 };
     };
 
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
@@ -91,38 +111,21 @@ namespace Mila::Dnn
          * generated tokens (EOS excluded).
          *
          * @param prompt_tokens  Input token ids.
-         * @param max_new_tokens Maximum tokens to generate beyond the prompt.
-         * @param temperature    Sampling temperature; <= 0 selects argmax.
-         * @param top_k          Top-k filter; 0 disables.
+         * @param config         Per-call generation configuration.
          * @return               Full token sequence including the prompt.
          */
         std::vector<int32_t> generate(
             const std::vector<int32_t>& prompt_tokens,
-            size_t max_new_tokens = 64,
-            float temperature = 1.0f,
-            int top_k = 0 )
+            const GenerateConfig& config = {} )
         {
             std::vector<int32_t> out = prompt_tokens;
-            out.reserve( prompt_tokens.size() + max_new_tokens );
+            out.reserve( prompt_tokens.size() + static_cast<size_t>( config.max_new_tokens ) );
 
             generateStreaming( prompt_tokens,
                 [&]( int32_t tok ) { out.push_back( tok ); },
-                max_new_tokens, temperature, top_k, {} );
+                config, {} );
 
             return out;
-        }
-
-        /**
-         * @brief Returns statistics from the most recent generateStreaming() call.
-         *
-         * Only valid after at least one generateStreaming() call has returned.
-         * Check GenerationStatistics::valid() before using the values.
-         *
-         * @return Reference to the last captured generation statistics.
-         */
-        [[nodiscard]] const GenerationStatistics& getLastGenerationStatistics() const noexcept
-        {
-            return last_generation_statistics_;
         }
 
         /**
@@ -135,20 +138,17 @@ namespace Mila::Dnn
          *
          * @param prompt_tokens  Input token ids.
          * @param on_token       Per-token callback invoked on the caller's thread.
-         * @param max_new_tokens Maximum tokens to generate beyond the prompt.
-         * @param temperature    Sampling temperature; <= 0 selects argmax.
-         * @param top_k          Top-k filter; 0 disables.
+         * @param config         Per-call generation configuration.
          * @param stop           Stop token for cooperative cancellation.
+         * @return               Outcome of the run (status + statistics + token count).
          */
-        void generateStreaming(
+        GenerateResult generateStreaming(
             std::span<const int32_t> prompt_tokens,
             std::function<void(int32_t)> on_token,
-            size_t max_new_tokens = 64,
-            float temperature = 1.0f,
-            int top_k = 0,
+            const GenerateConfig& config = {},
             std::stop_token stop = {} )
         {
-            onGenerating( prompt_tokens, on_token, max_new_tokens, temperature, top_k, stop );
+            return onGenerating( prompt_tokens, on_token, config, stop );
         }
 
     protected:
@@ -156,9 +156,6 @@ namespace Mila::Dnn
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using TensorType = Tensor<TPrecision, MR>;
         using TokenTensor = Tensor<TensorDataType::INT32, MR>;
-
-        /// Statistics populated by onGenerating() for each completed generation run.
-        GenerationStatistics last_generation_statistics_{};
 
         explicit LanguageModel(
             std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
@@ -193,17 +190,21 @@ namespace Mila::Dnn
             TokenTensor& token_out,
             const SamplingParams& params )
         {
-            if ( !token_sampler_ )
-            {
-                SamplingConfig config = SamplingConfig{}
-                    .withVocabularySize( this->vocabSize() )
-                    .withFinalLogitSoftcap( this->finalLogitSoftcap() );
-
-                token_sampler_ = std::make_unique<TokenSampler<TDeviceType, TPrecision>>(
-                    this->getLanguageNetwork().getExecutionContext(), config );
-            }
-
+            ensureSampler();
             return token_sampler_->sample( logits, token_out, params );
+        }
+
+        /**
+         * @brief Seed the device sampler's host RNG for reproducible generation.
+         *
+         * Call once at the start of a generation run (not per token) when the caller
+         * supplied GenerateConfig::seed; the same seed then yields the same token stream
+         * for a given prompt and model.
+         */
+        void seedSampler( uint64_t seed )
+        {
+            ensureSampler();
+            token_sampler_->reseed( seed );
         }
 
         // ====================================================================
@@ -230,21 +231,19 @@ namespace Mila::Dnn
          * Derived classes own the full autoregressive generation loop.
          * on_token must be called for every generated token except EOS.
          * stop.stop_requested() must be checked on each decode step and
-         * generation must abort early when signalled.
+         * generation must abort early when signalled, returning a GenerateResult
+         * whose status reflects why the loop stopped.
          *
          * @param prompt_tokens  Input token ids.
          * @param on_token       Per-token callback.
-         * @param max_new_tokens Maximum tokens to generate beyond the prompt.
-         * @param temperature    Sampling temperature; <= 0 selects argmax.
-         * @param top_k          Top-k filter; 0 disables.
+         * @param config         Per-call generation configuration.
          * @param stop           Stop token for cooperative cancellation.
+         * @return               Outcome of the run (status + statistics + token count).
          */
-        virtual void onGenerating(
+        virtual GenerateResult onGenerating(
             std::span<const int32_t> prompt_tokens,
             const std::function<void(int32_t)>& on_token,
-            size_t max_new_tokens,
-            float temperature,
-            int top_k,
+            const GenerateConfig& config,
             std::stop_token stop ) = 0;
 
         // ====================================================================
@@ -262,6 +261,20 @@ namespace Mila::Dnn
         virtual int64_t vocabSize() const noexcept = 0;
 
     private:
+
+        /// Lazily construct the model-owned sampler on first use (network built, context valid).
+        void ensureSampler()
+        {
+            if ( !token_sampler_ )
+            {
+                SamplingConfig config = SamplingConfig{}
+                    .withVocabularySize( this->vocabSize() )
+                    .withFinalLogitSoftcap( this->finalLogitSoftcap() );
+
+                token_sampler_ = std::make_unique<TokenSampler<TDeviceType, TPrecision>>(
+                    this->getLanguageNetwork().getExecutionContext(), config );
+            }
+        }
 
         std::unique_ptr<TokenSampler<TDeviceType, TPrecision>> token_sampler_;
     };
