@@ -323,6 +323,47 @@ namespace Mila::Tests::Dnn::Components::Embeddings
         }
     }
 
+    // Embedding scale (WeightTying.md D5): output = scale * gather. scale = 2 is exact
+    // in both FP32 and BF16, so the only error is the gather's own precision rounding.
+    // The default scale = 1.0 (identity) path is covered by Forward_GathersEmbeddingRows.
+    TYPED_TEST( TokenEmbeddingCudaTests, Forward_WithEmbeddingScale_ScalesOutput )
+    {
+        const shape_t token_shape{ 2, 3 };
+        const int64_t outer = 2 * 3;
+        constexpr float kScale = 2.0f;
+
+        auto config = this->config().withEmbeddingScale( kScale );
+        auto embedding = std::make_unique<typename TestFixture::EmbeddingType>(
+            "token_embedding", config, Device::Cuda( 0 ) );
+        embedding->build( BuildContext( token_shape, RuntimeMode::Inference, false ) );
+        this->setKnownWte( *embedding );
+
+        auto host_tokens = this->rampTokens( token_shape );
+        auto device_tokens = this->toDevice( host_tokens );
+
+        auto& device_out = embedding->forward( device_tokens );
+        embedding->synchronize();
+
+        auto out = this->toFloat( device_out );
+
+        auto params = embedding->getParameters();
+        auto wte = this->toFloat( *static_cast<typename TestFixture::DeviceTensor*>( params[ 0 ] ) );
+
+        std::vector<float> expected;
+        this->referenceGather( host_tokens, wte, outer, kEmbed, expected );
+
+        ASSERT_EQ( out.size(), expected.size() );
+
+        for ( size_t i = 0; i < out.size(); ++i )
+        {
+            const float scaled = kScale * expected[ i ];
+            const float tolerance = TypeParam::atol + TypeParam::rtol * std::fabs( scaled );
+
+            EXPECT_NEAR( out.data()[ i ], scaled, tolerance )
+                << "scaled gather mismatch at index " << i;
+        }
+    }
+
     // ====================================================================
     // D. Runtime mode — backward requires training build
     // ====================================================================

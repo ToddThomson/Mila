@@ -21,11 +21,12 @@
  * Inference-only (Gemma is an inference target): forward()/backward() are not
  * implemented; the generation loop drives prefill()/decode().
  *
- * Two Gemma deltas are handled OUTSIDE this file by deliberate design decision
- * (BACKLOG Step 5d, 2026-06-20):
- *  - Embedding scale (x sqrt(hidden_size)) folds into the converter, which scales
- *    the (untied) embedding table and writes lm_head its own unscaled copy. The
- *    forward path here is therefore structurally identical to LlamaTransformer.
+ * Two Gemma deltas are handled by deliberate design decision:
+ *  - Embedding scale (x sqrt(hidden_size)) is applied at runtime in
+ *    TokenEmbedding::forward via TokenEmbeddingConfig::embedding_scale (set in
+ *    createGraph). The table is stored raw so it can be shared with the tied
+ *    lm_head; see WeightTying.md D5. (Superseded the earlier converter-fold
+ *    decision, BACKLOG Step 5d 2026-06-20, when weight tying landed.)
  *  - Final logit softcap (30 * tanh(logits / 30)) is applied host-side at the
  *    sampler: it is strictly monotonic, so it does not change greedy argmax, and
  *    GemmaConfig::getFinalLogitSoftcapping() carries the scalar for samplers that
@@ -42,6 +43,7 @@ module;
 #include <format>
 #include <algorithm>
 #include <type_traits>
+#include <cmath>
 
 export module Dnn.Components.GemmaTransformer;
 
@@ -293,7 +295,24 @@ namespace Mila::Dnn
                     stats.device_state_bytes += t->getStorageSize();
             }
 
+            // When tied, lm_head and token_embedding report the same shared allocation;
+            // subtract the lm_head contribution once so it is not double-counted (D7).
+            if ( tie_word_embeddings_ && lm_head_ )
+                stats.device_parameter_bytes -= lm_head_->getMemoryStats().device_parameter_bytes;
+
             return stats;
+        }
+
+        // The base sums children; when tied, lm_head shares the embedding table, so its
+        // elements would be counted twice. Subtract them once to match getMemoryStats (D7).
+        size_t parameterCount() const override
+        {
+            size_t count = NetworkBase::parameterCount();
+
+            if ( tie_word_embeddings_ && lm_head_ )
+                count -= lm_head_->parameterCount();
+
+            return count;
         }
 
         std::string toString() const override
@@ -320,6 +339,8 @@ namespace Mila::Dnn
 
         void loadParameters( PretrainedModelReader& reader )
         {
+            tie_word_embeddings_ = reader.getPretrainedMetadata().tie_word_embeddings;
+
             const int device_index = this->getExecutionContext()->getDeviceId().index;
 
             auto consume = [&]( const std::string& full_name, const Serialization::ITensorBlob& blob )
@@ -353,6 +374,12 @@ namespace Mila::Dnn
             {
                 this->getExecutionContext()->synchronize();
             }
+
+            // Tie lm_head to the (raw) embedding table after all blobs stream. When tied,
+            // lm_head.weight is absent from the file, so nothing was loaded into lm_head's
+            // own allocation; we replace it with the shared table here (WeightTying.md D2).
+            if ( tie_word_embeddings_ )
+                lm_head_->installSharedWeight( token_embedding_->getWeightTensorShared() );
         }
 
     protected:
@@ -455,6 +482,10 @@ namespace Mila::Dnn
         std::shared_ptr<RmsNormType> final_rmsnorm_{ nullptr };
         std::shared_ptr<LmHeadLinearType> lm_head_{ nullptr };
 
+        // Set from checkpoint metadata in loadParameters. When true, lm_head shares the
+        // token embedding table (WeightTying.md) and lm_head.weight is absent from the file.
+        bool tie_word_embeddings_{ false };
+
         // Shared GQA transient workspace — inference only, owned here, shared across
         // all blocks. q_permute/v_out are sized at the MAX head_dim (global) so the
         // local layers reuse a prefix; preatt/att are head_dim-independent.
@@ -480,9 +511,14 @@ namespace Mila::Dnn
 
         void createGraph()
         {
+            // Gemma scales the embedding output by sqrt(hidden_size). With weight tying
+            // the table is stored raw and shared with lm_head, so the scale is applied at
+            // runtime here instead of being folded into the converted table (WeightTying.md D5).
             TokenEmbeddingConfig embedding_config;
             embedding_config.withVocabSize( static_cast<size_t>(config_.getVocabSize()) )
-                .withEmbeddingDim( static_cast<size_t>(config_.getModelDim()) );
+                .withEmbeddingDim( static_cast<size_t>(config_.getModelDim()) )
+                .withEmbeddingScale( static_cast<float>(
+                    std::sqrt( static_cast<double>( config_.getModelDim() ) ) ) );
 
             this->addComponent(
                 std::make_shared<TokenEmbeddingType>( this->getName() + ".temb", embedding_config ) );
@@ -514,8 +550,9 @@ namespace Mila::Dnn
             this->addComponent(
                 std::make_shared<RmsNormType>( this->getName() + ".rmsn_final", rms_config, std::nullopt ) );
 
-            // Language model head — model_dim -> vocab_size, no bias. Untied from the
-            // embedding table (its own blob; the converter writes an unscaled copy).
+            // Language model head — model_dim -> vocab_size, no bias. Allocated with its
+            // own weight here; when the checkpoint sets tie_word_embeddings, loadParameters
+            // replaces that weight with the shared (raw) embedding table (WeightTying.md).
             auto lm_head_config = LinearConfig( config_.getModelDim(), config_.getVocabSize() )
                 .withBias( false );
 

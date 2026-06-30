@@ -93,6 +93,7 @@ namespace Mila::Dnn::Serialization
         uint32_t head_dim;          // explicit per-head width (Gemma decouples it from embedding_dim/num_heads); 0 = derive
         uint32_t hidden_dim;
         bool use_bias;
+        bool tie_word_embeddings = false;
 
         std::string activation;
         std::string norm_type;
@@ -845,6 +846,7 @@ namespace Mila::Dnn::Serialization
             metadata_.head_dim            = extract_int( "head_dim" );
             metadata_.hidden_dim          = extract_int( "hidden_dim" );
             metadata_.use_bias            = extract_bool( "use_bias" );
+            metadata_.tie_word_embeddings = extract_bool( "tie_word_embeddings" );
             metadata_.activation          = extract_string( "activation" );
             metadata_.norm_type           = extract_string( "norm_type" );
             metadata_.attention_type      = extract_string( "attention_type" );

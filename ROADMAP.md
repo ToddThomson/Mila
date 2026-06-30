@@ -153,7 +153,7 @@ analogue of the Test Suite Revival test-CI ratchet.
 
 - [ ] Llama 3.2 1B FP32, 3.2 3B BF16, 3.1 8B FP8 validated against the HuggingFace oracle
 - [ ] Tool calling validated on Llama 3.2 3B and 3.1 8B Instruct
-- [ ] Gemma 4 12B FP4 fits a 12 GB card — bounded-KV ring cache + weight-tying (the two memory gates in BACKLOG)
+- [ ] Gemma 4 12B FP4 fits a 12 GB card — weight-tying DONE (~2 GB reclaimed, 2026-07-01); bounded-KV ring cache remaining (the two memory gates in BACKLOG)
 - [ ] `CONTRIBUTING.md` coding standards + `getting-started.md` onboarding guide
 - [ ] `find_package(Mila)` validated by an external consumer build
 - [ ] Published Docker runtime image (slim multi-stage GPU runtime, release-tagged)

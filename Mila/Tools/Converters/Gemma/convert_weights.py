@@ -12,14 +12,15 @@ interleave, decoupled head_dim, K=V global layers, GeGLU FFN, sandwich norm,
 and QK-norm are all read from the model config, so the converter adapts to the
 geometry rather than hardcoding it.
 
-Three Gemma-specific transforms are folded in here (rather than at inference),
-matching the Step 5d/5e design decisions:
+Gemma-specific transforms handled in this converter:
 
-  1. Embedding scale: HF multiplies the embedded hidden states by
-     sqrt(hidden_size) at runtime. Mila keeps the token embedding and lm_head
-     UNTIED, so we fold the scale into the written embedding table (temb.wte)
-     and write lm_head its own UNSCALED copy from the same (HF-tied) tensor.
-     The transformer forward then stays structurally identical to Llama.
+  1. Embedding scale + weight tying: HF multiplies the embedded hidden states by
+     sqrt(hidden_size) at runtime. Mila now ALSO applies this at runtime
+     (TokenEmbedding::forward via TokenEmbeddingConfig::embedding_scale, set in
+     GemmaTransformer::createGraph), so the embedding table is written RAW. With
+     tie_word_embeddings (the Gemma 4 default) the lm_head shares this raw table:
+     the lm_head.weight blob is omitted and GemmaTransformer aliases at load time
+     (WeightTying.md). Supersedes the earlier Step 5d converter-fold decision.
 
   2. RAW RMSNorm weights: we write every norm weight AS-IS (all sandwich norms, both
      QK-norms, and the final norm). Gemma's RMSNorm is x_norm * (1 + weight) (HF
@@ -43,7 +44,7 @@ on first run (the script prints every resolved value).
 Mila tensor names (must match GemmaTransformer / GemmaBlock component paths):
 
     Token embedding:
-        model.embed_tokens.weight * sqrt(hidden_size)    -> temb.wte
+        model.embed_tokens.weight (raw; scale applied at runtime)  -> temb.wte
 
     Per layer (i = 0..num_hidden_layers-1):
         input_layernorm.weight            (+1)           -> tf_layer_{i}.input_norm.weight
@@ -61,8 +62,9 @@ Mila tensor names (must match GemmaTransformer / GemmaBlock component paths):
     Final RMSNorm:
         model.norm.weight                 (+1)           -> rmsn_final.weight
 
-    LM head (untied, unscaled):
-        lm_head.weight (or embed_tokens.weight if tied)  -> lm_head.weight
+    LM head:
+        (tied: omitted -- shares temb.wte at load time)
+        lm_head.weight (untied case only)                -> lm_head.weight
 """
 
 import sys
@@ -70,7 +72,6 @@ from pathlib import Path
 sys.path.insert( 0, str( Path( __file__ ).parent.parent ) )
 
 import argparse
-import math
 import torch
 from transformers import AutoModelForCausalLM
 from common import MilaWeightWriter
@@ -261,11 +262,12 @@ def convert_gemma( model_name: str, output_path: str, dtype: str = 'bfloat16' ):
             raise KeyError( f"expected tensor '{key}' not in state_dict (tried '{k}')" )
         return state_dict[k]
 
-    # ----- Token embedding: fold the sqrt(hidden_size) scale in -----
-    normalizer = math.sqrt( hidden_size )
+    # ----- Token embedding: stored RAW (no sqrt(hidden_size) fold) -----
+    # The sqrt(hidden_size) scale is applied at runtime in TokenEmbedding::forward via
+    # TokenEmbeddingConfig::embedding_scale, so the table can be shared with a tied
+    # lm_head as unscaled storage (WeightTying.md D5).
     embed = sd( 'model.embed_tokens.weight' )
-    print( f"Embedding scale (normalizer = sqrt({hidden_size})) = {normalizer:.6f}" )
-    writer.add_tensor( 'temb.wte', _tensor_to_numpy( embed.to( torch.float32 ) * normalizer, dtype ) )
+    writer.add_tensor( 'temb.wte', _tensor_to_numpy( embed, dtype ) )
 
     # ----- Transformer layers -----
     for i in range( num_layers ):
@@ -336,13 +338,16 @@ def convert_gemma( model_name: str, output_path: str, dtype: str = 'bfloat16' ):
     writer.add_tensor( 'rmsn_final.weight',
         _rmsnorm_to_numpy( sd( 'model.norm.weight' ), dtype ) )
 
-    # ----- LM head: untied, UNSCALED (own copy from the tied tensor) -----
-    try:
+    # ----- LM head -----
+    # When tied (the Gemma 4 default), lm_head shares the embedding table; the blob is
+    # omitted and GemmaTransformer aliases at load time (WeightTying.md). Only write a
+    # separate blob for the (atypical) untied case.
+    if tie_embeddings:
+        print( "  lm_head tied to embed_tokens -- skipping second blob "
+               "(GemmaTransformer aliases at load time)" )
+    else:
         lm_head = sd( 'lm_head.weight' )
-    except KeyError:
-        print( "  Note: lm_head.weight tied -- writing an unscaled copy of embed_tokens" )
-        lm_head = embed
-    writer.add_tensor( 'lm_head.weight', _tensor_to_numpy( lm_head, dtype ) )
+        writer.add_tensor( 'lm_head.weight', _tensor_to_numpy( lm_head, dtype ) )
 
     writer.write()
 

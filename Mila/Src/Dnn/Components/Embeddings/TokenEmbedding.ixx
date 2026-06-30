@@ -145,6 +145,14 @@ namespace Mila::Dnn
             current_output_view_ = std::make_unique<EmbeddingTensorType>(
                 output_->view( actual_out_shape ) );
 
+            // Gemma stores the embedding table raw and shares it with a tied lm_head;
+            // the sqrt(embedding_dim) scale is applied here instead of being folded into
+            // the table (WeightTying.md D5). Scaling the [B, T, C] view (not the full
+            // max-shape buffer) keeps the decode-step cost at one token. In-place is valid.
+            if ( config_.getEmbeddingScale() != 1.0f )
+                scale( *current_output_view_, config_.getEmbeddingScale(), *current_output_view_,
+                    this->getExecutionContext() );
+
             return *current_output_view_;
         }
 
@@ -227,6 +235,14 @@ namespace Mila::Dnn
             std::vector<ITensor*> params;
             if ( wte_ ) params.push_back( wte_.get() );
             return params;
+        }
+
+        // Shared ownership of the embedding table, for installing into a tied lm_head
+        // after load (WeightTying.md D3). The returned tensor shares the same device
+        // buffer; both owners keep it alive regardless of teardown order.
+        std::shared_ptr<EmbeddingTensorType> getWeightTensorShared() const noexcept
+        {
+            return wte_;
         }
 
         void loadParameter( const std::string& name, const ITensorBlob& blob ) override
@@ -395,7 +411,9 @@ namespace Mila::Dnn
         int64_t max_batch_size_{ 0 };
         int64_t max_seq_len_{ 0 };
 
-        std::unique_ptr<EmbeddingTensorType> wte_{ nullptr };
+        // shared_ptr so a tied lm_head can share ownership of this table after load
+        // (WeightTying.md D3). wte_grad_ stays unique_ptr: tying is inference-only.
+        std::shared_ptr<EmbeddingTensorType> wte_{ nullptr };
         std::unique_ptr<EmbeddingTensorType> wte_grad_{ nullptr };
 
         std::unique_ptr<TokenIndexType>      input_grad_{ nullptr };
@@ -428,7 +446,7 @@ namespace Mila::Dnn
             // but Tensor shapes use dim_t (int64_t).  The API needs work to unify these types and avoid this kind of cast.
             auto wte_shape = shape_t{ static_cast<dim_t>(config_.getVocabSize()), static_cast<dim_t>(config_.getEmbeddingDim()) };
 
-            wte_ = std::make_unique<EmbeddingTensorType>( device_id, wte_shape, this->getName() + ".wte" );
+            wte_ = std::make_shared<EmbeddingTensorType>( device_id, wte_shape, this->getName() + ".wte" );
             
             if ( build_context.shouldInitializeParameters() )
             {

@@ -351,17 +351,34 @@ a 12 GB card.
   block-sparse/flash-style windowed rewrite, and prefill+decode share one K/V buffer so it is
   all-or-nothing. Build the ring against the validated full-cache path as the oracle. Reused by the
   **Ministral** Future Direction.
-- [ ] **[gate — v0.20 release] Weight-tying optimization (Llama + Gemma).** Design in
-  [WeightTying.md](Mila/Specifications/WeightTying.md). Mila stores the token embedding table and the
-  `lm_head` projection as two SEPARATE parameter blobs even when the source model ties them (Llama 3.2
-  1B/3B, Gemma 4). Untied is the simpler load path and is what lets Gemma fold the embedding sqrt(d)
-  scale into the table while keeping lm_head unscaled (the Gemma chassis decision). Tying them back
-  (lm_head reuses the embedding storage) saves one `vocab x model_dim` tensor in VRAM (Gemma 4:
-  262144 x 3840 x 2B ~= 2 GB at BF16) at the cost of a shared-ownership / load-aliasing path and
-  re-introducing the scale-conflict the untied design sidesteps. The scale-fold conflict is the real
-  design work — resolve it in WeightTying.md (e.g. tie storage but keep the lm_head read path
-  scale-aware, or fold the scale at the gather instead of the table). This is option (C) of the VRAM
-  footprint item below.
+- [x] **[gate — v0.20 release] Weight-tying optimization (Gemma).** Design in
+  [WeightTying.md](Mila/Specifications/WeightTying.md). DONE 2026-07-01 — Gemma 4 12B chat coherent on
+  the re-converted (raw-embedding, tied) checkpoint. `lm_head` now shares the token embedding storage,
+  reclaiming one `vocab x model_dim` tensor (262144 x 3840 x 2B ~= 2 GB at BF16) in steady-state VRAM.
+  The scale-fold conflict was resolved by storing the embedding RAW and moving Gemma's sqrt(hidden_size)
+  scale to runtime (`TokenEmbeddingConfig::embedding_scale`, applied in `TokenEmbedding::forward`); the
+  shared-ownership path is `wte_` shared_ptr + `Linear::installSharedWeight` + post-load aliasing in
+  `GemmaTransformer::loadParameters`. Required a Gemma re-convert (old checkpoints double-scale — no
+  graceful-degradation path, by design). This is option (C) of the VRAM footprint item below.
+- [ ] **Weight-tying for Llama 3.2 1B/3B (Good First Issue).** Deferred follow-up — WeightTying.md §6.
+  The architecture-agnostic plumbing already shipped with the Gemma gate (`embedding_scale` defaults to
+  identity for Llama). Remaining surface is small: add `tie_word_embeddings_` member + post-load aliasing
+  + `getMemoryStats` correction to `LlamaTransformer` (identical to Gemma), and write the flag + skip the
+  `lm_head.weight` blob in `Llama/convert_weights.py`. Saves ~789 MB (3B) / ~524 MB (1B) — on models that
+  already fit, hence deferred. Validation caveat: parity needs the checkpoint + HF reference + greedy
+  oracle; decide whether a contributor owns parity or only the code. Llama 3.1 8B is untied — no change.
+- [x] **`parameterCount()` double-counts tied weights (display only).** FIXED 2026-07-01 — overrode
+  `GemmaTransformer::parameterCount()` to subtract the tied `lm_head` contribution, mirroring the D7
+  `getMemoryStats` correction. (`getMemoryStats` was already corrected by the gate.)
+- [ ] **C++ test-checkpoint writer + transformer load-tie test (WeightTying.md §7.3).** The aliasing
+  primitive is unit-tested (`Linear::installSharedWeight` identity/forward, `TokenEmbedding` scale), but
+  the full `GemmaTransformer::loadParameters` tie round-trip is NOT — `PretrainedModelReader` is
+  mmap/file-only with no C++ writer (writer is Python-only, `Tools/Converters/.../common.py`) and the
+  transformer's `token_embedding_`/`lm_head_` are private. Add a small reusable C++ helper that writes a
+  synthetic checkpoint (header + metadata JSON + tensor index + blobs) to a temp file so a test can load
+  a 2-layer tied Gemma and assert shared-pointer identity + no `getMemoryStats`/`parameterCount` double-
+  count. Also unblocks the deferred Llama 3.2 tying parity test. Until then the load-tie path is covered
+  only by the validated Gemma chat run.
 - [ ] **VRAM footprint reduction (Gemma 12B FP4 on 12 GB) — beyond the two gates above.** FP4 12B is
   ~9.14 GB resident params + ~5.9 GB State (~15 GB) on the 12 GB dev card -> WDDM paging thrash
   (correct values, slow). The State floor is the **48 per-layer prefill ACTIVATION buffers sized at the

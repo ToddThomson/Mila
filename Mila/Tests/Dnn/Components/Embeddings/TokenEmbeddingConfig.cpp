@@ -56,6 +56,18 @@ namespace Mila::Tests::Dnn::Components::Embeddings
         EXPECT_EQ( config.getEmbeddingDim(), 768u );
     }
 
+    TEST_F( TokenEmbeddingConfigTests, EmbeddingScale_DefaultsToIdentity )
+    {
+        EXPECT_FLOAT_EQ( TokenEmbeddingConfig().getEmbeddingScale(), 1.0f );
+    }
+
+    TEST_F( TokenEmbeddingConfigTests, WithEmbeddingScale_SetsValue )
+    {
+        auto config = TokenEmbeddingConfig().withEmbeddingScale( 8.0f );
+
+        EXPECT_FLOAT_EQ( config.getEmbeddingScale(), 8.0f );
+    }
+
     // ====================================================================
     // A. Validation
     // ====================================================================
@@ -85,6 +97,19 @@ namespace Mila::Tests::Dnn::Components::Embeddings
             std::invalid_argument );
     }
 
+    TEST_F( TokenEmbeddingConfigTests, Validate_ThrowsForNonPositiveEmbeddingScale )
+    {
+        EXPECT_THROW(
+            TokenEmbeddingConfig().withVocabSize( 32000 ).withEmbeddingDim( 64 )
+                .withEmbeddingScale( 0.0f ).validate(),
+            std::invalid_argument );
+
+        EXPECT_THROW(
+            TokenEmbeddingConfig().withVocabSize( 32000 ).withEmbeddingDim( 64 )
+                .withEmbeddingScale( -2.0f ).validate(),
+            std::invalid_argument );
+    }
+
     // ====================================================================
     // H. Serialization round-trip
     // ====================================================================
@@ -92,7 +117,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
     TEST_F( TokenEmbeddingConfigTests, Metadata_RoundTripPreservesFields )
     {
         TokenEmbeddingConfig source;
-        source.withVocabSize( 50257 ).withEmbeddingDim( 768 );
+        source.withVocabSize( 50257 ).withEmbeddingDim( 768 ).withEmbeddingScale( 27.7128f );
 
         SerializationMetadata meta = source.toMetadata();
 
@@ -101,6 +126,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
 
         EXPECT_EQ( loaded.getVocabSize(), 50257u );
         EXPECT_EQ( loaded.getEmbeddingDim(), 768u );
+        EXPECT_FLOAT_EQ( loaded.getEmbeddingScale(), 27.7128f );
     }
 
     // ====================================================================
@@ -116,5 +142,6 @@ namespace Mila::Tests::Dnn::Components::Embeddings
 
         EXPECT_NE( text.find( "vocab_size" ), std::string::npos );
         EXPECT_NE( text.find( "embedding_dim" ), std::string::npos );
+        EXPECT_NE( text.find( "embedding_scale" ), std::string::npos );
     }
 }

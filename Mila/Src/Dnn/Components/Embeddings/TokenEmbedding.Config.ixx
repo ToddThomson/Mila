@@ -13,6 +13,7 @@ module;
 #include <string>
 #include <utility>
 #include <sstream>
+#include <cmath>
 
 export module Dnn.Components.TokenEmbeddingConfig;
 
@@ -48,6 +49,16 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
+        // Scalar applied to the embedding output in forward (default 1.0 = identity).
+        // Gemma sets this to sqrt(embedding_dim) so the embedding table can be stored
+        // raw and shared with a tied lm_head; see WeightTying.md D5.
+        template <typename Self>
+        decltype(auto) withEmbeddingScale( this Self&& self, float embedding_scale )
+        {
+            self.embedding_scale_ = embedding_scale;
+            return std::forward<Self>( self );
+        }
+
         size_t getVocabSize() const
         {
             return vocab_size_;
@@ -56,6 +67,11 @@ namespace Mila::Dnn
         size_t getEmbeddingDim() const
         {
             return embedding_dim_;
+        }
+
+        float getEmbeddingScale() const noexcept
+        {
+            return embedding_scale_;
         }
 
         void validate() const override
@@ -69,6 +85,10 @@ namespace Mila::Dnn
             if ( embedding_dim_ % 4 != 0 )
                 throw std::invalid_argument( "TokenEmbeddingConfig: embedding_dim must be "
                     "divisible by 4 (float4 vectorization)" );
+
+            if ( !std::isfinite( embedding_scale_ ) || embedding_scale_ <= 0.0f )
+                throw std::invalid_argument( "TokenEmbeddingConfig: embedding_scale must be "
+                    "finite and > 0" );
         }
 
         SerializationMetadata toMetadata() const
@@ -76,7 +96,8 @@ namespace Mila::Dnn
             SerializationMetadata meta;
 
             meta.set( "vocab_size", static_cast<int64_t>(vocab_size_) )
-                .set( "embedding_dim", static_cast<int64_t>(embedding_dim_) );
+                .set( "embedding_dim", static_cast<int64_t>(embedding_dim_) )
+                .set( "embedding_scale", embedding_scale_ );
 
             return meta;
         }
@@ -88,18 +109,23 @@ namespace Mila::Dnn
 
             if ( auto v = meta.tryGetInt( "embedding_dim" ) )
                 embedding_dim_ = static_cast<size_t>(*v);
+
+            if ( auto v = meta.tryGetFloat( "embedding_scale" ) )
+                embedding_scale_ = *v;
         }
 
         std::string toString() const override
         {
             std::ostringstream oss;
             oss << "vocab_size=" << vocab_size_
-                << ", embedding_dim=" << embedding_dim_;
+                << ", embedding_dim=" << embedding_dim_
+                << ", embedding_scale=" << embedding_scale_;
             return oss.str();
         }
 
     private:
         size_t vocab_size_{ 0 };
         size_t embedding_dim_{ 0 };
+        float embedding_scale_{ 1.0f };
     };
 }

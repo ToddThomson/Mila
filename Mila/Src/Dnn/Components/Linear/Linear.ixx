@@ -488,6 +488,33 @@ namespace Mila::Dnn
             }
         }
 
+        /**
+         * @brief Replace the owned weight with a shared tensor (e.g. a tied lm_head
+         *        sharing the token embedding table). See WeightTying.md.
+         *
+         * Must be called after the component is built so operation_ is live. The
+         * kIsQuantized guard documents the invariant that a tied head is unquantized
+         * (D4); in practice an lm_head is never quantized, so this branch is
+         * unreachable in the real model set.
+         *
+         * @param shared_weight Shared device tensor; must match the configured shape.
+         */
+        void installSharedWeight( std::shared_ptr<WeightTensorType> shared_weight )
+        {
+            if constexpr ( kIsQuantized )
+            {
+                throw std::logic_error( std::format(
+                    "Linear '{}': installSharedWeight requires an unquantized lm_head; "
+                    "tied weights and per-tensor quantization are mutually exclusive",
+                    this->getName() ) );
+            }
+            else
+            {
+                weight_ = std::move( shared_weight );
+                operation_->setParameters( weight_.get(), bias_.get() );
+            }
+        }
+
         MemoryStats getMemoryStats() const override
         {
             MemoryStats stats;

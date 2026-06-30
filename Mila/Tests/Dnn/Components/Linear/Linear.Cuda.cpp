@@ -454,6 +454,86 @@ namespace Mila::Tests::Dnn::Components::Linear
     }
 
     // ====================================================================
+    // H. Shared weight installation (weight tying — WeightTying.md)
+    // ====================================================================
+
+    // installSharedWeight replaces the owned weight with a caller-owned tensor (the
+    // tied lm_head sharing the token embedding table). Assert the component exposes the
+    // shared tensor as its parameter (pointer identity), reports its bytes (so the
+    // owning transformer's tie-aware getMemoryStats can subtract them once), and that
+    // forward actually consumes the installed weight.
+    TYPED_TEST( LinearCudaTests, InstallSharedWeight_SetsParameterAndMatchesDirectLoad )
+    {
+        const shape_t shape{ 2, 4, kInFeatures };
+
+        // No bias — the lm_head that motivates this path is unbiased.
+        auto linear = this->builtLinear( shape, false, RuntimeMode::Inference );
+
+        auto shared = std::make_shared<typename TestFixture::DeviceTensor>(
+            Device::Cuda( 0 ), shape_t{ kOutFeatures, kInFeatures }, "shared.weight" );
+
+        typename TestFixture::HostFp32 host_weight( Device::Cpu(), shape_t{ kOutFeatures, kInFeatures } );
+        for ( int64_t o = 0; o < kOutFeatures; ++o )
+        {
+            for ( int64_t i = 0; i < kInFeatures; ++i )
+            {
+                host_weight.data()[ o * kInFeatures + i ] = weightValue( o, i );
+            }
+        }
+        copy( host_weight, *shared, this->cuda_context_.get() );
+        this->cuda_context_->synchronize();
+
+        linear->installSharedWeight( shared );
+
+        auto params = linear->getParameters();
+        ASSERT_EQ( params.size(), 1u );
+        EXPECT_EQ( static_cast<typename TestFixture::DeviceTensor*>( params[ 0 ] ), shared.get() );
+        EXPECT_EQ( linear->getMemoryStats().device_parameter_bytes, shared->getStorageSize() );
+
+        auto host_in = this->spreadHost( shape );
+        auto device_in = this->toDevice( host_in );
+
+        auto& device_out = linear->forward( device_in );
+        linear->synchronize();
+
+        auto out = this->toFloat( device_out );
+
+        // Read back the precision-rounded weight the kernel actually consumed.
+        auto weight = this->toFloat( *shared );
+        auto in = this->toFloat( device_in );
+
+        std::vector<float> expected;
+        referenceForward( in.data(), weight.data(), nullptr, 2 * 4, kInFeatures, kOutFeatures, expected );
+
+        ASSERT_EQ( out.size(), expected.size() );
+
+        for ( size_t i = 0; i < out.size(); ++i )
+        {
+            const float tolerance = TypeParam::forward_atol + TypeParam::forward_rtol * std::fabs( expected[ i ] );
+
+            EXPECT_NEAR( out.data()[ i ], expected[ i ], tolerance )
+                << "shared-weight forward mismatch at index " << i;
+        }
+    }
+
+    // A quantized lm_head and tying are mutually exclusive (WeightTying.md D4). The
+    // guard is unreachable in the real model set (lm_head is never quantized), so this
+    // pins the documented invariant on a deliberately quantized instantiation. Deferred
+    // construction (no device) keeps it GPU-independent: the throw precedes any op or
+    // context use, and the argument is never dereferenced.
+    TEST( LinearCudaQuantizedTests, InstallSharedWeight_QuantizedPath_Throws )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerGroupFp4<128>>;
+
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( false );
+        QuantizedLinear linear( "linear_quantized", config );
+
+        EXPECT_THROW( linear.installSharedWeight( nullptr ), std::logic_error );
+    }
+
+    // ====================================================================
     // J. Type identity
     // ====================================================================
 
