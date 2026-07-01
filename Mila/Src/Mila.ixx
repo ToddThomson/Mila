@@ -138,6 +138,7 @@ export import Dnn.NetworkFactory;
 export import Dnn.Model;
 export import Dnn.LanguageNetwork;
 export import Dnn.LanguageModel;
+export import Dnn.SamplingParams;
 export import Dnn.GenerateParams;
 export import Dnn.GenerateStatus;
 export import Dnn.RuntimeMode;

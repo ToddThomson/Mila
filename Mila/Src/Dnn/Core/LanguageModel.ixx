@@ -28,6 +28,7 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.RuntimeMode;
 import Dnn.GenerateParams;
+import Dnn.SamplingParams;
 import Dnn.GenerateStatus;
 import Dnn.Samplers.TokenSampler;
 import Dnn.Samplers.SamplingConfig;
@@ -37,55 +38,6 @@ import Compute.DeviceTypeTraits;
 namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
-
-    /**
-     * @brief Statistics captured during a single generateStreaming() call.
-     *
-     * Carried on the GenerateResult returned by generate() / generateStreaming().
-     */
-    export struct GenerationStatistics
-    {
-        /// Number of input prompt tokens processed during prefill.
-        std::size_t prompt_tokens{ 0 };
-
-        /// Total tokens generated including the first token produced by prefill.
-        std::size_t tokens_generated{ 0 };
-
-        /// Time to first token: prefill forward pass + synchronization + first token sampling (ms).
-        float prefill_time_ms{ 0.0f };
-
-        /// Total time spent in the autoregressive decode loop (ms); 0 when only one token was generated.
-        float decode_time_ms{ 0.0f };
-
-        /// Decode throughput in tokens per second; 0 when decode loop produced no tokens.
-        float decode_tokens_per_second{ 0.0f };
-
-        /// Returns true when at least one generation run has been recorded.
-        [[nodiscard]] bool valid() const noexcept
-        {
-            return prefill_time_ms > 0.0f;
-        }
-    };
-
-    /**
-     * @brief Outcome of a single generate() / generateStreaming() call.
-     *
-     * Returned by value so generation is reentrant and the model holds no
-     * per-run mutable state. @ref status reports why generation stopped,
-     * @ref statistics carries the timing/throughput figures, and
-     * @ref tokens_generated counts emitted tokens (EOS excluded).
-     */
-    export struct GenerateResult
-    {
-        /// Why generation stopped.
-        GenerateStatus status{ GenerateStatus::Success };
-
-        /// Timing and throughput for this run.
-        GenerationStatistics statistics{};
-
-        /// Tokens emitted to on_token (EOS excluded).
-        std::size_t tokens_generated{ 0 };
-    };
 
     export template<DeviceType TDeviceType, TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
@@ -107,48 +59,43 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Blocking generation. Returns the prompt tokens followed by all
-         * generated tokens (EOS excluded).
+         * @brief Generate tokens from a prompt, streaming each through on_token.
          *
-         * @param prompt_tokens  Input token ids.
-         * @param config         Per-call generation configuration.
-         * @return               Full token sequence including the prompt.
-         */
-        std::vector<int32_t> generate(
-            const std::vector<int32_t>& prompt_tokens,
-            const GenerateConfig& config = {} )
-        {
-            std::vector<int32_t> out = prompt_tokens;
-            out.reserve( prompt_tokens.size() + static_cast<size_t>( config.max_new_tokens ) );
-
-            generateStreaming( prompt_tokens,
-                [&]( int32_t tok ) { out.push_back( tok ); },
-                config, {} );
-
-            return out;
-        }
-
-        /**
-         * @brief Synchronous per-token streaming. Blocks on the caller's thread
-         * until generation completes or stop is requested.
-         *
-         * on_token is invoked on the caller's thread for every generated token
-         * (EOS excluded). Callers that own their own threading — such as the
-         * Python ModelWorker's single-thread executor — should use this directly.
+         * Blocking, serial token generation: the model owns the decode loop (it owns
+         * the KV cache and the device stream) and pushes every generated token (EOS
+         * excluded) to on_token on the caller's thread until it stops. Returns why it
+         * stopped -- the one outcome the caller cannot reconstruct from the token
+         * stream. Timing/throughput are the harness's to measure from the callback
+         * cadence; the model keeps no stopwatch. Callers that want asynchrony own the
+         * threading (e.g. the Python ModelWorker runs this on its own thread).
          *
          * @param prompt_tokens  Input token ids.
          * @param on_token       Per-token callback invoked on the caller's thread.
-         * @param config         Per-call generation configuration.
+         * @param params         Per-call generation parameters (loop bound + sampling).
          * @param stop           Stop token for cooperative cancellation.
-         * @return               Outcome of the run (status + statistics + token count).
+         * @return               Why generation stopped.
          */
-        GenerateResult generateStreaming(
+        [[nodiscard]] GenerateStatus generate(
             std::span<const int32_t> prompt_tokens,
-            std::function<void(int32_t)> on_token,
-            const GenerateConfig& config = {},
+            const std::function<void( int32_t )>& on_token,
+            const GenerateParams& params = {},
             std::stop_token stop = {} )
         {
-            return onGenerating( prompt_tokens, on_token, config, stop );
+            return onGenerating( prompt_tokens, on_token, params, stop );
+        }
+
+        /**
+         * @brief Seed the sampler's RNG for reproducible generation.
+         *
+         * Reproducibility is a property of the RNG stream, not of a single call: seed
+         * once (before a run or a session), then the token stream is deterministic for
+         * a given prompt and model. Deliberately not a per-call GenerateParams field,
+         * so a caller cannot accidentally reset the stream on every call.
+         */
+        void seedSampler( uint64_t seed )
+        {
+            ensureSampler();
+            token_sampler_->reseed( seed );
         }
 
     protected:
@@ -191,20 +138,8 @@ namespace Mila::Dnn
             const SamplingParams& params )
         {
             ensureSampler();
-            return token_sampler_->sample( logits, token_out, params );
-        }
 
-        /**
-         * @brief Seed the device sampler's host RNG for reproducible generation.
-         *
-         * Call once at the start of a generation run (not per token) when the caller
-         * supplied GenerateConfig::seed; the same seed then yields the same token stream
-         * for a given prompt and model.
-         */
-        void seedSampler( uint64_t seed )
-        {
-            ensureSampler();
-            token_sampler_->reseed( seed );
+            return token_sampler_->sample( logits, token_out, params );
         }
 
         // ====================================================================
@@ -231,19 +166,19 @@ namespace Mila::Dnn
          * Derived classes own the full autoregressive generation loop.
          * on_token must be called for every generated token except EOS.
          * stop.stop_requested() must be checked on each decode step and
-         * generation must abort early when signalled, returning a GenerateResult
-         * whose status reflects why the loop stopped.
+         * generation must abort early when signalled, returning the
+         * GenerateStatus that reflects why the loop stopped.
          *
          * @param prompt_tokens  Input token ids.
          * @param on_token       Per-token callback.
-         * @param config         Per-call generation configuration.
+         * @param params         Per-call generation parameters (loop bound + sampling).
          * @param stop           Stop token for cooperative cancellation.
-         * @return               Outcome of the run (status + statistics + token count).
+         * @return               Why generation stopped.
          */
-        virtual GenerateResult onGenerating(
+        virtual GenerateStatus onGenerating(
             std::span<const int32_t> prompt_tokens,
-            const std::function<void(int32_t)>& on_token,
-            const GenerateConfig& config,
+            const std::function<void( int32_t )>& on_token,
+            const GenerateParams& params,
             std::stop_token stop ) = 0;
 
         // ====================================================================

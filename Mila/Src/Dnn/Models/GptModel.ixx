@@ -31,6 +31,7 @@ module;
 #include <cmath>
 #include <functional>
 #include <stop_token>
+#include <unordered_set>
 
 export module Dnn.Models.GptModel;
 
@@ -67,7 +68,7 @@ namespace Mila::Dnn
     /**
      * @brief GPT inference model.
      *
-     * Owns a loaded, built GptTransformer and exposes generateStreaming() for
+     * Owns a loaded, built GptTransformer and exposes generate() for
      * autoregressive text generation.
      *
      * Construction is only possible via fromPretrained() or fromCheckpoint().
@@ -208,17 +209,23 @@ namespace Mila::Dnn
         /**
          * @brief Prefill + KV-cache decode loop with per-token streaming.
          */
-        GenerateResult onGenerating(
+        GenerateStatus onGenerating(
             std::span<const int32_t> prompt_tokens,
             const std::function<void(int32_t)>& on_token,
-            const GenerateConfig& config,
+            const GenerateParams& params,
             std::stop_token stop ) override
         {
-            // Reproducible generation when config.seed is supplied; otherwise time-seeded.
-            std::mt19937 rng( config.seed
-                ? static_cast<std::mt19937::result_type>( *config.seed )
-                : static_cast<std::mt19937::result_type>(
-                    std::chrono::high_resolution_clock::now().time_since_epoch().count() ) );
+            // Stop set: GPT-2 <|endoftext|> by default, or the caller's per-call override.
+            std::unordered_set<int32_t> stop_ids;
+            if ( params.stop_tokens.empty() )
+                stop_ids.insert( eos_token_ );
+            else
+                for ( auto id : params.stop_tokens )
+                    stop_ids.insert( static_cast<int32_t>( id ) );
+
+            // Host sampler path (device-sampler migration deferred): time-seeded.
+            std::mt19937 rng( static_cast<std::mt19937::result_type>(
+                std::chrono::high_resolution_clock::now().time_since_epoch().count() ) );
 
             if ( prompt_tokens.size() > static_cast<size_t>( context_length_ ) )
             {
@@ -227,57 +234,43 @@ namespace Mila::Dnn
                     prompt_tokens.size(), context_length_ ) );
             }
 
-            GenerateResult result;
-            result.statistics.prompt_tokens = prompt_tokens.size();
-
             const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
 
             auto prefill_input = makeTokenTensor( prompt_tokens );
             auto& logits = this->getLanguageNetwork().prefill( prefill_input );
             this->getLanguageNetwork().synchronize();
 
-            int32_t next_token = sampleFromLogits( logits, 0, config.temperature, config.top_k, rng );
+            int32_t next_token = sampleFromLogits(
+                logits, 0, params.sampling.temperature, params.sampling.top_k, rng );
 
-            if ( next_token == eos_token_ )
-            {
-                result.status = GenerateStatus::Success;
-                return result;
-            }
+            if ( stop_ids.contains( next_token ) )
+                return GenerateStatus::Success;
 
             on_token( next_token );
-            result.tokens_generated = 1;
 
             int position = static_cast<int>( seq_len );
-            GenerateStatus status = GenerateStatus::MaxNewTokensReached;
+            const int max_new = params.max_new_tokens.value_or( static_cast<int>( context_length_ ) );
 
-            for ( size_t step = 1; step < static_cast<size_t>( config.max_new_tokens ); ++step )
+            for ( int step = 1; step < max_new; ++step )
             {
                 if ( stop.stop_requested() )
-                {
-                    status = GenerateStatus::ClientCancelled;
-                    break;
-                }
+                    return GenerateStatus::ClientCancelled;
 
                 auto decode_input = makeTokenTensor( std::vector{ next_token } );
                 auto& decode_logits = this->getLanguageNetwork().decode( decode_input, position );
                 this->getLanguageNetwork().synchronize();
 
-                next_token = sampleFromLogits( decode_logits, 0, config.temperature, config.top_k, rng );
+                next_token = sampleFromLogits(
+                    decode_logits, 0, params.sampling.temperature, params.sampling.top_k, rng );
 
-                if ( next_token == eos_token_ )
-                {
-                    status = GenerateStatus::Success;
-                    break;
-                }
+                if ( stop_ids.contains( next_token ) )
+                    return GenerateStatus::Success;
 
                 on_token( next_token );
                 ++position;
-                ++result.tokens_generated;
             }
 
-            result.status = status;
-            result.statistics.tokens_generated = result.tokens_generated;
-            return result;
+            return GenerateStatus::MaxNewTokensReached;
         }
 
         /**

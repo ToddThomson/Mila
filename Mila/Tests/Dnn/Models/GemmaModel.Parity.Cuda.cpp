@@ -100,14 +100,18 @@ namespace Mila::Tests::Dnn::Models
             checkpoint_, model_config, DeviceId{ DeviceType::Cuda, 0 } );
 
         // temperature 0 + top_k 1 -> greedy argmax on the device sampler.
-        GenerateConfig gen_config;
-        gen_config.max_new_tokens = static_cast<int>( kExpectedGen.size() );
-        gen_config.temperature = 0.0f;
-        gen_config.top_k = 1;
-        auto out = model->generate( kPromptIds, gen_config );
+        GenerateParams gen_params;
+        gen_params.max_new_tokens = static_cast<int>( kExpectedGen.size() );
+        gen_params.sampling.temperature = 0.0f;
+        gen_params.sampling.top_k = 1;
 
-        ASSERT_GE( out.size(), kPromptIds.size() );
-        const std::vector<int32_t> gen( out.begin() + kPromptIds.size(), out.end() );
+        // generate() streams the generated tokens (EOS excluded) through the callback.
+        std::vector<int32_t> gen;
+        gen.reserve( kExpectedGen.size() );
+        [[maybe_unused]] const auto status = model->generate(
+            kPromptIds,
+            [&]( int32_t tok ) { gen.push_back( tok ); },
+            gen_params );
 
         // Mila omits the trailing EOS / <end_of_turn> that HF includes, so Mila's
         // output must be a token-for-token PREFIX of the HF reference, short by at

@@ -384,6 +384,7 @@ PUBLIC
 
         "Src/Data/Tokenizers/Bpe/BpePreTokenizationMode.ixx"
 
+        "Src/Dnn/Components/Transformers/SamplingParams.ixx"
         "Src/Dnn/Components/Transformers/GenerateParams.ixx"
         "Src/Data/Tokenizers/SpecialTokens.ixx"
         "Src/Dnn/Serialization/PretrainedReader.ixx"

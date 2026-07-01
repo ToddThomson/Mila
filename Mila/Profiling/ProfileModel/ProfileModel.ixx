@@ -9,13 +9,15 @@
  *
  * Phases:
  *   prefill   profilePrefill() only (prompt forward pass + sync).
- *   decode    full generateStreaming(); decode loop dominates a long generation.
- *   generate  full generateStreaming(); alias of decode with a separate label.
+ *   decode    full generate(); decode loop dominates a long generation.
+ *   generate  full generate(); alias of decode with a separate label.
  *
- * The public API exposes generateStreaming() (prefill + decode together) and
+ * The public API exposes generate() (prefill + decode together) and
  * profilePrefill(), but not a decode-only entry point, so the decode and
- * generate phases both run the full generate path. generateStreaming() returns
- * a GenerateResult carrying prefill and decode timing separately.
+ * generate phases both run the full generate path. generate() streams tokens
+ * through a callback and returns only a finish reason; the profiler measures
+ * prefill (call -> first token) and decode (first -> last token) timing from
+ * the callback cadence.
  *
  * All Mila template instantiation (model loading via fromPretrained) is confined
  * to this module interface unit. See [[feedback-build-in-vs]]: the latest VS2026
@@ -284,35 +286,56 @@ namespace Mila::Profiling
             if ( profiled )
                 cudaProfilerStart();
 
-            Mila::Dnn::GenerateConfig gen_config;
-            gen_config.max_new_tokens = static_cast<int>( options.max_new_tokens );
-            gen_config.temperature = 0.0f;
-            gen_config.top_k = 0;
+            Mila::Dnn::GenerateParams gen_params;
+            gen_params.max_new_tokens = static_cast<int>( options.max_new_tokens );
+            gen_params.sampling.temperature = 0.0f;
+            gen_params.sampling.top_k = 0;
 
-            Mila::Dnn::GenerateResult result;
+            // The library streams tokens and returns only a finish reason; the profiler
+            // measures timing from the callback cadence (prefill = call -> first token,
+            // decode = first -> last token).
+            const auto call_start = std::chrono::high_resolution_clock::now();
+            auto first_token_time = call_start;
+            auto last_token_time = call_start;
+
             {
                 Mila::Profiling::NvtxRange range( label );
-                result = model->generateStreaming(
+                [[maybe_unused]] const auto status = model->generate(
                     prompt_tokens,
-                    [&]( int32_t ) { ++produced; },
-                    gen_config,
+                    [&]( int32_t )
+                    {
+                        const auto now = std::chrono::high_resolution_clock::now();
+                        if ( produced == 0 )
+                            first_token_time = now;
+                        last_token_time = now;
+                        ++produced;
+                    },
+                    gen_params,
                     {} );
             }
 
             if ( profiled )
                 cudaProfilerStop();
 
-            const auto& statistics = result.statistics;
+            const std::size_t decode_tokens = produced > 0 ? produced - 1 : 0;
+            const float prefill_ms =
+                std::chrono::duration<float, std::milli>( first_token_time - call_start ).count();
+            const float decode_ms =
+                std::chrono::duration<float, std::milli>( last_token_time - first_token_time ).count();
+            const float decode_tok_per_s =
+                ( decode_ms > 0.0f && decode_tokens > 0 )
+                ? static_cast<float>( decode_tokens ) / ( decode_ms / 1000.0f )
+                : 0.0f;
 
             std::cout << std::format(
                 "[{}] prompt_tokens={} tokens_generated={} prefill_ms={:.2f} "
                 "decode_ms={:.2f} decode_tok_per_s={:.2f}\n",
                 label,
-                statistics.prompt_tokens,
-                statistics.tokens_generated,
-                statistics.prefill_time_ms,
-                statistics.decode_time_ms,
-                statistics.decode_tokens_per_second );
+                prompt_tokens.size(),
+                produced,
+                prefill_ms,
+                decode_ms,
+                decode_tok_per_s );
         };
 
         std::cout << std::format(

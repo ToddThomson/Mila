@@ -18,7 +18,7 @@ import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.GenerateParams;
+import Dnn.SamplingParams;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 

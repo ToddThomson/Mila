@@ -27,6 +27,7 @@ module;
 #include <charconv>
 #include <functional>
 #include <unordered_map>
+#include <chrono>
 
 export module Mila.Chat;
 
@@ -515,27 +516,51 @@ namespace Mila::ChatApp
 
             stop_src_ = std::stop_source{};
 
-            GenerateConfig gen_config;
-            gen_config.max_new_tokens = config_.max_new_tokens;
-            gen_config.temperature = config_.temperature;
-            gen_config.top_k = config_.top_k;
+            GenerateParams gen_params;
+            gen_params.max_new_tokens = config_.max_new_tokens;
+            gen_params.sampling.temperature = config_.temperature;
+            gen_params.sampling.top_k = config_.top_k;
+
+            // The library streams tokens and returns only a finish reason; timing is ours
+            // to measure from the callback cadence (the model keeps no stopwatch).
+            const auto call_start = std::chrono::high_resolution_clock::now();
+            auto first_token_time = call_start;
+            auto last_token_time = call_start;
+            int token_count = 0;
 
             std::visit(
                 [&]( auto& m )
                 {
-                    auto result = m->generateStreaming(
+                    [[maybe_unused]] const auto status = m->generate(
                         input_tokens,
                         [&]( int32_t tok )
                         {
+                            const auto now = std::chrono::high_resolution_clock::now();
+                            if ( token_count == 0 )
+                                first_token_time = now;
+                            last_token_time = now;
+                            ++token_count;
+
                             response += tokenizer_->decode(
                                 std::vector<TokenId>{ static_cast<TokenId>(tok) } );
                         },
-                        gen_config,
+                        gen_params,
                         stop_src_.get_token() );
-
-                    last_statistics_ = result.statistics;
                 },
                 model_ );
+
+            const int decode_tokens = token_count > 0 ? token_count - 1 : 0;
+            const float decode_ms =
+                std::chrono::duration<float, std::milli>( last_token_time - first_token_time ).count();
+
+            last_stats_.prefill_time_ms =
+                std::chrono::duration<float, std::milli>( first_token_time - call_start ).count();
+            last_stats_.tokens_generated = token_count;
+            last_stats_.decode_tokens_per_second =
+                ( decode_ms > 0.0f && decode_tokens > 0 )
+                ? static_cast<float>( decode_tokens ) / ( decode_ms / 1000.0f )
+                : 0.0f;
+            last_stats_.has_run = token_count > 0;
 
             renderer_.stopSpinner();
         }
@@ -912,13 +937,13 @@ namespace Mila::ChatApp
          */
         void printGenerationStatistics() const
         {
-            if ( !last_statistics_.valid() )
+            if ( !last_stats_.has_run )
                 return;
 
             renderer_.printStats(
-                last_statistics_.prefill_time_ms,
-                last_statistics_.decode_tokens_per_second,
-                static_cast<int>( last_statistics_.tokens_generated ) );
+                last_stats_.prefill_time_ms,
+                last_stats_.decode_tokens_per_second,
+                last_stats_.tokens_generated );
         }
 
         static constexpr const char* kVersion = "v0.20";
@@ -1030,7 +1055,15 @@ Examples:
         std::unordered_map<std::string, std::function<std::string( const std::string& )>> tool_handlers_;
         ConsoleRenderer renderer_;
 
-        // Statistics from the most recent generateResponse() call, for printGenerationStatistics().
-        GenerationStatistics last_statistics_{};
+        // Timing for the most recent generateResponse() call, measured from the token
+        // callback cadence (the library owns no stopwatch). Shown by printGenerationStatistics().
+        struct GenerationStats
+        {
+            float prefill_time_ms = 0.0f;          // call -> first token (TTFT)
+            float decode_tokens_per_second = 0.0f; // steady-state decode throughput
+            int tokens_generated = 0;
+            bool has_run = false;
+        };
+        GenerationStats last_stats_{};
     };
 }

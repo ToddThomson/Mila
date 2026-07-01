@@ -8,7 +8,7 @@ Where Mila is going — the durable narrative of each release and what it means.
 
 The roadmap shows two releases at a time — the one in flight and the one after (**vNext**) — plus a
 **Future Directions** tail. Each release is reached through **milestones** tracked by task completion
-(see [RELEASING.md](RELEASING.md)). Current version: **`0.20.0-alpha.6+78`**.
+(see [RELEASING.md](RELEASING.md)). Current version: **`0.20.0-alpha.6+79`**.
 
 The **Gemma 4 12B dense chassis** has been delivered into v0.20 (HF token-for-token parity, 2026-06-23
 — see CHANGELOG); its memory-fit gates (weight-tying + bounded-KV ring cache) both landed in +78, and
@@ -198,19 +198,49 @@ injected uniform; the three copied host `sampleToken`s replaced by the one `Lang
 ### Milestone: Generation API
 
 The Sample API milestone moved sampling onto the device; this one makes `LanguageModel::generate` a lean,
-fast **token generator** with a **config-in / result-out** contract — `GenerateConfig` in, a
-`GenerateResult` (`GenerationStatistics` + the `GenerateStatus` finish-reason enum + token count) out,
-tokens streamed via the callback. Sessions, prompt caching, and multi-conversation routing are *harness*
-concerns the apps (Chat, the Mila Inference server) build on the library's compute primitives
-(`prefill`/`decode`, later `prefillFrom`/`rewindKvCache`) — the library exposes the primitives, not the
-policy. The contract reshape landed and is validated (green build + green Gemma chat); engineering detail
-and the remaining items in [BACKLOG.md](BACKLOG.md).
+fast **token generator**: prompt tokens in, tokens out through a push callback, and the one fact only the
+model knows — *why generation stopped* — returned. Everything the caller can observe for itself (timing,
+throughput, token counts) or that belongs to the model/sampler lifetime (the stop set, the RNG seed) is
+kept off the per-call path. Sessions, prompt caching, and multi-conversation routing stay *harness* concerns
+the apps (Chat, the Mila Inference server) build on the compute primitives (`prefill`/`decode`, later
+`prefillFrom`/`rewindKvCache`) — the library exposes the primitives, not the policy.
 
-**Success criteria:** `generate`/`generateStreaming`/`onGenerating` take `const GenerateConfig&` and
-return `GenerateResult` with a populated `GenerateStatus` (DONE); `top_p` reachable end-to-end (DONE) and
-`seed` yields reproducible output; the mutable `last_generation_statistics_` member is gone (DONE); stop
-tokens come from checkpoint/tokenizer metadata, not literals; `getNetworkConfig()`/`getModelConfig()`
-accessors land and `context_length_` is cleaned up.
+An initial config-in / result-out reshape landed first, but a **design review (2026-07-01) superseded it**
+with the leaner surface below, which **shipped in 0.20.0-alpha.6+79** (green build + green Gemma chat).
+Rationale + the decided micro-choices in [BACKLOG.md](BACKLOG.md). The family term stayed `Generate*` (the
+code already used it). Shipped signature:
+
+```cpp
+[[nodiscard]] GenerateStatus generate(
+    std::span<const int32_t> prompt_tokens,
+    const std::function<void( int32_t )>& on_token,
+    const GenerateParams& params = {},
+    std::stop_token stop = {} );
+```
+
+- [x] collapsed `generate` + `generateStreaming` + the vector-returning `generate` into the single `generate` above (one blocking, callback-streaming primitive); `onGenerating` kept as the protected hook, retyped to `GenerateStatus` / `GenerateParams`
+- [x] `generate` returns `GenerateStatus` — the finish reason, the only result the model uniquely knows; `GenerateResult` deleted (the status + stats + count bundle dissolved)
+- [x] `GenerationStatistics` deleted **entirely** — the model owns no stopwatch; Chat + ProfileModel self-time from the callback cadence (TTFT = call -> first token, decode = first -> last)
+- [x] the mutable `last_generation_statistics_` member + `getLastGenerationStatistics()` are gone — stays gone, never reintroduced
+- [x] `GenerateParams { std::optional<int> max_new_tokens; SamplingParams sampling; std::vector<TokenId> stop_tokens; }` — `max_new_tokens` nullopt => run to EOS / context bound (no magic default, no silent truncation)
+- [x] `SamplingParams { float temperature; int top_k; float top_p; }` in its own module (`Dnn.SamplingParams`); `generate` forwards only `params.sampling` to the sampler; the `using SamplingParams = GenerateConfig` alias retired
+- [x] stop set off the per-call path — model defaults established at construction, with an optional per-call `stop_tokens` override for advanced structured generation
+- [x] `seed` off the per-call path — public `LanguageModel::seedSampler(uint64_t)` seeds the sampler once; per-call `seed` removed
+- [x] `top_p` reachable end-to-end through the public `generate` API
+- [x] `Generate*` naming family kept (code already used it); one type per module (`GenerateResult` / `GenerationStatistics` deleted, `SamplingParams` split out)
+
+Remaining to close the milestone:
+
+- [ ] `SamplingConfig` -> `SamplerConfig` rename (deferred this pass — highest-risk cross-module rename)
+- [ ] Llama/Gpt reproducibility — their host sampler is time-seeded only until the deferred device-sampler migration wires `seedSampler`
+- [ ] eager sampler construction before the first generation (the lazy first-use allocation still adds first-token latency the harness measures)
+- [ ] hoist `contextLength()` to the `LanguageModel` base + make it mode-aware (inference -> deployment ctx, training -> arch max)
+- [ ] propagate the `getNetworkConfig()` / `getModelConfig()` accessor pair to `LlamaModel` / `GptModel` (mechanical mirror; Gemma done — stores `GemmaModelConfig`, derives `contextLength()`, bare `context_length_` gone)
+- [ ] `GemmaTransformer::getConfig()` network self-description hygiene; settle the `int64_t`-vs-`dim_t` static_cast smell in the same pass
+
+**Deferred — harness layer, not a milestone gate:** prompt-caching / KV reuse (`prefillFrom` / `rewindKvCache`)
+built into an app-level `GenerateSession`; its bounded-KV-ring gate closed 2026-06-30, so it is unblockable
+but out of scope here.
 
 ---
 

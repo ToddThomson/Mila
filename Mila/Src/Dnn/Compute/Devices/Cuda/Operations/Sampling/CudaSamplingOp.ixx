@@ -17,7 +17,7 @@ module;
 export module Compute.CudaSamplingOp;
 
 import Dnn.Samplers.SamplingConfig;
-import Dnn.GenerateParams;
+import Dnn.SamplingParams;
 import Dnn.Component;
 import Dnn.Tensor;
 import Dnn.ITensor;

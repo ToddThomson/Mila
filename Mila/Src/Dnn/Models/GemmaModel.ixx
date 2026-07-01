@@ -249,10 +249,10 @@ namespace Mila::Dnn
 
     protected:
 
-        GenerateResult onGenerating(
+        GenerateStatus onGenerating(
             std::span<const int32_t> prompt_tokens,
             const std::function<void( int32_t )>& on_token,
-            const GenerateConfig& config,
+            const GenerateParams& params,
             std::stop_token stop ) override
         {
             // The prompt must fit the deployment context (the KV-cache depth the network
@@ -265,67 +265,43 @@ namespace Mila::Dnn
                     prompt_tokens.size(), contextLength() ) );
             }
 
-            // Reproducible generation when a seed is supplied: seed the sampler once,
-            // at the start of the run (not per token).
-            if ( config.seed )
-                this->seedSampler( *config.seed );
-
-            // Model-default stop tokens, plus the harness-supplied eos override when present
-            // (the library owns no tokenizer; the harness does).
-            auto stop_ids = stopTokens();
-            if ( config.eos_token_id )
-                stop_ids.insert( static_cast<int32_t>( *config.eos_token_id ) );
-
-            GenerateResult result;
-            result.statistics.prompt_tokens = prompt_tokens.size();
+            // Stop set: the model defaults (EOS is a model/tokenizer property), unless the
+            // caller overrides them for this call (advanced structured generation).
+            std::unordered_set<int32_t> stop_ids;
+            if ( params.stop_tokens.empty() )
+                stop_ids = stopTokens();
+            else
+                for ( auto id : params.stop_tokens )
+                    stop_ids.insert( static_cast<int32_t>( id ) );
 
             const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
             auto prefill_input = makeTokenTensor( prompt_tokens );
 
-            // ---- Phase 1: Prefill — measured to first token ----
-            const auto prefill_start = std::chrono::high_resolution_clock::now();
-
             auto& logits = this->getLanguageNetwork().prefill( prefill_input );
             this->getLanguageNetwork().synchronize();
 
-            int32_t next_token = this->sampleNext( logits, decode_token_device_, config );
-
-            const auto prefill_end = std::chrono::high_resolution_clock::now();
-            result.statistics.prefill_time_ms =
-                std::chrono::duration<float, std::milli>( prefill_end - prefill_start ).count();
+            int32_t next_token = this->sampleNext( logits, decode_token_device_, params.sampling );
 
             if ( stop_ids.contains( next_token ) )
-            {
-                result.status = GenerateStatus::Success;
-                return result;
-            }
+                return GenerateStatus::Success;
 
             on_token( next_token );
-            result.tokens_generated = 1;
 
             int position = static_cast<int>( seq_len );
 
-            // ---- Phase 2: Autoregressive decode ----
-            const auto decode_start = std::chrono::high_resolution_clock::now();
-            std::size_t decode_token_count = 0;
-            GenerateStatus status = GenerateStatus::MaxNewTokensReached;
+            // nullopt max_new_tokens => run to EOS / the context bound (the guard below).
+            const int max_new = params.max_new_tokens.value_or( static_cast<int>( contextLength() ) );
 
-            for ( size_t step = 1; step < static_cast<size_t>( config.max_new_tokens ); ++step )
+            for ( int step = 1; step < max_new; ++step )
             {
                 if ( stop.stop_requested() )
-                {
-                    status = GenerateStatus::ClientCancelled;
-                    break;
-                }
+                    return GenerateStatus::ClientCancelled;
 
                 // The KV cache is only as deep as the deployment context length; decode
                 // cannot write at a position past it. Stop cleanly instead of letting the
                 // GQA op throw "position out of range".
                 if ( position >= contextLength() )
-                {
-                    status = GenerateStatus::ContextOverflow;
-                    break;
-                }
+                    return GenerateStatus::ContextOverflow;
 
                 // The previous sampleNext() already wrote the sampled token into
                 // decode_token_device_ on the device, so it is ready to decode in place --
@@ -333,33 +309,16 @@ namespace Mila::Dnn
                 auto& decode_logits = this->getLanguageNetwork().decode( decode_token_device_, position );
                 this->getLanguageNetwork().synchronize();
 
-                next_token = this->sampleNext( decode_logits, decode_token_device_, config );
+                next_token = this->sampleNext( decode_logits, decode_token_device_, params.sampling );
 
                 if ( stop_ids.contains( next_token ) )
-                {
-                    status = GenerateStatus::Success;
-                    break;
-                }
+                    return GenerateStatus::Success;
 
                 on_token( next_token );
                 ++position;
-                ++decode_token_count;
             }
 
-            const auto decode_end = std::chrono::high_resolution_clock::now();
-            const float decode_ms =
-                std::chrono::duration<float, std::milli>( decode_end - decode_start ).count();
-
-            result.status = status;
-            result.tokens_generated = 1 + decode_token_count;
-            result.statistics.tokens_generated = result.tokens_generated;
-            result.statistics.decode_time_ms = decode_ms;
-            result.statistics.decode_tokens_per_second =
-                (decode_ms > 0.0f && decode_token_count > 0)
-                ? static_cast<float>( decode_token_count ) / (decode_ms / 1000.0f)
-                : 0.0f;
-
-            return result;
+            return GenerateStatus::MaxNewTokensReached;
         }
 
         void onTraining() override
@@ -451,8 +410,8 @@ namespace Mila::Dnn
 
         // Gemma 4 instruct stop tokens: <eos> = 1, <end_of_turn> = 106 (validated by the
         // token-for-token HF parity run + the live chat). These are the MODEL defaults; the
-        // library does not parse the tokenizer -- a harness that owns the tokenizer may add its
-        // own stop id per call via GenerateConfig::eos_token_id (unioned in onGenerating).
+        // library does not parse the tokenizer -- a harness that owns the tokenizer may
+        // override the stop set per call via GenerateParams::stop_tokens.
         static constexpr int32_t kEosToken = 1;
         static constexpr int32_t kEndOfTurnToken = 106;
 

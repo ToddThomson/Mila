@@ -16,7 +16,7 @@ module;
 export module Dnn.Samplers.TokenSampler;
 
 import Dnn.Samplers.SamplingConfig;
-import Dnn.GenerateParams;
+import Dnn.SamplingParams;
 import Compute.SamplerBase;
 import Compute.OperationTraits;
 import Compute.OperationType;

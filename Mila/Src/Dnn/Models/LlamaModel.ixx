@@ -69,7 +69,7 @@ namespace Mila::Dnn
     /**
      * @brief LLaMA 3 compatible inference model.
      *
-     * Owns a loaded, built LlamaTransformer and exposes generateStreaming()
+     * Owns a loaded, built LlamaTransformer and exposes generate()
      * for autoregressive text generation. Supports the prefill + KV-cache
      * decode two-phase generation loop.
      *
@@ -260,24 +260,29 @@ namespace Mila::Dnn
          * @param prompt_tokens  Input token ids; truncated from the start if
          *                       they exceed the model's max sequence length.
          * @param on_token       Callback invoked once per generated token (not EOS).
-         * @param max_new_tokens Maximum number of tokens to generate beyond the prompt.
-         * @param temperature    Sampling temperature; <= 0 selects the argmax.
-         * @param top_k          Restrict sampling to the top-k logits; 0 disables.
+         * @param params         Per-call generation parameters (loop bound + sampling).
          * @param stop           Stop token for cooperative cancellation.
+         * @return               Why generation stopped.
          */
-        GenerateResult onGenerating(
+        GenerateStatus onGenerating(
             std::span<const int32_t> prompt_tokens,
             const std::function<void( int32_t )>& on_token,
-            const GenerateConfig& config,
+            const GenerateParams& params,
             std::stop_token stop ) override
         {
-            const auto stop_ids = stopTokens();
+            // Stop set: model defaults, or the caller's per-call override.
+            std::unordered_set<int32_t> stop_ids;
+            if ( params.stop_tokens.empty() )
+                stop_ids = stopTokens();
+            else
+                for ( auto id : params.stop_tokens )
+                    stop_ids.insert( static_cast<int32_t>( id ) );
 
-            // Reproducible generation when config.seed is supplied; otherwise time-seeded.
-            std::mt19937 rng( config.seed
-                ? static_cast<std::mt19937::result_type>( *config.seed )
-                : static_cast<std::mt19937::result_type>(
-                    std::chrono::high_resolution_clock::now().time_since_epoch().count() ) );
+            // Host sampler path (device-sampler migration deferred): time-seeded.
+            // Seedable/reproducible sampling arrives with the device-sampler migration
+            // (LanguageModel::seedSampler), not a per-call parameter.
+            std::mt19937 rng( static_cast<std::mt19937::result_type>(
+                std::chrono::high_resolution_clock::now().time_since_epoch().count() ) );
 
             if ( prompt_tokens.size() > static_cast<size_t>( context_length_ ) )
             {
@@ -286,48 +291,28 @@ namespace Mila::Dnn
                     prompt_tokens.size(), context_length_ ) );
             }
 
-            GenerateResult result;
-            result.statistics.prompt_tokens = prompt_tokens.size();
-
             const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
 
             auto prefill_input = makeTokenTensor( prompt_tokens );
 
-            // ---- Phase 1: Prefill — measured to first token ----
-            const auto prefill_start = std::chrono::high_resolution_clock::now();
-
             auto& logits = this->getLanguageNetwork().prefill( prefill_input );
             this->getLanguageNetwork().synchronize();
 
-            int32_t next_token = sampleFromLogits( logits, 0, config.temperature, config.top_k, rng );
-
-            const auto prefill_end = std::chrono::high_resolution_clock::now();
-            result.statistics.prefill_time_ms =
-                std::chrono::duration<float, std::milli>( prefill_end - prefill_start ).count();
+            int32_t next_token = sampleFromLogits(
+                logits, 0, params.sampling.temperature, params.sampling.top_k, rng );
 
             if ( stop_ids.contains( next_token ) )
-            {
-                result.status = GenerateStatus::Success;
-                return result;
-            }
+                return GenerateStatus::Success;
 
             on_token( next_token );
-            result.tokens_generated = 1;
 
             int position = static_cast<int>( seq_len );
+            const int max_new = params.max_new_tokens.value_or( static_cast<int>( context_length_ ) );
 
-            // ---- Phase 2: Autoregressive decode ----
-            const auto decode_start = std::chrono::high_resolution_clock::now();
-            std::size_t decode_token_count = 0;
-            GenerateStatus status = GenerateStatus::MaxNewTokensReached;
-
-            for ( size_t step = 1; step < static_cast<size_t>( config.max_new_tokens ); ++step )
+            for ( int step = 1; step < max_new; ++step )
             {
                 if ( stop.stop_requested() )
-                {
-                    status = GenerateStatus::ClientCancelled;
-                    break;
-                }
+                    return GenerateStatus::ClientCancelled;
 
                 decode_token_staging_.data()[ 0 ] = next_token;
                 copy( decode_token_staging_, decode_token_device_ );
@@ -335,33 +320,17 @@ namespace Mila::Dnn
                 auto& decode_logits = this->getLanguageNetwork().decode( decode_token_device_, position );
                 this->getLanguageNetwork().synchronize();
 
-                next_token = sampleFromLogits( decode_logits, 0, config.temperature, config.top_k, rng );
+                next_token = sampleFromLogits(
+                    decode_logits, 0, params.sampling.temperature, params.sampling.top_k, rng );
 
                 if ( stop_ids.contains( next_token ) )
-                {
-                    status = GenerateStatus::Success;
-                    break;
-                }
+                    return GenerateStatus::Success;
 
                 on_token( next_token );
                 ++position;
-                ++decode_token_count;
             }
 
-            const auto decode_end = std::chrono::high_resolution_clock::now();
-            const float decode_ms =
-                std::chrono::duration<float, std::milli>( decode_end - decode_start ).count();
-
-            result.status = status;
-            result.tokens_generated = 1 + decode_token_count;
-            result.statistics.tokens_generated = result.tokens_generated;
-            result.statistics.decode_time_ms = decode_ms;
-            result.statistics.decode_tokens_per_second =
-                (decode_ms > 0.0f && decode_token_count > 0)
-                ? static_cast<float>( decode_token_count ) / (decode_ms / 1000.0f)
-                : 0.0f;
-
-            return result;
+            return GenerateStatus::MaxNewTokensReached;
         }
 
         /**

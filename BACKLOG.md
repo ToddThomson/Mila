@@ -451,44 +451,97 @@ a 12 GB card.
 
 ## Generation API
 
-The library's `LanguageModel::generate` is a **fast token generator** — `GenerateConfig` in, tokens out
-(via callback), `GenerateResult` out — and nothing else. Sessions, prompt caching, and multi-conversation
-routing are **harness/app concerns** (Chat, the Mila Inference server) built on the library's compute
-primitives (`prefill`/`decode`, later `prefillFrom`/`rewindKvCache`); the library exposes those primitives
-but does not implement the policy. Design: [[project_ongenerating_overhaul]].
+The library's `LanguageModel::generate` is a **fast token generator**: prompt tokens in, tokens out through
+a push callback, and the finish reason returned — nothing else. Sessions, prompt caching, and
+multi-conversation routing are **harness/app concerns** (Chat, the Mila Inference server) built on the
+compute primitives (`prefill`/`decode`, later `prefillFrom`/`rewindKvCache`); the library exposes those
+primitives but does not implement the policy. Design + full rationale: [[project_ongenerating_overhaul]].
 
-**DONE 2026-06-29 — the config-in / result-out contract (validated: green build + green Gemma chat):**
-- [x] `GenerateStatus.ixx` now `export`s the enum + `to_string` (was compiled-but-unreachable); `<cstdint>` added.
-- [x] `GenerateResult { GenerateStatus status; GenerationStatistics statistics; size_t tokens_generated }`
-  authored in [LanguageModel.ixx](Mila/Src/Dnn/Core/LanguageModel.ixx) — the base class owns it, no separate
-  file (the stale `GenerateResult.ixx` REVIEW marker is gone).
-- [x] `generate`/`generateStreaming`/`onGenerating` take `const GenerateConfig&` and return `GenerateResult`.
-  The mutable `last_generation_statistics_` member + `getLastGenerationStatistics()` are removed — the model
-  is reentrant.
-- [x] `top_p` now reaches the device sampler (whole config forwarded). Struct `GenerateParams` renamed to
-  `GenerateConfig` in place (`using SamplingParams = GenerateConfig` kept; module/file name `Dnn.GenerateParams`
-  unchanged). `GenerateConfig`/`GenerateStatus` exported through the `Mila` umbrella.
-- [x] Gemma `onGenerating` wires the four `GenerateStatus` exits + drops the dead comment blocks; Llama/Gpt
-  mechanically adapted (host sampler path frozen); Chat / ProfileModel / pybind wrappers / parity test updated.
-  Python-facing wrapper signatures unchanged.
+**Design review 2026-07-01 — the surface below SUPERSEDES the 2026-06-29 config-in / result-out reshape.**
+A first-principles review found the first reshape still carried telemetry and lifetime-state that don't
+belong at the model layer. The milestone now closes against this target. Decided micro-choices:
+`const std::function&` (not `function_ref`); the `Generation*` naming family; `max` blessed as an
+established term (like `Kv`/`Gqa`) — no `maximum` expansion; `onGenerating` kept as the protected hook name.
 
-**Remaining (library):**
-- [x] **`seed` -> sampler RNG (reproducibility) — DONE 2026-06-29 (green build + run).** `TokenSampler::reseed(uint64_t)`
-  seeds the host RNG; base `seedSampler()`/`ensureSampler()` extracted; Gemma `onGenerating` reseeds once at
-  run start when `config.seed` is set; Llama/Gpt seed their host `mt19937` from `config.seed` (else time).
-  `<optional>` added to the three model TUs. Now reachable via the library API (`generate(prompt,
-  GenerateConfig{...seed...})`); Chat/pybind don't yet expose a seed knob (app-layer choice, left out).
-- [ ] **[polish] Module/file rename `Dnn.GenerateParams` -> `Dnn.GenerateConfig`** — cosmetic; the struct is
-  already `GenerateConfig`. Best done as a VS2026 IDE rename (file + module + 8 import sites + CMake). Also add
-  a doc line distinguishing `GenerateConfig` (per-call) from `SamplingConfig` (construction-time, model-fixed).
-- [~] **Config ownership + accessors — DONE 2026-06-29 for Gemma (green build + run); Llama/Gpt + base hoist remain.**
-  GemmaModel now stores `GemmaModelConfig model_config_` (replaces bare `int64_t context_length_`,
-  recovers the discarded weight-quant/kv-compression for diagnostics); accessors `getNetworkConfig()` +
-  `getModelConfig()` + derived `contextLength()`; ctor takes the deployment config; `toString()` shows it;
-  all four `context_length_` REVIEWs + config-storage REVIEW + RuntimeMode comment resolved; Gemma pybind
-  wrapper uses `getNetworkConfig()`. STILL OPEN: `GemmaTransformer::getConfig()` self-description hygiene;
-  hoist `contextLength()` to the `LanguageModel` base + make it mode-aware (training -> arch max);
-  propagate the accessor pair to Llama/Gpt; settle `int64_t`-vs-`dim_t`. Original design below:
+Target signature:
+
+```cpp
+[[nodiscard]] GenerationStatus generate(
+    std::span<const TokenId> prompt_tokens,
+    const std::function<void( TokenId )>& on_token,
+    const GenerationParams& params = {},
+    std::stop_token stop = {} );
+```
+
+**Why — the reasoning that drove each cut:**
+- **ONE primitive.** `generate` + `generateStreaming` + the vector-returning `generate` are the same
+  blocking, serial loop with different output sinks (the vector form is `generateStreaming` + a `push_back`
+  lambda). Collapse to one callback-streaming `generate`; `onGenerating` stays the protected hook, retyped.
+- **Return `GenerationStatus` only.** The finish reason is the sole result the caller cannot reconstruct
+  (natural EOS vs context overflow is model-only knowledge). `MaxNewTokensReached` / `ClientCancelled` stay
+  distinct precisely because the model — not a caller-side `stop_token` — owns the length cap.
+- **Delete `GenerateResult` and `GenerationStatistics`.** Statistics are telemetry the harness reconstructs
+  from the callback stream (prompt count = input size; TTFT = time to first callback; throughput = callback
+  timestamps) — the model owns no stopwatch. `GenerateResult` was only a status+stats bundle; it dissolves.
+  Permanently retires `last_generation_statistics_` / `getLastGenerationStatistics()`.
+- **`max_new_tokens` / `seed` / `eos_token_id`** each ran the test "property of the request, or of the
+  model/sampler?" Only `max_new_tokens` is per-call (and it earns its place because model-enforced capping is
+  the only way to keep `MaxNewTokensReached` distinct from `ClientCancelled`). `seed` is a stream property
+  (per-call reseed correlates outputs) -> `seedSampler(uint64_t)` once. `eos_token_id` is a model/tokenizer
+  property -> established at construction (harness owns the tokenizer).
+
+**Value types (one per module; `Generation*` / `Sampl*` families):**
+- `GenerationParams { std::optional<int> max_new_tokens; SamplingParams sampling; }` — per-call request.
+  `max_new_tokens` nullopt => run to EOS / context bound (no magic 128, no silent truncation). Single
+  defaulted arg so the four-arg signature never churns as knobs grow.
+- `SamplingParams { float temperature; int top_k; float top_p; }` — the sampling shape, forwarded to the
+  sampler as `params.sampling` (loop control never reaches the sampler). Retires `using SamplingParams =
+  GenerateConfig`.
+- `GenerationStatus` — the return enum (rename from `GenerateStatus`; `to_string` follows).
+- `SamplerConfig` — construction-time, model-fixed (vocab, softcap); rename from `SamplingConfig`.
+
+**Renames (reverses the earlier Params->Config rename — per-call = Params):** `GenerateStatus` ->
+`GenerationStatus` (module `Dnn.GenerateStatus` -> `Dnn.GenerationStatus`); `GenerateConfig`(struct) in module
+`Dnn.GenerateParams` -> `GenerationParams` in `Dnn.GenerationParams`; `SamplingConfig` -> `SamplerConfig`
+(`Dnn.Samplers.SamplingConfig` -> `...SamplerConfig`); new `SamplingParams` module. The pending
+`Dnn.GenerateParams -> Dnn.GenerateConfig` polish item is dropped — it was backwards.
+
+**Superseded (in the tree, to be unwound):** the 2026-06-29 reshape (green build + Gemma chat) authored
+`GenerateResult`/`GenerationStatistics` in `LanguageModel.ixx`, made `generate`/`generateStreaming`/
+`onGenerating` take `const GenerateConfig&` return `GenerateResult`, wired per-call `seed`
+(`TokenSampler::reseed`) and per-call `eos_token_id` union (`kEosToken=1`/`kEndOfTurnToken=106`), and exported
+the vocabulary through the `Mila` umbrella. The tasks below unwind the parts that don't survive.
+
+**Shipped 0.20.0-alpha.6+79 (green build + green Gemma chat).** The family term stayed `Generate*` (the code
+already used it; the `Generation*` naming in the design notes above was not adopted), and the `SamplingConfig`
+-> `SamplerConfig` rename was deferred as the highest-risk cross-module rename. Delivered:
+- [x] Collapsed to one `generate(prompt_tokens, on_token, params, stop) -> GenerateStatus`; deleted the
+  vector-returning `generate` + `generateStreaming`; `onGenerating` retyped (`GenerateStatus` / `const GenerateParams&`).
+- [x] Deleted `GenerateResult` + `GenerationStatistics` from [LanguageModel.ixx](Mila/Src/Dnn/Core/LanguageModel.ixx);
+  the model records no timing. Chat + ProfileModel self-time from the callback cadence (TTFT = call -> first
+  token, decode = first -> last).
+- [x] `GenerateParams { std::optional<int> max_new_tokens; SamplingParams sampling; std::vector<TokenId> stop_tokens; }`
+  + `SamplingParams { temperature, top_k, top_p }` in its own module `Dnn.SamplingParams`; `generate` forwards
+  only `params.sampling`; the `using SamplingParams = GenerateConfig` alias retired.
+- [x] `max_new_tokens` = `std::optional<int>`, nullopt => EOS / context bound (silent-truncation default fixed).
+- [x] Stop set moved to construction — model defaults (`stopTokens()`), with an optional per-call
+  `GenerateParams::stop_tokens` override; the per-call `eos_token_id` union retired.
+- [x] `seed` -> public `LanguageModel::seedSampler(uint64_t)` (seed once); per-call `seed` removed.
+- [x] `top_p` reaches the device sampler.
+- [x] `last_generation_statistics_` / `getLastGenerationStatistics()` removed, stays removed.
+- [x] Propagated across GemmaModel/LlamaModel/GptModel `onGenerating`, Chat, ProfileModel, and the Gemma parity test.
+
+Still open to close the milestone:
+- [ ] `SamplingConfig` -> `SamplerConfig` rename (deferred this pass -- highest-risk cross-module rename).
+- [ ] Llama/Gpt reproducibility -- their host samplers are time-seeded only until the deferred device-sampler
+  migration wires `seedSampler`.
+- [ ] Note in the style guide that `max` is a blessed term (like `Kv`/`Gqa`) so the no-abbreviation rule leaves it.
+
+- [~] **Config ownership + accessors** — Gemma DONE (stores `GemmaModelConfig`, `getNetworkConfig()` +
+  `getModelConfig()`, derived `contextLength()`, bare `context_length_` gone, pybind uses `getNetworkConfig()`).
+  STILL OPEN: hoist `contextLength()` to the `LanguageModel` base + make it mode-aware (training -> arch max);
+  propagate the accessor pair to Llama/Gpt; `GemmaTransformer::getConfig()` hygiene; settle `int64_t`-vs-`dim_t`.
+  Original design detail below:
 - [ ] **(design ref) Config ownership + accessors (REVIEWs [GemmaModel.ixx:360](Mila/Src/Dnn/Models/GemmaModel.ixx:360),
   [:418](Mila/Src/Dnn/Models/GemmaModel.ixx:418), [:430](Mila/Src/Dnn/Models/GemmaModel.ixx:430), [:349](Mila/Src/Dnn/Models/GemmaModel.ixx:349)).**
   Decided 2026-06-28:
@@ -526,19 +579,18 @@ but does not implement the policy. Design: [[project_ongenerating_overhaul]].
     policy-erased model import the config without the templated transformer — and stays.
   - Make the stored deployment context `const dim_t`; settle `int64_t`-vs-`dim_t` static_cast smell in
     the same pass.
-- [x] **Stop tokens / EOS — DONE 2026-06-29 (green build + run; library-clean, NOT metadata-sourced).**
-  Resolved as named, validated defaults + per-call harness override. The ids are NOT in the checkpoint
-  metadata or `GemmaConfig`, so "from metadata" would need a Python converter + checkpoint-format change +
-  re-conversion — out of the library and against the harness-owns-tokenizer split. GemmaModel now uses
-  `kEosToken=1` / `kEndOfTurnToken=106` constants (validated by HF parity + live chat; the stale
-  "unconfirmed" REVIEW caveats removed); `onGenerating` unions the harness-supplied
-  `GenerateConfig.eos_token_id` into the stop set. DEFERRED (only if needed): a full per-call stop-SET
-  override (`GenerateConfig.stop_token_ids`) to replace the defaults entirely; and the converter route if
-  library-side metadata sourcing is ever wanted.
-- [ ] **Eager sampler construction (TTFT hygiene).** The lazy `make_unique<TokenSampler>` in
-  [sampleNext](Mila/Src/Dnn/Core/LanguageModel.ixx:196) first fires on the post-prefill sample inside the
-  timed prefill region, inflating first-run `prefill_time_ms`/TTFT by op allocation + trait resolution.
-  Construct it once before the first timed region.
+- [~] **Stop tokens / EOS — being moved to construction (supersedes the 2026-06-29 per-call union).**
+  The 2026-06-29 solution (named `kEosToken=1` / `kEndOfTurnToken=106` defaults unioned with a per-call
+  `eos_token_id`) landed green, but EOS is a model/tokenizer property, not a request parameter — passing the
+  same id per call is pure repetition, and it belongs with the model. Target: the harness supplies the stop
+  set when the model is built (it owns the tokenizer); an optional per-call `stop_tokens` override survives
+  for advanced structured generation only. The checkpoint-metadata route stays rejected (ids aren't in the
+  checkpoint; sourcing them would need a converter + format change, against the harness-owns-tokenizer split).
+  Folded into the "move the stop set to construction" task above.
+- [ ] **Eager sampler construction.** Build the sampler once before the first generation rather than lazily
+  in `sampleNext` on the post-prefill sample. With `GenerationStatistics` deleted the model no longer
+  mis-times its own prefill (that bug leaves with the stopwatch), but the lazy allocation still adds real
+  first-token latency the harness will measure — construct up front.
 
 **Deferred — harness layer, NOT the library (only if multi-turn prefill latency actually bites):**
 - [ ] **Prompt-caching / KV reuse as a harness concern.** The library exposes the primitives —

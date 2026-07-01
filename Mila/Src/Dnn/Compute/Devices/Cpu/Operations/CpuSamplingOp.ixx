@@ -18,7 +18,7 @@ module;
 export module Compute.CpuSamplingOp;
 
 import Dnn.Samplers.SamplingConfig;
-import Dnn.GenerateParams;
+import Dnn.SamplingParams;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
