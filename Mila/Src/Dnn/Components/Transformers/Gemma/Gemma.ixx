@@ -153,8 +153,12 @@ namespace Mila::Dnn
         using TokenEmbeddingType = TokenEmbedding<TDeviceType, dtype_t::INT32, TPrecision>;
         using LmHeadLinearType = Linear<TDeviceType, TPrecision>;
         using RmsNormType = RmsNorm<TDeviceType, TPrecision>;
+        // TKvCachePolicy applies to the LOCAL (sliding) layers only — they attend a
+        // bounded window, so their KV cache can be a ring (SlidingWindowKvCache.md D4).
+        // GLOBAL (full-attention) layers attend the entire context and therefore always
+        // use the full-context cache (NoKvCompression), regardless of the sliding policy.
         using LocalBlockType = GemmaBlock<TDeviceType, TPrecision, false, TWeightQuantization, TKvCachePolicy>;
-        using GlobalBlockType = GemmaBlock<TDeviceType, TPrecision, true, TWeightQuantization, TKvCachePolicy>;
+        using GlobalBlockType = GemmaBlock<TDeviceType, TPrecision, true, TWeightQuantization, NoKvCompression>;
         using DecoderLayerType = IDecoderLayer<TDeviceType, TPrecision>;
         using TokenIndexType = Tensor<dtype_t::INT32, MR>;
         using ComponentPtr = typename NetworkBase::ComponentPtr;

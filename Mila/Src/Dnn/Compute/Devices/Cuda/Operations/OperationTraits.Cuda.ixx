@@ -9,7 +9,7 @@
  *
  * Migration status:
  *   LinearOp                 complete
- *   GroupedQueryAttentionOp  complete (NoKvCompression; PerChannelKvFp8 pending CudaGqaOp support)
+ *   GroupedQueryAttentionOp  complete (NoKvCompression, SlidingWindowKvCache; PerChannelKvFp8 pending CudaGqaOp support)
  *   SamplingOp               pending
  *   policy-free ops          complete
  */
@@ -99,22 +99,38 @@ namespace Mila::Dnn::Compute
     // -------------------------------------------------------------------------
     // GroupedQueryAttentionOp — CUDA specializations
     //
-    // TPolicy = NoKvCompression: uncompressed BF16/FP32 KV cache.
-    // TPolicy = PerChannelKvFp8<>: pending CudaGqaOp FP8 cache support.
+    // TPolicy = NoKvCompression:      uncompressed full-context BF16/FP32 KV cache.
+    // TPolicy = SlidingWindowKvCache: uncompressed bounded ring cache for sliding
+    //                                 layers (CudaGqaOp kBounded axis, SlidingWindowKvCache.md).
+    // TPolicy = PerChannelKvFp8<>:    pending CudaGqaOp FP8 cache support.
     // -------------------------------------------------------------------------
 
-    /// Unquantized FP32 path. No KV cache compression.
+    /// Unquantized FP32 path. Full-context KV cache.
     template<>
     struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::FP32, NoKvCompression>
     {
-        using type = CudaGqaOp<TensorDataType::FP32>;
+        using type = CudaGqaOp<TensorDataType::FP32, false>;
     };
 
-    /// Unquantized BF16 path. No KV cache compression. Standard inference precision.
+    /// Unquantized BF16 path. Full-context KV cache. Standard inference precision.
     template<>
-        struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::BF16, NoKvCompression>
+    struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::BF16, NoKvCompression>
     {
-        using type = CudaGqaOp<TensorDataType::BF16>;
+        using type = CudaGqaOp<TensorDataType::BF16, false>;
+    };
+
+    /// Bounded sliding-window ring cache, FP32. Sliding (local) layers only (window > 0).
+    template<>
+    struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::FP32, SlidingWindowKvCache>
+    {
+        using type = CudaGqaOp<TensorDataType::FP32, true>;
+    };
+
+    /// Bounded sliding-window ring cache, BF16. Sliding (local) layers only (window > 0).
+    template<>
+    struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::BF16, SlidingWindowKvCache>
+    {
+        using type = CudaGqaOp<TensorDataType::BF16, true>;
     };
 
     // -------------------------------------------------------------------------

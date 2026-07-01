@@ -16,6 +16,50 @@ release notes.
 The bridge from "the features work" to a tree honest enough to call beta. Milestone vision
 is in ROADMAP; open triage buckets are in BACKLOG.
 
+### Gemma 4 memory-management gates — DONE + VALIDATED (0.20.0-alpha.6+78)
+
+The two v0.20 release gates that shrink Gemma 4 12B FP4's steady-state footprint so a much larger
+context window fits a 12 GB card. Both are pure memory optimizations — tokens are unchanged (Step 5 HF
+parity was already validated), so each was built against the working full-cache path as the oracle.
+
+**Gate 1 — Weight tying (Gemma).** `lm_head` now shares the token-embedding storage instead of holding a
+second `vocab x model_dim` copy, reclaiming ~2 GB (262144 x 3840 x 2B BF16) in steady state. Design:
+[WeightTying.md](Mila/Specifications/WeightTying.md).
+
+- Shared device allocation via `TokenEmbedding::wte_` -> `shared_ptr` + `Linear::installSharedWeight`
+  (weight_ was already shared_ptr), aliased post-load in `GemmaTransformer::loadParameters`.
+- The scale-fold conflict is resolved by storing the embedding RAW and moving Gemma's `sqrt(hidden_size)`
+  scale to runtime via `TokenEmbeddingConfig::embedding_scale` (default 1.0 = identity for Llama). `lm_head`
+  is never quantized, so the tie is always BF16-safe. `getMemoryStats` corrected for the double-count.
+- Mandatory Gemma re-convert (old checkpoints double-scale under the new code — no graceful degradation by
+  design). Llama 3.2 1B/3B tying is a deferred Good-First-Issue (plumbing already shipped).
+
+**Gate 2 — Bounded sliding-window KV ring.** Gemma's 40 local (sliding) layers attend only the last
+`window` (1024) keys, so their KV cache is now a fixed ring of `capacity = min(T, window + prefill_chunk - 1)`
+instead of growing with context; the 8 global (full-attention) layers stay full. Design:
+[SlidingWindowKvCache.md](Mila/Specifications/SlidingWindowKvCache.md).
+
+- New `SlidingWindowKvCache` KV-policy sibling; `CudaGqaOp<TPrecision, bool kBounded>` compile-time axis
+  resolved through `OperationTraits`. `cache_capacity_` replaces `T` for the allocation, cuBLASLt plan
+  inner dim, and KV-write extent — all no-ops when unbounded (`capacity == T`), so the validated
+  full-cache path is byte-identical.
+- Ring mechanics (the one genuinely new kernel path): KV write wraps `(start_pos + t) % capacity`
+  (identity when unbounded); decode + prefill softmax reconstruct each ring slot's absolute position
+  `p_j = end - ((r - j + capacity) % capacity)` and keep it iff `window_start <= p_j <= abs_t`. Softmax and
+  att-value are set operations, so rotated ring order needs no sorting. `capacity = window + chunk - 1`
+  sizes each prefill chunk's needed span to exactly the resident range.
+- Wired per block-kind in `GemmaTransformer`: local -> `SlidingWindowKvCache`, global -> hardwired
+  `NoKvCompression`. Selected via the `GemmaSlidingKvPolicy` flip-point in `GemmaModel`.
+- Payoff: persistent-KV growth slope drops 336 -> 16 KB/token (the 8 global MQA layers only); sliding KV
+  at 256K context goes ~80 GB -> ~0.34 GB (BF16). Rejected the full flash-attention rewrite (Option B) as
+  out of proportion; chunked prefill stays — it bounds the orthogonal GeGLU FFN activation floor.
+
+Validation: build + coherent 8192-token chat with the ring fully engaged (eviction active), plus an
+operation-level parity harness (`CudaGqaOp.Cuda.cpp`) checking bounded-vs-full-cache decode and prefill
+(single/multi-chunk-across-window/partial-final/prefill-then-decode), the closed-form KV footprint
+(`getStateMemorySize` == `2·B·NKV·capacity·HS·bytes`), and a compile-time proof that the transformer
+routes the bounded ring to local layers only.
+
 ### Gemma 4 12B Dense Chassis — DONE + HF-VALIDATED (0.20.0-alpha.6+73)
 
 Mila's entry into 2026-era transformer architecture: a new `Components/Transformers/Gemma` family
@@ -54,9 +98,9 @@ Token-for-token parity resolution (the multi-week numerics hunt, [[project_gemma
   silently-zeroes-on-missing-weight hazard is now a defensive BACKLOG item. Canonical HF reference is
   `output_hidden_states`, never the per-layer forward hooks (which lie).
 
-Residual follow-ups (incl. the bounded-KV ring cache + weight-tying v0.20 memory gates that let 12B FP4
-fit a 12 GB card) are tracked in [BACKLOG.md](BACKLOG.md) under "Gemma 4 — Dense Chassis (residual /
-follow-ups)".
+The two v0.20 memory gates that let 12B FP4 fit a 12 GB card (bounded-KV ring cache + weight tying) landed
+in +78 — see the entry above. Remaining residual follow-ups are tracked in [BACKLOG.md](BACKLOG.md) under
+"Gemma 4 — Dense Chassis (residual / follow-ups)".
 
 ### TensorOps element-wise math revival — DONE + VALIDATED (0.20.0-alpha.6+62)
 

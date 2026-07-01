@@ -45,6 +45,20 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int chunk_len, int position_offset, int window,
         cudaStream_t stream );
 
+    /**
+     * @brief Bounded sliding-window ring prefill softmax (BF16).
+     *
+     * Variant of cuda_gqa_prefill_softmax_bf16 for a KV cache stored as a ring of
+     * `capacity` rows. preatt/att column j is RING SLOT j; the kernel reconstructs
+     * each slot's absolute position (from end = position_offset + chunk_len - 1) to
+     * apply the window + causal mask. See SlidingWindowKvCache.md D6.
+     */
+    void cuda_gqa_prefill_softmax_ring_bf16(
+        __nv_bfloat16* att, const __nv_bfloat16* preatt,
+        int B, int NH, int capacity,
+        int chunk_len, int position_offset, int window,
+        cudaStream_t stream );
+
     void cuda_gqa_prefill_unpermute_output_padded_bf16(
         const __nv_bfloat16* vaccum, __nv_bfloat16* out,
         int B, int actual_T, int padded_T,
@@ -327,6 +341,13 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
     void cuda_gqa_prefill_softmax_fp32(
         float* att, const float* preatt,
         int B, int NH, int T_stride, int chunk_stride,
+        int chunk_len, int position_offset, int window,
+        cudaStream_t stream );
+
+    /// @copydoc cuda_gqa_prefill_softmax_ring_bf16
+    void cuda_gqa_prefill_softmax_ring_fp32(
+        float* att, const float* preatt,
+        int B, int NH, int capacity,
         int chunk_len, int position_offset, int window,
         cudaStream_t stream );
 

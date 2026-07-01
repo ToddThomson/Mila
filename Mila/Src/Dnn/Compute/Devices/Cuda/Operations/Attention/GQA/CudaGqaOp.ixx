@@ -15,6 +15,7 @@ module;
 #include <type_traits>
 #include <sstream>
 #include <unordered_map>
+#include <algorithm>
 #include "Kernels/CudaGqa.cuh"
 
 export module Compute.CudaGqaOp;
@@ -86,8 +87,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      *  6. unpermute_output          -> Y [B,1,C]
      *
      * @tparam TPrecision Tensor element type and cuBLASLt data/compute type.
+     * @tparam kBounded   When true (SlidingWindowKvCache policy), the KV cache is
+     *                    bounded to a sliding-window ring of capacity
+     *                    min(T, window + prefill_chunk - 1) instead of the full
+     *                    context T. When false (NoKvCompression), capacity == T and
+     *                    the path is byte-identical to the unbounded cache. See
+     *                    SlidingWindowKvCache.md.
      */
-    export template<TensorDataType TPrecision>
+    export template<TensorDataType TPrecision, bool kBounded = false>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
     class CudaGqaOp : public Operation<DeviceType::Cuda, TPrecision>, public IKvInference
     {
@@ -219,6 +226,27 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const int64_t prefill_size = context.getPrefillSize();
             prefill_chunk_size_ = static_cast<int>( prefill_size > 0 ? prefill_size : T_ );
 
+            // Bounded sliding-window ring capacity (SlidingWindowKvCache.md D2). The
+            // cache need only hold a sliding layer's working set: the window plus one
+            // prefill chunk's worth of in-flight keys, never more than the context T_.
+            // The unbounded path keeps capacity == T_, so every downstream extent
+            // (allocation, plan inner dim, kernel bounds) is unchanged. The ring write
+            // wrap and slot->absolute-position softmask that make capacity < T_
+            // correct land in Phases 1-2; Phase 0 only computes and validates it.
+            if constexpr ( kBounded )
+            {
+                if ( window_ <= 0 )
+                    throw std::invalid_argument(
+                        "CudaGqaOp<bounded>: SlidingWindowKvCache requires a positive window; "
+                        "global/full-attention layers must use NoKvCompression" );
+
+                cache_capacity_ = std::min( T_, window_ + prefill_chunk_size_ - 1 );
+            }
+            else
+            {
+                cache_capacity_ = T_;
+            }
+
             active_max_seq_len_ = T_;
             cached_seq_len_ = 0;
             kv_cache_enabled_ = false;
@@ -311,6 +339,24 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             return state_memory_size_;
         }
 
+        /**
+         * @brief KV cache row count resolved at build time.
+         *
+         * Equals the context length T for the unbounded cache (kBounded == false)
+         * and min(T, window + prefill_chunk - 1) for the bounded sliding-window
+         * ring (kBounded == true). Exposed for the bounded-vs-oracle parity tests
+         * (SlidingWindowKvCache.md 7.1).
+         */
+        int getCacheCapacity() const noexcept
+        {
+            return cache_capacity_;
+        }
+
+        static constexpr bool isBounded() noexcept
+        {
+            return kBounded;
+        }
+
     private:
 
         GqaConfig config_;
@@ -329,6 +375,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         float attention_scale_{ 0.0f }; ///< QK softmax scale (config-derived; 1/sqrt(HS) for Llama, 1.0 for Gemma)
 
         int prefill_chunk_size_{ 0 };
+        int cache_capacity_{ 0 };   ///< KV cache row count: T_ unbounded, min(T_, window+chunk-1) bounded
         int active_max_seq_len_{ 0 };
         int cached_seq_len_{ 0 };
         bool kv_cache_enabled_{ false };
@@ -433,7 +480,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         {
             auto device = context_->getDeviceId();
 
-            const shape_t kv_shape = { B_, NKV_, T_, HS_ };
+            // Cache row count is cache_capacity_: T_ for the unbounded cache, or the
+            // bounded sliding-window ring capacity (<= T_). All plan and kernel extents
+            // below use the same value, so the unbounded path is unchanged.
+            const shape_t kv_shape = { B_, NKV_, cache_capacity_, HS_ };
 
             auto make = [&]( const shape_t& shape, const std::string& name )
                 {
@@ -466,28 +516,32 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             cudaDataType_t scale_type;
             getComputeTypes( compute_type, scale_type );
 
+            // Plans use cache_capacity_ as the K/V cache row count and the preatt
+            // column count. For the unbounded cache cache_capacity_ == T_, so these
+            // plans are byte-identical to before; for the bounded ring they are sized
+            // to the capacity, shrinking the GEMM N dimension to the window working set.
             qk_prefill_plan_optimized_ = Detail::build_qk_prefill_plan_optimized<NativeType>(
                 cublaslt_handle_,
                 B_, NKV_, GS_,
-                prefill_chunk_size_, T_, HS_,
+                prefill_chunk_size_, cache_capacity_, HS_,
                 cuda_dt, compute_type, scale_type );
 
             att_value_prefill_plan_optimized_ = Detail::build_att_value_prefill_plan_optimized<NativeType>(
                 cublaslt_handle_,
                 B_, NKV_, GS_,
-                prefill_chunk_size_, T_, HS_,
+                prefill_chunk_size_, cache_capacity_, HS_,
                 cuda_dt, compute_type, scale_type );
 
             qk_decode_plan_optimized_ = Detail::build_qk_decode_plan_optimized<NativeType>(
                 cublaslt_handle_,
                 B_, NKV_, GS_,
-                T_, HS_,
+                cache_capacity_, HS_,
                 cuda_dt, compute_type, scale_type );
 
             att_value_decode_plan_optimized_ = Detail::build_att_value_decode_plan_optimized<NativeType>(
                 cublaslt_handle_,
                 B_, NKV_, GS_,
-                T_, HS_,
+                cache_capacity_, HS_,
                 cuda_dt, compute_type, scale_type );
         }
 
@@ -520,9 +574,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const float beta = 0.0f;
             const float scale = attention_scale_;   // config-derived: 1/sqrt(HS) (Llama) or explicit (Gemma 1.0)
 
-            // Write K/V into compact [B, NKV, T, HS] cache at position_offset
+            // Write K/V into the compact [B, NKV, cache_capacity_, HS] cache. The write
+            // kernel wraps the row index by cache_capacity_ (the ring); unbounded keeps
+            // cache_capacity_ == T_ so the wrap is the identity.
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
-                k_opt_, v_opt_, Xk, Xv, B_, chunk_len, NKV_, HS_, position_offset, T_, stream );
+                k_opt_, v_opt_, Xk, Xv, B_, chunk_len, NKV_, HS_, position_offset, cache_capacity_, stream );
 
             // Permute Q from [B, chunk, NH*HS] into compact [B, NH, chunk, HS] scratch.
             // strideA = chunk*HS between heads — matches the NKV-layout plan geometry.
@@ -544,9 +600,22 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
 
-            Detail::cuda_gqa_kernels<NativeType>::prefill_softmax(
-                att_opt_, preatt_opt_,
-                B_, NH_, T_, prefill_chunk_size_, chunk_len, position_offset, window_, stream );
+            // Prefill softmax over the cache_capacity_ cached columns. For the bounded
+            // ring, column j is a ring slot whose absolute position is reconstructed (from
+            // end = position_offset + chunk_len - 1) for window+causal masking; the
+            // unbounded path keeps column j == absolute position j.
+            if constexpr ( kBounded )
+            {
+                Detail::cuda_gqa_kernels<NativeType>::prefill_softmax_ring(
+                    att_opt_, preatt_opt_,
+                    B_, NH_, cache_capacity_, chunk_len, position_offset, window_, stream );
+            }
+            else
+            {
+                Detail::cuda_gqa_kernels<NativeType>::prefill_softmax(
+                    att_opt_, preatt_opt_,
+                    B_, NH_, cache_capacity_, prefill_chunk_size_, chunk_len, position_offset, window_, stream );
+            }
 
             execute_plan<NativeType>(
                 cublaslt_handle_, av_plan,
@@ -585,9 +654,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const float beta = 0.0f;
             const float scale = attention_scale_;   // config-derived: 1/sqrt(HS) (Llama) or explicit (Gemma 1.0)
 
-            // Write K/V into compact [B, NKV, T, HS] cache at position
+            // Write K/V into the compact [B, NKV, cache_capacity_, HS] cache. The write
+            // kernel wraps the row index by cache_capacity_; unbounded keeps
+            // cache_capacity_ == T_ so the wrap is the identity.
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
-                k_opt_, v_opt_, Xk, Xv, B_, 1, NKV_, HS_, position, T_, stream );
+                k_opt_, v_opt_, Xk, Xv, B_, 1, NKV_, HS_, position, cache_capacity_, stream );
 
             // Permute single Q token from [B, 1, NH*HS] into compact [B, NH, 1, HS] scratch.
             // strideA = 1*HS = HS between heads — matches the NKV-layout decode plan geometry.
@@ -601,9 +672,22 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 context_->getCublasLtWorkspace(),
                 context_->getCublasLtWorkspaceSize() );
 
-            Detail::cuda_gqa_kernels<NativeType>::softmax_decode_forward(
-                att_decode_opt_, 1.0f, preatt_decode_opt_,
-                B_, NH_, T_, actual_len, window_, stream );
+            // Decode softmax over the cache_capacity_ cached columns. For the bounded
+            // ring, column j is a ring slot whose absolute position is reconstructed for
+            // window masking (slot->abs); the unbounded path keeps column j == absolute
+            // position j. Both read exactly cache_capacity_ columns.
+            if constexpr ( kBounded )
+            {
+                Detail::cuda_gqa_kernels<NativeType>::softmax_decode_ring_forward(
+                    att_decode_opt_, 1.0f, preatt_decode_opt_,
+                    B_, NH_, cache_capacity_, actual_len, window_, stream );
+            }
+            else
+            {
+                Detail::cuda_gqa_kernels<NativeType>::softmax_decode_forward(
+                    att_decode_opt_, 1.0f, preatt_decode_opt_,
+                    B_, NH_, cache_capacity_, actual_len, window_, stream );
+            }
 
             execute_plan<NativeType>(
                 cublaslt_handle_, att_value_decode_plan_optimized_,
@@ -638,7 +722,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     Detail::build_qk_prefill_plan_optimized<NativeType>(
                         cublaslt_handle_,
                         B_, NKV_, GS_,
-                        chunk_len, T_, HS_,
+                        chunk_len, cache_capacity_, HS_,
                         cuda_dt, compute_type, scale_type ) ).first;
             }
 
@@ -661,7 +745,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     Detail::build_att_value_prefill_plan_optimized<NativeType>(
                         cublaslt_handle_,
                         B_, NKV_, GS_,
-                        chunk_len, T_, HS_,
+                        chunk_len, cache_capacity_, HS_,
                         cuda_dt, compute_type, scale_type ) ).first;
             }
 

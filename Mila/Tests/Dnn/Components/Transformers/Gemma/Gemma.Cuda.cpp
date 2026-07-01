@@ -314,6 +314,42 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
     }
 
     // ====================================================================
+    // K. KV-cache policy wiring (SlidingWindowKvCache.md Phase 3)
+    //
+    // Compile-time proof that the transformer routes the sliding-window policy to
+    // the LOCAL (sliding) layers only; GLOBAL (full-attention) layers always use
+    // the full-context cache regardless of the policy. This pins the per-block-kind
+    // selection in Gemma.ixx (the actual byte footprint of each op is asserted
+    // closed-form in CudaGqaOp.Cuda.cpp::StateMemory_MatchesClosedFormAndShrinks).
+    // ====================================================================
+
+    TEST_F( GemmaTransformerCudaTests, KvPolicy_RoutesBoundedRingToLocalLayersOnly )
+    {
+        using Bounded = Mila::Dnn::GemmaTransformer<
+            DeviceType::Cuda, TensorDataType::FP32,
+            Mila::Dnn::Quant::Weight::NoWeightQuant,
+            Mila::Dnn::Quant::KvCache::SlidingWindowKvCache>;
+
+        // Assert the routed POLICY (kKvCompressed = TKvPolicy::kIsActive), not the
+        // resolved op: naming OpType would complete CudaGqaOp and drag its build()
+        // body (and ExecutionContext<Cuda>) into this TU. Phase 0's dispatch test
+        // already pins policy -> bounded op; here we pin the transformer's routing.
+
+        // Sliding policy -> local layers carry the active (bounded) policy; global
+        // layers stay full regardless (hardwired NoKvCompression in Gemma.ixx).
+        static_assert( Bounded::LocalBlockType::AttentionType::kKvCompressed,
+            "SlidingWindowKvCache must reach the local (sliding) layers" );
+        static_assert( !Bounded::GlobalBlockType::AttentionType::kKvCompressed,
+            "global (full-attention) layers must never be compressed/bounded" );
+
+        // Default policy (NoKvCompression) -> both layer kinds full.
+        static_assert( !GemmaCuda::LocalBlockType::AttentionType::kKvCompressed );
+        static_assert( !GemmaCuda::GlobalBlockType::AttentionType::kKvCompressed );
+
+        SUCCEED();
+    }
+
+    // ====================================================================
     // J. Type identity
     // ====================================================================
 

@@ -160,6 +160,9 @@ namespace Mila::Data::Tests
 
         std::shared_ptr<BpeTokenizer> tokenizer = BpeTokenizer::loadGemma( p );
 
+        // REVIEW: This test is failing because the Gemma 4 tokenizer binary does not contain a <start_of_turn> token.
+        // Gemma 4 use <|turn> and <turn|> as special tokens for turn boundaries. The test should be updated to use the correct special tokens.
+
         // Registered from the loaded vocab, so it must match as one token, not subword.
         auto ids = tokenizer->encode( "<start_of_turn>" );
         EXPECT_EQ( ids.size(), 1u );

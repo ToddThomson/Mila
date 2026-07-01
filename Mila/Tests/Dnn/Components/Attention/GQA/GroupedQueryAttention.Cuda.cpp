@@ -186,4 +186,45 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA
 
         EXPECT_EQ( gqa.getType(), ComponentType::GroupedQueryAttention );
     }
+
+    // ====================================================================
+    // K. KV-cache policy dispatch (SlidingWindowKvCache.md Phase 0, 7.1)
+    //
+    // Compile-time surface only. The bounded ring's allocation/ring-wrap/softmask
+    // (the capacity < T behavior) lands in Phases 1-2 with the op-level parity
+    // harness that owns the GqaState + cache lifecycle. Here we pin that the
+    // SlidingWindowKvCache policy resolves through OperationTraits to the bounded
+    // CudaGqaOp specialization, and that the bounded component compiles and
+    // constructs end to end.
+    // ====================================================================
+
+    TYPED_TEST( GqaCudaTests, PolicyDispatch_SlidingWindowResolvesBoundedOp )
+    {
+        using Unbounded = Mila::Dnn::GroupedQueryAttention<
+            DeviceType::Cuda, TestFixture::P, Mila::Dnn::Quant::KvCache::NoKvCompression>;
+        using Bounded = Mila::Dnn::GroupedQueryAttention<
+            DeviceType::Cuda, TestFixture::P, Mila::Dnn::Quant::KvCache::SlidingWindowKvCache>;
+
+        static_assert( !Unbounded::kKvCompressed, "NoKvCompression must be inactive" );
+        static_assert( Bounded::kKvCompressed, "SlidingWindowKvCache must be active" );
+
+        static_assert( !Unbounded::OpType::isBounded(), "default policy -> unbounded op" );
+        static_assert( Bounded::OpType::isBounded(), "sliding policy -> bounded op" );
+
+        // Uncompressed ring: cache dtype falls back to the compute precision.
+        static_assert( Bounded::kCacheDtype == TestFixture::P,
+            "SlidingWindowKvCache carries no kStorageDtype" );
+
+        SUCCEED();
+    }
+
+    TYPED_TEST( GqaCudaTests, Construct_BoundedPolicyComponentSucceeds )
+    {
+        Mila::Dnn::GroupedQueryAttention<
+            DeviceType::Cuda, TestFixture::P, Mila::Dnn::Quant::KvCache::SlidingWindowKvCache>
+            gqa( "gqa_bounded", this->config(), Device::Cuda( 0 ) );
+
+        EXPECT_EQ( gqa.getType(), ComponentType::GroupedQueryAttention );
+        EXPECT_EQ( gqa.getNumKvHeads(), kNumKvHeads );
+    }
 }

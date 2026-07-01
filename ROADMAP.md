@@ -8,11 +8,11 @@ Where Mila is going — the durable narrative of each release and what it means.
 
 The roadmap shows two releases at a time — the one in flight and the one after (**vNext**) — plus a
 **Future Directions** tail. Each release is reached through **milestones** tracked by task completion
-(see [RELEASING.md](RELEASING.md)). Current version: **`0.20.0-alpha.6+73`**.
+(see [RELEASING.md](RELEASING.md)). Current version: **`0.20.0-alpha.6+78`**.
 
 The **Gemma 4 12B dense chassis** has been delivered into v0.20 (HF token-for-token parity, 2026-06-23
-— see CHANGELOG); its remaining memory-fit work (bounded-KV ring cache + weight-tying) folds into
-Production Hardening as a release gate, and the 26B-A4B MoE follow-on stays a Future Direction.
+— see CHANGELOG); its memory-fit gates (weight-tying + bounded-KV ring cache) both landed in +78, and
+the 26B-A4B MoE follow-on stays a Future Direction.
 
 ---
 
@@ -153,7 +153,7 @@ analogue of the Test Suite Revival test-CI ratchet.
 
 - [ ] Llama 3.2 1B FP32, 3.2 3B BF16, 3.1 8B FP8 validated against the HuggingFace oracle
 - [ ] Tool calling validated on Llama 3.2 3B and 3.1 8B Instruct
-- [ ] Gemma 4 12B FP4 fits a 12 GB card — weight-tying DONE (~2 GB reclaimed, 2026-07-01); bounded-KV ring cache remaining (the two memory gates in BACKLOG)
+- [x] Gemma 4 12B FP4 fits a 12 GB card — both memory gates DONE (0.20.0-alpha.6+78): weight-tying (~2 GB reclaimed) + bounded-KV sliding-window ring (persistent-KV growth now 16 KB/token, the 8 global layers only). Coherent 8192-context chat with the ring engaged
 - [ ] `CONTRIBUTING.md` coding standards + `getting-started.md` onboarding guide
 - [ ] `find_package(Mila)` validated by an external consumer build
 - [ ] Published Docker runtime image (slim multi-stage GPU runtime, release-tagged)

@@ -167,6 +167,75 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
             att_row[ t2 ] = __float2bfloat16( 0.0f );
     }
 
+    // Bounded sliding-window ring decode softmax. preatt/att rows have `capacity`
+    // columns, where column j is RING SLOT j (not an absolute position). Slot j
+    // holds the key at absolute position
+    //   p_j = end - ((r - j + capacity) % capacity),   end = actual_len - 1, r = end % capacity,
+    // which lies in (end - capacity, end]. The slot is in-window (and therefore
+    // resident) iff p_j >= window_start. Each slot is read/written by exactly one
+    // lane, so there is no cross-lane race and ring (rotated) order is irrelevant
+    // to the result. See SlidingWindowKvCache.md D6.
+    __global__ void softmax_decode_ring_forward_bf16_kernel(
+        __nv_bfloat16* att, const __nv_bfloat16* preatt,
+        int B_NH, int capacity, int actual_len, int window )
+    {
+        const int lane = threadIdx.x % warpSize;
+        const int warp_id = threadIdx.x / warpSize;
+        const int row = blockIdx.x * (blockDim.x / warpSize) + warp_id;
+
+        if ( row >= B_NH )
+            return;
+
+        const __nv_bfloat16* preatt_row = preatt + row * capacity;
+        __nv_bfloat16* att_row = att + row * capacity;
+
+        const int end = actual_len - 1;
+        const int window_start = ( window > 0 ) ? max( 0, actual_len - window ) : 0;
+        const int r = end % capacity;
+
+        // Pass 1: row max over the in-window slots.
+        float thread_max = -INFINITY;
+
+        for ( int j = lane; j < capacity; j += warpSize )
+        {
+            const int p = end - ( ( r - j + capacity ) % capacity );
+
+            if ( p >= window_start )
+                thread_max = fmaxf( thread_max, __bfloat162float( preatt_row[ j ] ) );
+        }
+
+        for ( int offset = warpSize / 2; offset > 0; offset >>= 1 )
+            thread_max = fmaxf( thread_max, __shfl_xor_sync( 0xffffffffu, thread_max, offset ) );
+
+        const float max_val = thread_max;
+
+        // Pass 2: sum of exp over the in-window slots.
+        float thread_sum = 0.0f;
+
+        for ( int j = lane; j < capacity; j += warpSize )
+        {
+            const int p = end - ( ( r - j + capacity ) % capacity );
+
+            if ( p >= window_start )
+                thread_sum += expf( __bfloat162float( preatt_row[ j ] ) - max_val );
+        }
+
+        for ( int offset = warpSize / 2; offset > 0; offset >>= 1 )
+            thread_sum += __shfl_xor_sync( 0xffffffffu, thread_sum, offset );
+
+        const float inv_sum = 1.0f / thread_sum;
+
+        // Pass 3: normalize in-window slots, zero the rest. One writer per slot.
+        for ( int j = lane; j < capacity; j += warpSize )
+        {
+            const int p = end - ( ( r - j + capacity ) % capacity );
+
+            att_row[ j ] = ( p >= window_start )
+                ? __float2bfloat16( expf( __bfloat162float( preatt_row[ j ] ) - max_val ) * inv_sum )
+                : __float2bfloat16( 0.0f );
+        }
+    }
+
     __global__ void softmax_backward_bf16_kernel(
         __nv_bfloat16* dpreatt, const __nv_bfloat16* datt, const __nv_bfloat16* att,
         float scale,
@@ -252,6 +321,25 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
 
         softmax_decode_forward_bf16_kernel <<< num_blocks, block_size, 0, stream >>> (
             att, preatt, B_NH, max_len, actual_len, window);
+
+        cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_attention_softmax_decode_ring_forward_bf16(
+        __nv_bfloat16* att, float scale, const __nv_bfloat16* preatt,
+        int B, int NH, int capacity, int actual_len,
+        cudaStream_t stream, int window )
+    {
+        // scale unused: decode folds 1/sqrt(head_size) into the QK GEMM alpha.
+        (void) scale;
+
+        constexpr int warps_per_block = 8;
+        const int block_size = warps_per_block * 32;
+        const int B_NH = B * NH;
+        const int num_blocks = ceil_div( B_NH, warps_per_block );
+
+        softmax_decode_ring_forward_bf16_kernel <<< num_blocks, block_size, 0, stream >>> (
+            att, preatt, B_NH, capacity, actual_len, window);
 
         cudaCheck( cudaGetLastError() );
     }

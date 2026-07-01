@@ -138,6 +138,15 @@ namespace Mila::Dnn
             // Runtime -> compile-time bridge: dispatch on the ModelConfig quantization
             // settings, mirroring LlamaModel. Gemma's Linear children (qkv/o/gate_up/down)
             // pick up the weight-quant policy; lm_head stays unquantized.
+            //
+            // Bounded sliding-window KV ring for Gemma's LOCAL (sliding) layers
+            // (SlidingWindowKvCache.md Phase 3): their cache is sized to the window
+            // working set instead of the full context. Strictly a memory optimization —
+            // tokens are identical to the full cache. Global (full-attention) layers are
+            // always NoKvCompression (hardwired in GemmaTransformer). Flip this alias to
+            // NoKvCompression to A/B the footprint against the full-context sliding cache.
+            using GemmaSlidingKvPolicy = SlidingWindowKvCache;
+
             switch ( model_config.getWeightQuantization() )
             {
                 case WeightQuantization::FP4:
@@ -147,7 +156,7 @@ namespace Mila::Dnn
                         case KvCacheCompression::None:
                             if constexpr ( TPrecision == TensorDataType::BF16 )
                             {
-                                return fromPretrainedImpl<PerGroupFp4<128>, NoKvCompression>( path, model_config, device_id );
+                                return fromPretrainedImpl<PerGroupFp4<128>, GemmaSlidingKvPolicy>( path, model_config, device_id );
                             }
                             else
                             {
@@ -164,7 +173,7 @@ namespace Mila::Dnn
                         case KvCacheCompression::None:
                             if constexpr ( TPrecision == TensorDataType::BF16 )
                             {
-                                return fromPretrainedImpl<PerChannelFp8<>, NoKvCompression>( path, model_config, device_id );
+                                return fromPretrainedImpl<PerChannelFp8<>, GemmaSlidingKvPolicy>( path, model_config, device_id );
                             }
                             else
                             {
@@ -182,7 +191,7 @@ namespace Mila::Dnn
                             throw std::runtime_error(
                                 "GemmaModel::fromPretrained: FP8 KV cache compression is not yet supported" );
                         case KvCacheCompression::None:
-                            return fromPretrainedImpl<NoWeightQuant, NoKvCompression>( path, model_config, device_id );
+                            return fromPretrainedImpl<NoWeightQuant, GemmaSlidingKvPolicy>( path, model_config, device_id );
                     }
                     break;
             }

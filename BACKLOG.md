@@ -338,19 +338,48 @@ collapsed into [CHANGELOG.md](CHANGELOG.md); the design lives in [Gemma.md](Mila
 follow-ups below — two of them **v0.20 release gates**: together they are what lets Gemma 4 12B FP4 fit
 a 12 GB card.
 
-- [ ] **[gate — v0.20 release] Bounded KV ring cache** (Step 2b — a `TKvPolicy` sibling). Step 5 HF
-  parity is validated, so the deferral trigger has fired and this is unblocked. A memory optimization,
-  not a correctness gate — the Step 2a sliding-window mask already gives correct numerics against the
-  full `[B,NKV,T,HS]` cache; the payoff is long-context (~20 GB -> ~80 MB across 40 sliding layers at
-  256K). Mechanism: size each sliding layer's per-layer cache to `min(T, window)` with ring-buffer
-  write/wrap + modular decode indexing, folded onto the existing KV-cache policy axis
+- [x] **[gate — v0.20 release] Bounded KV ring cache** (Step 2b — a `TKvPolicy` sibling). **DONE + VALIDATED
+  0.20.0-alpha.6+78** — see CHANGELOG "Gemma 4 memory-management gates". Gemma's local layers now use the
+  bounded ring; coherent 8192-token chat with eviction active + op-level parity harness (decode/prefill vs
+  full-cache oracle) + closed-form KV-footprint assertion + compile-time policy-routing test. Design in
+  [SlidingWindowKvCache.md](Mila/Specifications/SlidingWindowKvCache.md). Step 5 HF parity is validated,
+  so the deferral trigger has fired and this is unblocked. A memory optimization, not a correctness gate
+  — the Step 2a sliding-window mask already gives correct numerics against the full `[B,NKV,T,HS]` cache;
+  the payoff is long-context (sliding KV 80 GB -> ~0.34 GB at 256K, BF16; persistent-KV growth slope
+  336 -> 16 KB/token). Mechanism (Option A, chosen): size each sliding layer's cache to a ring of
+  `min(T, window + prefill_chunk - 1)` with modular write/wrap + a slot->absolute-position softmax mask,
+  folded onto the existing KV-cache policy axis
   ([Quantization/KvCache/Policy.ixx](Mila/Src/Dnn/Quantization/KvCache/Policy.ixx)) — NOT a new axis and
   NOT conflated with the window number. A standalone `SlidingWindowKvCache` (bounded, uncompressed)
   suffices for Gemma; bounded+FP8 is a later combinatorial concern. **The prefill ring is the hardest
-  kernel work in the chassis** — a chunk's queries need >W keys at once, so it needs a
-  block-sparse/flash-style windowed rewrite, and prefill+decode share one K/V buffer so it is
-  all-or-nothing. Build the ring against the validated full-cache path as the oracle. Reused by the
-  **Ministral** Future Direction.
+  kernel work in the chassis** — a chunk's queries need >W keys at once; Option A reuses the existing
+  cuBLASLt plans (capacity-for-T substitution) rather than a full flash rewrite (Option B, rejected as
+  out of scope). prefill+decode share one K/V buffer so it is all-or-nothing. Build the ring against the
+  validated full-cache path as the oracle. Reused by the **Ministral** Future Direction.
+  - [x] **Phase 0 — policy + dispatch axis.** `SlidingWindowKvCache` struct; `CudaGqaOp<TPrecision, bool kBounded>`
+    axis with build-time capacity computation + `window > 0` guard; two `OperationTraits` rows; bounded
+    component compiles/constructs (compile-time dispatch test in `GroupedQueryAttention.Cuda.cpp`).
+    `GemmaBlock` already forwards `TKvPolicy`. With `kBounded = false` the unbounded path is byte-identical.
+  - [x] **Phase 1 — bounded decode.** Ring KV write (`(start_pos+t) % capacity`, identity when unbounded);
+    slot->abs decode softmask (`softmax_decode_ring_*`); `cache_capacity_` threaded into alloc/plans/write/softmax
+    stride (no-op unbounded). Op-level parity harness `CudaGqaOp.Cuda.cpp` (drives GqaState + cache lifecycle):
+    capacity/`window=0`-throw checks + decode-vs-oracle (no-eviction near-exact, past-window ring wrap). Green
+    (build + chat + tests) 2026-06-30. Plan simplification vs spec D5: bounded reuses the shared scratch as a
+    contiguous `capacity`-prefix (`N=capacity`), no `ldc=T_ctx` decoupling needed.
+  - [x] **Phase 2 — bounded prefill.** Slot->abs prefill softmask (`prefill_softmax_ring_*`) using
+    `end = position_offset + chunk_len - 1` (cache newest) for the slot mapping and `window_start(abs_t) <= p_j <= abs_t`
+    (causal excludes same-chunk-future keys). `prefill_optimized` branches on `kBounded`. Parity tests: single-chunk,
+    multi-chunk-across-window (cross-chunk eviction), partial-final-chunk, prefill-then-decode over one shared ring.
+    Hand-verified `capacity = window+chunk-1` makes each chunk's needed span exactly the resident range. Green
+    (build + tests) 2026-06-30.
+  - [x] **Phase 3 — wire Gemma.** `GemmaTransformer` routes `SlidingWindowKvCache` to local layers, hardwires
+    `NoKvCompression` on global (full-attention) layers; `GemmaModel` selects it via the `GemmaSlidingKvPolicy`
+    flip-point. Coherent 8192-token chat (ring engaged). Footprint asserted closed-form (`StateMemory_MatchesClosedFormAndShrinks`)
+    + policy routing pinned compile-time (`KvPolicy_RoutesBoundedRingToLocalLayersOnly`). Green 2026-06-30.
+  - Follow-ups (deferred, tracked elsewhere in this file): **FP8 KV** (bounded + FP8 on the 8 global MQA
+    layers — the new context wall at 16 KB/token, ~4 GB at 256K — extends the deferred `PerChannelKvFp8<>`
+    GQA specialization); **activation-aware prefill-chunk heuristic** (`computeGemmaPrefillChunkSize` is
+    attention-scratch-sized, blind to the dominant GeGLU FFN floor — see the VRAM-footprint item).
 - [x] **[gate — v0.20 release] Weight-tying optimization (Gemma).** Design in
   [WeightTying.md](Mila/Specifications/WeightTying.md). DONE 2026-07-01 — Gemma 4 12B chat coherent on
   the re-converted (raw-embedding, tied) checkpoint. `lm_head` now shares the token embedding storage,

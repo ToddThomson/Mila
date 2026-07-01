@@ -157,6 +157,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     att, preatt, B, NH, T_stride, chunk_stride, chunk_len, position_offset, window, stream );
             }
 
+            static void prefill_softmax_ring(
+                float* att, const float* preatt,
+                int B, int NH, int capacity, int chunk_len, int position_offset,
+                int window, cudaStream_t stream )
+            {
+                cuda_gqa_prefill_softmax_ring_fp32(
+                    att, preatt, B, NH, capacity, chunk_len, position_offset, window, stream );
+            }
+
             /*static void prefill_permute_qkv(
                 float* Q, float* K, float* V, const float* X,
                 int B, int chunk_len, int T, int NH, int NKV, int HS, int position_offset,
@@ -199,6 +208,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             {
                 Attention::Common::cuda_attention_softmax_decode_forward_fp32(
                     att, scale, preatt, B, NH, max_len, actual_len, s, window );
+            }
+
+            static void softmax_decode_ring_forward(
+                float* att, float scale, const float* preatt,
+                int B, int NH, int capacity, int actual_len, int window, cudaStream_t s )
+            {
+                Attention::Common::cuda_attention_softmax_decode_ring_forward_fp32(
+                    att, scale, preatt, B, NH, capacity, actual_len, s, window );
             }
 
             static void softmax_backward(
@@ -366,6 +383,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     stream );
             }
 
+            static void prefill_softmax_ring(
+                nv_bfloat16* att, const nv_bfloat16* preatt,
+                int B, int NH, int capacity, int chunk_len, int position_offset,
+                int window, cudaStream_t stream )
+            {
+                cuda_gqa_prefill_softmax_ring_bf16(
+                    att, preatt, B, NH, capacity, chunk_len, position_offset, window, stream );
+            }
+
             static void prefill_unpermute_output_padded(
                 const nv_bfloat16* vaccum, nv_bfloat16* out,
                 int B, int chunk_len, int T, int NH, int HS,
@@ -398,6 +424,13 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 int B, int NH, int max_len, int actual_len, int window, cudaStream_t stream )
             {
                 Attention::Common::cuda_attention_softmax_decode_forward_bf16( att, scale, preatt, B, NH, max_len, actual_len, stream, window );
+            }
+
+            static void softmax_decode_ring_forward(
+                nv_bfloat16* att, float scale, const nv_bfloat16* preatt,
+                int B, int NH, int capacity, int actual_len, int window, cudaStream_t stream )
+            {
+                Attention::Common::cuda_attention_softmax_decode_ring_forward_bf16( att, scale, preatt, B, NH, capacity, actual_len, stream, window );
             }
 
             static void softmax_backward(

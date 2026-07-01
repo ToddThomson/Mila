@@ -162,6 +162,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Activations/Activation/Activation.Cuda.cpp"
         "Dnn/Components/Activations/Gelu/Gelu.Cuda.cpp"
         "Dnn/Components/Attention/GQA/GroupedQueryAttention.Cuda.cpp"
+        "Dnn/Components/Attention/GQA/CudaGqaOp.Cuda.cpp"
         "Dnn/Components/Attention/MHA/MultiHeadAttention.Cuda.cpp"
         "Dnn/Components/Connections/Residual.Cuda.cpp"
         "Dnn/Components/Embeddings/TokenEmbedding.Cuda.cpp"

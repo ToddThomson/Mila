@@ -98,6 +98,77 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             att_row[ t2 ] = __float2bfloat16( 0.0f );
     }
 
+    // Bounded sliding-window ring prefill softmax (BF16). preatt/att rows have
+    // `capacity` columns, where column j is RING SLOT j holding the key at absolute
+    // position p_j = end - ((r - j + capacity) % capacity), end = position_offset +
+    // chunk_len - 1 (cache newest), r = end % capacity. A query at abs_t keeps slot j
+    // iff window_start <= p_j <= abs_t (window + causal; causal excludes same-chunk
+    // future keys already in the ring). One thread per row. See SlidingWindowKvCache.md D6.
+    __global__ void prefill_softmax_ring_bf16_kernel(
+        __nv_bfloat16* att,
+        const __nv_bfloat16* preatt,
+        int B,
+        int NH,
+        int capacity,
+        int chunk_len,
+        int position_offset,
+        int window )
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        int total_rows = B * NH * chunk_len;
+
+        if ( idx >= total_rows )
+            return;
+
+        int b_nh = idx / chunk_len;
+        int t = idx % chunk_len;
+
+        int row_offset = ( b_nh * chunk_len + t ) * capacity;
+
+        const __nv_bfloat16* preatt_row = preatt + row_offset;
+        __nv_bfloat16* att_row = att + row_offset;
+
+        const int abs_t = position_offset + t;
+        const int window_start = ( window > 0 ) ? max( 0, abs_t - window + 1 ) : 0;
+        const int end = position_offset + chunk_len - 1;
+        const int r = end % capacity;
+
+        float max_val = -CUDART_INF_F;
+        for ( int j = 0; j < capacity; ++j )
+        {
+            const int p = end - ( ( r - j + capacity ) % capacity );
+
+            if ( p >= window_start && p <= abs_t )
+                max_val = fmaxf( max_val, __bfloat162float( preatt_row[ j ] ) );
+        }
+
+        float sum = 0.0f;
+        for ( int j = 0; j < capacity; ++j )
+        {
+            const int p = end - ( ( r - j + capacity ) % capacity );
+
+            if ( p >= window_start && p <= abs_t )
+            {
+                float val = expf( __bfloat162float( preatt_row[ j ] ) - max_val );
+                sum += val;
+                att_row[ j ] = __float2bfloat16( val );
+            }
+            else
+            {
+                att_row[ j ] = __float2bfloat16( 0.0f );
+            }
+        }
+
+        float inv_sum = 1.0f / sum;
+        for ( int j = 0; j < capacity; ++j )
+        {
+            const int p = end - ( ( r - j + capacity ) % capacity );
+
+            if ( p >= window_start && p <= abs_t )
+                att_row[ j ] = __float2bfloat16( __bfloat162float( att_row[ j ] ) * inv_sum );
+        }
+    }
+
     /**
      * @brief Unpack vaccum [B, NQH, padded_T, HS] → out [B, actual_T, NQH*HS].
      *
@@ -159,6 +230,23 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             att, preatt,
             B, NH, T_stride, chunk_stride,
             chunk_len, position_offset, window);
+
+        cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_gqa_prefill_softmax_ring_bf16(
+        __nv_bfloat16* att, const __nv_bfloat16* preatt,
+        int B, int NH, int capacity,
+        int chunk_len, int position_offset, int window,
+        cudaStream_t stream )
+    {
+        const int total_rows = B * NH * chunk_len;
+        const int block_size = 256;
+        const int grid_size = ceil_div( total_rows, block_size );
+
+        prefill_softmax_ring_bf16_kernel <<< grid_size, block_size, 0, stream >>> (
+            att, preatt,
+            B, NH, capacity, chunk_len, position_offset, window);
 
         cudaCheck( cudaGetLastError() );
     }

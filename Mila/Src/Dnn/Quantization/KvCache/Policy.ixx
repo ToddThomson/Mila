@@ -55,4 +55,27 @@ namespace Mila::Dnn::Quant::KvCache
 
     // Verify the identity satisfies the concept at definition time.
     static_assert(KvCachePolicy<NoKvCompression>);
+
+    /**
+     * @brief Bounded sliding-window KV cache (uncompressed ring buffer).
+     *
+     * Signals that a sliding-window attention layer should size its KV cache to
+     * the window working set instead of the full context length. The cache
+     * becomes a ring of capacity min(T, window + prefill_chunk - 1), written with
+     * modular wrap; the softmax reconstructs each ring slot's absolute position
+     * for window+causal masking. See SlidingWindowKvCache.md.
+     *
+     * Uncompressed and therefore orthogonal to quantization: it carries no
+     * kStorageDtype, so kCacheDtype falls back to the compute precision. A
+     * "bounded + FP8" variant is a later policy composition, not this struct.
+     *
+     * Valid only on layers with a positive window; global/full-attention layers
+     * must keep NoKvCompression (CudaGqaOp throws otherwise at build time).
+     */
+    export struct SlidingWindowKvCache
+    {
+        static constexpr bool kIsActive = true;
+    };
+
+    static_assert(KvCachePolicy<SlidingWindowKvCache>);
 }
