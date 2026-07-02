@@ -55,9 +55,9 @@ consolidation.
 - [x] OperationTraits close-out — CPU Linear traits specialization live; the `CpuLinearOpTypeMap` holdout retired (out of build + `RETIRED` banner)
 - [~] OperationTraits close-out — retire the legacy dispatch files in place (out of build + `RETIRED` banner, not deleted): done for the Linear/Gqa typemaps, registry/registrar helpers, `OperationsRegistrar`, `FusedComponent`; `OperationRegistry` + the arity bases remain until the Training Revival loss-path re-authoring (still referenced by the disabled CrossEntropy/fused ops kept in `Src`). `Dropout` parked at `Dev/Components/Regularization/`; its `DropoutOp` re-authoring moves to Training Revival — training-only, net-new op work outside this freeze
 - [~] Marker burndown — all `FIXME:`/`TODO:` converted to `REVIEW:` (2026-06-19) so public source reads clean; the ~94 surviving `REVIEW:` markers are triaged into buckets A-H with dispositions and homes in the BACKLOG "Marker debt triage" item. Remaining burndown: bucket-C `dim_t` canonicalization, bucket-D correctness items (incl. the `Llama.Block.ixx:132` aliasing check in the primary target), bucket-H org/docs, and demoting the E/F/G design/lifecycle/nit notes. The old lifecycle linchpin (the `CompositeComponent` setTraining/build concern) was already resolved by the RuntimeMode/TrainingMode two-axis redesign — `isTraining()` is gone
-- [ ] Debug-instrumentation strip — kernel anomaly guards removed (Residual/Gelu/LayerNorm/RmsNorm; `Swiglu.Fp32.v1.cu` deleted) and BPE tokenizer console routed to `Logging::Logger` or removed; remaining: the `TokenSequenceLoader` verbose dump and the already-gated diagnostics; training-path instrumentation (AdamW, `BpeVocabulary` progress) deferred to Training Revival
-- [ ] Debug-instrumentation strip — per-step `synchronize()` removed from `GptBlock`/`LlamaBlock` `forward()`/`backward()` (inference `prefill`/`decode` already run sync-free; single-stream ordering + the caller's host-read boundary sync suffice)
-- [ ] FFN consolidation — de-polymorphize `MLP` to a compile-time `Activation<…, TActivation = Gelu>` dense FFN (drop the runtime activation switch / `mlp_activation_impl` / `std::function` bridge / SwiGLU branch / `fc1` doubling / dead LayerNorm), unblocking `MLP<Cpu>` / `GptBlock<Cpu>` / `GptTransformer<Cpu>`; relocate `Swiglu` `Activations/` -> `FFN/Swiglu/`; relocate `MLP` into `FFN/MLP/`. Design: `Specifications/FfnAndMoE.md`
+- [x] Debug-instrumentation strip — kernel anomaly guards removed (Residual/Gelu/LayerNorm/RmsNorm; `Swiglu.Fp32.v1.cu` deleted) and BPE tokenizer console routed to `Logging::Logger` or removed; the two inert commented-out CPU-op debug dumps (`CpuAttentionOp` K/dQ, `CpuLinearOp` input) deleted (0.20.0-alpha.6+81). The remaining console sites are deliberate/legitimate, kept: the `TokenSequenceLoader` init summary (gated on `config_.verbose_logging`) and `TensorBuffer` alloc trace (`if constexpr (TrackMemory)`) are opt-in diagnostics; `CudaExecutionContext` stderr-on-stream-error and the `TokenEmbeddingConfig` `isfinite` validate-guard are error/validation paths. Training-path instrumentation (AdamW anomaly `printf`, `BpeVocabulary`/`OptimizerBase`/`TrainingLogger`) deferred to Training Revival
+- [x] Debug-instrumentation strip — per-step `synchronize()` removed from `GptBlock`/`LlamaBlock` `forward()`/`backward()` (single-stream ordering + the caller's host-read boundary sync suffice). Llama `prefill`/`decode` were already sync-free; `GptBlock::decode()` still carries its 8 per-op debug syncs (GPT-2 inference path) — the same correctness-neutral strip, left for when the Bard/GPT-2 decode path is next exercised
+- [~] FFN consolidation — de-polymorphize `MLP`: the **blocking** runtime activation dispatch is gone (`MLP` holds a concrete `Gelu` child; the `mlp_activation_impl` / `std::function` bridge / SwiGLU branch retired in `MLP.Dispatch.ixx`, out of build), `Swiglu` -> `FFN/Swiglu/` and `MLP` -> `FFN/MLP/` relocated, and `MLP<Cpu>` / `GptBlock<Cpu>` / `GptTransformer<Cpu>` now build (their `.Cpu.cpp` tests are active). **Remaining (deferred):** fold the fixed `Gelu` child onto the generalized `Activation<…, ActivationType TFn = Gelu>` — the compile-time-`TActivation` endgame — tracked under the `Activation` elementwise-primitive item below. Design: `Specifications/FfnAndMoE.md`
 - [~] FFN consolidation — `Activation` elementwise primitive: compile-time `TFn`, the `MILA_HD` functor library, and the Cpu/Cuda `ElementwiseActivationOp` (functor-templated, not a traits axis); `Gelu` folds in. **Landed alongside `Gelu`:** the functor library (all 8 functions), `Cpu`/`Cuda` `ElementwiseActivationOp` (FP32 / FP32+BF16), the member-template `op_for<Functor>` traits, the `Activation<…, TFn>` component + config, and its CPU/CUDA tests. The reusable `GatedMLP` gated FFN (single-expert reference, `TGate` fixed to SiLU) landed with it. **Remaining:** fold `Gelu` (+ `MLP`'s child) onto `Activation`; CPU `SwigluOp` + `Swiglu<…, TGate>` generalization — tracked in BACKLOG
 - [ ] Hardening — couple the `initialize_parameters` default to `RuntimeMode`
 
@@ -69,9 +69,11 @@ Component lifecycle is sound enough to re-enable the component/training tests.
 *Re-green the authored test suite to the current API and gate it in CI — the anti-rot ratchet and
 the correctness oracle for everything after it.*
 
-The first year of Mila was test-driven; ~70 test files exist in the tree, but only ~24 are active.
-The rest were commented out during the inference-era refactors (the CMake note is explicit: "too
-many tests to refactor for Component lifecycle changes"). This is recovery, not greenfield — the
+The first year of Mila was test-driven; the authored suite was largely commented out during the
+inference-era refactors (the CMake note is explicit: "too many tests to refactor for Component
+lifecycle changes"), leaving only ~24 of ~70 files active. The revival has since re-enabled and
+area-split them into ~100 active test translation units, with only ~11 parked by explicit
+disposition. This is recovery, not greenfield — the
 test *logic* is authored; the work is re-aligning it to the post-refactor API (`OperationTraits`
 dispatch, the `Operation` base-class collapse, the precision axes, the lifecycle fix from Consolidation).
 Two distinct, genuinely-new slices remain. The inference features built *during* the test drought
@@ -94,6 +96,15 @@ paths; a
 per-component gradient-check archetype covering the training backward path (MNIST spine first, Bard
 transformer stack second); the suite gated in CI (building on the `MILA_ENABLE_CUDA=OFF` CPU-only gate)
 so a future API churn fails loudly instead of silently rotting coverage.
+
+- [~] Re-green the authored component / tensor / tokenizer suites to the current API — the concrete component-class set (Linear, Gelu, LayerNorm, RmsNorm, Swiglu, Residual, TokenEmbedding, Lpe, Rope, Softmax, MHA, GQA, MLP, GptBlock, GptTransformer, LlamaTransformer) is re-enabled and build-green; only `SoftmaxCrossEntropy` (loss) is parked for the loss-on-device milestone. 3 backward-numeric cases stay `GTEST_SKIP`'d pending filed bug fixes (CUDA Softmax backward stub, BF16 Swiglu backward dtype, GptBlock/MHA-CPU composed gradient)
+- [x] Retire the redundant op-layer mirror tests (delete-not-revive — backend ops are implementation detail, tested through the public component) — out of the CMake build, dispositions recorded in `Tests/CMakeLists.txt` Section 3; files kept on disk pending an explicit delete
+- [~] Core `Tensor.ixx` coverage to the value-type / god-module archetype (8 area files + `.Cuda` companions) — done; remaining: `TensorOps.Transfer` device-split, `Structural`(`split`) backfill, and the wider `Tensors/` tree (`TensorBuffer`, `TensorDataType*` maps, `Partitioning`, `Serialization`)
+- [~] Gradient-check archetype (finite-difference numeric backward) — shared fixture `Common/GradientCheck.h` + `Gelu`/`LayerNorm` reference applications landed; remaining: fan `Backward_MatchesNumericGradient` out to Linear / MLP / Residual / GptBlock and use it to isolate the suspected MHA CPU backward. Precondition for Training Revival's convergence oracle
+- [ ] Backfill the inference-drought coverage the old suite never had — load-time quantization (`PerChannelFp8` / `PerGroupFp4`, the decode matvec kernels), `OperationTraits` dispatch, and the Llama path (RmsNorm / SwiGLU / GQA / RoPE components + `LlamaModel::fromPretrained`); the `CudaLinearOp` quantization white-box is the sole legitimate op-layer test. Genuinely new, not recovery
+- [~] Re-green in sample-revival order — MNIST spine first, Bard spine second (mirrors Training Revival sequencing). MNIST spine mostly landed (`CompositeComponent`, `AdamW.Cpu`, `DataLoader`(+`.Cuda`), `Network.Cpu`, `TensorOps/Random.Cpu`); remaining: the thin `Core/Network.cpp` delta + the GPU companions (`Network.Cuda` / `AdamW.Cuda`), then the Bard GPT-2 stack tail
+- [ ] Verify the full suite green in one pass (CPU-only `MILA_ENABLE_CUDA=OFF` and the CUDA build) — much of the above landed "awaiting VS2026 build"; establish the verified-green baseline the CI gate wires against
+- [ ] **[gate]** Wire the suite into CI as the anti-rot ratchet, building on the `MILA_ENABLE_CUDA=OFF` CPU-only gate so a future API churn fails the build instead of silently re-commenting coverage — the deliverable that keeps the revival alive
 
 ### Milestone: Training Revival
 
@@ -127,6 +138,26 @@ oracle, backed by the gradient-check archetype, the AdamW step-convergence test,
 data-loader contract tests; train-from-scratch validated at the precisions the samples use; all
 training-path tests CI-gated.
 
+Status: the hard part is done — **both samples are revived and validated** (by eye, on CUDA). The
+remaining work is the **test oracle** that makes their convergence provable, plus the deferred
+training-only pieces (loss path, Dropout, progress reporting). The net-new test items below overlap
+the Test Suite Revival gradient-check fan-out and CI ratchet — the two revival milestones are one
+work-front.
+
+- [x] Revive the MNIST (MLP) sample to the current API + validate — builds green (VS2026/CUDA), trains FP32 from scratch to ~97.9% test accuracy over 20 epochs; the full spine (forward chain, backward gradient flow, AdamW step, train-from-scratch init) exercised end-to-end. MNIST spine tests (Linear / Gelu / Network / `AdamW.Cpu` / DataLoader) green
+- [x] Revive the Bard (GPT-2) sample to the current API + validate — builds green (VS2026/CUDA), trains FP32 to perplexity <3 / loss ~1.09 by epoch 17 with coherent Shakespeare-structured text; surfaced + fixed 3 latent CUDA-training-backward bugs (cuBLASLt bias epilogue, inverted attention eval-guard, `TensorOps` math no-op)
+- [x] Flip the `FIXME: Re-enable after alpha.5 completed` triggers — both samples re-enabled in `Samples/CMakeLists.txt` (CUDA-gated until the CPU-only build-coherence work lands)
+- [~] Concrete data-loader contract tests — `TokenSequenceLoader` done (construction / iteration / reset / target-is-input-shifted / threading stress); remaining: the `MnistDataLoader` contract test (pixel normalization, one-hot targets, shuffle-on-reset, IDX magic-number validation)
+- [~] Re-enable + re-align the AdamW path — `AdamW.Cpu.cpp` re-greened (Section 1, includes a closed-loop convergence case); remaining: the `AdamW.Cuda.cpp` companion + resolve the deferred AdamW debug-instrumentation strip-vs-gate (`CudaAdamW.cu` `printf` guards + `CudaAdamWOptimizer.ixx:270`)
+- [ ] **[net-new]** End-to-end convergence oracle — a per-sample integration test (build the tiny model, run a fixed step budget on a few batches, assert the loss strictly decreases; for MNIST also that train accuracy rises). The literal milestone exit ("a sample converges only when its test says so"); MNIST first, Bard second; keep the budget small so it runs in the `MILA_ENABLE_CUDA=OFF` CI gate
+- [ ] **[net-new]** Optimizer step-convergence test — "minimizes a known convex objective in N steps," proving the update direction + bias-correction are correct, not just that `step()` runs
+- [ ] **[net-new]** TrainingMode / RuntimeMode behavior coverage — assert build-mode and runtime-mode transitions allocate/skip gradient buffers correctly, so the two-axis lifecycle fix has a regression guard
+- [ ] Fix the CUDA `fill_normal` / `fill_uniform` FP32-only gap (corrupts BF16 train-from-scratch init) — the CUDA counterpart to the `CpuTensorOps.Random` backend; pair with a BF16 init-at-precision `TYPED_TEST` that turns the silent corruption into a red test
+- [ ] **[decoupled]** Revive the loss + backward path (CrossEntropy / SoftmaxCrossEntropy) — both samples compute loss host-side, so this is off the critical path to a converging sample; the dispatch struct was started (alpha.6+68) but is not wired in
+- [ ] **[net-new, training-only]** Revive the `Dropout` component from `Dev/Components/Regularization/` — re-author `CpuDropoutOp` / `CudaDropoutOp` + `OperationTraits` rows + the two-axis `Component<TDeviceType, TPrecision>` rewrite; the mask/backward path is exercised only by training
+- [ ] ProgressReporter mechanism — an injected per-operation progress facility for long-lived ops (BPE vocab training, `PretrainedReader` load, load-time quantization); the Consolidation debug strip left the BPE training progress in place to migrate here
+- [ ] Validation — MNIST/Bard convergence proven **by test** (not by eye), train-from-scratch validated at the precisions the samples use, and all AdamW / training-path tests green and CI-gated
+
 ### Milestone: API Documentation
 
 *Reconcile the Doxygen surface to the post-refactor reality and publish it — documentation held to
@@ -146,6 +177,25 @@ matches the public API surface; the docs job renders C++23 module units faithful
 from `master`; Doxygen's own warnings (`WARN_IF_DOC_ERROR`/`WARN_NO_PARAMDOC`) gated as errors in
 the docs job so doc drift fails the build instead of silently re-accumulating — the documentation
 analogue of the Test Suite Revival test-CI ratchet.
+
+Not a heroic read-everything sweep. The Doxygen already exists pervasively (~1,950 `@brief`,
+~1,100 `@param`, ~257 `@tparam`, ~218 `@file` across 258 files) — this is reconciling *drift*, not
+authoring. Two levers make it bounded: **narrowing the published surface** to the public `import
+Mila;` allowlist deletes the internal ops/kernels/registries from the denominator (today the Doxyfile
+extracts every private member of 287 modules), and **the Oracle** (Doxygen's own `WARN_*` output)
+turns an open-ended audit into a shrinking, tool-generated worklist. Tasks are ordered so each step
+shrinks or bounds the next; the judgment-heavy semantic tier is amortized into the Test Suite Revival
+(which already opens each file). Engineering detail (tiers, export allowlist, docs-CI mechanics) lives
+in [BACKLOG.md](BACKLOG.md) under *Module Hygiene*, *Public API Surface*, and *Release Assets & CI*.
+
+- [ ] **Narrow the published surface first** — scope the Doxyfile from `EXTRACT_ALL`/`EXTRACT_PRIVATE`/`EXTRACT_STATIC` over all of `Mila/Src` to the public `import Mila;` allowlist, so internal ops/kernels/registries drop off the documented surface. Shrinks the denominator before anything is counted; pairs with the *Public API Surface* `Mila.ixx` allowlist work
+- [ ] **Oracle** — enable `WARN_IF_DOC_ERROR` + `WARN_NO_PARAMDOC` in `Mila/Docs/Doxyfile.in` (no `WARN_*` knobs set today) to mechanically generate the drift worklist and give a shrinking warning count as the definition of "done". Highest-leverage item — it both drives and locks the tiers below
+- [ ] Tier 0 — non-ASCII / mojibake in comments (scriptable, no judgment); fold in the `Comonent.TrainingMode.ixx` -> `Component.TrainingMode.ixx` file rename
+- [ ] Tier 1 — `@file` rename drift: the 34 files whose `@file` tag != filename (correct value is `basename`; fully scriptable)
+- [ ] Tier 2 — `@param`/`@tparam` name mismatches vs. the signature — batch-fix from the Oracle's `WARN_IF_DOC_ERROR` candidate list (review before applying; signatures span lines)
+- [ ] Tier 3 — semantic staleness (retired-world prose: `OperationRegistry`/`UnaryOperation`, `TWeightQuant`-style naming drift, over-long file `@brief`s). Per-subsystem judgment; **folded into Test Suite Revival** — fix a file's prose while it is open for re-greening, not as a separate megasweep
+- [ ] **Ratchet** — once the warning count is zero, flip `WARN_AS_ERROR = FAIL_ON_WARNINGS_PRINT` in the docs job so doc drift fails the build (the docs analogue of the test-CI ratchet)
+- [ ] Docs-site CI — decouple the docs job from the CUDA-dependent CMake configure (standalone Doxyfile or CUDA-free docs configure); bump Doxygen 1.15 -> 1.17; verify C++23 module units render faithfully; publish via GitHub Action from `master`, never committing generated docs to the tree
 
 ### Milestone: Production Hardening
 

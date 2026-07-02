@@ -122,17 +122,15 @@ namespace Mila::Dnn
         {
             // 1. Pre-attention RMSNorm.
             auto& rms1_out = rms1_->forward( input );
-            this->getExecutionContext()->synchronize();
 
             // 2. Fused QKV projection — single GEMM.
             //    Output: [B, T, (n_heads + 2*n_kv_heads) * head_dim]
             auto& qkv_out = qkv_proj_->forward( rms1_out );
-            this->getExecutionContext()->synchronize();
 
             // REVIEW: The use of tensor views here is incorrect. The Q,K,V splits of qkv_out are not actually contiguous in memory,
             // so the views are lying about the true layout.
             // See the prefill() implementation for the correct approach.
-            // 
+            //
             // 3. Zero-copy views into the packed QKV buffer.
             auto Q = qkv_out.view( q_shape_, 0 );
             auto K = qkv_out.view( k_shape_, q_offset_ );
@@ -140,37 +138,28 @@ namespace Mila::Dnn
 
             // 4. RoPE: rotate Q and K in-place inside qkv_out. V untouched.
             rope_->forward( Q, K );
-            this->getExecutionContext()->synchronize();
 
             // 5. GQA receives the packed buffer — Q and K are now rotated.
             auto& attn_out = attn_->forward( qkv_out );
-            this->getExecutionContext()->synchronize();
 
             // 6. Output projection.
             auto& out_proj_out = out_proj_->forward( attn_out );
-            this->getExecutionContext()->synchronize();
 
             // 7. First residual: input + out_proj.
             auto& res1_out = res1_->forward( input, out_proj_out );
-            this->getExecutionContext()->synchronize();
 
             // 8. Post-attention RMSNorm.
             auto& rms2_out = rms2_->forward( res1_out );
-            this->getExecutionContext()->synchronize();
 
             // 9. FFN — fused gate+up projection, SwiGLU, down projection.
             auto& gate_up_out = fc_gate_up_->forward( rms2_out );
-            this->getExecutionContext()->synchronize();
 
             auto& swiglu_out = swiglu_->forward( gate_up_out );
-            this->getExecutionContext()->synchronize();
 
             auto& ffn_out = fc_down_->forward( swiglu_out );
-            this->getExecutionContext()->synchronize();
 
             // 10. Second residual: res1 + ffn.
             auto& res2_out = res2_->forward( res1_out, ffn_out );
-            this->getExecutionContext()->synchronize();
 
             // Cache activations for backward.
             last_rms1_out_ = &rms1_out;
@@ -375,11 +364,9 @@ namespace Mila::Dnn
 
             // 6. Backward through out_proj.
             auto& d_attn = out_proj_->backward( *last_attn_out_, d_out_proj );
-            this->getExecutionContext()->synchronize();
 
             // 5. Backward through GQA — gradient w.r.t. packed QKV buffer.
             auto& d_qkv = attn_->backward( *last_qkv_out_, d_attn );
-            this->getExecutionContext()->synchronize();
 
             // 4. Backward through RoPE — in-place inverse rotation on Q and K
             //    gradient slices. V gradient passes through unchanged.
@@ -387,7 +374,6 @@ namespace Mila::Dnn
             auto d_K = d_qkv.view( k_shape_, q_offset_ );
 
             rope_->backward( d_Q, d_K );
-            this->getExecutionContext()->synchronize();
 
             // 3. Backward through fused QKV projection.
             auto& d_rms1 = qkv_proj_->backward( *last_rms1_out_, d_qkv );

@@ -590,13 +590,6 @@ namespace Mila::Dnn::Compute
                     }
                 }
             }
-
-            // DEBUG: Print K and dQ tensors
-            /*std::cout << "Key tensor K" << std::endl;
-            std::cout << k_tensor_->toString( true ) << std::endl;
-
-            std::cout << "Computed gradient dQ" << std::endl;
-            std::cout << dq_tensor_->toString( true ) << std::endl;*/
         }
 
         void computeGradientK() const

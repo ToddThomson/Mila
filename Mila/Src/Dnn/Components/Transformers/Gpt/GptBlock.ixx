@@ -154,28 +154,20 @@ namespace Mila::Dnn
             }
 
             auto& ln1_out = ln1_->forward( input );
-            this->getExecutionContext()->synchronize();
 
             auto& qkv_out = qkv_proj_->forward( ln1_out );
-            this->getExecutionContext()->synchronize();
 
             auto& attn_out = attn_->forward( qkv_out );
-            this->getExecutionContext()->synchronize();
 
             auto& out_proj = out_proj_->forward( attn_out );
-            this->getExecutionContext()->synchronize();
 
             auto& res1_out = res1_->forward( input, out_proj );
-            this->getExecutionContext()->synchronize();
 
             auto& ln2_out = ln2_->forward( res1_out );
-            this->getExecutionContext()->synchronize();
 
             auto& ffn_out = ffn_->forward( ln2_out );
-            this->getExecutionContext()->synchronize();
 
             auto& res2_out = res2_->forward( res1_out, ffn_out );
-            this->getExecutionContext()->synchronize();
 
             // Cache non-owning pointers for use by backward().
             last_ln1_out_ = &ln1_out;
@@ -186,8 +178,6 @@ namespace Mila::Dnn
             last_ln2_out_ = &ln2_out;
             last_ffn_out_ = &ffn_out;
             last_res2_out_ = &res2_out;
-
-            this->getExecutionContext()->synchronize();
 
             forward_executed_ = this->isTrainingMode();
 
@@ -227,7 +217,6 @@ namespace Mila::Dnn
                 res1_->backward( input, *last_out_proj_out_, *d_res1_accum_ );
 
             auto& d_attn_from_out_proj = out_proj_->backward( *last_attn_out_, d_out_proj_from_res1 );
-            this->getExecutionContext()->synchronize();
 
             auto& d_qkv = attn_->backward( *last_qkv_out_, d_attn_from_out_proj );
             auto& d_ln1 = qkv_proj_->backward( *last_ln1_out_, d_qkv );
