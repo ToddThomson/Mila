@@ -1,4 +1,20 @@
 {
   "system_prompt": "You are Mila, a helpful and accurate AI assistant. You do not make up facts.",
-  "tools": []
+  "tools": [
+    {
+      "name": "get_weather",
+      "description": "Get current weather for a location.",
+      "summary": "Getting weather for {location}",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "City and country, e.g. Paris, France"
+          }
+        },
+        "required": ["location"]
+      }
+    }
+  ]
 }

@@ -48,25 +48,26 @@ namespace Mila::ChatApp
      * @brief Display-verbosity ladder for a chat turn. Each level includes the lower ones.
      *
      * Controls how much of the model's internal activity is shown — independent of
-     * whether thinking mode is active (that is the model-side toggle). Off shows just
-     * the answer; All adds raw model output plus INFO logging and load dumps.
+     * whether thinking mode is active (that is the model-side toggle). Off shows the
+     * answer plus the always-visible agentic trace (tool calls); Thoughts adds the
+     * reasoning channel; All adds raw model output plus INFO logging and load dumps.
+     * (Tool calls are conversational content, always shown, so they are no longer a
+     * verbosity level of their own.)
      */
     export enum class DetailLevel
     {
-        Off,       ///< Answer only.
+        Off,       ///< Answer + agentic trace (tool calls).
         Thoughts,  ///< + the reasoning channel.
-        Tools,     ///< + tool calls and results.
         All,       ///< + raw model output, INFO logging, and model/memory load dumps.
     };
 
     /**
-     * @brief Parse a detail keyword ("off"/"thoughts"/"tools"/"all") to a DetailLevel.
+     * @brief Parse a detail keyword ("off"/"thoughts"/"all") to a DetailLevel.
      */
     export constexpr std::optional<DetailLevel> parseDetailLevel( std::string_view s )
     {
         if ( s.empty() || s == "off" || s == "none" ) return DetailLevel::Off;
         if ( s == "thoughts" )                        return DetailLevel::Thoughts;
-        if ( s == "tools" )                           return DetailLevel::Tools;
         if ( s == "all" )                             return DetailLevel::All;
         return std::nullopt;
     }
@@ -80,7 +81,6 @@ namespace Mila::ChatApp
         {
             case DetailLevel::Off:      return "off";
             case DetailLevel::Thoughts: return "thoughts";
-            case DetailLevel::Tools:    return "tools";
             case DetailLevel::All:      return "all";
         }
 

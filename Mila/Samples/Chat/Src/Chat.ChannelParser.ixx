@@ -48,6 +48,14 @@ namespace Mila::ChatApp
      * A kChannelOpen with no kChannelClose means generation stopped inside the
      * reasoning channel: the remainder is reasoning and the answer is empty.
      *
+     * Multiple channel cycles can appear back-to-back with nothing but whitespace
+     * between them (observed empirically with Gemma 4 tool calls: an empty warm-up
+     * cycle followed by the real one once the tool exchange is stripped out) --
+     * parse() consumes every adjacent cycle it finds, concatenating non-empty
+     * reasoning pieces, rather than only the first. The chain stops at the first
+     * cycle boundary followed by real (non-whitespace) text, which becomes the
+     * answer.
+     *
      * The delimiter strings are the single point of coupling to the model's chat
      * template. They match the documented Gemma 4 control tokens.
      *
@@ -59,31 +67,42 @@ namespace Mila::ChatApp
 
         static ParsedResponse parse( const std::string& response )
         {
-            const auto open = response.find( kChannelOpen );
+            const auto first_open = response.find( kChannelOpen );
 
-            if ( open == std::string::npos )
+            if ( first_open == std::string::npos )
                 return { std::string{}, trim( response ) };
 
-            const size_t header_start = open + kChannelOpen.size();
-            const auto close = response.find( kChannelClose, header_start );
+            // Any text before the first channel is rare but is answer text.
+            const std::string prefix = (first_open > 0) ? response.substr( 0, first_open ) : std::string{};
 
-            // Any text before the channel structure is rare but is answer text.
-            const std::string prefix = (open > 0) ? response.substr( 0, open ) : std::string{};
+            std::string thinking;
+            size_t cursor = first_open;
 
-            if ( close == std::string::npos )
+            while ( true )
             {
-                const std::string reasoning = stripChannelLabel(
-                    response.substr( header_start ) );
+                const size_t header_start = cursor + kChannelOpen.size();
+                const auto close = response.find( kChannelClose, header_start );
 
-                return { trim( reasoning ), trim( prefix ) };
+                if ( close == std::string::npos )
+                {
+                    appendThinking( thinking, stripChannelLabel( response.substr( header_start ) ) );
+                    return { trim( thinking ), trim( prefix ) };
+                }
+
+                appendThinking( thinking, stripChannelLabel(
+                    response.substr( header_start, close - header_start ) ) );
+
+                const size_t after_close = close + kChannelClose.size();
+                const auto next_open = response.find( kChannelOpen, after_close );
+
+                const bool adjacent = next_open != std::string::npos
+                    && isAllWhitespace( std::string_view( response ).substr( after_close, next_open - after_close ) );
+
+                if ( !adjacent )
+                    return { trim( thinking ), trim( prefix + response.substr( after_close ) ) };
+
+                cursor = next_open;
             }
-
-            const std::string reasoning = stripChannelLabel(
-                response.substr( header_start, close - header_start ) );
-
-            const std::string answer = prefix + response.substr( close + kChannelClose.size() );
-
-            return { trim( reasoning ), trim( answer ) };
         }
 
     private:
@@ -149,6 +168,24 @@ namespace Mila::ChatApp
         static std::string trim( std::string_view text )
         {
             return std::string( trimView( text ) );
+        }
+
+        /// Append a reasoning piece to the accumulator, joined by a blank line when both
+        /// sides are non-empty. Empty pieces (a warm-up cycle with no content) are no-ops.
+        static void appendThinking( std::string& accum, const std::string& piece )
+        {
+            if ( piece.empty() )
+                return;
+
+            if ( !accum.empty() )
+                accum += "\n\n";
+
+            accum += piece;
+        }
+
+        static bool isAllWhitespace( std::string_view text )
+        {
+            return text.find_first_not_of( " \t\r\n" ) == std::string_view::npos;
         }
     };
 }

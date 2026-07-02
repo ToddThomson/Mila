@@ -7,8 +7,10 @@
  * as a std::variant so each template instantiation retains its full
  * static type through the generate path. Llama instruct models use
  * structured ChatMessage history formatted via MessageFormatter.
- * Tool calling is supported for Llama instruct models via ToolCallParser
- * and registered handler functions.
+ * Tool calling is supported for Llama instruct models via ToolCallParser and for Gemma 4
+ * via its native <|tool_call>/<tool_response> protocol (see generateResponse() and
+ * GemmaChatProtocol.md), both against registered handler functions. The Gemma path is a
+ * probe grammar pending more empirical validation, not a hardened implementation.
  */
 
 module;
@@ -28,6 +30,7 @@ module;
 #include <functional>
 #include <unordered_map>
 #include <chrono>
+#include <optional>
 
 export module Mila.Chat;
 
@@ -38,6 +41,7 @@ export import Chat.MessageFormatter;
 export import Chat.SystemPrompt;
 export import Chat.ToolCallParser;
 import Chat.ChannelParser;
+import Chat.GemmaToolCallParser;
 import Chat.Json;
 import Chat.Renderer;
 
@@ -134,12 +138,17 @@ namespace Mila::ChatApp
                         printHelp();
                         continue;
                     }
+                    if ( cmd == "stats" )
+                    {
+                        showTurnStats();
+                        continue;
+                    }
                     if ( cmd == "verbose" || cmd.starts_with( "verbose " ) )
                     {
                         if ( cmd == "verbose" )
                         {
                             renderer_.printInfo( std::format(
-                                "Detail: {}. Set with /verbose <off|thoughts|tools|all>.",
+                                "Detail: {}. Set with /verbose <off|thoughts|all>.",
                                 detailLevelName( config_.detail ) ) );
                             continue;
                         }
@@ -148,7 +157,7 @@ namespace Mila::ChatApp
 
                         if ( !level )
                         {
-                            renderer_.printInfo( "Usage: /verbose <off|thoughts|tools|all>." );
+                            renderer_.printInfo( "Usage: /verbose <off|thoughts|all>." );
                             continue;
                         }
 
@@ -268,8 +277,6 @@ namespace Mila::ChatApp
                 generateResponse( response );
 
                 handleResponse( response );
-
-                printGenerationStatistics();
             }
         }
 
@@ -290,7 +297,11 @@ namespace Mila::ChatApp
          */
         void handleResponse( const std::string& response )
         {
-            if ( tool_handlers_.empty() )
+            // Gemma's tool round trip (stop at <tool_call|>, dispatch, splice
+            // <|tool_response>, resume) already ran inside generateResponse() -- the Llama
+            // ToolCallParser grammar below does not apply and would misparse the leftover
+            // <|tool_call>/<|tool_response> braces in the accumulated text.
+            if ( tool_handlers_.empty() || config_.model_type == ModelType::Gemma )
             {
                 emitAssistantResponse( response );
                 return;
@@ -320,14 +331,9 @@ namespace Mila::ChatApp
             assistant_turn.tool_calls.push_back( *tool_call );
             history_.push_back( std::move( assistant_turn ) );
 
-            if ( config_.detail >= DetailLevel::Tools )
-                renderer_.printInfo( std::format(
-                    "[tool call] {}({})", tool_call->name, tool_call->arguments ) );
-
             const std::string tool_result = dispatchTool( *tool_call );
 
-            if ( config_.detail >= DetailLevel::Tools )
-                renderer_.printInfo( std::format( "[tool result] {}", tool_result ) );
+            emitToolCall( *tool_call, tool_result );
 
             ChatMessage tool_turn;
             tool_turn.role = MessageRole::Tool;
@@ -382,7 +388,11 @@ namespace Mila::ChatApp
             if ( config_.detail == DetailLevel::All )
                 renderer_.printRaw( raw );
 
-            const std::string clean = stripSpecialTokens( raw );
+            // Gemma tool exchanges (if any ran) leave <|tool_call>/<|tool_response> spans
+            // embedded mid-turn; strip them before channel-splitting so they don't leak into
+            // the displayed answer as raw call syntax.
+            const std::string without_tool_spans = stripToolExchangeSpans( raw );
+            const std::string clean = stripSpecialTokens( without_tool_spans );
             const ParsedResponse parsed = ChannelParser::parse( clean );
 
             if ( config_.detail >= DetailLevel::Thoughts && !parsed.thinking.empty() )
@@ -390,6 +400,44 @@ namespace Mila::ChatApp
 
             renderer_.printMilaResponse( parsed.answer );
             history_.push_back( { MessageRole::Assistant, parsed.answer } );
+        }
+
+        /**
+         * @brief Remove <|tool_call>...<tool_call|> and <|tool_response>...<tool_response|>
+         *        spans from a Gemma response before it is channel-split and displayed.
+         *
+         * These are protocol-internal (the harness already consumed and dispatched them in
+         * generateResponse()); showing the raw call/response syntax as answer prose is noise.
+         * An unterminated span (generation stopped mid-span) truncates to end-of-string.
+         */
+        static std::string stripToolExchangeSpans( const std::string& text )
+        {
+            static constexpr std::pair<std::string_view, std::string_view> kSpans[] = {
+                { "<|tool_call>", "<tool_call|>" },
+                { "<|tool_response>", "<tool_response|>" },
+            };
+
+            std::string result = text;
+
+            for ( const auto& [open, close] : kSpans )
+            {
+                std::string::size_type pos;
+
+                while ( (pos = result.find( open )) != std::string::npos )
+                {
+                    const auto close_pos = result.find( close, pos + open.size() );
+
+                    if ( close_pos == std::string::npos )
+                    {
+                        result.erase( pos );
+                        break;
+                    }
+
+                    result.erase( pos, close_pos + close.size() - pos );
+                }
+            }
+
+            return result;
         }
 
         /**
@@ -472,6 +520,23 @@ namespace Mila::ChatApp
         }
 
         /**
+         * @brief Render a dispatched tool call as an inline agentic-trace line.
+         *
+         * The human-readable intent (from the tool's summary template) always shows; the
+         * raw result payload only at detail level All. Shared by the Gemma and Llama paths.
+         */
+        void emitToolCall( const ToolCall& call, const std::string& result )
+        {
+            // ANSI bold on/off around each substituted argument value so the dynamic parts
+            // stand out within the trace line; bold-off (not full reset) preserves the line
+            // color the renderer applies around the whole summary.
+            const std::string summary = formatToolSummary(
+                system_prompt_config_.tools, call.name, call.arguments, "\x1b[1m", "\x1b[22m" );
+
+            renderer_.printToolCall( summary, result, config_.detail == DetailLevel::All );
+        }
+
+        /**
          * @brief Serialize tool definitions to a JSON array string for inclusion in
          *        the system prompt so the model knows which tools are available.
          *
@@ -510,59 +575,112 @@ namespace Mila::ChatApp
 
         void generateResponse( std::string& response )
         {
-            renderer_.startSpinner();
-
             std::vector<int32_t> input_tokens = buildInputTokens();
-
-            stop_src_ = std::stop_source{};
 
             GenerateParams gen_params;
             gen_params.max_new_tokens = config_.max_new_tokens;
             gen_params.sampling.temperature = config_.temperature;
             gen_params.sampling.top_k = config_.top_k;
 
-            // The library streams tokens and returns only a finish reason; timing is ours
-            // to measure from the callback cadence (the model keeps no stopwatch).
-            const auto call_start = std::chrono::high_resolution_clock::now();
-            auto first_token_time = call_start;
-            auto last_token_time = call_start;
-            int token_count = 0;
+            // Gemma 4's <|tool_call>/<tool_call|> pair is a native protocol element, not a
+            // text convention (GemmaChatProtocol.md): the model expects the harness to stop
+            // generation right after <tool_call|>, execute the real tool, and splice a genuine
+            // <|tool_response>...<tool_response|> back in before it continues. Left alone, it
+            // free-runs past its own tool call and fabricates the rest (confirmed empirically --
+            // see the discovery session this loop was built to validate).
+            const bool watch_gemma_tool_call =
+                config_.model_type == ModelType::Gemma
+                && !tool_handlers_.empty()
+                && gemma_tool_call_close_token_.has_value();
 
-            std::visit(
-                [&]( auto& m )
+            constexpr int kMaxToolRounds = 4;
+
+            last_turn_rounds_.clear();
+
+            for ( int round = 0; round < kMaxToolRounds; ++round )
+            {
+                renderer_.startSpinner();
+                stop_src_ = std::stop_source{};
+                bool tool_call_stop = false;
+
+                // Per-round timing: each round has its own prefill (a full re-prefill on
+                // rounds after a tool call) so the numbers stay meaningful across the turn.
+                const auto round_start = std::chrono::high_resolution_clock::now();
+                auto first_token_time = round_start;
+                auto last_token_time = round_start;
+                int round_token_count = 0;
+
+                std::visit(
+                    [&]( auto& m )
+                    {
+                        [[maybe_unused]] const auto status = m->generate(
+                            input_tokens,
+                            [&]( int32_t tok )
+                            {
+                                const auto now = std::chrono::high_resolution_clock::now();
+                                if ( round_token_count == 0 )
+                                    first_token_time = now;
+                                last_token_time = now;
+                                ++round_token_count;
+
+                                response += tokenizer_->decode(
+                                    std::vector<TokenId>{ static_cast<TokenId>(tok) } );
+
+                                if ( watch_gemma_tool_call && tok == *gemma_tool_call_close_token_ )
+                                {
+                                    tool_call_stop = true;
+                                    stop_src_.request_stop();
+                                }
+                            },
+                            gen_params,
+                            stop_src_.get_token() );
+                    },
+                    model_ );
+
+                renderer_.stopSpinner();
+
+                RoundStats round_stats;
+                round_stats.tokens_generated = round_token_count;
+                round_stats.prefill_time_ms =
+                    std::chrono::duration<float, std::milli>( first_token_time - round_start ).count();
+                const int decode_tokens = round_token_count > 0 ? round_token_count - 1 : 0;
+                const float decode_ms =
+                    std::chrono::duration<float, std::milli>( last_token_time - first_token_time ).count();
+                round_stats.decode_tokens_per_second =
+                    ( decode_ms > 0.0f && decode_tokens > 0 )
+                    ? static_cast<float>( decode_tokens ) / ( decode_ms / 1000.0f )
+                    : 0.0f;
+
+                const std::optional<ToolCall> call = tool_call_stop
+                    ? GemmaToolCallParser::parse( response )
+                    : std::nullopt;
+
+                if ( !call.has_value() )
                 {
-                    [[maybe_unused]] const auto status = m->generate(
-                        input_tokens,
-                        [&]( int32_t tok )
-                        {
-                            const auto now = std::chrono::high_resolution_clock::now();
-                            if ( token_count == 0 )
-                                first_token_time = now;
-                            last_token_time = now;
-                            ++token_count;
+                    // Either a normal finish or an unparseable stop -- surface the text as-is
+                    // rather than looping forever on a call we cannot dispatch.
+                    last_turn_rounds_.push_back( std::move( round_stats ) );
+                    break;
+                }
 
-                            response += tokenizer_->decode(
-                                std::vector<TokenId>{ static_cast<TokenId>(tok) } );
-                        },
-                        gen_params,
-                        stop_src_.get_token() );
-                },
-                model_ );
+                round_stats.ended_in_tool_call = true;
+                round_stats.tool_name = call->name;
+                last_turn_rounds_.push_back( std::move( round_stats ) );
 
-            const int decode_tokens = token_count > 0 ? token_count - 1 : 0;
-            const float decode_ms =
-                std::chrono::duration<float, std::milli>( last_token_time - first_token_time ).count();
+                const std::string tool_result = dispatchTool( *call );
 
-            last_stats_.prefill_time_ms =
-                std::chrono::duration<float, std::milli>( first_token_time - call_start ).count();
-            last_stats_.tokens_generated = token_count;
-            last_stats_.decode_tokens_per_second =
-                ( decode_ms > 0.0f && decode_tokens > 0 )
-                ? static_cast<float>( decode_tokens ) / ( decode_ms / 1000.0f )
-                : 0.0f;
-            last_stats_.has_run = token_count > 0;
+                emitToolCall( *call, tool_result );
 
-            renderer_.stopSpinner();
+                response += GemmaToolCallParser::formatToolResponse( call->name, tool_result );
+
+                // Continue the SAME assistant turn: the model's protocol splices the tool
+                // response into the turn it already opened, not a fresh history entry (unlike
+                // Llama's ipython-role round trip). Re-prefill prompt + everything generated
+                // so far -- the harness has no incremental-KV-cache continuation entry point.
+                input_tokens = buildInputTokens();
+                const auto continuation = tokenizer_->encode( response );
+                input_tokens.insert( input_tokens.end(), continuation.begin(), continuation.end() );
+            }
         }
 
         /**
@@ -682,6 +800,15 @@ namespace Mila::ChatApp
             }
 
             prompt += "<|turn>model\n";
+
+            // The 12B/26B/31B Gemma 4 sizes prime an empty <|channel>thought<channel|> onto
+            // the prompt itself when thinking is off -- this suppresses "ghost" thought
+            // channels the model may otherwise emit even when deactivated (vendor
+            // prompt-formatting doc; the smaller E2B/E4B sizes do not need this, and are
+            // not offered by this harness today). When thinking is ON, the model generates
+            // this section itself -- priming it here would pre-empt real reasoning.
+            if ( !enable_thinking )
+                prompt += "<|channel>thought\n<channel|>";
 
             return prompt;
         }
@@ -823,6 +950,22 @@ namespace Mila::ChatApp
                 }
 
                 Logging::Logger::info( std::format( "Tokenizer loaded. Vocab size: {}", tokenizer_->getVocabSize() ) );
+
+                // Cache the <tool_call|> special-token id so generateResponse() can detect the
+                // Gemma tool-call boundary by raw token id rather than text scanning. Only a
+                // genuine single-token vocab entry (per GemmaChatProtocol.md) is trusted; a
+                // multi-token encode means the checkpoint lacks the registered special token.
+                if ( config_.model_type == ModelType::Gemma )
+                {
+                    const auto ids = tokenizer_->encode( "<tool_call|>" );
+                    gemma_tool_call_close_token_ = (ids.size() == 1)
+                        ? std::optional<int32_t>( ids[ 0 ] )
+                        : std::nullopt;
+                }
+                else
+                {
+                    gemma_tool_call_close_token_ = std::nullopt;
+                }
             }
             catch ( const std::exception& e )
             {
@@ -929,21 +1072,59 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief Print generation statistics from the most recent response.
+         * @brief Show the per-round timing breakdown for the most recent turn on demand.
          *
-         * Displays time to first token (TTFT) and autoregressive decode throughput
-         * (tokens per second) after each completed generation run. Only printed
-         * when the statistics are valid (i.e. at least one generation has run).
+         * A turn is one or more rounds; a tool call ends a round and starts another with its
+         * own re-prefill. Each round is reported separately (prefill / decode throughput /
+         * tokens, plus the tool it invoked) because a single lumped figure across rounds mixes
+         * decode with re-prefill and is meaningless. A totals line closes multi-round turns.
          */
-        void printGenerationStatistics() const
+        void showTurnStats() const
         {
-            if ( !last_stats_.has_run )
+            if ( last_turn_rounds_.empty() )
+            {
+                renderer_.printInfo( "No generation yet." );
                 return;
+            }
 
-            renderer_.printStats(
-                last_stats_.prefill_time_ms,
-                last_stats_.decode_tokens_per_second,
-                last_stats_.tokens_generated );
+            std::vector<std::string> lines;
+            const bool multi_round = last_turn_rounds_.size() > 1;
+
+            lines.push_back( std::format( "  Last turn: {} round{}",
+                last_turn_rounds_.size(), multi_round ? "s" : "" ) );
+
+            int total_tokens = 0;
+            float total_prefill_ms = 0.0f;
+
+            for ( size_t i = 0; i < last_turn_rounds_.size(); ++i )
+            {
+                const RoundStats& round = last_turn_rounds_[ i ];
+                total_tokens += round.tokens_generated;
+                total_prefill_ms += round.prefill_time_ms;
+
+                std::string line = std::format(
+                    "  Round {}  prefill {:.0f} ms  \xe2\x94\x82  ",
+                    i + 1, round.prefill_time_ms );
+
+                if ( round.decode_tokens_per_second > 0.0f )
+                    line += std::format( "{:.1f} tok/s  \xe2\x94\x82  {} tokens",
+                        round.decode_tokens_per_second, round.tokens_generated );
+                else
+                    line += std::format( "{} token{}",
+                        round.tokens_generated, round.tokens_generated == 1 ? "" : "s" );
+
+                if ( round.ended_in_tool_call )
+                    line += std::format( "  \xe2\x94\x82  \xe2\x86\x92 {}", round.tool_name );
+
+                lines.push_back( std::move( line ) );
+            }
+
+            if ( multi_round )
+                lines.push_back( std::format(
+                    "  Total     {} tokens  \xe2\x94\x82  {:.0f} ms prefill",
+                    total_tokens, total_prefill_ms ) );
+
+            renderer_.printStatsDetail( lines );
         }
 
         static constexpr const char* kVersion = "v0.20";
@@ -964,11 +1145,13 @@ namespace Mila::ChatApp
 
         void printWelcome() const
         {
-            // REVIEW: When thinking is on we should display the current effort level here too, since it is a user-facing setting.
+            const std::string thinking_display = config_.show_thinking
+                ? std::string( thinkingEffort( config_.thinking_effort ).name )
+                : "off";
 
             renderer_.printWelcomeBox( std::format( "Mila Chat {}", kVersion ) );
             renderer_.printInfo( std::format( "  Model: {}  ·  Thinking: {}  ·  Detail: {}",
-                modelAlias(), config_.show_thinking ? "on" : "off", detailLevelName( config_.detail ) ) );
+                modelAlias(), thinking_display, detailLevelName( config_.detail ) ) );
             std::cout << "  Type /help for commands, /exit to quit.\n\n";
         }
 
@@ -981,7 +1164,8 @@ Available commands:
   /model                             Show current model and quantization
   /model <alias> [quant] [thinking]  Switch model (clears history)
   /effort [1-5]                      Show or set the thinking token-budget level
-  /verbose [off|thoughts|tools|all]  Show or set display detail (reasoning, tool calls, raw + logs)
+  /verbose [off|thoughts|all]        Show or set display detail (reasoning, raw + logs)
+  /stats                             Show per-round timing for the last turn
   /exit                              Exit the application
 
 Model aliases:  )";
@@ -1001,8 +1185,9 @@ Model aliases:  )";
 Quantization:   none, fp8, fp4  (each model has its own default)
 Thinking:       add 'thinking' to make Gemma reason (its <|think|> mode); toggling it
                 does not reload weights. Effort (length) is set with /effort 1-5.
-Detail:         /verbose thoughts shows the reasoning, tools the tool calls, all adds
-                raw output + logging. The model reasons even when detail is off.
+Detail:         tool calls always show as an agentic trace. /verbose thoughts adds the
+                reasoning channel, all adds raw output + logging. The model reasons even
+                when detail is off.
 
 Examples:
   /model gemma-12b fp4 thinking
@@ -1032,14 +1217,26 @@ Examples:
 
             if ( !active_tools.empty() )
             {
-                // Instruction text precedes the tool list per the Llama 3.2 zero-shot
-                // tool-calling format the model was fine-tuned on.
-                system_content +=
-                    "\n\nIf you decide to invoke any of the function(s), you MUST put it in the "
-                    "format of [func_name1(params_name1=params_value1, params_name2=params_value2...), "
-                    "func_name2(params)]\n"
-                    "You SHOULD NOT include any other text in the response.\n\n"
-                    "Here is a list of functions in JSON format that you can invoke:\n";
+                if ( config_.model_type == ModelType::Llama )
+                {
+                    // Instruction text precedes the tool list per the Llama 3.2 zero-shot
+                    // tool-calling format the model was fine-tuned on.
+                    system_content +=
+                        "\n\nIf you decide to invoke any of the function(s), you MUST put it in the "
+                        "format of [func_name1(params_name1=params_value1, params_name2=params_value2...), "
+                        "func_name2(params)]\n"
+                        "You SHOULD NOT include any other text in the response.\n\n"
+                        "Here is a list of functions in JSON format that you can invoke:\n";
+                }
+                else
+                {
+                    // No invented call-syntax instructions: Gemma 4 has its own trained
+                    // <|tool_call>/<tool_call|> protocol (GemmaChatProtocol.md). This is a
+                    // plain description, deliberately left unopinionated about call syntax,
+                    // so /verbose all can capture the model's native format via printRaw.
+                    system_content += "\n\nYou have access to the following tools:\n";
+                }
+
                 system_content += serializeTools( active_tools );
             }
 
@@ -1055,15 +1252,24 @@ Examples:
         std::unordered_map<std::string, std::function<std::string( const std::string& )>> tool_handlers_;
         ConsoleRenderer renderer_;
 
-        // Timing for the most recent generateResponse() call, measured from the token
-        // callback cadence (the library owns no stopwatch). Shown by printGenerationStatistics().
-        struct GenerationStats
+        // Gemma 4 tool-call protocol probe state (see generateResponse()).
+        std::optional<int32_t> gemma_tool_call_close_token_;
+
+        // Per-round timing for the most recent turn, measured from the token callback
+        // cadence (the library owns no stopwatch). A turn is one or more rounds: each tool
+        // call splits generation into a new round with its own prefill (a full re-prefill of
+        // prompt + accumulated turn text -- the harness has no incremental-KV continuation).
+        // Lumping these into one prefill/decode number is meaningless, which is why the
+        // per-turn stats line was dropped in favor of the on-demand /stats breakdown.
+        struct RoundStats
         {
-            float prefill_time_ms = 0.0f;          // call -> first token (TTFT)
-            float decode_tokens_per_second = 0.0f; // steady-state decode throughput
+            float prefill_time_ms = 0.0f;          // round start -> first token of round
+            float decode_tokens_per_second = 0.0f; // steady-state decode throughput this round
             int tokens_generated = 0;
-            bool has_run = false;
+            bool ended_in_tool_call = false;
+            std::string tool_name;                 // populated when ended_in_tool_call
         };
-        GenerationStats last_stats_{};
+
+        std::vector<RoundStats> last_turn_rounds_;
     };
 }

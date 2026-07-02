@@ -52,7 +52,7 @@ static void printUsage( const char* prog_name )
         << "  context_length     Maximum sequence length. Default: the model's own default.\n"
         << "  thinking           true to surface Gemma's reasoning channel.\n"
         << "  thinking_effort    1-5 token-budget scale for reasoning (default 3 = balanced).\n"
-        << "  verbose            display detail: off | thoughts | tools | all (default off).\n"
+        << "  verbose            display detail: off | thoughts | all (default off).\n"
         << "  temperature, top_k, max_new_tokens, system_prompt_path.\n"
         << "\n"
         << "Model aliases:\n";
@@ -294,6 +294,13 @@ int main( int argc, char* argv[] )
         }
 
         Chat chat( std::move( config ) );
+
+        // Probe stub for the Gemma 4 native tool-call format experiment
+        // (GemmaChatProtocol.md): returns a canned reading, no real lookup.
+        chat.registerTool( "get_weather", []( const std::string& arguments ) -> std::string
+        {
+            return R"({"temperature_c": 18, "condition": "cloudy"})";
+        } );
 
         chat.run();
 

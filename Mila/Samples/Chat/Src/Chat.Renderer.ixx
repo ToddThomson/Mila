@@ -146,23 +146,47 @@ namespace Mila::ChatApp
                           << "  " << line << reset() << '\n';
         }
 
-        // ── Generation stats ──────────────────────────────────────────────────
+        // ── Tool call block (agentic flow, always visible) ────────────────────
 
-        void printStats( float prefill_ms, float decode_tps, int tokens ) const
+        /**
+         * @brief Render a tool call as an inline agentic-trace line, before the answer.
+         *
+         * The intent line (an arrow-prefixed human-readable action, e.g. "Getting weather
+         * for Toronto, Canada") is always shown -- a tool call is conversational content,
+         * not debug verbosity. The raw result payload is shown only at the highest detail
+         * level (show_result), since the model's answer already conveys it. A greenish dim
+         * tint keeps the trace distinct from the bluish Thinking block and subordinate to
+         * the full-color answer block.
+         */
+        void printToolCall( std::string_view summary, std::string_view result, bool show_result )
         {
-            // \x1b[2m = dim — gives lighter visual weight, reads as "smaller"
-            std::cout << "\x1b[2m" << fg( 155, 170, 205 );
+            const int max_width = std::max( 20, std::min( consoleWidth() - 6, 80 ) );
 
-            if ( decode_tps > 0.0f )
-                std::cout << std::format(
-                    "  {:.0f} ms  \xe2\x94\x82  {:.1f} tok/s  \xe2\x94\x82  {} tokens",
-                    prefill_ms, decode_tps, tokens );
-            else
-                std::cout << std::format(
-                    "  {:.0f} ms  \xe2\x94\x82  {} token",
-                    prefill_ms, tokens );
+            std::cout << '\n';
 
-            std::cout << reset() << '\n';
+            // Intent line at full color intensity (no dim attribute) -- an action reads as
+            // conversational content, brighter than the dim Thinking/result metadata.
+            const std::string intent = std::string( "\xe2\x86\x92 " ) + std::string( summary );  // arrow ->
+            for ( const auto& line : wordWrap( intent, max_width ) )
+                std::cout << fg( 130, 205, 155 )
+                          << "  " << line << reset() << '\n';
+
+            if ( !show_result )
+                return;
+
+            // Raw result payload stays dim -- debug detail, subordinate to the intent line.
+            for ( const auto& line : wordWrap( result, max_width ) )
+                std::cout << "\x1b[2m" << fg( 100, 130, 110 )
+                          << "    " << line << reset() << '\n';
+        }
+
+        // ── Generation stats (on demand via /stats) ───────────────────────────
+
+        /// Print a block of pre-formatted stats lines, dim so they read as metadata.
+        void printStatsDetail( const std::vector<std::string>& lines ) const
+        {
+            for ( const auto& line : lines )
+                std::cout << "\x1b[2m" << fg( 155, 170, 205 ) << line << reset() << '\n';
         }
 
         // ── Raw capture (protocol discovery) ──────────────────────────────────
@@ -462,8 +486,13 @@ namespace Mila::ChatApp
                             continue;
                         }
                     }
-                    else
+                    else if ( isScriptable( s[ i + 1 ] ) )
                     {
+                        // Bare (non-brace) form: only consume the marker when it maps to a
+                        // real subscript/superscript glyph (digit/+/-). Anything else -- a
+                        // letter -- is overwhelmingly more likely a snake_case identifier
+                        // (e.g. get_weather) than LaTeX shorthand, so leave marker and
+                        // character both untouched rather than silently deleting the marker.
                         out += scriptChar( s[ i + 1 ], subscript );
                         i += 2;
                         continue;
@@ -475,6 +504,11 @@ namespace Mila::ChatApp
             }
 
             return out;
+        }
+
+        static bool isScriptable( char c )
+        {
+            return (c >= '0' && c <= '9') || c == '+' || c == '-';
         }
 
         static std::string scriptChar( char c, bool subscript )
@@ -495,7 +529,10 @@ namespace Mila::ChatApp
             if ( c == '-' )
                 return subscript ? "\xE2\x82\x8B" : "\xE2\x81\xBB";
 
-            // No Unicode form (e.g. a letter index): keep the character, drop the marker.
+            // No Unicode form (e.g. a letter index inside explicit braces, x_{max}):
+            // keep the character, drop the marker. Only reachable from the brace-form
+            // call site -- the bare-marker call site in convertScripts() is gated by
+            // isScriptable() and never invokes this with a non-digit/+/- character.
             return std::string( 1, c );
         }
 

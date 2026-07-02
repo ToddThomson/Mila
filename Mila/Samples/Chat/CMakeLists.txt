@@ -18,6 +18,7 @@ PUBLIC
         "Src/Chat.MessageFormatter.ixx"
         "Src/Chat.SystemPrompt.ixx"
         "Src/Chat.ToolCallParser.ixx"
+        "Src/Chat.GemmaToolCallParser.ixx"
         "Src/Chat.ChannelParser.ixx"
         "Src/Json.ixx"
 )

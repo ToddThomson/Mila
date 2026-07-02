@@ -7,6 +7,6 @@
   "top_k": 60,
   "thinking": true,
   "thinking_effort": 3,
-  "verbose": "thoughts",
+  "verbose": "off",
   "system_prompt_path": "Data/assistant.json"
 }

@@ -8,6 +8,7 @@
 
 module;
 #include <string>
+#include <string_view>
 #include <vector>
 #include <filesystem>
 #include <fstream>
@@ -45,14 +46,22 @@ namespace Mila::ChatApp
     /**
      * @brief Definition of a callable tool exposed to the model.
      *
-     * Serialized into the system prompt by Chat::run() using the Llama 3.x
-     * tool-calling JSON format before being passed to MessageFormatter.
+     * Serialized into the system prompt by Chat::clearHistory(): Llama instruct models get
+     * the Llama 3.x zero-shot pythonic-call instruction wording, Gemma gets a plain
+     * description with no invented call-syntax instructions (it has its own trained
+     * <|tool_call> protocol -- see GemmaChatProtocol.md).
      */
     export struct ToolDefinition
     {
         std::string name;
         std::string description;
         ToolParameterSchema parameters;
+
+        // Optional human-readable action template for the agentic trace, with {arg}
+        // placeholders filled from the call arguments (e.g. "Getting weather for
+        // {location}"). Empty falls back to a generic "Calling <name>" line. This is
+        // display-only; it is never sent to the model.
+        std::string summary;
     };
 
     /**
@@ -180,6 +189,11 @@ namespace Mila::ChatApp
                 tool.parameters = parseParameterSchema( j[ "parameters" ] );
             }
 
+            if ( j.contains( "summary" ) && j[ "summary" ].is_string() )
+            {
+                tool.summary = j[ "summary" ].get<std::string>();
+            }
+
             return tool;
         }
 
@@ -229,4 +243,73 @@ namespace Mila::ChatApp
             return schema;
         }
     };
+
+    /**
+     * @brief Build the human-readable agentic-trace line for a tool call.
+     *
+     * Looks up the named tool and fills its `summary` template's {arg} placeholders from
+     * the call arguments (a JSON object string). Falls back to "Calling <name>" when the
+     * tool is unknown or has no summary template, and to the raw template when the
+     * arguments do not parse. Display-only; kept beside ToolDefinition so the nlohmann
+     * argument parsing stays out of the already-large Chat.ixx translation unit.
+     *
+     * value_open / value_close wrap each substituted value (e.g. ANSI bold on/off) so the
+     * caller can emphasize the dynamic parts without this loader hardcoding display codes.
+     */
+    export std::string formatToolSummary(
+        const std::vector<ToolDefinition>& tools,
+        const std::string& name,
+        const std::string& arguments_json,
+        std::string_view value_open = {},
+        std::string_view value_close = {} )
+    {
+        const ToolDefinition* definition = nullptr;
+
+        for ( const auto& tool : tools )
+        {
+            if ( tool.name == name )
+            {
+                definition = &tool;
+                break;
+            }
+        }
+
+        if ( definition == nullptr || definition->summary.empty() )
+            return std::format( "Calling {}", name );
+
+        nlohmann::json arguments;
+
+        try
+        {
+            arguments = nlohmann::json::parse( arguments_json );
+        }
+        catch ( const nlohmann::json::parse_error& )
+        {
+            return definition->summary;
+        }
+
+        std::string out = definition->summary;
+
+        if ( arguments.is_object() )
+        {
+            for ( auto it = arguments.begin(); it != arguments.end(); ++it )
+            {
+                const std::string placeholder = "{" + it.key() + "}";
+                const std::string value = it.value().is_string()
+                    ? it.value().get<std::string>()
+                    : it.value().dump();
+                const std::string replacement =
+                    std::string( value_open ) + value + std::string( value_close );
+
+                for ( std::string::size_type pos = 0;
+                    (pos = out.find( placeholder, pos )) != std::string::npos;
+                    pos += replacement.size() )
+                {
+                    out.replace( pos, placeholder.size(), replacement );
+                }
+            }
+        }
+
+        return out;
+    }
 }
