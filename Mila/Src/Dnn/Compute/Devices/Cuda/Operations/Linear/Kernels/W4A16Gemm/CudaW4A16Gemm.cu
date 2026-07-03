@@ -195,6 +195,44 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             }
         }
 
+        /**
+         * @brief Per-group FP4 E2M1 -> BF16 weight dequantization (prefill staging).
+         *
+         * One block per output channel; threads stride over the packed bytes and
+         * write two BF16 values per byte. Both nibbles of a byte share one group
+         * scale (group_size is a multiple of 64, so a byte never straddles groups).
+         * BF16 rounding matches the fused GEMM kernels' __float2bfloat16 weight
+         * treatment, so the staged weights are bit-identical to what the fused
+         * kernels multiply against.
+         */
+        template <int kGroupSize>
+        __global__ void dequantize_fp4_to_bf16_kernel(
+            __nv_bfloat16* __restrict__ output,
+            const uint8_t* __restrict__ weights_packed,
+            const float* __restrict__ scales,
+            int in_features )
+        {
+            const int output_channel = static_cast<int>( blockIdx.x );
+            const int half_k = in_features / 2;
+            const int num_groups = in_features / kGroupSize;
+
+            const uint8_t* row_source = weights_packed + static_cast<ptrdiff_t>( output_channel ) * half_k;
+            const float* row_scales = scales + static_cast<ptrdiff_t>( output_channel ) * num_groups;
+            __nv_bfloat162* row_dest = reinterpret_cast<__nv_bfloat162*>(
+                output + static_cast<ptrdiff_t>( output_channel ) * in_features );
+
+            for ( int b = static_cast<int>( threadIdx.x ); b < half_k; b += static_cast<int>( blockDim.x ) )
+            {
+                const uint8_t byte = row_source[ b ];
+                const float scale = row_scales[ b / ( kGroupSize / 2 ) ];
+
+                // Packing contract: low nibble = element 2b, high nibble = element 2b + 1.
+                row_dest[ b ] = __floats2bfloat162_rn(
+                    fp4_e2m1_decode( byte & 0xFu ) * scale,
+                    fp4_e2m1_decode( byte >> 4 ) * scale );
+            }
+        }
+
     } // anonymous namespace
 
     void cuda_w4a16_gemm(
@@ -267,6 +305,36 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 break;
 
             default:
+                break;
+        }
+    }
+
+    void cuda_fp4_dequantize_to_bf16(
+        __nv_bfloat16* output,
+        const uint8_t* weights_packed,
+        const float*   scales,
+        int            out_features,
+        int            in_features,
+        int            group_size,
+        cudaStream_t   stream )
+    {
+        constexpr int kBlockSize = 256;
+        const auto grid = static_cast<unsigned int>( out_features );
+
+        switch ( group_size )
+        {
+            case 64:
+                dequantize_fp4_to_bf16_kernel<64><<<grid, kBlockSize, 0, stream>>>(
+                    output, weights_packed, scales, in_features );
+                break;
+
+            case 128:
+                dequantize_fp4_to_bf16_kernel<128><<<grid, kBlockSize, 0, stream>>>(
+                    output, weights_packed, scales, in_features );
+                break;
+
+            default:
+                // Unsupported group_size -- caller must validate before dispatch.
                 break;
         }
     }

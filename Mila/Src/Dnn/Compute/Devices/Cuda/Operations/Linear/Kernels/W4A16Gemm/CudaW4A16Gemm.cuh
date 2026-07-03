@@ -127,4 +127,29 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         int                  group_size,
         cudaStream_t         stream );
 
+    /**
+     * @brief Per-group FP4 E2M1 weight matrix -> BF16 dequantization.
+     *
+     * Expands the packed FP4 weight tensor into a caller-owned BF16 staging buffer
+     * for the 2-phase prefill path (dequantize -> standard BF16 cuBLASLt GEMM),
+     * mirroring cuda_fp8_dequantize_to_bf16. BF16 rounding matches the fused GEMM
+     * kernels' weight treatment.
+     *
+     * @param output         Device BF16 staging buffer [out_features x in_features].
+     * @param weights_packed Device uint8 packed FP4 weights [out_features x in_features/2].
+     * @param scales         Device float32 per-group scales [out_features x in_features/group_size].
+     * @param out_features   N — number of output channels (grid dimension).
+     * @param in_features    K — inner dimension (must be divisible by group_size).
+     * @param group_size     Quantization group size along K (64 or 128).
+     * @param stream         CUDA stream.
+     */
+    void cuda_fp4_dequantize_to_bf16(
+        __nv_bfloat16* output,
+        const uint8_t* weights_packed,
+        const float*   scales,
+        int            out_features,
+        int            in_features,
+        int            group_size,
+        cudaStream_t   stream );
+
 } // namespace Mila::Dnn::Compute::Cuda::Linear

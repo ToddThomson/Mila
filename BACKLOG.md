@@ -68,7 +68,7 @@ Project Hygiene below; the migration/cleanup tasks specific to closing alpha are
 
 Deferred / not alpha-close gates:
 
-- [~] **[milestone: LanguageNetwork — Sample API]** Token sampling (temperature / top-k / top-p) — `OperationTraits<SamplingOp, Cuda, FP32>` and `<…, BF16>` specializations; device `CudaSamplingOp`/`CpuSamplingOp` driven by a `TokenSampler` per `Specifications/TokenSampling.md`. **Phases A-D (Gemma) COMPLETE + green (2026-06-27):** `Sampler` base + `TokenSampler` facade + `SamplingConfig` (`Dnn.Samplers`), `Cuda`/`CpuSamplingOp` with all branches — greedy argmax, full multinomial, and top-k/top-p (device: threshold binary search, single-block correctness-first; host: exact `nth_element`/`sort`). `TokenSampler` is now hoisted to the `LanguageModel` base (lazy, shared context) via `sampleNext()`; **GemmaModel migrated, path A (host `sampleToken`) retired**, `logits_staging_` + `decode_token_staging_` removed, per-step H2D restage gone. Greedy DeviceB validated token-for-token vs HostA; stochastic + top-k/top-p coherent in chat; injected-`r` unit oracle green (`Tests/Dnn/Samplers/Sampling.Cuda.cpp` — it caught + fixed a top-k off-by-one). Op runs on the **default CUDA stream** (never calls `context_->getStream()` — sidesteps an MSVC per-BMI module-reachability issue with `ExecutionContext<Cuda>`; the model syncs the network before sampling and the facade reads back synchronously, so default-stream ordering is correct). `Network` gained a public `getExecutionContext()`. **REMAINING:** migrate `LlamaModel` (mechanical mirror) + `GptModel` (GPT-2 variant) onto the base `sampleNext()` and delete their host `sampleToken`s (deferred to when those paths are built/run); share the decode stream via `getStream()` (Phase D tail); single-block kernel perf optimization. User must delete the orphaned `Dnn/Decoders/` skeleton + `Core/Decoder.ixx` in VS2026. **Design resolved 2026-06-27 (spec §3-7):** `TokenSampler` is an **orchestrator tool owned by the `LanguageModel` base** (the structural sibling of `Optimizer` — model-owned, shares the model's `ExecutionContext`), **not** a graph `Component`; ONE concrete `TokenSampler` carries top-k/top-p/min-p as composable per-call *filters* (not a class per strategy), with the `Sampler<Device,Precision>` base kept as the seam for a future stateful strategy (Mirostat); dispatch is the unified `OperationTraits` table (NOT the legacy `conditional_t` facade — see the Optimizer-migration item below, which lands first). Retires the `Dnn/Decoders/` skeleton (`Decoder`->`Sampler`, `TopKDecoder`->`TokenSampler`, `TopKConfig`->`SamplingConfig`). Not a 0.20 gate — greedy decode is already validated, so this is additive
+- [~] **[milestone: LanguageNetwork — Sample API]** Token sampling (temperature / top-k / top-p) — `OperationTraits<SamplingOp, Cuda, FP32>` and `<…, BF16>` specializations; device `CudaSamplingOp`/`CpuSamplingOp` driven by a `TokenSampler` per `Specifications/TokenSampling.md`. **Phases A-D (Gemma) COMPLETE + green (2026-06-27):** `Sampler` base + `TokenSampler` facade + `SamplingConfig` (`Dnn.Samplers`), `Cuda`/`CpuSamplingOp` with all branches — greedy argmax, full multinomial, and top-k/top-p (device: threshold binary search, single-block correctness-first; host: exact `nth_element`/`sort`). `TokenSampler` is now hoisted to the `LanguageModel` base (lazy, shared context) via `sampleNext()`; **GemmaModel migrated, path A (host `sampleToken`) retired**, `logits_staging_` + `decode_token_staging_` removed, per-step H2D restage gone. Greedy DeviceB validated token-for-token vs HostA; stochastic + top-k/top-p coherent in chat; injected-`r` unit oracle green (`Tests/Dnn/Samplers/Sampling.Cuda.cpp` — it caught + fixed a top-k off-by-one). Op runs on the **default CUDA stream** (never calls `context_->getStream()` — sidesteps an MSVC per-BMI module-reachability issue with `ExecutionContext<Cuda>`; the model syncs the network before sampling and the facade reads back synchronously, so default-stream ordering is correct). `Network` gained a public `getExecutionContext()`. **REMAINING:** migrate `LlamaModel` (mechanical mirror) + `GptModel` (GPT-2 variant) onto the base `sampleNext()` and delete their host `sampleToken`s (deferred to when those paths are built/run); share the decode stream via `getStream()` (Phase D tail); ~~single-block kernel perf optimization~~ — **DONE + VALIDATED 2026-07-03: the measured 11.05 ms/token `stochastic_kernel` (29.9% of sampled-decode wall — Gemma4InferenceReview.md section 10.3) is replaced by a multi-block pipeline in `Sampling.cu` (histogram threshold refinement + chunked index-order inverse-CDF, no host round-trip); re-profiled at 55.5 us/token (200x kernel reduction), sampled decode 25.6 -> 35.7 tok/s (+39%), chat coherent. Single-block kernel retained as `forwardReference()` parity oracle; `Sampling.Cuda.cpp` locks truncated-case token parity + a host-double CDF bracket for the full multinomial (serial-vs-chunked float summation makes full-vocab token equality unattainable in flat CDF regions — observed 732-index/~1e-5-mass shift at r=0.999; TokenSampling.md section 5 records the design)** (`argmax_kernel` measured 26 us — greedy untouched). User must delete the orphaned `Dnn/Decoders/` skeleton + `Core/Decoder.ixx` in VS2026. **Design resolved 2026-06-27 (spec §3-7):** `TokenSampler` is an **orchestrator tool owned by the `LanguageModel` base** (the structural sibling of `Optimizer` — model-owned, shares the model's `ExecutionContext`), **not** a graph `Component`; ONE concrete `TokenSampler` carries top-k/top-p/min-p as composable per-call *filters* (not a class per strategy), with the `Sampler<Device,Precision>` base kept as the seam for a future stateful strategy (Mirostat); dispatch is the unified `OperationTraits` table (NOT the legacy `conditional_t` facade — see the Optimizer-migration item below, which lands first). Retires the `Dnn/Decoders/` skeleton (`Decoder`->`Sampler`, `TopKDecoder`->`TokenSampler`, `TopKConfig`->`SamplingConfig`). Not a 0.20 gate — greedy decode is already validated, so this is additive
 - [ ] **Migrate Optimizer dispatch onto `OperationTraits`** (prerequisite/sibling of Token sampling — do FIRST to prove the pattern on working code). `AdamWOptimizer` ([AdamW.ixx](Mila/Src/Dnn/Optimizers/AdamW.ixx)) selects its device impl with `std::conditional_t` + `#ifdef MILA_HAS_CUDA` — the simplest dispatch that worked, predating `OperationTraits`. It does not scale (every facade re-implements the conditional and carries its own CUDA `#ifdef`) and diverges from how graph ops and the new `TokenSampler` dispatch. Bring it onto the unified table so both `LanguageModel` orchestrator tools (Optimizer, Sampler) dispatch identically: (1) add an **algorithm-keyed** entry to `OperationType` (`AdamWOp`; optimizers key by algorithm because SGD/AdamW are distinct classes — unlike the role-keyed single `SamplingOp`); (2) add an `OptimizerOpConcept` to [OperationTraits.Template.ixx](Mila/Src/Dnn/Compute/Operations/OperationTraits.Template.ixx) (`addParameter`/`step`/`get`+`setLearningRate` — not `forward`); (3) add `OperationTraits<AdamWOp, {Cuda,Cpu}, TPrecision>::type` specializations in the `:Cuda`/`:Cpu` partitions resolving to `Cuda`/`CpuAdamWOptimizer`; (4) replace the facade's `conditional_t` block with the traits alias and drop its `#ifdef` + direct backend imports. Net: N per-facade `#ifdef`s collapse to the one guarded `OperationTraits.ixx` aggregator (aligns with the no-`#ifdef`-in-modules rule); a new backend = a new partition specialization, facades untouched. Validate against the existing (currently disabled) AdamW optimizer tests. Also update [OperationType.ixx](Mila/Src/Dnn/Compute/Operations/OperationType.ixx)'s header note ("Operations are an implementation detail of Components") — it becomes false once model-level orchestrator tools are keyed; broaden to "the compile-time dispatch key for any device-backed compute unit, whether owned by a Component or a model-level orchestrator". Optional larger follow-on (NOT now): rename `OperationTraits`/`OperationType` -> `ComputeTraits`/`ComputeUnitType` to match the broadened scope. See `Specifications/TokenSampling.md` §3.2
 - [ ] **[deferred, training-only]** AdamW debug instrumentation — the per-value `isfinite`/limit `printf` anomaly guards in `CudaAdamW.cu` (6 sites) plus the leftover `printf` in `CudaAdamWOptimizer.ixx:270` are training bring-up scaffolding. Left untouched by the Consolidation debug strip because the AdamW path is training-only: off the validated inference path, exercised solely by the parked MNIST/Bard samples, and untested (`AdamW.Cuda.cpp`/`AdamW.Cpu.cpp` disabled in `Tests/CMakeLists.txt`). When Training is picked up, decide strip-vs-gate (the `KERNEL_ASSERT` invariant checks are already `NDEBUG`-gated and zero-cost in release; the `printf`s are not) and re-enable the optimizer tests in the same pass
 - [ ] **[deferred, training-only]** CUDA `fill_normal`/`fill_uniform` are FP32-only — they cast the raw buffer to `float*` and `curandGenerate` into it, so BF16/FP16 reduced-precision **train-from-scratch on CUDA** corrupts weight/embedding init. Reachable now that `xavier`/`normal` init is wired (`TokenEmbedding` wte is BF16 on the Llama path). Harmless for inference (init gated off) and for CPU (the `CpuTensorOps.Random` added this cycle converts element-wise). Fix: generate into a temp float buffer + a convert pass — the CUDA dtype counterpart to the CPU Random backend
@@ -420,11 +420,15 @@ a 12 GB card.
   ([Gemma.ixx:96](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.ixx)) is activation-blind (it caps on
   GQA attn scratch only) so it over-picks chunk 512. Levers, all internal-impl: (A) make chunk sizing
   activation-aware (budget num_layers x per-token activation bytes) so it auto-drops to 128/64 under a
-  real VRAM budget; (B) expose a prefill-chunk / VRAM-budget override on `GemmaModelConfig` +
-  `--prefill-chunk`; (C) reclaim the ~2 GB untied lm_head = the **weight-tying gate** above; (D) **pool
-  the 48 per-layer activation buffers** — only one layer is live at a time in the sequential forward, so
-  the per-layer allocation is the real architectural waste (biggest win, biggest refactor). Lower
-  priority than the two gates; a 16 GB Blackwell card (where 12B-FP4 fits comfortably) is inbound. See
+  real VRAM budget — **full heuristic-v2 design now specified in
+  [Gemma4InferenceReview.md section 6](Mila/Specifications/Gemma4InferenceReview.md)** (cost model
+  ~11.3 MB/chunk-row, `cudaMemGetInfo` budget, ladder floor 64, formula-vs-`getMemoryStats` pinning
+  test; picks ~128 on the 4070 today, 512 after pooling); (B) expose a prefill-chunk / VRAM-budget override on `GemmaModelConfig` +
+  `--prefill-chunk`; (C) reclaim the ~2 GB untied lm_head = the **weight-tying gate** above (DONE); (D) **pool
+  the 48 per-layer activation buffers** — PROMOTED 2026-07-02 to its own elevated defect item at the
+  top of this section (design in Gemma4InferenceReview.md section 7). Both gates have since shipped
+  and 12B FP4 now fits the 12 GB card at the chunk-32 operating point; what remains of this item is
+  the (A)/(B) chunk-sizing work, which folds into heuristic v2 + the pooling item. See
   [[project_gemma_chat_vram]].
 - [ ] **[defensive, core-lib] RmsNorm silently zeroes on a missing weight blob.** When a checkpoint
   lacks an expected norm weight and `shouldInitializeParameters()` is false, `RmsNorm::weight_` keeps its
@@ -444,6 +448,90 @@ a 12 GB card.
   through metadata (Gemma DOES read it; its converter writes `'norm_epsilon'` to match the reader). Fix:
   align the Llama converter key to `'norm_epsilon'` (and have `LlamaModel` read it) when the Llama load
   path is next touched.
+- [ ] **[defect, inference path — ELEVATED 2026-07-02] Per-layer activation-buffer ownership wastes
+  47/48 of prefill State; pool into one shared workspace.** Every component retains its own
+  chunk-sized output for its lifetime (`output_ = make_unique<TensorType>` in RmsNorm / Linear /
+  Residual / Swiglu / GroupedQueryAttention, plus block-owned `res0_/q_/k_/v_` in
+  [Gemma.Block.ixx](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx)) — a training-first
+  design (backward needs retained activations) that is pure waste on the inference-only Gemma path,
+  where exactly one layer is live at a time. It is the root cause of the chunk-32 operating point
+  and therefore of the 16x prefill weight re-read. Fix = transformer-owned `BlockActivationWorkspace`
+  (slot per graph position, max local/global widths) + `installSharedOutput` on the five component
+  types (mirrors `installSharedWeight`) + a BuildContext defer-allocation flag; single stream slot is
+  alias-safe (input last read mid-block at `res_1`, written only at block end). ~10.4 MB -> ~0.23 MB
+  per chunk-row; chunk 512 fits the 4070; prefill floor for an 8K prompt ~3.4 s -> ~0.22 s. Gemma
+  wiring only (components keep self-allocation by default; training/Llama untouched). Phased plan +
+  aliasing analysis + `getMemoryStats` no-double-count rule (D7-shaped) in
+  **[Gemma4InferenceReview.md section 7](Mila/Specifications/Gemma4InferenceReview.md)**; validation =
+  HF-greedy parity + closed-form State assertion. Supersedes lever (D) of the VRAM-footprint item
+  below; finish with heuristic v2 (section 6) + revert `kGemmaPrefillChunkOverride` to 0.
+  **Measured caveat (2026-07-03 Rec-0 profiling, review section 10.2):** the W4A16 prefill GEMM is
+  compute-bound (~40 us per chunk-row), so chunk 512 alone buys only ~12% prefill wall-clock until
+  that kernel is fixed (the W4A16 GEMM item below). Pooling stays correct as the VRAM fix and the
+  chunk-lever enabler — sequence it with the GEMM work; end-state for a 2048-token prefill is
+  ~1-2 s (FLOP-bound), not the 54 ms the traffic-only model suggested.
+- [x] **[perf, measured 2026-07-03] W4A16 prefill GEMM is compute-bound at ~2.5 TFLOPS — 87.9% of
+  prefill wall ("P0").** Nsight (Gemma4InferenceReview.md section 10.2): `fp4a16_wmma_gemm_kernel`
+  ([CudaW4A16Gemm.Wmma.cu](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cu))
+  costs ~188 us fixed (weight read, ~160 GB/s) + ~40 us per chunk-row per launch, so a 2048-token
+  prefill spends 17.97 s in this kernel (20.77 s total wall, 24x the review's traffic-only floor)
+  and ~15.6 s of that is chunk-size-independent — the pooling/chunk-512 item above cannot pay out
+  on wall-clock until this kernel is fixed. Reference points from the same capture: cuBLASLt BF16
+  GEMMs hit ~26 TFLOPS at M = 32; the decode matvec reads the same weights at 379 GB/s.
+  **FIX SHIPPED + VALIDATED 2026-07-03: 2048-token prefill 20.77 s -> 10.21 s (2.03x); linear
+  term 17.97 s -> 7.39 s (dequant 3.98 s at ~275 GB/s + cuBLASLt GEMMs 3.41 s at ~13 TFLOPS
+  aggregate, M = 32); chat coherent (HF FP4 parity test not yet re-run — opt-in). The chunk
+  lever is restored: dequant traffic scales 1/chunk, GEMM efficiency rises with M — pooling ->
+  chunk 512 now projects ~3-3.5 s, then P2 (softmaxes, 2.01 s = 20% of the new wall) -> ~1.5 s.
+  Residual micro-item: vectorize the dequant kernel's byte loads / bf162 stores (275 -> ~400
+  GB/s, worth ~1.2 s at chunk 32, less after pooling).** Implementation: FP4 -> BF16
+  dequant-staging + cuBLASLt as the new default batch path, mirroring the FP8 2-phase baseline —
+  new `cuda_fp4_dequantize_to_bf16` kernel (in
+  [CudaW4A16Gemm.cu](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.cu);
+  BF16 rounding bit-matches the fused kernels' weight treatment), a `kUseFusedFp4Gemm = false`
+  A/B toggle in [CudaLinearOp.ixx](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx)
+  mirroring `kUseW8A16Gemm` (WMMA/tiled fused kernels stay live behind it), and the per-group
+  branch of `buildCublasLtPlans` now builds the BF16 forward-plan cache. Staging peak = largest
+  linear (fc_gate_up 61440 x 3840 ~= 472 MB BF16) via the grow-on-demand context scratch,
+  fetched per forward. Expected ~2.8-3x prefill wall at chunk 32; restores the chunk lever for
+  pooling. Decode (outer_size == 1 matvec) untouched. Oracle: opt-in HF-greedy FP4 parity test
+  (`GemmaModel.Parity.Cuda.cpp`) + chat; prefill capture is the benchmark. **Follow-up (test
+  gap, Test Suite Revival):** no component-level FP4 forward test exists — `Linear.Cuda.cpp`
+  only pins the tying-throw on the quantized instantiation; backfill a decode-vs-prefill
+  consistency test (identical rows through matvec and the batch path, small tolerance for
+  accumulation-order differences) so the quantized batch path has a non-checkpoint oracle.
+- [ ] **[perf, measured 2026-07-03] Decode calibration follow-ups: FP4 matvec bandwidth ("D6") +
+  RmsNorm launch shape.** From the greedy decode capture (review section 10.1, 37.7 tok/s = 26.5
+  ms/token): (a) `matvec_decode_bf16_qfp4_kernel`
+  ([CudaMatVecBias.Bf16.cu](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatVec/CudaMatVecBias.Bf16.cu))
+  sustains ~379 GB/s (15.3 ms/token, 60% of decode) while the BF16 lm_head matvec in the same
+  file proves ~484 GB/s (96% of the 4070's 504 peak) on the same access pattern — closing half
+  the gap is ~1.7-3 ms/token, the largest single decode headroom; (b) `rmsnorm_forward_bf16_kernel`
+  costs 2.63 ms/token across 337 single-block launches (10% of decode; Gemma's sandwich + QKV
+  norms) — more than split+scale+rope combined, so norm fusion (or a multi-block norm) leads the
+  D2 cheap-fusion batch, ahead of the split->views and layer_scalar folds.
+  `GemmaTransformer::prefill` ([Gemma.ixx:236](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.ixx))
+  and `LlamaTransformer::prefill` ([Llama.ixx:211](Mila/Src/Dnn/Components/Transformers/LlaMa/Llama.ixx))
+  extract the final position as `view( {B, 1, model_dim}, (T_last - 1) * model_dim )` — a contiguous
+  window that is the last position of batch row 0 only; for B > 1 it spans row 0's tail plus row 1's
+  head. Latent today (inference models are always built with B = 1), but the code carries B through
+  every shape as if batched. Fix with a strided last-position gather, or assert B == 1 at prefill
+  entry so the assumption is explicit. Found in the 2026-07-02 generate() pipeline review
+  ([Gemma4InferenceReview.md](Mila/Specifications/Gemma4InferenceReview.md) — full findings +
+  ranked perf recommendations: decode sync/launch structure, fused decode attention, lm_head FP8,
+  prefill chunk/softmax/GEMM-extent, incremental prefill).
+- [ ] **[minor, API edge] `max_new_tokens = 0` still emits one token.** `GemmaModel::onGenerating`
+  ([GemmaModel.ixx:288](Mila/Src/Dnn/Models/GemmaModel.ixx)) emits the prefill-sampled token before
+  the `max_new` bound is consulted (the decode loop starts at step 1), so a caller passing
+  `max_new_tokens = 0` gets one token instead of none. Same loop structure in Llama/Gpt. Decide the
+  contract (0 => no tokens, or reject 0) and guard before the first `on_token`.
+- [ ] **Prefill per-layer `res0` copy is suspected redundant.** `GemmaBlock::prefill`
+  ([Gemma.Block.ixx:167](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx)) copies the
+  block input into `res0_` ("component buffers get overwritten downstream"), but `decode()` feeds
+  the same `input` reference through the identical Residual structure with no copy, and no component
+  inside the block writes the previous block's output buffer. If HF-greedy parity holds without it,
+  removing it saves one launch + one full stream read/write per layer per chunk. Verify against the
+  parity test, then delete — or document the real aliasing hazard the copy guards against.
 - [ ] **Correctness-oracle dependency (GQA standalone-forward stub).** Component-level Gemma attention
   numerics are blocked until the `GroupedQueryAttention::forward` standalone-stub bug is resolved (see
   the GQA no-op-stub item under Test Suite Revival's bug list) — windowed-vs-global + local/global

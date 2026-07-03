@@ -212,6 +212,23 @@ The op branches on `SamplingParams`; internal math is FP32 regardless of `TPreci
   merge. top-p is a cumulative-probability cutoff applied after the k-mask on the sorted
   survivors.
 
+  **Implemented (2026-07-03):** the first-cut single-block kernel (bisection thresholds +
+  thread-0 serial CDF) measured **11.05 ms/token** at the Gemma vocab — 29.9% of sampled-decode
+  wall (Gemma4InferenceReview.md section 10.3). Replaced by a multi-block pipeline in
+  `Sampling.cu`: histogram value-threshold refinement (4 rounds x 4096 bins = 2^48, finer than
+  the 2^40 bisection; top-k counts integer-exact, top-p mass per-bin — both filters collapse to
+  one value threshold since prob is monotonic in the scaled logit), then chunked partial sums +
+  a single-block token-index-order inverse-CDF walk over only the target chunk. The single-block
+  kernel is retained as `cuda_sample_stochastic_reference_*` / `forwardReference()` — the parity
+  oracle (token-parity tests at the Gemma vocab in `Sampling.Cuda.cpp`). Truncation boundaries
+  match the reference up to float reduction order; top-p bin masses merge via float atomics, so
+  a nucleus-boundary token can differ by an ulp of threshold across runs. Full-multinomial token
+  equality vs the reference is unattainable by construction (serial vs chunked CDF summation
+  diverges ~1e-5 relative, which in flat CDF regions spans hundreds of token indices at
+  negligible mass) — that case is locked by a host double-precision CDF bracket test instead.
+  **Validated 2026-07-03:** pipeline measures 55.5 us/token (200x); Gemma sampled decode
+  25.6 -> 35.7 tok/s; chat coherent.
+
 ---
 
 ## 6. Buffer and Decode-Loop Changes

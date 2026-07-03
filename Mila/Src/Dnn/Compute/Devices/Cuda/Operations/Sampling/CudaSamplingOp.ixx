@@ -2,9 +2,11 @@
  * @file CudaSamplingOp.ixx
  * @brief CUDA device-side token sampling operation.
  *
- * Phase A: greedy (argmax) sampling on the device. The logits never leave the
- * device; the op writes the chosen int32 token into the caller's device buffer.
- * Stochastic top-k/top-p land in later phases. See Specifications/TokenSampling.md.
+ * Greedy (argmax) and stochastic top-k/top-p sampling on the device. The logits
+ * never leave the device; the op writes the chosen int32 token into the caller's
+ * device buffer. The stochastic path is a multi-block kernel pipeline; the original
+ * single-block kernel is reachable via forwardReference() as the parity oracle.
+ * See Specifications/TokenSampling.md.
  */
 
 module;
@@ -59,7 +61,9 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
         CudaSamplingOp( IExecutionContext* context, const SamplingConfig& config )
             : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaSamplingOp" ) ),
               config_( config ),
-              prob_scratch_( context->getDeviceId(), shape_t{ config.getVocabularySize() } )
+              prob_scratch_( context->getDeviceId(), shape_t{ config.getVocabularySize() } ),
+              reduction_scratch_( context->getDeviceId(), shape_t{ kStochasticFloatScratchElements } ),
+              index_scratch_( context->getDeviceId(), shape_t{ kStochasticIndexScratchElements } )
         {
             config_.validate();
         }
@@ -99,8 +103,48 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             }
 
             float* scratch = static_cast<float*>( prob_scratch_.rawData() );
+            float* reduction_scratch = static_cast<float*>( reduction_scratch_.rawData() );
+            int32_t* index_scratch = static_cast<int32_t*>( index_scratch_.rawData() );
 
             cuda_sample_stochastic<NativeType>(
+                row, out, scratch, reduction_scratch, index_scratch,
+                static_cast<int>( vocab ),
+                config_.getFinalLogitSoftcap(), params.temperature,
+                params.top_k, params.top_p, r, stream );
+        }
+
+        /**
+         * @brief forward() through the retained single-block reference kernel.
+         *
+         * Parity oracle for the multi-block stochastic pipeline (same semantics up
+         * to float reduction order at truncation/CDF boundaries) — tests only,
+         * ~11 ms/token at a 262k vocab. The greedy branch is shared with forward().
+         */
+        void forwardReference(
+            const ITensor& logits,
+            ITensor& token_out,
+            const SamplingParams& params,
+            float r ) const
+        {
+            const int64_t vocab = config_.getVocabularySize();
+            const int64_t offset = static_cast<int64_t>( logits.size() ) - vocab;
+
+            const NativeType* row = static_cast<const NativeType*>( logits.rawData() ) + offset;
+            int32_t* out = static_cast<int32_t*>( token_out.rawData() );
+
+            cudaStream_t stream = 0;
+
+            const bool greedy = (params.temperature <= 0.0f || params.top_k == 1);
+
+            if (greedy)
+            {
+                cuda_sample_argmax<NativeType>( row, out, static_cast<int>( vocab ), stream );
+                return;
+            }
+
+            float* scratch = static_cast<float*>( prob_scratch_.rawData() );
+
+            cuda_sample_stochastic_reference<NativeType>(
                 row, out, scratch, static_cast<int>( vocab ),
                 config_.getFinalLogitSoftcap(), params.temperature,
                 params.top_k, params.top_p, r, stream );
@@ -120,8 +164,12 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
 
         CudaExecutionContext* context_;
         SamplingConfig config_;
-        // Working store for the stochastic softmax/inverse-CDF (vocab FP32). Mutable so
-        // the const forward() can write through it (the op holds no logical state).
+        // Working stores for the stochastic pipeline (vocab FP32 probabilities plus the
+        // fixed-size reduction/histogram scratch — see Sampling.cuh for the geometry).
+        // Mutable so the const forward() can write through them (the op holds no
+        // logical state).
         mutable Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> prob_scratch_;
+        mutable Tensor<TensorDataType::FP32, CudaDeviceMemoryResource> reduction_scratch_;
+        mutable Tensor<TensorDataType::INT32, CudaDeviceMemoryResource> index_scratch_;
     };
 }

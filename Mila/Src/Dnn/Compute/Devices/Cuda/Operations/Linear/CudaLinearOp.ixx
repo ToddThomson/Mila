@@ -94,6 +94,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
      *       inline in shared memory, writes BF16 output directly (no staging buffer).
      *     kUseW8A16Gemm=false -- 2-phase: dequantize FP8 -> BF16 staging buffer, then
      *       standard BF16 cuBLASLt NT GEMM, then cuda_add_bias post-pass.
+     *   PerGroupFp4 batches mirror the same structure via kUseFusedFp4Gemm (fused
+     *   WMMA/tiled kernels vs the default 2-phase dequant-staging + cuBLASLt); FP4
+     *   decode (outer_size == 1) stays on the dedicated fused matvec.
      *
      * Backward is not supported on the quantized path (inference only).
      *
@@ -121,6 +124,14 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         //   true  -- cuda_w8a16_gemm: reads FP8 once, dequantizes inline, no staging buffer.
         //   false -- cuda_fp8_dequantize_to_bf16 -> cuBLASLt BF16 GEMM -> cuda_add_bias (proven path).
         static constexpr bool kUseW8A16Gemm = false;
+
+        // Toggle between the fused FP4 GEMM kernels and the 2-phase dequant path for A/B testing.
+        //   true  -- cuda_fp4a16_gemm_wmma / cuda_fp4a16_gemm: reads packed FP4 once, dequantizes
+        //            inline per tile, no staging buffer. Measured compute-bound at ~2.5 TFLOPS on
+        //            prefill-shaped M (Gemma4InferenceReview.md section 10.2).
+        //   false -- cuda_fp4_dequantize_to_bf16 -> cuBLASLt BF16 GEMM -> cuda_add_bias, the same
+        //            2-phase structure as the proven FP8 baseline path (the "P0" prefill fix).
+        static constexpr bool kUseFusedFp4Gemm = false;
 
         static constexpr TensorDataType kWeightDtype = kIsQuantized
             ? TWeightQuant::kStorageDtype : TComputePrecision;
@@ -540,7 +551,56 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 }
                 else if constexpr ( kIsPerGroupQuantized )
                 {
-                    if constexpr ( TWeightQuant::kIsFp4E2M1 )
+                    if constexpr ( TWeightQuant::kIsFp4E2M1 && !kUseFusedFp4Gemm )
+                    {
+                        // 2-phase FP4 prefill path (mirrors the FP8 baseline above):
+                        //   Phase 1 -- expand packed FP4 weights into the shared BF16 staging buffer.
+                        //   Phase 2 -- standard BF16 cuBLASLt NT row-major GEMM using the staging buffer.
+                        //   Phase 3 -- add bias post-GEMM (plan built with has_bias=false).
+                        //
+                        // The fused WMMA kernel this replaces is compute-bound at ~2.5 TFLOPS on
+                        // prefill-shaped M while the staged cuBLASLt GEMM runs at tensor-core rates;
+                        // the staging traffic (write + read one BF16 weight matrix per forward) is
+                        // the cheaper side of that trade by ~3x at chunk 32. Fetched per-forward,
+                        // never cached: the scratch buffer may be reallocated on grow.
+                        const size_t staging_bytes = static_cast<size_t>( out_features_ )
+                            * static_cast<size_t>( cached_in_features_ )
+                            * sizeof( __nv_bfloat16 );
+
+                        auto* staging = static_cast<__nv_bfloat16*>(
+                            context_->getDeviceScratchBuffer( staging_bytes ) );
+
+                        cuda_fp4_dequantize_to_bf16(
+                            staging,
+                            weight_,
+                            weight_scales_,
+                            out_features_, cached_in_features_,
+                            weight_group_size_,
+                            stream );
+
+                        const float alpha = 1.0f;
+                        const float beta  = 0.0f;
+
+                        execute_linear_plan<TComputePrecision>(
+                            cached_cublaslt_handle_,
+                            forward_plan_cache_.get( outer_size ),
+                            &alpha,
+                            input_ptr,
+                            staging,
+                            &beta,
+                            output_ptr,
+                            nullptr,
+                            nullptr,
+                            stream,
+                            context_->getCublasLtWorkspace(),
+                            context_->getCublasLtWorkspaceSize() );
+
+                        if ( bias_ != nullptr )
+                        {
+                            cuda_add_bias( output_ptr, bias_, outer_size, out_features_, stream );
+                        }
+                    }
+                    else if constexpr ( TWeightQuant::kIsFp4E2M1 )
                     {
                         if ( use_wmma_fp4_gemm_ )
                         {
@@ -910,17 +970,36 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             if constexpr ( kIsPerGroupQuantized )
             {
-                // INT4 W4A16 batch path: cuda_w4a16_gemm reads packed INT4 weights and
-                // dequantizes per-group inline -- no staging buffer or cuBLASLt plan needed.
+                if constexpr ( TWeightQuant::kIsFp4E2M1 && !kUseFusedFp4Gemm )
+                {
+                    // 2-phase FP4 prefill path: packed FP4 weights are expanded into the
+                    // shared BF16 staging buffer per forward, then fed into a standard
+                    // BF16 cuBLASLt plan -- identical structure to the FP8 baseline above.
+                    // has_bias=false: bias applied post-GEMM by cuda_add_bias.
+                    forward_plan_cache_ = CublasLtPlanCache<CublasLtLinearPlan<TComputePrecision>>(
+                        cached_outer_size_,
+                        [&]( int bucket )
+                        {
+                            return build_linear_plan<TComputePrecision>(
+                                cached_cublaslt_handle_,
+                                bucket,
+                                cached_in_features_,
+                                out_features_,
+                                false,
+                                compute_type_,
+                                scale_type_ );
+                        } );
+
+                    Logging::Logger::info( std::format(
+                        "CudaLinearOp: FP4 dequant + BF16 cuBLASLt GEMM -- {} in -> {} out (group_size={})",
+                        cached_in_features_, out_features_, weight_group_size_ ) );
+
+                    return;
+                }
+
+                // Fused W4A16 / FP4 batch path: the fused kernels read packed weights and
+                // dequantize per-group inline -- no staging buffer or cuBLASLt plan needed.
                 // SM >= 8.0 is already guaranteed by supportsCuBLASLt() gating this path.
-
-                // REVIEW: This requires full analysis for proper review.
-                // Comment out for now. Revisit
-
-                // Logging::Logger::info( std::format(
-                //    "CudaLinearOp: W4A16 fused GEMM ready -- {} in -> {} out (group_size={})",
-                //    cached_in_features_, out_features_, weight_group_size_ ) );
-
                 return;
             }
 

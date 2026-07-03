@@ -2,10 +2,12 @@
  * @file ProfileModel.ixx
  * @brief General-purpose, non-interactive model profiling harness for Nsight.
  *
- * Loads a Llama model and exercises one phase of the inference path under a
- * cudaProfilerApi capture region and an NVTX range, so Nsight Systems can be
- * run with --capture-range=cudaProfilerApi to profile only the measured region
- * (excluding model load and warmup). Greedy decode keeps runs repeatable.
+ * Loads a Llama or Gemma model and exercises one phase of the inference path
+ * under a cudaProfilerApi capture region and an NVTX range, so Nsight Systems
+ * can be run with --capture-range=cudaProfilerApi to profile only the measured
+ * region (excluding model load and warmup). Greedy decode keeps runs
+ * repeatable; --temperature > 0 switches to the stochastic sampler so its
+ * kernel appears in the capture.
  *
  * Phases:
  *   prefill   profilePrefill() only (prompt forward pass + sync).
@@ -53,12 +55,14 @@ namespace Mila::Profiling
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Data;
 
+    enum class ModelFamily { Llama, Gemma };
     enum class Phase { Prefill, Decode, Generate };
     enum class Quantization { None, FP8, FP4 };
     enum class Precision { BF16, FP32 };
 
     struct Options
     {
+        ModelFamily model_family{ ModelFamily::Llama };
         std::filesystem::path model_path;
         std::filesystem::path tokenizer_path;
         Phase phase{ Phase::Decode };
@@ -68,6 +72,7 @@ namespace Mila::Profiling
             "Write a detailed essay about the history of computing and the people who shaped it." };
         std::size_t max_new_tokens{ 256 };
         std::size_t prefill_seq_len{ 0 };  // 0 => use the encoded prompt length
+        float temperature{ 0.0f };  // 0 => greedy (repeatable); > 0 => stochastic sampler
         int warmup_runs{ 1 };
         std::size_t context_length{ 4096 };
     };
@@ -86,14 +91,16 @@ namespace Mila::Profiling
     {
         std::cerr
             << "Usage: " << program << " [options]\n"
+            << "  --model           llama | gemma.                Default: llama.\n"
             << "  --phase           prefill | decode | generate.  Default: decode.\n"
             << "  --quantization    none | fp8 | fp4 (bf16 only). Default: fp4.\n"
-            << "  --precision       bf16 | fp32.                  Default: bf16.\n"
-            << "  --model-path      Weights file. Default: llama31_8b_instruct_bf16.bin.\n"
-            << "  --tokenizer       Tokenizer file. Default: llama32_tokenizer.bin.\n"
+            << "  --precision       bf16 | fp32 (llama only).     Default: bf16.\n"
+            << "  --model-path      Weights file. Default: per --model family.\n"
+            << "  --tokenizer       Tokenizer file. Default: per --model family.\n"
             << "  --prompt          Prompt text (decode/generate, and prefill unless --seq-len).\n"
             << "  --tokens          Max new tokens for decode/generate. Default: 256.\n"
             << "  --seq-len         Prefill with this many dummy tokens instead of the prompt.\n"
+            << "  --temperature     0 = greedy (repeatable); > 0 profiles the stochastic sampler. Default: 0.\n"
             << "  --warmup          Unmeasured priming runs before the measured run. Default: 1.\n"
             << "  --context-length  Max sequence length allocated at load. Default: 4096.\n";
     }
@@ -114,11 +121,20 @@ namespace Mila::Profiling
         return result;
     }
 
+    float parseFloat( std::string_view value, const char* flag )
+    {
+        float result = 0.0f;
+        const auto status = std::from_chars( value.data(), value.data() + value.size(), result );
+
+        if ( status.ec != std::errc{} )
+            argError( std::format( "{} expects a number, got '{}'", flag, value ) );
+
+        return result;
+    }
+
     Options parseArgs( int argc, char** argv )
     {
         Options options;
-        options.model_path     = std::filesystem::path( MODELS_DIR ) / "llama" / "llama31_8b_instruct_bf16.bin";
-        options.tokenizer_path = std::filesystem::path( MODELS_DIR ) / "llama" / "llama32_tokenizer.bin";
 
         for ( int i = 1; i < argc; ++i )
         {
@@ -132,7 +148,18 @@ namespace Mila::Profiling
                 return argv[ ++i ];
             };
 
-            if ( arg == "--phase" )
+            if ( arg == "--model" )
+            {
+                std::string_view value = nextValue( "--model" );
+
+                if ( value == "llama" )
+                    options.model_family = ModelFamily::Llama;
+                else if ( value == "gemma" )
+                    options.model_family = ModelFamily::Gemma;
+                else
+                    argError( std::format( "Unknown --model '{}'. Expected llama or gemma.", value ) );
+            }
+            else if ( arg == "--phase" )
             {
                 std::string_view value = nextValue( "--phase" );
 
@@ -192,6 +219,13 @@ namespace Mila::Profiling
             {
                 options.prefill_seq_len = parseSize( nextValue( "--seq-len" ), "--seq-len" );
             }
+            else if ( arg == "--temperature" )
+            {
+                options.temperature = parseFloat( nextValue( "--temperature" ), "--temperature" );
+
+                if ( options.temperature < 0.0f )
+                    argError( "--temperature must be non-negative" );
+            }
             else if ( arg == "--warmup" )
             {
                 options.warmup_runs = static_cast<int>( parseSize( nextValue( "--warmup" ), "--warmup" ) );
@@ -214,33 +248,29 @@ namespace Mila::Profiling
             }
         }
 
+        if ( options.model_path.empty() )
+        {
+            options.model_path = ( options.model_family == ModelFamily::Gemma )
+                ? std::filesystem::path( MODELS_DIR ) / "Gemma" / "gemma4_12b_it_bf16.bin"
+                : std::filesystem::path( MODELS_DIR ) / "llama" / "llama31_8b_instruct_bf16.bin";
+        }
+
+        if ( options.tokenizer_path.empty() )
+        {
+            options.tokenizer_path = ( options.model_family == ModelFamily::Gemma )
+                ? std::filesystem::path( MODELS_DIR ) / "Gemma" / "gemma_tokenizer.bin"
+                : std::filesystem::path( MODELS_DIR ) / "llama" / "llama32_tokenizer.bin";
+        }
+
         return options;
     }
 
-    template<TensorDataType TPrecision>
-    void runProfile( const Options& options )
+    // Shared phase driver. Model families differ only in construction; the
+    // measured surface (generate(), profilePrefill()) has the same shape on
+    // LlamaModel and GemmaModel, so the phases are family-agnostic.
+    template<typename TModel>
+    void runPhases( TModel& model, const Options& options, const std::vector<int32_t>& prompt_tokens )
     {
-        using Model = LlamaModel<DeviceType::Cuda, TPrecision>;
-
-        LlamaModelConfig model_config( options.context_length );
-
-        if ( options.quantization == Quantization::FP8 )
-            model_config.withFP8Quantization();
-        else if ( options.quantization == Quantization::FP4 )
-            model_config.withFP4Quantization();
-
-        const DeviceId device{ DeviceType::Cuda, 0 };
-
-        std::cout << "Loading model: " << options.model_path << "\n";
-
-        auto model = Model::fromPretrained( options.model_path, model_config, device );
-
-        std::cout << "Model loaded.\n";
-
-        auto tokenizer = BpeTokenizer::loadLlama32( options.tokenizer_path );
-        const auto encoded = tokenizer->encode( options.prompt );
-        const std::vector<int32_t> prompt_tokens( encoded.begin(), encoded.end() );
-
         if ( options.phase == Phase::Prefill )
         {
             // --seq-len overrides the prompt with that many dummy tokens so prefill
@@ -258,7 +288,7 @@ namespace Mila::Profiling
 
                 {
                     Mila::Profiling::NvtxRange range( "prefill" );
-                    model->profilePrefill( prefill_tokens );
+                    model.profilePrefill( prefill_tokens );
                 }
 
                 if ( profiled )
@@ -279,6 +309,8 @@ namespace Mila::Profiling
 
         // Greedy decode (temperature 0, top_k disabled) makes the generated token
         // sequence deterministic so successive runs and captures are repeatable.
+        // --temperature > 0 keeps the library sampling defaults active so the
+        // stochastic sampler kernel shows up in the capture instead of argmax.
         auto runGeneration = [&]( const char* label, bool profiled )
         {
             std::size_t produced = 0;
@@ -288,8 +320,10 @@ namespace Mila::Profiling
 
             Mila::Dnn::GenerateParams gen_params;
             gen_params.max_new_tokens = static_cast<int>( options.max_new_tokens );
-            gen_params.sampling.temperature = 0.0f;
-            gen_params.sampling.top_k = 0;
+            gen_params.sampling.temperature = options.temperature;
+
+            if ( options.temperature == 0.0f )
+                gen_params.sampling.top_k = 0;
 
             // The library streams tokens and returns only a finish reason; the profiler
             // measures timing from the callback cadence (prefill = call -> first token,
@@ -300,7 +334,7 @@ namespace Mila::Profiling
 
             {
                 Mila::Profiling::NvtxRange range( label );
-                [[maybe_unused]] const auto status = model->generate(
+                [[maybe_unused]] const auto status = model.generate(
                     prompt_tokens,
                     [&]( int32_t )
                     {
@@ -339,8 +373,9 @@ namespace Mila::Profiling
         };
 
         std::cout << std::format(
-            "[{}] prompt_tokens={} max_new_tokens={} warmup_runs={} (greedy decode)\n",
-            phaseName( options.phase ), prompt_tokens.size(), options.max_new_tokens, options.warmup_runs );
+            "[{}] prompt_tokens={} max_new_tokens={} temperature={} warmup_runs={}\n",
+            phaseName( options.phase ), prompt_tokens.size(), options.max_new_tokens,
+            options.temperature, options.warmup_runs );
 
         for ( int run = 0; run < options.warmup_runs; ++run )
             runGeneration( "warmup", false );
@@ -348,6 +383,60 @@ namespace Mila::Profiling
         runGeneration(
             options.phase == Phase::Decode ? "decode_measured" : "generate_measured",
             true );
+    }
+
+    template<TensorDataType TPrecision>
+    void runProfileLlama( const Options& options )
+    {
+        using Model = LlamaModel<DeviceType::Cuda, TPrecision>;
+
+        LlamaModelConfig model_config( options.context_length );
+
+        if ( options.quantization == Quantization::FP8 )
+            model_config.withFP8Quantization();
+        else if ( options.quantization == Quantization::FP4 )
+            model_config.withFP4Quantization();
+
+        const DeviceId device{ DeviceType::Cuda, 0 };
+
+        std::cout << "Loading model: " << options.model_path << "\n";
+
+        auto model = Model::fromPretrained( options.model_path, model_config, device );
+
+        std::cout << "Model loaded.\n";
+
+        auto tokenizer = BpeTokenizer::loadLlama32( options.tokenizer_path );
+        const auto encoded = tokenizer->encode( options.prompt );
+        const std::vector<int32_t> prompt_tokens( encoded.begin(), encoded.end() );
+
+        runPhases( *model, options, prompt_tokens );
+    }
+
+    template<TensorDataType TPrecision>
+    void runProfileGemma( const Options& options )
+    {
+        using Model = GemmaModel<DeviceType::Cuda, TPrecision>;
+
+        GemmaModelConfig model_config( options.context_length );
+
+        if ( options.quantization == Quantization::FP8 )
+            model_config.withFP8Quantization();
+        else if ( options.quantization == Quantization::FP4 )
+            model_config.withFP4Quantization();
+
+        const DeviceId device{ DeviceType::Cuda, 0 };
+
+        std::cout << "Loading model: " << options.model_path << "\n";
+
+        auto model = Model::fromPretrained( options.model_path, model_config, device );
+
+        std::cout << "Model loaded.\n";
+
+        auto tokenizer = BpeTokenizer::loadGemma( options.tokenizer_path );
+        const auto encoded = tokenizer->encode( options.prompt );
+        const std::vector<int32_t> prompt_tokens( encoded.begin(), encoded.end() );
+
+        runPhases( *model, options, prompt_tokens );
     }
 
     export int profileMain( int argc, char** argv )
@@ -378,11 +467,23 @@ namespace Mila::Profiling
                     return EXIT_FAILURE;
                 }
 
-                runProfile<TensorDataType::FP32>( options );
+                // GemmaModel is only instantiated at BF16 anywhere in the tree (Chat is
+                // BF16-only); keep FP32 Llama-only rather than grow a new instantiation.
+                if ( options.model_family == ModelFamily::Gemma )
+                {
+                    std::cerr << "Error: --model gemma supports --precision bf16 only.\n";
+                    return EXIT_FAILURE;
+                }
+
+                runProfileLlama<TensorDataType::FP32>( options );
+            }
+            else if ( options.model_family == ModelFamily::Gemma )
+            {
+                runProfileGemma<TensorDataType::BF16>( options );
             }
             else
             {
-                runProfile<TensorDataType::BF16>( options );
+                runProfileLlama<TensorDataType::BF16>( options );
             }
 
             return EXIT_SUCCESS;

@@ -10,12 +10,22 @@
  * softcap monotonicity. Small, well-separated synthetic logits keep every expectation
  * unambiguous. See Specifications/TokenSampling.md section 7.
  *
+ * The multi-block stochastic pipeline is additionally locked against the retained
+ * single-block reference kernel (forwardReference) by token parity at a Gemma-scale
+ * vocabulary (truncated cases, where the survivor sets are exactly comparable) and
+ * by a host double-precision CDF bracket (full multinomial, where serial-vs-chunked
+ * float summation makes token equality unattainable in flat CDF regions) — the
+ * bounded-ring oracle methodology.
+ *
  * Compiled only under MILA_ENABLE_CUDA; SetUp() skips if no device at runtime.
  */
 
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <memory>
+#include <random>
 #include <vector>
 
 import Mila;
@@ -34,6 +44,8 @@ namespace Mila::Tests::Dnn::Samplers
     {
     protected:
         static constexpr int64_t kVocab = 8;
+        // Gemma 4 vocabulary size — the shape the pipeline kernels actually run at.
+        static constexpr int64_t kGemmaVocab = 262144;
 
         using OpType = CudaSamplingOp<TensorDataType::FP32>;
         using DeviceLogits = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>;
@@ -57,10 +69,10 @@ namespace Mila::Tests::Dnn::Samplers
             }
         }
 
-        std::unique_ptr<OpType> makeOp( float softcap = 0.0f )
+        std::unique_ptr<OpType> makeOp( float softcap = 0.0f, int64_t vocab = kVocab )
         {
             SamplingConfig config = SamplingConfig{}
-                .withVocabularySize( kVocab )
+                .withVocabularySize( vocab )
                 .withFinalLogitSoftcap( softcap );
 
             return std::make_unique<OpType>( ctx_.get(), config );
@@ -68,10 +80,11 @@ namespace Mila::Tests::Dnn::Samplers
 
         DeviceLogits deviceLogits( const std::vector<float>& values )
         {
-            const shape_t shape{ 1, 1, kVocab };
+            const int64_t vocab = static_cast<int64_t>( values.size() );
+            const shape_t shape{ 1, 1, vocab };
 
             Tensor<TensorDataType::FP32, CpuMemoryResource> host( Device::Cpu(), shape );
-            for ( int64_t i = 0; i < kVocab; ++i )
+            for ( int64_t i = 0; i < vocab; ++i )
                 host.data()[ i ] = values[ static_cast<size_t>( i ) ];
 
             DeviceLogits device( Device::Cuda( 0 ), shape );
@@ -93,6 +106,32 @@ namespace Mila::Tests::Dnn::Samplers
             copy( token_device, token_host );
 
             return token_host.data()[ 0 ];
+        }
+
+        // Same readback through the retained single-block reference kernel.
+        int32_t sampleReference( OpType& op, const DeviceLogits& logits, const SamplingParams& params, float r )
+        {
+            DeviceToken token_device( Device::Cuda( 0 ), shape_t{ 1, 1 } );
+            op.forwardReference( logits, token_device, params, r );
+
+            HostToken token_host( Device::Cpu(), shape_t{ 1, 1 } );
+            copy( token_device, token_host );
+
+            return token_host.data()[ 0 ];
+        }
+
+        // Deterministic pseudo-random logits, continuous-valued so truncation
+        // boundaries fall between distinct values with probability ~1.
+        std::vector<float> randomLogits( int64_t vocab, uint32_t seed )
+        {
+            std::mt19937 rng( seed );
+            std::normal_distribution<float> dist( 0.0f, 4.0f );
+
+            std::vector<float> values( static_cast<size_t>( vocab ) );
+            for ( auto& v : values )
+                v = dist( rng );
+
+            return values;
         }
 
         std::unique_ptr<IExecutionContext> ctx_;
@@ -208,5 +247,162 @@ namespace Mila::Tests::Dnn::Samplers
         params.temperature = 0.0f;
 
         EXPECT_EQ( sample( *op, logits, params, 0.5f ), 7 );
+    }
+
+    // Pipeline-vs-reference token parity at the Gemma vocabulary across the
+    // truncated filter matrix and an r grid. Continuous random logits keep
+    // truncation boundaries between distinct values, where both implementations
+    // provably keep the same survivor set, and the truncated CDF has few enough
+    // steps that float summation order cannot move the crossing.
+    //
+    // The FULL multinomial is deliberately absent: its index-order CDF is a 262k
+    // float sum, where serial (reference) vs chunked (pipeline) accumulation
+    // diverge by ~1e-5 relative — in the flat tail that shifts the crossing by
+    // hundreds of indices while moving negligible mass (observed: 732 indices at
+    // r = 0.999). That case is locked by the host-double bracket test below.
+    TEST_F( SamplingCudaTests, Pipeline_MatchesReference_Truncated_AtGemmaVocab )
+    {
+        auto op = makeOp( 0.0f, kGemmaVocab );
+        auto logits = deviceLogits( randomLogits( kGemmaVocab, 42 ) );
+
+        struct FilterCase { int top_k; float top_p; };
+        const FilterCase cases[] = { { 64, 1.0f }, { 0, 0.9f }, { 64, 0.9f } };
+        const float r_grid[] = { 0.0f, 0.1f, 0.37f, 0.5f, 0.73f, 0.9f, 0.999f };
+
+        for ( const auto& filter : cases )
+        {
+            for ( const float r : r_grid )
+            {
+                SamplingParams params;
+                params.temperature = 0.8f;
+                params.top_k = filter.top_k;
+                params.top_p = filter.top_p;
+
+                EXPECT_EQ(
+                    sample( *op, logits, params, r ),
+                    sampleReference( *op, logits, params, r ) )
+                    << "top_k=" << filter.top_k << " top_p=" << filter.top_p << " r=" << r;
+            }
+        }
+    }
+
+    // Full multinomial at the Gemma vocabulary: both implementations must place
+    // the sampled token so that its cumulative interval [cum - p, cum] contains
+    // r * total, within a slack covering FP32 summation error over 262k terms.
+    // Checked against an independent double-precision host CDF — stronger than
+    // mutual token equality, which float summation order makes unattainable in
+    // flat CDF regions (see the truncated parity test's comment).
+    TEST_F( SamplingCudaTests, FullMultinomial_HostCdfBracket_AtGemmaVocab )
+    {
+        constexpr float kTemperature = 0.8f;
+        const std::vector<float> values = randomLogits( kGemmaVocab, 42 );
+
+        auto op = makeOp( 0.0f, kGemmaVocab );
+        auto logits = deviceLogits( values );
+
+        // Host double-precision inclusive CDF of the scaled distribution.
+        double max_scaled = -1e300;
+        for ( const float v : values )
+            max_scaled = std::max( max_scaled, static_cast<double>( v ) / kTemperature );
+
+        std::vector<double> cumulative( values.size() );
+        double running = 0.0;
+        for ( size_t i = 0; i < values.size(); ++i )
+        {
+            running += std::exp( static_cast<double>( values[i] ) / kTemperature - max_scaled );
+            cumulative[i] = running;
+        }
+        const double total = running;
+        const double slack = 5e-4 * total;
+
+        SamplingParams params;
+        params.temperature = kTemperature;
+        params.top_k = 0;
+        params.top_p = 1.0f;
+
+        const float r_grid[] = { 0.0f, 0.1f, 0.37f, 0.5f, 0.73f, 0.9f, 0.999f };
+
+        for ( const float r : r_grid )
+        {
+            const double target = static_cast<double>( r ) * total;
+
+            const int32_t tokens[] = {
+                sample( *op, logits, params, r ),
+                sampleReference( *op, logits, params, r ) };
+            const char* names[] = { "pipeline", "reference" };
+
+            for ( int which = 0; which < 2; ++which )
+            {
+                const int32_t token = tokens[which];
+                ASSERT_GE( token, 0 );
+                ASSERT_LT( token, kGemmaVocab );
+
+                const double cum_inclusive = cumulative[static_cast<size_t>( token )];
+                const double cum_exclusive = ( token > 0 )
+                    ? cumulative[static_cast<size_t>( token ) - 1] : 0.0;
+
+                EXPECT_GE( cum_inclusive, target - slack )
+                    << names[which] << " token " << token << " ends before the target at r=" << r;
+                EXPECT_LE( cum_exclusive, target + slack )
+                    << names[which] << " token " << token << " starts past the target at r=" << r;
+            }
+        }
+    }
+
+    // Same parity with the Gemma final-logit softcap engaged (config-time property).
+    TEST_F( SamplingCudaTests, Pipeline_MatchesReference_WithSoftcap )
+    {
+        auto op = makeOp( 30.0f, kGemmaVocab );
+        auto logits = deviceLogits( randomLogits( kGemmaVocab, 7 ) );
+
+        const float r_grid[] = { 0.1f, 0.5f, 0.9f };
+
+        for ( const float r : r_grid )
+        {
+            SamplingParams params;
+            params.temperature = 0.7f;
+            params.top_k = 64;
+            params.top_p = 0.95f;
+
+            EXPECT_EQ(
+                sample( *op, logits, params, r ),
+                sampleReference( *op, logits, params, r ) )
+                << "softcap parity at r=" << r;
+        }
+    }
+
+    // Inverse-CDF boundary properties survive the chunked walk at the Gemma
+    // vocabulary: uniform logits make the CDF exact in FP32 (integer partial sums),
+    // so r -> 0 is token 0 and r -> 1 is the last token.
+    TEST_F( SamplingCudaTests, Pipeline_BoundaryR_AtGemmaVocab )
+    {
+        auto op = makeOp( 0.0f, kGemmaVocab );
+        auto logits = deviceLogits( std::vector<float>( kGemmaVocab, 0.0f ) );
+
+        SamplingParams params;
+        params.temperature = 1.0f;
+        params.top_k = 0;
+        params.top_p = 1.0f;
+
+        EXPECT_EQ( sample( *op, logits, params, 0.0f ), 0 );
+        EXPECT_EQ( sample( *op, logits, params, 0.999999f ), kGemmaVocab - 1 );
+    }
+
+    // The top-k refinement is integer-count based, so the full pipeline is
+    // run-deterministic under top-k at scale.
+    TEST_F( SamplingCudaTests, Pipeline_Deterministic_TopK_AtGemmaVocab )
+    {
+        auto op = makeOp( 0.0f, kGemmaVocab );
+        auto logits = deviceLogits( randomLogits( kGemmaVocab, 1234 ) );
+
+        SamplingParams params;
+        params.temperature = 0.8f;
+        params.top_k = 64;
+        params.top_p = 1.0f;
+
+        const int32_t first = sample( *op, logits, params, 0.42f );
+        const int32_t second = sample( *op, logits, params, 0.42f );
+
+        EXPECT_EQ( first, second );
     }
 }
