@@ -125,15 +125,17 @@ namespace Mila::Dnn
          *       context with the base class, enabling getExecutionContext() and triggering
          *       the onExecutionContextSet() hook for operation creation.
          *
-         * @example
+         * @code{.cpp}
          * // Standalone mode (owns context)
          * GeluConfig config;
          * Gelu<DeviceType::Cpu, TensorDataType::FP32> gelu("gelu", config, Device::Cpu());
+         * @endcode
          *
-         * @example
+         * @code{.cpp}
          * // Shared mode (borrows parent's context)
          * Network<DeviceType::Cpu, TensorDataType::FP32> net(Device::Cpu(), "my_net");
          * net.addComponent<Gelu>("gelu", GeluConfig());
+         * @endcode
          */
         explicit Gelu( const std::string& name, const GeluConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), config_( config )
@@ -493,9 +495,9 @@ namespace Mila::Dnn
          * - Expects operation to be initialized (created in onExecutionContextSet)
          * - Expects component to be unbuilt (guaranteed by Component::build)
          *
-         * @param input_shape Expected shape for input tensors.
+         * @param build_context Build-time context carrying the expected input shape.
          *
-         * @throws std::invalid_argument if input_shape is incompatible with the component configuration.
+         * @throws std::invalid_argument if the input shape is incompatible with the component configuration.
          * @throws std::runtime_error if backend allocation or build fails.
          * @throws std::runtime_error if operation is not initialized.
          */
@@ -528,7 +530,7 @@ namespace Mila::Dnn
          * - Expects operation to be initialized (should be created in onExecutionContextSet)
          * - Can be called before or after build()
          *
-         * @param is_training New training mode state.
+         * @param training_mode New training mode state.
          *
          * @note Do not call setTrainingMode() from this hook (reentrancy prohibited).
          * @note If operation is not initialized, silently returns (may occur during construction).

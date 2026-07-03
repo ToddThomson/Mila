@@ -153,7 +153,7 @@ namespace Mila::Dnn
         using TokenEmbeddingType = TokenEmbedding<TDeviceType, dtype_t::INT32, TPrecision>;
         using LmHeadLinearType = Linear<TDeviceType, TPrecision>;
         using RmsNormType = RmsNorm<TDeviceType, TPrecision>;
-        // TKvCachePolicy applies to the LOCAL (sliding) layers only — they attend a
+        // TKvCachePolicy applies to the LOCAL (sliding) layers only -- they attend a
         // bounded window, so their KV cache can be a ring (SlidingWindowKvCache.md D4).
         // GLOBAL (full-attention) layers attend the entire context and therefore always
         // use the full-context cache (NoKvCompression), regardless of the sliding policy.
@@ -475,7 +475,7 @@ namespace Mila::Dnn
 
         GemmaConfig config_;
 
-        // Tuned prefill chunk size — single source of truth, set in onBuilding and
+        // Tuned prefill chunk size -- single source of truth, set in onBuilding and
         // threaded to child components via BuildContext::withPrefillSize().
         int64_t prefill_chunk_size_{ 0 };
 
@@ -490,7 +490,7 @@ namespace Mila::Dnn
         // token embedding table (WeightTying.md) and lm_head.weight is absent from the file.
         bool tie_word_embeddings_{ false };
 
-        // Shared GQA transient workspace — inference only, owned here, shared across
+        // Shared GQA transient workspace -- inference only, owned here, shared across
         // all blocks. q_permute/v_out are sized at the MAX head_dim (global) so the
         // local layers reuse a prefix; preatt/att are head_dim-independent.
         std::unique_ptr<TensorType> gqa_q_permute_{ nullptr };
@@ -501,11 +501,11 @@ namespace Mila::Dnn
         std::unique_ptr<TensorType> gqa_att_decode_{ nullptr };
         std::unique_ptr<TensorType> gqa_v_out_decode_{ nullptr };
 
-        // Activation pointers — valid between prefill/decode and the next call.
+        // Activation pointers -- valid between prefill/decode and the next call.
         TensorType* normalized_ptr_{ nullptr };
         TensorType* logits_ptr_{ nullptr };
 
-        // Declared last so it is destroyed first — cudaStreamSynchronize() fires in
+        // Declared last so it is destroyed first -- cudaStreamSynchronize() fires in
         // releaseResources() before any tensor cudaFree() from members above.
         std::unique_ptr<IExecutionContext> exec_context_{ nullptr };
 
@@ -554,7 +554,7 @@ namespace Mila::Dnn
             this->addComponent(
                 std::make_shared<RmsNormType>( this->getName() + ".rmsn_final", rms_config, std::nullopt ) );
 
-            // Language model head — model_dim -> vocab_size, no bias. Allocated with its
+            // Language model head -- model_dim -> vocab_size, no bias. Allocated with its
             // own weight here; when the checkpoint sets tie_word_embeddings, loadParameters
             // replaces that weight with the shared (raw) embedding table (WeightTying.md).
             auto lm_head_config = LinearConfig( config_.getModelDim(), config_.getVocabSize() )

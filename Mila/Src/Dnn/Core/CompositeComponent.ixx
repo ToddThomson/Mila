@@ -731,7 +731,7 @@ namespace Mila::Dnn
          * Propagates the new mode to all child components. The hook runs with
          * the Component's training mutex held; it MUST NOT call setTrainingMode().
          *
-         * @param is_training New training mode (true = training, false = eval)
+         * @param training_mode New training mode (Normal or Eval)
          */
         void onTrainingModeChanging( TrainingMode training_mode ) override
         {

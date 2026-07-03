@@ -3,18 +3,18 @@
  * @brief Configuration for the SwiGLU activation component.
  *
  * Design principle (Mila-wide):
- *   - Constructor parameters are structurally required — no sensible default exists.
+ *   - Constructor parameters are structurally required -- no sensible default exists.
  *   - Fluent setters are reserved for optional behavioural parameters that have
  *     well-known defaults. There are no fluent overrides for constructor parameters.
  *
- * SwigluConfig has no structurally required parameters — hidden_dim is determined
+ * SwigluConfig has no structurally required parameters -- hidden_dim is determined
  * from the input tensor shape at build time. The default constructor is correct.
  *
  * Optional (fluent): inner_gelu_method (default: Tanh).
  *
  * Typical usage:
  * @code
- * // Default — Tanh approximation.
+ * // Default -- Tanh approximation.
  * auto cfg = SwigluConfig();
  *
  * // Explicit approximation method.

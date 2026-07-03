@@ -16,14 +16,14 @@ namespace Mila::Dnn::Quant::Weight
     // -------------------------------------------------------------------------
     // NoWeightQuant
     //
-    // Identity policy — no quantization. Zero storage overhead, zero runtime
+    // Identity policy -- no quantization. Zero storage overhead, zero runtime
     // cost. All if constexpr branches on kIsQuantized compile away entirely.
     // Default for all Linear instantiations.
     // -------------------------------------------------------------------------
     export struct NoWeightQuant
     {
         static constexpr bool kIsQuantized = false;
-        // FP32 is a harmless sentinel — these fields are never read by Linear
+        // FP32 is a harmless sentinel -- these fields are never read by Linear
         // on the unquantized path; all consumers guard with if constexpr (kIsQuantized).
         static constexpr TensorDataType kStorageDtype = TensorDataType::FP32;
         static constexpr TensorDataType kScaleDtype = TensorDataType::FP32;
@@ -34,10 +34,10 @@ namespace Mila::Dnn::Quant::Weight
     // PerChannelFp8<TStorage>
     //
     // Per-output-channel FP8 weight quantization. Weights are quantized once at
-    // load time (BF16 → FP8_E4M3). One float32 scale per output channel,
+    // load time (BF16 -> FP8_E4M3). One float32 scale per output channel,
     // computed as max(abs(W[o,:])) / 448.0f. Scales are uploaded to device and
     // held for the lifetime of the model. cuBLASLt FP8 matmul consumes weights
-    // and scales natively — no dequantization on the forward hot path.
+    // and scales natively -- no dequantization on the forward hot path.
     //
     // TStorage defaults to FP8_E4M3 (higher mantissa precision; correct for
     // stored weights). FP8_E5M2 is reserved for gradients and is not a Mila
@@ -65,7 +65,7 @@ namespace Mila::Dnn::Quant::Weight
     // 64 is also supported by the cuda_w4a16_gemm kernel.
     //
     // kPerChannel = false distinguishes this policy from PerChannelFp8 at
-    // compile time — CudaLinearOp uses kPerChannel as a dispatch discriminator.
+    // compile time -- CudaLinearOp uses kPerChannel as a dispatch discriminator.
     // -------------------------------------------------------------------------
     export template<int kGroupSize = 128>
         struct PerGroupInt4
@@ -94,7 +94,7 @@ namespace Mila::Dnn::Quant::Weight
     //   {0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0}
     // Negative values (nibbles 8..15): sign-magnitude mirror.
     //
-    // No zero-points — sign is encoded directly in the nibble (bit 3).
+    // No zero-points -- sign is encoded directly in the nibble (bit 3).
     // Symmetric quantization only.
     //
     // kGroupSize defaults to 128. VRAM reduction vs BF16: 4x.
@@ -116,7 +116,7 @@ namespace Mila::Dnn::Quant::Weight
     // WeightQuantPolicy concept
     //
     // Any type satisfying this concept may be used as the TWeightQuant parameter
-    // on Linear and CudaLinearOp. The concept is intentionally narrow — only the
+    // on Linear and CudaLinearOp. The concept is intentionally narrow -- only the
     // fields that Linear needs to make compile-time decisions are required.
     //
     // NoWeightQuant satisfies this concept (kStorageDtype = FP32 sentinel is never

@@ -96,7 +96,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          *
          * Computes dW[out, in] = dY^T[out, batch] @ X[batch, in]
          * Row-major layout, opA=T, opB=N, batch_count=1.
-         * Note: always built at max batch_size — weight grad accumulates full batch.
+         * Note: always built at max batch_size -- weight grad accumulates full batch.
          */
         template <typename TComputePrecision>
         CublasLtMatMulPlan<TComputePrecision> build_backward_weight_plan(

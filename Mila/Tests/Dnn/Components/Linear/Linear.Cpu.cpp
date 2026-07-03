@@ -27,6 +27,8 @@
 #include <string>
 #include <stdexcept>
 
+#include "Common/GradientCheck.h"
+
 import Mila;
 // TensorMetadata / TensorBlobView live in the Serialization.Tensor module, which
 // the Mila umbrella does not re-export; import it directly for the loadParameter tests.
@@ -458,6 +460,61 @@ namespace Mila::Tests::Dnn::Components::Linear
                     << "weight-gradient mismatch at o=" << o << " i=" << i;
             }
         }
+    }
+
+    // Reference application of the finite-difference gradient-check archetype for a
+    // leaf WITH parameters (Specifications/Testing.md). Where the analytic case above
+    // checks backward() against a hand-derived matmul gradient, this verifies dX, dW
+    // and dB against numeric gradients of Linear's OWN forward() -- no hand-derived
+    // reference, so it generalizes verbatim and is a second independent oracle.
+    TEST_F( LinearCpuTests, Backward_MatchesNumericGradient )
+    {
+        const int64_t in_features = 4;
+        const int64_t out_features = 3;
+        const shape_t input_shape{ 2, 3, in_features };
+        const shape_t output_shape{ 2, 3, out_features };
+
+        auto linear = builtLinear( input_shape, in_features, out_features, true, RuntimeMode::Training );
+        setKnownParameters( *linear, in_features, out_features, true );
+
+        TensorFp32 input( Device::Cpu(), input_shape );
+        TensorFp32 output_grad( Device::Cpu(), output_shape );
+        fillSpread( input );
+        for ( size_t i = 0; i < output_grad.size(); ++i )
+        {
+            output_grad.data()[ i ] = 0.1f * static_cast<float>( i + 1 );
+        }
+
+        linear->forward( input );
+        auto& input_grad = linear->backward( input, output_grad );
+
+        // Snapshot analytic gradients before the probe re-runs forward().
+        std::vector<float> analytic_dx( input_grad.data(), input_grad.data() + input_grad.size() );
+
+        auto params = linear->getParameters();
+        auto grads = linear->getGradients();
+        ASSERT_EQ( grads.size(), 2u );
+        float* weight = static_cast<float*>( params[ 0 ]->rawData() );
+        float* bias = static_cast<float*>( params[ 1 ]->rawData() );
+        const size_t weight_size = static_cast<size_t>( out_features * in_features );
+        const float* weight_grad = static_cast<const float*>( grads[ 0 ]->rawData() );
+        const float* bias_grad = static_cast<const float*>( grads[ 1 ]->rawData() );
+        std::vector<float> analytic_dw( weight_grad, weight_grad + weight_size );
+        std::vector<float> analytic_db( bias_grad, bias_grad + static_cast<size_t>( out_features ) );
+
+        auto evaluate = [&]() -> const float* { return linear->forward( input ).data(); };
+
+        const auto numeric_dx = Mila::Tests::Common::centralDifferenceGradient(
+            input.data(), input.size(), output_grad.data(), output_grad.size(), evaluate, 1e-2f );
+        Mila::Tests::Common::expectGradientsClose( analytic_dx.data(), numeric_dx, 1e-2f, 1e-2f, "Linear dX" );
+
+        const auto numeric_dw = Mila::Tests::Common::centralDifferenceGradient(
+            weight, weight_size, output_grad.data(), output_grad.size(), evaluate, 1e-2f );
+        Mila::Tests::Common::expectGradientsClose( analytic_dw.data(), numeric_dw, 1e-2f, 1e-2f, "Linear dW" );
+
+        const auto numeric_db = Mila::Tests::Common::centralDifferenceGradient(
+            bias, static_cast<size_t>( out_features ), output_grad.data(), output_grad.size(), evaluate, 1e-2f );
+        Mila::Tests::Common::expectGradientsClose( analytic_db.data(), numeric_db, 1e-2f, 1e-2f, "Linear dB" );
     }
 
     // ====================================================================

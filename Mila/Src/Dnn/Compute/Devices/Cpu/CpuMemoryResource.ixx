@@ -103,8 +103,9 @@ namespace Mila::Dnn::Compute
          * allocation functions.
          *
          * @param ptr Pointer to memory to deallocate
-         * @param bytes Size of memory block (unused, kept for interface compatibility)
-         * @param alignment Alignment used during allocation (unused, kept for interface compatibility)
+         *
+         * The size and alignment arguments are unused (kept for the memory-resource
+         * interface) and therefore intentionally unnamed.
          */
         void do_deallocate( void* ptr, std::size_t, std::size_t ) override {
             if (ptr) {

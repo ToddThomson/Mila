@@ -14,6 +14,9 @@
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <vector>
+
+#include "Common/GradientCheck.h"
 
 import Mila;
 
@@ -147,6 +150,41 @@ namespace Mila::Tests::Dnn::Components::Connections
             EXPECT_NEAR( da.data()[ i ], grad.data()[ i ], 1e-5f ) << "da mismatch at " << i;
             EXPECT_NEAR( db.data()[ i ], grad.data()[ i ], 1e-5f ) << "db mismatch at " << i;
         }
+    }
+
+    // Finite-difference gradient-check archetype for a BINARY leaf
+    // (Specifications/Testing.md): the shared helper verifies each input gradient
+    // against a numeric gradient of the component's own forward(), perturbing one
+    // input while the other is held fixed. For plain addition both gradients equal
+    // the upstream gradient, but this exercises the archetype's binary adaptation.
+    TEST_F( ResidualCpuTests, Backward_MatchesNumericGradient )
+    {
+        const shape_t shape{ 2, 3, 4 };
+        auto residual = builtResidual( shape, RuntimeMode::Training );
+
+        TensorFp32 a( Device::Cpu(), shape );
+        TensorFp32 b( Device::Cpu(), shape );
+        TensorFp32 grad( Device::Cpu(), shape );
+        fillRamp( a, -1.0f, 0.1f );
+        fillRamp( b, 0.5f, -0.05f );
+        fillRamp( grad, 0.2f, 0.03f );
+
+        residual->forward( a, b );
+        auto [da, db] = residual->backward( a, b, grad );
+
+        // Snapshot analytic gradients before the probe re-runs forward().
+        std::vector<float> analytic_da( da.data(), da.data() + da.size() );
+        std::vector<float> analytic_db( db.data(), db.data() + db.size() );
+
+        auto evaluate = [&]() -> const float* { return residual->forward( a, b ).data(); };
+
+        const auto numeric_da = Mila::Tests::Common::centralDifferenceGradient(
+            a.data(), a.size(), grad.data(), grad.size(), evaluate, 1e-2f );
+        Mila::Tests::Common::expectGradientsClose( analytic_da.data(), numeric_da, 1e-3f, 1e-2f, "Residual da" );
+
+        const auto numeric_db = Mila::Tests::Common::centralDifferenceGradient(
+            b.data(), b.size(), grad.data(), grad.size(), evaluate, 1e-2f );
+        Mila::Tests::Common::expectGradientsClose( analytic_db.data(), numeric_db, 1e-3f, 1e-2f, "Residual db" );
     }
 
     // ====================================================================

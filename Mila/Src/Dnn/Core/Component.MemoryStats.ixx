@@ -1,5 +1,5 @@
 /**
- * @file ComponentMemoryStats.ixx
+ * @file Component.MemoryStats.ixx
  * @brief Memory allocation statistics for component inspection.
  *
  * Provides a breakdown of GPU and host memory allocated by a component

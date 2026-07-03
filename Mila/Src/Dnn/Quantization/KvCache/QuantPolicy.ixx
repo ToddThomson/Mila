@@ -9,7 +9,7 @@
  * directly and would @b not import this module, as sliding window eviction
  * carries no dtype fields.
  *
- * @note Alpha.6 target: @c PerChannelKvFp8<> � symmetric per-head per-token
+ * @note Alpha.6 target: @c PerChannelKvFp8<> -- symmetric per-head per-token
  *       FP8 compression applied identically to K and V.
  */
 

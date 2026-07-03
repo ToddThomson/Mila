@@ -94,7 +94,7 @@ namespace Mila::Dnn
          * @brief Sets the trained maximum sequence length for this model.
          *
          * @details This value is sourced from the pretrained model metadata
-         * and represents the architectural ceiling on context length — the furthest position
+         * and represents the architectural ceiling on context length -- the furthest position
          * for which RoPE embeddings were trained.
          *
          * This is not a deployment parameter. The runtime context length is a

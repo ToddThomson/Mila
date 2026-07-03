@@ -406,7 +406,7 @@ PUBLIC
         "Src/Dnn/Core/Model.ixx"
         "Src/Dnn/Core/LanguageNetwork.ixx"
         "Src/Dnn/Core/LanguageModel.ixx"
-        "Src/Dnn/Core/Comonent.TrainingMode.ixx"
+        "Src/Dnn/Core/Component.TrainingMode.ixx"
         "Src/Dnn/Compute/Operations/IPositionalPairedOp.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Random.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Structural.ixx"

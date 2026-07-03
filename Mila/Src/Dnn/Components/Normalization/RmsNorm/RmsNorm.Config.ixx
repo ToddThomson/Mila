@@ -3,16 +3,16 @@
  * @brief Configuration for RMS Normalization component.
  *
  * Design principle (Mila-wide):
- *   - Constructor parameters are structurally required — no sensible default exists.
+ *   - Constructor parameters are structurally required -- no sensible default exists.
  *   - Fluent setters are reserved for optional behavioural parameters that have
  *     well-known defaults. There are no fluent overrides for constructor parameters.
  *
  * RmsNormConfig supports two mutually exclusive normalization modes selected
  * by constructor overload:
- *   - Shape mode:  RmsNormConfig( shape_t )   — normalize over a trailing shape.
- *   - Axis mode:   RmsNormConfig( int64_t )   — normalize over a single axis.
+ *   - Shape mode:  RmsNormConfig( shape_t )   -- normalize over a trailing shape.
+ *   - Axis mode:   RmsNormConfig( int64_t )   -- normalize over a single axis.
  *
- * The overloads are unambiguous — shape_t and int64_t cannot collide.
+ * The overloads are unambiguous -- shape_t and int64_t cannot collide.
  *
  * Typical usage:
  * @code
@@ -52,9 +52,9 @@ namespace Mila::Dnn
         /**
          * @brief Construct in shape mode.
          *
-         * Normalizes over the trailing dimensions described by @p shape.
+         * Normalizes over the trailing dimensions described by @p normalized_shape.
          *
-         * @param shape  Trailing dimensions to normalize over (e.g. shape_t{ model_dim }).
+         * @param normalized_shape  Trailing dimensions to normalize over (e.g. shape_t{ model_dim }).
          */
         explicit RmsNormConfig( shape_t normalized_shape )
             : normalized_shape_( std::move( normalized_shape ) )
@@ -72,7 +72,7 @@ namespace Mila::Dnn
         {}
 
         // ====================================================================
-        // Optional fluent setters — behavioural parameters with sensible defaults.
+        // Optional fluent setters -- behavioural parameters with sensible defaults.
         // No fluent overrides exist for constructor parameters.
         // ====================================================================
 

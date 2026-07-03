@@ -112,7 +112,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             config_.validate();
         }
 
-        // No learnable parameters — GQA weights live in the projection layers.
+        // No learnable parameters -- GQA weights live in the projection layers.
         void setParameters( ITensor*, ITensor* ) override
         {
         }
@@ -266,7 +266,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
 
         // ====================================================================
-        // FUTURE: GQA training path (not implemented — Llama 3.x is inference only)
+        // FUTURE: GQA training path (not implemented -- Llama 3.x is inference only)
         //
         // These are the standalone full-sequence (non-KV-cache) training entry
         // points. They are throwing stubs today so the GroupedQueryAttention
@@ -279,8 +279,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // question (see GqaMemory.md): keep the expanded layout for training (its
         // expand_kv <-> reduce_kv_grad pairing makes the gradient clean) or derive
         // the backward on the compact NKV layout used for inference. The retired
-        // expanded-layout sketch — preserved here as the structural starting point,
-        // never numerically validated — was:
+        // expanded-layout sketch -- preserved here as the structural starting point,
+        // never numerically validated -- was:
         //
         //   forward  (full sequence, caches preatt/att [B,NH,T,T], v_out [B,NH,T,HS]):
         //     1. permute_qkv      -> Q[B,NH,T,HS], K/V[B,NKV,T,HS]
@@ -395,14 +395,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         std::unordered_map<int, Detail::CublasLtMatMulPlan<NativeType>> att_value_partial_prefill_plan_cache_optimized_;
 
         // ====================================================================
-        // State tensors — KV cache (compact NKV layout, retained across calls)
+        // State tensors -- KV cache (compact NKV layout, retained across calls)
         // ====================================================================
 
         std::shared_ptr<TensorType> k_tensor_;     // [B, NKV, T, HS]
         std::shared_ptr<TensorType> v_tensor_;     // [B, NKV, T, HS]
 
         // ====================================================================
-        // Raw device pointers — KV cache plus shared transient scratch (via setState)
+        // Raw device pointers -- KV cache plus shared transient scratch (via setState)
         // ====================================================================
 
         NativeType* k_opt_{ nullptr };
@@ -471,7 +471,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
 
         // ====================================================================
-        // initializeState_optimized — allocates the compact NKV-layout KV cache.
+        // initializeState_optimized -- allocates the compact NKV-layout KV cache.
         // Transient scratch is wired externally via setState() from the shared
         // LlamaTransformer workspace.
         // ====================================================================
@@ -493,7 +493,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     return tensor;
                 };
 
-            // KV cache — compact NKV layout, retained across calls. All transient
+            // KV cache -- compact NKV layout, retained across calls. All transient
             // scratch (Q permute, prefill/decode attention buffers) is wired via
             // setState() from the shared LlamaTransformer workspace.
             k_tensor_ = make( kv_shape, "gqa.k" );
@@ -504,7 +504,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
 
         // ====================================================================
-        // buildCublasLtPlans_optimized — plans against the compact [B, NKV, T, HS]
+        // buildCublasLtPlans_optimized -- plans against the compact [B, NKV, T, HS]
         // layout. GS Q heads are folded into M so batch_count = B * NKV throughout.
         // No expansion buffers required. See GqaMemory.md Phase 1.
         // ====================================================================
@@ -546,7 +546,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
 
         // ====================================================================
-        // prefill_optimized / decode_optimized — NKV-layout plans, no expansion
+        // prefill_optimized / decode_optimized -- NKV-layout plans, no expansion
         // buffers. See GqaMemory.md Phase 1 and Phase 2.
         // ====================================================================
 
@@ -581,7 +581,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 k_opt_, v_opt_, Xk, Xv, B_, chunk_len, NKV_, HS_, position_offset, cache_capacity_, stream );
 
             // Permute Q from [B, chunk, NH*HS] into compact [B, NH, chunk, HS] scratch.
-            // strideA = chunk*HS between heads — matches the NKV-layout plan geometry.
+            // strideA = chunk*HS between heads -- matches the NKV-layout plan geometry.
             Detail::cuda_gqa_kernels<NativeType>::permute_q_compact(
                 q_permute_opt_, Xq, B_, chunk_len, NH_, HS_, stream );
 
@@ -661,7 +661,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 k_opt_, v_opt_, Xk, Xv, B_, 1, NKV_, HS_, position, cache_capacity_, stream );
 
             // Permute single Q token from [B, 1, NH*HS] into compact [B, NH, 1, HS] scratch.
-            // strideA = 1*HS = HS between heads — matches the NKV-layout decode plan geometry.
+            // strideA = 1*HS = HS between heads -- matches the NKV-layout decode plan geometry.
             Detail::cuda_gqa_kernels<NativeType>::permute_q_compact(
                 q_permute_opt_, Xq, B_, 1, NH_, HS_, stream );
 
@@ -753,7 +753,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
 
         // ====================================================================
-        // Precision helpers — shared by both paths
+        // Precision helpers -- shared by both paths
         // ====================================================================
 
         cudaDataType_t getCudaDataType() const

@@ -25,6 +25,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include "Common/GradientCheck.h"
+
 import Mila;
 
 namespace Mila::Tests::Dnn::Components::Attention::MHA
@@ -237,6 +239,42 @@ namespace Mila::Tests::Dnn::Components::Attention::MHA
         {
             EXPECT_TRUE( std::isfinite( input_grad.data()[ i ] ) ) << "non-finite dX at index " << i;
         }
+    }
+
+    // Finite-difference gradient-check archetype (Specifications/Testing.md), applied
+    // here to ISOLATE the MHA CPU backward. Attention backward was previously only
+    // shape-tested (above), never numerically, and is the prime suspect behind the
+    // GptBlock.Cpu composed-gradient sentinel -- the residual skip paths in GptBlock
+    // can mask a backward error in the attention sub-graph, so this standalone probe
+    // is the sensitive test. The perturbed buffer is the full concatenated QKV input,
+    // so a single check covers the Q, K and V gradient contributions. A failure here
+    // localizes the bug to CpuAttentionOp::backward (file in BACKLOG + GTEST_SKIP),
+    // not to this test.
+    TEST_F( MhaCpuTests, Backward_MatchesNumericGradient )
+    {
+        const int64_t B = 2;
+        const int64_t T = 3;
+        const shape_t input_shape{ B, T, 3 * kModelDim };
+        const shape_t output_shape{ B, T, kModelDim };
+
+        auto mha = builtMha( input_shape, RuntimeMode::Training );
+
+        TensorFp32 input( Device::Cpu(), input_shape );
+        TensorFp32 output_grad( Device::Cpu(), output_shape );
+        fillSpread( input, 0.0f );
+        fillSpread( output_grad, 1.3f );
+
+        mha->forward( input );
+        auto& input_grad = mha->backward( input, output_grad );
+
+        // Snapshot the analytic gradient before the probe re-runs forward().
+        std::vector<float> analytic_dx( input_grad.data(), input_grad.data() + input_grad.size() );
+
+        const auto numeric_dx = Mila::Tests::Common::centralDifferenceGradient(
+            input.data(), input.size(), output_grad.data(), output_grad.size(),
+            [&]() -> const float* { return mha->forward( input ).data(); }, 1e-2f );
+
+        Mila::Tests::Common::expectGradientsClose( analytic_dx.data(), numeric_dx, 1e-2f, 1e-2f, "MHA dX" );
     }
 
     // ====================================================================

@@ -1,5 +1,5 @@
 /**
- * @file CudaAttentionOp.ixx
+ * @file CudaMhaOp.ixx
  * @brief CUDA implementation of Multi-Head Attention cuBLASLt optimization.
  */
 
@@ -196,7 +196,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             context_->synchronize();
             //{
-            //    // Dump v_out_ before unpermute — shape [B, NH, actual_T, HS]
+            //    // Dump v_out_ before unpermute -- shape [B, NH, actual_T, HS]
             //    shape_t v_out_shape = { B_, NH_, T_, HS_ };
             //    std::string v_out_dump = dump_tensor<NativeType>(
             //        v_out_, v_out_shape, this->getName() + ".dbg.v_out_", 16, stream );

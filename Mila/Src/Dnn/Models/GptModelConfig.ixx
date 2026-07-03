@@ -6,9 +6,9 @@
  * GptModel::fromPretrained(). It inherits all universal language model
  * deployment concerns from LanguageModelConfig<GemmaModelConfig>:
  *
- *   - context_length        — maximum sequence length
- *   - weight_quantization   — Linear weight storage strategy
- *   - kv_cache_compression  — GroupedQueryAttention cache strategy
+ *   - context_length        -- maximum sequence length
+ *   - weight_quantization   -- Linear weight storage strategy
+ *   - kv_cache_compression  -- GroupedQueryAttention cache strategy
  *
  */
 

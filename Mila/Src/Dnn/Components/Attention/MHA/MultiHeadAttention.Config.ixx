@@ -1,5 +1,5 @@
 /**
- * @file MultiHeadAttentionConfig.ixx
+ * @file MultiHeadAttention.Config.ixx
  * @brief Configuration interface for the Attention module.
  */
 

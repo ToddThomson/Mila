@@ -8,13 +8,13 @@
  * the targeted submodule directly to keep module dependency graphs tight:
  *
  * @code
- * // Linear component — weight quantization only
+ * // Linear component -- weight quantization only
  * import Dnn.Quantization.WeightQuant.Policies;
  *
- * // GroupedQueryAttention — KV cache policy only (Alpha.5)
+ * // GroupedQueryAttention -- KV cache policy only (Alpha.5)
  * import Dnn.Quantization.KvCache.Policy;
  *
- * // GroupedQueryAttention — KV cache quantization (Alpha.6+)
+ * // GroupedQueryAttention -- KV cache quantization (Alpha.6+)
  * import Dnn.Quantization.KvCache.QuantPolicy;
  * @endcode
  *
@@ -29,11 +29,11 @@
 
 export module Dnn.Quantization;
 
-/// @brief Weight quantization policy surface — consumed by @c Linear and @c CudaLinearOp.
+/// @brief Weight quantization policy surface -- consumed by @c Linear and @c CudaLinearOp.
 export import Dnn.Quantization.Weight.Policies;
 
-/// @brief KV cache compression base concept and identity — consumed by @c GroupedQueryAttention and @c CudaGqaOp.
+/// @brief KV cache compression base concept and identity -- consumed by @c GroupedQueryAttention and @c CudaGqaOp.
 export import Dnn.Quantization.KvCache.Policy;
 
-/// @brief KV cache quantization policies — consumed by @c GroupedQueryAttention and @c CudaGqaOp (Alpha.6+).
+/// @brief KV cache quantization policies -- consumed by @c GroupedQueryAttention and @c CudaGqaOp (Alpha.6+).
 export import Dnn.Quantization.KvCache.QuantPolicy;

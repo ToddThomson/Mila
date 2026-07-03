@@ -1,5 +1,5 @@
 /**
- * @file CudaTensorDataType-CublasLtTypes.ixx
+ * @file CudaTensorDataTypes-CublasLtTypes.ixx
  * @brief Compile-time mapping from abstract TensorDataType to cuBLASLt runtime cudaDataType_t enums.
  *
  * Provides CudaDataTypeTraits<TDataType>::cuda_data_type for use in cuBLASLt plan builders.

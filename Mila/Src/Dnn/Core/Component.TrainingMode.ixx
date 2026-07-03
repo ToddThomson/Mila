@@ -1,5 +1,5 @@
 /**
- * @file ComponentTrainingMode.ixx
+ * @file Component.TrainingMode.ixx
  * @brief Runtime behavioral mode for training-built Components.
  */
 module;
@@ -14,7 +14,7 @@ namespace Mila::Dnn
      *
      * TrainingMode governs the runtime behavioral state of a Component
      * that was built with RuntimeMode::Training. It is orthogonal to
-     * RuntimeMode — RuntimeMode is a build-time allocation policy while
+     * RuntimeMode -- RuntimeMode is a build-time allocation policy while
      * TrainingMode is a runtime behavioral toggle.
      *
      * ## States
@@ -32,7 +32,7 @@ namespace Mila::Dnn
      *
      * ## Ownership
      *
-     * Model drives transitions via Network::setTrainingMode() — the
+     * Model drives transitions via Network::setTrainingMode() -- the
      * toggle is never exposed directly to the user.
      */
     export enum class TrainingMode : uint8_t

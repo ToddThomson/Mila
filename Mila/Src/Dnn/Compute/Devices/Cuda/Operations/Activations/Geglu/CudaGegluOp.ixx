@@ -1,6 +1,6 @@
 /**
  * @file CudaGegluOp.ixx
- * @brief CUDA GeGLU (GELU-gated linear unit) operation — forward only.
+ * @brief CUDA GeGLU (GELU-gated linear unit) operation -- forward only.
  *
  * GeGLU(gate, up) = GeluTanh(gate) * up. Used by Gemma's GeGLU FFN. The SiLU
  * SwiGLU path (CudaSwigluOp + its optimized kernels) is a separate, untouched

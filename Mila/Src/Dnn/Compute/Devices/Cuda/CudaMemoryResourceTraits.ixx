@@ -1,5 +1,5 @@
 /**
- * @file CudaDeviceMemoryResourceTraits.ixx
+ * @file CudaMemoryResourceTraits.ixx
  * @brief CUDA-specific memory resource traits and specializations
  */
 

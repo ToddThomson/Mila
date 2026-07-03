@@ -30,6 +30,8 @@
 #include <string>
 #include <stdexcept>
 
+#include "Common/GradientCheck.h"
+
 import Mila;
 
 namespace Mila::Tests::Dnn::Components::FFN
@@ -619,6 +621,63 @@ namespace Mila::Tests::Dnn::Components::FFN
         }
 
         EXPECT_TRUE( any_nonzero ) << "expected non-zero parameter gradients after backward";
+    }
+
+    // Finite-difference gradient-check archetype for a COMPOSITE
+    // (Specifications/Testing.md). Where Backward_InputGradientMatchesFiniteDifference
+    // above checks dX against a host reference forward, this uses the shared helper
+    // against MLP's OWN forward() and extends coverage to all four child parameter
+    // gradients (fc1 W/B, fc2 W/B) -- the composite's parameter backward had no
+    // numeric coverage before.
+    TEST_F( MLPCpuTests, Backward_MatchesNumericGradient )
+    {
+        const int64_t in_features = 3;
+        const int64_t hidden_size = 4;
+        const shape_t shape{ 2, in_features };
+
+        auto mlp = builtMlp( shape, in_features, hidden_size, true, RuntimeMode::Training );
+        setKnownParameters( *mlp, in_features, hidden_size, true );
+
+        TensorFp32 input( Device::Cpu(), shape );
+        TensorFp32 output_grad( Device::Cpu(), shape );
+        fillSpread( input );
+        for ( size_t i = 0; i < output_grad.size(); ++i )
+        {
+            output_grad.data()[ i ] = 0.1f * static_cast<float>( i + 1 );
+        }
+
+        mlp->zeroGradients();
+        mlp->forward( input );
+        auto& input_grad = mlp->backward( input, output_grad );
+
+        // Snapshot analytic gradients before the probe re-runs forward().
+        std::vector<float> analytic_dx( input_grad.data(), input_grad.data() + input_grad.size() );
+
+        auto params = mlp->getParameters();
+        auto grads = mlp->getGradients();
+        ASSERT_EQ( params.size(), 4u );
+        ASSERT_EQ( grads.size(), 4u );
+
+        auto evaluate = [&]() -> const float* { return mlp->forward( input ).data(); };
+
+        const auto numeric_dx = Mila::Tests::Common::centralDifferenceGradient(
+            input.data(), input.size(), output_grad.data(), output_grad.size(), evaluate, 1e-2f );
+        Mila::Tests::Common::expectGradientsClose( analytic_dx.data(), numeric_dx, 1e-2f, 1e-2f, "MLP dX" );
+
+        // Children are added fc1, gelu, fc2, so getParameters() is
+        // [fc1 weight, fc1 bias, fc2 weight, fc2 bias].
+        const char* labels[] = { "MLP fc1 dW", "MLP fc1 dB", "MLP fc2 dW", "MLP fc2 dB" };
+
+        for ( size_t p = 0; p < params.size(); ++p )
+        {
+            float* parameter = static_cast<float*>( params[ p ]->rawData() );
+            const float* gradient = static_cast<const float*>( grads[ p ]->rawData() );
+            std::vector<float> analytic( gradient, gradient + params[ p ]->size() );
+
+            const auto numeric = Mila::Tests::Common::centralDifferenceGradient(
+                parameter, params[ p ]->size(), output_grad.data(), output_grad.size(), evaluate, 1e-2f );
+            Mila::Tests::Common::expectGradientsClose( analytic.data(), numeric, 1e-2f, 1e-2f, labels[ p ] );
+        }
     }
 
     // ====================================================================

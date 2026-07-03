@@ -76,7 +76,7 @@ namespace Mila::Dnn
      * @tparam TDeviceType        Target device.
      * @tparam TComputePrecision  Activation and accumulation precision.
      * @tparam TWeightQuant       Weight quantization policy. Must satisfy WeightQuantPolicy.
-     *                            Defaults to NoWeightQuant (identity — no quantization).
+     *                            Defaults to NoWeightQuant (identity -- no quantization).
      */
     export template<DeviceType TDeviceType, TensorDataType TComputePrecision, WeightQuantPolicy TWeightQuant = NoWeightQuant>
         requires PrecisionSupportedOnDevice<TComputePrecision, TDeviceType>
@@ -92,7 +92,7 @@ namespace Mila::Dnn
         // here. Placing a static_assert in the class template body forces MSVC to fully
         // instantiate OpType (including all member function bodies) before the CUDA execution
         // context is complete. A missing OperationTraits specialization already produces a hard
-        // compile error on ::type — that is the practical guard.
+        // compile error on ::type -- that is the practical guard.
 
         static constexpr bool kIsQuantized = TWeightQuant::kIsQuantized;
 
@@ -194,7 +194,7 @@ namespace Mila::Dnn
          * buffers bound via setGradients() using += semantics; pre-zeroing ensures
          * clean gradient state across calls.
          *
-         * Not supported on quantized paths (kIsQuantized == true) — the backend
+         * Not supported on quantized paths (kIsQuantized == true) -- the backend
          * operation will throw std::logic_error if backward is attempted.
          *
          * @param input       Original forward-pass input tensor.
@@ -440,11 +440,11 @@ namespace Mila::Dnn
          *   - Quantized path (kIsQuantized == true): the blob dtype must be
          *     TComputePrecision (the full-precision source type). The backend operation's
          *     quantize() method performs per-channel absmax scale computation, quantizes
-         *     weights from TComputePrecision to kWeightDtype (e.g. BF16 → FP8_E4M3),
+         *     weights from TComputePrecision to kWeightDtype (e.g. BF16 -> FP8_E4M3),
          *     and uploads both the quantized weights and FP32 scales to device.
          *     The weight_scales_ tensor was pre-allocated in initializeParameters() and
          *     its device pointer was already bound to the operation in onBuilding() via
-         *     setWeightScales() — quantize() writes directly into that allocation.
+         *     setWeightScales() -- quantize() writes directly into that allocation.
          *
          * Bias is always stored and loaded at TComputePrecision regardless of TWeightQuant.
          *
@@ -632,7 +632,7 @@ namespace Mila::Dnn
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
         std::shared_ptr<OpType> operation_{ nullptr };
 
-        // Weight storage dtype is kWeightDtype — equals TComputePrecision on the unquantized
+        // Weight storage dtype is kWeightDtype -- equals TComputePrecision on the unquantized
         // path; equals TWeightQuant::kStorageDtype (e.g. FP8_E4M3) on the quantized path.
         std::shared_ptr<WeightTensorType> weight_{ nullptr };
 
@@ -666,7 +666,7 @@ namespace Mila::Dnn
             if ( input_shape.back() != config_.getInputFeatures() )
             {
                 throw std::invalid_argument( std::format(
-                    "Linear '{}': input features mismatch — expected {}, got {}",
+                    "Linear '{}': input features mismatch -- expected {}, got {}",
                     this->getName(), config_.getInputFeatures(), input_shape.back() ) );
             }
         }
@@ -713,7 +713,7 @@ namespace Mila::Dnn
 
             // Packed nibble formats (INT4, FP4 E2M1) store 2 elements per UINT8 byte,
             // so the physical column count is input_features/2.
-            // FP8 and unquantized formats store one element per storage byte — full width.
+            // FP8 and unquantized formats store one element per storage byte -- full width.
             const int64_t weight_cols = ( kIsQuantized && !TWeightQuant::kPerChannel )
                 ? input_features / 2
                 : input_features;
@@ -725,13 +725,13 @@ namespace Mila::Dnn
             {
                 if constexpr ( TWeightQuant::kPerChannel )
                 {
-                    // Per-channel: one scale per output channel — shape [out_features].
+                    // Per-channel: one scale per output channel -- shape [out_features].
                     weight_scales_ = std::make_unique<WeightScaleTensorType>(
                         device, shape_t{ output_features }, this->getName() + ".weight.scales" );
                 }
                 else
                 {
-                    // Per-group: one scale per (output channel, K-group) — shape [out_features, K/group_size].
+                    // Per-group: one scale per (output channel, K-group) -- shape [out_features, K/group_size].
                     const int64_t num_groups = input_features / TWeightQuant::kQuantizationGroupSize;
                     weight_scales_ = std::make_unique<WeightScaleTensorType>(
                         device, shape_t{ output_features, num_groups }, this->getName() + ".weight.scales" );
@@ -764,7 +764,7 @@ namespace Mila::Dnn
         /**
          * @brief Instantiate the backend compute operation via compile-time traits dispatch.
          *
-         * OpType is resolved by OperationTraits at instantiation time — no registry lookup,
+         * OpType is resolved by OperationTraits at instantiation time -- no registry lookup,
          * no string key, no runtime hash map. A missing specialization is a compile error.
          */
         void createOperation()

@@ -279,7 +279,7 @@ namespace Mila
      * @brief Initializes the Mila framework.
      *
      * Must be called before using any other Mila functionality. If no sink is
-     * provided a NullSink is used, suppressing all log output — appropriate for
+     * provided a NullSink is used, suppressing all log output -- appropriate for
      * applications linking Mila as a static library that manage their own logging.
      * Pass an explicit sink to opt in to Mila log output.
      *
@@ -290,14 +290,14 @@ namespace Mila
      *                    to the caller; the application is responsible for handling it.
      *
      * @code
-     * // Silent — appropriate default for apps linking Mila as a library
+     * // Silent -- appropriate default for apps linking Mila as a library
      * Mila::initialize();
      *
-     * // Development / CLI tool — opt in to Info-level console output
+     * // Development / CLI tool -- opt in to Info-level console output
      * auto sink = std::make_shared<Mila::Logging::ConsoleSink>( Logging::LogLevel::Info );
      * Mila::initialize( 0, sink );
      *
-     * // FastAPI server — structured file logging at Warning+
+     * // FastAPI server -- structured file logging at Warning+
      * auto sink = std::make_shared<Mila::Logging::FileSink>( "mila.log", Logging::LogLevel::Warning );
      * Mila::initialize( 0, sink );
      * @endcode

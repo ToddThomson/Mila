@@ -1,5 +1,5 @@
 /**
- * @file VulkanTensorTraits.ixx
+ * @file RocmTensorTraits.ixx
  * @brief Vulkan-specific tensor trait specializations for explicit graphics compute
  *
  * This module provides Vulkan-specific tensor characteristics and native type mappings

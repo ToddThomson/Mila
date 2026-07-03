@@ -45,14 +45,14 @@ namespace Mila::Dnn
      * @brief Device-templated RoPE component.
      *
      * Rotates Q and K in-place using a PairedOperation backend registered
-     * as "RopeOp". The component owns no forward output buffers — rotation
+     * as "RopeOp". The component owns no forward output buffers -- rotation
      * writes directly back into the caller-provided tensors (typically views
      * into a fused QKV projection buffer).
      *
      * Supports three dispatch modes:
-     *   forward(Q, K)                  — training, positions 0..T-1
-     *   prefill(Q, K, position_offset) — chunked prefill, positions offset..offset+T-1
-     *   decode(Q, K, position)         — single-token KV-cache decode
+     *   forward(Q, K)                  -- training, positions 0..T-1
+     *   prefill(Q, K, position_offset) -- chunked prefill, positions offset..offset+T-1
+     *   decode(Q, K, position)         -- single-token KV-cache decode
      *
      * Positional dispatch (prefill/decode) is available when the backend
      * implements IPositionalPairedOp. The interface pointer is cached at

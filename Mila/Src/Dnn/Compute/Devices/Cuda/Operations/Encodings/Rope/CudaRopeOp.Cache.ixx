@@ -130,7 +130,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
          * @brief Release a reference to the shared cache.
          *
          * Decrements the reference count. Frees device memory when it reaches zero.
-         * Safe to call from destructors � cudaFree errors are silently ignored as
+         * Safe to call from destructors -- cudaFree errors are silently ignored as
          * they are not actionable during cleanup.
          */
         void release( const CacheKey& key ) noexcept

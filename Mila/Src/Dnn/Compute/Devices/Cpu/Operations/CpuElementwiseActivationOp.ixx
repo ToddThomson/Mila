@@ -38,7 +38,7 @@ namespace Mila::Dnn::Compute
      *
      * @tparam TFunctor POD functor from Mila::Dnn::Activations exposing fwd(x)/df(x).
      *
-     * FP32 only — FP32 is the sole CPU-supported precision. The functor is selected
+     * FP32 only -- FP32 is the sole CPU-supported precision. The functor is selected
      * at compile time by the Activation component; this op holds an instance so
      * function-specific scalars (LeakyReLU alpha) are carried by value.
      */

@@ -16,7 +16,7 @@ namespace Mila::Dnn::Compute
      * @brief Non-owning pointers to shared transient GQA scratch buffers.
      *
      * All slots are nullable. CudaGqaOp::setState() accepts a partially populated
-     * state — only non-null slots replace the previously wired pointers.
+     * state -- only non-null slots replace the previously wired pointers.
      *
      * Prefill slots:
      *   q_permute     [B, NH, chunk, HS]

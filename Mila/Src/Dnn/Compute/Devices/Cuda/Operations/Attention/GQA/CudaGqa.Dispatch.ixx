@@ -30,7 +30,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         //
         // The remaining dispatchers (kvcache_write_q, kvcache_expand_kv, expand_kv,
         // permute_qkv*, reduce_kv_grad, permute_backward, softmax_forward/backward,
-        // unpermute_*_padded/backward) are DORMANT — no longer called after the
+        // unpermute_*_padded/backward) are DORMANT -- no longer called after the
         // compact NKV-layout cleanup. They are retained, NOT deleted, as the
         // substrate for a future GQA training path (expanded-layout forward/backward
         // derived from a working MHA). This banner resolves the per-method "REVIEW:
@@ -77,7 +77,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 cuda_gqa_kvcache_expand_kv_fp32( k_exp, v_exp, k_compact, v_compact, B, chunk_len, T, NH, NKV, HS, position_offset, stream );
             }
 
-            // TEMP: Optimized path — compact Q permute (Phase 1).
+            // TEMP: Optimized path -- compact Q permute (Phase 1).
             // Remove with legacy path once validated.
             static void permute_q_compact(
                 float* Q, const float* X,
@@ -290,7 +290,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 cuda_gqa_kvcache_expand_kv_bf16( k_exp, v_exp, k_compact, v_compact, B, chunk_len, T, NH, NKV, HS, position_offset, stream );
             }
 
-            // TEMP: Optimized path — compact Q permute (Phase 1).
+            // TEMP: Optimized path -- compact Q permute (Phase 1).
             // Remove with legacy path once validated.
             static void permute_q_compact(
                 nv_bfloat16* Q, const nv_bfloat16* X,

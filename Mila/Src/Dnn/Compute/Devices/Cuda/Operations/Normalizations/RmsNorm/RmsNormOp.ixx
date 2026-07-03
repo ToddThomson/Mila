@@ -1,5 +1,5 @@
 /**
- * @file CudaRmsNormOp.ixx
+ * @file RmsNormOp.ixx
  * @brief CUDA implementation of RMS Normalization operation.
  */
 

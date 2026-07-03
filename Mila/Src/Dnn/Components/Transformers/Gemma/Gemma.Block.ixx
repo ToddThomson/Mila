@@ -148,7 +148,7 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // IDecoderLayer — inference path
+        // IDecoderLayer -- inference path
         // ====================================================================
 
         TensorType& prefill( const TensorType& input, int position_offset ) override
@@ -163,7 +163,7 @@ namespace Mila::Dnn
             const dim_t NKV = numKVHeads();
             const dim_t HD = headDim();
 
-            // Preserve the residual input (res0) — component buffers get overwritten downstream.
+            // Preserve the residual input (res0) -- component buffers get overwritten downstream.
             auto res0 = res0_->view( shape_t{ B, T, model_dim }, 0 );
             copy( input, res0 );
 
@@ -414,7 +414,7 @@ namespace Mila::Dnn
             const shape_t hidden_shape = { B, chunk, hidden_dim };
             // GQA build context: the op only reads B/T here (its geometry comes from
             // GqaConfig) and validates the trailing dim as the STANDARD (NH + 2*NKV)*HD
-            // packing — not the K=V-aware block packing — so use that here regardless of kGlobal.
+            // packing -- not the K=V-aware block packing -- so use that here regardless of kGlobal.
             const shape_t qkv_ctx_shape =
                 { B, input_shape[ 1 ], (config_.getNumHeads() + 2 * NKV) * HD };
 
@@ -607,7 +607,7 @@ namespace Mila::Dnn
 
             if ( s.back() != static_cast<int64_t>( config_.getModelDim() ) )
                 throw std::invalid_argument( std::format(
-                    "GemmaBlock: model_dim mismatch — expected {}, got {}", config_.getModelDim(), s.back() ) );
+                    "GemmaBlock: model_dim mismatch -- expected {}, got {}", config_.getModelDim(), s.back() ) );
         }
     };
 }

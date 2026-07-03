@@ -1,5 +1,5 @@
 /**
- * @file VulkanExecutionContext.ixx
+ * @file RocmExecutionContext.ixx
  * @brief Vulkan-specific execution context specialization.
  */
 

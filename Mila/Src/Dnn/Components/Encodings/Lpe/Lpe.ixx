@@ -1,5 +1,5 @@
 /**
- * @file Gpt2Encoder.ixx
+ * @file Lpe.ixx
  * @brief Device-templated Encoder module for token and positional embeddings.
  *
  * Delegates compute to a UnaryOperation backend. Module owns token (wte) and
@@ -219,7 +219,7 @@ namespace Mila::Dnn
          * Unlike forward() which processes a full sequence [B, T] and uses positions
          * 0..T-1, decode() processes a single token and uses the caller-supplied
          * position for the positional embedding lookup. This is critical for
-         * correctness in KV cache autoregressive generation — without the correct
+         * correctness in KV cache autoregressive generation -- without the correct
          * position, wpe[0] would be used for every generated token, corrupting
          * all subsequent attention computations.
          *
@@ -236,7 +236,7 @@ namespace Mila::Dnn
 
             // Resolved IPositionalDecode from onBuilding
             if ( !decode_path_ )
-                throw std::runtime_error( "Lpe: backend operation does not support decode() — IPositionalDecode not implemented" );
+                throw std::runtime_error( "Lpe: backend operation does not support decode() -- IPositionalDecode not implemented" );
 
             decode_path_->decode( input, *output_, position );
 

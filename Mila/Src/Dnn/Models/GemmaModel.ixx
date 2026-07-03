@@ -141,7 +141,7 @@ namespace Mila::Dnn
             //
             // Bounded sliding-window KV ring for Gemma's LOCAL (sliding) layers
             // (SlidingWindowKvCache.md Phase 3): their cache is sized to the window
-            // working set instead of the full context. Strictly a memory optimization —
+            // working set instead of the full context. Strictly a memory optimization --
             // tokens are identical to the full cache. Global (full-attention) layers are
             // always NoKvCompression (hardwired in GemmaTransformer). Flip this alias to
             // NoKvCompression to A/B the footprint against the full-context sliding cache.

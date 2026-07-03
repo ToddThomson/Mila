@@ -4,7 +4,7 @@
  *
  * ARCHITECTURAL NOTE (TODO):
  * OperationType is an internal dispatch key used by the compute layer. It is not
- * part of the public Mila API — ComponentType (Dnn.ComponentType) is the user-facing
+ * part of the public Mila API -- ComponentType (Dnn.ComponentType) is the user-facing
  * component identity. OperationType should be moved to Dnn::Core and removed from
  * the public Mila.ixx re-exports so it is inaccessible to library consumers.
  * Operations are an implementation detail of Components; users should never need
@@ -36,7 +36,7 @@ namespace Mila::Dnn::Compute
 		GeluOp,						///< Gaussian Error Linear Unit activation function
         ElementwiseActivationOp,	///< Functor-templated elementwise activation (GELU/SiLU/ReLU/Tanh/Sigmoid/LeakyReLU/Mish)
         SwigluOp,					///< SwiGLU (SiLU-gated) GLU FFN activation
-        GegluOp,					///< GeGLU (GELU-gated) GLU FFN activation — Gemma
+        GegluOp,					///< GeGLU (GELU-gated) GLU FFN activation -- Gemma
 		LayerNormOp,				///< Layer normalization operation
         RmsNormOp,					///< RMS normalization operation
 		MultiHeadAttentionOp,		///< Multi-head attention operation (MHA) for transformers
@@ -45,7 +45,7 @@ namespace Mila::Dnn::Compute
 		SoftmaxOp,					///< Softmax activation function
 		DropoutOp,					///< Dropout regularization operation
 		SamplingOp,					///< Device-side token sampling from logits
-		SoftmaxCrossEntropyOp		///< WIP: Fused softmax + cross-entropy loss — targeted for Llama training
+		SoftmaxCrossEntropyOp		///< WIP: Fused softmax + cross-entropy loss -- targeted for Llama training
 	};
 
 	// string_view constants, no magic strings at call sites
@@ -69,7 +69,7 @@ namespace Mila::Dnn::Compute
 		constexpr std::string_view Softmax              = "SoftmaxOp";
 		constexpr std::string_view Dropout              = "DropoutOp";
 		constexpr std::string_view Sampling             = "SamplingOp";
-		constexpr std::string_view SoftmaxCrossEntropy  = "SoftmaxCrossEntropyOp"; ///< WIP — targeted for Llama training
+		constexpr std::string_view SoftmaxCrossEntropy  = "SoftmaxCrossEntropyOp"; ///< WIP -- targeted for Llama training
 	}
 
 	export std::string_view operationTypeToString( OperationType op )

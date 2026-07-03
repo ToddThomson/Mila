@@ -6,7 +6,7 @@
  * global full attention), so its transformer cannot hold a homogeneous
  * vector<Block> the way GptTransformer / LlamaTransformer do. Both GemmaBlock
  * instantiations implement this interface; the transformer drives the layer list
- * polymorphically (one virtual call per layer per token step — negligible against
+ * polymorphically (one virtual call per layer per token step -- negligible against
  * the per-layer GEMMs). See Specifications/Gemma.md section 8.
  *
  * Inference-only: Gemma is an inference target, so the interface exposes the

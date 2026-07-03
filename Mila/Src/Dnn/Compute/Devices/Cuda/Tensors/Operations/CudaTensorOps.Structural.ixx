@@ -174,7 +174,7 @@ namespace Mila::Dnn::Compute::Cuda
          *   - D0, D1, D2 must be multiples of 4 (float4 vectorization).
          *   - Input and outputs must be rank-3 tensors.
          *
-         * @tparam TDataType Tensor element type — drives vectorization width.
+         * @tparam TDataType Tensor element type -- drives vectorization width.
          * @tparam TMemRes   Memory resource type backing the tensors.
          */
         template<TensorDataType TDataType, typename TMemoryResource>

@@ -83,10 +83,11 @@ namespace Mila::Dnn
          * @throws std::runtime_error if the metadata does not contain a "type" field
          * @throws std::runtime_error if the type string is not recognized
          *
-         * @example
+         * @code{.cpp}
          * auto meta = readComponentMeta(archive, "fc1");
          * ComponentType type = parseComponentType(meta);
          * if (type == ComponentType::Linear) { ... }
+         * @endcode
          */
         static ComponentType parseComponentType( const SerializationMetadata& meta )
         {
@@ -174,12 +175,12 @@ namespace Mila::Dnn
          *
          * @throws std::runtime_error Always throws - dispatch not yet implemented
          *
-         * @note Returning std::shared_ptr<void> is an intentional placeholder type —
+         * @note Returning std::shared_ptr<void> is an intentional placeholder type --
          *       replace with the project's chosen type-erased component handle once
          *       the dispatch plumbing is implemented.
          *
-         * @example Future usage pattern:
-         * @code
+         * Future usage pattern:
+         * @code{.cpp}
          * auto component = ComponentFactory::createFromArchive<DeviceType::Cpu>(
          *     archive, "fc1", exec_context);
          * @endcode

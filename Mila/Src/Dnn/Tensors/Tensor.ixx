@@ -158,6 +158,7 @@ namespace Mila::Dnn
          *
          * @param device_id Device identifier (type + index)
          * @param shape Vector defining the size of each dimension in row-major order
+         * @param name Optional tensor name for diagnostics (default: empty)
          *
          * @throws std::invalid_argument If device id is invalid (checked by validateDeviceId)
          * @throws std::runtime_error If device type doesn't match memory resource

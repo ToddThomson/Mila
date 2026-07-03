@@ -37,7 +37,7 @@ namespace Mila::Logging
         NullSink() = default;
 
         // -------------------------------------------------------------------------
-        // Logger interface — control
+        // Logger interface -- control
         // -------------------------------------------------------------------------
 
         /// @brief No-op. NullSink has no meaningful level.
@@ -59,7 +59,7 @@ namespace Mila::Logging
         }
 
         // -------------------------------------------------------------------------
-        // Logger interface — emit methods (all no-ops)
+        // Logger interface -- emit methods (all no-ops)
         // -------------------------------------------------------------------------
 
         /// @brief Discards the record.

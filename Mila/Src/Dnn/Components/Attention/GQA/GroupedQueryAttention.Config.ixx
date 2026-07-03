@@ -8,8 +8,8 @@
  * bandwidth during inference proportionally to (num_heads / num_kv_heads).
  *
  * Special cases:
- *   num_kv_heads == num_heads  →  standard Multi-Head Attention
- *   num_kv_heads == 1          →  Multi-Query Attention (MQA)
+ *   num_kv_heads == num_heads  ->  standard Multi-Head Attention
+ *   num_kv_heads == 1          ->  Multi-Query Attention (MQA)
  */
 
 module;
@@ -113,7 +113,7 @@ namespace Mila::Dnn
         /**
          * @brief Fluent setter for the attention logit scale (QK softmax multiplier).
          *
-         * 0 (the default) means "derive 1/sqrt(head_dim)" — the standard scaling for
+         * 0 (the default) means "derive 1/sqrt(head_dim)" -- the standard scaling for
          * Llama/Qwen/MHA. A positive value overrides it; Gemma uses 1.0 because its
          * QK-norm already controls the dot-product magnitude (HF self.scaling = 1.0).
          */
@@ -158,7 +158,7 @@ namespace Mila::Dnn
         /**
          * @brief Per-head feature dimension (model_dim / num_heads).
          *
-         * Derived quantity — always consistent with model_dim and num_heads.
+         * Derived quantity -- always consistent with model_dim and num_heads.
          */
         dim_t getHeadDim() const noexcept
         {

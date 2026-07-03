@@ -163,7 +163,7 @@ export namespace Mila::Dnn::Compute::Cuda
      * Accepts explicit layout dimensions (rows/cols/ld) and per-element strides for A, B, C.
      * The heuristic algorithm is selected at build time for the given dimensions and reused
      * at execution time. When actual_rows is passed to execute_plan, only the row count
-     * embedded in layoutA and layoutC is updated — the selected algorithm remains valid
+     * embedded in layoutA and layoutC is updated -- the selected algorithm remains valid
      * for any row count up to the bucket it was built for.
      *
      * @param strided_batch_count  Number of independent matmul instances (1 for Linear, B*NH for Attention).

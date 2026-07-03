@@ -136,7 +136,7 @@ namespace Mila::Dnn
          * KV caching, the first forward() call initialises and populates the
          * cache (prefill with position_offset=0). When called again after
          * decode() steps, it automatically resets the cache and begins a new
-         * prefill session — no explicit session management required by callers.
+         * prefill session -- no explicit session management required by callers.
          *
          * @param input Concatenated QKV input [B, T, (Q + 2*KV) * head_dim].
          * @return Reference to component-owned output tensor [B, T, model_dim].
@@ -221,7 +221,9 @@ namespace Mila::Dnn
          * Called by the transformer block during chunked prefill. The KV cache
          * must already be initialized (via onBuilding or forward()).
          *
-         * @param input           Concatenated QKV input [B, T_chunk, (Q + 2*KV) * head_dim].
+         * @param q               Query tensor [B, T_chunk, Q * head_dim].
+         * @param k               Key tensor [B, T_chunk, KV * head_dim].
+         * @param v               Value tensor [B, T_chunk, KV * head_dim].
          * @param position_offset Absolute position of the first token in this chunk.
          * @return Reference to component-owned output tensor.
          */
@@ -266,8 +268,10 @@ namespace Mila::Dnn
          * Precondition: forward() must have been called at least once to
          * populate the KV cache before decode() is called.
          *
-         * @param input    Single-token QKV input [B, 1, (Q + 2*KV) * head_dim].
-         * @param position Current sequence position (0-based).
+         * @param q               Query tensor [B, 1, Q * head_dim].
+         * @param k               Key tensor [B, 1, KV * head_dim].
+         * @param v               Value tensor [B, 1, KV * head_dim].
+         * @param position_offset Absolute position of the token (0-based).
          * @return Reference to component-owned single-token output tensor.
          */
         TensorType& decode( const TensorType& q, const TensorType& k, const TensorType& v, int position_offset )
@@ -286,7 +290,7 @@ namespace Mila::Dnn
                 return *decode_output_;
             }
 
-            // Fallback — backend does not support KV caching or cache not yet initialized.
+            // Fallback -- backend does not support KV caching or cache not yet initialized.
 
             // REVIEW: The Fallback here is stale and needs to be reviewed for correctness.
 
@@ -496,20 +500,20 @@ namespace Mila::Dnn
                 shape_t decode_output_shape = { input_shape[ 0 ], 1, config_.getModelDim() };
                 decode_output_ = std::make_unique<TensorType>( device, decode_output_shape, this->getName() + ".output_decode" );
 
-                // Prefill path output — sized for one prefill chunk at a time
+                // Prefill path output -- sized for one prefill chunk at a time
                 shape_t output_shape = { B, context.getPrefillSize(), config_.getModelDim() };
                 output_ = std::make_unique<TensorType>( device, output_shape, this->getName() + ".output_prefill" );
                 output_view_.emplace( output_->view( output_->shape() ) );
             }
             else
             {
-                // Training — full sequence output buffer.
+                // Training -- full sequence output buffer.
                 shape_t output_shape = input_shape;
                 output_shape.back() = config_.getModelDim();
                 output_ = std::make_unique<TensorType>( device, output_shape, this->getName() + ".output" );
                 output_view_.emplace( output_->view( output_->shape() ) );
 
-                // Input gradient — same shape as packed QKV input.
+                // Input gradient -- same shape as packed QKV input.
                 input_grad_ = std::make_unique<TensorType>( device, input_shape, this->getName() + ".input.grad" );
             }
         }

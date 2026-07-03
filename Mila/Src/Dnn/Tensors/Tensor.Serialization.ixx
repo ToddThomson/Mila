@@ -46,7 +46,7 @@ namespace Mila::Dnn::Serialization
      * When MR is CudaPinnedMemoryResource, data() returns a pinned host pointer
      * enabling direct DMA in the CUDA copyFromBlob path without driver staging.
      *
-     * This interface is the virtual boundary for loadParameter_ overrides —
+     * This interface is the virtual boundary for loadParameter_ overrides --
      * component implementations receive an ITensorBlob regardless of the
      * originating memory resource.
      */
@@ -70,8 +70,8 @@ namespace Mila::Dnn::Serialization
      *
      * The memory resource controls the allocation strategy:
      *
-     *   TensorBlob<CpuMemoryResource>        — pageable host memory (default)
-     *   TensorBlob<CudaPinnedMemoryResource> — pinned host memory; copyFromBlob
+     *   TensorBlob<CpuMemoryResource>        -- pageable host memory (default)
+     *   TensorBlob<CudaPinnedMemoryResource> -- pinned host memory; copyFromBlob
      *                                          issues a direct DMA to device
      *                                          with no hidden driver staging
      *
@@ -128,8 +128,8 @@ namespace Mila::Dnn::Serialization
      * @brief Write tensor metadata and raw bytes under the given prefix into archive.
      *
      * Writes:
-     *   prefix + "/meta.json"  — TensorMetadata as SerializationMetadata
-     *   prefix + "/data.bin"   — raw tensor bytes
+     *   prefix + "/meta.json"  -- TensorMetadata as SerializationMetadata
+     *   prefix + "/data.bin"   -- raw tensor bytes
      *
      * @param archive ModelArchive to write to
      * @param prefix Path prefix for tensor files (e.g., "tensors/weight")
@@ -155,7 +155,7 @@ namespace Mila::Dnn::Serialization
      * @brief Read tensor metadata and raw bytes from prefix into a typed blob.
      *
      * Allocates a TensorBuffer<UINT8, MR> sized to total_bytes and reads
-     * directly into it via readBlobInto — no intermediate vector copy.
+     * directly into it via readBlobInto -- no intermediate vector copy.
      * When MR is CudaPinnedMemoryResource the returned blob carries a pinned
      * host pointer ready for direct DMA in copyFromBlob.
      *

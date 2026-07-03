@@ -1,5 +1,5 @@
 /**
- * @file PreTokenizationMode.ixx
+ * @file BpePreTokenizationMode.ixx
  * @brief Pre-tokenization mode enumeration for GPT-4 style BPE tokenizers.
  *
  * Extends the GPT-2 BPE pre-tokenization modes with the GPT-4 / Llama 3.x
@@ -26,7 +26,7 @@ namespace Mila::Data
     };
 
     // =========================================================================
-    // GPT-2 patterns (reproduced here for completeness — Gpt2Regex mode)
+    // GPT-2 patterns (reproduced here for completeness -- Gpt2Regex mode)
     // =========================================================================
 
     export constexpr const char* GPT2_PRETOKENIZATION_PATTERN =

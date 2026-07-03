@@ -3,7 +3,7 @@
  * @brief Device-templated TokenEmbedding component.
  *
  * Pure vocabulary lookup: maps token indices [B, T] to dense vectors [B, T, C].
- * Owns the wte parameter and its gradient. No positional encoding — that is
+ * Owns the wte parameter and its gradient. No positional encoding -- that is
  * handled downstream by a dedicated encoding component (RoPE, ALiBi, or Learned).
  *
  * Derived from Lpe with all wpe / IPositionalDecode / decode() concerns removed.
@@ -113,7 +113,7 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Forward pass — returns component-owned embeddings tensor.
+         * @brief Forward pass -- returns component-owned embeddings tensor.
          *
          * output[b, t, :] = wte[ X[b, t], : ]
          *
@@ -161,7 +161,7 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Backward pass — accumulates gradients into wte.
+         * @brief Backward pass -- accumulates gradients into wte.
          *
          * Token indices are discrete and non-differentiable; the returned
          * input_grad tensor exists for interface consistency but carries no
@@ -368,7 +368,7 @@ namespace Mila::Dnn
 
             auto device = this->getExecutionContext()->getDeviceId();
 
-            // Output buffer — allocated at full input shape with embedding_dim as the trailing dimension.
+            // Output buffer -- allocated at full input shape with embedding_dim as the trailing dimension.
             shape_t output_shape = {
                 max_batch_size_,
                 max_seq_len_,

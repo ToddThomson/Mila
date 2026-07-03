@@ -1,28 +1,28 @@
 /**
  * @file Llama.Block.ixx
- * @brief LLaMA transformer block — module partition of LlamaTransformer.
+ * @brief LLaMA transformer block -- module partition of LlamaTransformer.
  *
  * Implements the correct Llama 3.x attention sub-graph using fused projections,
  * zero-copy tensor views, and in-place RoPE rotation:
  *
  *   input [B, T, model_dim]
- *     └─ RMSNorm (ln_1)
- *          └─ fc_qkv_proj  [model_dim → (n_heads + 2*n_kv_heads) * head_dim]  1 GEMM
- *               └─ view Q  [B, T, n_heads    * head_dim]  ──┐
- *               └─ view K  [B, T, n_kv_heads * head_dim]  ──┤ RoPE in-place
- *               └─ view V  [B, T, n_kv_heads * head_dim]    │ (V untouched)
- *                    └─ GroupedQueryAttention (packed QKV)
- *                         └─ fc_out_proj  [model_dim → model_dim]
- *                              └─ Residual (input + out_proj)            res_1
- *                                   └─ RMSNorm (ln_2)
- *                                        └─ fc_gate_up  [model_dim → 2*hidden_dim]  1 GEMM
- *                                             └─ SwiGLU  → [B, T, hidden_dim]
- *                                                  └─ fc_down  [hidden_dim → model_dim]
- *                                                       └─ Residual (res1 + ffn)    res_2
+ *     +- RMSNorm (ln_1)
+ *          +- fc_qkv_proj  [model_dim -> (n_heads + 2*n_kv_heads) * head_dim]  1 GEMM
+ *               +- view Q  [B, T, n_heads    * head_dim]  --+
+ *               +- view K  [B, T, n_kv_heads * head_dim]  --+ RoPE in-place
+ *               +- view V  [B, T, n_kv_heads * head_dim]    | (V untouched)
+ *                    +- GroupedQueryAttention (packed QKV)
+ *                         +- fc_out_proj  [model_dim -> model_dim]
+ *                              +- Residual (input + out_proj)            res_1
+ *                                   +- RMSNorm (ln_2)
+ *                                        +- fc_gate_up  [model_dim -> 2*hidden_dim]  1 GEMM
+ *                                             +- SwiGLU  -> [B, T, hidden_dim]
+ *                                                  +- fc_down  [hidden_dim -> model_dim]
+ *                                                       +- Residual (res1 + ffn)    res_2
  *
  * Key design points:
  *  - Single GEMM for QKV (GQA-correct output dim).
- *  - RoPE applied in-place via zero-copy views — no concat/split ops needed.
+ *  - RoPE applied in-place via zero-copy views -- no concat/split ops needed.
  *  - Single GEMM for gate+up (SwiGLU kernel expects [gate | up] layout).
  *  - FFN composed directly from Linear + SwiGLU primitives; no MLP composite.
  *  - Component names match convert_llama32.py tensor name mapping.
@@ -123,7 +123,7 @@ namespace Mila::Dnn
             // 1. Pre-attention RMSNorm.
             auto& rms1_out = rms1_->forward( input );
 
-            // 2. Fused QKV projection — single GEMM.
+            // 2. Fused QKV projection -- single GEMM.
             //    Output: [B, T, (n_heads + 2*n_kv_heads) * head_dim]
             auto& qkv_out = qkv_proj_->forward( rms1_out );
 
@@ -134,12 +134,12 @@ namespace Mila::Dnn
             // 3. Zero-copy views into the packed QKV buffer.
             auto Q = qkv_out.view( q_shape_, 0 );
             auto K = qkv_out.view( k_shape_, q_offset_ );
-            // V occupies the remainder — GQA reads the full qkv_out buffer.
+            // V occupies the remainder -- GQA reads the full qkv_out buffer.
 
             // 4. RoPE: rotate Q and K in-place inside qkv_out. V untouched.
             rope_->forward( Q, K );
 
-            // 5. GQA receives the packed buffer — Q and K are now rotated.
+            // 5. GQA receives the packed buffer -- Q and K are now rotated.
             auto& attn_out = attn_->forward( qkv_out );
 
             // 6. Output projection.
@@ -151,7 +151,7 @@ namespace Mila::Dnn
             // 8. Post-attention RMSNorm.
             auto& rms2_out = rms2_->forward( res1_out );
 
-            // 9. FFN — fused gate+up projection, SwiGLU, down projection.
+            // 9. FFN -- fused gate+up projection, SwiGLU, down projection.
             auto& gate_up_out = fc_gate_up_->forward( rms2_out );
 
             auto& swiglu_out = swiglu_->forward( gate_up_out );
@@ -284,7 +284,7 @@ namespace Mila::Dnn
             rope_->decode( q_decode, k_decode, position );
             //this->getExecutionContext()->synchronize();
 
-            // GQA decode — KV cache lookup at position
+            // GQA decode -- KV cache lookup at position
             auto& attn_out = attn_->decode( q_decode, k_decode, v_decode, position );
             //this->getExecutionContext()->synchronize();
 
@@ -296,23 +296,23 @@ namespace Mila::Dnn
             auto& res1_out = res1_->forward( input, out_proj_out );
             //this->getExecutionContext()->synchronize();
 
-            // Post-attention RMSNorm — T=1
+            // Post-attention RMSNorm -- T=1
             auto& rms2_out = rms2_->forward( res1_out );
             //this->getExecutionContext()->synchronize();
 
-            // Fused gate+up projection — T=1
+            // Fused gate+up projection -- T=1
             auto& gate_up_out = fc_gate_up_->forward( rms2_out );
             //this->getExecutionContext()->synchronize();
 
-            // SwiGLU — T=1
+            // SwiGLU -- T=1
             auto& swiglu_out = swiglu_->forward( gate_up_out );
             //this->getExecutionContext()->synchronize();
 
-            // Down projection — T=1
+            // Down projection -- T=1
             auto& ffn_out = fc_down_->forward( swiglu_out );
             //this->getExecutionContext()->synchronize();
 
-            // Second residual — res1_out + ffn_out, T=1
+            // Second residual -- res1_out + ffn_out, T=1
             auto& res2_out = res2_->forward( res1_out, ffn_out );
             //this->getExecutionContext()->synchronize();
 
@@ -365,10 +365,10 @@ namespace Mila::Dnn
             // 6. Backward through out_proj.
             auto& d_attn = out_proj_->backward( *last_attn_out_, d_out_proj );
 
-            // 5. Backward through GQA — gradient w.r.t. packed QKV buffer.
+            // 5. Backward through GQA -- gradient w.r.t. packed QKV buffer.
             auto& d_qkv = attn_->backward( *last_qkv_out_, d_attn );
 
-            // 4. Backward through RoPE — in-place inverse rotation on Q and K
+            // 4. Backward through RoPE -- in-place inverse rotation on Q and K
             //    gradient slices. V gradient passes through unchanged.
             auto d_Q = d_qkv.view( q_shape_, 0 );
             auto d_K = d_qkv.view( k_shape_, q_offset_ );
@@ -525,12 +525,12 @@ namespace Mila::Dnn
                 ? config_.getHiddenDimension()
                 : config_.getModelDim() * 4;
 
-            // Decode view shapes — T=1, always
+            // Decode view shapes -- T=1, always
             q_shape_ = { B, 1, n_heads * head_dim };
             k_shape_ = { B, 1, n_kv * head_dim };
             q_offset_ = static_cast<size_t>(B * 1 * n_heads * head_dim);
 
-            // GQA — context_length for KV cache sizing, correct QKV trailing dim
+            // GQA -- context_length for KV cache sizing, correct QKV trailing dim
             const shape_t qkv_shape = { B, context_length, (n_heads + 2 * n_kv) * head_dim };
             BuildContext qkv_context = context.withShape( qkv_shape );
 
@@ -540,7 +540,7 @@ namespace Mila::Dnn
                 // threaded down via BuildContext. Sizes every prefill-path buffer.
                 const int64_t prefill_chunk_size = context.getPrefillSize();
 
-                // Non-attention components built at the prefill chunk size —
+                // Non-attention components built at the prefill chunk size --
                 // owned_output_ sized to hold a full prefill chunk.
                 // decode() uses resolveOutputView() to extract T=1 slice.
                 const shape_t prefill_shape = { B, prefill_chunk_size, config_.getModelDim() };
@@ -551,7 +551,7 @@ namespace Mila::Dnn
                 BuildContext gate_up_context = context.withShape( gate_up_prefill );
                 BuildContext hidden_context = context.withShape( hidden_prefill );
 
-                // Prefill view shapes — prefill chunk size
+                // Prefill view shapes -- prefill chunk size
                 q_prefill_shape_ = { B, prefill_chunk_size, n_heads * head_dim };
                 k_prefill_shape_ = { B, prefill_chunk_size, n_kv * head_dim };
                 q_prefill_offset_ = static_cast<size_t>( B * prefill_chunk_size * n_heads * head_dim);
@@ -594,7 +594,7 @@ namespace Mila::Dnn
                     this->getName() + ".res_2" );
                 res2_->build( prefill_context );
 
-                // Skip connection buffer — preserves input across attention block
+                // Skip connection buffer -- preserves input across attention block
                 // during prefill. Cannot reuse component buffers as they get
                 // overwritten by subsequent components.
                 auto device = this->getExecutionContext()->getDeviceId();
@@ -607,7 +607,7 @@ namespace Mila::Dnn
             }
             else
             {
-                // Training — build all components at full T
+                // Training -- build all components at full T
                 const shape_t training_shape = { B, context_length, config_.getModelDim() };
                 const shape_t gate_up_shape = { B, context_length, 2 * hidden_dim };
                 const shape_t hidden_shape = { B, context_length, hidden_dim };
@@ -697,7 +697,7 @@ namespace Mila::Dnn
         shape_t k_prefill_shape_;
         size_t q_prefill_offset_;
 
-        // Pre-computed at build — reused every forward/backward call.
+        // Pre-computed at build -- reused every forward/backward call.
         shape_t q_shape_;
         shape_t k_shape_;
         size_t q_offset_{ 0 };
@@ -762,7 +762,7 @@ namespace Mila::Dnn
             auto res1 = std::make_shared<ResidualType>( name + ".res_1", res1_cfg );
             this->addComponent( res1 );
 
-            // Fused QKV projection: model_dim → (n_heads + 2*n_kv) * head_dim
+            // Fused QKV projection: model_dim -> (n_heads + 2*n_kv) * head_dim
             auto qkv_cfg = LinearConfig( model_dim, qkv_dim )
                 .withBias( false );
 
@@ -785,19 +785,19 @@ namespace Mila::Dnn
             // Llama 3.2 FFN Block
             // ----------------------------------------------------------------
 
-            // Fused gate+up projection: model_dim → 2 * hidden_dim  [gate | up]
+            // Fused gate+up projection: model_dim -> 2 * hidden_dim  [gate | up]
             auto gate_up_cfg = LinearConfig( model_dim, 2 * hidden_dim )
                 .withBias( false );
 
             auto fc_gate_up = std::make_shared<LinearType>( name + ".fc_gate_up", gate_up_cfg );
             this->addComponent( fc_gate_up );
 
-            // SwiGLU: 2 * hidden_dim → hidden_dim.
+            // SwiGLU: 2 * hidden_dim -> hidden_dim.
             auto swiglu_cfg = SwigluConfig();
             auto swiglu = std::make_shared<SwiGLUType>( name + ".sglu", swiglu_cfg );
             this->addComponent( swiglu );
 
-            // Down projection: hidden_dim → model_dim.
+            // Down projection: hidden_dim -> model_dim.
             auto fc_down_cfg = LinearConfig( hidden_dim, model_dim )
                 .withBias( false );
 
@@ -841,7 +841,7 @@ namespace Mila::Dnn
             if ( input_shape.back() != static_cast<int64_t>(config_.getModelDim()) )
             {
                 throw std::invalid_argument( std::format(
-                    "LlamaBlock: model dim mismatch — expected {}, got {}",
+                    "LlamaBlock: model dim mismatch -- expected {}, got {}",
                     config_.getModelDim(), input_shape.back() ) );
             }
         }
@@ -857,7 +857,7 @@ namespace Mila::Dnn
             if ( input_shape.back() != static_cast<int64_t>(config_.getModelDim()) )
             {
                 std::ostringstream oss;
-                oss << "LlamaBlock: model_dim mismatch — expected "
+                oss << "LlamaBlock: model_dim mismatch -- expected "
                     << config_.getModelDim() << ", got " << input_shape.back();
                 throw std::invalid_argument( oss.str() );
             }

@@ -1,5 +1,5 @@
 /**
- * @file CudaTensorDataTypeMap-Specializations.ixx
+ * @file CudaTensorDataType-Specializations.ixx
  * @brief CUDA concrete type trait specializations
  */
 module;

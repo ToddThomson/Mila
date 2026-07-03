@@ -1,5 +1,5 @@
 /**
- * @file TopKDecoder.ixx
+ * @file TopK.ixx
  * @brief TopK decoder implementation for language models.
  */
 

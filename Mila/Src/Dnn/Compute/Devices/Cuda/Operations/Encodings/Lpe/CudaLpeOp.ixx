@@ -83,8 +83,8 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
          * Caches native device pointers and validates tensor shapes against the
          * configuration. Must be called before build().
          *
-         * @param wte Token embedding table — CUDA tensor of shape [vocab_size, C].
-         * @param wpe Positional embedding table — CUDA tensor of shape [max_seq_len, C].
+         * @param wte Token embedding table -- CUDA tensor of shape [vocab_size, C].
+         * @param wpe Positional embedding table -- CUDA tensor of shape [max_seq_len, C].
          *
          * @throws std::invalid_argument on null, non-CUDA, or shape-mismatched tensors.
          */
@@ -117,8 +117,8 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
         /**
          * @brief Bind wte and wpe gradient tensors for training (module retains ownership).
          *
-         * @param wte_grad Gradient buffer for wte — CUDA tensor of shape [vocab_size, C].
-         * @param wpe_grad Gradient buffer for wpe — CUDA tensor of shape [max_seq_len, C].
+         * @param wte_grad Gradient buffer for wte -- CUDA tensor of shape [vocab_size, C].
+         * @param wpe_grad Gradient buffer for wpe -- CUDA tensor of shape [max_seq_len, C].
          *
          * @throws std::invalid_argument on null or non-CUDA tensors.
          */

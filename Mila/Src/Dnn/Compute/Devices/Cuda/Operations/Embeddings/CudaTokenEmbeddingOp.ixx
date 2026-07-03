@@ -69,7 +69,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         /**
          * @brief Bind the wte parameter tensor (module retains ownership).
          *
-         * @param wte Token embedding table — CUDA tensor of shape [vocab_size, C].
+         * @param wte Token embedding table -- CUDA tensor of shape [vocab_size, C].
          *
          * @throws std::invalid_argument on null, non-CUDA, or shape-mismatched tensor.
          */
@@ -104,7 +104,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         /**
          * @brief Bind the wte gradient tensor for training (module retains ownership).
          *
-         * @param wte_grad Gradient buffer for wte — CUDA tensor of shape [vocab_size, C].
+         * @param wte_grad Gradient buffer for wte -- CUDA tensor of shape [vocab_size, C].
          *
          * @throws std::invalid_argument on null or non-CUDA tensor.
          */
@@ -218,7 +218,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
          * @brief Single-token decode pass (hot path).
          *
          * Computes output[b,:] = wte[X[b,0],:] for each batch element.
-         * No position argument — positional encoding is handled downstream.
+         * No position argument -- positional encoding is handled downstream.
          *
          * @param input  Single-token indices [B, 1] (INT32).
          * @param output Pre-allocated output buffer [B, C].

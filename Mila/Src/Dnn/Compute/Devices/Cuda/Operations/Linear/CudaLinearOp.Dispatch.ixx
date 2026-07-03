@@ -1,5 +1,5 @@
 /**
- * @file CudaLinearOp.ixx
+ * @file CudaLinearOp.Dispatch.ixx
  * @brief CUDA implementation of Linear operation with two-phase cuBLASLt optimization.
  */
 
@@ -101,7 +101,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             }
         };
 
-        // BF16 activation with FP8 weight — Alpha.5 quantized decode path
+        // BF16 activation with FP8 weight -- Alpha.5 quantized decode path
         template<>
         struct cuda_matvec_impl<nv_bfloat16, __nv_fp8_e4m3>
         {

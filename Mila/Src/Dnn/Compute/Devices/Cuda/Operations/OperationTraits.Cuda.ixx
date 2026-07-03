@@ -44,7 +44,7 @@ namespace Mila::Dnn::Compute
     using namespace Mila::Dnn::Compute::Cuda::Sampling;
 
     // -------------------------------------------------------------------------
-    // LinearOp — CUDA specializations
+    // LinearOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     /// Unquantized FP32 path. Retained for validation and reference.
@@ -97,7 +97,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // GroupedQueryAttentionOp — CUDA specializations
+    // GroupedQueryAttentionOp -- CUDA specializations
     //
     // TPolicy = NoKvCompression:      uncompressed full-context BF16/FP32 KV cache.
     // TPolicy = SlidingWindowKvCache: uncompressed bounded ring cache for sliding
@@ -134,7 +134,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // GeluOp — CUDA specializations
+    // GeluOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     template<>
@@ -150,7 +150,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // ElementwiseActivationOp — CUDA specializations (FP32, BF16)
+    // ElementwiseActivationOp -- CUDA specializations (FP32, BF16)
     //
     // Resolves the op *template*: the Activation component maps its compile-time
     // ActivationType to a functor and instantiates op_for<Functor>. No fifth traits
@@ -172,7 +172,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // ResidualOp — CUDA specializations
+    // ResidualOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     template<>
@@ -188,7 +188,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // RmsNormOp — CUDA specializations
+    // RmsNormOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     template<>
@@ -204,7 +204,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // LayerNormOp — CUDA specializations
+    // LayerNormOp -- CUDA specializations
     //
     // GPT-2 lineage. FP32 and FP16 kernels only (no BF16 LayerNorm kernel); the
     // GPT-2 inference path runs at FP32.
@@ -223,7 +223,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // SoftmaxOp — CUDA specializations
+    // SoftmaxOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     template<>
@@ -239,7 +239,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // SwigluOp — CUDA specializations
+    // SwigluOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     template<>
@@ -255,7 +255,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // GegluOp — CUDA specializations (GELU-gated GLU; Gemma FFN, forward only)
+    // GegluOp -- CUDA specializations (GELU-gated GLU; Gemma FFN, forward only)
     // -------------------------------------------------------------------------
 
     template<>
@@ -271,7 +271,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // MultiHeadAttentionOp — CUDA specializations
+    // MultiHeadAttentionOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     template<>
@@ -287,7 +287,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // RopeOp — CUDA specializations
+    // RopeOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     template<>
@@ -303,7 +303,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // LpeOp — CUDA specializations
+    // LpeOp -- CUDA specializations
     // Index type is always INT32 (token position indices).
     // -------------------------------------------------------------------------
 
@@ -320,7 +320,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // TokenEmbeddingOp — CUDA specializations
+    // TokenEmbeddingOp -- CUDA specializations
     // Index type is always INT32 (vocabulary token indices).
     // -------------------------------------------------------------------------
 
@@ -337,7 +337,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // CrossEntropyOp — CUDA specializations
+    // CrossEntropyOp -- CUDA specializations
     // Logits precision matches compute precision; target type is always INT32.
     // -------------------------------------------------------------------------
 
@@ -354,7 +354,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // SamplingOp — CUDA specializations (logits precision; INT32 token output)
+    // SamplingOp -- CUDA specializations (logits precision; INT32 token output)
     // -------------------------------------------------------------------------
 
     template<>

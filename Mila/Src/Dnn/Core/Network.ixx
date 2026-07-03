@@ -139,7 +139,7 @@ namespace Mila::Dnn
 
         ~Network() override = default;
 
-        // Network.ixx — add alongside synchronize()
+        // Network.ixx -- add alongside synchronize()
         DeviceId getDeviceId() const noexcept
         {
             return this->getExecutionContext()->getDeviceId();
@@ -261,7 +261,7 @@ namespace Mila::Dnn
          * Archive structure produced:
          * - network/meta.json: Base metadata (name, version, num_components, timestamp)
          * - network/architecture.json: Component topology (names, paths, ordering)
-         * - components/<name>/...: Child component state (recursive)
+         * - `components/<name>/...`: Child component state (recursive)
          * - Concrete class writes additional files via save_() override
          *
          * @param archive Archive to write to

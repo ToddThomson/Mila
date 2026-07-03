@@ -301,11 +301,12 @@ namespace Mila::Dnn::Serialization
          * @throws std::runtime_error if archive is not in Read mode
          * @throws std::runtime_error if file missing or parse fails
          *
-         * @example
+         * @code{.cpp}
          * auto meta = archive.readMetadata("meta.json");
          * std::string type = meta.getString("type");
          * int64_t version = meta.getInt("version");
          * int64_t features = meta.getInt("input_features");
+         * @endcode
          */
         SerializationMetadata readMetadata( const std::string& path ) const
         {

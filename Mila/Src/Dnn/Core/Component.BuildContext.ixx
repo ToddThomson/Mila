@@ -1,5 +1,5 @@
 /**
- * @file ComponentBuildContext.ixx
+ * @file Component.BuildContext.ixx
  * @brief Build-time context passed to Component::build().
  *
  * BuildContext carries the build-time concerns down the Component
@@ -7,6 +7,7 @@
  */
 module;
 #include <cstddef>
+#include <optional>
 #include <stdexcept>
 #include <format>
 
@@ -22,24 +23,29 @@ namespace Mila::Dnn
      *
      * Carries six orthogonal concerns down the Component hierarchy:
      *
-     * 1. **Input shape**             — the full input shape the component receives.
+     * 1. **Input shape**             -- the full input shape the component receives.
      *                                  Used for parameter sizing, output buffer
      *                                  allocation, and build-time validation against
      *                                  component config.
      *
-     * 2. **RuntimeMode**             — allocation policy governing output buffer
+     * 2. **RuntimeMode**             -- allocation policy governing output buffer
      *                                  sizing and gradient buffer allocation.
      *
-     *                                  Inference — T=1 decode path output buffers.
-     *                                  Training  — full sequence output buffers,
+     *                                  Inference -- T=1 decode path output buffers.
+     *                                  Training  -- full sequence output buffers,
      *                                              gradient buffers allocated.
      *
-     * 4. **Parameter initialization** — whether components should initialize parameter
+     * 4. **Parameter initialization** -- whether components should initialize parameter
      *                                   tensors after allocation. Set to false when
      *                                   building for a pretrained weight load to avoid
      *                                   computing initializers (Xavier, normal, zeros)
      *                                   that are immediately overwritten by loadParameter().
-     *                                   Defaults to true (training from scratch).
+     *                                   When not specified, the default is derived from
+     *                                   RuntimeMode: Training initializes (train from
+     *                                   scratch), Inference skips (weights are loaded).
+     *                                   An inference-mode build therefore cannot silently
+     *                                   run then discard parameter initialization by
+     *                                   omitting the flag.
      *
      * ## Caller responsibility
      *
@@ -61,11 +67,11 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
-         * @brief Default constructor — sentinel value for pre-build state.
+         * @brief Default constructor -- sentinel value for pre-build state.
          *
          * Produces a minimal valid BuildContext with parameter initialization
          * enabled, Auto precision policy, and no quantization.
-         * Never read before build() is called — Component::ensureBuilt()
+         * Never read before build() is called -- Component::ensureBuilt()
          * guards all access paths.
          */
         BuildContext()
@@ -84,14 +90,20 @@ namespace Mila::Dnn
          *                               Must have at least one dimension.
          * @param runtime_mode           Allocation policy: Inference or Training.
          * @param initialize_parameters  When false, components allocate parameter
-         *                               tensors but skip value initialization.
+         *                               tensors but skip value initialization. When
+         *                               omitted (nullopt), the default is derived from
+         *                               runtime_mode -- Training initializes, Inference
+         *                               skips -- so a load path cannot regress by
+         *                               forgetting the flag.
          * @throws std::invalid_argument if input_shape is empty.
          */
         explicit BuildContext(
             shape_t input_shape,
             RuntimeMode runtime_mode,
-            bool initialize_parameters = true )
-            : input_shape_( std::move( input_shape ) ), runtime_mode_( runtime_mode ), initialize_parameters_( initialize_parameters )
+            std::optional<bool> initialize_parameters = std::nullopt )
+            : input_shape_( std::move( input_shape ) ),
+              runtime_mode_( runtime_mode ),
+              initialize_parameters_( initialize_parameters.value_or( runtime_mode == RuntimeMode::Training ) )
         {
             if ( input_shape_.empty() )
             {
@@ -115,7 +127,7 @@ namespace Mila::Dnn
         /**
          * @brief Return a copy of this context with a different input shape.
          *
-         * All other fields are preserved — RuntimeMode, prefill_size, and
+         * All other fields are preserved -- RuntimeMode, prefill_size, and
          * initialize_parameters.
          *
          * @param new_shape  Replacement input shape. Must be non-empty.
@@ -152,14 +164,11 @@ namespace Mila::Dnn
             return copy;
         }
 
-        /**
-         * @brief Return a copy of this context with a different quantization config.
-         *
-         * All other parameters are preserved. Provided for sub-graphs that
-         * require a different quantization policy than the parent context.
-         *
-         * @param quantization  Replacement quantization config.
-         * @return New BuildContext with quantization and all other fields unchanged.
+        /*
+         * Retired in place. Return a copy of this context with a different
+         * quantization config; all other parameters preserved. Provided for
+         * sub-graphs that require a different quantization policy than the parent.
+         * Param: quantization -- replacement config. Returns the new BuildContext.
          */
         // DEPRECATED:
         //[[nodiscard]] BuildContext withQuantization( QuantizationConfig quantization ) const

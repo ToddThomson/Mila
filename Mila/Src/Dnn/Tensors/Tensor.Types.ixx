@@ -2,7 +2,7 @@
  * @file Tensor.Types.ixx
  * @brief Core shape, stride, and index types for the Mila tensor API.
  *
- * Defines TensorShape — a fixed-capacity inline shape descriptor — and the
+ * Defines TensorShape -- a fixed-capacity inline shape descriptor -- and the
  * shape_t, stride_t, and index_t aliases used throughout the framework.
  */
 

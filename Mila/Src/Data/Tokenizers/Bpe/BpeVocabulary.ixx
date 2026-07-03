@@ -963,7 +963,7 @@ namespace Mila::Data
     }
 
     // ========================================================================
-    // Static Byte Encoder / Decoder  (GPT-2 style — shared across all families)
+    // Static Byte Encoder / Decoder  (GPT-2 style -- shared across all families)
     // ========================================================================
 
     const std::unordered_map<unsigned char, std::string>& BpeVocabulary::getByteEncoder()

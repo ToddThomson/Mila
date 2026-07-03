@@ -1,5 +1,5 @@
 /**
- * @file CudaLayerNormOp.ixx
+ * @file LayerNormOp.ixx
  * @brief CUDA implementation of Layer Normalization operation.
  */
 

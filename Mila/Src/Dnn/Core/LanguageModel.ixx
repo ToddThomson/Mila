@@ -157,7 +157,7 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // Hook — derived class implements the prefill + decode loop
+        // Hook -- derived class implements the prefill + decode loop
         // ====================================================================
 
         /**

@@ -14,7 +14,7 @@ namespace Mila::Dnn::Compute
      *
      * Implemented by attention operations (GQA, MHA) that allocate and
      * maintain key/value caches across autoregressive decode steps.
-     * This concern is orthogonal to positional dispatch — an operation
+     * This concern is orthogonal to positional dispatch -- an operation
      * may implement both IPositionalUnaryOp and IKVCacheLifecycle.
      */
     export struct IKvCacheLifecycle

@@ -1,39 +1,27 @@
+# The docs are generated from the canonical standalone Doxyfile (Mila/Docs/Doxyfile),
+# NOT from doxygen_add_docs. This is deliberate: the docs CI job runs Doxygen directly
+# against that Doxyfile, so it needs only Doxygen + Graphviz and NOT a (CUDA-dependent)
+# CMake configure. This 'docs' target invokes the same Doxyfile for local dev, keeping a
+# single source of truth (all Doxygen settings live in Mila/Docs/Doxyfile).
+#
+# Paths in the Doxyfile are relative to the repository root, so the command runs with
+# WORKING_DIRECTORY at ${CMAKE_SOURCE_DIR}; HTML lands in <repo>/build/docs/html.
+# The Doxyfile enables WARN_AS_ERROR (the ratchet), so this target fails on any doc
+# warning. It needs only Doxygen (graphs are disabled in the Doxyfile; no Graphviz).
+
 find_package(Doxygen REQUIRED)
 
 if(DOXYGEN_FOUND)
-    set(DOXYGEN_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/docs)
-    set(DOXYGEN_PROJECT_NAME "Mila")
-    set(DOXYGEN_PROJECT_BRIEF "Deep Neural Network Library")
-    set(DOXYGEN_EXTRACT_ALL YES)
-    set(DOXYGEN_EXTRACT_PRIVATE YES)
-    set(DOXYGEN_EXTRACT_PACKAGE YES)
-    set(DOXYGEN_EXTRACT_STATIC YES)
-    set(DOXYGEN_EXTRACT_LOCAL_METHODS YES)
-    set(DOXYGEN_RECURSIVE YES)
-    set(DOXYGEN_USE_MDFILE_AS_MAINPAGE ${CMAKE_SOURCE_DIR}/README.md)
-    set(DOXYGEN_GENERATE_HTML YES)
-    set(DOXYGEN_GENERATE_TREEVIEW YES)
-    set(DOXYGEN_SORT_BRIEF_DOCS YES)
-    set(DOXYGEN_SORT_MEMBERS_CTORS_1ST YES)
-    set(DOXYGEN_JAVADOC_AUTOBRIEF YES)
-    set(DOXYGEN_QT_AUTOBRIEF YES)
-    set(DOXYGEN_WARN_NO_PARAMDOC YES)
-    set(DOXYGEN_INCLUDE_GRAPH NO)
-    set(DOXYGEN_INCLUDED_BY_GRAPH NO)
-    set(DOXYGEN_CALL_GRAPH YES)
-    set(DOXYGEN_CALLER_GRAPH YES)
-    set(DOXYGEN_HAVE_DOT YES)
-    set(DOXYGEN_DOT_GRAPH_MAX_NODES 100)
-    
-    doxygen_add_docs(docs
-        ${CMAKE_SOURCE_DIR}/README.md
-        ${CMAKE_SOURCE_DIR}/Mila/Src
-        COMMENT "Generating API documentation with Doxygen"
-    )
-    
+    add_custom_target(docs
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/build/docs
+        COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Generating API documentation with Doxygen (Mila/Docs/Doxyfile)"
+        VERBATIM)
+
     set_property(TARGET docs PROPERTY FOLDER "Docs")
-    message(STATUS "Doxygen documentation target 'docs' created")
-    message(STATUS "Documentation will be generated in: ${CMAKE_BINARY_DIR}/docs")
+    message(STATUS "Doxygen documentation target 'docs' created (uses Mila/Docs/Doxyfile)")
+    message(STATUS "Documentation will be generated in: ${CMAKE_SOURCE_DIR}/build/docs")
 else()
     message(WARNING "Doxygen not found - Documentation will not be built")
 endif()

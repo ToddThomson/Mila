@@ -109,9 +109,9 @@ namespace Mila::Dnn
          * embeddings and KV cache buffers cover the full range.
          *
          * The model_config carries all deployment decisions:
-         *   - context_length     — maximum sequence length to build for
-         *   - weight_quantization — compile-time dispatch to quantized or BF16 path
-         *   - kv_cache_compression — compile-time dispatch to KV cache policy
+         *   - context_length     -- maximum sequence length to build for
+         *   - weight_quantization -- compile-time dispatch to quantized or BF16 path
+         *   - kv_cache_compression -- compile-time dispatch to KV cache policy
          *
          * @param path          Path to the pretrained Llama model artifact.
          * @param model_config  Deployment configuration for this load.
@@ -141,7 +141,7 @@ namespace Mila::Dnn
                     "LlamaModel::fromPretrained: context_length must be greater than zero" );
             }
 
-            // Runtime → compile-time bridge: dispatch on ModelConfig quantization settings.
+            // Runtime -> compile-time bridge: dispatch on ModelConfig quantization settings.
             switch ( model_config.getWeightQuantization() )
             {
                 case WeightQuantization::FP4:
@@ -151,7 +151,7 @@ namespace Mila::Dnn
                     switch ( model_config.getKvCacheCompression() )
                     {
                         case KvCacheCompression::FP8:
-                            // FP8 KV cache with FP4 weights — not yet supported.
+                            // FP8 KV cache with FP4 weights -- not yet supported.
                         case KvCacheCompression::None:
                             if constexpr ( TPrecision == TensorDataType::BF16 )
                             {
@@ -169,7 +169,7 @@ namespace Mila::Dnn
                     switch ( model_config.getKvCacheCompression() )
                     {
                         case KvCacheCompression::FP8:
-                            // FP8 KV cache compression requires CudaGqaOp FP8 support — not yet implemented.
+                            // FP8 KV cache compression requires CudaGqaOp FP8 support -- not yet implemented.
                         case KvCacheCompression::None:
                             if constexpr ( TPrecision == TensorDataType::BF16 )
                             {
@@ -196,7 +196,7 @@ namespace Mila::Dnn
                     break;
             }
 
-            // Unreachable — all enum cases handled above.
+            // Unreachable -- all enum cases handled above.
             throw std::runtime_error( "LlamaModel::fromPretrained: unhandled quantization configuration" );
         }
 
@@ -334,7 +334,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Training loop — not yet implemented for LlamaModel.
+         * @brief Training loop -- not yet implemented for LlamaModel.
          *
          * @throws std::runtime_error always.
          */

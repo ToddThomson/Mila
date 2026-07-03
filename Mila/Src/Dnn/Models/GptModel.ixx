@@ -7,10 +7,10 @@
  *
  * Two loading paths:
  *
- *  fromPretrained() — third-party weights (e.g. HuggingFace GPT-2) via
+ *  fromPretrained() -- third-party weights (e.g. HuggingFace GPT-2) via
  *                     PretrainedModelReader. Primary path for Mila chat.
  *
- *  fromCheckpoint() — Mila-native artifact produced by GptTransformer::save()
+ *  fromCheckpoint() -- Mila-native artifact produced by GptTransformer::save()
  *                     via ModelArchive. Round-trip path after training.
  */
 
@@ -94,7 +94,7 @@ namespace Mila::Dnn
         ~GptModel() = default;
 
         // ====================================================================
-        // Factory — the sole construction paths
+        // Factory -- the sole construction paths
         // ====================================================================
 
         /**
@@ -298,7 +298,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Training loop — not yet implemented for GptModel.
+         * @brief Training loop -- not yet implemented for GptModel.
          *
          * @throws std::runtime_error always.
          */

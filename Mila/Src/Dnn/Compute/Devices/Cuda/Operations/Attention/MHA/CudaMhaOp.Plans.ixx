@@ -104,7 +104,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         }
 
         /**
-         * @brief Build cuBLASLt plan for Q·K^T attention score computation (row-major).
+         * @brief Build cuBLASLt plan for Q.K^T attention score computation (row-major).
          *
          * Row-major storage: Q[K] and K[K] are stored as [T, HS] (rows = sequence length, cols = head size).
          * Mathematical operation: preatt[T, T] = Q[T, HS] @ K^T[HS, T]

@@ -292,7 +292,7 @@ is a well-scoped, self-contained first contribution, not a gap to apologize for.
 3. Ensure new components include forward and backward pass tests
 4. Open a pull request targeting dev
 
-New contributors: [getting-started.md](getting-started.md) walks through a fresh clone,
+New contributors: [getting-started.md](https://github.com/ToddThomson/Mila/blob/dev/getting-started.md) walks through a fresh clone,
 build, model weight conversion, running inference, and opening your first PR.
 See CONTRIBUTING.md for coding standards and the pull request process.
 
@@ -300,4 +300,4 @@ See CONTRIBUTING.md for coding standards and the pull request process.
 
 ## License
 
-MIT License — see [License.md](License.md) for details.
+MIT License — see [License.md](https://github.com/ToddThomson/Mila/blob/dev/License.md) for details.

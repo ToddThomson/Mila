@@ -38,7 +38,7 @@ namespace Mila::Dnn::Compute
     using namespace Mila::Dnn::Quant::Weight;
 
     // -------------------------------------------------------------------------
-    // LinearOp — CPU specialization (FP32, unquantized only)
+    // LinearOp -- CPU specialization (FP32, unquantized only)
     //
     // FP32 is the sole CPU-supported precision and CpuLinearOp is concrete
     // (non-templated). Quantized weight policies (PerChannelFp8/PerGroupFp4) are
@@ -52,7 +52,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // GeluOp — CPU specialization (FP32 only)
+    // GeluOp -- CPU specialization (FP32 only)
     // -------------------------------------------------------------------------
 
     template<>
@@ -62,7 +62,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // ElementwiseActivationOp — CPU specialization (FP32 only)
+    // ElementwiseActivationOp -- CPU specialization (FP32 only)
     //
     // Unlike concrete CPU ops, this resolves the op *template*: the Activation
     // component maps its compile-time ActivationType to a functor and instantiates
@@ -77,7 +77,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // ResidualOp — CPU specialization (FP32 only)
+    // ResidualOp -- CPU specialization (FP32 only)
     // -------------------------------------------------------------------------
 
     template<>
@@ -87,7 +87,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // LayerNormOp — CPU specialization (FP32 only)
+    // LayerNormOp -- CPU specialization (FP32 only)
     // -------------------------------------------------------------------------
 
     template<>
@@ -97,7 +97,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // SoftmaxOp — CPU specialization (FP32 only)
+    // SoftmaxOp -- CPU specialization (FP32 only)
     // -------------------------------------------------------------------------
 
     template<>
@@ -107,7 +107,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // MultiHeadAttentionOp — CPU specialization (FP32 only)
+    // MultiHeadAttentionOp -- CPU specialization (FP32 only)
     // -------------------------------------------------------------------------
 
     template<>
@@ -117,7 +117,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // LpeOp — CPU specialization (INT32 → FP32 only)
+    // LpeOp -- CPU specialization (INT32 -> FP32 only)
     // -------------------------------------------------------------------------
 
     template<>
@@ -127,7 +127,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // SamplingOp — CPU specialization (FP32 only)
+    // SamplingOp -- CPU specialization (FP32 only)
     // -------------------------------------------------------------------------
 
     template<>

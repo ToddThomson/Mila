@@ -97,7 +97,7 @@ namespace Mila::Dnn
     /**
      * @brief LLaMA-style transformer (decoder-only) for autoregressive token prediction.
      *
-     * Graph: TokenEmbedding → RoPE → LlamaBlock × N → RmsNorm → Linear (lm_head).
+     * Graph: TokenEmbedding -> RoPE -> LlamaBlock x N -> RmsNorm -> Linear (lm_head).
      * RoPE is applied to the full embedding stream after the token lookup; each
      * LlamaBlock receives rotary-encoded embeddings as input.
      *
@@ -184,7 +184,7 @@ namespace Mila::Dnn
 
             TensorType* last_block_out = nullptr;
 
-            // Chunked prefill loop — input is sliced into prefill_chunk_size_ chunks and fed through the network sequentially to populate the KV cache.
+            // Chunked prefill loop -- input is sliced into prefill_chunk_size_ chunks and fed through the network sequentially to populate the KV cache.
             // The final chunk output is used to extract the last token representation for LM head inference.
             while ( offset < T_prompt )
             {
@@ -193,7 +193,7 @@ namespace Mila::Dnn
 
                 auto chunk_input = input.view( shape_t{ B, T_actual }, offset );
 
-                // Embed directly — output buffer lives in token_embedding_
+                // Embed directly -- output buffer lives in token_embedding_
                 TensorType* block_input = &token_embedding_->forward( chunk_input );
 
                 for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
@@ -207,7 +207,7 @@ namespace Mila::Dnn
                 offset += T_actual;
             }
 
-            // Extract last position from final chunk output — [B, 1, model_dim]
+            // Extract last position from final chunk output -- [B, 1, model_dim]
             size_t last_pos_offset = static_cast<size_t>((T_last - 1) * config_.getModelDim());
             auto last_pos = last_block_out->view(
                 shape_t{ B, 1, config_.getModelDim() },
@@ -560,7 +560,7 @@ namespace Mila::Dnn
         int64_t batch_size_{ 0 };
         int64_t seq_length_{ 0 };
 
-        // Tuned prefill chunk size — single source of truth, set in onBuilding and
+        // Tuned prefill chunk size -- single source of truth, set in onBuilding and
         // threaded to child components via BuildContext::withPrefillSize().
         int64_t prefill_chunk_size_{ 0 };
 
@@ -572,8 +572,8 @@ namespace Mila::Dnn
         // Inference-only prefill buffer for autoregressive decoding.
         std::unique_ptr<TensorType> prefill_{ nullptr };
 
-        // Shared GQA transient workspace — inference only, owned here, shared across all blocks.
-        // ~26 MB total vs ~352 MB × 28 layers in the per-layer self-owned design.
+        // Shared GQA transient workspace -- inference only, owned here, shared across all blocks.
+        // ~26 MB total vs ~352 MB x 28 layers in the per-layer self-owned design.
         std::unique_ptr<TensorType> gqa_q_permute_{ nullptr };
         std::unique_ptr<TensorType> gqa_preatt_{ nullptr };
         std::unique_ptr<TensorType> gqa_att_{ nullptr };
@@ -582,7 +582,7 @@ namespace Mila::Dnn
         std::unique_ptr<TensorType> gqa_att_decode_{ nullptr };
         std::unique_ptr<TensorType> gqa_v_out_decode_{ nullptr };
 
-        // Activation pointers — valid between forward() and the next backward().
+        // Activation pointers -- valid between forward() and the next backward().
         TensorType* token_embed_out_ptr_{ nullptr };   // rope's input
         //TensorType* encoder_out_ptr_{ nullptr };       // rope's output / blocks' input
         std::vector<TensorType*> block_input_ptrs_;
@@ -590,7 +590,7 @@ namespace Mila::Dnn
         TensorType* normalized_ptr_{ nullptr };
         TensorType* logits_ptr_{ nullptr };
 
-        // Declared last so it is destroyed first — cudaStreamSynchronize() fires in
+        // Declared last so it is destroyed first -- cudaStreamSynchronize() fires in
         // releaseResources() before any tensor cudaFree() calls from members above.
         std::unique_ptr<IExecutionContext> exec_context_{ nullptr };
 
@@ -634,7 +634,7 @@ namespace Mila::Dnn
 
             this->addComponent( final_rmsnorm );
 
-            // Language model head — projects model_dim → vocab_size, no bias.
+            // Language model head -- projects model_dim -> vocab_size, no bias.
             auto lm_head_config = LinearConfig( config_.getModelDim(), config_.getVocabSize() )
                 .withBias( false );
 

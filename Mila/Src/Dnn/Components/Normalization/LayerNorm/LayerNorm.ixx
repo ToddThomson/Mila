@@ -410,18 +410,18 @@ namespace Mila::Dnn
             auto device = this->getExecutionContext()->getDeviceId();
 
             /**
-             * Output buffer — allocated at the full input shape.
+             * Output buffer -- allocated at the full input shape.
              *
              * LayerNorm is a general component with no knowledge of sequence
              * dimensions or inference decode paths. The parent Network or
              * Transformer is responsible for passing the correct input shape
              * via BuildContext:
              *
-             *   Training   — full sequence shape e.g. [B, T, features]
-             *   Inference  — decode shape e.g. [1, 1, features] for decode path
+             *   Training   -- full sequence shape e.g. [B, T, features]
+             *   Inference  -- decode shape e.g. [1, 1, features] for decode path
              *                or prefill shape e.g. [1, T_chunk, features] for prefill
              *
-             * In all cases LayerNorm simply allocates at inputShape() — no
+             * In all cases LayerNorm simply allocates at inputShape() -- no
              * special casing for inference or sequence dimensions.
              */
             output_ = std::make_unique<TensorType>( device, input_shape, this->getName() + ".output" );

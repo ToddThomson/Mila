@@ -6,9 +6,9 @@
  * LlamaModel::fromPretrained(). It inherits all universal language model
  * deployment concerns from LanguageModelConfig<LlamaModelConfig>:
  *
- *   - context_length        — maximum sequence length
- *   - weight_quantization   — Linear weight storage strategy
- *   - kv_cache_compression  — GroupedQueryAttention cache strategy
+ *   - context_length        -- maximum sequence length
+ *   - weight_quantization   -- Linear weight storage strategy
+ *   - kv_cache_compression  -- GroupedQueryAttention cache strategy
  *
  * All Llama architectural parameters (num_layers, num_heads, hidden_dim,
  * rope_theta, vocab_size, etc.) are read from checkpoint metadata at load
@@ -25,7 +25,7 @@
  * auto config = LlamaModelConfig( context_length )
  *     .withFP8Quantization();
  *
- * // FP8 weights only — no KV compression
+ * // FP8 weights only -- no KV compression
  * auto config = LlamaModelConfig( context_length )
  *     .withWeightQuantization( WeightQuantization::FP8 );
  * @endcode

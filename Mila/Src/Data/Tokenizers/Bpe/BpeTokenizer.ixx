@@ -657,7 +657,7 @@ namespace Mila::Data
          *
          * Replaces ASCII spaces with the metaspace mark U+2581 ('lower one eighth
          * block'), then splits so each mark begins a new pre-token. No leading mark
-         * is prepended (Gemma's tokenizer does not add a prefix space — confirmed by
+         * is prepended (Gemma's tokenizer does not add a prefix space -- confirmed by
          * the HF round-trip: "The capital" -> ["The", "_capital"]).
          *
          * @param text Plain text segment (no special tokens).

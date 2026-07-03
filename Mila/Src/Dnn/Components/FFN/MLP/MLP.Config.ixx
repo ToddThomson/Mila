@@ -1,5 +1,5 @@
 /**
- * @file MLPConfig.ixx
+ * @file MLP.Config.ixx
  * @brief Configuration for the MLP block.
  *
  * Provides a fluent configuration object used to construct MLP components.

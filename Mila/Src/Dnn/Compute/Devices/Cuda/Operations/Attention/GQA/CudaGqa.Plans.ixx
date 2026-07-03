@@ -1,5 +1,5 @@
 /**
- * @file CudaGqaOp.Plans.ixx
+ * @file CudaGqa.Plans.ixx
  * @brief cuBLASLt matmul plan builders for the Grouped-Query Attention CUDA op.
  *
  * GQA plan construction mirrors MHA with one systematic difference: operations
@@ -7,27 +7,27 @@
  * operations keep batch_count = B * NH.
  *
  * Plan inventory
- * ──────────────
+ * --------------
  * Forward training (square, full T)
- *   qk_score_plan_         : [B*NH, T,     HS] @ [B*NH, T, HS]^T → [B*NH, T,     T]
- *   att_value_plan_        : [B*NH, T,     T]  @ [B*NH, T, HS]   → [B*NH, T,     HS]
+ *   qk_score_plan_         : [B*NH, T,     HS] @ [B*NH, T, HS]^T -> [B*NH, T,     T]
+ *   att_value_plan_        : [B*NH, T,     T]  @ [B*NH, T, HS]   -> [B*NH, T,     HS]
  *
  * Forward prefill / chunked inference
- *   qk_prefill_plan_       : [B*NH, chunk, HS] @ [B*NH, T, HS]^T → [B*NH, chunk, T]
- *   att_value_prefill_plan_: [B*NH, chunk, T]  @ [B*NH, T, HS]   → [B*NH, chunk, HS]
+ *   qk_prefill_plan_       : [B*NH, chunk, HS] @ [B*NH, T, HS]^T -> [B*NH, chunk, T]
+ *   att_value_prefill_plan_: [B*NH, chunk, T]  @ [B*NH, T, HS]   -> [B*NH, chunk, HS]
  *
  * Forward decode (KV-cache)
- *   qk_decode_plan_        : [B*NH, 1,     HS] @ [B*NH, T, HS]^T → [B*NH, 1,     T]
- *   att_value_decode_plan_ : [B*NH, 1,     T]  @ [B*NH, T, HS]   → [B*NH, 1,     HS]
+ *   qk_decode_plan_        : [B*NH, 1,     HS] @ [B*NH, T, HS]^T -> [B*NH, 1,     T]
+ *   att_value_decode_plan_ : [B*NH, 1,     T]  @ [B*NH, T, HS]   -> [B*NH, 1,     HS]
  *
  * Backward (training only)
- *   backward_v_plan_    : [B*NKV, T, T]^T  @ [B*NH,  T, HS]    → [B*NKV, T, HS]  (dV)
- *   backward_att_plan_  : [B*NH,  T, HS]   @ [B*NKV, T, HS]^T  → [B*NH,  T, T]   (dAtt)
- *   backward_q_plan_    : [B*NH,  T, T]    @ [B*NKV, T, HS]    → [B*NH,  T, HS]  (dQ)
- *   backward_k_plan_    : [B*NH,  T, T]^T  @ [B*NH,  T, HS]    → [B*NKV, T, HS]  (dK)
+ *   backward_v_plan_    : [B*NKV, T, T]^T  @ [B*NH,  T, HS]    -> [B*NKV, T, HS]  (dV)
+ *   backward_att_plan_  : [B*NH,  T, HS]   @ [B*NKV, T, HS]^T  -> [B*NH,  T, T]   (dAtt)
+ *   backward_q_plan_    : [B*NH,  T, T]    @ [B*NKV, T, HS]    -> [B*NH,  T, HS]  (dQ)
+ *   backward_k_plan_    : [B*NH,  T, T]^T  @ [B*NH,  T, HS]    -> [B*NKV, T, HS]  (dK)
  *
  * Note on KV-group broadcasting
- * ──────────────────────────────
+ * ------------------------------
  * cuBLASLt strided-batch gemm does not natively broadcast across batch
  * dimensions, so it cannot directly express the many-Q-to-one-KV grouping.
  * The approach taken here is to let the permute kernels (CudaGqa.cuh) expand
@@ -39,7 +39,7 @@
  * expansion entirely (see NVIDIA FasterTransformer / vLLM PagedAttention).
  *
  * Optimized NKV-layout plans (Phase 1)
- * ──────────────────────────────────────
+ * --------------------------------------
  * The _optimized builders below use batch_count = B * NKV and fold the GS
  * Q heads into the M dimension, avoiding the expanded [B, NH, T, HS] buffers
  * entirely. K and V are read directly from their compact [B, NKV, T, HS] cache.
@@ -82,7 +82,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         using CublasLtMatMulPlan = CublasLtMatMulPlan<TNative>;
 
         // ====================================================================
-        // DORMANT — expanded [B,NH,T,HS]-layout plan builders.
+        // DORMANT -- expanded [B,NH,T,HS]-layout plan builders.
         //
         // The live inference op (CudaGqaOp) builds only the _optimized (compact
         // NKV-layout) plans further below; the builders in this block are no
@@ -94,13 +94,13 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // ====================================================================
 
         // ====================================================================
-        // Forward training plans — square [T x T] attention matrices
+        // Forward training plans -- square [T x T] attention matrices
         // ====================================================================
 
         /**
          * @brief Q @ K^T attention score plan (training, full sequence length).
          *
-         * After KV expansion: K is [B, NH, T, HS] — same layout as MHA.
+         * After KV expansion: K is [B, NH, T, HS] -- same layout as MHA.
          * batch_count = B * NH.
          */
         template <typename TNative>
@@ -176,7 +176,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
 
         // ====================================================================
-        // Forward prefill plans — rectangular [chunk x T] attention matrices
+        // Forward prefill plans -- rectangular [chunk x T] attention matrices
         //
         // Q has chunk_rows rows (kPrefillChunkSize); K and V cover the full
         // context [T, HS].  The A stride uses the full T-row Q-buffer offset
@@ -305,7 +305,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         {
             const int batch_count = batch_size * num_heads;
 
-            // Q slice: [1, HS] — single token; K cache: [T, HS]
+            // Q slice: [1, HS] -- single token; K cache: [T, HS]
             const long long strideA = static_cast<long long>(max_seq_length) * head_size;
             const long long strideB = static_cast<long long>(max_seq_length) * head_size;
             const long long strideC = static_cast<long long>(max_seq_length);
@@ -557,7 +557,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
          * strideB = T * HS           (K cache head stride)
          * strideC = GS * chunk * T   (preatt head stride)
          *
-         * @param group_size     NH / NKV — number of Q heads per KV head.
+         * @param group_size     NH / NKV -- number of Q heads per KV head.
          * @param chunk_rows     Number of Q rows per chunk (kPrefillChunkSize for full chunks).
          * @param num_kv_heads   Number of KV heads (NKV).
          */
@@ -577,7 +577,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const int batch_count = batch_size * num_kv_heads;
             const int m_rows = group_size * chunk_rows;
 
-            // Q compact: [B*NKV, GS*chunk, HS] — stride between KV-group slices
+            // Q compact: [B*NKV, GS*chunk, HS] -- stride between KV-group slices
             const long long strideA = static_cast<long long>(m_rows) * head_size;
             // K cache:   [B*NKV, T, HS]
             const long long strideB = static_cast<long long>(max_seq_length) * head_size;

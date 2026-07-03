@@ -45,7 +45,7 @@ namespace Mila::Dnn
         TokenEmbedding,
         Lpe,
         Rope,
-        SoftmaxCrossEntropy,    ///< WIP: Fused softmax + cross-entropy loss — targeted for Llama training
+        SoftmaxCrossEntropy,    ///< WIP: Fused softmax + cross-entropy loss -- targeted for Llama training
 
         // Composite components
         Mlp,

@@ -224,7 +224,7 @@ namespace Mila::Data
         /**
          * @brief GPT-2 style configuration.
          *
-         * Uses <|endoftext|> for PAD, UNK, BOS, and EOS — GPT-2 uses one
+         * Uses <|endoftext|> for PAD, UNK, BOS, and EOS -- GPT-2 uses one
          * token string for all roles.
          */
         static SpecialTokens gptStyle()
@@ -255,7 +255,7 @@ namespace Mila::Data
          * | <\|start_header_id\|>   | 128006 | Opens a role header        |
          * | <\|end_header_id\|>     | 128007 | Closes a role header       |
          * | <\|eom_id\|>            | 128008 | Tool call boundary / stop  |
-         * | <\|eot_id\|>            | 128009 | End of turn — primary stop |
+         * | <\|eot_id\|>            | 128009 | End of turn -- primary stop |
          * | <\|python_tag\|>        | 128010 | Tool call open marker      |
          */
         static SpecialTokens llamaStyle()
@@ -281,9 +281,9 @@ namespace Mila::Data
         /**
          * @brief Gemma (SentencePiece) configuration.
          *
-         * Gemma's four named control tokens: <pad>=0, <eos>=1, <bos>=2, <unk>=3.
-         * The instruct turn-boundary tokens <start_of_turn>/<end_of_turn> are NOT
-         * hardcoded here — BpeVocabulary::loadGemma registers them from the loaded
+         * Gemma's four named control tokens: `<pad>`=0, `<eos>`=1, `<bos>`=2, `<unk>`=3.
+         * The instruct turn-boundary tokens `<start_of_turn>`/`<end_of_turn>` are NOT
+         * hardcoded here -- BpeVocabulary::loadGemma registers them from the loaded
          * vocabulary so their ids come from the checkpoint, not a constant.
          */
         static SpecialTokens gemmaStyle()

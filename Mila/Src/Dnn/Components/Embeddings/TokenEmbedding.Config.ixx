@@ -1,9 +1,9 @@
 /**
- * @file TokenEmbeddingConfig.ixx
+ * @file TokenEmbedding.Config.ixx
  * @brief Configuration for the TokenEmbedding component.
  *
  * Derived from LpeConfig with all positional embedding fields removed.
- * TokenEmbedding is a pure vocabulary lookup — sequence position is
+ * TokenEmbedding is a pure vocabulary lookup -- sequence position is
  * handled downstream by a dedicated encoding component (RoPE, ALiBi,
  * or Learned).
  */
@@ -28,7 +28,7 @@ namespace Mila::Dnn
      * @brief Configuration for the TokenEmbedding component.
      *
      * Provides a type-safe fluent interface for configuring a pure token
-     * embedding lookup. Positional fields are intentionally absent —
+     * embedding lookup. Positional fields are intentionally absent --
      * they belong to the model or attention configuration.
      */
     export class TokenEmbeddingConfig : public ComponentConfig

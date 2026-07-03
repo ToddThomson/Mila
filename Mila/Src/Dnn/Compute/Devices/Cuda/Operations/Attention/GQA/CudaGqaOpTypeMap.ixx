@@ -1,5 +1,5 @@
 /**
- * @file CudaGpaOpMap.ixx
+ * @file CudaGqaOpTypeMap.ixx
  * @brief GqaOpTypeMap specializations for CUDA FP32 and BF16 compute precisions.
  */
  

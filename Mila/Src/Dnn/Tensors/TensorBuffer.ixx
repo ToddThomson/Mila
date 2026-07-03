@@ -198,10 +198,10 @@ namespace Mila::Dnn
 		 * and initializes all memory to zero for deterministic behavior.
 		 * Memory alignment is optimized based on data type and target hardware.
 		 *
-		 * @param device_context Device context for memory resource initialization
+		 * @param device_id Device identifier for memory resource initialization
 		 * @param logical_size Number of logical elements to store in the buffer
 		 *
-		 * @throws std::invalid_argument If device_context is null
+		 * @throws std::invalid_argument If device_id is invalid
 		 * @throws std::overflow_error If size causes overflow in storage calculations
 		 * @throws std::bad_alloc If memory allocation fails
 		 * @throws std::runtime_error If memory resource operations fail

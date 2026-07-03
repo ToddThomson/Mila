@@ -7,14 +7,14 @@
  * quantize-on-load path:
  *
  *   Linear::loadParameter          (cl.exe, unchanged)
- *     → CudaLinearOp::quantize()   (class template body, cl.exe instantiation)
- *       → Detail::quantize_fp8_per_channel()  (non-template; pre-compiled by NVCC)
- *         → cuda_quantize_fp8_per_channel()   (plain .cu, NVCC)
+ *     -> CudaLinearOp::quantize()   (class template body, cl.exe instantiation)
+ *       -> Detail::quantize_fp8_per_channel()  (non-template; pre-compiled by NVCC)
+ *         -> cuda_quantize_fp8_per_channel()   (plain .cu, NVCC)
  *
  * Because Detail::quantize_fp8_per_channel() is a non-template function, its
  * body is pre-compiled into the NVCC-generated BMI. When cl.exe instantiates
- * CudaLinearOp::quantize() it only needs the declaration of this function —
- * not the body — so no CUDA headers or intrinsics reach cl.exe.
+ * CudaLinearOp::quantize() it only needs the declaration of this function --
+ * not the body -- so no CUDA headers or intrinsics reach cl.exe.
  */
 
 module;
@@ -87,7 +87,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         /**
          * @brief Validate, quantize and upload a BF16 weight blob to FP8_E4M3 with a
-         *        single per-tensor scale — for the Ada (SM 8.9+) cuBLASLt TN path.
+         *        single per-tensor scale -- for the Ada (SM 8.9+) cuBLASLt TN path.
          *
          * Folds all per-channel scales into one global scale:
          *   global_scale = max(|W[o, i]|, for all o, i) / 448.0f

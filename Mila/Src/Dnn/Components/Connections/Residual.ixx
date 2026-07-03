@@ -84,7 +84,7 @@ namespace Mila::Dnn
          * - Shared mode (no device_id): parent must call setExecutionContext() prior to build().
          *
          * @param name Component name identifier (mandatory).
-         * @param build_config Residual configuration.
+         * @param config Residual configuration.
          * @param device_id Optional device identifier to create owned ExecutionContext.
          *
          * @throws std::invalid_argument if build_config is invalid or device type mismatches.
@@ -322,14 +322,14 @@ namespace Mila::Dnn
          * ## Output buffer
          *
          * The output buffer matches the full input shape. Residual is a
-         * pure elementwise addition with no sequence dimension concern —
+         * pure elementwise addition with no sequence dimension concern --
          * RuntimeMode does not influence output buffer allocation.
          *
          * ## Gradient buffers
          *
          * input_a_grad_ and input_b_grad_ are allocated only for
          * RuntimeMode::Training builds. Both are the same shape as the
-         * input — Residual is elementwise addition and both inputs are
+         * input -- Residual is elementwise addition and both inputs are
          * always symmetric in shape.
          *
          * @param build_config Full input shape and RuntimeMode for this build.

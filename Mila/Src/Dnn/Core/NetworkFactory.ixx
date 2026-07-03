@@ -107,10 +107,11 @@ namespace Mila::Dnn
          * @throws std::runtime_error if no factory is registered for the network type
          * @throws std::runtime_error if network reconstruction fails
          *
-         * @example
+         * @code{.cpp}
          * auto exec_ctx = std::make_shared<ExecutionContext<DeviceType::Cpu>>(...);
          * auto network = NetworkFactory::create<DeviceType::Cpu, TensorDataType::FP32>(
          *     archive, exec_ctx);
+         * @endcode
          */
         template<Compute::DeviceType TDeviceType, TensorDataType TPrecision>
         static std::unique_ptr<Network<TDeviceType, TPrecision>> create(

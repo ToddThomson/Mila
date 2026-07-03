@@ -143,7 +143,6 @@ namespace Mila::Dnn
          * prefill vs. decode semantics beyond passing the context through.
          *
          * @param input Forward input tensor of shape [B, T, embedding_dim].
-         * @param ctx   Attention forward context. Defaults to Mode::Standard.
          * @return Reference to the block output tensor.
          */
         TensorType& forward( const TensorType& input )
@@ -240,7 +239,7 @@ namespace Mila::Dnn
          * which is called via decode(). Attention internally selects the fast
          * KV cache path when available, or falls back to forward().
          *
-         * GptBlock is entirely unaware of which path Attention takes —
+         * GptBlock is entirely unaware of which path Attention takes --
          * the decode/fallback decision is Attention's private concern.
          *
          * Precondition: forward() must have been called at least once on this
@@ -448,7 +447,7 @@ namespace Mila::Dnn
             qkv_proj_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_qkv_proj" );
             qkv_proj_->build( context );
 
-            // attn_ receives packed QKV — trailing dim is model_dim * 3
+            // attn_ receives packed QKV -- trailing dim is model_dim * 3
             shape_t qkv_shape = input_shape;
             qkv_shape.back() = static_cast<int64_t>(config_.getModelDim() * 3);
             auto qkv_context = BuildContext( qkv_shape, context.getRuntimeMode() );
@@ -578,7 +577,7 @@ namespace Mila::Dnn
             if ( input_shape.back() != static_cast<int64_t>(config_.getModelDim()) )
             {
                 throw std::invalid_argument( std::format(
-                    "GptBlock: embedding dim mismatch — expected {}, got {}",
+                    "GptBlock: embedding dim mismatch -- expected {}, got {}",
                     config_.getModelDim(), input_shape.back() ) );
             }
         }
@@ -594,7 +593,7 @@ namespace Mila::Dnn
             if ( trailing != static_cast<int64_t>(config_.getModelDim()) )
             {
                 throw std::invalid_argument( std::format(
-                    "GptBlock: embedding dim mismatch — expected {}, got {}",
+                    "GptBlock: embedding dim mismatch -- expected {}, got {}",
                     config_.getModelDim(), input_shape.back() ) );
             }
         }

@@ -1,5 +1,5 @@
 /**
- * @file Lpe.Dispatch.ixx
+ * @file CudaLpeOp.Dispatch.ixx
  * @brief CUDA kernel dispatch helpers for the Lpe (token + positional embedding) operation.
  *
  * Internal to the Compute.CudaLpeOp module. Not visible to external importers.
@@ -82,7 +82,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
          *
          * Computes output[b,:] = wte[X[b],:] + wpe[position,:] for each batch
          * element. Delegates to cuda_encoder_decode_fp32 which reads only the
-         * single wpe row at `position` � no sequence iteration overhead.
+         * single wpe row at `position` -- no sequence iteration overhead.
          *
          * @param Y        Output embeddings [B, C].
          * @param X        Input token indices [B] (INT32).

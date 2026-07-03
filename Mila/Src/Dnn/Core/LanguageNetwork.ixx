@@ -3,8 +3,8 @@
  * @brief Abstract base for language model networks.
  *
  * LanguageNetwork sits between Network and concrete transformer implementations
- * (LlamaTransformer, GptTransformer). It defines the virtual compute interface —
- * forward, backward, prefill, and decode — that LanguageModel uses to drive the
+ * (LlamaTransformer, GptTransformer). It defines the virtual compute interface --
+ * forward, backward, prefill, and decode -- that LanguageModel uses to drive the
  * autoregressive generation loop without knowing the concrete network type or its
  * quantization policy template parameters.
  *
@@ -16,9 +16,9 @@
  * ## Hierarchy
  *
  *   Network<TDev, TPrec>
- *     └─ LanguageNetwork<TDev, TPrec>              [this file]
- *          └─ LlamaTransformer<TDev, TPrec, TWeightQuantization, TKvCachePolicy>
- *          └─ GptTransformer<TDev, TPrec>
+ *     +- LanguageNetwork<TDev, TPrec>              [this file]
+ *          +- LlamaTransformer<TDev, TPrec, TWeightQuantization, TKvCachePolicy>
+ *          +- GptTransformer<TDev, TPrec>
  */
 
 module;
@@ -72,7 +72,7 @@ namespace Mila::Dnn
         virtual TokenIndexType& backward( const TokenIndexType& input, const TensorType& output_grad ) = 0;
 
         /**
-         * @brief Inference prefill — process full prompt and populate the KV cache.
+         * @brief Inference prefill -- process full prompt and populate the KV cache.
          *
          * @param input  Full prompt token indices [B, T].
          * @return       Logits for the last token position.
@@ -80,7 +80,7 @@ namespace Mila::Dnn
         virtual TensorType& prefill( const TokenIndexType& input ) = 0;
 
         /**
-         * @brief Inference decode — single-token autoregressive step.
+         * @brief Inference decode -- single-token autoregressive step.
          *
          * @param input    Single token index [B, 1].
          * @param position Current sequence position (0-based).

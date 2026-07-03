@@ -65,7 +65,7 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
                 cuda_swiglu_forward_bf16( Y, X, N, half_width, stream );
             }
 
-            // dX and dY are FP32 — see Swiglu.Bf16.cu for mixed-precision backward contract.
+            // dX and dY are FP32 -- see Swiglu.Bf16.cu for mixed-precision backward contract.
             inline void backward( float* dX, const __nv_bfloat16* X, const float* dY, int N, int half_width, cudaStream_t stream ) const
             {
                 cuda_swiglu_backward_bf16( dX, X, dY, N, half_width, stream );

@@ -1,5 +1,5 @@
 /**
- * @file Gpt.ixx
+ * @file GptTransformer.ixx
  * @brief GPT-2 style transformer network (decoder-only) for autoregressive language modeling.
  *
  * Device-templated network implementing a GPT-2 style transformer decoder.
@@ -265,7 +265,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Inference prefill — process full prompt and return last-token logits.
+         * @brief Inference prefill -- process full prompt and return last-token logits.
          *
          * Populates the KV cache across all transformer blocks by running the
          * full prompt through encoder + blocks via forward(). Then extracts only
@@ -288,7 +288,7 @@ namespace Mila::Dnn
 
             int64_t T_prompt = input.shape()[ 1 ];
 
-            // 1. Encoder — full sequence embedding (Lpe output buffer is full-sized)
+            // 1. Encoder -- full sequence embedding (Lpe output buffer is full-sized)
             encoder_out_ptr_ = &encoder_->forward( input );
             this->getExecutionContext()->synchronize();
 
@@ -296,7 +296,7 @@ namespace Mila::Dnn
                 throw std::runtime_error(
                     "GptTransformer: prefill internal state not initialized" );
 
-            // 2. Blocks — full sequence forward populates KV cache
+            // 2. Blocks -- full sequence forward populates KV cache
             block_input_ptrs_[ 0 ] = encoder_out_ptr_;
 
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
@@ -336,15 +336,15 @@ namespace Mila::Dnn
          *
          * Mirrors forward() exactly except each transformer block is driven
          * via decode() rather than forward(). Each block's decode() delegates
-         * to attn_->decode() for the attention step — Attention decides
+         * to attn_->decode() for the attention step -- Attention decides
          * internally whether to use the fast KV cache path or fall back to
          * forward(). All other components in each block use forward() unchanged.
          *
          * The encoder (token + position embeddings) and final LayerNorm + LM head
-         * are identical to forward() — only the block traversal differs.
+         * are identical to forward() -- only the block traversal differs.
          *
          * Precondition: forward() must have been called at least once (prefill)
-         * before decode() is called. Attention internally manages cache state —
+         * before decode() is called. Attention internally manages cache state --
          * no explicit initializeKVCache / resetKVCache needed here.
          *
          * Calling forward() again after decode() steps automatically resets
@@ -361,7 +361,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "GptTransformer must be built before calling decode()." );
             }
 
-            // Encoder — same as forward(), single token embedding
+            // Encoder -- same as forward(), single token embedding
             encoder_out_ptr_ = &encoder_->decode( input, position );
             this->getExecutionContext()->synchronize();
 
@@ -370,7 +370,7 @@ namespace Mila::Dnn
                 throw std::runtime_error( "GptTransformer: decode internal state not initialized" );
             }
 
-            // Block traversal — decode() instead of forward() on each block.
+            // Block traversal -- decode() instead of forward() on each block.
             // Attention inside each block decides KV cache vs fallback transparently.
             block_input_ptrs_[ 0 ] = encoder_out_ptr_;
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
@@ -385,7 +385,7 @@ namespace Mila::Dnn
                 }
             }
 
-            // Final LayerNorm + LM head — identical to forward()
+            // Final LayerNorm + LM head -- identical to forward()
             normalized_ptr_ = &final_layernorm_->forward( *block_output_ptrs_.back() );
             this->getExecutionContext()->synchronize();
 
@@ -619,7 +619,7 @@ namespace Mila::Dnn
             seq_length_ = input_shape[ 1 ];
             output_shape_ = { input_shape[ 0 ], input_shape[ 1 ], config_.getVocabSize() };
 
-            // encoder receives token ids — same shape as incoming context [B, T]
+            // encoder receives token ids -- same shape as incoming context [B, T]
             encoder_ = this->template getComponentAs<EncoderType>(
                 this->getName() + ".lenc" );
             encoder_->build( context );

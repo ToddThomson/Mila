@@ -1,5 +1,5 @@
 /**
- * @file Rope.Dispatch.ixx
+ * @file CudaRopeOp.Dispatch.ixx
  * @brief CUDA kernel dispatch helpers for the Rope (rotary positional embedding) operation.
  *
  * Internal to the Compute.CudaRopeOp module. Not visible to external importers.
@@ -115,7 +115,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
     template <>
     struct cuda_rope_impl<__nv_bfloat16>
     {
-        // Cache is always FP32 — delegate directly to the FP32 launcher.
+        // Cache is always FP32 -- delegate directly to the FP32 launcher.
         static void build_cache(
             float* cos_cache,
             float* sin_cache,

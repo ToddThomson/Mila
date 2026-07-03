@@ -52,7 +52,7 @@ namespace Mila::Logging
         }
 
         // -------------------------------------------------------------------------
-        // Logger interface — control
+        // Logger interface -- control
         // -------------------------------------------------------------------------
 
         /// @brief Sets the minimum level at which records are emitted.
@@ -77,7 +77,7 @@ namespace Mila::Logging
         }
 
         // -------------------------------------------------------------------------
-        // Logger interface — configuration
+        // Logger interface -- configuration
         // -------------------------------------------------------------------------
 
         /**
@@ -100,7 +100,7 @@ namespace Mila::Logging
         }
 
         // -------------------------------------------------------------------------
-        // Logger interface — emit methods
+        // Logger interface -- emit methods
         // -------------------------------------------------------------------------
 
         /// @brief Emits a record at Trace level.

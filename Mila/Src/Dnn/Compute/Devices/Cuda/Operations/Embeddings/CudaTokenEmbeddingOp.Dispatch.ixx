@@ -1,5 +1,5 @@
 /**
- * @file TokenEmbedding.Dispatch.ixx
+ * @file CudaTokenEmbeddingOp.Dispatch.ixx
  * @brief CUDA kernel dispatch helpers for the TokenEmbedding operation.
  *
  * Internal to the Compute.CudaTokenEmbeddingOp module.
