@@ -586,9 +586,70 @@ Corrections to the 2.2 model:
 - **NEW headroom (D6):** the lm_head matvec proves ~484 GB/s on the same access
   pattern; closing half the FP4 matvec gap is worth ~1.7-3 ms/token — as much
   as the entire D1+D2 batch.
+
+  **SHIPPED 2026-07-04:** root cause was load width, not coalescing — the FP4
+  decode matvec issued 32-bit (`uint32`) weight loads while the peak-hitting
+  BF16 lm_head matvec uses 64-bit (`int2`). New `matvec_decode_bf16_qfp4_wide_kernel`
+  loads 32 nibbles/thread via a single 128-bit `int4` (weights) plus matching
+  `int4` activation loads, identical arithmetic and per-group scale semantics.
+  Selected when `C % 32 == 0` (every real projection dimension); the 32-bit
+  kernel is retained as the general fallback. Component-level FP4 decode
+  parity test still outstanding (BACKLOG) — currently guarded only at model level.
+
+  **MEASURED 2026-07-04 (gemma_decode_d6): net regression, +1.1 ms/token
+  (16.4 vs 15.3).** Per-shape the wide load is a split decision: fc_down
+  (C=15360) improved 379 -> 396 GB/s, but gate_up/qkv (C=3840) fell to
+  ~343-349 GB/s and o_proj (C=4096) to ~260 GB/s — the 1024-element per-thread
+  stride leaves only 3-4 loop iterations at C=3840, too few outstanding loads
+  to hide latency, plus a divergent tail. Dispatch restricted same day to
+  `C >= 8192`, keeping the fc_down win. Open follow-up: a 64-bit (`int2`,
+  16 nibbles/thread) variant for the short shapes — the actual load width of
+  the lm_head proof point. The same capture showed the lm_head matvec at an
+  identical ~483 GB/s, ruling out clock/power throttling as a factor in the
+  observed 37.7 -> 32.15 tok/s regression; the larger share was the RmsNorm
+  build-shape defect below.
+
+  **POST-FIX VALIDATED 2026-07-04 (gemma_decode_d6_fixed): 37.79 tok/s greedy —
+  regression closed.** FP4 matvec total 14.89 ms/token, below the 15.3
+  calibration: gate_up back on the 8-nibble kernel at ~401 GB/s (156 us), qkv
+  ~45 us, local o_proj ~25 us; fc_down (80.8 us, ~388 GB/s) and the global-layer
+  o_proj (C=8704) stay on the wide kernel via the `C >= 8192` gate. lm_head
+  unchanged at 4.16 ms. The int2 variant for the short shapes — implemented
+  2026-07-04 as a `kNibblesPerThread` template parameter on the wide kernel
+  (16 = one `int2`, 32 = one `int4`) with a three-rung dispatch ladder
+  (32 nibbles at `C >= 8192`, 16 nibbles at `C % 16 == 0`, 8-nibble fallback).
+
+  **D6 CLOSED 2026-07-04 (gemma_decode_d6_int2): 38.47 tok/s greedy, FP4 total
+  14.57 ms/token.** int2 gains were real but modest: gate_up 401 -> 411 GB/s,
+  o_proj 339 -> 372, fc_down rung unchanged as designed. Conclusion: the
+  short-C shapes plateau at ~410 GB/s and the limiter is NOT load width — the
+  FP4 matvec issues 4 bytes of activation loads per 0.5 bytes of weights (the
+  BF16 lm_head proof point is 1:1) plus per-nibble decode ALU. The residual
+  ~2.8 ms/token to the 11.8 ms weight-traffic floor needs structural work
+  (activations staged in shared memory once per block, or a different dequant
+  fusion); recorded in BACKLOG as the re-entry point, deprioritized behind
+  D4/D2/D3. Net D6 result from the 10.1 calibration: 15.3 -> 14.57 ms/token
+  and 37.7 -> 38.47 tok/s alongside the RmsNorm fix.
 - **RmsNorm is the D2 sleeper:** the sandwich norms cost more than
   split+scale+rope combined. Norm fusion (or at least a multi-block norm) moves
   to the front of D2.
+
+  **DEFECT FOUND + FIXED 2026-07-04:** the gemma_decode_d6 capture showed
+  RmsNorm at 5.26 ms/token — double this table's 2.63 — with grid sizes 32x the
+  decode row count. `CudaRmsNormOp::forward` launched with build-time geometry
+  (`outer_size_` frozen at `build()`), so decode norms processed the full
+  prefill-chunk row count: 32 rows at this table's chunk-32 calibration
+  (silently inflating the 2.63 baseline), 512 rows once heuristic v2 moved the
+  chunk to 512 (~3.9 MB of garbage read+write per launch, and OOB reads past
+  single-row decode inputs — row 0 stayed correct, so parity never caught it).
+  Forward now derives outer/inner from the runtime input shape (mirrors
+  `CudaLayerNormOp::forward`). **POST-FIX VALIDATED 2026-07-04
+  (gemma_decode_d6_fixed):** all 337 launches back to grid 1, 2.27 ms/token
+  (6.7 us avg) — below the 2.63 calibration but above the ~1-1.5 projection:
+  a single warp serially reducing a 3840-wide row costs ~10 us regardless of
+  slice count, so the chunk-32 inflation in the calibration was nearly free
+  time-wise (2 blocks in parallel) and only the narrow QKV norms got cheaper.
+  The D2 fusion target is therefore 2.27 ms/token.
 - D1 shrinks to ~6-8%; D3 (~2.4 ms addressable) and D4 (~2 ms, FP8 only)
   confirmed as modeled.
 

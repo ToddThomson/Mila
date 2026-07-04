@@ -265,9 +265,41 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
          * @brief Execute forward pass (hot path).
          *
          * Computes RMS-normalized output and caches forward-pass statistics required for backward().
+         * Launch geometry is derived from the runtime input shape; build() fixes only the
+         * normalization axis and the maximum slice count.
          */
         void forward( const ITensor& input, ITensor& output ) const
         {
+            const auto& input_shape = input.shape();
+            const int64_t ndim = static_cast<int64_t>( input_shape.size() );
+
+            // Launch geometry follows the runtime tensor, not the build shape: components
+            // are built once at the widest (prefill chunk) shape but decode calls arrive
+            // with a single row. Mirrors CudaLayerNormOp::forward.
+            if ( norm_axis_ >= ndim || static_cast<int64_t>( input_shape[ norm_axis_ ] ) != norm_dim_ )
+            {
+                throw std::runtime_error( "CudaRmsNormOp::forward - input shape is incompatible with the built normalization axis" );
+            }
+
+            int64_t outer = 1;
+
+            for ( int64_t i = 0; i < norm_axis_; ++i )
+            {
+                outer *= static_cast<int64_t>( input_shape[ i ] );
+            }
+
+            int64_t inner = 1;
+
+            for ( int64_t i = norm_axis_ + 1; i < ndim; ++i )
+            {
+                inner *= static_cast<int64_t>( input_shape[ i ] );
+            }
+
+            if ( outer * inner > static_cast<int64_t>( rstd_tensor_->size() ) )
+            {
+                throw std::runtime_error( "CudaRmsNormOp::forward - runtime slice count exceeds the built maximum" );
+            }
+
             const NativeType* X = static_cast<const NativeType*>(input.rawData());
             NativeType* Y = static_cast<NativeType*>(output.rawData());
 
@@ -277,7 +309,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
                 Y, X,
                 weight_, bias_,
                 rstd_,
-                outer_size_, inner_size_, norm_dim_,
+                static_cast<int>( outer ), static_cast<int>( inner ), norm_dim_,
                 config_.getEpsilon(), config_.getUnitOffset(),
                 stream );
         }

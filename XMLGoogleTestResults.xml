@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="1" failures="0" disabled="0" errors="0" time="0.077" timestamp="2026-07-04T07:41:13.167" name="AllTests">
+  <testsuite name="TensorOpsZeroCudaTests" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.077" timestamp="2026-07-04T07:41:13.167">
+    <testcase name="Zero_SetsManagedTensorToZero" file="C:\Users\ToddT\Src\Repos\Mila\Mila\Tests\Dnn\Tensors\TensorOps\Zero.Cuda.cpp" line="28" status="run" result="completed" time="0.077" timestamp="2026-07-04T07:41:13.167" classname="TensorOpsZeroCudaTests" />
+  </testsuite>
+</testsuites>

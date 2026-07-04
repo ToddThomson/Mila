@@ -512,7 +512,14 @@ a 12 GB card.
   **Follow-ups:** (a) live `cudaMemGetInfo` budget once a device memory-info query lands in
   Compute (CMake-selected implementation unit per the no-#ifdef rule); (b) the section 6.5
   formula-vs-measured drift-pin test — the State-slope test covers the leak class, the exact
-  row-cost slope pin is deferred.
+  row-cost slope pin is deferred; (c) **heuristic v3 — agentic profile (design note 2026-07-04):**
+  for agent-loop serving (Codex/Claude Code via MIS, long transcripts + P4 prefix reuse) the
+  scarce resource is context KV, not prefill speed — v3 should reserve the target-context KV
+  budget FIRST and size the chunk workspace from the remainder (context-first, inverting v2's
+  priority), fold in the live free-VRAM query from (a), and release/re-grow the FP4
+  dequant-staging scratch (~470 MB, idle during decode) after prefill. Pairs with the D4
+  tied-table FP8 conversion (below): ~9.5 GB steady state + reclaimed workspace makes a
+  16K-32K-context agentic build realistic on the 12 GB 4070.
   **Phase 2 VALIDATED 2026-07-03 (build + chat green; State-slope test floor corrected for the
   shared-RoPE-cache attribution quirk — see the stats-accounting item below):** `installSharedOutput` on
   RmsNorm/Linear/Swiglu/Residual/GroupedQueryAttention (always-view rule guards the
@@ -564,16 +571,81 @@ a 12 GB card.
   only pins the tying-throw on the quantized instantiation; backfill a decode-vs-prefill
   consistency test (identical rows through matvec and the batch path, small tolerance for
   accumulation-order differences) so the quantized batch path has a non-checkpoint oracle.
-- [ ] **[perf, measured 2026-07-03] Decode calibration follow-ups: FP4 matvec bandwidth ("D6") +
+  **Raised priority 2026-07-04:** the D6 wide FP4 decode matvec now ships without a component
+  guard, and the dispatch is a three-rung ladder. The test must cover all rungs: 32-nibble
+  (`C % 32 == 0 && C >= 8192`), 16-nibble (`C % 16 == 0`, short), and the 8-nibble fallback
+  (`C % 16 != 0`, `% 8 == 0`) — each with `C >= 2*group_size` so threads cross a group boundary
+  (verifies per-group scale selection). Needs `loadParameter("weight", bf16_blob)` to drive the
+  FP4 quantize+pack path (raw `copy()` into params[0] bypasses quantization).
+- [ ] **[perf + memory, approved 2026-07-04] D4 "Design B": convert the tied embedding/lm_head
+  table to FP8 — one shared FP8 table + per-vocab-row scales, both consumers read it.**
+  Supersedes WeightTying.md section D4 ("lm_head is never quantized") — that invariant was a
+  deliberate deferral and this item is the decision to open it. The axis coincidence that makes
+  it clean: per-channel FP8 scales sit on the lm_head's output-channel axis, which IS the vocab
+  row the embedding gathers, so one FP32 scale tensor [vocab] serves both. Expected on the 12B
+  FP4 4070 build: **~-2 ms/token decode** (lm_head weight read 2.01 GB BF16 -> ~1.0 GB FP8;
+  `matvec_decode_bf16_qfp8_kernel` already exists) **and ~-1.0 GB steady-state VRAM**
+  (measured 10.5 / 12 GB -> ~9.5 = 16K-context headroom for agentic sessions). Seams:
+  (1) `TokenEmbedding` gains a `TTableQuantization` axis (`NoWeightQuant` | `PerChannelFp8<>`)
+  mirroring `Linear` — quantized path stores `wte_` as FP8_E4M3 [vocab, d] + FP32 scales [vocab],
+  quantized host-side at `loadParameter` (side effect: fixes the load-peak tied-lm_head item —
+  the BF16 device table never exists);
+  (2) FP8 gather-dequant kernel variant in the TokenEmbedding op (`bf16 = fp8 * scale[row]`;
+  `embedding_scale` stays a forward-time multiply);
+  (3) `Linear::installSharedWeight` quantized branch becomes a real install path for
+  `PerChannelFp8` (weight + scales; per-GROUP FP4 stays excluded — input-axis scales do not
+  transfer to a row gather); flip `InstallSharedWeight_QuantizedPath_Throws` to pin the new
+  contract (throws for per-group, accepts per-channel);
+  (4) Gemma wiring: `LmHeadLinearType` + the embedding table policy become conditional on the
+  model's `TWeightQuantization` — a `NoWeightQuant` body keeps the BF16 tied head, so the exact
+  HF token-parity oracle is PRESERVED in the reference config; FP4/FP8 bodies get the FP8 table;
+  (5) DECIDE BEFORE MERGE: acceptance criterion for the FP4-mode parity test — FP8 logits can
+  flip near-tie argmax, so keep exact-token over the current test length if it holds, else move
+  that test to top-1 agreement rate + bounded max-logit delta vs the BF16 head.
+- [~] **[perf, measured 2026-07-03] Decode calibration follow-ups: FP4 matvec bandwidth ("D6") +
   RmsNorm launch shape.** From the greedy decode capture (review section 10.1, 37.7 tok/s = 26.5
-  ms/token): (a) `matvec_decode_bf16_qfp4_kernel`
+  ms/token): (a) **SHIPPED 2026-07-04** — `matvec_decode_bf16_qfp4_kernel`
   ([CudaMatVecBias.Bf16.cu](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatVec/CudaMatVecBias.Bf16.cu))
-  sustains ~379 GB/s (15.3 ms/token, 60% of decode) while the BF16 lm_head matvec in the same
-  file proves ~484 GB/s (96% of the 4070's 504 peak) on the same access pattern — closing half
-  the gap is ~1.7-3 ms/token, the largest single decode headroom; (b) `rmsnorm_forward_bf16_kernel`
-  costs 2.63 ms/token across 337 single-block launches (10% of decode; Gemma's sandwich + QKV
-  norms) — more than split+scale+rope combined, so norm fusion (or a multi-block norm) leads the
-  D2 cheap-fusion batch, ahead of the split->views and layer_scalar folds.
+  sustained ~379 GB/s (15.3 ms/token, 60% of decode) with 32-bit (`uint32`) weight loads while the
+  BF16 lm_head matvec in the same file proves ~484 GB/s (96% of the 4070's 504 peak) with 64-bit
+  (`int2`) loads on the same access pattern. Root cause = load width. New
+  `matvec_decode_bf16_qfp4_wide_kernel` loads 32 nibbles/thread via a single 128-bit `int4` (weights)
+  + matching `int4` activation loads; identical arithmetic + per-group scale semantics; 32-bit kernel
+  retained as fallback. **Measured 2026-07-04 (gemma_decode_d6 capture, 256-token greedy): net
+  regression +1.1 ms/token.** Per-shape: fc_down (C=15360) improved 379 -> 396 GB/s, but gate_up/qkv
+  (C=3840) fell to ~343-349 GB/s and o_proj (C=4096) to ~260 GB/s — at C=3840 each thread gets only
+  3-4 iterations of the 1024-element stride, too few outstanding loads to hide latency plus a
+  divergent tail. Same day: dispatch restricted to `C % 32 == 0 && C >= 8192` (keeps the fc_down
+  win; short shapes back on the 8-nibble kernel). **Post-fix validated 2026-07-04
+  (gemma_decode_d6_fixed): 37.79 tok/s greedy, regression closed** — FP4 matvec total 14.89
+  ms/token (below the 15.3 calibration; gate_up ~401 GB/s on the 8-nibble kernel, fc_down +
+  global-layer o_proj (C=8704) wide at ~388-400). **Follow-up IMPLEMENTED 2026-07-04 (awaiting
+  on-GPU measure):** the wide kernel is now templated on `kNibblesPerThread` (16 = one `int2`
+  load — the lm_head proof point's width — giving 7-8 iterations at C=3840; 32 = one `int4`);
+  dispatch ladder = 32 nibbles when `C % 32 == 0 && C >= 8192`, 16 nibbles when `C % 16 == 0`
+  (all short projection shapes), 8-nibble kernel otherwise. **Measured 2026-07-04
+  (gemma_decode_d6_int2): 38.47 tok/s, FP4 total 14.89 -> 14.57 ms/token** — gate_up 401 -> 411
+  GB/s, o_proj 339 -> 372, fc_down rung unchanged as designed. **D6 (a) CLOSED at this number:**
+  the short-C plateau at ~410 GB/s is NOT load-width-limited — the FP4 matvec issues 4 bytes of
+  activation loads per 0.5 bytes of weights (the BF16 lm_head proof point is 1:1) plus per-nibble
+  decode ALU, so the residual ~2.8 ms/token to the 11.8 ms traffic floor would need structural
+  work (stage activations in shared memory once per block, or a different dequant fusion) —
+  recorded here as the re-entry point, deprioritized behind D4/D2/D3.
+  (b) `rmsnorm_forward_bf16_kernel`
+  D2 fusion STILL OPEN, but the same capture uncovered a separate defect, **FIXED 2026-07-04**:
+  `CudaRmsNormOp::forward` launched with build-time geometry (`outer_size_` frozen at `build()`), so
+  decode norms processed the full prefill-chunk row count — 32 rows at the calibration chunk 32
+  (silently inflating the 2.63 ms/token baseline), 512 rows after heuristic v2 (chunk 512), doubling
+  per-launch cost to ~15.6 us (5.26 ms/token) and reading up to 511 rows past the end of single-row
+  decode input tensors (silent OOB reads; row 0 output stayed correct, which is why parity and chat
+  never caught it). Forward now derives outer/inner from the runtime input shape with a
+  max-slice-count guard, mirroring `CudaLayerNormOp::forward`. **Post-fix validated 2026-07-04:
+  all 337 launches back to grid 1, 2.27 ms/token** (below the 2.63 calibration — a single warp
+  reducing a 3840-wide row costs ~10 us regardless of slice count, so only the narrow QKV norms
+  got cheaper; the D2 fusion target is now 2.27 ms/token). Original calibration context:
+  337 norm launches/token (Gemma's sandwich + QKV norms) — more than split+scale+rope combined, so
+  norm fusion (or a multi-block norm) leads the D2 cheap-fusion batch, ahead of the split->views and
+  layer_scalar folds.
   `GemmaTransformer::prefill` ([Gemma.ixx:236](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.ixx))
   and `LlamaTransformer::prefill` ([Llama.ixx:211](Mila/Src/Dnn/Components/Transformers/LlaMa/Llama.ixx))
   extract the final position as `view( {B, 1, model_dim}, (T_last - 1) * model_dim )` — a contiguous
@@ -584,6 +656,16 @@ a 12 GB card.
   ([Gemma4InferenceReview.md](Mila/Specifications/Gemma4InferenceReview.md) — full findings +
   ranked perf recommendations: decode sync/launch structure, fused decode attention, lm_head FP8,
   prefill chunk/softmax/GEMM-extent, incremental prefill).
+- [ ] **[minor, tooling] ProfileModel measured `prefill_ms` is contaminated by P4 KV prefix reuse.**
+  Since the transparent prefix reuse landed (+85), the warmup run seeds `GemmaModel::kv_token_history_`
+  and the measured run — same prompt, same live model
+  ([ProfileModel.ixx](Mila/Profiling/ProfileModel/ProfileModel.ixx), warmup + measured both call
+  `runGeneration`) — takes the rewind + `prefillFrom` path, skipping all but the last prompt token
+  (observed 2026-07-04: warmup prefill 1837.9 ms vs measured 38.6 ms for a 16-token prompt).
+  Decode tok/s is unaffected (same KV state either way). Fix seam: reset the model's KV history
+  between warmup and measured runs (or log the reuse hit in the measured line) so `prefill_ms`
+  stays comparable across builds; note the warmup number also carries first-call cuBLASLt plan
+  building and allocations, so neither line currently measures steady-state prefill.
 - [ ] **[minor, API edge] `max_new_tokens = 0` still emits one token.** `GemmaModel::onGenerating`
   ([GemmaModel.ixx:288](Mila/Src/Dnn/Models/GemmaModel.ixx)) emits the prefill-sampled token before
   the `max_new` bound is consulted (the decode loop starts at step 1), so a caller passing

@@ -36,6 +36,22 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         hi = *reinterpret_cast<const __nv_bfloat162*>(&raw.y);
     }
 
+    // Loads 8 BF16 elements as four __nv_bfloat162 pairs via an int4 (16-byte) load.
+    // Requires ptr to be 16-byte aligned, guaranteed when the element offset is a multiple of 8.
+    __device__ inline void ld_bf16x8(
+        __nv_bfloat162& p0,
+        __nv_bfloat162& p1,
+        __nv_bfloat162& p2,
+        __nv_bfloat162& p3,
+        const __nv_bfloat16* ptr )
+    {
+        int4 raw = *reinterpret_cast<const int4*>(ptr);
+        p0 = *reinterpret_cast<const __nv_bfloat162*>(&raw.x);
+        p1 = *reinterpret_cast<const __nv_bfloat162*>(&raw.y);
+        p2 = *reinterpret_cast<const __nv_bfloat162*>(&raw.z);
+        p3 = *reinterpret_cast<const __nv_bfloat162*>(&raw.w);
+    }
+
     // Loads 8 FP8-E4M3 elements via a single int2 (8-byte) load and converts to float4x2.
     // Requires ptr to be 8-byte aligned, guaranteed when C % 8 == 0.
     __device__ inline void ld_fp8x8_to_float(
@@ -279,6 +295,131 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         }
     }
 
+    /**
+     * @brief Wide-load variant of matvec_decode_bf16_qfp4_kernel (D6 bandwidth).
+     *
+     * Identical arithmetic and per-group scale semantics to the 8-nibble kernel;
+     * the only change is the weight fetch width -- each thread loads
+     * kNibblesPerThread nibbles per iteration via a single 64-bit int2
+     * (16 nibbles) or 128-bit int4 (32 nibbles) load. The 8-nibble kernel proved
+     * bandwidth-bound at ~75% of peak because it issued 32-bit weight loads
+     * while the peak-hitting BF16 lm_head matvec (~484 GB/s, 96% of peak in the
+     * same file) uses 64-bit int2.
+     *
+     * Measured 2026-07-04 (RTX 4070, gemma_decode_d6): the 32-nibble load only
+     * pays off when the per-thread loop is long enough to hide load latency --
+     * C = 15360 (fc_down) improved 379 -> 396 GB/s, but C = 3840/4096 shapes
+     * dropped to ~260-350 GB/s (3-4 loop iterations, divergent tail). The
+     * 16-nibble instantiation halves the stride (7-8 iterations at C = 3840,
+     * matching the lm_head load width) and is the dispatch choice for the
+     * short shapes.
+     *
+     * Requirements:
+     *   - C must be divisible by kNibblesPerThread (weight/activation load
+     *     alignment, one scale per chunk)
+     *   - kGroupSize must be a multiple of kNibblesPerThread (group sizes 64
+     *     and 128 satisfy both widths), so every chunk lies entirely within
+     *     one quantization group.
+     */
+    template<int kGroupSize, int kNibblesPerThread>
+    __global__ void __launch_bounds__( kMatvecThreadsPerOC* kMatvecBlockOC )
+        matvec_decode_bf16_qfp4_wide_kernel(
+            __nv_bfloat16* __restrict__       y,
+            const __nv_bfloat16* __restrict__ x,
+            const uint8_t* __restrict__       weights_packed,
+            const float* __restrict__         scales,
+            const __nv_bfloat16* __restrict__ bias,
+            int C,
+            int OC )
+    {
+        static_assert( kNibblesPerThread == 16 || kNibblesPerThread == 32,
+            "matvec_decode_bf16_qfp4_wide_kernel supports 16-nibble (int2) or 32-nibble (int4) loads" );
+        static_assert( kGroupSize % kNibblesPerThread == 0,
+            "a per-thread chunk must lie entirely within one quantization group" );
+
+        constexpr int kSubWords = kNibblesPerThread / 8;
+
+        const int oc_base = blockIdx.x * kMatvecBlockOC;
+        const int oc      = oc_base + threadIdx.y;
+
+        if ( oc >= OC ) return;
+
+        const uint8_t* w_row      = weights_packed + oc * ( C / 2 );
+        const int      num_groups = C / kGroupSize;
+
+        float acc = 0.0f;
+
+        const int c_start = threadIdx.x * kNibblesPerThread;
+        const int c_step  = kMatvecThreadsPerOC * kNibblesPerThread;
+
+        for ( int c = c_start; c < C; c += c_step )
+        {
+            // One vector load of kNibblesPerThread/2 packed weight bytes; thread k
+            // reads a contiguous byte offset, so the warp covers a contiguous
+            // 256-byte (int2) or 512-byte (int4) segment per iteration.
+            uint32_t w_words[ kSubWords ];
+
+            if constexpr ( kNibblesPerThread == 32 )
+            {
+                const int4 w_packed4 = *reinterpret_cast<const int4*>( w_row + c / 2 );
+                w_words[ 0 ] = static_cast<uint32_t>( w_packed4.x );
+                w_words[ 1 ] = static_cast<uint32_t>( w_packed4.y );
+                w_words[ 2 ] = static_cast<uint32_t>( w_packed4.z );
+                w_words[ 3 ] = static_cast<uint32_t>( w_packed4.w );
+            }
+            else
+            {
+                const int2 w_packed2 = *reinterpret_cast<const int2*>( w_row + c / 2 );
+                w_words[ 0 ] = static_cast<uint32_t>( w_packed2.x );
+                w_words[ 1 ] = static_cast<uint32_t>( w_packed2.y );
+            }
+
+            // All nibbles in [c, c + kNibblesPerThread) share one group (static_assert above).
+            const float scale = scales[ oc * num_groups + c / kGroupSize ];
+
+            // 8-nibble sub-words, each paired with 8 BF16 activations (one int4 load).
+#pragma unroll
+            for ( int j = 0; j < kSubWords; ++j )
+            {
+                const uint32_t w_packed = w_words[ j ];
+
+                __nv_bfloat162 x0h, x1h, x2h, x3h;
+                ld_bf16x8( x0h, x1h, x2h, x3h, x + c + j * 8 );
+
+                float w_f[8];
+#pragma unroll
+                for ( int b = 0; b < 4; ++b )
+                {
+                    const uint8_t byte = ( w_packed >> ( b * 8 ) ) & 0xFFu;
+                    w_f[ 2 * b     ] = fp4_e2m1_decode( byte & 0xFu ) * scale;
+                    w_f[ 2 * b + 1 ] = fp4_e2m1_decode( byte >> 4   ) * scale;
+                }
+
+                const float2 x0 = __bfloat1622float2( x0h );
+                const float2 x1 = __bfloat1622float2( x1h );
+                const float2 x2 = __bfloat1622float2( x2h );
+                const float2 x3 = __bfloat1622float2( x3h );
+
+                acc += x0.x * w_f[0] + x0.y * w_f[1]
+                     + x1.x * w_f[2] + x1.y * w_f[3]
+                     + x2.x * w_f[4] + x2.y * w_f[5]
+                     + x3.x * w_f[6] + x3.y * w_f[7];
+            }
+        }
+
+#pragma unroll
+        for ( int offset = kMatvecThreadsPerOC / 2; offset > 0; offset >>= 1 )
+        {
+            acc += __shfl_down_sync( 0xffffffff, acc, offset );
+        }
+
+        if ( threadIdx.x == 0 )
+        {
+            const float bias_val = ( bias != nullptr ) ? __bfloat162float( bias[ oc ] ) : 0.0f;
+            y[ oc ] = __float2bfloat16( acc + bias_val );
+        }
+    }
+
     void cuda_matvec_decode_bf16(
         __nv_bfloat16* y,
         const __nv_bfloat16* x,
@@ -330,16 +471,42 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         const dim3 block( kMatvecThreadsPerOC, kMatvecBlockOC );
         const dim3 grid( ( OC + kMatvecBlockOC - 1 ) / kMatvecBlockOC );
 
+        // D6 dispatch ladder by reduction length (measured 2026-07-04, RTX 4070):
+        // 32-nibble (128-bit) loads win only when the per-thread loop is long
+        // enough to hide load latency (C = 15360: 379 -> 396 GB/s) and regress
+        // the short shapes (C <= 4096: 3-4 iterations, ~260-350 GB/s). Short
+        // shapes take the 16-nibble (64-bit) variant -- the load width of the
+        // ~484 GB/s lm_head proof point -- and the 8-nibble kernel remains the
+        // general fallback for C % 16 != 0.
+        constexpr int kWideMinimumC = 8192;
+        const int nibbles_per_thread =
+            ( C % 32 == 0 && C >= kWideMinimumC ) ? 32 :
+            ( C % 16 == 0 ) ? 16 : 8;
+
         switch ( group_size )
         {
             case 64:
-                matvec_decode_bf16_qfp4_kernel<64><<<grid, block, 0, stream>>>(
-                    y, x, weights_packed, scales, bias, C, OC );
+                if ( nibbles_per_thread == 32 )
+                    matvec_decode_bf16_qfp4_wide_kernel<64, 32><<<grid, block, 0, stream>>>(
+                        y, x, weights_packed, scales, bias, C, OC );
+                else if ( nibbles_per_thread == 16 )
+                    matvec_decode_bf16_qfp4_wide_kernel<64, 16><<<grid, block, 0, stream>>>(
+                        y, x, weights_packed, scales, bias, C, OC );
+                else
+                    matvec_decode_bf16_qfp4_kernel<64><<<grid, block, 0, stream>>>(
+                        y, x, weights_packed, scales, bias, C, OC );
                 break;
 
             case 128:
-                matvec_decode_bf16_qfp4_kernel<128><<<grid, block, 0, stream>>>(
-                    y, x, weights_packed, scales, bias, C, OC );
+                if ( nibbles_per_thread == 32 )
+                    matvec_decode_bf16_qfp4_wide_kernel<128, 32><<<grid, block, 0, stream>>>(
+                        y, x, weights_packed, scales, bias, C, OC );
+                else if ( nibbles_per_thread == 16 )
+                    matvec_decode_bf16_qfp4_wide_kernel<128, 16><<<grid, block, 0, stream>>>(
+                        y, x, weights_packed, scales, bias, C, OC );
+                else
+                    matvec_decode_bf16_qfp4_kernel<128><<<grid, block, 0, stream>>>(
+                        y, x, weights_packed, scales, bias, C, OC );
                 break;
 
             default:
