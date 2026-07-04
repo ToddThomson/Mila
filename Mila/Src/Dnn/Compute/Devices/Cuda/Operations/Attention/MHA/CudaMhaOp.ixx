@@ -140,6 +140,18 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             cached_seq_len_ = 0;
         }
 
+        // Interface parity with CudaGqaOp (PromptCaching.md 4.3): the full cache is
+        // purely positional, so any rewind within the current fill is valid.
+        bool rewindKvCache( int position ) override
+        {
+            if ( position < 0 || position > cached_seq_len_ )
+                return false;
+
+            cached_seq_len_ = position;
+
+            return true;
+        }
+
         void prefill( const ITensor& input, ITensor& output ) override
         {
             const auto& input_shape = input.shape();

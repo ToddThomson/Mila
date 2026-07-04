@@ -373,6 +373,11 @@ namespace Mila::Dnn
                 attn_->resetKVCache();
         }
 
+        bool rewindKvCache( int position ) override
+        {
+            return attn_ && attn_->rewindKvCache( position );
+        }
+
         /**
          * @brief Install the transformer-owned shared activation workspace (pooling).
          *

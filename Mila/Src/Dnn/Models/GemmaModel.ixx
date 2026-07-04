@@ -277,7 +277,36 @@ namespace Mila::Dnn
             const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
             auto prefill_input = makeTokenTensor( prompt_tokens );
 
-            auto& logits = this->getLanguageNetwork().prefill( prefill_input );
+            // Transparent KV prefix reuse (PromptCaching.md): cache positions [0, n)
+            // are a deterministic function of the first n tokens, so exact token
+            // equality against what the caches already hold is the sole validity
+            // test -- reuse can never change outputs. Cap at seq_len - 1 so at least
+            // the final position prefills and the sampled logits are fresh. A refused
+            // rewind (bounded-ring staleness, cold cache) falls back to the full
+            // prefill, which positionally overwrites regardless of cache state.
+            int64_t common = 0;
+            const int64_t comparable = std::min(
+                seq_len, static_cast<int64_t>( kv_token_history_.size() ) );
+
+            while ( common < comparable && kv_token_history_[ static_cast<size_t>( common ) ] == prompt_tokens[ static_cast<size_t>( common ) ] )
+                ++common;
+
+            const int64_t reuse = std::min( common, seq_len - 1 );
+
+            const bool reused = reuse > 0
+                && this->getLanguageNetwork().rewindKvCache( static_cast<int>( reuse ) );
+
+            auto& logits = reused
+                ? this->getLanguageNetwork().prefillFrom( prefill_input, reuse )
+                : this->getLanguageNetwork().prefill( prefill_input );
+
+            if ( reused )
+                Logging::Logger::info( std::format(
+                    "GemmaModel: KV prefix reuse -- skipped {} of {} prompt tokens", reuse, seq_len ) );
+
+            // The caches now hold exactly the prompt; decode appends below in lockstep.
+            kv_token_history_.assign( prompt_tokens.begin(), prompt_tokens.end() );
+
             this->getLanguageNetwork().synchronize();
 
             int32_t next_token = this->sampleNext( logits, decode_token_device_, params.sampling );
@@ -305,7 +334,10 @@ namespace Mila::Dnn
 
                 // The previous sampleNext() already wrote the sampled token into
                 // decode_token_device_ on the device, so it is ready to decode in place --
-                // no host round-trip.
+                // no host round-trip. The decoded token enters the KV cache here, so the
+                // reuse history appends in lockstep (next_token still holds its id).
+                kv_token_history_.push_back( next_token );
+
                 auto& decode_logits = this->getLanguageNetwork().decode( decode_token_device_, position );
                 this->getLanguageNetwork().synchronize();
 
@@ -407,6 +439,13 @@ namespace Mila::Dnn
         // Device decode-input buffer: the sampler writes the next token here in place,
         // and decode() reads it directly -- no host staging round-trip.
         TokenIndexType decode_token_device_;
+
+        // The token ids whose K/V the caches currently hold, in position order:
+        // the last prefilled prompt plus every token fed through decode (appended
+        // in lockstep with the decode call). Drives the transparent prompt-prefix
+        // reuse in onGenerating (PromptCaching.md): host-side bookkeeping only,
+        // bounded by the deployment context length.
+        std::vector<int32_t> kv_token_history_;
 
         // Gemma 4 instruct stop tokens: <eos> = 1, <end_of_turn> = 106 (validated by the
         // token-for-token HF parity run + the live chat). These are the MODEL defaults; the

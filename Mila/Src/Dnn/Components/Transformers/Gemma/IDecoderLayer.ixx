@@ -74,5 +74,15 @@ namespace Mila::Dnn
          * @brief Reset the KV cache (new generation session).
          */
         virtual void resetKVCache() = 0;
+
+        /**
+         * @brief Rewind the KV cache fill position for prompt-prefix reuse.
+         *
+         * Keeps the cache session live; positions [0, position) stay valid.
+         * @return true when the layer's attention accepted the rewind (a bounded
+         * sliding-window ring refuses when the stale tail has overwritten the
+         * window a continuation would attend to).
+         */
+        virtual bool rewindKvCache( int position ) = 0;
     };
 }

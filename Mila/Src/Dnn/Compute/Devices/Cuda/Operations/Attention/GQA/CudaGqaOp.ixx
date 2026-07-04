@@ -179,6 +179,29 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             cached_seq_len_ = 0;
         }
 
+        bool rewindKvCache( int position ) override
+        {
+            if ( position < 0 || position > cached_seq_len_ )
+                return false;
+
+            if constexpr ( kBounded )
+            {
+                // Ring validity: the resident rows are the last cache_capacity_
+                // written positions. A continuation from `position` attends down to
+                // position - window_, so the stale tail [position, cached_seq_len_)
+                // must not have wrapped over that range:
+                //   cached_seq_len_ - position <= cache_capacity_ - window_
+                // (the capacity is window + prefill_chunk - 1, so up to one chunk
+                // minus one of stale tokens is tolerated).
+                if ( cached_seq_len_ - position > cache_capacity_ - window_ )
+                    return false;
+            }
+
+            cached_seq_len_ = position;
+
+            return true;
+        }
+
         void prefill(
             const ITensor& q, const ITensor& k, const ITensor& v,
             ITensor& output,

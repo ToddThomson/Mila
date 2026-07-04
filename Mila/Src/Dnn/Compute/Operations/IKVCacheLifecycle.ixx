@@ -32,6 +32,20 @@ namespace Mila::Dnn::Compute
          */
         virtual void resetKvCache() = 0;
 
+        /**
+         * @brief Rewind the logical cache fill position without touching device
+         * K/V buffer contents, so positions [0, position) can be reused by a
+         * subsequent partial prefill (PromptCaching.md).
+         *
+         * @return true when the rewind is valid and was applied. Implementations
+         * must refuse (return false, cache state unchanged) when reuse would be
+         * incorrect -- e.g. position exceeds the current fill, or a bounded
+         * sliding-window ring has already overwritten the window a continuation
+         * from `position` would attend to. On false the caller falls back to a
+         * full prefill, which positionally overwrites regardless of cache state.
+         */
+        virtual bool rewindKvCache( int position ) = 0;
+
         virtual ~IKvCacheLifecycle() = default;
     };
 }

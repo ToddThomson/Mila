@@ -394,7 +394,19 @@ a 12 GB card.
   shared-ownership path is `wte_` shared_ptr + `Linear::installSharedWeight` + post-load aliasing in
   `GemmaTransformer::loadParameters`. Required a Gemma re-convert (old checkpoints double-scale — no
   graceful-degradation path, by design). This is option (C) of the VRAM footprint item below.
-- [ ] **Weight-tying for Llama 3.2 1B/3B (Good First Issue).** Deferred follow-up — WeightTying.md §6.
+- [ ] **[VRAM, load-time] Tied lm_head double-allocates 2 GB during load — WDDM spill on the
+  12 GB card.** Observed 2026-07-03 (user, Task Manager): dedicated VRAM pegs at 12 GB plus a
+  WDDM shared-memory blip until the model finishes loading, then falls to ~10.1 GB. Cause:
+  `lm_head` self-allocates its vocab x model_dim BF16 weight (262144 x 3840 x 2B ~= 2.01 GB) at
+  build, and the tie (`installSharedWeight` with the embedding table) only replaces + frees it at
+  the END of `GemmaTransformer::loadParameters` — so the load-time peak carries both copies while
+  the FP4 weights and the ~470 MB quantize staging accumulate. Fix: `tie_word_embeddings` is in
+  the checkpoint metadata that `fromPretrained` already reads BEFORE build (`configFromMetadata`)
+  — thread it into the config and either install the shared table pre-build or skip the lm_head
+  weight self-allocation (the pooling Phase 2 install-before-build idiom;
+  `Linear::installSharedWeight` needs to accept pre-build install or Linear gains a deferred-weight
+  build path). Payoff: flat ~10.1 GB load peak, no WDDM spill, likely faster load. Same fix
+  applies to the deferred Llama tying item below when that lands. Deferred follow-up — WeightTying.md §6.
   The architecture-agnostic plumbing already shipped with the Gemma gate (`embedding_scale` defaults to
   identity for Llama). Remaining surface is small: add `tie_word_embeddings_` member + post-load aliasing
   + `getMemoryStats` correction to `LlamaTransformer` (identical to Gemma), and write the flag + skip the
@@ -761,11 +773,23 @@ Still open to close the milestone:
   mis-times its own prefill (that bug leaves with the stopwatch), but the lazy allocation still adds real
   first-token latency the harness will measure — construct up front.
 
-**Deferred — harness layer, NOT the library (only if multi-turn prefill latency actually bites):**
-- [ ] **Prompt-caching / KV reuse as a harness concern.** The library exposes the primitives —
-  `prefillFrom(input, start_offset)` + `rewindKvCache(position)` per
-  [PromptCaching.md](Mila/Specifications/PromptCaching.md) §4.1-4.6; an app (Chat, the inference server)
-  builds the session / cache / routing policy on top. A per-conversation `GenerateSession` (single,
-  append-only, model-owned: KV continuity + seedable RNG + accumulated stats) is the optional convenience —
-  NOT a multi-tenant caching server (no pools / eviction / prefix-routing in the library). Gated on the
-  bounded-KV ring cache for Gemma's sliding layers. Do this only when a real latency need shows up.
+- [~] **Prompt-caching / KV prefix reuse ("P4") — SHIPPED for Gemma 2026-07-03 (awaiting build +
+  validation).** The latency need showed up measured (full 8K re-prefill ~5-6 s per chat turn even
+  post-chunk-512; up to 4 re-prefills per tool round). Shipped per the updated
+  [PromptCaching.md](Mila/Specifications/PromptCaching.md): `rewindKvCache(int) -> bool` on
+  `IKvCacheLifecycle` (bool = the bounded-ring correction — the ring refuses when the stale tail
+  exceeds `capacity - window`, pinned by `RewindKvCache_BoundedRingEnforcesWindowValidity`);
+  delegation `CudaGqaOp`/`CudaMhaOp` -> GQA component (session stays live, unlike resetKVCache) ->
+  `IDecoderLayer`/`GemmaBlock` -> `GemmaTransformer` (all-or-nothing AND); `prefillFrom(input,
+  start_offset)` with `prefill = prefillFrom(input, 0)` (one chunk loop); `LanguageNetwork` base
+  gains both as safe-default virtuals (throw / false — Llama/Gpt untouched). Policy = TRANSPARENT
+  model-side longest-common-prefix reuse (approved deviation from the draft's caller hint):
+  `GemmaModel::kv_token_history_` tracks cache contents in lockstep with decode; zero generate()/
+  GenerateParams/harness/pybind changes — Chat turns, tool rounds, and MIS all win for free;
+  retokenization drift degrades savings, never correctness. Tests:
+  op-level rewind validity (unbounded + ring bound) + transformer full-vs-incremental logits
+  parity on real (explicitly initialized) weights + offset-contract throws.
+  **Remaining:** [ ] Llama chain mirror (LlamaBlock/LlamaTransformer/LlamaModel — mechanical, op
+  layer already done); [ ] multi-turn TTFT measurement in chat (the "KV prefix reuse" log line +
+  per-round stats). The per-conversation `GenerateSession` convenience and multi-session paged
+  caching (vLLM-style radix/eviction) stay deferred as before.

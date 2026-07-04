@@ -171,13 +171,32 @@ namespace Mila::Dnn
 
         TensorType& prefill( const TokenIndexType& input ) override
         {
+            return prefillFrom( input, 0 );
+        }
+
+        /**
+         * @brief Chunked prefill starting at an absolute position (prompt-prefix reuse).
+         *
+         * `input` is the FULL prompt tensor, so the token index and the absolute
+         * position coincide; chunking simply starts at start_offset instead of 0.
+         * Positions [0, start_offset) must already be resident in the KV caches
+         * (rewindKvCache). start_offset must lie inside the prompt so at least one
+         * position is prefilled and the returned last-position logits are fresh.
+         */
+        TensorType& prefillFrom( const TokenIndexType& input, int64_t start_offset ) override
+        {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GemmaTransformer must be built before calling prefill()." );
 
             const int64_t B = input.shape()[ 0 ];
             const int64_t T_prompt = input.shape()[ 1 ];
 
-            int64_t offset = 0;
+            if ( start_offset < 0 || start_offset >= T_prompt )
+                throw std::invalid_argument( std::format(
+                    "GemmaTransformer::prefillFrom: start_offset {} must lie inside the prompt (length {})",
+                    start_offset, T_prompt ) );
+
+            int64_t offset = start_offset;
             int64_t T_last = 0;
 
             TensorType* last_block_out = nullptr;
@@ -242,6 +261,24 @@ namespace Mila::Dnn
         {
             for ( auto* layer : layers_ )
                 layer->resetKVCache();
+        }
+
+        /**
+         * @brief Rewind every layer's KV cache to `position` for prefix reuse.
+         *
+         * All-or-nothing from the caller's perspective: returns true only when
+         * every layer accepted. On false the caller falls back to a full prefill,
+         * which positionally overwrites all caches -- so a partial rewind (some
+         * layers moved, a bounded ring refused) needs no cleanup.
+         */
+        bool rewindKvCache( int position ) override
+        {
+            bool all_accepted = true;
+
+            for ( auto* layer : layers_ )
+                all_accepted = layer->rewindKvCache( position ) && all_accepted;
+
+            return all_accepted;
         }
 
         // ====================================================================

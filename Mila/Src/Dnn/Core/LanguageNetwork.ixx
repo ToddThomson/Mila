@@ -22,6 +22,8 @@
  */
 
 module;
+#include <cstdint>
+#include <stdexcept>
 #include <string>
 
 export module Dnn.LanguageNetwork;
@@ -87,5 +89,40 @@ namespace Mila::Dnn
          * @return         Logits [B, 1, vocab_size].
          */
         virtual TensorType& decode( const TokenIndexType& input, int position ) = 0;
+
+        /**
+         * @brief Chunked prefill starting at an absolute position (prompt-prefix reuse).
+         *
+         * @param input        The FULL prompt token indices [B, T] -- not a pre-sliced
+         *                     tail; token index and absolute position coincide.
+         * @param start_offset First position to prefill; [0, start_offset) must already
+         *                     be resident in the KV caches (see rewindKvCache).
+         * @return             Logits for the last token position.
+         *
+         * Default: unsupported. Networks that implement the reuse path (Gemma)
+         * override both this and rewindKvCache; callers only reach prefillFrom
+         * after a successful rewind, so the default is never hit in practice.
+         */
+        virtual TensorType& prefillFrom( const TokenIndexType& input, int64_t start_offset )
+        {
+            ( void )input;
+            ( void )start_offset;
+            throw std::logic_error( "LanguageNetwork::prefillFrom: not supported by this network" );
+        }
+
+        /**
+         * @brief Rewind the KV caches to `position` for prompt-prefix reuse
+         * (PromptCaching.md). Positions [0, position) stay valid; device contents
+         * are untouched.
+         *
+         * @return true when every layer accepted the rewind. Default: false (no
+         * reuse capability); a full prefill positionally overwrites regardless,
+         * so a refused or partial rewind never needs cleanup.
+         */
+        virtual bool rewindKvCache( int position )
+        {
+            ( void )position;
+            return false;
+        }
     };
 }

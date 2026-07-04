@@ -272,6 +272,14 @@ turns per-turn latency from linear-in-history into linear-in-delta. Composes
 cleanly with the bounded ring: the ring holds exactly the window a continued
 decode needs. The biggest user-visible chat win.
 
+**SHIPPED 2026-07-03 (awaiting validation):** as transparent model-side reuse
+rather than harness prefix matching — `GemmaModel` tracks its cache token
+history and matches internally, so Chat, tool rounds, and MIS all win with
+zero caller changes. The ring composition required one correction to the
+PromptCaching.md draft: `rewindKvCache` returns bool and the bounded op
+refuses when the stale tail exceeds `capacity - window`. Full as-shipped
+design in the rewritten PromptCaching.md.
+
 ---
 
 ## 6. Prefill Chunk: Alternatives Considered and Heuristic v2

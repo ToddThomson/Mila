@@ -258,6 +258,67 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         EXPECT_TRUE( allFinite( host ) );
     }
 
+    // Incremental prefill (prompt-prefix reuse, PromptCaching.md): rewinding to a
+    // prefix boundary and prefilling only the tail must reproduce the full-prefill
+    // logits -- the KV rows [0, split) are a deterministic function of the tokens,
+    // so the two paths differ only in float accumulation across chunk boundaries.
+    // Real weights (explicit init) make the comparison numerically meaningful.
+    TEST_F( GemmaTransformerCudaTests, PrefillFrom_AfterRewind_MatchesFullPrefill )
+    {
+        constexpr int64_t kSeq = 24;
+        constexpr int64_t kSplit = 16;
+
+        auto net = std::make_unique<GemmaCuda>( "gemma", allLocalConfig(), Device::Cuda( 0 ) );
+        net->build( BuildContext( shape_t{ batch_, kSeq }, RuntimeMode::Inference, true ) );
+
+        auto tokens = makeTokens( batch_, kSeq );
+
+        auto& logits_full = net->prefill( tokens );
+        HostTensor full_host( Device::Cpu(), logits_full.shape() );
+        copy( logits_full, full_host );
+        net->synchronize();
+
+        // Rewind to the split ([0, kSplit) stays resident) and prefill only the tail.
+        ASSERT_TRUE( net->rewindKvCache( static_cast<int>( kSplit ) ) );
+
+        auto& logits_incremental = net->prefillFrom( tokens, kSplit );
+        HostTensor incremental_host( Device::Cpu(), logits_incremental.shape() );
+        copy( logits_incremental, incremental_host );
+        net->synchronize();
+
+        ASSERT_EQ( incremental_host.size(), full_host.size() );
+
+        for ( size_t i = 0; i < full_host.size(); ++i )
+        {
+            const float expected = full_host.data()[ i ];
+            const float tolerance = 1e-4f + 1e-3f * std::fabs( expected );
+
+            EXPECT_NEAR( incremental_host.data()[ i ], expected, tolerance )
+                << "incremental prefill diverged from full prefill at logit " << i;
+        }
+    }
+
+    TEST_F( GemmaTransformerCudaTests, RewindKvCache_RejectsPositionsBeyondFill )
+    {
+        auto net = builtNet( allLocalConfig(), batch_, seq_ );
+        auto tokens = makeTokens( batch_, seq_ );
+
+        net->prefill( tokens );
+        net->synchronize();
+
+        EXPECT_TRUE( net->rewindKvCache( static_cast<int>( seq_ - 1 ) ) );
+        EXPECT_FALSE( net->rewindKvCache( static_cast<int>( seq_ + 10 ) ) );
+    }
+
+    TEST_F( GemmaTransformerCudaTests, PrefillFrom_ThrowsOnOffsetOutsidePrompt )
+    {
+        auto net = builtNet( allLocalConfig(), batch_, seq_ );
+        auto tokens = makeTokens( batch_, seq_ );
+
+        EXPECT_THROW( net->prefillFrom( tokens, seq_ ), std::invalid_argument );
+        EXPECT_THROW( net->prefillFrom( tokens, -1 ), std::invalid_argument );
+    }
+
     TEST_F( GemmaTransformerCudaTests, Decode_ProducesLogitsShape )
     {
         auto net = builtNet( allLocalConfig(), batch_, seq_ );

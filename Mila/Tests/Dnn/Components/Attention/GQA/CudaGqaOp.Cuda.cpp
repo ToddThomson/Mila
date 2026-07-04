@@ -452,6 +452,77 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
     }
 
     // ====================================================================
+    // KV-cache rewind (prompt-prefix reuse, PromptCaching.md)
+    //
+    // rewindKvCache moves only the logical fill position; device contents are
+    // untouched. The unbounded cache accepts any position within the current
+    // fill. The bounded ring must additionally refuse when the stale tail
+    // [position, cached) has wrapped over the OLD rows [position - window,
+    // position) a continuation would attend to:
+    //   valid  <=>  cached - position <= capacity - window  (= chunk - 1)
+    // ====================================================================
+
+    TYPED_TEST( CudaGqaOpTests, RewindKvCache_UnboundedAcceptsAnyPositionWithinFill )
+    {
+        constexpr int kSeq = 20;
+        std::mt19937 rng( 77u );
+
+        std::vector<typename TestFixture::HostFp32> qs, ks, vs;
+        for ( int t = 0; t < kSeq; ++t )
+        {
+            qs.push_back( this->randomHost( shape_t{ kBatch, 1, kNumHeads * kHeadDim }, rng ) );
+            ks.push_back( this->randomHost( shape_t{ kBatch, 1, kNumKvHeads * kHeadDim }, rng ) );
+            vs.push_back( this->randomHost( shape_t{ kBatch, 1, kNumKvHeads * kHeadDim }, rng ) );
+        }
+
+        typename TestFixture::UnboundedOp op( this->cuda_context_.get(), this->config( kWindow ) );
+        op.build( BuildContext( shape_t{ kBatch, kContext, kPackedQkv },
+            RuntimeMode::Inference, false ).withPrefillSize( kPrefillChunk ) );
+        op.initializeKvCache( kBatch, kContext );
+
+        this->runDecodeSequence( op, qs, ks, vs );
+
+        EXPECT_FALSE( op.rewindKvCache( kSeq + 1 ) );  // beyond the fill
+        EXPECT_TRUE( op.rewindKvCache( kSeq ) );       // no-op boundary
+        EXPECT_TRUE( op.rewindKvCache( 5 ) );          // deep rewind: always valid unbounded
+        EXPECT_FALSE( op.rewindKvCache( 6 ) );         // fill is now 5; forward rewinds refused
+    }
+
+    TYPED_TEST( CudaGqaOpTests, RewindKvCache_BoundedRingEnforcesWindowValidity )
+    {
+        // Decode past the ring capacity so the ring has wrapped before probing.
+        constexpr int kSeq = 40;  // > capacity 23
+        constexpr int kStaleTolerance = kExpectedCapacity - kWindow;  // chunk - 1 = 15
+        std::mt19937 rng( 99u );
+
+        std::vector<typename TestFixture::HostFp32> qs, ks, vs;
+        for ( int t = 0; t < kSeq; ++t )
+        {
+            qs.push_back( this->randomHost( shape_t{ kBatch, 1, kNumHeads * kHeadDim }, rng ) );
+            ks.push_back( this->randomHost( shape_t{ kBatch, 1, kNumKvHeads * kHeadDim }, rng ) );
+            vs.push_back( this->randomHost( shape_t{ kBatch, 1, kNumKvHeads * kHeadDim }, rng ) );
+        }
+
+        typename TestFixture::BoundedOp bounded( this->cuda_context_.get(), this->config( kWindow ) );
+        bounded.build( BuildContext( shape_t{ kBatch, kContext, kPackedQkv },
+            RuntimeMode::Inference, false ).withPrefillSize( kPrefillChunk ) );
+        bounded.initializeKvCache( kBatch, kContext );
+
+        this->runDecodeSequence( bounded, qs, ks, vs );
+
+        // Stale tail one past the tolerance: the window rows are gone -- refuse,
+        // and the fill position must be unchanged by the refusal.
+        EXPECT_FALSE( bounded.rewindKvCache( kSeq - kStaleTolerance - 1 ) );
+        EXPECT_FALSE( bounded.rewindKvCache( kSeq + 1 ) );
+
+        // Exactly at the tolerance: the oldest needed row is still resident.
+        EXPECT_TRUE( bounded.rewindKvCache( kSeq - kStaleTolerance ) );
+
+        // The fill is now kSeq - kStaleTolerance; positions past it are refused.
+        EXPECT_FALSE( bounded.rewindKvCache( kSeq - kStaleTolerance + 1 ) );
+    }
+
+    // ====================================================================
     // Decode parity vs the full-cache oracle (D8)
     // ====================================================================
 

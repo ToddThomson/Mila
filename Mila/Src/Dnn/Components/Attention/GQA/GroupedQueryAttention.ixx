@@ -349,6 +349,22 @@ namespace Mila::Dnn
             }
         }
 
+        /**
+         * @brief Rewind the cache fill position for prompt-prefix reuse
+         * (PromptCaching.md). Unlike resetKVCache() the cache session stays live:
+         * initialization state and device contents are untouched, and positions
+         * [0, position) remain valid for a subsequent prefillFrom.
+         *
+         * @return true when the underlying operation accepted the rewind.
+         */
+        bool rewindKvCache( int position )
+        {
+            if ( !kv_cache_op_ || !cache_initialized_ )
+                return false;
+
+            return kv_cache_op_->rewindKvCache( position );
+        }
+
         // ====================================================================
         // Serialization
         // ====================================================================
