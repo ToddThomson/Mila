@@ -56,6 +56,7 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
+import Logging.Logger;
 import Dnn.LanguageNetwork;
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -88,50 +89,20 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Quant::Weight;
     using namespace Mila::Dnn::Quant::KvCache;
 
-    // Attention-scratch ceiling for a single prefill pass. The chunk-dependent GQA
-    // scratch (preatt + att + q_permute + v_out) must fit under this cap. Mirrors
-    // LlamaTransformer's budget; a VRAM-aware budget can replace it later.
-    inline constexpr int64_t kGemmaPrefillScratchByteCap = int64_t{ 1536 } * 1024 * 1024;
+    // Manual prefill-chunk override for VRAM sweeps: > 0 forces the chunk (clamped to
+    // the context length); 0 = the activation-aware heuristic v2 on the transformer
+    // (resolvePrefillChunkSize). Kept as the debug escape hatch; the chunk-32
+    // operating point it used to pin is obsolete now that the block activations are
+    // pooled (Gemma4InferenceReview.md sections 6-7).
+    inline constexpr int64_t kGemmaPrefillChunkOverride = 0;
 
-    // Manual prefill-chunk override for VRAM experiments: set > 0 to force the chunk
-    // (clamped to context_length); 0 = use the heuristic below. The per-layer prefill
-    // activation footprint (all N layers, dominated by the GeGLU FFN) scales with this,
-    // so it is the primary prefill VRAM lever on memory-constrained cards.
-    inline constexpr int64_t kGemmaPrefillChunkOverride = 32;
-
-    // Largest prefill chunk in {512, 256, 128, 64, 32, 16} whose attention scratch
-    // stays under the cap. head_dim is the MAX over local/global so the budget is
-    // conservative for the wider global geometry.
-    //
-    // NOTE: this cap budgets only the GQA attention scratch, NOT the per-layer prefill
-    // activation buffers (the dominant prefill VRAM term on a wide/deep model). Until the
-    // budget is made activation-aware, use kGemmaPrefillChunkOverride to sweep by hand.
-    inline int64_t computeGemmaPrefillChunkSize(
-        int64_t batch, int64_t num_heads, int64_t head_dim,
-        int64_t context_length, int64_t precision_bytes )
-    {
-        if constexpr ( kGemmaPrefillChunkOverride > 0 )
-        {
-            return std::min<int64_t>( kGemmaPrefillChunkOverride, context_length );
-        }
-        else
-        {
-            const int64_t scratch_per_chunk_row =
-                batch * num_heads * ( 2 * context_length + 2 * head_dim ) * precision_bytes;
-
-            for ( int64_t candidate : { int64_t{ 512 }, int64_t{ 256 }, int64_t{ 128 },
-                                        int64_t{ 64 }, int64_t{ 32 }, int64_t{ 16 } } )
-            {
-                if ( candidate > context_length )
-                    continue;
-
-                if ( scratch_per_chunk_row * candidate <= kGemmaPrefillScratchByteCap )
-                    return candidate;
-            }
-
-            return std::min<int64_t>( 16, context_length );
-        }
-    }
+    // Activation budget for one prefill pass: every chunk-scaled term (the shared
+    // block workspace, the GQA attention scratch, and the bounded-ring KV growth)
+    // must fit under this cap. A fixed conservative cap rather than a live
+    // cudaMemGetInfo budget (follow-up tracked in BACKLOG) -- the complete row-cost
+    // model is the correction that matters: heuristic v1 budgeted only the attention
+    // scratch and was blind to the terms that actually bound the chunk.
+    inline constexpr int64_t kGemmaPrefillActivationBudgetBytes = int64_t{ 1536 } * 1024 * 1024;
 
     /**
      * @brief Gemma 4 transformer (decoder-only) for autoregressive inference.
@@ -293,7 +264,16 @@ namespace Mila::Dnn
 
             for ( auto* t : { gqa_q_permute_.get(), gqa_preatt_.get(), gqa_att_.get(),
                               gqa_v_out_.get(), gqa_preatt_decode_.get(),
-                              gqa_att_decode_.get(), gqa_v_out_decode_.get() } )
+                              gqa_att_decode_.get(), gqa_v_out_decode_.get(),
+                              block_workspace_.q.get(), block_workspace_.k.get(),
+                              block_workspace_.v.get(), block_workspace_.normed.get(),
+                              block_workspace_.qkv.get(), block_workspace_.q_normed.get(),
+                              block_workspace_.k_normed.get(), block_workspace_.v_normed.get(),
+                              block_workspace_.attn.get(), block_workspace_.o.get(),
+                              block_workspace_.o_normed.get(), block_workspace_.res1.get(),
+                              block_workspace_.ffn_in.get(), block_workspace_.gate_up.get(),
+                              block_workspace_.ffn_act.get(), block_workspace_.ffn_down.get(),
+                              block_workspace_.ffn_normed.get(), block_workspace_.stream.get() } )
             {
                 if ( t )
                     stats.device_state_bytes += t->getStorageSize();
@@ -397,12 +377,9 @@ namespace Mila::Dnn
             const int64_t T = input_shape[ 1 ];
 
             // Tune the prefill chunk once and thread it to every block (and its GQA op)
-            // via block_context. Use the MAX head_dim so the scratch budget is sized for
-            // the wider global geometry.
-            const int64_t head_dim_max = std::max( config_.getHeadDim(), config_.getGlobalHeadDim() );
-            prefill_chunk_size_ = computeGemmaPrefillChunkSize(
-                B, config_.getNumHeads(), head_dim_max,
-                T, static_cast<int64_t>( TensorDataTypeTraits<TPrecision>::size_in_bytes ) );
+            // via block_context. The heuristic budgets the complete chunk-scaled
+            // activation cost (workspace + attention scratch + ring growth).
+            prefill_chunk_size_ = resolvePrefillChunkSize( B, T );
 
             // Blocks need full context length so GQA can size the KV cache; the block
             // handles the prefill/decode split internally.
@@ -420,6 +397,13 @@ namespace Mila::Dnn
             token_embedding_ = this->template getComponentAs<TokenEmbeddingType>( this->getName() + ".temb" );
             token_embedding_->build( context );
 
+            // Shared per-block activation workspace (pooling): one slot set serves all
+            // layers because the inference path runs exactly one block at a time.
+            // Allocated before the layer loop so each block (and its components) can
+            // skip self-allocation at build.
+            if ( context.isInferenceMode() )
+                allocateBlockWorkspace( B );
+
             layers_.clear();
             layers_.reserve( static_cast<size_t>(config_.getNumLayers()) );
 
@@ -432,12 +416,20 @@ namespace Mila::Dnn
                 if ( config_.isGlobalLayer( static_cast<dim_t>( i ) ) )
                 {
                     auto block = this->template getComponentAs<GlobalBlockType>( block_name );
+
+                    if ( context.isInferenceMode() )
+                        block->installSharedWorkspace( block_workspace_ );
+
                     block->build( block_context );
                     layers_.push_back( static_cast<DecoderLayerType*>( block.get() ) );
                 }
                 else
                 {
                     auto block = this->template getComponentAs<LocalBlockType>( block_name );
+
+                    if ( context.isInferenceMode() )
+                        block->installSharedWorkspace( block_workspace_ );
+
                     block->build( block_context );
                     layers_.push_back( static_cast<DecoderLayerType*>( block.get() ) );
                 }
@@ -489,6 +481,13 @@ namespace Mila::Dnn
         // Set from checkpoint metadata in loadParameters. When true, lm_head shares the
         // token embedding table (WeightTying.md) and lm_head.weight is absent from the file.
         bool tie_word_embeddings_{ false };
+
+        // Shared per-block activation workspace (split scratch + one output slot per
+        // graph position) -- inference only, owned here, one set serves all blocks
+        // (exactly one layer is live at a time on the sequential path); blocks and
+        // their components view prefixes. Sized at the wider (local vs global)
+        // geometry, the same max-geometry convention as the GQA workspace below.
+        GemmaBlockWorkspace<TDeviceType, TPrecision> block_workspace_{};
 
         // Shared GQA transient workspace -- inference only, owned here, shared across
         // all blocks. q_permute/v_out are sized at the MAX head_dim (global) so the
@@ -565,8 +564,160 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // GQA workspace
+        // Prefill chunk heuristic v2 + shared block scratch + GQA workspace
         // ====================================================================
+
+        // Max-geometry slot widths shared by the workspace allocation and the
+        // chunk heuristic's row-cost model, so the two cannot drift apart.
+        struct WorkspaceWidths
+        {
+            int64_t model_dim;
+            int64_t hidden_dim;
+            int64_t q_width;
+            int64_t kv_width;
+            int64_t qkv_width;
+
+            // q + q_normed + attn; k + v + k_normed + v_normed; the eight
+            // model_dim-wide stream-side slots; qkv; gate_up (2h) + ffn_act (h).
+            int64_t totalRowElements() const
+            {
+                return 3 * q_width + 4 * kv_width + 8 * model_dim + qkv_width + 3 * hidden_dim;
+            }
+        };
+
+        WorkspaceWidths computeWorkspaceWidths() const
+        {
+            const int64_t NH = static_cast<int64_t>( config_.getNumHeads() );
+
+            WorkspaceWidths widths;
+            widths.model_dim = static_cast<int64_t>( config_.getModelDim() );
+            widths.hidden_dim = static_cast<int64_t>( config_.getHiddenDimension() );
+            widths.q_width = NH * std::max( config_.getHeadDim(), config_.getGlobalHeadDim() );
+            widths.kv_width = std::max(
+                static_cast<int64_t>( config_.getNumKVHeads() ) * config_.getHeadDim(),
+                static_cast<int64_t>( config_.getNumGlobalKVHeads() ) * config_.getGlobalHeadDim() );
+
+            // Packed QKV width per layer kind: global K=V layers drop the V section.
+            const int64_t packed_local =
+                (NH + 2 * static_cast<int64_t>( config_.getNumKVHeads() )) * config_.getHeadDim();
+            const int64_t packed_global =
+                (NH + (config_.keyEqualsValue() ? 1 : 2) * static_cast<int64_t>( config_.getNumGlobalKVHeads() ))
+                * config_.getGlobalHeadDim();
+            widths.qkv_width = std::max( packed_local, packed_global );
+
+            return widths;
+        }
+
+        // Complete chunk-scaled activation cost per prefill chunk row
+        // (Gemma4InferenceReview.md section 6.3, post-pooling constants): the shared
+        // block workspace slots, the chunk-scaled GQA attention scratch
+        // (preatt/att span the context; q_permute/v_out span the max head width),
+        // and -- bounded sliding policy only -- the per-row ring capacity growth
+        // across the local layers.
+        int64_t computeChunkRowCostBytes( int64_t B, int64_t T_ctx ) const
+        {
+            const int64_t precision_bytes =
+                static_cast<int64_t>( TensorDataTypeTraits<TPrecision>::size_in_bytes );
+            const int64_t NH = static_cast<int64_t>( config_.getNumHeads() );
+            const int64_t HS_max = std::max( config_.getHeadDim(), config_.getGlobalHeadDim() );
+
+            const int64_t workspace_bytes =
+                computeWorkspaceWidths().totalRowElements() * B * precision_bytes;
+            const int64_t attention_bytes =
+                B * NH * ( 2 * T_ctx + 2 * HS_max ) * precision_bytes;
+
+            int64_t ring_bytes = 0;
+
+            if constexpr ( TKvCachePolicy::kIsActive )
+            {
+                int64_t local_layers = 0;
+
+                for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
+                {
+                    if ( !config_.isGlobalLayer( static_cast<dim_t>( i ) ) )
+                        ++local_layers;
+                }
+
+                ring_bytes = local_layers * 2 * B
+                    * static_cast<int64_t>( config_.getNumKVHeads() )
+                    * config_.getHeadDim() * precision_bytes;
+            }
+
+            return workspace_bytes + attention_bytes + ring_bytes;
+        }
+
+        // Heuristic v2 (Gemma4InferenceReview.md section 6.4): largest chunk in
+        // {512, 256, 128, 64} whose complete row cost fits the activation budget.
+        // 512 is the ceiling (weight amortization is done by then); 64 is the floor
+        // (below it the GEMM M dimension is tensor-core-hostile on top of the weight
+        // re-read) -- if 64 does not fit, warn instead of silently limping.
+        int64_t resolvePrefillChunkSize( int64_t B, int64_t T_ctx ) const
+        {
+            if constexpr ( kGemmaPrefillChunkOverride > 0 )
+            {
+                return std::min<int64_t>( kGemmaPrefillChunkOverride, T_ctx );
+            }
+
+            // Short-context build: the whole context is a single chunk.
+            if ( T_ctx < 64 )
+                return T_ctx;
+
+            const int64_t row_cost = computeChunkRowCostBytes( B, T_ctx );
+
+            for ( int64_t candidate : { int64_t{ 512 }, int64_t{ 256 }, int64_t{ 128 }, int64_t{ 64 } } )
+            {
+                if ( candidate > T_ctx )
+                    continue;
+
+                if ( row_cost * candidate <= kGemmaPrefillActivationBudgetBytes )
+                    return candidate;
+            }
+
+            Logging::Logger::warning( std::format(
+                "GemmaTransformer: the prefill chunk floor (64) exceeds the activation budget "
+                "(row cost {} bytes) -- this device/model combination cannot prefill efficiently",
+                row_cost ) );
+
+            return 64;
+        }
+
+        void allocateBlockWorkspace( int64_t B )
+        {
+            const auto widths = computeWorkspaceWidths();
+            const int64_t model_dim = widths.model_dim;
+            const int64_t hidden_dim = widths.hidden_dim;
+            const int64_t q_width = widths.q_width;
+            const int64_t kv_width = widths.kv_width;
+            const int64_t qkv_width = widths.qkv_width;
+
+            auto device = this->getExecutionContext()->getDeviceId();
+            const std::string n = this->getName();
+
+            auto slot = [&]( int64_t width, const char* name )
+            {
+                return std::make_shared<TensorType>(
+                    device, shape_t{ B, prefill_chunk_size_, width }, n + ".block_ws." + name );
+            };
+
+            block_workspace_.q = slot( q_width, "q" );
+            block_workspace_.k = slot( kv_width, "k" );
+            block_workspace_.v = slot( kv_width, "v" );
+            block_workspace_.normed = slot( model_dim, "normed" );
+            block_workspace_.qkv = slot( qkv_width, "qkv" );
+            block_workspace_.q_normed = slot( q_width, "q_normed" );
+            block_workspace_.k_normed = slot( kv_width, "k_normed" );
+            block_workspace_.v_normed = slot( kv_width, "v_normed" );
+            block_workspace_.attn = slot( q_width, "attn" );
+            block_workspace_.o = slot( model_dim, "o" );
+            block_workspace_.o_normed = slot( model_dim, "o_normed" );
+            block_workspace_.res1 = slot( model_dim, "res1" );
+            block_workspace_.ffn_in = slot( model_dim, "ffn_in" );
+            block_workspace_.gate_up = slot( 2 * hidden_dim, "gate_up" );
+            block_workspace_.ffn_act = slot( hidden_dim, "ffn_act" );
+            block_workspace_.ffn_down = slot( model_dim, "ffn_down" );
+            block_workspace_.ffn_normed = slot( model_dim, "ffn_normed" );
+            block_workspace_.stream = slot( model_dim, "stream" );
+        }
 
         void allocateAndWireGqaWorkspace( int64_t B, int64_t T_ctx )
         {

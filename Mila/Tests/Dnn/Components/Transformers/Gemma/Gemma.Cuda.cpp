@@ -56,9 +56,9 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 
         // pattern 6 over 2 layers -> both layers local (validated GQA path).
         // pattern 2 over 2 layers -> layer 1 global (heterogeneous build coverage).
-        GemmaConfig configWithPattern( int64_t pattern )
+        GemmaConfig configWithPattern( int64_t pattern, int64_t layers = kLayers )
         {
-            return GemmaConfig( kModelDim, kLayers )
+            return GemmaConfig( kModelDim, layers )
                 .withVocabularyLength( kVocab )
                 .withNumHeads( kHeads )
                 .withNumKVHeads( kKVHeads )
@@ -79,6 +79,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 
         GemmaConfig allLocalConfig() { return configWithPattern( 6 ); }
         GemmaConfig heterogeneousConfig() { return configWithPattern( 2 ); }
+        GemmaConfig fourLayerAllLocalConfig() { return configWithPattern( 6, 4 ); }
     }
 
     class GemmaTransformerCudaTests : public ::testing::Test
@@ -347,6 +348,57 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         static_assert( !GemmaCuda::GlobalBlockType::AttentionType::kKvCompressed );
 
         SUCCEED();
+    }
+
+    // ====================================================================
+    // L. Activation pooling (Gemma4InferenceReview.md section 7)
+    //
+    // With the shared block workspace installed, per-layer retained State
+    // collapses to the KV cache plus small fixed per-layer buffers (RoPE
+    // frequency tables, the GQA decode output). The chunk-scaled activation
+    // buffers that used to dominate (component output widths x chunk x 48
+    // layers on the real model) must NOT appear in the per-layer slope --
+    // that is the pooling contract. The workspace itself is counted once at
+    // the transformer, so it cancels in the layer delta.
+    // ====================================================================
+
+    TEST_F( GemmaTransformerCudaTests, StateMemory_PerLayerSlopeIsKvCacheNotActivations )
+    {
+        constexpr int64_t kBatch = 1;
+        constexpr int64_t kSeq = 32;
+
+        auto two_layer_net = builtNet( allLocalConfig(), kBatch, kSeq );
+        auto four_layer_net = builtNet( fourLayerAllLocalConfig(), kBatch, kSeq );
+
+        const size_t state_two = two_layer_net->getMemoryStats().device_state_bytes;
+        const size_t state_four = four_layer_net->getMemoryStats().device_state_bytes;
+
+        ASSERT_GT( state_four, state_two );
+
+        const size_t per_layer = ( state_four - state_two ) / 2;
+
+        // Closed-form full-context KV cache per local layer: K and V tensors,
+        // [B, NKV, T, head_dim] FP32 each (NoKvCompression default policy).
+        const size_t kv_bytes = 2ull * kBatch * kKVHeads * kSeq * kHeadDim * sizeof( float );
+
+        // Component-owned GQA decode output per layer: [B, 1, NH * head_dim] FP32.
+        const size_t decode_output_bytes = kBatch * kHeads * kHeadDim * sizeof( float );
+
+        // The RoPE cos/sin table is a process-wide shared cache; only the op that
+        // CREATES a geometry's table reports it (owns_cache_). Whichever net builds
+        // first carries this constant and the other reports zero, so the term enters
+        // the slope with order-dependent sign -- subtract it from the floor.
+        const size_t rope_cache_bytes = 2ull * kSeq * ( kHeadDim / 2 ) * sizeof( float );
+
+        // Above the floor, allow only fixed chunk-independent slack. Pre-pooling,
+        // the per-layer activation buffers alone were several times this allowance
+        // even at this tiny geometry.
+        const size_t fixed_allowance = 64 * 1024;
+
+        EXPECT_GE( per_layer, kv_bytes + decode_output_bytes - rope_cache_bytes / 2 );
+        EXPECT_LE( per_layer, kv_bytes + fixed_allowance )
+            << "per-layer State slope " << per_layer
+            << " exceeds KV + fixed allowance: chunk-scaled activation buffers have leaked back";
     }
 
     // ====================================================================

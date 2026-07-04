@@ -195,6 +195,25 @@ namespace Mila::Dnn
         // Identification and Description
         // ====================================================================
 
+        /**
+         * @brief Install a shared output slot (activation pooling).
+         *
+         * Must be called before build(): onBuilding then skips output self-allocation
+         * after validating the slot's storage covers the build shape. forward()
+         * already always returns a shape-adjusted view, so a wider slot never leaks
+         * its geometry to callers. Mirrors Linear::installSharedWeight; self-allocation
+         * remains the default. The slot is owned and memory-accounted by the installer.
+         */
+        void installSharedOutput( std::shared_ptr<TensorType> output )
+        {
+            if ( this->isBuilt() )
+                throw std::logic_error(
+                    "Swiglu '" + this->getName() + "': installSharedOutput must be called before build()" );
+
+            output_ = std::move( output );
+            output_installed_ = true;
+        }
+
         const ComponentType getType() const override
         {
             return ComponentType::Swiglu;
@@ -211,8 +230,9 @@ namespace Mila::Dnn
         MemoryStats getMemoryStats() const override
         {
             MemoryStats stats;
-            
-            if ( output_ != nullptr )
+
+            // An installed shared output slot is owned and counted by the installer.
+            if ( output_ != nullptr && !output_installed_ )
             {
                 stats.device_state_bytes += output_->getStorageSize();
             }
@@ -255,7 +275,21 @@ namespace Mila::Dnn
 
             DeviceId device_id = this->getExecutionContext()->getDeviceId();
 
-            output_ = std::make_unique<TensorType>( device_id, output_shape );
+            if ( output_installed_ )
+            {
+                int64_t needed = 1;
+                for ( auto d : output_shape )
+                    needed *= d;
+
+                if ( !output_ || output_->size() < needed )
+                    throw std::invalid_argument(
+                        "Swiglu '" + this->getName() + "': installed shared output slot is smaller than the build shape requires" );
+            }
+            else
+            {
+                output_ = std::make_shared<TensorType>( device_id, output_shape );
+            }
+
             output_view_.emplace( output_->view( output_shape ) );
 
             if ( build_context.isTrainingMode() )
@@ -283,7 +317,10 @@ namespace Mila::Dnn
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
         std::shared_ptr<OpType> operation_{ nullptr };
 
-        std::unique_ptr<TensorType> output_{ nullptr };
+        // Self-allocated at build, or an installed shared slot (installSharedOutput)
+        // that the component views a prefix of.
+        std::shared_ptr<TensorType> output_{ nullptr };
+        bool output_installed_{ false };
         std::optional<TensorType> output_view_;
 
         std::unique_ptr<TensorType> input_grad_{ nullptr };

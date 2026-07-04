@@ -413,7 +413,13 @@ a 12 GB card.
   a 2-layer tied Gemma and assert shared-pointer identity + no `getMemoryStats`/`parameterCount` double-
   count. Also unblocks the deferred Llama 3.2 tying parity test. Until then the load-tie path is covered
   only by the validated Gemma chat run.
-- [ ] **VRAM footprint reduction (Gemma 12B FP4 on 12 GB) — beyond the two gates above.** FP4 12B is
+- [x] **VRAM footprint reduction (Gemma 12B FP4 on 12 GB) — beyond the two gates above.
+  CLOSED 2026-07-03:** lever (A) shipped as heuristic v2 (`resolvePrefillChunkSize`, complete
+  row-cost model — see the pooling item above); lever (C) was the weight-tying gate (DONE); lever
+  (D) shipped as the pooling item above (chunk 512 on the 4070, prefill 1.57 s / 2048 tokens).
+  Lever (B) (a `GemmaModelConfig` / `--prefill-chunk` override surface) is DROPPED: the
+  `kGemmaPrefillChunkOverride` constexpr remains the sweep knob, matching the preferred
+  edit-constant-and-rebuild tuning workflow. Historical analysis below. FP4 12B is
   ~9.14 GB resident params + ~5.9 GB State (~15 GB) on the 12 GB dev card -> WDDM paging thrash
   (correct values, slow). The State floor is the **48 per-layer prefill ACTIVATION buffers sized at the
   prefill chunk** (GeGLU-FFN-dominated), NOT context — ctx 4096->512 barely moved it. `computeGemmaPrefillChunkSize`
@@ -430,7 +436,15 @@ a 12 GB card.
   and 12B FP4 now fits the 12 GB card at the chunk-32 operating point; what remains of this item is
   the (A)/(B) chunk-sizing work, which folds into heuristic v2 + the pooling item. See
   [[project_gemma_chat_vram]].
-- [ ] **[defensive, core-lib] RmsNorm silently zeroes on a missing weight blob.** When a checkpoint
+- [ ] **[minor, stats accounting] Shared RoPE cos/sin cache is attributed to whichever op built
+  first.** `CudaRopeOp` keeps the frequency tables in a process-wide shared cache
+  ([CudaRopeOp.Cache.ixx](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.Cache.ixx))
+  and only the creating op reports the bytes (`owns_cache_` in `getStateMemorySize`), so
+  `getMemoryStats` totals shift by the table size depending on component build order across
+  models/tests in one process (surfaced by the pooling State-slope test, whose floor now
+  documents and subtracts the term). Deliberate sharing, wrong attribution seam — consider
+  reporting it at a process/context level (or amortized) rather than per-first-owner, next time
+  the stats surface is touched (same family as the D7 tied-weight/workspace no-double-count rules). When a checkpoint
   lacks an expected norm weight and `shouldInitializeParameters()` is false, `RmsNorm::weight_` keeps its
   zero-allocated value, so the norm multiplies its input by 0 and silently annihilates the activation
   (exactly what hid the Gemma `v_norm` missing-tensor bug as "zero attention" for a whole debugging
@@ -469,7 +483,45 @@ a 12 GB card.
   compute-bound (~40 us per chunk-row), so chunk 512 alone buys only ~12% prefill wall-clock until
   that kernel is fixed (the W4A16 GEMM item below). Pooling stays correct as the VRAM fix and the
   chunk-lever enabler — sequence it with the GEMM work; end-state for a 2048-token prefill is
-  ~1-2 s (FLOP-bound), not the 54 ms the traffic-only model suggested.
+  ~1-2 s (FLOP-bound), not the 54 ms the traffic-only model suggested. *(The GEMM fix has since
+  shipped — see the W4A16 item — so the chunk lever is live and this item is the multiplier.)*
+  **Phase 3 MEASURED 2026-07-03: 2048-token prefill 10.21 s -> 1.57 s at chunk 512 (13.2x over
+  the same-day 20.77 s baseline; review section 6.4 note has the kernel breakdown — linear GEMMs
+  now ~61 TFLOPS at M = 512, softmaxes collapsed 2.01 -> 0.36 s from the added parallelism alone,
+  so P2's port is worth ~0.3 s not ~2 s). Remaining validation before commit: Gemma test suite
+  (State-slope floor corrected) + HF FP4 parity (covers pooling Phases 2+3) + chat at the new
+  chunk-512 operating point.** Implementation: heuristic v2 as `GemmaTransformer::resolvePrefillChunkSize` — complete row-cost
+  model (shared-`WorkspaceWidths` slot sum + chunk-scaled GQA attention scratch + bounded-ring
+  growth under `TKvCachePolicy::kIsActive`), ladder {512,256,128,64} with a warned floor, tiny
+  contexts (< 64) single-chunk; `kGemmaPrefillChunkOverride` reverted to **0** (escape hatch
+  kept); v1's attention-only free function + `kGemmaPrefillScratchByteCap` replaced. Deviation
+  from review section 6.4, flagged there: fixed 1536 MB activation budget instead of live
+  `cudaMemGetInfo` (no device free-memory query surface exists yet; on the 4070 both pick 512).
+  **Follow-ups:** (a) live `cudaMemGetInfo` budget once a device memory-info query lands in
+  Compute (CMake-selected implementation unit per the no-#ifdef rule); (b) the section 6.5
+  formula-vs-measured drift-pin test — the State-slope test covers the leak class, the exact
+  row-cost slope pin is deferred.
+  **Phase 2 VALIDATED 2026-07-03 (build + chat green; State-slope test floor corrected for the
+  shared-RoPE-cache attribution quirk — see the stats-accounting item below):** `installSharedOutput` on
+  RmsNorm/Linear/Swiglu/Residual/GroupedQueryAttention (always-view rule guards the
+  Linear/Residual leading-shape fast path; GQA pools the prefill output only, decode output
+  stays owned; D7 no-double-count in every component); the BuildContext defer flag was dropped
+  per approval — install-before-build (the Phase 1 idiom) covers it with zero BuildContext
+  change. `GemmaBlockWorkspace` (q/k/v + 15 graph-position slots, max local/global widths,
+  ~230 KB/chunk-row total) allocated once by the transformer, routed to children in
+  `GemmaBlock::onBuilding`; `installSharedScratch` -> `installSharedWorkspace`. New test:
+  `StateMemory_PerLayerSlopeIsKvCacheNotActivations` (Gemma.Cuda.cpp) pins the pooling
+  contract closed-form. Expected on the 12B at chunk 32: per-layer activations ~333 MB -> ~7 MB.
+  Remaining after validation: Phase 3 — heuristic v2 (review section 6.4) + revert
+  `kGemmaPrefillChunkOverride` to 0 (-> chunk 512 on the 4070).
+  **Phases 0 + 1 DONE + VALIDATED 2026-07-03 (HF-greedy parity + chat green):** Phase 0 — the `res0`
+  copy deleted (see the res0 item below; baseline pinned green pre-change). Phase 1 — the
+  block-owned `q_/k_/v_` split scratch pooled into one transformer-owned shared set
+  (`allocateBlockScratch`, max local/global widths, install-before-build via
+  `GemmaBlock::installSharedScratch`; blocks validate coverage + view prefixes; self-allocation
+  stays the standalone default; D7 no-double-count in both getMemoryStats). Wiring pattern proven
+  for Phase 2 (`installSharedOutput` on the five component types — the public-API step, user
+  sign-off pending) and Phase 3 (heuristic v2 + chunk 512).
 - [x] **[perf, measured 2026-07-03] W4A16 prefill GEMM is compute-bound at ~2.5 TFLOPS — 87.9% of
   prefill wall ("P0").** Nsight (Gemma4InferenceReview.md section 10.2): `fp4a16_wmma_gemm_kernel`
   ([CudaW4A16Gemm.Wmma.cu](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cu))
@@ -525,13 +577,16 @@ a 12 GB card.
   the `max_new` bound is consulted (the decode loop starts at step 1), so a caller passing
   `max_new_tokens = 0` gets one token instead of none. Same loop structure in Llama/Gpt. Decide the
   contract (0 => no tokens, or reject 0) and guard before the first `on_token`.
-- [ ] **Prefill per-layer `res0` copy is suspected redundant.** `GemmaBlock::prefill`
-  ([Gemma.Block.ixx:167](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx)) copies the
+- [x] **Prefill per-layer `res0` copy is suspected redundant — CONFIRMED redundant, deleted,
+  HF-greedy parity + chat green 2026-07-03.** `GemmaBlock::prefill`
+  ([Gemma.Block.ixx](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx)) copied the
   block input into `res0_` ("component buffers get overwritten downstream"), but `decode()` feeds
   the same `input` reference through the identical Residual structure with no copy, and no component
-  inside the block writes the previous block's output buffer. If HF-greedy parity holds without it,
-  removing it saves one launch + one full stream read/write per layer per chunk. Verify against the
-  parity test, then delete — or document the real aliasing hazard the copy guards against.
+  inside the block writes the previous block's output buffer. **DELETED 2026-07-03 (pooling
+  Phase 0, awaiting parity re-run):** the parity baseline was pinned green immediately before the
+  change; prefill's `res_1` now reads the caller's input directly (the decode pattern), `res0_`
+  and its per-chunk copy launch + full stream read/write per layer are gone. Aliasing argument
+  recorded at the `res_1` call site.
 - [ ] **Correctness-oracle dependency (GQA standalone-forward stub).** Component-level Gemma attention
   numerics are blocked until the `GroupedQueryAttention::forward` standalone-stub bug is resolved (see
   the GQA no-op-stub item under Test Suite Revival's bug list) — windowed-vs-global + local/global

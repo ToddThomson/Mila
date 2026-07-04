@@ -446,17 +446,61 @@ and the `ExecutionContext` grow-on-demand scratch.
 ### 7.4 Phasing and validation
 
 - **Phase 0** — settle defect 3 (`res0` copy) against the HF-greedy parity
-  test; pin the parity baseline.
+  test; pin the parity baseline. *(DONE 2026-07-03, parity + chat green: the
+  copy is deleted and prefill's `res_1` reads the caller's input directly,
+  exactly as the HF-validated decode path always has. `res0_` and its
+  allocation are gone.)*
 - **Phase 1** — workspace struct + wiring plumbing; pool only the block-owned
   `res0_/q_/k_/v_` scratch (no component API change). ~15% of the per-layer
-  bytes; proves the wiring end to end.
+  bytes; proves the wiring end to end. *(DONE 2026-07-03, parity + chat green:
+  transformer-owned shared `q/k/v` set (`allocateBlockScratch`, max
+  local/global widths) installed into every block via
+  `GemmaBlock::installSharedScratch` before build — install-before-build
+  instead of the defer-flag, sufficient at block scope and adopted as the
+  Phase 2 idiom too (see Phase 2 note); blocks validate coverage and view
+  prefixes; self-allocation stays the standalone default; `getMemoryStats`
+  counts the set once at the transformer.)*
 - **Phase 2** — `installSharedOutput` + defer flag on RmsNorm / Linear /
   Swiglu / Residual / GroupedQueryAttention; `GemmaBlock` installs slots into
   its children at build. Validation: HF-greedy token-for-token parity +
   a closed-form State assertion (mirror of
   `StateMemory_MatchesClosedFormAndShrinks` from the bounded-ring work).
+  *(Implemented 2026-07-03, awaiting build + parity: `installSharedOutput` on
+  the five component types with the always-view rule (the leading-shape fast
+  path in Linear/Residual must not return a wider slot raw); the BuildContext
+  defer flag was DROPPED in favor of the Phase 1 install-before-build idiom
+  (approved deviation — zero BuildContext change). `GemmaBlockWorkspace` =
+  q/k/v scratch + 15 output slots, allocated once by the transformer at max
+  local/global widths and routed to children by `GemmaBlock::onBuilding`;
+  `installSharedScratch` evolved into `installSharedWorkspace`. Validation
+  test added: `StateMemory_PerLayerSlopeIsKvCacheNotActivations` — the
+  per-layer State slope must be the KV cache plus a small fixed allowance,
+  never chunk-scaled activations.)*
 - **Phase 3** — heuristic v2 (6.4) + revert `kGemmaPrefillChunkOverride` to 0;
-  chunk lands at 512 on the 4070.
+  chunk lands at 512 on the 4070. *(Implemented 2026-07-03, awaiting build:
+  `resolvePrefillChunkSize` on the transformer with the complete three-term
+  row-cost model (workspace slots via the shared `WorkspaceWidths` helper --
+  the allocation and the heuristic cannot drift apart -- + chunk-scaled GQA
+  attention scratch + bounded-ring growth under `TKvCachePolicy::kIsActive`);
+  ladder {512, 256, 128, 64}, floor warns via Logger; override reverted to 0.
+  One deviation from 6.4: a fixed conservative 1536 MB activation budget
+  instead of live `cudaMemGetInfo` -- the row-cost completeness was v1's
+  actual failure, and on the 4070 both budgets pick 512; the live-VRAM
+  upgrade is a BACKLOG follow-up.)*
+
+  **MEASURED 2026-07-03 (gemma_prefill3, chunk 512 confirmed by 192 x 4
+  dequant launches): 2048-token prefill = 1.57 s** — 6.5x over the post-P0
+  10.21 s, **13.2x over the morning baseline (20.77 s)**, inside the section
+  10.2 FLOP-bound end-state window on the first try. Breakdown: linear GEMMs
+  728 ms (46%, ~61 TFLOPS aggregate at M = 512 — up from 13 at M = 32),
+  softmaxes 358 ms (23% — chunk 512 fed the one-thread-per-row kernels 16x
+  more parallelism, collapsing them 2.01 s -> 0.36 s, so P2's port is now
+  worth ~0.3 s not ~2 s), dequant 257 ms (16%, the expected 16x fewer
+  passes), attention GEMMs 133 ms (8.5%). ~99% GPU-bound. Remaining prefill
+  levers, in order: P2 port (~-0.3 s -> ~1.25 s), dequant vectorization
+  (~-0.09 s), P3 buckets (global attention); P4 incremental prefill stays
+  the long-history chat multiplier (~5-6 s for a full 8K re-prefill now,
+  down from ~83 s this morning).
 
 ---
 

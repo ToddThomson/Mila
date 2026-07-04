@@ -255,6 +255,25 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
         }
 
+        /**
+         * @brief Install a shared output slot (activation pooling).
+         *
+         * Must be called before build(): onBuilding then skips output self-allocation
+         * after validating the slot's storage covers the build shape. forward()
+         * already always returns a shape-adjusted view, so a wider slot never leaks
+         * its geometry to callers. Mirrors Linear::installSharedWeight; self-allocation
+         * remains the default. The slot is owned and memory-accounted by the installer.
+         */
+        void installSharedOutput( std::shared_ptr<TensorType> output )
+        {
+            if ( this->isBuilt() )
+                throw std::logic_error(
+                    "RmsNorm '" + this->getName() + "': installSharedOutput must be called before build()" );
+
+            output_ = std::move( output );
+            output_installed_ = true;
+        }
+
         const ComponentType getType() const override
         {
             return ComponentType::RmsNorm;
@@ -274,7 +293,8 @@ namespace Mila::Dnn
                 stats.device_parameter_bytes += bias_->getStorageSize();
             }
 
-            if ( output_ != nullptr )
+            // An installed shared output slot is owned and counted by the installer.
+            if ( output_ != nullptr && !output_installed_ )
             {
                 stats.device_state_bytes += output_->getStorageSize();
             }
@@ -338,7 +358,21 @@ namespace Mila::Dnn
 
             auto device = this->getExecutionContext()->getDeviceId();
 
-            output_ = std::make_unique<TensorType>( device, input_shape, this->getName() + ".output" );
+            if ( output_installed_ )
+            {
+                int64_t needed = 1;
+                for ( auto d : input_shape )
+                    needed *= d;
+
+                if ( !output_ || output_->size() < needed )
+                    throw std::invalid_argument(
+                        "RmsNorm '" + this->getName() + "': installed shared output slot is smaller than the build shape requires" );
+            }
+            else
+            {
+                output_ = std::make_shared<TensorType>( device, input_shape, this->getName() + ".output" );
+            }
+
             output_view_.emplace( output_->view( input_shape ) );
 
             if ( build_context.isTrainingMode() )
@@ -388,7 +422,10 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> weight_grad_{ nullptr };
         std::shared_ptr<TensorType> bias_grad_{ nullptr };
 
-        std::unique_ptr<TensorType> output_{ nullptr };
+        // Self-allocated at build, or an installed shared slot (installSharedOutput)
+        // that the component views a prefix of.
+        std::shared_ptr<TensorType> output_{ nullptr };
+        bool output_installed_{ false };
         std::unique_ptr<TensorType> input_grad_{ nullptr };
         std::optional<TensorType> output_view_;
 

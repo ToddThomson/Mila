@@ -397,13 +397,34 @@ namespace Mila::Dnn
             return 0;
         }
 
+        /**
+         * @brief Install a shared prefill-output slot (activation pooling).
+         *
+         * Must be called before build(): onBuilding then skips the prefill output
+         * self-allocation after validating the slot's storage covers the build
+         * shape; prefill() already always returns a shape-adjusted view. The tiny
+         * per-token decode output (decode_output_) stays component-owned. Mirrors
+         * Linear::installSharedWeight; self-allocation remains the default. The
+         * slot is owned and memory-accounted by the installer.
+         */
+        void installSharedOutput( std::shared_ptr<TensorType> output )
+        {
+            if ( this->isBuilt() )
+                throw std::logic_error(
+                    "GroupedQueryAttention '" + this->getName() + "': installSharedOutput must be called before build()" );
+
+            output_ = std::move( output );
+            output_installed_ = true;
+        }
+
         MemoryStats getMemoryStats() const override
         {
             MemoryStats stats;
 
             stats.device_state_bytes += operation_->getStateMemorySize();
 
-            if ( output_ != nullptr )
+            // An installed shared output slot is owned and counted by the installer.
+            if ( output_ != nullptr && !output_installed_ )
                 stats.device_state_bytes += output_->getStorageSize();
 
             if ( decode_output_ != nullptr )
@@ -496,22 +517,38 @@ namespace Mila::Dnn
                     cache_initialized_ = true;
                 }
 
-                // Decode path output: T=1
+                // Decode path output: T=1. Always component-owned (tiny, not pooled).
                 shape_t decode_output_shape = { input_shape[ 0 ], 1, config_.getModelDim() };
                 decode_output_ = std::make_unique<TensorType>( device, decode_output_shape, this->getName() + ".output_decode" );
 
-                // Prefill path output -- sized for one prefill chunk at a time
+                // Prefill path output -- sized for one prefill chunk at a time.
                 shape_t output_shape = { B, context.getPrefillSize(), config_.getModelDim() };
-                output_ = std::make_unique<TensorType>( device, output_shape, this->getName() + ".output_prefill" );
-                output_view_.emplace( output_->view( output_->shape() ) );
+
+                if ( output_installed_ )
+                {
+                    int64_t needed = 1;
+                    for ( auto d : output_shape )
+                        needed *= d;
+
+                    if ( !output_ || output_->size() < needed )
+                        throw std::invalid_argument(
+                            "GroupedQueryAttention '" + this->getName() + "': installed shared output slot is smaller than the build shape requires" );
+                }
+                else
+                {
+                    output_ = std::make_shared<TensorType>( device, output_shape, this->getName() + ".output_prefill" );
+                }
+
+                // View the BUILD shape, not the slot shape -- an installed slot may be wider.
+                output_view_.emplace( output_->view( output_shape ) );
             }
             else
             {
-                // Training -- full sequence output buffer.
+                // Training -- full sequence output buffer (never pooled).
                 shape_t output_shape = input_shape;
                 output_shape.back() = config_.getModelDim();
-                output_ = std::make_unique<TensorType>( device, output_shape, this->getName() + ".output" );
-                output_view_.emplace( output_->view( output_->shape() ) );
+                output_ = std::make_shared<TensorType>( device, output_shape, this->getName() + ".output" );
+                output_view_.emplace( output_->view( output_shape ) );
 
                 // Input gradient -- same shape as packed QKV input.
                 input_grad_ = std::make_unique<TensorType>( device, input_shape, this->getName() + ".input.grad" );
@@ -550,7 +587,10 @@ namespace Mila::Dnn
         bool cache_initialized_{ false };
         bool decode_active_{ false };
 
-        std::unique_ptr<TensorType> output_{ nullptr };
+        // Self-allocated at build, or an installed shared slot (installSharedOutput)
+        // that the component views a prefix of. decode_output_ is always owned.
+        std::shared_ptr<TensorType> output_{ nullptr };
+        bool output_installed_{ false };
         std::optional<TensorType> output_view_;
         std::unique_ptr<TensorType> input_grad_{ nullptr };
         std::unique_ptr<TensorType> decode_output_{ nullptr };

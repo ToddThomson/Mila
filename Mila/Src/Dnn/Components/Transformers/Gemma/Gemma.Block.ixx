@@ -86,6 +86,48 @@ namespace Mila::Dnn
     using namespace Mila::Dnn::Quant::KvCache;
 
     /**
+     * @brief Transformer-owned shared activation workspace for GemmaBlock (pooling).
+     *
+     * One slot per block-graph position, shared by every layer: the inference path
+     * is strictly sequential, so exactly one block is live at a time and 47/48 of
+     * per-layer retained activations are never read again. Slots are sized
+     * [B, chunk, max(local, global) width]; components view prefixes (the GQA
+     * workspace max-geometry convention). The single stream slot is alias-safe:
+     * a block's input is last read at res_1 (mid-block) and only overwritten by
+     * its own res_2 at block end.
+     */
+    export template<DeviceType TDeviceType, TensorDataType TPrecision>
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
+    struct GemmaBlockWorkspace
+    {
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+        using TensorType = Tensor<TPrecision, MR>;
+
+        // Block-owned split scratch (written by split, read by the QK/V norms,
+        // RoPE, and -- on global K=V layers -- v_norm reading the raw k projection).
+        std::shared_ptr<TensorType> q;
+        std::shared_ptr<TensorType> k;
+        std::shared_ptr<TensorType> v;
+
+        // Component output slots, one per graph position (prefill order).
+        std::shared_ptr<TensorType> normed;      // input_norm out       [B, chunk, model_dim]
+        std::shared_ptr<TensorType> qkv;         // qkv_proj out         [B, chunk, max packed QKV width]
+        std::shared_ptr<TensorType> q_normed;    // q_norm out           [B, chunk, NH * max head_dim]
+        std::shared_ptr<TensorType> k_normed;    // k_norm out           [B, chunk, max KV width]
+        std::shared_ptr<TensorType> v_normed;    // v_norm out           [B, chunk, max KV width]
+        std::shared_ptr<TensorType> attn;        // gqa prefill out      [B, chunk, NH * max head_dim]
+        std::shared_ptr<TensorType> o;           // o_proj out           [B, chunk, model_dim]
+        std::shared_ptr<TensorType> o_normed;    // post_attn_norm out   [B, chunk, model_dim]
+        std::shared_ptr<TensorType> res1;        // res_1 out            [B, chunk, model_dim]
+        std::shared_ptr<TensorType> ffn_in;      // pre_ffn_norm out     [B, chunk, model_dim]
+        std::shared_ptr<TensorType> gate_up;     // fc_gate_up out       [B, chunk, 2 * hidden_dim]
+        std::shared_ptr<TensorType> ffn_act;     // geglu out            [B, chunk, hidden_dim]
+        std::shared_ptr<TensorType> ffn_down;    // fc_down out          [B, chunk, model_dim]
+        std::shared_ptr<TensorType> ffn_normed;  // post_ffn_norm out    [B, chunk, model_dim]
+        std::shared_ptr<TensorType> stream;      // res_2 out            [B, chunk, model_dim]
+    };
+
+    /**
      * @brief One Gemma 4 decoder block; kGlobal selects the global (full-attention) geometry.
      */
     export template<DeviceType TDeviceType, TensorDataType TPrecision, bool kGlobal,
@@ -158,14 +200,9 @@ namespace Mila::Dnn
 
             const int64_t B = input.shape()[ 0 ];
             const int64_t T = input.shape()[ 1 ];
-            const dim_t model_dim = config_.getModelDim();
             const dim_t NH = config_.getNumHeads();
             const dim_t NKV = numKVHeads();
             const dim_t HD = headDim();
-
-            // Preserve the residual input (res0) -- component buffers get overwritten downstream.
-            auto res0 = res0_->view( shape_t{ B, T, model_dim }, 0 );
-            copy( input, res0 );
 
             // --- Attention sub-block ----------------------------------------
             auto& normed = input_norm_->forward( input );
@@ -223,7 +260,13 @@ namespace Mila::Dnn
 
             auto& o = o_proj_->forward( attn );
             auto& o_normed = post_attn_norm_->forward( o );
-            auto& res1 = res1_->forward( res0, o_normed );
+
+            // res_1 reads the caller's input directly (exactly as decode() does): every
+            // op above writes only its own component-owned output, never the previous
+            // block's output buffer, so the former defensive res0 copy was redundant --
+            // one launch + one full stream read/write per layer per chunk. HF-greedy
+            // parity pins this.
+            auto& res1 = res1_->forward( input, o_normed );
 
             // --- Feed-forward sub-block (GeGLU) -----------------------------
             auto& ffn_in = pre_ffn_norm_->forward( res1 );
@@ -330,6 +373,30 @@ namespace Mila::Dnn
                 attn_->resetKVCache();
         }
 
+        /**
+         * @brief Install the transformer-owned shared activation workspace (pooling).
+         *
+         * One workspace serves every layer: the inference path is strictly
+         * sequential, so exactly one block is live at a time. Must be called
+         * before build(); onBuilding then routes each slot into the matching
+         * child component via installSharedOutput (and keeps the q/k/v split
+         * scratch for the block's own views), skipping all per-layer output
+         * self-allocation. Self-allocation remains the default for standalone
+         * blocks (tests).
+         */
+        void installSharedWorkspace( const GemmaBlockWorkspace<TDeviceType, TPrecision>& workspace )
+        {
+            if ( this->isBuilt() )
+                throw std::logic_error(
+                    "GemmaBlock::installSharedWorkspace: must be called before build()" );
+
+            workspace_ = workspace;
+            q_ = workspace_.q;
+            k_ = workspace_.k;
+            v_ = workspace_.v;
+            workspace_installed_ = true;
+        }
+
         // ====================================================================
         // Component interface
         // ====================================================================
@@ -346,10 +413,16 @@ namespace Mila::Dnn
             for ( const auto& child : this->getComponents() )
                 stats += child->getMemoryStats();
 
-            for ( auto* t : { res0_.get(), q_.get(), k_.get(), v_.get() } )
+            // Installed shared workspace tensors are owned and counted once by the
+            // transformer (the D7 no-double-count rule, same shape as the tied-weight
+            // correction); the child components apply the same rule to their slots.
+            if ( !workspace_installed_ )
             {
-                if ( t )
-                    stats.device_state_bytes += t->getStorageSize();
+                for ( auto* t : { q_.get(), k_.get(), v_.get() } )
+                {
+                    if ( t )
+                        stats.device_state_bytes += t->getStorageSize();
+                }
             }
 
             return stats;
@@ -428,62 +501,99 @@ namespace Mila::Dnn
 
             const std::string n = this->getName();
 
+            // With an installed workspace, route each graph position's slot into its
+            // component before build so the component skips output self-allocation.
+            auto install = [&]( auto& component, const std::shared_ptr<TensorType>& slot )
+            {
+                if ( workspace_installed_ )
+                    component->installSharedOutput( slot );
+            };
+
             input_norm_ = this->template getComponentAs<RmsNormType>( n + ".input_norm" );
+            install( input_norm_, workspace_.normed );
             input_norm_->build( stream_ctx );
 
             qkv_proj_ = this->template getComponentAs<LinearType>( n + ".qkv_proj" );
+            install( qkv_proj_, workspace_.qkv );
             qkv_proj_->build( stream_ctx );
 
             q_norm_ = this->template getComponentAs<RmsNormType>( n + ".q_norm" );
+            install( q_norm_, workspace_.q_normed );
             q_norm_->build( qknorm_ctx );
 
             k_norm_ = this->template getComponentAs<RmsNormType>( n + ".k_norm" );
+            install( k_norm_, workspace_.k_normed );
             k_norm_->build( kknorm_ctx );
 
             v_norm_ = this->template getComponentAs<RmsNormType>( n + ".v_norm" );
+            install( v_norm_, workspace_.v_normed );
             v_norm_->build( kknorm_ctx );
 
             rope_ = this->template getComponentAs<RopeType>( n + ".rope" );
             rope_->build( qproj_ctx );
 
             attn_ = this->template getComponentAs<AttentionType>( n + ".gqa" );
+            install( attn_, workspace_.attn );
             attn_->build( qkv_ctx );
 
             o_proj_ = this->template getComponentAs<LinearType>( n + ".o_proj" );
+            install( o_proj_, workspace_.o );
             o_proj_->build( context.withShape( qproj_shape ) );
 
             post_attn_norm_ = this->template getComponentAs<RmsNormType>( n + ".post_attn_norm" );
+            install( post_attn_norm_, workspace_.o_normed );
             post_attn_norm_->build( stream_ctx );
 
             res1_ = this->template getComponentAs<ResidualType>( n + ".res_1" );
+            install( res1_, workspace_.res1 );
             res1_->build( stream_ctx );
 
             pre_ffn_norm_ = this->template getComponentAs<RmsNormType>( n + ".pre_ffn_norm" );
+            install( pre_ffn_norm_, workspace_.ffn_in );
             pre_ffn_norm_->build( stream_ctx );
 
             fc_gate_up_ = this->template getComponentAs<LinearType>( n + ".fc_gate_up" );
+            install( fc_gate_up_, workspace_.gate_up );
             fc_gate_up_->build( stream_ctx );
 
             geglu_ = this->template getComponentAs<GeGLUType>( n + ".geglu" );
+            install( geglu_, workspace_.ffn_act );
             geglu_->build( gate_up_ctx );
 
             fc_down_ = this->template getComponentAs<LinearType>( n + ".fc_down" );
+            install( fc_down_, workspace_.ffn_down );
             fc_down_->build( hidden_ctx );
 
             post_ffn_norm_ = this->template getComponentAs<RmsNormType>( n + ".post_ffn_norm" );
+            install( post_ffn_norm_, workspace_.ffn_normed );
             post_ffn_norm_->build( stream_ctx );
 
             res2_ = this->template getComponentAs<ResidualType>( n + ".res_2" );
+            install( res2_, workspace_.stream );
             res2_->build( stream_ctx );
 
-            // Scratch buffers (sized at the prefill chunk; decode uses T=1 sub-views).
-            auto device = this->getExecutionContext()->getDeviceId();
-            res0_ = std::make_unique<TensorType>( device, stream_shape, n + ".res0" );
-            q_ = std::make_unique<TensorType>( device, qproj_shape, n + ".q" );
-            k_ = std::make_unique<TensorType>( device, shape_t{ B, chunk, NKV * HD }, n + ".k" );
+            // Split scratch (sized at the prefill chunk; decode uses T=1 sub-views).
+            // With a transformer-installed workspace, validate coverage and view
+            // prefixes instead of self-allocating.
+            if ( workspace_installed_ )
+            {
+                const int64_t q_needed = B * chunk * NH * HD;
+                const int64_t kv_needed = B * chunk * NKV * HD;
 
-            if constexpr ( !kGlobal )
-                v_ = std::make_unique<TensorType>( device, shape_t{ B, chunk, NKV * HD }, n + ".v" );
+                if ( !q_ || q_->size() < q_needed || !k_ || k_->size() < kv_needed
+                     || ( !kGlobal && ( !v_ || v_->size() < kv_needed ) ) )
+                    throw std::invalid_argument( std::format(
+                        "GemmaBlock '{}': installed shared scratch is smaller than the block geometry requires", n ) );
+            }
+            else
+            {
+                auto device = this->getExecutionContext()->getDeviceId();
+                q_ = std::make_shared<TensorType>( device, qproj_shape, n + ".q" );
+                k_ = std::make_shared<TensorType>( device, shape_t{ B, chunk, NKV * HD }, n + ".k" );
+
+                if constexpr ( !kGlobal )
+                    v_ = std::make_shared<TensorType>( device, shape_t{ B, chunk, NKV * HD }, n + ".v" );
+            }
         }
 
         void onTrainingModeChanging( TrainingMode training_mode ) override
@@ -523,10 +633,17 @@ namespace Mila::Dnn
         std::shared_ptr<RmsNormType> post_ffn_norm_{ nullptr };
         std::shared_ptr<ResidualType> res2_{ nullptr };
 
-        std::unique_ptr<TensorType> res0_{ nullptr };
-        std::unique_ptr<TensorType> q_{ nullptr };
-        std::unique_ptr<TensorType> k_{ nullptr };
-        std::unique_ptr<TensorType> v_{ nullptr };
+        // Split scratch: self-allocated at build, or the transformer workspace's
+        // q/k/v set (installSharedWorkspace) which all layers view prefixes of.
+        std::shared_ptr<TensorType> q_{ nullptr };
+        std::shared_ptr<TensorType> k_{ nullptr };
+        std::shared_ptr<TensorType> v_{ nullptr };
+
+        // The full installed workspace: onBuilding routes the component-output
+        // slots into the children via installSharedOutput. Empty (all null) when
+        // the block is standalone-built.
+        GemmaBlockWorkspace<TDeviceType, TPrecision> workspace_{};
+        bool workspace_installed_{ false };
 
         // Gemma 4 Unified per-layer learned output scale (hidden_states *= layer_scalar).
         // Default 1.0 (identity) until loaded from the checkpoint via loadParameter.
