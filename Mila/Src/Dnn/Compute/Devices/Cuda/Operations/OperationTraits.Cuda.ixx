@@ -322,18 +322,28 @@ namespace Mila::Dnn::Compute
     // -------------------------------------------------------------------------
     // TokenEmbeddingOp -- CUDA specializations
     // Index type is always INT32 (vocabulary token indices).
+    // TPolicy = table quantization policy (D4 Design B): NoWeightQuant keeps the
+    // full-precision table; PerChannelFp8<> stores FP8_E4M3 rows + FP32 row scales
+    // shared with a tied lm_head.
     // -------------------------------------------------------------------------
 
     template<>
-    struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Cuda, TensorDataType::FP32, NoWeightQuant>
     {
-        using type = Cuda::TokenEmbedding::CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::FP32>;
+        using type = Cuda::TokenEmbedding::CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::FP32, NoWeightQuant>;
     };
 
     template<>
-    struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Cuda, TensorDataType::BF16, NoWeightQuant>
     {
-        using type = Cuda::TokenEmbedding::CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::BF16>;
+        using type = Cuda::TokenEmbedding::CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::BF16, NoWeightQuant>;
+    };
+
+    /// FP8 per-vocab-row quantized table, BF16 gather-dequant output (D4 Design B).
+    template<>
+    struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Cuda, TensorDataType::BF16, PerChannelFp8<>>
+    {
+        using type = Cuda::TokenEmbedding::CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::BF16, PerChannelFp8<>>;
     };
 
     // -------------------------------------------------------------------------

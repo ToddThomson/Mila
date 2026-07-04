@@ -27,6 +27,13 @@
  * robust to the FP4 perturbation, so token-for-token parity is still the bar. A
  * divergence here is a real signal (either an FP4-path bug or a horizon long
  * enough that quantization noise flips an argmax) and should be investigated.
+ *
+ * D4 Design B (2026-07-04): quantized bodies now also convert the tied
+ * embedding/lm_head table to per-vocab-row FP8, so this FP4 run exercises an
+ * FP8 head as well. If the added head perturbation ever flips a near-tie argmax
+ * over this horizon, the acceptance criterion moves to top-1 agreement rate +
+ * bounded max-logit delta vs the BF16 head (BACKLOG D4 item, decision (5)) --
+ * do not paper over a divergence by re-capturing the reference.
  */
 
 #include <gtest/gtest.h>

@@ -121,8 +121,17 @@ namespace Mila::Dnn
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using NetworkBase = LanguageNetwork<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
-        using TokenEmbeddingType = TokenEmbedding<TDeviceType, dtype_t::INT32, TPrecision>;
-        using LmHeadLinearType = Linear<TDeviceType, TPrecision>;
+
+        // D4 Design B: weight-quantized bodies (FP4/FP8) convert the tied
+        // embedding/lm_head table to per-vocab-row FP8 -- one shared FP8 table plus
+        // one FP32 scale tensor read by both consumers. The NoWeightQuant body keeps
+        // the BF16 table and head, preserving the exact HF token-parity oracle in
+        // the reference configuration.
+        using TableQuantizationPolicy = std::conditional_t<
+            TWeightQuantization::kIsQuantized, PerChannelFp8<>, NoWeightQuant>;
+
+        using TokenEmbeddingType = TokenEmbedding<TDeviceType, dtype_t::INT32, TPrecision, TableQuantizationPolicy>;
+        using LmHeadLinearType = Linear<TDeviceType, TPrecision, TableQuantizationPolicy>;
         using RmsNormType = RmsNorm<TDeviceType, TPrecision>;
         // TKvCachePolicy applies to the LOCAL (sliding) layers only -- they attend a
         // bounded window, so their KV cache can be a ring (SlidingWindowKvCache.md D4).
@@ -399,8 +408,21 @@ namespace Mila::Dnn
             // Tie lm_head to the (raw) embedding table after all blobs stream. When tied,
             // lm_head.weight is absent from the file, so nothing was loaded into lm_head's
             // own allocation; we replace it with the shared table here (WeightTying.md D2).
+            // On quantized bodies the table is FP8 and the head also adopts the shared
+            // per-vocab-row scales (D4 Design B).
             if ( tie_word_embeddings_ )
-                lm_head_->installSharedWeight( token_embedding_->getWeightTensorShared() );
+            {
+                if constexpr ( TableQuantizationPolicy::kIsQuantized )
+                {
+                    lm_head_->installSharedWeight(
+                        token_embedding_->getWeightTensorShared(),
+                        token_embedding_->getWeightScalesTensorShared() );
+                }
+                else
+                {
+                    lm_head_->installSharedWeight( token_embedding_->getWeightTensorShared() );
+                }
+            }
         }
 
     protected:

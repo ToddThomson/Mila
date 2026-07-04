@@ -33,6 +33,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
+import Dnn.Quantization.Weight.Policies;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
@@ -54,6 +55,7 @@ namespace Mila::Dnn
 {
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
+    using namespace Mila::Dnn::Quant::Weight;
 
     /**
      * @brief Pure token embedding component (device-templated).
@@ -62,16 +64,26 @@ namespace Mila::Dnn
      * by looking up each index in the vocabulary embedding table (wte).
      * No positional information is added here.
      *
+     * TTableQuantization = PerChannelFp8<> stores the table as FP8_E4M3 with one
+     * float32 absmax scale per vocabulary row, quantized at loadParameter() time
+     * (D4 Design B). The vocab-row scale axis coincides with a tied lm_head's
+     * per-output-channel scale axis, so getWeightTensorShared() plus
+     * getWeightScalesTensorShared() feed Linear::installSharedWeight directly.
+     * The quantized path is inference-only.
+     *
      * Construction modes:
      * - Standalone: provide a DeviceId to create and own an ExecutionContext.
      * - Child/deferred: omit DeviceId; caller must call setExecutionContext()
      *   before build().
      *
-     * @tparam TDeviceType Device type (DeviceType::Cpu or DeviceType::Cuda).
-     * @tparam TIndex      Data type for token indices (typically INT32).
-     * @tparam TPrecision  Tensor precision for embeddings (FP32 or FP16).
+     * @tparam TDeviceType        Device type (DeviceType::Cpu or DeviceType::Cuda).
+     * @tparam TIndex             Data type for token indices (typically INT32).
+     * @tparam TPrecision         Tensor precision for embeddings (FP32 or BF16).
+     * @tparam TTableQuantization Table quantization policy. Must satisfy
+     *                            WeightQuantPolicy; defaults to NoWeightQuant.
      */
-    export template<DeviceType TDeviceType, TensorDataType TIndex = dtype_t::INT32, TensorDataType TPrecision = dtype_t::FP32>
+    export template<DeviceType TDeviceType, TensorDataType TIndex = dtype_t::INT32, TensorDataType TPrecision = dtype_t::FP32,
+        WeightQuantPolicy TTableQuantization = NoWeightQuant>
         requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
     class TokenEmbedding : public Component<TDeviceType, TPrecision>
     {
@@ -80,6 +92,19 @@ namespace Mila::Dnn
         using EmbeddingTensorType = Tensor<TPrecision, MR>;
         using TokenIndexType = Tensor<TIndex, MR>;
         using ComponentBase = Component<TDeviceType, TPrecision>;
+
+        static constexpr bool kIsQuantized = TTableQuantization::kIsQuantized;
+
+        // Per-group scales sit on the gather (input) axis and do not transfer to a
+        // row lookup -- only per-vocab-row (per-channel) quantization is meaningful.
+        static_assert( !kIsQuantized || TTableQuantization::kPerChannel,
+            "TokenEmbedding: table quantization must be per-channel (per vocabulary row)" );
+
+        static constexpr TensorDataType kTableDtype = kIsQuantized
+            ? TTableQuantization::kStorageDtype : TPrecision;
+
+        using TableTensorType = Tensor<kTableDtype, MR>;
+        using TableScaleTensorType = Tensor<TTableQuantization::kScaleDtype, MR>;
 
         /**
          * @brief Construct a TokenEmbedding component.
@@ -181,24 +206,31 @@ namespace Mila::Dnn
             const TokenIndexType& input,
             const EmbeddingTensorType& output_grad )
         {
-            if ( !this->isBuilt() )
-                throw std::runtime_error( "TokenEmbedding must be built before calling backward()." );
+            if constexpr ( kIsQuantized )
+            {
+                throw std::logic_error( "TokenEmbedding: backward is not supported with a quantized table (inference only)." );
+            }
+            else
+            {
+                if ( !this->isBuilt() )
+                    throw std::runtime_error( "TokenEmbedding must be built before calling backward()." );
 
-            if ( !this->isTrainingMode() )
-                throw std::runtime_error( "TokenEmbedding must be in training mode to call backward()." );
+                if ( !this->isTrainingMode() )
+                    throw std::runtime_error( "TokenEmbedding must be in training mode to call backward()." );
 
-            // REVIEW: If built and in training mode, these buffers should always be initialized in onBuilding. If not, it's a bug.
-            if ( !wte_grad_ )
-                throw std::runtime_error( "TokenEmbedding: wte_grad not initialized. This is a bug." );
+                // REVIEW: If built and in training mode, these buffers should always be initialized in onBuilding. If not, it's a bug.
+                if ( !wte_grad_ )
+                    throw std::runtime_error( "TokenEmbedding: wte_grad not initialized. This is a bug." );
 
-            if ( !input_grad_ )
-                throw std::runtime_error( "TokenEmbedding: input_grad buffer not allocated. This is a bug." );
+                if ( !input_grad_ )
+                    throw std::runtime_error( "TokenEmbedding: input_grad buffer not allocated. This is a bug." );
 
-            zero( *input_grad_ );
+                zero( *input_grad_ );
 
-            operation_->backward( input, output_grad, *input_grad_ );
+                operation_->backward( input, output_grad, *input_grad_ );
 
-            return *input_grad_;
+                return *input_grad_;
+            }
         }
 
         // ====================================================================
@@ -239,21 +271,40 @@ namespace Mila::Dnn
 
         // Shared ownership of the embedding table, for installing into a tied lm_head
         // after load (WeightTying.md D3). The returned tensor shares the same device
-        // buffer; both owners keep it alive regardless of teardown order.
-        std::shared_ptr<EmbeddingTensorType> getWeightTensorShared() const noexcept
+        // buffer; both owners keep it alive regardless of teardown order. On the
+        // quantized path the table is FP8_E4M3 and the tied head also needs
+        // getWeightScalesTensorShared().
+        std::shared_ptr<TableTensorType> getWeightTensorShared() const noexcept
         {
             return wte_;
+        }
+
+        // Shared ownership of the per-vocab-row FP32 dequantization scales -- the
+        // same axis as a tied lm_head's per-output-channel scales, so one tensor
+        // serves both consumers (D4 Design B).
+        std::shared_ptr<TableScaleTensorType> getWeightScalesTensorShared() const noexcept requires kIsQuantized
+        {
+            return wte_scales_;
         }
 
         void loadParameter( const std::string& name, const ITensorBlob& blob ) override
         {
             if ( name == "wte" )
             {
-                this->loadParameterFromBlob( "wte", blob, *wte_, wte_->shape() );
+                if constexpr ( kIsQuantized )
+                {
+                    // Quantize-on-load: the BF16 blob never lands on device at full
+                    // precision -- absmax scales and FP8 rows are produced in one pass.
+                    operation_->quantize( blob, *wte_, *wte_scales_, wte_->shape() );
+                }
+                else
+                {
+                    this->loadParameterFromBlob( "wte", blob, *wte_, wte_->shape() );
+                }
             }
             else
             {
-                this->loadParameter( name, blob );
+                ComponentBase::loadParameter( name, blob );
             }
         }
 
@@ -323,6 +374,11 @@ namespace Mila::Dnn
                 stats.device_parameter_bytes += wte_->getStorageSize();
             }
 
+            if ( wte_scales_ != nullptr )
+            {
+                stats.device_parameter_bytes += wte_scales_->getStorageSize();
+            }
+
             if ( output_ != nullptr )
             {
                 stats.device_state_bytes += output_->getStorageSize();
@@ -364,6 +420,12 @@ namespace Mila::Dnn
 
             // REVIEW: API needs work. setParameters() wants Weight and Bias
             operation_->setParameters( wte_.get(), nullptr );
+
+            if constexpr ( kIsQuantized )
+            {
+                operation_->setTableScales( wte_scales_.get() );
+            }
+
             operation_->build( build_context );
 
             auto device = this->getExecutionContext()->getDeviceId();
@@ -379,14 +441,22 @@ namespace Mila::Dnn
             
             if ( build_context.isTrainingMode() )
             {
-                initializeParameterGradients();
-                
-                operation_->setGradients( wte_grad_.get(), nullptr );
-                
-                auto device = this->getExecutionContext()->getDeviceId();
+                if constexpr ( kIsQuantized )
+                {
+                    throw std::logic_error(
+                        "TokenEmbedding: a quantized table cannot be built in training mode (inference only)." );
+                }
+                else
+                {
+                    initializeParameterGradients();
 
-                input_grad_ = std::make_unique<TokenIndexType>( device, shape_t{ max_batch_size_, max_seq_len_ },
-                    this->getName() + ".input.grad" );
+                    operation_->setGradients( wte_grad_.get(), nullptr );
+
+                    auto device = this->getExecutionContext()->getDeviceId();
+
+                    input_grad_ = std::make_unique<TokenIndexType>( device, shape_t{ max_batch_size_, max_seq_len_ },
+                        this->getName() + ".input.grad" );
+                }
             }
         }
 
@@ -413,14 +483,19 @@ namespace Mila::Dnn
 
         // shared_ptr so a tied lm_head can share ownership of this table after load
         // (WeightTying.md D3). wte_grad_ stays unique_ptr: tying is inference-only.
-        std::shared_ptr<EmbeddingTensorType> wte_{ nullptr };
+        std::shared_ptr<TableTensorType> wte_{ nullptr };
+
+        // Per-vocab-row FP32 absmax scales [vocab]. Non-null only when kIsQuantized.
+        // shared_ptr for the same tying reason as wte_ (D4 Design B).
+        std::shared_ptr<TableScaleTensorType> wte_scales_{ nullptr };
+
         std::unique_ptr<EmbeddingTensorType> wte_grad_{ nullptr };
 
         std::unique_ptr<TokenIndexType>      input_grad_{ nullptr };
         std::unique_ptr<EmbeddingTensorType> output_{ nullptr };
         std::unique_ptr<EmbeddingTensorType> current_output_view_{ nullptr };
 
-        using OpType = typename OperationTraits<OperationType::TokenEmbeddingOp, TDeviceType, TPrecision>::type;
+        using OpType = typename OperationTraits<OperationType::TokenEmbeddingOp, TDeviceType, TPrecision, TTableQuantization>::type;
 
         std::shared_ptr<OpType> operation_{ nullptr };
 
@@ -439,18 +514,28 @@ namespace Mila::Dnn
 
         void initializeParameters( const BuildContext& build_context )
         {
-            const float std_dev = 1.0f / std::sqrt( static_cast<float>(config_.getEmbeddingDim()) );
             auto device_id = this->getExecutionContext()->getDeviceId();
 
             // REVIEW: static cast to dim_t is a band-aid for the fact that config_ uses int for vocab and embedding sizes,
             // but Tensor shapes use dim_t (int64_t).  The API needs work to unify these types and avoid this kind of cast.
             auto wte_shape = shape_t{ static_cast<dim_t>(config_.getVocabSize()), static_cast<dim_t>(config_.getEmbeddingDim()) };
 
-            wte_ = std::make_shared<EmbeddingTensorType>( device_id, wte_shape, this->getName() + ".wte" );
-            
-            if ( build_context.shouldInitializeParameters() )
+            wte_ = std::make_shared<TableTensorType>( device_id, wte_shape, this->getName() + ".wte" );
+
+            if constexpr ( kIsQuantized )
             {
-                fill_normal( *wte_, 0.0f, std_dev, this->getExecutionContext() );
+                // One scale per vocabulary row. Filled by operation_->quantize() at
+                // load time; the quantized path has no random-initialization mode.
+                wte_scales_ = std::make_shared<TableScaleTensorType>(
+                    device_id, shape_t{ static_cast<dim_t>(config_.getVocabSize()) }, this->getName() + ".wte.scales" );
+            }
+            else
+            {
+                if ( build_context.shouldInitializeParameters() )
+                {
+                    const float std_dev = 1.0f / std::sqrt( static_cast<float>(config_.getEmbeddingDim()) );
+                    fill_normal( *wte_, 0.0f, std_dev, this->getExecutionContext() );
+                }
             }
         }
 

@@ -137,7 +137,9 @@ namespace Mila::Dnn
 
             // Runtime -> compile-time bridge: dispatch on the ModelConfig quantization
             // settings, mirroring LlamaModel. Gemma's Linear children (qkv/o/gate_up/down)
-            // pick up the weight-quant policy; lm_head stays unquantized.
+            // pick up the weight-quant policy; quantized bodies additionally convert the
+            // tied embedding/lm_head table to per-vocab-row FP8 (D4 Design B -- see
+            // GemmaTransformer::TableQuantizationPolicy).
             //
             // Bounded sliding-window KV ring for Gemma's LOCAL (sliding) layers
             // (SlidingWindowKvCache.md Phase 3): their cache is sized to the window

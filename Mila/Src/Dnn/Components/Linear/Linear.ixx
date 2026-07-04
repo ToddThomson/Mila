@@ -494,10 +494,9 @@ namespace Mila::Dnn
          * @brief Replace the owned weight with a shared tensor (e.g. a tied lm_head
          *        sharing the token embedding table). See WeightTying.md.
          *
-         * Must be called after the component is built so operation_ is live. The
-         * kIsQuantized guard documents the invariant that a tied head is unquantized
-         * (D4); in practice an lm_head is never quantized, so this branch is
-         * unreachable in the real model set.
+         * Must be called after the component is built so operation_ is live.
+         * Quantized instantiations must use the (weight, scales) overload -- a
+         * quantized weight is meaningless without its dequantization scales.
          *
          * @param shared_weight Shared device tensor; must match the configured shape.
          */
@@ -506,14 +505,48 @@ namespace Mila::Dnn
             if constexpr ( kIsQuantized )
             {
                 throw std::logic_error( std::format(
-                    "Linear '{}': installSharedWeight requires an unquantized lm_head; "
-                    "tied weights and per-tensor quantization are mutually exclusive",
+                    "Linear '{}': a quantized tied lm_head requires the "
+                    "installSharedWeight(weight, scales) overload",
                     this->getName() ) );
             }
             else
             {
                 weight_ = std::move( shared_weight );
                 operation_->setParameters( weight_.get(), bias_.get() );
+            }
+        }
+
+        /**
+         * @brief Replace the owned weight and scales with shared tensors -- the tied
+         *        FP8 embedding/lm_head table (D4 Design B).
+         *
+         * Only per-channel policies are installable: the per-output-channel scale
+         * axis IS the vocabulary row the embedding gathers, so one scale tensor
+         * serves both consumers. Per-group scales sit on the input axis and do not
+         * transfer to a row gather -- those instantiations throw.
+         *
+         * @param shared_weight Shared quantized device tensor [out_features, in_features].
+         * @param shared_scales Shared FP32 scale tensor [out_features].
+         */
+        void installSharedWeight(
+            std::shared_ptr<WeightTensorType> shared_weight,
+            std::shared_ptr<WeightScaleTensorType> shared_scales )
+        {
+            if constexpr ( kIsQuantized && TWeightQuant::kPerChannel )
+            {
+                weight_ = std::move( shared_weight );
+                weight_scales_ = std::move( shared_scales );
+
+                operation_->setParameters( weight_.get(), bias_.get() );
+                operation_->setWeightScales( weight_scales_.get() );
+            }
+            else
+            {
+                throw std::logic_error( std::format(
+                    "Linear '{}': installSharedWeight with scales requires a per-channel "
+                    "quantized lm_head; per-group scales sit on the input axis and do not "
+                    "transfer to a row gather",
+                    this->getName() ) );
             }
         }
 
@@ -675,8 +708,9 @@ namespace Mila::Dnn
         // Per-channel FP32 absmax scales [output_features]. Non-null only on the quantized
         // path (kIsQuantized == true). Allocated in initializeParameters(), bound to the
         // backend operation in onBuilding() via setWeightScales(), and filled at load time
-        // by operation_->quantize() inside loadParameter().
-        std::unique_ptr<WeightScaleTensorType> weight_scales_{ nullptr };
+        // by operation_->quantize() inside loadParameter(). shared_ptr so a tied lm_head
+        // can adopt the token embedding's row scales via installSharedWeight (D4 Design B).
+        std::shared_ptr<WeightScaleTensorType> weight_scales_{ nullptr };
 
         // Bias always stored at activation precision.
         std::shared_ptr<TensorType> bias_{ nullptr };
@@ -765,14 +799,14 @@ namespace Mila::Dnn
                 if constexpr ( TWeightQuant::kPerChannel )
                 {
                     // Per-channel: one scale per output channel -- shape [out_features].
-                    weight_scales_ = std::make_unique<WeightScaleTensorType>(
+                    weight_scales_ = std::make_shared<WeightScaleTensorType>(
                         device, shape_t{ output_features }, this->getName() + ".weight.scales" );
                 }
                 else
                 {
                     // Per-group: one scale per (output channel, K-group) -- shape [out_features, K/group_size].
                     const int64_t num_groups = input_features / TWeightQuant::kQuantizationGroupSize;
-                    weight_scales_ = std::make_unique<WeightScaleTensorType>(
+                    weight_scales_ = std::make_shared<WeightScaleTensorType>(
                         device, shape_t{ output_features, num_groups }, this->getName() + ".weight.scales" );
                 }
             }

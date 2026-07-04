@@ -25,6 +25,8 @@ Data/**/*.exe
 *.user
 *.userosscache
 *.sln.docstates
+*.sqlite
+*.nsys-rep
 
 # Python Tools for Visual Studio
 .venv/

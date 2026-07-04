@@ -499,6 +499,7 @@ if(MILA_HAS_CUDA)
         PRIVATE
             "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.Fp8.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Fp32.cu"
@@ -647,6 +648,7 @@ if(MILA_HAS_CUDA)
 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/CudaTokenEmbeddingOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/CudaTokenEmbeddingOp.Dispatch.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/CudaTokenEmbeddingOp.Quantize.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/CudaLpeOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/CudaLpeOp.Dispatch.ixx"

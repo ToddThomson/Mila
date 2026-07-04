@@ -29,6 +29,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -516,12 +517,14 @@ namespace Mila::Tests::Dnn::Components::Linear
         }
     }
 
-    // A quantized lm_head and tying are mutually exclusive (WeightTying.md D4). The
-    // guard is unreachable in the real model set (lm_head is never quantized), so this
-    // pins the documented invariant on a deliberately quantized instantiation. Deferred
-    // construction (no device) keeps it GPU-independent: the throw precedes any op or
-    // context use, and the argument is never dereferenced.
-    TEST( LinearCudaQuantizedTests, InstallSharedWeight_QuantizedPath_Throws )
+    // Tying contract on quantized instantiations (D4 Design B): per-channel FP8
+    // accepts the (weight, scales) overload -- the per-output-channel scale axis IS
+    // the vocab row a tied embedding gathers -- while per-group policies stay
+    // excluded (input-axis scales do not transfer to a row gather), and a quantized
+    // weight without scales is always rejected. Deferred construction (no device)
+    // keeps the throw tests GPU-independent: the throw precedes any op or context
+    // use, and the arguments are never dereferenced.
+    TEST( LinearCudaQuantizedTests, InstallSharedWeight_PerGroupPath_Throws )
     {
         using QuantizedLinear =
             Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerGroupFp4<128>>;
@@ -531,6 +534,125 @@ namespace Mila::Tests::Dnn::Components::Linear
         QuantizedLinear linear( "linear_quantized", config );
 
         EXPECT_THROW( linear.installSharedWeight( nullptr ), std::logic_error );
+        EXPECT_THROW( linear.installSharedWeight( nullptr, nullptr ), std::logic_error );
+    }
+
+    TEST( LinearCudaQuantizedTests, InstallSharedWeight_PerChannelWithoutScales_Throws )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerChannelFp8<>>;
+
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( false );
+        QuantizedLinear linear( "linear_quantized", config );
+
+        EXPECT_THROW( linear.installSharedWeight( nullptr ), std::logic_error );
+    }
+
+    // The real D4 wiring end to end: a quantized TokenEmbedding donor produces the
+    // FP8 table + per-vocab-row scales via quantize-on-load; a per-channel FP8
+    // lm_head that adopts both handles must compute exactly what a head that
+    // quantized the same BF16 blob through its own loadParameter computes -- the
+    // two paths run the same quantization kernel on the same data, so the outputs
+    // are identical, not merely close.
+    TEST( LinearCudaQuantizedTests, InstallSharedWeight_PerChannelFp8_MatchesDirectQuantizedLoad )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerChannelFp8<>>;
+        using QuantizedEmbedding = Mila::Dnn::TokenEmbedding<
+            DeviceType::Cuda, TensorDataType::INT32, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerChannelFp8<>>;
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+        using DeviceBf16 = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+
+        std::unique_ptr<IExecutionContext> context;
+        try
+        {
+            context = createExecutionContext( Device::Cuda( 0 ) );
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "CUDA device not available";
+        }
+
+        // BF16 weight blob shared by all three consumers.
+        std::vector<uint16_t> weight_bits( static_cast<size_t>( kOutFeatures * kInFeatures ) );
+        for ( int64_t o = 0; o < kOutFeatures; ++o )
+        {
+            for ( int64_t i = 0; i < kInFeatures; ++i )
+            {
+                const uint32_t bits = std::bit_cast<uint32_t>( weightValue( o, i ) );
+                const uint32_t rounding = 0x7FFF + ( ( bits >> 16 ) & 1 );
+                weight_bits[ o * kInFeatures + i ] = static_cast<uint16_t>( ( bits + rounding ) >> 16 );
+            }
+        }
+
+        const size_t blob_bytes = weight_bits.size() * sizeof( uint16_t );
+
+        // Decode-shaped build (outer_size == 1): the FP8 matvec path the tied
+        // lm_head actually runs.
+        const shape_t input_shape{ 1, kInFeatures };
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( false );
+
+        // Head A: direct quantize-on-load through its own loadParameter.
+        QuantizedLinear direct( "lm_head_direct", config, Device::Cuda( 0 ) );
+        direct.build( BuildContext( input_shape, RuntimeMode::Inference, false ) );
+
+        Serialization::TensorMetadata weight_meta{
+            TensorDataType::BF16, shape_t{ kOutFeatures, kInFeatures }, blob_bytes };
+        Serialization::TensorBlobView weight_blob( weight_meta, weight_bits.data(), blob_bytes );
+        direct.loadParameter( "weight", weight_blob );
+        context->synchronize();
+
+        // Donor: quantized TokenEmbedding over the same table ([vocab=out, d=in]).
+        auto embedding_config = TokenEmbeddingConfig()
+            .withVocabSize( static_cast<size_t>( kOutFeatures ) )
+            .withEmbeddingDim( static_cast<size_t>( kInFeatures ) );
+        QuantizedEmbedding embedding( "token_embedding_fp8", embedding_config, Device::Cuda( 0 ) );
+        embedding.build( BuildContext( shape_t{ 1, 2 }, RuntimeMode::Inference, false ) );
+
+        Serialization::TensorBlobView wte_blob( weight_meta, weight_bits.data(), blob_bytes );
+        embedding.loadParameter( "wte", wte_blob );
+        context->synchronize();
+
+        // Head B: adopts the donor's FP8 table and row scales.
+        QuantizedLinear tied( "lm_head_tied", config, Device::Cuda( 0 ) );
+        tied.build( BuildContext( input_shape, RuntimeMode::Inference, false ) );
+        tied.installSharedWeight( embedding.getWeightTensorShared(), embedding.getWeightScalesTensorShared() );
+
+        // Pointer identity: the tied head exposes the shared table as its parameter.
+        auto tied_params = tied.getParameters();
+        ASSERT_EQ( tied_params.size(), 1u );
+        EXPECT_EQ( tied_params[ 0 ], static_cast<ITensor*>( embedding.getWeightTensorShared().get() ) );
+
+        // Same input through both heads.
+        HostFp32 host_input( Device::Cpu(), input_shape );
+        for ( int64_t i = 0; i < kInFeatures; ++i )
+        {
+            host_input.data()[ i ] = 0.5f * weightValue( i % kOutFeatures, i );
+        }
+
+        DeviceBf16 device_input( Device::Cuda( 0 ), input_shape );
+        copy( host_input, device_input, context.get() );
+        context->synchronize();
+
+        auto& direct_out = direct.forward( device_input );
+        direct.synchronize();
+        auto direct_host = toHost<TensorDataType::FP32>( direct_out, context.get() );
+        context->synchronize();
+
+        auto& tied_out = tied.forward( device_input );
+        tied.synchronize();
+        auto tied_host = toHost<TensorDataType::FP32>( tied_out, context.get() );
+        context->synchronize();
+
+        ASSERT_EQ( direct_host.size(), tied_host.size() );
+
+        for ( size_t i = 0; i < direct_host.size(); ++i )
+        {
+            EXPECT_EQ( tied_host.data()[ i ], direct_host.data()[ i ] )
+                << "tied FP8 head diverged from direct quantized load at index " << i;
+        }
     }
 
     // ====================================================================

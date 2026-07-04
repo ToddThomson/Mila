@@ -64,24 +64,33 @@ underlying device buffer alive as long as *either* component refers to it —
 teardown order is irrelevant, and no `Tensor::view()` (sub-slice) machinery is
 needed because the alias is a full-shape share, not a slice.
 
-For an unquantized `lm_head` (the only case that exists — see D4),
-`WeightTensorType` is exactly `Tensor<TPrecision, MR>`, identical to
-`TokenEmbedding`'s `EmbeddingTensorType`, so `getWeightTensorShared()` assigns
-into `installSharedWeight` with no conversion.
+For an unquantized `lm_head`, `WeightTensorType` is exactly
+`Tensor<TPrecision, MR>`, identical to `TokenEmbedding`'s
+`EmbeddingTensorType`, so `getWeightTensorShared()` assigns into
+`installSharedWeight` with no conversion.
 
-**D4 — `lm_head` is never quantized, so tying is always safe.**
-Both transformers alias `using LmHeadLinearType = Linear<TDeviceType, TPrecision>`
-(`Gemma.ixx`, `Llama.ixx`) — the model's `TWeightQuantization` policy is **not**
-forwarded to `lm_head`. Even for Gemma 4 12B FP4 the `lm_head` is BF16. So
-`kIsQuantized` on the `lm_head` is always `false` and the shared BF16 embedding
-always feeds a BF16 matmul — there is no live "tied + quantized" path to guard.
+**D4 — SUPERSEDED 2026-07-04 by "D4 Design B" (tied FP8 table).**
+The original decision here ("`lm_head` is never quantized, so tying is always
+safe") was a deliberate deferral, reopened once decode profiling showed the
+BF16 `lm_head` weight read dominating decode traffic on the 12B FP4 build. The
+axis coincidence that makes quantized tying clean: per-channel FP8 scales sit
+on the `lm_head`'s output-channel axis, which IS the vocabulary row the
+embedding gathers, so one FP32 scale tensor `[vocab]` serves both consumers.
 
-The `if constexpr (kIsQuantized) throw` in `installSharedWeight` (§5.4) is kept
-as defensive insurance, but it is unreachable by construction: if `lm_head` were
-ever quantized, `WeightTensorType` would become e.g. `Tensor<FP4, MR>` and
-`installSharedWeight(shared_ptr<Tensor<FP4, MR>>)` would fail to compile against
-the BF16 embedding — a build error, not a runtime throw. The guard documents the
-invariant; it does not protect a reachable code path.
+Current design (see BACKLOG "D4 Design B" for the full scope):
+- `TokenEmbedding` carries a `TTableQuantization` axis (`NoWeightQuant` |
+  `PerChannelFp8<>`). The quantized instantiation stores `wte_` as FP8_E4M3
+  `[vocab, d]` plus FP32 row scales `[vocab]`, quantized at `loadParameter`
+  time, and dequantizes inline during the gather.
+- `Linear::installSharedWeight(weight, scales)` is a real install path for
+  per-channel policies. Per-group policies (FP4) remain excluded — their
+  scales sit on the input axis and do not transfer to a row gather — and a
+  quantized single-argument install always throws (a quantized weight is
+  meaningless without its scales).
+- `GemmaTransformer` selects the table policy from its `TWeightQuantization`:
+  quantized bodies (FP4/FP8) use the FP8 table and an FP8 `lm_head`; the
+  `NoWeightQuant` body keeps the BF16 table and head, preserving the exact HF
+  token-parity oracle in the reference configuration.
 
 **D5 — Gemma sqrt(hidden_size) scale moves from converter to runtime.**
 The Gemma converter currently folds `sqrt(hidden_size)` into the stored
@@ -438,11 +447,21 @@ tensor of the correct shape, call `installSharedWeight`, verify
 `getParameters()[0]` returns the same raw pointer, and that `forward` output
 matches a reference run where the blob was loaded directly.
 
-`InstallSharedWeight_QuantizedPath_Throws`: instantiate
-`Linear<Cuda, BF16, PerGroupFp4<128>>` and assert `installSharedWeight`
-throws `std::logic_error`. This exercises the guard in isolation; per D4 the
-guard is unreachable in the real model set (no quantized `lm_head` exists), but
-the unit test pins the documented invariant.
+Quantized install contract (updated 2026-07-04 for D4 Design B):
+
+`InstallSharedWeight_PerGroupPath_Throws`: `Linear<Cuda, BF16, PerGroupFp4<128>>`
+rejects both overloads with `std::logic_error` -- per-group scales sit on the
+input axis and do not transfer to a row gather.
+
+`InstallSharedWeight_PerChannelWithoutScales_Throws`: the single-argument
+overload throws on `Linear<Cuda, BF16, PerChannelFp8<>>` -- a quantized weight
+without its scales is meaningless.
+
+`InstallSharedWeight_PerChannelFp8_MatchesDirectQuantizedLoad`: a quantized
+`TokenEmbedding` donor quantizes a BF16 blob on load; a per-channel FP8 head
+that adopts the shared table + row scales produces output identical to a head
+that quantized the same blob through its own `loadParameter` (same kernel,
+same data -- exact equality).
 
 ### 7.3 `GemmaTransformer.Cuda.cpp` — full load-tie round-trip (DEFERRED)
 

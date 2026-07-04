@@ -395,7 +395,12 @@ a 12 GB card.
   `GemmaTransformer::loadParameters`. Required a Gemma re-convert (old checkpoints double-scale — no
   graceful-degradation path, by design). This is option (C) of the VRAM footprint item below.
 - [ ] **[VRAM, load-time] Tied lm_head double-allocates 2 GB during load — WDDM spill on the
-  12 GB card.** Observed 2026-07-03 (user, Task Manager): dedicated VRAM pegs at 12 GB plus a
+  12 GB card.** UPDATE 2026-07-04: the D4 Design B FP8 table (below) halves this transient on
+  quantized builds — both the embedding table and the lm_head self-allocation become FP8
+  (~1.0 GB each instead of 2.0 GB BF16), and the BF16 table never lands on device (quantize
+  staging reuses the shared scratch). The double-allocation PATTERN remains; the pre-build
+  install fix described here is still the structural close.
+  Observed 2026-07-03 (user, Task Manager): dedicated VRAM pegs at 12 GB plus a
   WDDM shared-memory blip until the model finishes loading, then falls to ~10.1 GB. Cause:
   `lm_head` self-allocates its vocab x model_dim BF16 weight (262144 x 3840 x 2B ~= 2.01 GB) at
   build, and the tie (`installSharedWeight` with the embedding table) only replaces + frees it at
@@ -577,8 +582,36 @@ a 12 GB card.
   (`C % 16 != 0`, `% 8 == 0`) — each with `C >= 2*group_size` so threads cross a group boundary
   (verifies per-group scale selection). Needs `loadParameter("weight", bf16_blob)` to drive the
   FP4 quantize+pack path (raw `copy()` into params[0] bypasses quantization).
-- [ ] **[perf + memory, approved 2026-07-04] D4 "Design B": convert the tied embedding/lm_head
-  table to FP8 — one shared FP8 table + per-vocab-row scales, both consumers read it.**
+- [x] **[perf + memory, approved 2026-07-04] D4 "Design B": convert the tied embedding/lm_head
+  table to FP8 — one shared FP8 table + per-vocab-row scales, both consumers read it.
+  CLOSED 2026-07-04 — all gates green same day (see VALIDATED note below).**
+  **IMPLEMENTED 2026-07-04 (all four seams + tests; awaiting build + on-GPU validation):**
+  (1) `TokenEmbedding` `TTableQuantization` axis + quantize-on-load via new
+  `CudaTokenEmbeddingOp:Quantize` partition (reuses the Linear per-channel FP8 kernel — per-vocab-row
+  IS per-channel with out=vocab, in=d); quantized path is inference-only (training build and
+  backward throw); (2) FP8 gather-dequant kernels (`TokenEmbedding.Fp8.cu`, forward + decode,
+  int2 FP8 loads / int4 BF16 stores) behind `cuda_token_embedding_fp8_impl`; TokenEmbeddingOp
+  traits re-keyed void -> `NoWeightQuant` + new `PerChannelFp8<>` BF16 specialization;
+  (3) `Linear::installSharedWeight(weight, scales)` overload installs per-channel FP8
+  (weight_scales_ now shared_ptr); single-arg throws on any quantized instantiation; per-group
+  throws on both; tests flipped/added incl. tied-vs-direct-quantized exact-equality oracle
+  (`InstallSharedWeight_PerChannelFp8_MatchesDirectQuantizedLoad`); (4) Gemma
+  `TableQuantizationPolicy = kIsQuantized ? PerChannelFp8<> : NoWeightQuant` drives both
+  `TokenEmbeddingType` and `LmHeadLinearType`; NoWeightQuant body keeps the BF16 tied head
+  (HF parity oracle preserved). WeightTying.md D4/§7.2 updated.
+  **VALIDATED 2026-07-04 (build + suites + chat green): 40.9-41.6 tok/s sampled chat (from
+  38.47 greedy baseline) — the ~-2 ms/token claim landed.** The VRAM claim initially INVERTED:
+  Task Manager showed 11.2 GB (was 10.5) because quantize-on-load staged the full 2.01 GB BF16
+  table through the grow-only shared scratch (previous high-water mark ~470 MB from prefill
+  dequant staging) — the scratch kept the extra ~1.5 GB for the process lifetime, exceeding the
+  ~1.0 GB the FP8 table saves. FIXED same day: `quantize_table_fp8_per_row` now loops row chunks
+  through a `kQuantizeStagingLimitBytes` (256 MB) staging window (row scales are row-local, so
+  chunking is exact; stream ordering serializes upload vs prior chunk's kernel). Post-fix
+  rebuild: VRAM re-measured good (user-confirmed), all suites green, and
+  `GreedyDecode_MatchesHuggingFaceTokenForToken` GREEN on the FP4 build — **decision (5)
+  RESOLVED: the FP8 head flipped no greedy argmax, exact token-for-token parity remains the
+  acceptance criterion** (the top-1-agreement fallback documented in the parity test header
+  stays as the contingency if a longer horizon ever flips one).
   Supersedes WeightTying.md section D4 ("lm_head is never quantized") — that invariant was a
   deliberate deferral and this item is the decision to open it. The axis coincidence that makes
   it clean: per-channel FP8 scales sit on the lm_head's output-channel axis, which IS the vocab
@@ -602,6 +635,11 @@ a 12 GB card.
   (5) DECIDE BEFORE MERGE: acceptance criterion for the FP4-mode parity test — FP8 logits can
   flip near-tie argmax, so keep exact-token over the current test length if it holds, else move
   that test to top-1 agreement rate + bounded max-logit delta vs the BF16 head.
+- [x] **`TokenEmbedding::loadParameter` unknown-name fallback recursed on itself.** FIXED
+  2026-07-04 (found during the D4 axis work): the else branch called `this->loadParameter(name,
+  blob)` — the same override — so an unknown parameter name was a stack overflow instead of the
+  base `Component::loadParameter` "does not support parameter loading" throw. Now calls
+  `ComponentBase::loadParameter`.
 - [~] **[perf, measured 2026-07-03] Decode calibration follow-ups: FP4 matvec bandwidth ("D6") +
   RmsNorm launch shape.** From the greedy decode capture (review section 10.1, 37.7 tok/s = 26.5
   ms/token): (a) **SHIPPED 2026-07-04** — `matvec_decode_bf16_qfp4_kernel`
