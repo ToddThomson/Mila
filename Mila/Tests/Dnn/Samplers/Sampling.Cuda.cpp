@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <memory>
 #include <random>
+#include <stdexcept>
 #include <vector>
 
 import Mila;
@@ -118,6 +119,17 @@ namespace Mila::Tests::Dnn::Samplers
             copy( token_device, token_host );
 
             return token_host.data()[ 0 ];
+        }
+
+        // Enqueued-path readback: the op samples on the context stream, copies the token
+        // into its pinned slot asynchronously, and awaitToken() blocks on the recorded
+        // event -- the decode-ahead half of the pipelined generation loop.
+        int32_t sampleEnqueued( OpType& op, const DeviceLogits& logits, const SamplingParams& params, float r )
+        {
+            DeviceToken token_device( Device::Cuda( 0 ), shape_t{ 1, 1 } );
+            op.enqueueForward( logits, token_device, params, r );
+
+            return op.awaitToken();
         }
 
         // Deterministic pseudo-random logits, continuous-valued so truncation
@@ -404,5 +416,101 @@ namespace Mila::Tests::Dnn::Samplers
         const int32_t second = sample( *op, logits, params, 0.42f );
 
         EXPECT_EQ( first, second );
+    }
+
+    // ------------------------------------------------------------------
+    // Enqueued path (decode-ahead pipeline): enqueueForward + awaitToken
+    // ------------------------------------------------------------------
+
+    // The enqueued path is the same kernel dispatch on a different stream with an
+    // async readback; greedy argmax must match the synchronous path exactly.
+    TEST_F( SamplingCudaTests, Enqueued_MatchesForward_Greedy )
+    {
+        auto op = makeOp();
+        auto logits = deviceLogits( { 3, 9, 1, 7, 5, 2, 8, 4 } );
+
+        SamplingParams params;
+        params.temperature = 0.0f;
+
+        EXPECT_EQ( sampleEnqueued( *op, logits, params, 0.5f ), 1 );
+        EXPECT_EQ( sampleEnqueued( *op, logits, params, 0.5f ), sample( *op, logits, params, 0.5f ) );
+    }
+
+    // Token parity between the synchronous and enqueued paths across the truncated
+    // filter matrix at the Gemma vocabulary -- same kernels, same injected r, so
+    // equality is exact.
+    TEST_F( SamplingCudaTests, Enqueued_MatchesForward_Truncated_AtGemmaVocab )
+    {
+        auto op = makeOp( 0.0f, kGemmaVocab );
+        auto logits = deviceLogits( randomLogits( kGemmaVocab, 42 ) );
+
+        struct FilterCase { int top_k; float top_p; };
+        const FilterCase cases[] = { { 64, 1.0f }, { 0, 0.9f }, { 64, 0.9f } };
+        const float r_grid[] = { 0.0f, 0.37f, 0.73f, 0.999f };
+
+        for ( const auto& filter : cases )
+        {
+            for ( const float r : r_grid )
+            {
+                SamplingParams params;
+                params.temperature = 0.8f;
+                params.top_k = filter.top_k;
+                params.top_p = filter.top_p;
+
+                EXPECT_EQ(
+                    sampleEnqueued( *op, logits, params, r ),
+                    sample( *op, logits, params, r ) )
+                    << "top_k=" << filter.top_k << " top_p=" << filter.top_p << " r=" << r;
+            }
+        }
+    }
+
+    // Back-to-back enqueue/await cycles reuse the single pinned slot + event; each
+    // cycle must return its own token (the generation loop's steady-state pattern).
+    TEST_F( SamplingCudaTests, Enqueued_BackToBack_SingleSlotReuse )
+    {
+        auto op = makeOp();
+        auto logits_low = deviceLogits( { 9, 1, 1, 1, 1, 1, 1, 1 } );
+        auto logits_high = deviceLogits( { 1, 1, 1, 1, 1, 1, 1, 9 } );
+
+        SamplingParams params;
+        params.temperature = 0.0f;
+
+        EXPECT_EQ( sampleEnqueued( *op, logits_low, params, 0.5f ), 0 );
+        EXPECT_EQ( sampleEnqueued( *op, logits_high, params, 0.5f ), 7 );
+        EXPECT_EQ( sampleEnqueued( *op, logits_low, params, 0.5f ), 0 );
+    }
+
+    // Stream-ordering contract: logits written on the context stream with NO host
+    // synchronize before enqueueForward -- the sampler kernels are ordered after the
+    // producing copy on the same stream, mirroring the pipelined loop where no
+    // network synchronize runs between forward and sample.
+    TEST_F( SamplingCudaTests, Enqueued_OrderedAfterPriorStreamWork )
+    {
+        auto op = makeOp();
+
+        const shape_t shape{ 1, 1, kVocab };
+        Tensor<TensorDataType::FP32, CpuMemoryResource> host( Device::Cpu(), shape );
+        for ( int64_t i = 0; i < kVocab; ++i )
+            host.data()[ i ] = ( i == 5 ) ? 50.0f : 1.0f;
+
+        DeviceLogits device( Device::Cuda( 0 ), shape );
+        copy( host, device, ctx_.get() );
+
+        SamplingParams params;
+        params.temperature = 0.0f;
+
+        DeviceToken token_device( Device::Cuda( 0 ), shape_t{ 1, 1 } );
+        op->enqueueForward( device, token_device, params, 0.5f );
+
+        EXPECT_EQ( op->awaitToken(), 5 );
+    }
+
+    // awaitToken() with no outstanding enqueueForward() is a caller bug, not UB.
+    TEST_F( SamplingCudaTests, AwaitToken_WithoutEnqueue_Throws )
+    {
+        auto op = makeOp();
+
+        EXPECT_THROW( (void)op->awaitToken(), std::logic_error );
     }
 }

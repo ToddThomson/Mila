@@ -247,7 +247,7 @@ injected uniform; the three copied host `sampleToken`s replaced by the one `Lang
 - [x] Injected-`r` unit oracle (`Tests/Dnn/Samplers/Sampling.Cuda.cpp`) — greedy exactness, inverse-CDF boundaries, determinism, top-k/top-p support restriction, softcap monotonicity (caught + fixed a top-k off-by-one)
 - [x] **GemmaModel** on-device sampling — `TokenSampler` hoisted to the `LanguageModel` base (lazy, shared context) via `sampleNext()`; path A (host `sampleToken`) retired; `logits_staging_` + `decode_token_staging_` removed; per-step H2D restage gone; greedy validated token-for-token vs HostA, stochastic coherent in chat
 - [ ] Migrate `LlamaModel` (mechanical mirror) + `GptModel` (GPT-2 variant) onto the base `sampleNext()` + delete their host `sampleToken`s — deferred to when those paths are next built/run
-- [ ] Phase D tail — share the decode stream (real `getStream()`; currently the op runs on the default stream) + single-block kernel perf optimization
+- [x] Phase D tail — decode-stream sharing SHIPPED + VALIDATED 2026-07-04 as **D1 decode-ahead**: `enqueueForward()`/`awaitToken()` run the sampler on the context stream with an async pinned readback + event, and `GemmaModel::onGenerating` pipelines forward N+1 ahead of token N's host readback — per-token `synchronize()` deleted, host removed from the per-token path (event-sync 79 us avg). Measured recovery ~0.2-0.3 ms/token: the calibration's "host gap" was mostly launch micro-gap tax (~1165 kernels/token x ~1.3 us), which re-ranks D2 fusion / CUDA Graphs as the next decode lever (review section 4.1). Single-block kernel perf optimization shipped 2026-07-03 (see the `CudaSamplingOp` item above)
 
 ### Milestone: Generation API
 

@@ -150,6 +150,40 @@ decode N+1 can be enqueued *before* the host reads back token N for the
 stop-check/`on_token` callback. Hides the entire host round-trip + callback
 latency; costs one wasted decode step at the stop token.
 
+**IMPLEMENTED 2026-07-04, VALIDATED same day (gemma_decode_d1 captures)** —
+both halves in one pass: `CudaSamplingOp::enqueueForward()` runs the sampler on
+the context stream with an async pinned-slot readback + event (`awaitToken()`),
+and `GemmaModel::onGenerating` is the decode-ahead pipeline (forward N+1
+enqueued before token N is host-visible; per-token `synchronize()` deleted; one
+stream-drain per return path). The stop-token decode lands in the KV cache and
+`kv_token_history_` records it, so prefix-reuse bookkeeping stays exact. Sync
+`forward()` on the default stream is retained as the Llama/Gpt contract until
+their sampler migration. Tracking + test coverage: BACKLOG Token-sampling item.
+
+**Measured result (greedy 256, 8K ctx): the pipeline works exactly as designed,
+but the calibration's "1.5-2 ms host gap" was misattributed.** Post-D1: wall
+24.17 ms/token, GPU-busy 22.57, idle 1.60; single kernel stream; the 513
+per-run `cudaStreamSynchronize` calls collapsed to 1 (final drain) + 256
+`cudaEventSynchronize` averaging **79 us** — the host arrives at the await just
+after the event fires. Host-caused >= 20 us gaps collapsed 69.6 -> 24.5 ms per
+255 tokens (~0.27 -> ~0.10 ms/token); the dominant remaining big-gap site is
+the 4-byte D2H readback itself (~62 us/token between the sampler and the next
+embedding gather). The other ~1.5 ms/token of "gap" — both before AND after D1
+— is **launch-granularity micro-gap tax**: ~1165 kernels/token with ~1.3 us of
+dead time between consecutive tiny kernels (298k gaps averaging 1.37 us). So
+D1's true throughput recovery was ~0.2-0.3 ms/token (the wall delta vs the
+d6_int2 capture, 26.12 -> 24.17, is mostly D4's -1.8 ms GPU-busy, which landed
+between captures); its real wins are latency hygiene and removing the host from
+the per-token path entirely. `cudaLaunchKernel` API time is now back-pressure
+inflated (18.7 us avg vs 4.7 pre-D1, ~19.8 ms/token total) — elastic queue
+throttling, not a bottleneck (true host floor ~6 ms/token). **Implication for
+the re-rank: the micro-gap tax rides on launch COUNT, so D2/D3 fusion now pays
+double (kernel time + ~1.3 us/launch of gap), and a CUDA Graphs decode step
+(static graph with device-side position, one launch/token) is the lever that
+attacks the whole ~1.5 ms tax + host launch cost at once — evaluate alongside
+D2.** Sampled capture mirrors greedy (wall 24.22, busy 22.60) and matches the
+41.6 tok/s chat measurement; the sampler pipeline is throughput-free.
+
 ### 4.2 Launch-count reduction (D2)
 
 In cheap-to-expensive order:

@@ -171,6 +171,28 @@ namespace Mila::Dnn::Compute
             out[ 0 ] = result;
         }
 
+        /**
+         * @brief Enqueue-contract mirror of the CUDA op for the decode-ahead loop.
+         *
+         * CPU execution is synchronous, so this computes immediately and stashes the
+         * token; awaitToken() just returns it. Keeps the pipelined generation loop
+         * device-agnostic.
+         */
+        void enqueueForward(
+            const ITensor& logits,
+            ITensor& token_out,
+            const SamplingParams& params,
+            float r ) const
+        {
+            forward( logits, token_out, params, r );
+            pending_token_ = static_cast<const int32_t*>( token_out.rawData() )[ 0 ];
+        }
+
+        int32_t awaitToken() const
+        {
+            return pending_token_;
+        }
+
         OperationType getOperationType() const override
         {
             return OperationType::SamplingOp;
@@ -184,5 +206,6 @@ namespace Mila::Dnn::Compute
     private:
         IExecutionContext* context_;
         SamplingConfig config_;
+        mutable int32_t pending_token_{ 0 };
     };
 }

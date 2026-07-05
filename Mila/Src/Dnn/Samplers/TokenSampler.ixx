@@ -91,6 +91,35 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Enqueue one sampling step without waiting for the token readback.
+         *
+         * Decode-ahead half of the pipelined generation loop: the op samples on the
+         * model's stream (ordered after the forward pass that produced @p logits) and
+         * writes the token into @p token_out in place, so the next decode step can be
+         * enqueued before the host knows the token id. The host uniform is drawn here
+         * at enqueue time -- one draw per sampled token, same RNG sequence as sample().
+         * awaitToken() must be called before the next enqueueSample().
+         */
+        void enqueueSample(
+            const ITensor& logits,
+            TokenTensor& token_out,
+            const SamplingParams& params )
+        {
+            std::uniform_real_distribution<float> dist( 0.0f, 1.0f );
+            const float r = dist( rng_ );
+
+            op_->enqueueForward( logits, token_out, params, r );
+        }
+
+        /**
+         * @brief Block until the last enqueueSample()'s token id is host-visible and return it.
+         */
+        int32_t awaitToken()
+        {
+            return op_->awaitToken();
+        }
+
+        /**
          * @brief Reseed the host RNG for reproducible sampling.
          *
          * Called once per generation run (not per token) when the caller supplies a seed.

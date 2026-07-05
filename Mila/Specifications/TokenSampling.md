@@ -312,6 +312,19 @@ buffers.
   wire `LlamaModel` + `GptModel` `onGenerating`; delete the three copied `sampleToken`s; flip to
   `DeviceB`, remove path A and apply the Section 6 buffer changes; retire the `Dnn/Decoders/`
   skeleton.
+- **Phase D tail — decode-stream sharing + decode-ahead (added 2026-07-04, pending on-GPU
+  validation):** the op grows a second entry point, `enqueueForward()` — same kernel dispatch on the
+  execution context's stream (not the default stream), plus an async 4-byte D2H into an op-owned
+  pinned slot and an event record; `awaitToken()` blocks on the event and returns the host id. The
+  facade/base mirror the split (`enqueueSample`/`awaitToken`, `enqueueSampleNext`/`awaitSampledToken`)
+  and the Gemma generation loop pipelines: forward N+1 is enqueued before token N is host-visible,
+  deleting the per-token network `synchronize()` and hiding the host readback + stop-check +
+  `on_token` + launch-enqueue gap behind the GPU forward (the Gemma4InferenceReview.md D1 finding).
+  Single-slot contract: at most one enqueue outstanding — `awaitToken()` before the next
+  `enqueueForward()`. The sync `forward()` (default stream, facade-owned synchronous readback) remains
+  the contract for models not yet migrated. One deliberate delta: a sampled stop token is decoded into
+  the KV cache before the host can see it; the model appends it to its reuse history, keeping
+  bookkeeping exact (and its cached K/V is reusable — the next turn's template begins with it).
 
 ### 8.4 Locked decisions
 

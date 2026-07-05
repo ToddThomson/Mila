@@ -309,50 +309,79 @@ namespace Mila::Dnn
             // The caches now hold exactly the prompt; decode appends below in lockstep.
             kv_token_history_.assign( prompt_tokens.begin(), prompt_tokens.end() );
 
-            this->getLanguageNetwork().synchronize();
-
-            int32_t next_token = this->sampleNext( logits, decode_token_device_, params.sampling );
-
-            if ( stop_ids.contains( next_token ) )
-                return GenerateStatus::Success;
-
-            on_token( next_token );
+            // Decode-ahead pipeline: the sampler runs on the network stream (ordered
+            // after the forward that produced the logits -- no synchronize needed) and
+            // writes the sampled token into decode_token_device_ in place, so the NEXT
+            // forward is enqueued before the host has read the token id back. The host
+            // readback (awaitSampledToken) then overlaps the GPU forward, hiding the
+            // per-token host gap (stream-sync wake-up, stop-check, on_token, and the
+            // ~340 kernel-launch enqueues) that showed as saw-tooth decode utilization.
+            //
+            // Consequence: a sampled stop token has already been decoded into the KV
+            // cache by the time the host sees it. The history append below keeps the
+            // reuse bookkeeping exact -- and the cached stop-token K/V is itself
+            // reusable, since the next turn's chat template starts with it.
+            this->enqueueSampleNext( logits, decode_token_device_, params.sampling );
 
             int position = static_cast<int>( seq_len );
+            int emitted = 0;
 
             // nullopt max_new_tokens => run to EOS / the context bound (the guard below).
             const int max_new = params.max_new_tokens.value_or( static_cast<int>( contextLength() ) );
 
-            for ( int step = 1; step < max_new; ++step )
+            while ( true )
             {
                 if ( stop.stop_requested() )
+                {
+                    // Drain the in-flight sampling step so nothing runs past return.
+                    this->getLanguageNetwork().synchronize();
                     return GenerateStatus::ClientCancelled;
+                }
 
-                // The KV cache is only as deep as the deployment context length; decode
-                // cannot write at a position past it. Stop cleanly instead of letting the
-                // GQA op throw "position out of range".
-                if ( position >= contextLength() )
-                    return GenerateStatus::ContextOverflow;
+                // Decode ahead only when another step could consume its logits: within
+                // the per-call token budget, and with KV-cache room -- decode cannot
+                // write at a position past the deployment context length.
+                const bool more_steps_allowed = emitted + 1 < max_new;
+                const bool cache_has_room = position < contextLength();
 
-                // The previous sampleNext() already wrote the sampled token into
-                // decode_token_device_ on the device, so it is ready to decode in place --
-                // no host round-trip. The decoded token enters the KV cache here, so the
-                // reuse history appends in lockstep (next_token still holds its id).
-                kv_token_history_.push_back( next_token );
+                TensorType* decode_logits = nullptr;
 
-                auto& decode_logits = this->getLanguageNetwork().decode( decode_token_device_, position );
-                this->getLanguageNetwork().synchronize();
+                if ( more_steps_allowed && cache_has_room )
+                    decode_logits = &this->getLanguageNetwork().decode( decode_token_device_, position );
 
-                next_token = this->sampleNext( decode_logits, decode_token_device_, params.sampling );
+                const int32_t token = this->awaitSampledToken();
 
-                if ( stop_ids.contains( next_token ) )
+                if ( decode_logits )
+                {
+                    // The ahead-decode entered this token into the KV cache at
+                    // `position`, whatever it turns out to be; the reuse history
+                    // must record it in lockstep.
+                    kv_token_history_.push_back( token );
+                    ++position;
+                }
+
+                if ( stop_ids.contains( token ) )
+                {
+                    // The ahead-decode of the stop token may still be in flight.
+                    this->getLanguageNetwork().synchronize();
                     return GenerateStatus::Success;
+                }
 
-                on_token( next_token );
-                ++position;
+                on_token( token );
+                ++emitted;
+
+                if ( !decode_logits )
+                {
+                    // No ahead-decode was enqueued, so the stream drained at the await
+                    // above. Token budget takes precedence over the context bound,
+                    // matching the pre-pipeline loop's check order.
+                    return more_steps_allowed
+                        ? GenerateStatus::ContextOverflow
+                        : GenerateStatus::MaxNewTokensReached;
+                }
+
+                this->enqueueSampleNext( *decode_logits, decode_token_device_, params.sampling );
             }
-
-            return GenerateStatus::MaxNewTokensReached;
         }
 
         void onTraining() override

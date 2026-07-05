@@ -25,7 +25,9 @@ module;
 #include <future>
 #include <stop_token>
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <cstdint>
 #include <charconv>
 #include <functional>
 #include <unordered_map>
@@ -141,6 +143,28 @@ namespace Mila::ChatApp
                     if ( cmd == "stats" )
                     {
                         showTurnStats();
+                        continue;
+                    }
+                    if ( cmd == "seed" || cmd.starts_with( "seed " ) )
+                    {
+                        if ( cmd == "seed" )
+                        {
+                            renderer_.printInfo( "Usage: /seed <n>  (reseed the sampler; identical seed + prompt + history => identical tokens)." );
+                            continue;
+                        }
+
+                        const std::string_view arg = cmd.substr( 5 );
+                        uint64_t seed = 0;
+                        const auto result = std::from_chars( arg.data(), arg.data() + arg.size(), seed );
+
+                        if ( result.ec != std::errc{} )
+                        {
+                            renderer_.printInfo( "Usage: /seed <n>  (n = non-negative integer)." );
+                            continue;
+                        }
+
+                        std::visit( [&]( auto& m ) { m->seedSampler( seed ); }, model_ );
+                        renderer_.printInfo( std::format( "Sampler reseeded ({}).", seed ) );
                         continue;
                     }
                     if ( cmd == "verbose" || cmd.starts_with( "verbose " ) )
@@ -599,7 +623,10 @@ namespace Mila::ChatApp
 
             for ( int round = 0; round < kMaxToolRounds; ++round )
             {
-                renderer_.startSpinner();
+                // Live token count on the spinner line: ticking = generating, frozen = hung.
+                std::atomic<int> live_token_count{ 0 };
+
+                renderer_.startSpinner( {}, &live_token_count );
                 stop_src_ = std::stop_source{};
                 bool tool_call_stop = false;
 
@@ -610,18 +637,27 @@ namespace Mila::ChatApp
                 auto last_token_time = round_start;
                 int round_token_count = 0;
 
+                std::vector<float> token_gaps_ms;
+                token_gaps_ms.reserve( 4096 );
+
+                GenerateStatus round_status = GenerateStatus::Success;
+
                 std::visit(
                     [&]( auto& m )
                     {
-                        [[maybe_unused]] const auto status = m->generate(
+                        round_status = m->generate(
                             input_tokens,
                             [&]( int32_t tok )
                             {
                                 const auto now = std::chrono::high_resolution_clock::now();
                                 if ( round_token_count == 0 )
                                     first_token_time = now;
+                                else
+                                    token_gaps_ms.push_back(
+                                        std::chrono::duration<float, std::milli>( now - last_token_time ).count() );
                                 last_token_time = now;
                                 ++round_token_count;
+                                live_token_count.fetch_add( 1, std::memory_order_relaxed );
 
                                 response += tokenizer_->decode(
                                     std::vector<TokenId>{ static_cast<TokenId>(tok) } );
@@ -640,6 +676,7 @@ namespace Mila::ChatApp
                 renderer_.stopSpinner();
 
                 RoundStats round_stats;
+                round_stats.finish_status = round_status;
                 round_stats.tokens_generated = round_token_count;
                 round_stats.prefill_time_ms =
                     std::chrono::duration<float, std::milli>( first_token_time - round_start ).count();
@@ -650,6 +687,46 @@ namespace Mila::ChatApp
                     ( decode_ms > 0.0f && decode_tokens > 0 )
                     ? static_cast<float>( decode_tokens ) / ( decode_ms / 1000.0f )
                     : 0.0f;
+
+                if ( !token_gaps_ms.empty() )
+                {
+                    std::vector<float> ordered( token_gaps_ms );
+                    const size_t mid = ordered.size() / 2;
+                    std::nth_element( ordered.begin(), ordered.begin() + mid, ordered.end() );
+                    round_stats.median_gap_ms = ordered[ mid ];
+
+                    const size_t p99_index = ( ordered.size() * 99 ) / 100;
+                    std::nth_element( ordered.begin(), ordered.begin() + p99_index, ordered.end() );
+                    round_stats.p99_gap_ms = ordered[ p99_index ];
+
+                    const auto max_it = std::max_element( token_gaps_ms.begin(), token_gaps_ms.end() );
+                    round_stats.max_gap_ms = *max_it;
+                    // +1: gap i sits between token i and token i+1 of the round.
+                    round_stats.max_gap_token_index =
+                        static_cast<int>( max_it - token_gaps_ms.begin() ) + 1;
+
+                    const float stall_floor =
+                        std::max( 2.5f * round_stats.median_gap_ms, 40.0f );
+
+                    for ( const float gap : token_gaps_ms )
+                    {
+                        if ( gap > stall_floor )
+                        {
+                            ++round_stats.stall_count;
+                            round_stats.stall_total_ms += gap;
+                        }
+                    }
+                }
+
+                // A capped round is indistinguishable from a hang while the buffered
+                // response builds (pegged GPU, silent spinner) -- say so explicitly.
+                if ( round_status == GenerateStatus::MaxNewTokensReached )
+                    renderer_.printInfo( std::format(
+                        "Response hit the {}-token cap without a stop token (finish: length).",
+                        config_.max_new_tokens ) );
+                else if ( round_status == GenerateStatus::ContextOverflow )
+                    renderer_.printInfo(
+                        "Response stopped at the context limit (finish: context_limit)." );
 
                 const std::optional<ToolCall> call = tool_call_stop
                     ? GemmaToolCallParser::parse( response )
@@ -1115,8 +1192,27 @@ namespace Mila::ChatApp
 
                 if ( round.ended_in_tool_call )
                     line += std::format( "  \xe2\x94\x82  \xe2\x86\x92 {}", round.tool_name );
+                else if ( round.finish_status != GenerateStatus::Success )
+                    line += std::format( "  \xe2\x94\x82  ended: {}", to_string( round.finish_status ) );
 
                 lines.push_back( std::move( line ) );
+
+                // Inter-token gap census (see RoundStats): outlier gaps localize a
+                // mid-response stall inside generate(); uniform gaps exonerate the loop.
+                if ( round.tokens_generated > 1 )
+                {
+                    std::string gap_line = std::format(
+                        "           gaps med {:.1f} ms  \xe2\x94\x82  p99 {:.1f} ms  \xe2\x94\x82  max {:.1f} ms @ token {}",
+                        round.median_gap_ms, round.p99_gap_ms,
+                        round.max_gap_ms, round.max_gap_token_index );
+
+                    if ( round.stall_count > 0 )
+                        gap_line += std::format( "  \xe2\x94\x82  {} stall{} ({:.0f} ms)",
+                            round.stall_count, round.stall_count == 1 ? "" : "s",
+                            round.stall_total_ms );
+
+                    lines.push_back( std::move( gap_line ) );
+                }
             }
 
             if ( multi_round )
@@ -1166,6 +1262,7 @@ Available commands:
   /effort [1-5]                      Show or set the thinking token-budget level
   /verbose [off|thoughts|all]        Show or set display detail (reasoning, raw + logs)
   /stats                             Show per-round timing for the last turn
+  /seed <n>                          Reseed the sampler for reproducible generation
   /exit                              Exit the application
 
 Model aliases:  )";
@@ -1268,6 +1365,22 @@ Examples:
             int tokens_generated = 0;
             bool ended_in_tool_call = false;
             std::string tool_name;                 // populated when ended_in_tool_call
+
+            // Inter-token gap census for GPU-utilization-dip triage: the callback cadence
+            // is the per-token wall time, so a mid-response stall inside generate() shows
+            // up as an outlier gap here. Uniform gaps + a dipping utilization graph means
+            // the GPU is being time-sliced by another process, not idled by the loop.
+            float median_gap_ms = 0.0f;
+            float p99_gap_ms = 0.0f;
+            float max_gap_ms = 0.0f;
+            int max_gap_token_index = 0;           // token that ended the largest gap
+            int stall_count = 0;                   // gaps > max(2.5 x median, 40 ms)
+            float stall_total_ms = 0.0f;           // wall time inside those stall gaps
+
+            // Why the round's generate() returned -- distinguishes a natural stop from
+            // hitting the token cap or the context bound (a capped round looks like a
+            // hang in the buffered UI: pegged GPU, no output, until the cap is reached).
+            GenerateStatus finish_status = GenerateStatus::Success;
         };
 
         std::vector<RoundStats> last_turn_rounds_;

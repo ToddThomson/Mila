@@ -39,10 +39,16 @@ namespace Mila::ChatApp
          * Used both for the per-turn "thinking" indicator (no label) and for model
          * loading ("Loading <model>"). The caller must not write to stdout between
          * startSpinner() and stopSpinner() or the animation will be corrupted.
+         *
+         * @param progress_counter Optional live counter appended to the spinner line
+         * (" N tok"). Read with relaxed ordering on the spinner thread; the pointee must
+         * outlive the startSpinner()/stopSpinner() window. A ticking count shows
+         * generation is alive; a frozen count distinguishes a hang from a long response.
          */
-        void startSpinner( std::string_view label = {} )
+        void startSpinner( std::string_view label = {}, const std::atomic<int>* progress_counter = nullptr )
         {
             spinner_label_ = std::string( label );
+            progress_counter_ = progress_counter;
             std::cout << "\x1b[?25l" << std::flush;  // hide cursor — eliminates blink flicker
             spinning_.store( true );
             spinner_thread_ = std::thread( [this]()
@@ -69,6 +75,14 @@ namespace Mila::ChatApp
                     if ( !spinner_label_.empty() )
                         std::cout << ' ' << spinner_label_;
 
+                    if ( progress_counter_ )
+                    {
+                        const int count = progress_counter_->load( std::memory_order_relaxed );
+
+                        if ( count > 0 )
+                            std::cout << ' ' << count << " tok";
+                    }
+
                     std::cout << reset() << "\x1b[K" << std::flush;  // erase to end of line
                     ++frame;
                     std::this_thread::sleep_for( std::chrono::milliseconds( 80 ) );
@@ -82,6 +96,7 @@ namespace Mila::ChatApp
             spinning_.store( false );
             if ( spinner_thread_.joinable() )
                 spinner_thread_.join();
+            progress_counter_ = nullptr;
             std::cout << "\x1b[?25h" << std::flush;  // restore cursor
         }
 
@@ -216,6 +231,7 @@ namespace Mila::ChatApp
         std::atomic<bool> spinning_{ false };
         std::thread       spinner_thread_;
         std::string       spinner_label_;
+        const std::atomic<int>* progress_counter_{ nullptr };
 
         // ── ANSI helpers ──────────────────────────────────────────────────────
 

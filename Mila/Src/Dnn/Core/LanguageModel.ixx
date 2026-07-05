@@ -142,6 +142,36 @@ namespace Mila::Dnn
             return token_sampler_->sample( logits, token_out, params );
         }
 
+        /**
+         * @brief Enqueue a sampling step without waiting for the host readback.
+         *
+         * Decode-ahead half of the split sampleNext(): the token is written into
+         * @p token_out on the device (ready for the next decode step) and its id
+         * travels to the host asynchronously. awaitSampledToken() completes the pair.
+         * At most one enqueue may be outstanding.
+         */
+        void enqueueSampleNext(
+            const TensorType& logits,
+            TokenTensor& token_out,
+            const SamplingParams& params )
+        {
+            ensureSampler();
+
+            token_sampler_->enqueueSample( logits, token_out, params );
+        }
+
+        /**
+         * @brief Block until the last enqueueSampleNext()'s token id is host-visible.
+         *
+         * Waits only for that sampling step -- device work enqueued after it (the
+         * ahead-decoded forward) keeps running, which is what hides the per-token
+         * host gap.
+         */
+        int32_t awaitSampledToken()
+        {
+            return token_sampler_->awaitToken();
+        }
+
         // ====================================================================
         // Network accessor
         // ====================================================================
