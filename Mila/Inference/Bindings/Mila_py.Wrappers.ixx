@@ -66,6 +66,7 @@ namespace Mila::Bindings
     {
     public:
         static std::shared_ptr<Tokenizer> loadLlama32( const std::string& path );
+        static std::shared_ptr<Tokenizer> loadGemma( const std::string& path );
 
         std::vector<int32_t> encode( const std::string& text );
         std::string decode( const std::vector<int32_t>& ids );

@@ -831,8 +831,54 @@ already used it; the `Generation*` naming in the design notes above was not adop
 - [x] `top_p` reaches the device sampler.
 - [x] `last_generation_statistics_` / `getLastGenerationStatistics()` removed, stays removed.
 - [x] Propagated across GemmaModel/LlamaModel/GptModel `onGenerating`, Chat, ProfileModel, and the Gemma parity test.
+- [x] **MIS pybind bindings propagated (2026-07-06).** The +79 propagation list above MISSED the MilaPy
+  extension: [Mila_py.Wrappers.cpp](Mila/Inference/Bindings/Mila_py.Wrappers.cpp) still built `GenerateConfig`
+  and called the deleted vector-returning `generate` + `generateStreaming`, so the `mila.pyd` target had been
+  red since +79. Rewrote all four `LlamaSession`/`GemmaSession` bodies onto the streaming-only
+  `generate(prompt, on_token, params, stop) -> GenerateStatus` primitive (blocking flavor = seed the prompt
+  vector + a `push_back` callback; both discard the `[[nodiscard]]` status via `(void)`). The `Mila.Bindings`
+  interface, the pybind surface (`Mila_py.cpp`), and the Python server are all unchanged -- Python-facing
+  signatures + return contracts preserved.
+
+## MIS -> Gemma 4 migration
+
+The whole point of adding Gemma 4 (weight-tying, FP4, bounded-KV sliding ring) was tool use with 3rd-party
+agentic harnesses; Llama 3.x through MIS strips tool schemas and replies plain text. Test suite: Codex CLI +
+Claude Code CLI (WSL coding harnesses) + one agentic harness (Hermes provisional). See
+[[project_mis_test_environment]].
+
+- [x] **Steps 1-2 done 2026-07-06 (bindings + server; NO core `Mila/Src/` changes -- everything Gemma needs
+  already exists there).** Bindings: added `BpeTokenizer.load_gemma` (wrapper `.ixx`/`.cpp` + pybind) mirroring
+  `load_llama32`; `GemmaSession::fromPretrained` now hardcodes `.withFP4Quantization()` (the default `None`/BF16
+  would need ~24 GB and OOM the 12 GB 4070). Server: `MILA_MODEL_FAMILY` config (default `gemma`), `model_worker`
+  loads `GemmaModel` + `load_gemma`, `prompt.py` dispatches to a Gemma template (`<|turn>`/`<turn|>` control
+  tokens per the Mila checkpoint -- NOT `<start_of_turn>` -- roles system/user/model, `<bos>` prefix,
+  `<|turn>model\n` primer, thinking-off `<|channel>thought\n<channel|>` prime), decode strips Gemma control
+  tokens (atomic specials, so per-token stripping cleans streaming + buffered across all 5 routes untouched).
+  `.env` repointed to `Data/Models/Gemma/gemma4_12b_it_bf16.bin` + `gemma_tokenizer.bin`, context 4096.
+  **Requires a VS2026 `mila.pyd` rebuild.**
+- [x] **Step 3 DONE -- empirical VRAM pass ("bang on the door"), 2026-07-06.** Gemma 4 12B FP4 serves a full
+  **16384 context on the 12 GB 4070 with ~1.5 GB free**, generating clean text end-to-end (OpenAI
+  `/v1/chat/completions`, `finish_reason: stop`, no leaked control tokens). Footprint walk (used / free MiB):
+  4096 -> 10037 / 1974; 8192 -> 10352 / 1659 (+315 for +4096 tokens = **~79 KiB/token**, linear); 16384 idle ->
+  10791. **8045-token prompt peaked at 10797 MiB (+6 over idle -- prefill scratch already baked into idle).** The
+  sliding-KV ring is what bought it: 40 of 48 layers pinned at the 1024 window, only 8 globals grow with context.
+  `.env` settled at `MILA_CONTEXT_LENGTH=16384`. Reported params 7.46B (tied embedding counted once). Optional
+  final: a near-16384-token prompt to close the absolute worst case (scratch was insensitive 38->8045, so low risk).
+- [ ] **First-pass Gemma limitations to revisit after step 3:** (a) decode strips channel *markers* but not
+  content between thought-channel markers -- fine while thinking is primed off, but a proper channel parser
+  (mirror the chat `ChannelParser`/`StreamingDisplay`) is the real fix; (b) `top_p` still dropped (item below);
+  (c) server `README.md` still describes Llama 3.2 3B -- rewrite once the context/VRAM envelope is known.
 
 Still open to close the milestone:
+- [ ] **MIS `top_p` is dropped before the sampler.** `SamplingParams` now carries `top_p`, but the pybind
+  `generate`/`generate_streaming` never grew a `top_p` arg, and `ModelWorker.generate`/`generate_streaming`
+  ([model_worker.py](Mila/Inference/Server/model_worker.py)) accept `top_p` then omit it from the `self._model`
+  call. The server plumbs `top_p` all the way from the OpenAI/Anthropic request to the worker boundary
+  ([routes/factory.py](Mila/Inference/Server/routes/factory.py)) where it is silently discarded. Wire it
+  through: add `top_p` to the two `*Session` signatures (`.ixx` + `.cpp`, set `params.sampling.top_p`), a
+  `py::arg("top_p") = 1.0f` in `Mila_py.cpp`, and forward it in `model_worker.py`. Small + mechanical, all
+  inside the editable Inference subsystem.
 - [ ] `SamplingConfig` -> `SamplerConfig` rename (deferred this pass -- highest-risk cross-module rename).
 - [ ] Llama/Gpt reproducibility -- their host samplers are time-seeded only until the deferred device-sampler
   migration wires `seedSampler`.

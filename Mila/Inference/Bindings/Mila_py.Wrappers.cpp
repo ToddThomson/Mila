@@ -71,6 +71,14 @@ namespace Mila::Bindings
         return std::shared_ptr<Tokenizer>( new Tokenizer( std::move( impl ) ) );
     }
 
+    std::shared_ptr<Tokenizer> Tokenizer::loadGemma( const std::string& path )
+    {
+        auto impl = std::make_unique<Impl>();
+        impl->tokenizer = BpeTokenizer::loadGemma( std::filesystem::path( path ) );
+
+        return std::shared_ptr<Tokenizer>( new Tokenizer( std::move( impl ) ) );
+    }
+
     std::vector<int32_t> Tokenizer::encode( const std::string& text )
     {
         return impl_->tokenizer->encode( text );
@@ -144,11 +152,22 @@ namespace Mila::Bindings
         const std::vector<int32_t>& prompt_tokens,
         std::size_t max_new_tokens, float temperature, int top_k )
     {
-        GenerateConfig config;
-        config.max_new_tokens = static_cast<int>( max_new_tokens );
-        config.temperature = temperature;
-        config.top_k = top_k;
-        return impl_->model->generate( prompt_tokens, config );
+        GenerateParams params;
+        params.max_new_tokens = static_cast<int>( max_new_tokens );
+        params.sampling.temperature = temperature;
+        params.sampling.top_k = top_k;
+
+        // Blocking convenience over the streaming-only core primitive: collect the
+        // generated tokens onto the prompt so the caller receives prompt + completion.
+        std::vector<int32_t> output( prompt_tokens.begin(), prompt_tokens.end() );
+        // Finish reason is not part of this blocking convenience shape; the caller
+        // infers completion from the returned token list.
+        (void)impl_->model->generate(
+            prompt_tokens,
+            [&output]( int32_t token ) { output.push_back( token ); },
+            params );
+
+        return output;
     }
 
     void LlamaSession::generateStreaming(
@@ -157,12 +176,12 @@ namespace Mila::Bindings
         std::size_t max_new_tokens, float temperature, int top_k,
         std::stop_token stop )
     {
-        GenerateConfig config;
-        config.max_new_tokens = static_cast<int>( max_new_tokens );
-        config.temperature = temperature;
-        config.top_k = top_k;
-        impl_->model->generateStreaming(
-            prompt_tokens, on_token, config, std::move( stop ) );
+        GenerateParams params;
+        params.max_new_tokens = static_cast<int>( max_new_tokens );
+        params.sampling.temperature = temperature;
+        params.sampling.top_k = top_k;
+        (void)impl_->model->generate(
+            prompt_tokens, on_token, params, std::move( stop ) );
     }
 
     LlamaConfigInfo LlamaSession::getConfig() const
@@ -200,7 +219,12 @@ namespace Mila::Bindings
         const std::string& path, int64_t context_length, int device_index )
     {
         DeviceId device_id{ DeviceType::Cuda, device_index };
-        GemmaModelConfig model_config( static_cast<dim_t>( context_length ) );
+
+        // Hardcode FP4 (PerGroupFp4<128> weights + sliding-window KV ring): Gemma 4 12B
+        // only fits the 12 GB target under FP4 -- the default None (BF16) weights would
+        // need ~24 GB and OOM at load. Mirrors the chat catalog's gemma-12b default.
+        GemmaModelConfig model_config = GemmaModelConfig( static_cast<dim_t>( context_length ) )
+            .withFP4Quantization();
 
         auto impl = std::make_unique<Impl>();
         impl->model = GemmaCudaBf16::fromPretrained(
@@ -213,11 +237,22 @@ namespace Mila::Bindings
         const std::vector<int32_t>& prompt_tokens,
         std::size_t max_new_tokens, float temperature, int top_k )
     {
-        GenerateConfig config;
-        config.max_new_tokens = static_cast<int>( max_new_tokens );
-        config.temperature = temperature;
-        config.top_k = top_k;
-        return impl_->model->generate( prompt_tokens, config );
+        GenerateParams params;
+        params.max_new_tokens = static_cast<int>( max_new_tokens );
+        params.sampling.temperature = temperature;
+        params.sampling.top_k = top_k;
+
+        // Blocking convenience over the streaming-only core primitive: collect the
+        // generated tokens onto the prompt so the caller receives prompt + completion.
+        std::vector<int32_t> output( prompt_tokens.begin(), prompt_tokens.end() );
+        // Finish reason is not part of this blocking convenience shape; the caller
+        // infers completion from the returned token list.
+        (void)impl_->model->generate(
+            prompt_tokens,
+            [&output]( int32_t token ) { output.push_back( token ); },
+            params );
+
+        return output;
     }
 
     void GemmaSession::generateStreaming(
@@ -226,12 +261,12 @@ namespace Mila::Bindings
         std::size_t max_new_tokens, float temperature, int top_k,
         std::stop_token stop )
     {
-        GenerateConfig config;
-        config.max_new_tokens = static_cast<int>( max_new_tokens );
-        config.temperature = temperature;
-        config.top_k = top_k;
-        impl_->model->generateStreaming(
-            prompt_tokens, on_token, config, std::move( stop ) );
+        GenerateParams params;
+        params.max_new_tokens = static_cast<int>( max_new_tokens );
+        params.sampling.temperature = temperature;
+        params.sampling.top_k = top_k;
+        (void)impl_->model->generate(
+            prompt_tokens, on_token, params, std::move( stop ) );
     }
 
     GemmaConfigInfo GemmaSession::getConfig() const

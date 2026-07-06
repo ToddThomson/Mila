@@ -9,7 +9,31 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 import mila
-from config import settings
+from config import settings, ModelFamily
+
+# Gemma 4 control tokens. Each is an atomic special in the vocabulary, so a
+# per-token decode yields the whole marker string -- stripping the exact strings
+# cleans both the streamed (per-token) and buffered (full-list) decode paths.
+# First-pass measure: the markers are removed but content BETWEEN thought-channel
+# markers is not (thinking is primed off, so none is expected); a proper channel
+# parser mirroring the chat harness is future work.
+_GEMMA_CONTROL_TOKENS = (
+    "<bos>", "<eos>", "<pad>",
+    "<|turn>", "<turn|>",
+    "<|channel>", "<channel|>",
+    "<|think|>",
+    "<|tool>", "<tool|>", "<|tool_call>", "<tool_call|>",
+    "<|tool_response>", "<tool_response|>",
+    "<end_of_turn>", "<start_of_turn>",
+)
+
+
+def _strip_gemma_control_tokens(text: str) -> str:
+    for token in _GEMMA_CONTROL_TOKENS:
+        if token in text:
+            text = text.replace(token, "")
+
+    return text
 
 
 class ModelWorker:
@@ -23,7 +47,7 @@ class ModelWorker:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mila-worker")
         self._loop: asyncio.AbstractEventLoop | None = None
         self._tokenizer: mila.BpeTokenizer | None = None
-        self._model: mila.LlamaModel | None = None
+        self._model: "mila.LlamaModel | mila.GemmaModel | None" = None
 
     async def startup(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -33,12 +57,24 @@ class ModelWorker:
         self._executor.shutdown(wait=True)
 
     def _load(self) -> None:
-        self._tokenizer = mila.BpeTokenizer.load_llama32(settings.tokenizer_path)
-        self._model = mila.LlamaModel.from_pretrained(
-            settings.model_path,
-            settings.context_length,
-            settings.device_index,
-        )
+        if settings.model_family == ModelFamily.gemma:
+            self._tokenizer = mila.BpeTokenizer.load_gemma(settings.tokenizer_path)
+            self._model = mila.GemmaModel.from_pretrained(
+                settings.model_path,
+                settings.context_length,
+                settings.device_index,
+            )
+        else:
+            self._tokenizer = mila.BpeTokenizer.load_llama32(settings.tokenizer_path)
+            self._model = mila.LlamaModel.from_pretrained(
+                settings.model_path,
+                settings.context_length,
+                settings.device_index,
+            )
+
+    @property
+    def _is_gemma(self) -> bool:
+        return settings.model_family == ModelFamily.gemma
 
     # ------------------------------------------------------------------
     # Tokenizer helpers (cheap; run on the worker thread for consistency)
@@ -50,7 +86,12 @@ class ModelWorker:
 
     async def decode(self, ids: list[int]) -> str:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._tokenizer.decode, ids)
+        text = await loop.run_in_executor(self._executor, self._tokenizer.decode, ids)
+
+        if self._is_gemma:
+            text = _strip_gemma_control_tokens(text)
+
+        return text
 
     @property
     def bos_token_id(self) -> int | None:
@@ -110,6 +151,10 @@ class ModelWorker:
             try:
                 text = self._tokenizer.decode(token_buffer)
                 token_buffer.clear()
+
+                if self._is_gemma:
+                    text = _strip_gemma_control_tokens(text)
+
                 on_text(text)
             except UnicodeDecodeError:
                 pass

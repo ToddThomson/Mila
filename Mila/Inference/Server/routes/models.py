@@ -8,7 +8,7 @@ router = APIRouter()
 
 
 class ModelInfo(BaseModel):
-    id: str = "llama-3.2-3b-instruct"
+    id: str = settings.model_name
     object: str = "model"
     config: dict
 

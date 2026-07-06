@@ -64,6 +64,12 @@ static void bind_tokenizer( py::module_& m )
             },
             py::arg( "path" ),
             "Load a Llama 3.2 tokenizer from a Mila binary vocabulary file." )
+        .def_static( "load_gemma",
+            []( const std::string& path ) {
+                return Tokenizer::loadGemma( path );
+            },
+            py::arg( "path" ),
+            "Load a Gemma 4 SentencePiece tokenizer from a Mila binary vocabulary file." )
         .def( "encode",
             []( Tokenizer& self, const std::string& text ) -> std::vector<int32_t> {
                 py::gil_scoped_release _;
