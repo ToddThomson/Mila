@@ -893,6 +893,49 @@ Still open to close the milestone:
   mis-times its own prefill (that bug leaves with the stopwatch), but the lazy allocation still adds real
   first-token latency the harness will measure — construct up front.
 
+- [x] **Chat streaming display (Gemma-first) — SHIPPED + VALIDATED 2026-07-05 (all four gates green).**
+  All five phases landed in one pass, zero library changes. New modules: `Chat.RichText` (formatRich +
+  wordWrap extracted from the renderer so streamed and buffered paths share one pipeline) and
+  `Chat.StreamingDisplay` (UTF-8 tail-hold `StreamingDetokenizer`; `IncrementalRichFormatter` with
+  line-bounded construct holds; `StreamingResponseDisplay` token-keyed router over
+  `<|channel>`/`<channel|>`/`<|tool_call>`/`<tool_call|>` ids probed at tokenizer load — all four must
+  resolve or the model stays buffered). `ConsoleRenderer` gained a streaming block writer that mirrors
+  `wordWrap` incrementally (pending-word + deferred-whitespace buffers, ragged-right paint) plus an
+  interruptible spinner sleep (<=10 ms stop, keeps the gap census clean). Decisions taken: thought
+  channel dim-streams live at `/verbose thoughts`; streamed-vs-buffered validator is always on and warns
+  loudly (one line via the gate-1 oracle in `emitAssistantResponse`). `streaming_capable` is a
+  `ModelEntry` column (Gemma true, Llama/Gpt false). The four gates below validated in chat 2026-07-05.
+  Original scope follows.
+  Stream the response to the console as tokens arrive instead
+  of buffering the whole turn. Zero library changes — `generate()` is already push-streaming; full-buffering
+  was a display decision forced by Llama 3.x's TEXT-convention tool calls (JSON in content, detectable only
+  by parsing accumulated text). Gemma 4's tool calls are PROTOCOL TOKENS (the harness already matches the
+  close token by id inside `on_token`), so exact stream-suppression needs no lookahead. Timing precondition
+  already met: D1 decode-ahead gives `on_token` a ~22 ms/token host budget (pre-D1, every display ms added
+  directly to token time). All work in `Mila/Samples/Chat/Src/`; scoped phases:
+  - **Phase 0 — capability flag + invariants.** Per-model streaming-capable flag (Gemma true; Llama/Gpt stay
+    buffered until their deferred tool/sampler migration — no speculative JSON lookahead for a format slated
+    for rework). The full `response` string keeps accumulating regardless (history + post-hoc parser retained
+    as the display's validator).
+  - **Phase 1 — incremental detokenizer with UTF-8 tail-hold.** Per-token `decode()` can split multi-byte
+    sequences; hold incomplete tails, emit only completed characters, final flush at round end. Buffered
+    concatenation hid this; streaming loses that safety net.
+  - **Phase 2 — token-keyed channel router.** Small state machine on Gemma special ids: respond channel ->
+    stream; thought channel -> dim-stream at `/verbose thoughts`, hidden at `off`; `<|tool_call>` open ->
+    suppress + spinner note until close. Properly fixes the known cosmetic leak of a raw `<|channel>thought`
+    marker into display.
+  - **Phase 3 — streaming word-wrap renderer (the bulk of the work).** `ConsoleRenderer` wraps complete
+    buffered blocks today; streaming needs a pending-word buffer + column tracking (flush at whitespace,
+    wrap before overflow), per-line solid-color paint, leading-indent preservation, long-word/URL hard-break.
+  - **Phase 4 — spinner handoff.** Spinner (+ live token counter) owns the line through prefill and
+    suppressed tool rounds; first displayable token stops it and streaming takes over; `/stats` unchanged.
+  - **Gates:** (1) streamed transcript characters == the buffered render of the same response (the buffered
+    path is the oracle); (2) `/stats` gap census unchanged (median/p99/max within noise — display stays
+    inside the D1 host budget); (3) a tool-call turn round-trips stream -> suppressed -> stream; (4) thinking
+    traces route correctly at all three `/verbose` levels. Side benefits: TTFT perception (first words at
+    token one instead of ~14 s for a full story), and live anomaly visibility (a capped ramble or repeated-
+    word event is watchable in situ instead of a silent spinner — see the 2026-07-04 runaway incident).
+
 - [~] **Prompt-caching / KV prefix reuse ("P4") — SHIPPED for Gemma 2026-07-03 (awaiting build +
   validation).** The latency need showed up measured (full 8K re-prefill ~5-6 s per chat turn even
   post-chunk-512; up to 4 re-prefills per tool round). Shipped per the updated

@@ -16,6 +16,7 @@
 module;
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <variant>
 #include <filesystem>
@@ -46,6 +47,8 @@ import Chat.ChannelParser;
 import Chat.GemmaToolCallParser;
 import Chat.Json;
 import Chat.Renderer;
+import Chat.RichText;
+import Chat.StreamingDisplay;
 
 import Mila;
 
@@ -399,13 +402,18 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief Strip tokens, split channels, render, and store an assistant turn.
+         * @brief Strip tokens, split channels, render (or validate), and store an
+         *        assistant turn.
          *
          * The Gemma reasoning channel is rendered only at detail level Thoughts or
          * above, and the verbatim raw output at All; the final answer is always
          * rendered and is the only text pushed to history so the reasoning never
          * re-enters the next formatted prompt. For models that emit no reasoning
          * channel the parse is a pass-through and the whole response is the answer.
+         *
+         * When the turn streamed live, the buffered pipeline is not re-rendered;
+         * instead its output is the oracle the streamed transcript is checked
+         * against (gate 1 of the streaming display).
          */
         void emitAssistantResponse( const std::string& raw )
         {
@@ -419,11 +427,109 @@ namespace Mila::ChatApp
             const std::string clean = stripSpecialTokens( without_tool_spans );
             const ParsedResponse parsed = ChannelParser::parse( clean );
 
-            if ( config_.detail >= DetailLevel::Thoughts && !parsed.thinking.empty() )
-                renderer_.printThinking( parsed.thinking );
+            if ( stream_display_ != nullptr && renderer_.streamHasOutput() )
+            {
+                validateStreamedDisplay( parsed );
+            }
+            else
+            {
+                if ( config_.detail >= DetailLevel::Thoughts && !parsed.thinking.empty() )
+                    renderer_.printThinking( parsed.thinking );
 
-            renderer_.printMilaResponse( parsed.answer );
+                renderer_.printMilaResponse( parsed.answer );
+            }
+
+            stream_display_.reset();
             history_.push_back( { MessageRole::Assistant, parsed.answer } );
+        }
+
+        /**
+         * @brief Gate 1 of the streaming display: the streamed transcript must
+         *        equal the buffered render of the same response.
+         *
+         * Line-exact comparison against the shared formatRich + wordWrap pipeline
+         * (built at the wrap width the stream captured); when the stream had
+         * forced visual breaks (tool trace lines interleaving the block) the
+         * comparison falls back to whitespace-normalized text. Any divergence is
+         * a bug in the incremental path and is reported loudly.
+         */
+        void validateStreamedDisplay( const ParsedResponse& parsed ) const
+        {
+            const int width = renderer_.streamWrapWidth();
+
+            validateStreamedChannel( "answer", renderer_.streamedAnswerLines(),
+                RichText::wordWrap( RichText::formatRich( parsed.answer ), width ) );
+
+            if ( config_.detail >= DetailLevel::Thoughts )
+                validateStreamedChannel( "thinking", renderer_.streamedThinkingLines(),
+                    RichText::wordWrap( RichText::formatRich( parsed.thinking ), width ) );
+        }
+
+        void validateStreamedChannel( std::string_view channel,
+            const std::vector<std::string>& streamed,
+            const std::vector<std::string>& oracle ) const
+        {
+            if ( !renderer_.streamForcedBreak() )
+            {
+                if ( streamed == oracle )
+                    return;
+
+                size_t line = 0;
+                const size_t common = std::min( streamed.size(), oracle.size() );
+
+                while ( line < common && streamed[ line ] == oracle[ line ] )
+                    ++line;
+
+                renderer_.printInfo( std::format(
+                    "[stream validator] {} display diverged from the buffered render "
+                    "(first difference at line {}; {} streamed / {} buffered lines).",
+                    channel, line + 1, streamed.size(), oracle.size() ) );
+                return;
+            }
+
+            if ( normalizeWhitespace( joinLines( streamed ) ) != normalizeWhitespace( joinLines( oracle ) ) )
+                renderer_.printInfo( std::format(
+                    "[stream validator] {} display diverged from the buffered render.",
+                    channel ) );
+        }
+
+        static std::string joinLines( const std::vector<std::string>& lines )
+        {
+            std::string joined;
+
+            for ( const auto& line : lines )
+            {
+                joined += line;
+                joined += '\n';
+            }
+
+            return joined;
+        }
+
+        /// Collapse whitespace runs to single spaces and trim the ends, so text
+        /// comparison survives the extra line breaks a forced suspend introduces.
+        static std::string normalizeWhitespace( std::string_view text )
+        {
+            std::string out;
+            out.reserve( text.size() );
+            bool in_whitespace = true;
+
+            for ( const char c : text )
+            {
+                if ( c == ' ' || c == '\t' || c == '\n' || c == '\r' )
+                {
+                    in_whitespace = true;
+                    continue;
+                }
+
+                if ( in_whitespace && !out.empty() )
+                    out += ' ';
+
+                in_whitespace = false;
+                out += c;
+            }
+
+            return out;
         }
 
         /**
@@ -621,6 +727,16 @@ namespace Mila::ChatApp
 
             last_turn_rounds_.clear();
 
+            // Streaming display (Gemma-first): tokens render live while the buffered
+            // response string keeps accumulating as history and as the display's
+            // validation oracle (see emitAssistantResponse). One pipeline spans all
+            // tool rounds of the turn.
+            stream_display_.reset();
+
+            if ( config_.streaming_capable && gemma_stream_tokens_.has_value() )
+                stream_display_ = std::make_unique<StreamingResponseDisplay>(
+                    renderer_, *gemma_stream_tokens_, config_.detail );
+
             for ( int round = 0; round < kMaxToolRounds; ++round )
             {
                 // Live token count on the spinner line: ticking = generating, frozen = hung.
@@ -659,8 +775,19 @@ namespace Mila::ChatApp
                                 ++round_token_count;
                                 live_token_count.fetch_add( 1, std::memory_order_relaxed );
 
-                                response += tokenizer_->decode(
+                                const std::string piece = tokenizer_->decode(
                                     std::vector<TokenId>{ static_cast<TokenId>(tok) } );
+                                response += piece;
+
+                                if ( stream_display_ )
+                                {
+                                    const auto action = stream_display_->onToken( tok, piece );
+
+                                    // The display suspended for the suppressed tool span:
+                                    // the spinner owns the line until the round ends.
+                                    if ( action == StreamingResponseDisplay::TokenAction::ToolCallOpened )
+                                        renderer_.startSpinner( "tool call", &live_token_count );
+                                }
 
                                 if ( watch_gemma_tool_call && tok == *gemma_tool_call_close_token_ )
                                 {
@@ -674,6 +801,10 @@ namespace Mila::ChatApp
                     model_ );
 
                 renderer_.stopSpinner();
+
+                // Round boundary: surrender any incomplete UTF-8 tail to the display.
+                if ( stream_display_ )
+                    stream_display_->onRoundEnd();
 
                 RoundStats round_stats;
                 round_stats.finish_status = round_status;
@@ -720,13 +851,18 @@ namespace Mila::ChatApp
 
                 // A capped round is indistinguishable from a hang while the buffered
                 // response builds (pegged GPU, silent spinner) -- say so explicitly.
-                if ( round_status == GenerateStatus::MaxNewTokensReached )
-                    renderer_.printInfo( std::format(
-                        "Response hit the {}-token cap without a stop token (finish: length).",
-                        config_.max_new_tokens ) );
-                else if ( round_status == GenerateStatus::ContextOverflow )
-                    renderer_.printInfo(
-                        "Response stopped at the context limit (finish: context_limit)." );
+                if ( round_status == GenerateStatus::MaxNewTokensReached
+                    || round_status == GenerateStatus::ContextOverflow )
+                {
+                    if ( stream_display_ )
+                        stream_display_->suspendForTrace();
+
+                    renderer_.printInfo( round_status == GenerateStatus::MaxNewTokensReached
+                        ? std::format(
+                            "Response hit the {}-token cap without a stop token (finish: length).",
+                            config_.max_new_tokens )
+                        : "Response stopped at the context limit (finish: context_limit)." );
+                }
 
                 const std::optional<ToolCall> call = tool_call_stop
                     ? GemmaToolCallParser::parse( response )
@@ -746,6 +882,11 @@ namespace Mila::ChatApp
 
                 const std::string tool_result = dispatchTool( *call );
 
+                // The trace lines print between streamed blocks; make sure the
+                // display's visual line is closed first.
+                if ( stream_display_ )
+                    stream_display_->suspendForTrace();
+
                 emitToolCall( *call, tool_result );
 
                 response += GemmaToolCallParser::formatToolResponse( call->name, tool_result );
@@ -758,6 +899,9 @@ namespace Mila::ChatApp
                 const auto continuation = tokenizer_->encode( response );
                 input_tokens.insert( input_tokens.end(), continuation.begin(), continuation.end() );
             }
+
+            if ( stream_display_ )
+                stream_display_->finish();
         }
 
         /**
@@ -938,6 +1082,7 @@ namespace Mila::ChatApp
             config_.model_size        = entry.size;
             config_.precision         = entry.precision;
             config_.is_instruct       = entry.is_instruct;
+            config_.streaming_capable = entry.streaming_capable;
             config_.quantization_mode = quant;
             config_.model_path        = config_.models_dir / entry.weights_file;
             config_.tokenizer_path    = config_.models_dir / entry.tokenizer_file;
@@ -1028,16 +1173,52 @@ namespace Mila::ChatApp
 
                 Logging::Logger::info( std::format( "Tokenizer loaded. Vocab size: {}", tokenizer_->getVocabSize() ) );
 
-                // Cache the <tool_call|> special-token id so generateResponse() can detect the
-                // Gemma tool-call boundary by raw token id rather than text scanning. Only a
-                // genuine single-token vocab entry (per GemmaChatProtocol.md) is trusted; a
-                // multi-token encode means the checkpoint lacks the registered special token.
+                // Cache the Gemma control-token ids: <tool_call|> lets generateResponse()
+                // detect the tool-call boundary by raw token id rather than text scanning,
+                // and the full set drives the streaming display's channel router. Only
+                // genuine single-token vocab entries (per GemmaChatProtocol.md) are trusted;
+                // a multi-token encode means the checkpoint lacks the registered special
+                // token. Streaming requires all four routing ids or it stays buffered.
+                gemma_stream_tokens_.reset();
+
                 if ( config_.model_type == ModelType::Gemma )
                 {
-                    const auto ids = tokenizer_->encode( "<tool_call|>" );
-                    gemma_tool_call_close_token_ = (ids.size() == 1)
-                        ? std::optional<int32_t>( ids[ 0 ] )
-                        : std::nullopt;
+                    gemma_tool_call_close_token_ = probeSingleTokenId( "<tool_call|>" );
+
+                    const auto channel_open = probeSingleTokenId( "<|channel>" );
+                    const auto channel_close = probeSingleTokenId( "<channel|>" );
+                    const auto tool_call_open = probeSingleTokenId( "<|tool_call>" );
+
+                    if ( channel_open && channel_close && tool_call_open && gemma_tool_call_close_token_ )
+                    {
+                        GemmaStreamTokens tokens;
+                        tokens.channel_open = *channel_open;
+                        tokens.channel_close = *channel_close;
+                        tokens.tool_call_open = *tool_call_open;
+                        tokens.tool_call_close = *gemma_tool_call_close_token_;
+
+                        // Control tokens with no display form: the buffered pipeline strips
+                        // their text post-hoc (stripSpecialTokens); the router drops them live.
+                        static constexpr std::string_view kSuppressedControlTokens[] = {
+                            "<|turn>", "<turn|>", "<|think|>", "<|tool>", "<tool|>",
+                            "<|tool_response>", "<tool_response|>",
+                            "<end_of_turn>", "<start_of_turn>", "<bos>", "<eos>", "<pad>",
+                            "<|image|>", "<|audio|>"
+                        };
+
+                        for ( const auto control : kSuppressedControlTokens )
+                        {
+                            if ( const auto id = probeSingleTokenId( control ) )
+                                tokens.suppressed.push_back( *id );
+                        }
+
+                        gemma_stream_tokens_ = std::move( tokens );
+                    }
+                    else if ( config_.streaming_capable )
+                    {
+                        Logging::Logger::warning(
+                            "Streaming display disabled: Gemma control tokens not in the vocabulary." );
+                    }
                 }
                 else
                 {
@@ -1050,6 +1231,20 @@ namespace Mila::ChatApp
 
                 throw;
             }
+        }
+
+        /**
+         * @brief Resolve text to its vocabulary id when it encodes as a single
+         *        (special) token; nullopt when the checkpoint lacks the
+         *        registered special.
+         */
+        std::optional<int32_t> probeSingleTokenId( std::string_view text ) const
+        {
+            const auto ids = tokenizer_->encode( std::string( text ) );
+
+            return (ids.size() == 1)
+                ? std::optional<int32_t>( static_cast<int32_t>( ids[ 0 ] ) )
+                : std::nullopt;
         }
 
         void loadModel()
@@ -1351,6 +1546,13 @@ Examples:
 
         // Gemma 4 tool-call protocol probe state (see generateResponse()).
         std::optional<int32_t> gemma_tool_call_close_token_;
+
+        // Streaming display state: control-token ids resolved at tokenizer load
+        // (absent when the vocabulary lacks them — streaming falls back to the
+        // buffered path), and the per-turn pipeline created by generateResponse()
+        // and consumed by emitAssistantResponse().
+        std::optional<GemmaStreamTokens> gemma_stream_tokens_;
+        std::unique_ptr<StreamingResponseDisplay> stream_display_;
 
         // Per-round timing for the most recent turn, measured from the token callback
         // cadence (the library owns no stopwatch). A turn is one or more rounds: each tool

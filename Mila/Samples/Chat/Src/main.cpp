@@ -147,10 +147,11 @@ static ChatConfig buildConfig( int argc, char* argv[] )
             "Unknown model alias '{}' in session config. Run with --help for the list.", alias ) );
 
     ChatConfig config;
-    config.model_type     = entry->family;
-    config.model_size     = entry->size;
-    config.precision      = entry->precision;
-    config.is_instruct    = entry->is_instruct;
+    config.model_type        = entry->family;
+    config.model_size        = entry->size;
+    config.precision         = entry->precision;
+    config.is_instruct       = entry->is_instruct;
+    config.streaming_capable = entry->streaming_capable;
     config.models_dir     = models_dir;
     config.model_path     = models_dir / entry->weights_file;
     config.tokenizer_path = models_dir / entry->tokenizer_file;

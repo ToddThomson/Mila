@@ -105,6 +105,38 @@ namespace Mila::ChatApp
             }
         }
 
+        /**
+         * @brief True when word is a recognized reasoning-channel label.
+         *
+         * Public because the streaming display's channel router must classify
+         * label lines identically to this post-hoc parser (its validation oracle).
+         */
+        static bool isChannelLabel( std::string_view word )
+        {
+            constexpr std::array<std::string_view, 4> kLabels = {
+                "thought", "thinking", "analysis", "reasoning" };
+
+            for ( const auto label : kLabels )
+            {
+                if ( word == label )
+                    return true;
+            }
+
+            return false;
+        }
+
+        static std::string_view trimView( std::string_view text )
+        {
+            const auto first = text.find_first_not_of( " \t\r\n" );
+
+            if ( first == std::string_view::npos )
+                return {};
+
+            const auto last = text.find_last_not_of( " \t\r\n" );
+
+            return text.substr( first, last - first + 1 );
+        }
+
     private:
 
         static constexpr std::string_view kChannelOpen = "<|channel>";
@@ -137,32 +169,6 @@ namespace Mila::ChatApp
             }
 
             return std::string( region );
-        }
-
-        static bool isChannelLabel( std::string_view word )
-        {
-            constexpr std::array<std::string_view, 4> kLabels = {
-                "thought", "thinking", "analysis", "reasoning" };
-
-            for ( const auto label : kLabels )
-            {
-                if ( word == label )
-                    return true;
-            }
-
-            return false;
-        }
-
-        static std::string_view trimView( std::string_view text )
-        {
-            const auto first = text.find_first_not_of( " \t\r\n" );
-
-            if ( first == std::string_view::npos )
-                return {};
-
-            const auto last = text.find_last_not_of( " \t\r\n" );
-
-            return text.substr( first, last - first + 1 );
         }
 
         static std::string trim( std::string_view text )

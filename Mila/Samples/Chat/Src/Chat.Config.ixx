@@ -156,6 +156,7 @@ namespace Mila::ChatApp
         ModelPrecision        precision{ ModelPrecision::BF16 };
         QuantizationMode      quantization_mode{ QuantizationMode::None };
         bool                  is_instruct{ false };
+        bool                  streaming_capable{ false };  ///< Live token-streaming display (from the model catalog).
         bool                  show_thinking{ false };  ///< Thinking mode: activate the model's reasoning (<|think|>).
         int                   thinking_effort{ 3 };    ///< 1..5 token-budget scale for the reasoning (when thinking on).
         DetailLevel           detail{ DetailLevel::Off };  ///< Display verbosity: thoughts / tool calls / all.
