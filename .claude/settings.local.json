@@ -80,7 +80,8 @@
       "Bash(Select-Object -Last 5)",
       "Bash(git -C D:/Repos/Mila log --oneline -12)",
       "Bash(nvidia-smi --query-gpu=memory.total,memory.used,memory.free --format=csv,noheader,nounits)",
-      "Bash(curl -s --max-time 120 http://localhost:8000/v1/chat/completions -H \"Content-Type: application/json\" -H \"Authorization: Bearer mila\" -d '{\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly one short sentence: what is the capital of France?\"}],\"max_tokens\":40,\"temperature\":0.0,\"stream\":false}')"
+      "Bash(curl -s --max-time 120 http://localhost:8000/v1/chat/completions -H \"Content-Type: application/json\" -H \"Authorization: Bearer mila\" -d '{\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly one short sentence: what is the capital of France?\"}],\"max_tokens\":40,\"temperature\":0.0,\"stream\":false}')",
+      "Bash(python -m py_compile model_worker.py protocols/openai/responses.py gemma_protocol.py)"
     ]
   }
 }

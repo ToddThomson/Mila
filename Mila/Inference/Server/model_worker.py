@@ -10,30 +10,20 @@ from typing import Callable
 
 import mila
 from config import settings, ModelFamily
-
-# Gemma 4 control tokens. Each is an atomic special in the vocabulary, so a
-# per-token decode yields the whole marker string -- stripping the exact strings
-# cleans both the streamed (per-token) and buffered (full-list) decode paths.
-# First-pass measure: the markers are removed but content BETWEEN thought-channel
-# markers is not (thinking is primed off, so none is expected); a proper channel
-# parser mirroring the chat harness is future work.
-_GEMMA_CONTROL_TOKENS = (
-    "<bos>", "<eos>", "<pad>",
-    "<|turn>", "<turn|>",
-    "<|channel>", "<channel|>",
-    "<|think|>",
-    "<|tool>", "<tool|>", "<|tool_call>", "<tool_call|>",
-    "<|tool_response>", "<tool_response|>",
-    "<end_of_turn>", "<start_of_turn>",
+from gemma_protocol import (
+    strip_control_tokens as _strip_gemma_control_tokens,
+    TOOL_CALL_CLOSE,
+    CHANNEL_OPEN,
 )
 
-
-def _strip_gemma_control_tokens(text: str) -> str:
-    for token in _GEMMA_CONTROL_TOKENS:
-        if token in text:
-            text = text.replace(token, "")
-
-    return text
+# Degeneration backstop. A bad Gemma sample can fail to emit a tool call or stop
+# token and instead spam empty reasoning channels / repeat one token for the whole
+# budget (observed: the literal "thought" label perseverated ~1000 tokens). These
+# caps only fire on genuine runaway (hundreds) -- set well clear of any legitimate
+# response, since a false trip cuts a real answer short (a too-tight channel cap
+# once killed tool calls mid-reasoning).
+_MAX_REASONING_CHANNELS = 24
+_MAX_TOKEN_REPEATS = 48
 
 
 class ModelWorker:
@@ -133,6 +123,7 @@ class ModelWorker:
         top_k: int,
         top_p: float = 1.0,
         stop_ctrl: mila.StopController | None = None,
+        strip_control_tokens: bool = True,
     ) -> None:
         """
         Runs generate_streaming() on the worker thread. Each token is decoded
@@ -142,22 +133,60 @@ class ModelWorker:
         delivery (e.g. loop.call_soon_threadsafe into an asyncio.Queue).
         Token IDs are buffered until they form a valid UTF-8 sequence to handle
         tokens that carry only a partial multi-byte code point.
+
+        Gemma native tool calls: <|tool_call> ... <tool_call|> is a registered
+        protocol boundary. Left running, the model fabricates the tool result
+        itself, so generation is stopped the moment <tool_call|> is decoded --
+        exactly mirroring the chat harness (Chat.ixx generateResponse). When
+        strip_control_tokens is False the raw decoded text (channel + tool-call
+        markers intact) is delivered so the caller can parse the native grammar;
+        the responses/tool path needs this, the plain-chat streaming path does
+        not.
         """
         loop = asyncio.get_running_loop()
         token_buffer: list[int] = []
+        guard = {"channels": 0, "last": None, "repeats": 0}
+
+        def _degenerating(raw_text: str) -> bool:
+            # Runaway reasoning channels: no legitimate answer opens this many.
+            if CHANNEL_OPEN in raw_text:
+                guard["channels"] += 1
+                if guard["channels"] > _MAX_REASONING_CHANNELS:
+                    return True
+
+            # A single token repeated far past any natural repetition.
+            stripped = raw_text.strip()
+            if stripped:
+                if stripped == guard["last"]:
+                    guard["repeats"] += 1
+                    if guard["repeats"] > _MAX_TOKEN_REPEATS:
+                        return True
+                else:
+                    guard["repeats"] = 0
+                    guard["last"] = stripped
+
+            return False
 
         def _on_token(token_id: int) -> None:
             token_buffer.append(token_id)
             try:
                 text = self._tokenizer.decode(token_buffer)
-                token_buffer.clear()
-
-                if self._is_gemma:
-                    text = _strip_gemma_control_tokens(text)
-
-                on_text(text)
             except UnicodeDecodeError:
-                pass
+                return
+
+            token_buffer.clear()
+
+            stop_now = self._is_gemma and TOOL_CALL_CLOSE in text
+            if self._is_gemma and stop_ctrl is not None and _degenerating(text):
+                stop_now = True
+
+            if self._is_gemma and strip_control_tokens:
+                text = _strip_gemma_control_tokens(text)
+
+            on_text(text)
+
+            if stop_now and stop_ctrl is not None:
+                stop_ctrl.request_stop()
 
         def _run() -> None:
             self._model.generate_streaming(

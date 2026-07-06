@@ -865,6 +865,20 @@ Claude Code CLI (WSL coding harnesses) + one agentic harness (Hermes provisional
   sliding-KV ring is what bought it: 40 of 48 layers pinned at the 1024 window, only 8 globals grow with context.
   `.env` settled at `MILA_CONTEXT_LENGTH=16384`. Reported params 7.46B (tied embedding counted once). Optional
   final: a near-16384-token prompt to close the absolute worst case (scratch was insensitive 38->8045, so low risk).
+- [x] **Codex harness connected -- Gemma 4 native tool calling end-to-end, 2026-07-06.** Codex CLI (WSL,
+  `/v1/responses`, `wire_api=responses`, model id MUST match the `/v1/models` card `gemma-4-12b-it`) drives
+  Gemma 4 12B FP4 through single-tool, plain-chat, and tool-result-resume flows. New Python-only module
+  `gemma_protocol.py` mirrors the chat harness (GemmaToolCallParser/ChannelParser/SystemPrompt): native grammar
+  `<|tool_call>call:name{key: "val", n: 42}<tool_call|>` (namespace-stripped, `<|"|>` alternate string delimiter
+  handled), plain tool advertisement (NO invented syntax -- the Llama `<|python_tag|>` bridge confused Gemma into
+  an empty-thought loop), `<|tool_response>response:name{...}<tool_response|>` replay leaving the model turn OPEN
+  to resume. Worker stops generation at `<tool_call|>` (else the model fabricates the result) + a raw-passthrough
+  mode + a degeneration backstop (bounded reasoning-channel/token-repeat caps, deliberately high). `responses.py`
+  is family-branched (Gemma native vs Llama legacy). Fixes en route: `extract_content` dropped `output_text`
+  (blank assistant history turns); tool-result JSON metadata (chunk ids) leaked as content. The empty-thought
+  prime is LOAD-BEARING on the agentic path (removing it degenerates -- do not). REMAINING: N sequential distinct
+  tool calls in one turn (lightly tested -- Codex batched); channel-content parser polish; top_p; then Claude
+  Code `/v1/messages` (tool-blind today) + Hermes.
 - [ ] **First-pass Gemma limitations to revisit after step 3:** (a) decode strips channel *markers* but not
   content between thought-channel markers -- fine while thinking is primed off, but a proper channel parser
   (mirror the chat `ChannelParser`/`StreamingDisplay`) is the real fix; (b) `top_p` still dropped (item below);

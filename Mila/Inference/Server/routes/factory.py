@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from model_worker import worker
 from protocols.base import ProtocolAdapter, ResponsesCapable, ModelsCapable
 from schemas.internal import InferenceRequest, InferenceResponse
-from config import settings
+from config import settings, ModelFamily
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +246,11 @@ async def _stream_responses(
     def on_done() -> None:
         loop.call_soon_threadsafe(queue.put_nowait, None)
 
+    # Gemma emits native <|tool_call>/<|channel> protocol tokens; the responses
+    # path parses them from the accumulated text, so it needs the raw (unstripped)
+    # decode. The worker still stops generation at <tool_call|> either way.
+    strip_control_tokens = settings.model_family != ModelFamily.gemma
+
     generation = asyncio.create_task(
         worker.generate_streaming(
             inf_req.prompt_ids,
@@ -255,6 +260,7 @@ async def _stream_responses(
             inf_req.top_k,
             inf_req.top_p,
             stop_ctrl,
+            strip_control_tokens,
         )
     )
     generation.add_done_callback(lambda _: on_done())
@@ -302,7 +308,10 @@ async def _stream_responses(
             await generation
 
         full_text = "".join(accumulated)
-        print(f"[{_elapsed()}] {response_id}: full_text preview: {repr(full_text[:200])}", flush=True)
+        # Bring-up: log the FULL raw model output (untruncated) so a tool-call
+        # attempt's tail is visible while wiring Codex/Gemma. Trim back to a
+        # preview once the tool-call format is settled.
+        print(f"[{_elapsed()}] {response_id}: full_text ({len(full_text)} chars): {repr(full_text)}", flush=True)
 
         tool_call_item = adapter.parse_tool_call_from_text(full_text) if hasattr(adapter, "parse_tool_call_from_text") else None
 
@@ -311,13 +320,15 @@ async def _stream_responses(
             yield adapter.format_responses_stream_function_call(response_id, tool_call_item)
             yield adapter.format_responses_stream_done_with_tool_call(response_id, tool_call_item)
         else:
+            # Reduce the raw channel-structured output to the user-facing answer.
+            display_text = adapter.clean_response_text(full_text) if hasattr(adapter, "clean_response_text") else full_text
             item_id = f"msg-{uuid.uuid4().hex}"
             yield adapter.format_responses_stream_output_item_added(response_id, item_id)
             yield adapter.format_responses_stream_content_part_added(response_id)
-            yield adapter.format_responses_stream_chunk(full_text, done=True, response_id=response_id)
-            yield adapter.format_responses_stream_content_part_done(response_id, full_text)
-            yield adapter.format_responses_stream_output_item_done(response_id, item_id, full_text)
-            yield adapter.format_responses_stream_done(response_id, output_text=full_text)
+            yield adapter.format_responses_stream_chunk(display_text, done=True, response_id=response_id)
+            yield adapter.format_responses_stream_content_part_done(response_id, display_text)
+            yield adapter.format_responses_stream_output_item_done(response_id, item_id, display_text)
+            yield adapter.format_responses_stream_done(response_id, output_text=display_text)
 
         print(f"[{_elapsed()}] {response_id}: stream closed", flush=True)
 
