@@ -34,6 +34,17 @@ API churn and was parked (the samples and ~70 test files are commented out, awai
 v0.20 recovers that foundation to current-API quality rather than shipping inference alone. The work
 is **resurrection, not invention**: the designs, tests, and docs already exist in the tree.
 
+v0.20 also ships under a **locked product definition**
+([MilaProductFamily.md](Mila/Specifications/MilaProductFamily.md)): Mila is an inference runtime
+library plus adaptors distinguished by who closes the generation loop — the Chat harness (human
+gate) and MIS (wire) ship with this release; the **Agentic adaptor is explicitly post-release**,
+named there as the scope-creep vector to refuse. The release bar for the definition is that its
+claims are demonstrable: clone, build, run Gemma 4 12B FP4 on a 12 GB card, drive it from a
+foreign harness through MIS, and read the whole path from prompt to kernel with no hidden engine.
+One consolidation item follows from the definition into v0.20 scope: the Gemma token grammar folds
+down into the runtime (it has already drifted between Chat and MIS — see BACKLOG, *Product Family —
+Grammar-in-Runtime Consolidation*).
+
 Pre-1.0: "production" means validated and polished, not API-frozen. Breaking changes remain
 acceptable. The release is reached through the milestones below, in dependency order — consolidation
 lands the shared architectural foundation; the test suite is revived to become the correctness
@@ -209,6 +220,12 @@ in [BACKLOG.md](BACKLOG.md) under *Module Hygiene*, *Public API Surface*, and *R
 - [ ] Tool calling validated on Llama 3.2 3B and 3.1 8B Instruct
 - [x] Gemma 4 12B FP4 fits a 12 GB card — both memory gates DONE (0.20.0-alpha.6+78): weight-tying (~2 GB reclaimed) + bounded-KV sliding-window ring (persistent-KV growth now 16 KB/token, the 8 global layers only). Coherent 8192-context chat with the ring engaged. Extended 2026-07-03 by activation pooling (shared block workspace, Gemma4InferenceReview.md section 7): the 48 per-layer activation buffer sets collapsed to one, retiring the chunk-32 operating point — prefill runs at chunk 512 via the activation-aware heuristic v2 (2048-token prefill 20.77 s -> 1.57 s same-day)
 - [ ] `CONTRIBUTING.md` coding standards + `getting-started.md` onboarding guide
+- [ ] Guided reading path — the comprehensibility deliverable: a document tracing one token's
+  journey (embed -> attend -> sample -> decode) through the actual source, readable by a strong
+  C++ developer unaided; distinct from `getting-started.md` (build/run onboarding)
+- [ ] Grammar-in-runtime consolidation — canonical C++ Gemma token grammar in the runtime, Chat
+  consuming it, the Chat/MIS `<|"|>` drift closed (correctness consolidation, not a new feature —
+  see BACKLOG, *Product Family — Grammar-in-Runtime Consolidation*)
 - [ ] `find_package(Mila)` validated by an external consumer build
 - [ ] Published Docker runtime image (slim multi-stage GPU runtime, release-tagged)
 - [ ] Ungated GPT-2 quick-start path for zero-auth first run

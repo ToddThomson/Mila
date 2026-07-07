@@ -30,6 +30,16 @@ There is no hidden execution engine. When you call `forward()`, you know exactly
 When you call `backward()`, you know exactly what accumulates. The architecture is designed
 to be read, understood, extended, and challenged.
 
+That philosophy fixes Mila's product shape: an **inference runtime library plus a small family of
+adaptors**, distinguished by who closes the generation loop. The **Chat** harness closes it
+in-process with a human in the gate; the **Mila Inference Server (MIS)** exports it over an
+OpenAI/Anthropic-compatible wire so best-in-class foreign harnesses (Codex, Claude Code) can drive
+Mila — and double as a ruthless validation oracle; a future **Agentic** adaptor will close the
+loop on itself, on-device. Mila is a **library, not a framework**: your application owns `main()`,
+the loop, and the tools — Mila makes the model an ordinary C++ object inside them. The full
+positioning lives in
+[MilaProductFamily.md](https://github.com/ToddThomson/Mila/blob/dev/Mila/Specifications/MilaProductFamily.md).
+
 **This makes Mila well-suited for:**
 - Researchers implementing novel architectures who need full visibility into compute
 - Engineers studying training dynamics, gradient flow, or numerical precision

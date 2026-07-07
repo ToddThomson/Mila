@@ -1081,3 +1081,27 @@ client-side `verify_on_stop`/`file_mutation_verifier` nag, NOT a wire bug -- see
   layer already done); [ ] multi-turn TTFT measurement in chat (the "KV prefix reuse" log line +
   per-round stats). The per-conversation `GenerateSession` convenience and multi-session paged
   caching (vLLM-style radix/eviction) stay deferred as before.
+
+## Product Family — Grammar-in-Runtime Consolidation
+
+*Home: [MilaProductFamily.md](Mila/Specifications/MilaProductFamily.md) (Key correction + Release
+Boundary — in v0.20 scope). Grammar spec home: [GemmaChatProtocol.md](Mila/Specifications/GemmaChatProtocol.md).*
+
+The Gemma native token grammar is implemented twice and has drifted: Python `gemma_protocol.py`
+(MIS) is now the spec-aligned side — it renders and parses the `<|"|>` string delimiter
+(2026-07-06) — while the C++ `GemmaToolCallParser` in Chat still renders and parses plain quotes
+only. Per the locked product definition, the grammar is a property of the model, not of either
+adaptor: fold it DOWN into the runtime, not across. String-level parse/format helpers are the
+v0.20 deliverable; token-level splice is the decided direction but explicitly post-release.
+
+- [ ] Canonical C++ grammar module in the runtime — parse/format for `<|turn>` / `<|channel>` /
+  `<|tool_call>` / `<|tool_response>` / `<|tool>` / `<|"|>`, seeded from the union of the two
+  existing implementations (the Python side currently carries the spec-verified behaviors: the
+  string delimiter, error-field surfacing, open-turn replay)
+- [ ] Chat consumes the runtime grammar — `GemmaToolCallParser` retired in place; the `<|"|>`
+  render/parse drift closed
+- [ ] Scope call at execution time: expose the grammar via pybind so `gemma_protocol.py` consumes
+  the same source — OR, if not bounded for v0.20, keep MIS on Python and pin the two
+  implementations together with a cross-language parity test (same fixture corpus, both parsers)
+- [ ] Token-level splice (tool-result tokens appended straight into the live KV cache) —
+  POST-release; recorded here so its absence from v0.20 is a decision, not an oversight
