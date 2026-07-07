@@ -363,6 +363,7 @@ PUBLIC
         "Src/Dnn/Components/Transformers/Gemma/IDecoderLayer.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.ixx"
+        "Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx"
 
         "Src/Data/Tokenizers/Tokenizer.ixx"
         "Src/Data/Tokenizers/TokenizerVocabulary.ixx"
@@ -978,9 +979,16 @@ if(PROJECT_IS_TOP_LEVEL)
     add_subdirectory( Tools )
 endif()
 
+# The runtime's Python binding surface: a runtime-adjacent projection of Mila into
+# Python (module `Mila.Bindings`), consumer-blind -- consumed by the MIS server and by
+# the parity/converter tooling alike, so it is a peer of the runtime, not an adaptor.
 if(MILA_ENABLE_PYTHON_BINDINGS)
-    add_subdirectory( Inference/Bindings )
+    add_subdirectory( Bindings )
 endif()
+
+# First-class adaptors over the runtime. Chat is gated inside Adaptors/CMakeLists.txt
+# (by MILA_ENABLE_ADAPTORS+CUDA); MIS's Python server is not a CMake target.
+add_subdirectory( Adaptors )
 
 if(MILA_ENABLE_PROFILING)
     add_subdirectory(Profiling)

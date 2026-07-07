@@ -9,7 +9,7 @@
 #
 # Prereqs:
 #   - Converted weights: Tools/Converters/Gemma/convert_weights.py -> <mila>.bin
-#   - The `mila` pybind extension built (Mila/Inference/Bindings).
+#   - The `mila` pybind extension built (Mila/Bindings).
 #   - pip install torch transformers  (the Converters venv already has these).
 #
 # Usage:
@@ -41,7 +41,7 @@ def main():
         import mila
     except ImportError:
         print("Error: the Mila pybind extension `mila` is not importable.\n"
-              "Build + install it first (Mila/Inference/Bindings), then re-run.")
+              "Build + install it first (Mila/Bindings), then re-run.")
         sys.exit(1)
 
     dev = f"cuda:{args.device_index}"

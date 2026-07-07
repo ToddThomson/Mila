@@ -350,7 +350,10 @@ namespace Mila::ChatApp
         enum class TokenAction
         {
             Continue,
-            ToolCallOpened,  ///< Display suspended; the caller should re-arm the spinner.
+            ToolCallOpened,   ///< Display suspended; the caller should re-arm the spinner.
+            ThinkingStarted,  ///< Entered a reasoning channel with thoughts hidden (detail
+                              ///< off): nothing streams, so the caller should label the
+                              ///< spinner "Thinking..." to show Mila is reasoning.
         };
 
         StreamingResponseDisplay( ConsoleRenderer& renderer, const GemmaStreamTokens& tokens, DetailLevel detail )
@@ -388,7 +391,10 @@ namespace Mila::ChatApp
                 state_ = State::ChannelHeader;
                 header_.clear();
 
-                return TokenAction::Continue;
+                // Thoughts shown: the dim block opens on the first reasoning word and
+                // stops the spinner itself. Thoughts hidden: the region streams nothing,
+                // so the spinner keeps the line -- ask the caller to label it "Thinking...".
+                return showThoughts() ? TokenAction::Continue : TokenAction::ThinkingStarted;
             }
 
             if ( token == tokens_.channel_close && state_ != State::Answer )

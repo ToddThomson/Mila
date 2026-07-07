@@ -181,9 +181,13 @@ Primary inference targets, in priority order: **Gemma 4 12B**, **Llama 3.x** (1B
 
 ---
 
-## Samples
+## Adaptors
 
-### Chat CLI
+The runtime plus a small family of adaptors, each closing the generation loop for a
+different consumer. See [Mila/Adaptors/README.md](Mila/Adaptors/README.md) and the full
+positioning in [MilaProductFamily.md](Mila/Specifications/MilaProductFamily.md).
+
+### Chat — a human at a prompt
 
 ```
 You: In one sentence, what is a KV-cache?
@@ -191,11 +195,21 @@ Mila: It stores the key and value tensors from earlier tokens so each new token 
       over them instead of recomputing the whole sequence each step.
 ```
 
-Located under `Samples/Chat`. An instruction-following chat harness — the default model is
-Gemma 4 12B Instruct at FP4, loaded via the two-phase (prefill + decode) KV-cache pipeline,
-with model hot-switching (`/model <alias> [quant]`) and tool calling. On a 12 GB card, Gemma 4
-12B FP4 runs at a reduced context window today; the bounded-KV ring cache and weight-tying work
-(see ROADMAP) expand that context within the same budget.
+Located under `Mila/Adaptors/Chat`. An instruction-following chat harness that closes the
+loop in-process with a human in the gate — the default model is Gemma 4 12B Instruct at FP4,
+loaded via the two-phase (prefill + decode) KV-cache pipeline, with model hot-switching
+(`/model <alias> [quant]`) and tool calling. On a 12 GB card, Gemma 4 12B FP4 runs at a
+reduced context window today; the bounded-KV ring cache and weight-tying work (see ROADMAP)
+expand that context within the same budget.
+
+### Mila Inference Server (MIS) — a foreign harness over the wire
+
+Located under `Mila/Adaptors/Inference`. Exports the generation loop over an
+OpenAI/Anthropic-compatible wire (a pybind11 bridge plus a Python server) so a best-in-class
+harness you did not write — Codex, Claude Code — can drive Mila from another process, and
+double as a ruthless validation oracle.
+
+## Samples
 
 ### MNIST Classifier
 

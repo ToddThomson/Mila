@@ -44,7 +44,6 @@ export import Chat.MessageFormatter;
 export import Chat.SystemPrompt;
 export import Chat.ToolCallParser;
 import Chat.ChannelParser;
-import Chat.GemmaToolCallParser;
 import Chat.Json;
 import Chat.Renderer;
 import Chat.RichText;
@@ -787,6 +786,10 @@ namespace Mila::ChatApp
                                     // the spinner owns the line until the round ends.
                                     if ( action == StreamingResponseDisplay::TokenAction::ToolCallOpened )
                                         renderer_.startSpinner( "tool call", &live_token_count );
+                                    // Hidden reasoning (detail off): label the spinner so the
+                                    // user knows Mila is thinking. The first answer word stops it.
+                                    else if ( action == StreamingResponseDisplay::TokenAction::ThinkingStarted )
+                                        renderer_.startSpinner( "Thinking...", &live_token_count );
                                 }
 
                                 if ( watch_gemma_tool_call && tok == *gemma_tool_call_close_token_ )
@@ -864,9 +867,14 @@ namespace Mila::ChatApp
                         : "Response stopped at the context limit (finish: context_limit)." );
                 }
 
-                const std::optional<ToolCall> call = tool_call_stop
-                    ? GemmaToolCallParser::parse( response )
-                    : std::nullopt;
+                std::optional<ToolCall> call;
+
+                if ( tool_call_stop )
+                {
+                    if ( auto parsed = Mila::Dnn::Gemma::parseToolCall( response ) )
+                        call = ToolCall{ .name = std::move( parsed->name ),
+                            .arguments = std::move( parsed->arguments ) };
+                }
 
                 if ( !call.has_value() )
                 {
@@ -889,7 +897,7 @@ namespace Mila::ChatApp
 
                 emitToolCall( *call, tool_result );
 
-                response += GemmaToolCallParser::formatToolResponse( call->name, tool_result );
+                response += Mila::Dnn::Gemma::formatToolResponse( call->name, tool_result );
 
                 // Continue the SAME assistant turn: the model's protocol splices the tool
                 // response into the turn it already opened, not a fresh history entry (unlike
@@ -1441,8 +1449,8 @@ namespace Mila::ChatApp
                 : "off";
 
             renderer_.printWelcomeBox( std::format( "Mila Chat {}", kVersion ) );
-            renderer_.printInfo( std::format( "  Model: {}  ·  Thinking: {}  ·  Detail: {}",
-                modelAlias(), thinking_display, detailLevelName( config_.detail ) ) );
+            renderer_.printInfo( std::format( "  Model: {}  ·  Thinking: {}",
+                modelAlias(), thinking_display ) );
             std::cout << "  Type /help for commands, /exit to quit.\n\n";
         }
 

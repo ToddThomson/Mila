@@ -453,6 +453,76 @@ a 12 GB card.
   and 12B FP4 now fits the 12 GB card at the chunk-32 operating point; what remains of this item is
   the (A)/(B) chunk-sizing work, which folds into heuristic v2 + the pooling item. See
   [[project_gemma_chat_vram]].
+- [ ] **[perf, prefill] Fuse FP4 weight dequant into the prefill GEMM (W4A16) -- ~17% of prefill, and it
+  is REDUNDANT.** Nsight capture 2026-07-07 (Gemma 12B FP4, seq-len 35719, ctx 40960, on the 4070 --
+  `ProfileModel --phase prefill`, capture in scratch `gemma_prefill_35k.nsys-rep`): the prefill spends
+  **9.39 s / 56.9 s (16.6%) in a SEPARATE `dequantize_fp4_to_bf16_kernel`**, then feeds a BF16 cutlass GEMM.
+  26,880 instances = each of the ~336 FP4 weight matrices dequantized ~80x (once per prefill chunk) -- the
+  weights are re-materialized to BF16 for every chunk instead of dequantized once, or (better) dequantized
+  inline in the GEMM tile load. The DECODE path already fuses this (`matvec_decode_bf16_qfp4`); prefill does
+  not, and `Quantization.V2` / CLAUDE.md describe "dequantized inline during the W4A16 GEMM tile load via LUT"
+  as the intent -- so this is a design/impl gap, not a missing design. Fix: a W4A16 prefill GEMM (dequant in
+  prologue/tile load) deletes the separate pass. Pairs with the "Native Blackwell FP4 matmul" item above
+  (line ~306). Biggest easy prefill win; directly cuts Claude Code first-token latency. See [[project_prefill_perf_beta]].
+- [ ] **[perf, prefill] Flash-attention-style global prefill kernel -- 36% of prefill (the single largest
+  cost).** Same capture: **`prefill_softmax_bf16_kernel` = 20.4 s / 56.9 s (36.1%)**, 1120 instances, 18.2 ms
+  avg (max 27.8 ms). This is the 8 global layers' O(n^2) full-context attention at 35K tokens; the kernel
+  materializes the full ~35K-wide score rows (memory-bound). The local bounded layers' `prefill_softmax_ring`
+  add another 3.65 s (6.4%), so attention is ~42% of prefill total. A flash-attention formulation (tiled,
+  online softmax, no materialized scores) does the same FLOPs with far less memory traffic -- the biggest
+  single lever for long-context prefill (i.e. the Claude Code regime, ~35.7K-token harness prompts). Harder
+  than the W4A16 fusion; sequence after it. KEY CONTEXT: the whole prefill is **~100% GPU-bound** (NVTX-projected
+  GPU time 56.909 s / 56.910 s wall = 99.9996%, 2 stream syncs, 1 cudaMalloc) -- the Task Manager "spikes and
+  gaps" during prefill are a coarse WDDM packet-cadence artifact (giant softmax kernels vs swarms of sub-10us
+  kernels), NOT real idle; decode looks flat because its per-token kernel stream is uniform. So there is no gap
+  to close; the levers are pure compute reduction (W4A16 fusion, flash attention). Measured prefill throughput
+  curve (4070, nsys NVTX): pp512 = 1,405 tok/s (0.364 s), pp2048 = 1,341 tok/s (1.527 s), pp35719 = 628 tok/s
+  (56.91 s). Throughput is ~flat (GEMM-bound) to 2K then falls off a cliff by 35K -- that cliff IS the O(n^2)
+  attention, isolating the flash-attention win to long context. See [[project_gemma_inference_review]].
+- [ ] **[perf, benchmarking] Direct on-hardware prefill comparison vs a mature local engine (llama.cpp).**
+  Replace the estimated competitor ranges with real same-silicon numbers: run `llama-bench -p 512,2048,...`
+  with a ~12-13B Q4 model on THIS 4070 and put it head-to-head with `ProfileModel --phase prefill` at the
+  same context points. Our measured baseline (Gemma 12B FP4, 4070): pp512 = 1,405, pp2048 = 1,341,
+  pp35719 = 628 tok/s. Goal: quantify the gap at short context (dequant tax) and long context (no flash
+  attention) with hard data, and re-measure after the two prefill items above land. Needs a comparable GGUF
+  build + a fair context-matched harness (same seq lens, warmup handling). See [[project_prefill_perf_beta]].
+- [ ] **[tooling] ProfileModel prefill sweep mode (load-once, self-timed).** Current `ProfileModel` does ONE
+  seq-len per process and the prefill phase prints no timing (throughput must be read from an nsys NVTX range),
+  so a multi-point context sweep (e.g. 512 -> 64K) means N model reloads (~30 s each) + N nsys captures --
+  hours, most of it wasted reload + warmup double-counting. Add: (a) a sweep spec (`--seq-len-start/-end/-step`
+  or a list) that loads the model ONCE and loops seq-lens (scratch grows monotonically so later points are
+  warm); (b) a `std::chrono` timer around `profilePrefill` printing `seq_len, prefill_ms, tok/s` directly (no
+  nsys needed for the throughput curve -- reserve nsys for dissecting a single point); (c) per-point try/catch
+  so an OOM at high context reports "ceiling reached at N" instead of aborting the sweep. Enables the 512->64K
+  sweep + the llama.cpp comparison above in one run. See [[project_gemma_inference_review]].
+- [ ] **[perf, CONFIRMED root cause] Global prefill/decode attention runs at width `context_length`, not used
+  KV length -- ~2x tax on short prompts in a large context.** Isolation experiment 2026-07-07 (fix seq_len=512,
+  vary context_length, Gemma 12B FP4, 4070): prefill of the SAME 512-token prompt goes 298.6 ms (ctx 512) ->
+  343.5 (2048) -> 380.6 (8192) -> 430.4 (16384) -> **639.5 ms (40960)** -- 2.1x, ~linear in context. ROOT CAUSE
+  (code): the unbounded/global GQA path uses `T_stride = cache_capacity_ = T_ = context_length`
+  ([CudaGqaOp.ixx:270](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOp.ixx), passed as
+  `T_stride` at :638-640) as BOTH the physical row stride AND the key count, so the QK GEMM, the softmax Step-4
+  zeroing ([Gqa.Prefill.Bf16.cu:97](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Bf16.cu)),
+  and the AV GEMM all run at width `context_length` regardless of prompt length. Bounded/local layers use
+  `cache_capacity_ = min(T_, window+chunk-1)` so they are already capped -- tax is global-layers-only (8 of 48).
+  DECODE is taxed too but only MINORLY (measured 2026-07-07, same isolation, 128-token greedy decode): 44.4 tok/s
+  (ctx 512) -> 40.9 (ctx 40960), just -8%. The code DOES read `cache_capacity_ = T_` columns per token
+  ([CudaGqaOp.ixx:710-712], comment "Both read exactly cache_capacity_ columns"), but decode is
+  WEIGHT-BANDWIDTH-bound (streaming ~6 GB of 12B FP4 weights/token dominates), so the O(context) attention is a
+  small slice -- widening it 512->40960 moves only 8%. So the fix's payoff is ALMOST ENTIRELY PREFILL, not decode.
+  Also note the attention is RECTANGULAR not triangular:
+  even at ctx=seq_len each chunk's GEMMs span the full width, not just to its causal position. FIX: decouple the
+  logical attended length (`position_offset + chunk_len` prefill / `position+1` decode) from the physical stride
+  `T_` -- use attended length for GEMM K/N dims + softmax bounds + Step-4 zeroing, keep `T_` only for row
+  addressing. Removes the over-alloc tax AND makes prefill attention causal-triangular; overlaps the
+  flash-attention prefill item (which subsumes it). Core Mila (`Src/.../GQA` op + prefill/decode kernels +
+  cuBLASLt plan geometry) -- needs agreement + a VS2026 build. MIS impact: `MILA_CONTEXT_LENGTH=40960` for Claude
+  Code taxes every SHORT conversation. Full sweep curve (12 points, no OOM to 57344 -- the 12 GB 4070 holds 56K
+  context when allocated tightly): pp512=1713, 2048=1440, 4096=1362, 8192=1235, 12288=1130, 16384=1050,
+  20480=972, 24576=901, 32768=808, 40960=635, 49152=587, 57344=565 tok/s. Fit T(n)=a*n+b*n^2 gives a~=0.65 ms/tok,
+  b~=1.95e-8 s/tok^2; attention crossover (a*n=b*n^2) ~=33K tokens -- Claude Code (35.7K) sits just past it.
+  DESIGN: [Mila/Specifications/GqaAttentionExtent.md](Mila/Specifications/GqaAttentionExtent.md) (attended-length
+  vs physical-stride fix; interim ahead of the post-0.20 flash-attention rewrite that subsumes it). See [[project_gemma_inference_review]].
 - [ ] **[minor, stats accounting] Shared RoPE cos/sin cache is attributed to whichever op built
   first.** `CudaRopeOp` keeps the frequency tables in a process-wide shared cache
   ([CudaRopeOp.Cache.ixx](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.Cache.ixx))
@@ -729,7 +799,7 @@ a 12 GB card.
 - [ ] **[Chat harness] Advertise tools to Gemma in its native `<|tool>declaration:...<tool|>` format.**
   The Gemma tool-calling round trip works (stop-at-`<tool_call|>` / dispatch / splice `<|tool_response>` /
   resume — shipped 0.20.0-alpha.6+80, see [GemmaChatProtocol.md](Mila/Specifications/GemmaChatProtocol.md)),
-  but tools are still *advertised* the wrong way: `Chat::clearHistory` ([Chat.ixx](Mila/Samples/Chat/Src/Chat.ixx))
+  but tools are still *advertised* the wrong way: `Chat::clearHistory` ([Chat.ixx](Mila/Adaptors/Chat/Src/Chat.ixx))
   primes the Gemma system turn with `"You have access to the following tools:"` + `serializeTools`'s
   **Llama-shaped plain JSON**. Gemma 4's function-calling doc
   ([ai.google.dev/gemma/docs/capabilities/text/function-calling-gemma4](https://ai.google.dev/gemma/docs/capabilities/text/function-calling-gemma4))
@@ -740,7 +810,7 @@ a 12 GB card.
   tools in the format the model was trained to read may fix the quirks we currently normalize downstream
   (the inconsistent `default_api:` name namespacing that `GemmaToolCallParser::stripNamespace` papers over;
   possibly the empty leading thought channels) at their source. Plan: add a Gemma-native tool-declaration
-  serializer (Samples/Chat is free to edit), route the Gemma branch of `clearHistory` to it, keep the Llama
+  serializer (in the Chat adaptor), route the Gemma branch of `clearHistory` to it, keep the Llama
   JSON path for Llama, then re-run a tool query with `/verbose all` and capture raw to confirm the call
   format stabilizes. If `<|"|>` string delimiters actually appear once we advertise natively, add them to
   `GemmaToolCallParser` then (not speculatively now). Related still-open protocol questions in
@@ -832,7 +902,7 @@ already used it; the `Generation*` naming in the design notes above was not adop
 - [x] `last_generation_statistics_` / `getLastGenerationStatistics()` removed, stays removed.
 - [x] Propagated across GemmaModel/LlamaModel/GptModel `onGenerating`, Chat, ProfileModel, and the Gemma parity test.
 - [x] **MIS pybind bindings propagated (2026-07-06).** The +79 propagation list above MISSED the MilaPy
-  extension: [Mila_py.Wrappers.cpp](Mila/Inference/Bindings/Mila_py.Wrappers.cpp) still built `GenerateConfig`
+  extension: [Mila_py.Wrappers.cpp](Mila/Bindings/Mila_py.Wrappers.cpp) still built `GenerateConfig`
   and called the deleted vector-returning `generate` + `generateStreaming`, so the `mila.pyd` target had been
   red since +79. Rewrote all four `LlamaSession`/`GemmaSession` bodies onto the streaming-only
   `generate(prompt, on_token, params, stop) -> GenerateStatus` primitive (blocking flavor = seed the prompt
@@ -894,7 +964,7 @@ reverse-engineered token grammar is CONFIRMED correct (`<|turn>`, `<|tool_call>c
 format, surfaced while bringing up Hermes (which round-tripped tool calls fine; its own read-loop was a
 client-side `verify_on_stop`/`file_mutation_verifier` nag, NOT a wire bug -- see [[project_mis_test_environment]]).
 - [ ] **Tool DECLARATIONS use plain text, not the trained `<|tool>...<tool|>` tokens.**
-  `build_tool_injection` ([gemma_protocol.py:118](Mila/Inference/Server/gemma_protocol.py)) returns
+  `build_tool_injection` ([gemma_protocol.py:118](Mila/Adaptors/Inference/Server/gemma_protocol.py)) returns
   `"You have access to the following tools:\n" + json.dumps(...)`. Google's spec places tool schemas in the
   system turn wrapped in the trained token pair, `<|tool>declaration:name{description:...,parameters:...}<tool|>`.
   The current plain-text form is off the training distribution. The docstring's "deliberately NO call-syntax
@@ -912,10 +982,10 @@ client-side `verify_on_stop`/`file_mutation_verifier` nag, NOT a wire bug -- see
   plain quotes only -- MIS is the spec-aligned one now.
 - [ ] **In-turn thoughts are dropped between tool calls.** Google's multi-turn rule: strip the model's thoughts
   from *prior* turns before replay, but KEEP thoughts *between the function calls within a single model turn*. MIS
-  drops model thoughts entirely -- `_build_gemma_prompt` ([responses.py:98-111](Mila/Inference/Server/protocols/openai/responses.py))
+  drops model thoughts entirely -- `_build_gemma_prompt` ([responses.py:98-111](Mila/Adaptors/Inference/Server/protocols/openai/responses.py))
   replays only the `<|tool_call>`/`<|tool_response>` spans (the preceding `<|channel>thought` is discarded by
   `parse_tool_call`/`extract_answer`), and each turn re-primes an empty `THOUGHT_PRIME`
-  ([gemma_protocol.py:43](Mila/Inference/Server/gemma_protocol.py)). Harmless while thinking is primed off, but
+  ([gemma_protocol.py:43](Mila/Adaptors/Inference/Server/gemma_protocol.py)). Harmless while thinking is primed off, but
   wrong once a single turn chains multiple tool calls with reasoning between them (the untested N-round case). Fold
   into the channel-parser work already listed under first-pass limitations.
 - [x] **Failed tool errors now reach the model -- DONE 2026-07-06.** `format_tool_response` skips empty-string
@@ -926,7 +996,7 @@ client-side `verify_on_stop`/`file_mutation_verifier` nag, NOT a wire bug -- see
   plain-string cases.
 
 - [x] **Bring Gemma 4 tool calling to the Anthropic Messages path (`/v1/messages`) -- DONE 2026-07-06 (non-streaming).**
-  `AnthropicMessagesAdapter` ([messages.py](Mila/Inference/Server/protocols/anthropic/messages.py)) is now
+  `AnthropicMessagesAdapter` ([messages.py](Mila/Adaptors/Inference/Server/protocols/anthropic/messages.py)) is now
   family-branched (Gemma-native vs Llama-legacy). Inbound: `body["tools"]` (`input_schema` shape) -> a small
   `_normalize_tools` adapter -> `gemma_protocol.build_tool_injection`; assistant `tool_use` blocks ->
   `format_tool_call`, user `tool_result` blocks (`tool_use_id`+`content`) -> `format_tool_response`, both replayed as
@@ -945,16 +1015,29 @@ client-side `verify_on_stop`/`file_mutation_verifier` nag, NOT a wire bug -- see
   (`content_block_start{type:tool_use}` + `input_json_delta`) still DEFERRED -- if Claude Code always streams
   `/v1/messages`, that becomes the next required step. The grammar-alignment items below were NOT bundled in
   (kept the port minimal); they still apply to both paths. See [[project_mis_test_environment]].
-- [ ] **Follow-up: streaming `tool_use` on `/v1/messages`.** The non-streaming JSON path is done; streaming needs
-  `content_block_start{type:tool_use}` + `input_json_delta` + `content_block_stop` with `message_delta`
-  `stop_reason:"tool_use"`, driven off the raw accumulated text in `factory._stream` (currently tool-blind, strips
-  markers). Promote if Claude Code refuses non-streaming `/v1/messages`. Mirror `_stream_responses`' accumulate +
-  `parse_tool_call_from_text` at close.
+- [x] **Follow-up: streaming `tool_use` on `/v1/messages` -- DONE + VALIDATED 2026-07-07.** Claude Code DOES always
+  stream `/v1/messages` (confirmed live: its plain turn streamed the raw `<|tool_call>` grammar back as garbled
+  `text_delta`s with `stop_reason:"end_turn"`, so no tool ever fired). New `factory._stream_buffered_tool`
+  ([factory.py](Mila/Adaptors/Inference/Server/routes/factory.py)) handles the tool-capable gemma streaming path:
+  runs `generate_streaming` with `strip_control_tokens=False` (raw grammar kept), buffers the turn, then at close
+  emits a single `tool_use` block (`content_block_start{type:tool_use}` + `input_json_delta` full args +
+  `content_block_stop` + `message_delta{stop_reason:"tool_use"}`) or a clean text block -- mirrors
+  `_stream_responses`. `_dispatch` computes `tool_capable` before the stream branch and routes to it when the
+  adapter provides `format_stream_tool_use_block` (four new formatters on `AnthropicMessagesAdapter`); tool-blind
+  adapters and Llama keep the live `_stream` token path. **Validated end-to-end**: streaming weather curl now
+  returns a real `tool_use`; full Claude Code round-trip (tool_use -> local exec -> tool_result -> continue) gives a
+  correct final answer, KV prefix reuse skips ~35664/35723 tokens on the continuation turn. TRADE-OFF: all gemma
+  Anthropic streaming is now BUFFERED (loses live token-by-token) because block type is only known at close;
+  follow-up below narrows it to tools-present only. See [[project_mis_test_environment]].
+- [ ] **Refine: only buffer gemma Anthropic streaming when tools are present.** `_stream_buffered_tool` currently
+  handles ALL gemma streaming (tool_capable is family-gated), so plain no-tools chat lost live token streaming.
+  Thread a `has_tools` flag through `InferenceRequest` (set in `parse_chat_request`) and gate the buffered path on
+  it; no-tools requests keep the live `_stream` path. Correctness is fine either way -- this is a UX/latency refinement.
 - [ ] **MIS `top_p` is dropped before the sampler.** `SamplingParams` now carries `top_p`, but the pybind
   `generate`/`generate_streaming` never grew a `top_p` arg, and `ModelWorker.generate`/`generate_streaming`
-  ([model_worker.py](Mila/Inference/Server/model_worker.py)) accept `top_p` then omit it from the `self._model`
+  ([model_worker.py](Mila/Adaptors/Inference/Server/model_worker.py)) accept `top_p` then omit it from the `self._model`
   call. The server plumbs `top_p` all the way from the OpenAI/Anthropic request to the worker boundary
-  ([routes/factory.py](Mila/Inference/Server/routes/factory.py)) where it is silently discarded. Wire it
+  ([routes/factory.py](Mila/Adaptors/Inference/Server/routes/factory.py)) where it is silently discarded. Wire it
   through: add `top_p` to the two `*Session` signatures (`.ixx` + `.cpp`, set `params.sampling.top_p`), a
   `py::arg("top_p") = 1.0f` in `Mila_py.cpp`, and forward it in `model_worker.py`. Small + mechanical, all
   inside the editable Inference subsystem.
@@ -1037,7 +1120,7 @@ client-side `verify_on_stop`/`file_mutation_verifier` nag, NOT a wire bug -- see
   by parsing accumulated text). Gemma 4's tool calls are PROTOCOL TOKENS (the harness already matches the
   close token by id inside `on_token`), so exact stream-suppression needs no lookahead. Timing precondition
   already met: D1 decode-ahead gives `on_token` a ~22 ms/token host budget (pre-D1, every display ms added
-  directly to token time). All work in `Mila/Samples/Chat/Src/`; scoped phases:
+  directly to token time). All work in `Mila/Adaptors/Chat/Src/`; scoped phases:
   - **Phase 0 — capability flag + invariants.** Per-model streaming-capable flag (Gemma true; Llama/Gpt stay
     buffered until their deferred tool/sampler migration — no speculative JSON lookahead for a format slated
     for rework). The full `response` string keeps accumulating regardless (history + post-hoc parser retained
@@ -1094,14 +1177,36 @@ only. Per the locked product definition, the grammar is a property of the model,
 adaptor: fold it DOWN into the runtime, not across. String-level parse/format helpers are the
 v0.20 deliverable; token-level splice is the decided direction but explicitly post-release.
 
-- [ ] Canonical C++ grammar module in the runtime — parse/format for `<|turn>` / `<|channel>` /
-  `<|tool_call>` / `<|tool_response>` / `<|tool>` / `<|"|>`, seeded from the union of the two
-  existing implementations (the Python side currently carries the spec-verified behaviors: the
-  string delimiter, error-field surfacing, open-turn replay)
-- [ ] Chat consumes the runtime grammar — `GemmaToolCallParser` retired in place; the `<|"|>`
-  render/parse drift closed
+- [x] Canonical C++ grammar module in the runtime (`Dnn.Components.GemmaProtocol`,
+  `Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx`, 2026-07-07) — control-token
+  constants + `parseToolCall` / `formatToolCall` / `formatToolResponse`, seeded from the union
+  of the two prior implementations. Folds in the Python side's spec-verified behaviors: the
+  `<|"|>` string delimiter (parse + render), integer-preserving argument coercion, tool-response
+  output-field distillation with failed-tool error surfacing. Own test:
+  `Tests/Dnn/Components/Transformers/Gemma/Gemma.Protocol.cpp`. Turn/channel parse + control-token
+  stripping remain in Chat (`Chat.ChannelParser`, `stripSpecialTokens`) — not drifted, deferred to
+  a follow-up so they can single-source the constants without disturbing the streaming-display oracle.
+- [x] Chat consumes the runtime grammar (2026-07-07) — `GemmaToolCallParser` retired in place
+  (banner + out of the ChatApp module set); `Chat.ixx` now calls `Mila::Dnn::Gemma::parseToolCall`
+  / `formatToolResponse`; the `<|"|>` render/parse drift closed.
 - [ ] Scope call at execution time: expose the grammar via pybind so `gemma_protocol.py` consumes
   the same source — OR, if not bounded for v0.20, keep MIS on Python and pin the two
   implementations together with a cross-language parity test (same fixture corpus, both parsers)
 - [ ] Token-level splice (tool-result tokens appended straight into the live KV cache) —
   POST-release; recorded here so its absence from v0.20 is a decision, not an oversight
+
+## Product Family — Python Binding Surface
+
+*Home: [MilaProductFamily.md](Mila/Specifications/MilaProductFamily.md) (Layer Responsibilities —
+Python binding surface).*
+
+- [x] Promote the Python binding to a first-class, runtime-adjacent surface (2026-07-07) — moved
+  `Adaptors/Inference/Bindings` -> `Mila/Bindings` (peer of `Src`/`Adaptors`); `add_subdirectory`
+  hoisted from `Adaptors/CMakeLists.txt` to `Mila/CMakeLists.txt` under `MILA_ENABLE_PYTHON_BINDINGS`.
+  It is consumer-blind (module `Mila.Bindings`; no wire/chat) and has two consumers — MIS and the
+  HuggingFace parity/converter tooling — so it belongs beside the runtime, not under MIS.
+- [ ] Neutral binding output location. `Bindings/CMakeLists.txt:49` still copies `mila.pyd` into
+  `Mila/Adaptors/Inference/Server` via a POST_BUILD step (now an absolute-from-source path since the
+  binding no longer sits beside the server). That is the one consumer-specific reach a consumer-blind
+  surface should not make. Build to a neutral location (build output or an install/dist dir) that MIS
+  and the parity tooling both pull from (PYTHONPATH or install), and drop the reach into Server.

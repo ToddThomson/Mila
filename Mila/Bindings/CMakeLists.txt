@@ -44,9 +44,12 @@ endif()
 
 target_link_libraries(MilaPy PRIVATE Mila pybind11::module)
 
-# Copy the built extension module into the server directory so Python can
-# import it without any PYTHONPATH configuration.
-set(MILA_SERVER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Server")
+# Convenience: drop the built extension into the MIS server directory so its
+# `python main.py` imports it without PYTHONPATH setup. This is the one place the
+# otherwise consumer-blind binding reaches at a specific consumer; a neutral output
+# location that MIS and tooling both consume is a follow-up (see BACKLOG). The path
+# is absolute-from-source since the binding no longer sits beside the server.
+set(MILA_SERVER_DIR "${CMAKE_SOURCE_DIR}/Mila/Adaptors/Inference/Server")
 
 add_custom_command(TARGET MilaPy POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

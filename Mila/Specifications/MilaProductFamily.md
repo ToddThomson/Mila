@@ -3,7 +3,7 @@
 **Date:** 2026-07-06 (locked 2026-07-07)
 **Status:** Locked positioning for the v0.20 first production release — stable in shape,
 refinable in detail. The Definition below is the product identity v0.20 ships under.
-**Component:** whole-project positioning (`Mila/Src`, `Mila/Inference`, `Mila/Samples/Chat`, future agent)
+**Component:** whole-project positioning (`Mila/Src`, `Mila/Adaptors/Inference`, `Mila/Adaptors/Chat`, future agent)
 
 ## Definition
 
@@ -130,7 +130,17 @@ Owns everything model-intrinsic and consumer-blind:
 > earlier "fold gemma_protocol toward the chat harness or a shared spec" thread: fold it toward
 > neither adaptor — fold it into the runtime. See `GemmaChatProtocol.md`, `ToolCalling.md`.
 
-### MIS — wire adaptor (`Mila/Inference/Server`)
+### Python binding surface (`Mila/Bindings`)
+
+A runtime-adjacent projection of the runtime into Python (`mila.pyd`, module `Mila.Bindings`):
+`Tokenizer` / `LlamaSession` / `GemmaSession` — load, generate, stream, config. It is
+**consumer-blind** (no HTTP, no chat, no protocol) and is therefore a peer of the runtime, not
+an adaptor — the same consumer-blind test that keeps the grammar in `Src`. It has two consumers,
+which is why it is not owned by either: the MIS server imports it, and the HuggingFace parity /
+converter tooling imports it directly (it is `GemmaSession`'s primary consumer). Decided
+2026-07-07 to promote it out of `Adaptors/Inference` to a first-class `Mila/Bindings`.
+
+### MIS — wire adaptor (`Mila/Adaptors/Inference`)
 
 Owns only what is genuinely wire-specific: HTTP/SSE transport, OpenAI/Anthropic block shapes
 (Responses items, Anthropic `tool_use`/`tool_result`), per-request statelessness, protocol
@@ -148,16 +158,16 @@ and prefills only the delta — O(new tokens) per turn, not O(context). This is 
 quantifiable advantage the wire cannot match, and it is structurally unavailable to a stateless
 protocol.
 
-### Chat — human adaptor (`Mila/Samples/Chat`, status TBD)
+### Chat — human adaptor (`Mila/Adaptors/Chat`)
 
 Native agent core + human gate (tool approval) + TUI (`ConsoleRenderer`, channel-aware streaming).
 Supervised: a person judges done-ness and catches thrash.
 
-> **Status tension to resolve:** Chat lives under `Samples/`, which project convention treats as
-> demo/discovery, never a maintained surface. As a product-family peer it is graduating out of
-> that status — which also changes the "Samples/ is freely editable" boundary for it. Decide
-> explicitly: Chat graduates (moves up, gains tests, gains rigor) OR the native agent core becomes
-> a new first-class component and Chat stays the throwaway reference above it.
+> **Status resolved (2026-07-07):** Chat is a first-class adaptor, a peer of MIS under
+> `Mila/Adaptors/` — no longer a `Samples/` demo. It is a maintained surface: it gains rigor and
+> tests over time and its "freely editable scratch" boundary is retired. (This does not conflict
+> with extracting the shared native agent core post-release; the core lands *beneath* Chat, which
+> is already first-class in the release.) See Decided item 2.
 
 ### Agentic — autonomous adaptor (future)
 
@@ -230,13 +240,19 @@ axis, and it can advance in parallel.
    deliverable and as the surface MIS consumes via pybind — the splice is the depth they are built
    on, not an alternative to them.
 
+2. **Chat is a first-class adaptor** (decided 2026-07-07). Chat and MIS are peer adaptors under
+   `Mila/Adaptors/`; Chat is no longer a `Samples/` demo. It becomes a maintained surface (gains
+   tests and rigor; the "freely editable scratch" boundary is retired) and builds under its own
+   `MILA_ENABLE_ADAPTORS` gate rather than `MILA_ENABLE_SAMPLES`. This resolves Open Decision 1.
+   It is orthogonal to the native-agent-core extraction, which remains post-release and lands
+   *beneath* Chat — Chat being first-class now is what the v0.20 release ships.
+
 ## Open Decisions (to refine on return)
 
-1. **Chat's status.** Graduate out of `Samples/`, or keep it as the reference harness above a new
-   first-class native agent core? *Leaning:* extract the native agent core as the first-class
-   component and keep Chat as the throwaway reference above it — this preserves the "Samples/ is
-   freely editable" boundary in daily use, and forces the core's API to be real because two
-   adaptors consume it.
+1. **Chat's status.** RESOLVED 2026-07-07 — Chat is a first-class adaptor under `Mila/Adaptors/`,
+   a maintained surface, no longer a throwaway sample. See Decided item 2. (The native agent core
+   extraction, formerly bundled into this decision, is a separate post-release item; it lands
+   beneath the now-first-class Chat rather than replacing it.)
 2. **Where the native agent core physically lives.** Runtime-adjacent library, or a peer component
    the two native adaptors depend on? *Leaning:* runtime-adjacent — a peer library depending on
    the runtime, never inside it. Same consumer-blind test as everywhere else: the core knows about

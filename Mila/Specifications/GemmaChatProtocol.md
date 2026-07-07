@@ -3,7 +3,7 @@
 Authoritative source:
 [ai.google.dev/gemma/docs/core/prompt-formatting-gemma4](https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4).
 This document records the protocol and how the Mila chat harness
-(`Mila/Samples/Chat/Src/`) implements it.
+(`Mila/Adaptors/Chat/Src/`) implements it.
 
 ## Control tokens
 
@@ -87,17 +87,21 @@ boundary is unambiguous, not pattern-matched.
 <|tool_call>call:function_name{key: "string value", key2: 42}<tool_call|>
 ```
 
-`key: value` pairs, comma-separated; string values in plain ASCII double quotes;
-bare literals (number/bool) unquoted. **This differs from the initially-assumed
-format** (a vendor doc had claimed a `<|"|>` string-delimiter token wraps values —
-not observed; do not trust that detail without re-checking against a captured
-sample).
+`key: value` pairs, comma-separated; bare literals (number/bool) unquoted.
+
+**String-value delimiter (corrected 2026-07-06).** String values are wrapped in the
+registered `<|"|>` delimiter token (`cmd: <|"|>ls -F<|"|>`), NOT plain ASCII double
+quotes. The earlier note here -- "the vendor `<|"|>` claim was not observed; do not
+trust it" -- was wrong: the delimiter does occur. Both the wrap-in-plain-quotes and
+the wrap-in-delimiter forms have been seen, so the canonical parser accepts either on
+input and emits the delimiter form on output. The span between the delimiter tokens is
+literal (no backslash escaping).
 
 **Tool-name namespacing is inconsistent (observed 2026-07-01).** The same tool was
 called as bare `get_weather` on some turns and `default_api:get_weather` on others
 (`default_api` is Gemma's default tool module namespace; the Python-style
 `default_api.get_weather` is also plausible). Handlers key on the bare name, so
-`GemmaToolCallParser::stripNamespace` drops everything up to and including the last
+the runtime grammar drops everything up to and including the last
 `:` or `.` separator before dispatch. Without this the namespaced form fails to
 match the registered handler and the tool never runs (the model then apologizes
 that it cannot access the tool -- graceful, but wrong).
@@ -116,13 +120,16 @@ assistant turn (not a fresh history entry the way Llama's `ipython` role is).
 the `<tool_call|>` token by raw id (cached once via `tokenizer_->encode()`, checked
 in the per-token callback) and calls `stop_src_.request_stop()` — no core-library
 change needed, since the token is not in the model's own default stop set and so
-reaches the callback normally. `GemmaToolCallParser::parse` (in its own module,
-`Chat.GemmaToolCallParser.ixx`) extracts the call from the accumulated text;
-`GemmaToolCallParser::formatToolResponse` mirrors the dispatched result back into
-the same `key: value` grammar for the spliced response (the response-side grammar
-is *not* independently confirmed — this mirrors the one grammar element measured
-on the call side). The harness then re-prefills prompt + full accumulated turn
-text and resumes generation, looping up to a small round cap.
+reaches the callback normally. The grammar itself lives in the runtime, not the
+harness: `Mila::Dnn::Gemma::parseToolCall` (module `Dnn.Components.GemmaProtocol`,
+`Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx`) extracts the call from the
+accumulated text; `Mila::Dnn::Gemma::formatToolResponse` mirrors the dispatched result
+back into the `key: value` grammar for the spliced response, surfacing the primary
+output field (or the `error` field on a failed tool) and rendering string values in
+the trained `<|"|>` delimiter. The harness then re-prefills prompt + full accumulated
+turn text and resumes generation, looping up to a small round cap. (This runtime module
+replaced the retired `Chat.GemmaToolCallParser.ixx` on 2026-07-07 and is shared with the
+Python inference server's `gemma_protocol.py` — one grammar, both adaptors.)
 
 **Confirmed (2026-07-01, second capture):** the real-injection round trip works.
 With the harness dispatching the actual registered tool and splicing a genuine
@@ -130,7 +137,7 @@ With the harness dispatching the actual registered tool and splicing a genuine
 ("cloudy", "18°C") rather than fabricating its own — no confabulation, unlike
 the first (no-injection) capture. The quoted-string argument containing a
 literal comma (`"Toronto, Canada"`) was also parsed correctly (the quote-aware
-branch in `GemmaToolCallParser` doesn't split on commas inside quotes).
+branch in the grammar doesn't split on commas inside quotes).
 
 **Open / not yet validated:**
 - Multi-argument and non-string-argument call syntax (only a single string

@@ -35,6 +35,7 @@ option(MILA_ENABLE_PYTHON_BINDINGS "Build the MilaPy pybind11 extension module."
 option(MILA_ENABLE_BENCHMARKS "Enable Mila Library benchmarks." OFF)
 option(MILA_ENABLE_PROFILING "Enable Mila Library profiling." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ${PROJECT_IS_TOP_LEVEL})
+option(MILA_ENABLE_ADAPTORS "Build the first-class Mila adaptors (Chat CLI)." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_DOCS "Build Doxygen API documentation. Requires Doxygen and Graphviz." ON)
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
 option(MILA_INSTALL "Generate Mila install/export rules (find_package consumption)." ${PROJECT_IS_TOP_LEVEL})

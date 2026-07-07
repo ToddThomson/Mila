@@ -78,6 +78,7 @@ add_executable( MilaTests
     "Dnn/Components/Transformers/Gpt/GptTransformer.Cpu.cpp"
     "Dnn/Components/Transformers/Llama/Llama.Presets.cpp"
     "Dnn/Components/Transformers/Gemma/Gemma.Config.cpp"
+    "Dnn/Components/Transformers/Gemma/Gemma.Protocol.cpp"
     "Dnn/Core/Component.cpp"
     "Dnn/Core/ComponentConfig.cpp"
     "Dnn/Core/CompositeComponent.cpp"

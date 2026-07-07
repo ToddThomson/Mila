@@ -16,7 +16,7 @@ the OpenAI Codex CLI and the Anthropic Claude Code CLI.
 ## Setup
 
 ```bash
-cd Mila/Inference/Server
+cd Mila/Adaptors/Inference/Server
 pip install -r requirements.txt
 ```
 
@@ -47,7 +47,7 @@ MILA_DEFAULT_TOP_P=0.9
 ## Starting the Server
 
 ```bash
-cd Mila/Inference/Server
+cd Mila/Adaptors/Inference/Server
 python main.py
 ```
 

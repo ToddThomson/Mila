@@ -283,8 +283,8 @@ Each phase advances only when its parity gate is clean.
 
 This is core `Mila/Src/` work (new `Speculation/` subtree, KV-cache interface change, a `generate()`
 branch, per-position logits from the decode path) and therefore requires explicit agreement before
-implementation — this document is the proposal, not a green light. The Chat harness
-(`Samples/Chat/Src/`) is the validation driver and is freely editable.
+implementation — this document is the proposal, not a green light. The Chat adaptor
+(`Mila/Adaptors/Chat/Src/`) is the validation driver.
 
 ---
 

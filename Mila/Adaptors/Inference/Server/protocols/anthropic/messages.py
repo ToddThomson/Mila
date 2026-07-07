@@ -319,5 +319,89 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
         message_stop = {"type": "message_stop"}
         return f"event: message_stop\ndata: {json.dumps(message_stop)}\n\n"
 
+    # ------------------------------------------------------------------
+    # Streaming tool_use (buffered path -- see factory._stream_buffered_tool)
+    # ------------------------------------------------------------------
+
+    def format_stream_message_start(self, prompt_token_count: int) -> str:
+        # Open the message but DEFER content_block_start: the block's type
+        # (text vs tool_use) is only known once the whole model turn is parsed.
+        message_start = {
+            "type": "message_start",
+            "message": {
+                "id": f"msg_{uuid.uuid4().hex}",
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": MODEL_NAME,
+                "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {"input_tokens": prompt_token_count, "output_tokens": 0},
+            },
+        }
+        ping = {"type": "ping"}
+        return (
+            f"event: message_start\ndata: {json.dumps(message_start)}\n\n"
+            f"event: ping\ndata: {json.dumps(ping)}\n\n"
+        )
+
+    def format_stream_text_block(self, text: str) -> str:
+        start = {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""},
+        }
+        delta = {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": text},
+        }
+        stop = {"type": "content_block_stop", "index": 0}
+        return (
+            f"event: content_block_start\ndata: {json.dumps(start)}\n\n"
+            f"event: content_block_delta\ndata: {json.dumps(delta)}\n\n"
+            f"event: content_block_stop\ndata: {json.dumps(stop)}\n\n"
+        )
+
+    def format_stream_tool_use_block(self, tool_call: dict) -> str:
+        # content_block_start carries the tool id+name with empty input; the arguments
+        # arrive as one input_json_delta. Gemma emits the whole call at once, so there
+        # is no partial JSON to fragment. The deterministic call_id round-trips as the
+        # client's tool_result tool_use_id.
+        try:
+            tool_input = json.loads(tool_call["arguments"])
+        except (json.JSONDecodeError, TypeError):
+            tool_input = {}
+
+        start = {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {
+                "type": "tool_use",
+                "id": tool_call["call_id"],
+                "name": tool_call["name"],
+                "input": {},
+            },
+        }
+        delta = {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": json.dumps(tool_input)},
+        }
+        stop = {"type": "content_block_stop", "index": 0}
+        return (
+            f"event: content_block_start\ndata: {json.dumps(start)}\n\n"
+            f"event: content_block_delta\ndata: {json.dumps(delta)}\n\n"
+            f"event: content_block_stop\ndata: {json.dumps(stop)}\n\n"
+        )
+
+    def format_stream_message_stop_delta(self, output_token_count: int, stop_reason: str) -> str:
+        data = {
+            "type": "message_delta",
+            "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+            "usage": {"output_tokens": output_token_count},
+        }
+        return f"event: message_delta\ndata: {json.dumps(data)}\n\n"
+
     def format_responses_stream_keepalive(self, response_id: str) -> str:
         return "event: ping\ndata: {}\n\n"

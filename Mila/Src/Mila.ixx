@@ -202,6 +202,7 @@ export import Dnn.Components.GemmaConfig;
 export import Dnn.Components.IDecoderLayer;
 export import Dnn.Components.GemmaBlock;
 export import Dnn.Components.GemmaTransformer;
+export import Dnn.Components.GemmaProtocol;
 
 // ============================================================================
 // Models - Open Source Models

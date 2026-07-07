@@ -84,12 +84,6 @@ async def _dispatch(
     inf_req.max_new_tokens = min(inf_req.max_new_tokens, remaining)
     inf_req.prompt_ids = prompt_ids
 
-    if inf_req.stream:
-        return StreamingResponse(
-            _stream(inf_req, http_req, adapter),
-            media_type="text/event-stream",
-        )
-
     # Tool-capable adapters (currently the Anthropic Messages path) parse the
     # native Gemma <|tool_call> grammar from the model text, so they need the RAW
     # decode plus the <tool_call|> stop -- neither of which the plain blocking
@@ -100,6 +94,18 @@ async def _dispatch(
         settings.model_family == ModelFamily.gemma
         and hasattr(adapter, "parse_tool_call_from_text")
     )
+
+    if inf_req.stream:
+        # Streaming tool_use must buffer: the Anthropic wire emits content_block_start
+        # before the body, but text-vs-tool_use is only known once the model finishes,
+        # so we cannot stream text deltas live and still switch to a tool_use block.
+        # Adapters that supply the streaming tool_use formatters take the buffered path;
+        # everyone else (tool-blind adapters, Llama) keeps the live token stream.
+        if tool_capable and hasattr(adapter, "format_stream_tool_use_block"):
+            stream_gen = _stream_buffered_tool(inf_req, http_req, adapter)
+        else:
+            stream_gen = _stream(inf_req, http_req, adapter)
+        return StreamingResponse(stream_gen, media_type="text/event-stream")
 
     if tool_capable:
         text, completion_count = await worker.generate_collect(
@@ -248,6 +254,97 @@ async def _stream(
         yield adapter.format_stream_chunk("", done=True)
         if hasattr(adapter, "format_stream_message_delta"):
             yield adapter.format_stream_message_delta(output_token_count)
+        yield adapter.format_stream_done()
+
+
+async def _stream_buffered_tool(
+    inf_req: InferenceRequest,
+    http_req: Request,
+    adapter: ProtocolAdapter,
+) -> AsyncIterator[str]:
+    """
+    Streaming path for native-tool Gemma adapters (Anthropic Messages). The Gemma
+    tool-call grammar is only classifiable once the whole model turn is in hand, and
+    the Anthropic wire fixes each content block's type at content_block_start -- so we
+    open the message, buffer the RAW decode (strip_control_tokens=False, keeping the
+    <|tool_call> markers), then emit a single tool_use or text block at the end. This
+    trades live token streaming for a protocol-correct tool_use; harness clients need
+    the latter. Mirrors the tool-call handling already in _stream_responses.
+    """
+    queue: asyncio.Queue[str | None] = asyncio.Queue()
+    stop_ctrl = mila.StopController()
+    loop = asyncio.get_running_loop()
+    accumulated: list[str] = []
+
+    def on_text(text: str) -> None:
+        accumulated.append(text)
+        loop.call_soon_threadsafe(queue.put_nowait, text)
+
+    def on_done() -> None:
+        loop.call_soon_threadsafe(queue.put_nowait, None)
+
+    generation = asyncio.create_task(
+        worker.generate_streaming(
+            inf_req.prompt_ids,
+            on_text,
+            inf_req.max_new_tokens,
+            inf_req.temperature,
+            inf_req.top_k,
+            inf_req.top_p,
+            stop_ctrl,
+            False,  # strip_control_tokens: keep the raw <|tool_call> grammar for parsing
+        )
+    )
+    generation.add_done_callback(lambda _: on_done())
+
+    # Open the message immediately; the content block type is deferred until the end.
+    yield adapter.format_stream_message_start(len(inf_req.prompt_ids))
+
+    output_token_count = 0
+    first_token = True
+
+    try:
+        while True:
+            if await http_req.is_disconnected():
+                logger.info("client disconnected")
+                stop_ctrl.request_stop()
+                break
+
+            timeout = settings.keepalive_interval if first_token else settings.decode_timeout
+
+            try:
+                text = await asyncio.wait_for(queue.get(), timeout=timeout)
+            except asyncio.TimeoutError:
+                if first_token:
+                    yield ": keepalive\n\n"
+                    continue
+                logger.warning("decode_timeout hit after waiting %.1fs", settings.decode_timeout)
+                stop_ctrl.request_stop()
+                break
+
+            # None is the generation-complete sentinel from on_done (not a text chunk).
+            if text is None:
+                break
+
+            first_token = False
+            output_token_count += 1
+
+    finally:
+        if not generation.done():
+            stop_ctrl.request_stop()
+            await generation
+
+        full_text = "".join(accumulated)
+        tool_call = adapter.parse_tool_call_from_text(full_text)
+
+        if tool_call:
+            yield adapter.format_stream_tool_use_block(tool_call)
+            yield adapter.format_stream_message_stop_delta(output_token_count, "tool_use")
+        else:
+            display_text = adapter.clean_response_text(full_text)
+            yield adapter.format_stream_text_block(display_text)
+            yield adapter.format_stream_message_stop_delta(output_token_count, "end_turn")
+
         yield adapter.format_stream_done()
 
 

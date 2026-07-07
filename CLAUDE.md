@@ -64,8 +64,12 @@ Mila/
     Tensors/          Tensor<T, MR> and memory resources
     Serialization/    Model weight loading from binary blobs
   Tests/Dnn/          GTest unit tests — mirrors Src/Dnn tree
+  Bindings/           Mila's Python projection (mila.pyd, module Mila.Bindings) — runtime-adjacent,
+                      consumer-blind; consumed by MIS and the parity/converter tooling
+  Adaptors/           First-class consumer adaptors over the runtime (see MilaProductFamily.md)
+    Chat/Src/         Chat CLI harness — human-gate adaptor (maintained surface; see API boundary)
+    Inference/Server/ Mila Inference Server (MIS): Python wire adaptor; imports the mila binding
   Samples/
-    Chat/Src/         Chat CLI harness (fair game to edit freely — see API boundary below)
     MNIST/            MNIST training loop sample
     Bard/             GPT-2 text generation sample
   Tools/
@@ -129,9 +133,14 @@ The `getDeviceScratchBuffer()` grow-on-demand shared scratch buffer in `Executio
 
 ---
 
-## Chat Harness (`Mila/Samples/Chat/Src/`)
+## Chat Harness (`Mila/Adaptors/Chat/Src/`)
 
-**API Boundary:** Files under `Mila/Samples/Chat/Src/` can be edited freely. Any change to the core Mila library (`Mila/Src/`) requires explicit agreement first.
+Chat is a first-class adaptor (peer of MIS under `Mila/Adaptors/`), not a throwaway sample — a
+maintained surface that gains tests and rigor over time.
+
+**API Boundary:** Files under `Mila/Adaptors/Chat/Src/` are application code and may be edited
+without prior agreement (they consume the runtime; they are not the runtime's public API). Any
+change to the core Mila library (`Mila/Src/`) still requires explicit agreement first.
 
 Key files:
 - `Chat.ixx` — main chat loop, model hot-switching (`/model <alias> [quant]`), tool call dispatch
