@@ -90,23 +90,50 @@ async def _dispatch(
             media_type="text/event-stream",
         )
 
-    output_ids = await worker.generate(
-        inf_req.prompt_ids,
-        inf_req.max_new_tokens,
-        inf_req.temperature,
-        inf_req.top_k,
-        inf_req.top_p,
+    # Tool-capable adapters (currently the Anthropic Messages path) parse the
+    # native Gemma <|tool_call> grammar from the model text, so they need the RAW
+    # decode plus the <tool_call|> stop -- neither of which the plain blocking
+    # generate()/decode() path provides. generate_collect reuses the streaming
+    # primitive to supply both. Non-gemma families and tool-blind adapters keep
+    # the original stripped blocking path.
+    tool_capable = (
+        settings.model_family == ModelFamily.gemma
+        and hasattr(adapter, "parse_tool_call_from_text")
     )
 
-    new_ids = output_ids[len(inf_req.prompt_ids):]
-    text = await worker.decode(new_ids)
+    if tool_capable:
+        text, completion_count = await worker.generate_collect(
+            inf_req.prompt_ids,
+            inf_req.max_new_tokens,
+            inf_req.temperature,
+            inf_req.top_k,
+            inf_req.top_p,
+        )
+        response = InferenceResponse(
+            text=text,
+            finish_reason="stop",
+            prompt_token_count=len(inf_req.prompt_ids),
+            completion_token_count=completion_count,
+        )
+    else:
+        output_ids = await worker.generate(
+            inf_req.prompt_ids,
+            inf_req.max_new_tokens,
+            inf_req.temperature,
+            inf_req.top_k,
+            inf_req.top_p,
+        )
 
-    response = InferenceResponse(
-        text=text,
-        finish_reason="stop",
-        prompt_token_count=len(inf_req.prompt_ids),
-        completion_token_count=len(new_ids),
-    )
+        new_ids = output_ids[len(inf_req.prompt_ids):]
+        text = await worker.decode(new_ids)
+
+        response = InferenceResponse(
+            text=text,
+            finish_reason="stop",
+            prompt_token_count=len(inf_req.prompt_ids),
+            completion_token_count=len(new_ids),
+        )
+
     payload = adapter.format_chat_response(response) if is_chat else adapter.format_completions_response(response)
     return JSONResponse(content=payload)
 

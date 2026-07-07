@@ -75,6 +75,38 @@ def render_turn(role: str, content: str) -> str:
     return f"{TURN_OPEN}{role}\n{content}{TURN_CLOSE}\n"
 
 
+def assemble_prompt(system_block: str, turns: list[dict], continue_open: bool) -> str:
+    """
+    Assemble a full Gemma prompt from a system block and a role-tagged turn list.
+    Each turn is {"role": "user"|"model", "content": str, "tool"?: bool}. When
+    continue_open is set the final turn is emitted OPEN (no <turn|>) so generation
+    resumes it -- used when the transcript ends on a tool exchange the model must
+    continue. Shared by the OpenAI Responses and Anthropic Messages adapters so
+    both drive the same native grammar.
+    """
+    parts: list[str] = [BOS]
+
+    if system_block:
+        parts.append(render_turn("system", system_block))
+
+    body_turns = turns[:-1] if continue_open else turns
+    for turn in body_turns:
+        parts.append(render_turn(turn["role"], turn["content"]))
+
+    if continue_open:
+        last = turns[-1]
+        # Leave the model turn open so generation resumes it after the tool result.
+        parts.append(f"{TURN_OPEN}{last['role']}\n{last['content']}\n")
+    else:
+        parts.append(f"{TURN_OPEN}model\n")
+
+    # Empty-thought prime: suppresses the ghost reasoning channels the 12B
+    # otherwise emits (mirrors the chat harness). Load-bearing -- without it
+    # generation degenerates.
+    parts.append(THOUGHT_PRIME)
+    return "".join(parts)
+
+
 def strip_control_tokens(text: str) -> str:
     for token in CONTROL_TOKENS:
         if token in text:
@@ -244,12 +276,22 @@ def parse_tool_call(text: str) -> dict | None:
 # Tool-call / tool-response rendering (history replay -> prompt)
 # ---------------------------------------------------------------------------
 
+def _render_string_value(text: str) -> str:
+    """
+    Render a string value in Gemma's trained delimiter form: key:<|"|>value<|"|>.
+    The value between the delimiter tokens is literal -- the trained format has no
+    backslash escaping -- so guard only against an embedded delimiter that would
+    otherwise close the span early (the delimiter analog of quote-escaping).
+    """
+    return f'{STRING_DELIM}{text.replace(STRING_DELIM, chr(34))}{STRING_DELIM}'
+
+
 def _render_gemma_args(values: dict) -> str:
     parts = []
 
     for key, value in values.items():
         if isinstance(value, str):
-            parts.append(f'{key}: "{value}"')
+            parts.append(f"{key}: {_render_string_value(value)}")
         else:
             parts.append(f"{key}: {json.dumps(value)}")
 
@@ -275,16 +317,15 @@ def format_tool_call(name: str, arguments_json: str) -> str:
 _OUTPUT_KEYS = ("output", "result", "content", "stdout", "text")
 
 
-def _escape_value(text: str) -> str:
-    return text.replace("\\", "\\\\").replace('"', '\\"')
-
-
 def format_tool_response(name: str, result: str) -> str:
     """
     Render a client-executed tool result into Gemma's <|tool_response> grammar
     (GemmaToolCallParser::formatToolResponse). When the result is a JSON envelope
     only its primary output field is surfaced -- metadata siblings are dropped so
-    the model does not echo chunk ids / exit codes as if they were content.
+    the model does not echo chunk ids / exit codes as if they were content. A
+    failed tool ({"content": "", "error": "..."}) has no usable output field, so
+    its `error` is surfaced explicitly (it is NOT in _OUTPUT_KEYS); without it the
+    model sees an empty result and blind-retries.
     """
     if not isinstance(result, str):
         try:
@@ -292,22 +333,35 @@ def format_tool_response(name: str, result: str) -> str:
         except (TypeError, ValueError):
             result = str(result)
 
-    body_text = result
-
     try:
         parsed = json.loads(result)
     except (json.JSONDecodeError, TypeError):
         parsed = None
 
     if isinstance(parsed, dict):
-        body_text = next(
-            (parsed[key] for key in _OUTPUT_KEYS if isinstance(parsed.get(key), str)),
+        # First NON-EMPTY output field -- an empty "content" must not shadow a
+        # real "output"/"stdout", nor win over an "error" on a failed tool.
+        output = next(
+            (parsed[key] for key in _OUTPUT_KEYS
+             if isinstance(parsed.get(key), str) and parsed[key].strip()),
             None,
         )
-        if body_text is None:
-            body_text = json.dumps(parsed)
+        error = parsed.get("error")
+        has_error = isinstance(error, str) and error.strip()
 
-    return f'{TOOL_RESPONSE_OPEN}response:{name}{{result: "{_escape_value(body_text)}"}}{TOOL_RESPONSE_CLOSE}'
+        fields: dict = {}
+        if output is not None:
+            fields["result"] = output
+        if has_error:
+            fields["error"] = error
+        if not fields:
+            fields["result"] = json.dumps(parsed)
+
+        body = _render_gemma_args(fields)
+    else:
+        body = f"result: {_render_string_value(result)}"
+
+    return f"{TOOL_RESPONSE_OPEN}response:{name}{{{body}}}{TOOL_RESPONSE_CLOSE}"
 
 
 # ---------------------------------------------------------------------------

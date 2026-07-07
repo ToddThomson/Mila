@@ -3,15 +3,22 @@ Anthropic Messages API protocol adapter.
   Chat:        POST /v1/messages
   Completions: POST /v1/messages  (Anthropic has no separate completions path;
                we alias it to the same endpoint for factory symmetry.)
+
+Gemma family: native tool calling. Inbound tool defs, assistant tool_use blocks,
+and user tool_result blocks are mapped onto the same gemma_protocol grammar the
+Responses path uses, so Claude Code can drive MIS as a harness. Non-gemma (Llama)
+stays tool-blind plain text. Non-streaming tool_use is wired here; streaming
+tool_use (content_block_start{type:tool_use} + input_json_delta) is deferred.
 """
 import json
-import time
 import uuid
 
 from schemas.internal import InferenceRequest, InferenceResponse
 from protocols.base import ProtocolAdapter
+from protocols.utils import DEFAULT_SYSTEM_PROMPT, MODEL_NAME, extract_content
 from prompt import build_instruct_prompt
-from config import settings
+from config import settings, ModelFamily
+import gemma_protocol
 
 
 class AnthropicMessagesAdapter(ProtocolAdapter):
@@ -32,7 +39,7 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
             return " ".join(
                 block["text"]
                 for block in content
-                if block.get("type") == "text"
+                if isinstance(block, dict) and block.get("type") == "text"
             )
         return ""
 
@@ -43,33 +50,30 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
             return " ".join(
                 block["text"]
                 for block in system
-                if block.get("type") == "text"
+                if isinstance(block, dict) and block.get("type") == "text"
             )
-        return "You are a helpful assistant."
+        return DEFAULT_SYSTEM_PROMPT
+
+    # ------------------------------------------------------------------
+    # Request parsing
+    # ------------------------------------------------------------------
 
     def parse_chat_request(self, body: dict) -> tuple[str, InferenceRequest]:
-
-        import json
-        print( "[MIS DEBUG] Request: ", json.dumps( body, indent=2))
-
-        # Anthropic puts system at the top level, not inside messages.
-        system_prompt = self._extract_system(body.get("system", "You are a helpful assistant."))
+        system_prompt = self._extract_system(body.get("system", DEFAULT_SYSTEM_PROMPT))
         messages = body.get("messages", [])
+        tools = body.get("tools") or []
 
-        user_message = self._extract_text(messages[-1]["content"]) if messages else ""
-
-        history = [
-            {"role": m["role"], "content": self._extract_text(m["content"])}
-            for m in messages[:-1]
-        ]
-
-        prompt_str = build_instruct_prompt(user_message, system_prompt, history)
+        if settings.model_family == ModelFamily.gemma:
+            prompt_str = self._build_gemma_prompt(messages, system_prompt, tools)
+        else:
+            prompt_str = self._build_llama_prompt(messages, system_prompt)
 
         req = InferenceRequest(
             prompt_ids=[],
             max_new_tokens=body.get("max_tokens", settings.default_max_new_tokens),
-            temperature=body.get("temperature", 1.0),
-            top_k=body.get("top_k", 0),
+            temperature=body.get("temperature", settings.default_temperature),
+            top_k=body.get("top_k", settings.default_top_k),
+            top_p=body.get("top_p", settings.default_top_p),
             stream=body.get("stream", False),
         )
         return prompt_str, req
@@ -78,26 +82,179 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
         prompt_str = body.get("prompt", "")
         req = InferenceRequest(
             prompt_ids=[],
-            max_new_tokens=body.get("max_tokens", 256),
-            temperature=body.get("temperature", 1.0),
-            top_k=body.get("top_k", 0),
+            max_new_tokens=body.get("max_tokens", settings.default_max_new_tokens),
+            temperature=body.get("temperature", settings.default_temperature),
+            top_k=body.get("top_k", settings.default_top_k),
+            top_p=body.get("top_p", settings.default_top_p),
             stream=body.get("stream", False),
         )
         return prompt_str, req
 
+    # ------------------------------------------------------------------
+    # Prompt assembly
+    # ------------------------------------------------------------------
+
+    def _normalize_tools(self, tools: list) -> list:
+        """
+        Adapt Anthropic tool defs ({name, description, input_schema}) to the
+        OpenAI-ish shape gemma_protocol.build_tool_injection consumes (it reads
+        `parameters`, not Anthropic's `input_schema`).
+        """
+        normalized = []
+
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+
+            name = tool.get("name")
+            if not name:
+                continue
+
+            normalized.append({
+                "name": name,
+                "description": tool.get("description", ""),
+                "parameters": tool.get("input_schema", {}),
+            })
+
+        return normalized
+
+    def _tool_result_text(self, content) -> str:
+        """Anthropic tool_result.content is a string or a list of content blocks."""
+        if isinstance(content, str):
+            return content
+
+        return extract_content(content) if isinstance(content, list) else ""
+
+    def _build_gemma_prompt(self, messages: list, system_prompt: str, tools: list) -> str:
+        """
+        Assemble a native Gemma agentic prompt from Anthropic messages. Assistant
+        `tool_use` and user `tool_result` content blocks replay as
+        <|tool_call>/<|tool_response> spans inside a model turn; a conversation that
+        ends on a tool result leaves that model turn open so the model continues it
+        (mirrors responses.py / the chat harness splice-and-resume).
+        """
+        system_block = system_prompt
+        system_block += gemma_protocol.build_tool_injection(self._normalize_tools(tools))
+
+        turns: list[dict] = []
+        pending_names: dict[str, str] = {}  # tool_use.id -> tool name
+
+        def append_model_tool_span(span: str) -> None:
+            # Merge into any immediately-preceding model turn (a tool span OR the
+            # assistant's preamble text) so a single Anthropic assistant message
+            # that carries text + tool_use stays one model turn -- back-to-back
+            # <|turn>model turns are off-distribution for Gemma.
+            if turns and turns[-1]["role"] == "model":
+                turns[-1]["content"] += "\n" + span
+                turns[-1]["tool"] = True
+            else:
+                turns.append({"role": "model", "content": span, "tool": True})
+
+        def append_text(role: str, text: str) -> None:
+            if not text:
+                return
+            if turns and turns[-1]["role"] == role and not turns[-1].get("tool"):
+                turns[-1]["content"] += "\n" + text
+            else:
+                turns.append({"role": role, "content": text})
+
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
+
+            for block in blocks:
+                if not isinstance(block, dict):
+                    continue
+
+                btype = block.get("type", "text")
+
+                if btype == "text":
+                    gemma_role = "model" if role == "assistant" else "user"
+                    append_text(gemma_role, block.get("text", ""))
+
+                elif btype == "tool_use":
+                    name = block.get("name", "tool")
+                    pending_names[block.get("id", "")] = name
+                    append_model_tool_span(
+                        gemma_protocol.format_tool_call(name, json.dumps(block.get("input", {}))))
+
+                elif btype == "tool_result":
+                    name = pending_names.get(block.get("tool_use_id", ""), "tool")
+                    append_model_tool_span(
+                        gemma_protocol.format_tool_response(
+                            name, self._tool_result_text(block.get("content", ""))))
+
+        # If the transcript ends on a tool exchange the model must continue that
+        # same model turn; otherwise a fresh model turn is primed.
+        continue_open = bool(turns) and turns[-1].get("tool", False)
+        return gemma_protocol.assemble_prompt(system_block, turns, continue_open)
+
+    def _build_llama_prompt(self, messages: list, system_prompt: str) -> str:
+        """Tool-blind plain-text path for the Llama family (unchanged behavior)."""
+        user_message = self._extract_text(messages[-1]["content"]) if messages else ""
+        history = [
+            {"role": m["role"], "content": self._extract_text(m["content"])}
+            for m in messages[:-1]
+        ]
+        return build_instruct_prompt(user_message, system_prompt, history)
+
+    # ------------------------------------------------------------------
+    # Model-text reduction (shared with the factory tool-call detection)
+    # ------------------------------------------------------------------
+
+    def parse_tool_call_from_text(self, text: str) -> dict | None:
+        """Detect a native Gemma tool call in the raw model output (family-aware)."""
+        if settings.model_family == ModelFamily.gemma:
+            return gemma_protocol.parse_tool_call(text)
+        return None
+
+    def clean_response_text(self, text: str) -> str:
+        """Reduce raw model output to the user-facing answer (Gemma channel-aware)."""
+        if settings.model_family == ModelFamily.gemma:
+            return gemma_protocol.extract_answer(text)
+        return text
+
+    # ------------------------------------------------------------------
+    # Response formatting
+    # ------------------------------------------------------------------
+
     def format_chat_response(self, response: InferenceResponse) -> dict:
+        tool_call = self.parse_tool_call_from_text(response.text)
+
+        if tool_call:
+            try:
+                tool_input = json.loads(tool_call["arguments"])
+            except (json.JSONDecodeError, TypeError):
+                tool_input = {}
+
+            content = [
+                {
+                    "type": "tool_use",
+                    # Deterministic call_id round-trips as the client's tool_result
+                    # tool_use_id, correlating the result back to this call.
+                    "id": tool_call["call_id"],
+                    "name": tool_call["name"],
+                    "input": tool_input,
+                }
+            ]
+            stop_reason = "tool_use"
+        else:
+            content = [
+                {
+                    "type": "text",
+                    "text": self.clean_response_text(response.text),
+                }
+            ]
+            stop_reason = "end_turn"
+
         return {
             "id": f"msg_{uuid.uuid4().hex}",
             "type": "message",
             "role": "assistant",
-            "content": [
-                {
-                    "type": "text",
-                    "text": response.text,
-                }
-            ],
-            "model": "mila",
-            "stop_reason": "end_turn",
+            "content": content,
+            "model": MODEL_NAME,
+            "stop_reason": stop_reason,
             "stop_sequence": None,
             "usage": {
                 "input_tokens": response.prompt_token_count,
@@ -116,7 +273,7 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
                 "type": "message",
                 "role": "assistant",
                 "content": [],
-                "model": "mila",
+                "model": MODEL_NAME,
                 "stop_reason": None,
                 "stop_sequence": None,
                 "usage": {"input_tokens": prompt_token_count, "output_tokens": 0},
@@ -164,4 +321,3 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
 
     def format_responses_stream_keepalive(self, response_id: str) -> str:
         return "event: ping\ndata: {}\n\n"
-

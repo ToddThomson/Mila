@@ -110,6 +110,42 @@ class ModelWorker:
 
         return await loop.run_in_executor(self._executor, _run)
 
+    async def generate_collect(
+        self,
+        prompt_tokens: list[int],
+        max_new_tokens: int,
+        temperature: float,
+        top_k: int,
+        top_p: float = 1.0,
+    ) -> tuple[str, int]:
+        """
+        Non-streaming generation that still honors the Gemma <tool_call|> stop and
+        the degeneration backstop by driving the streaming primitive to completion
+        and accumulating the RAW (unstripped) decode. The plain blocking generate()
+        path has neither guard and worker.decode() strips the <|tool_call> markers,
+        so a non-streaming tool-call turn cannot be detected there; this path is what
+        the Anthropic/Responses tool flows need for a single-shot JSON response.
+        Returns (raw_text, decoded_chunk_count). Callers that only want display text
+        reduce via gemma_protocol.extract_answer / strip_control_tokens.
+        """
+        parts: list[str] = []
+
+        def on_text(text: str) -> None:
+            parts.append(text)
+
+        stop_ctrl = mila.StopController()
+        await self.generate_streaming(
+            prompt_tokens,
+            on_text,
+            max_new_tokens,
+            temperature,
+            top_k,
+            top_p,
+            stop_ctrl,
+            strip_control_tokens=False,
+        )
+        return "".join(parts), len(parts)
+
     # ------------------------------------------------------------------
     # Streaming generation
     # ------------------------------------------------------------------

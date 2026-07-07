@@ -77,7 +77,7 @@ class OpenAIResponsesAdapter(ResponsesCapable):
             system_block = instructions
             system_block += gemma_protocol.build_tool_injection(tools)
             turns = [{"role": "user", "content": raw_input}]
-            return self._assemble_gemma(system_block, turns, continue_open=False)
+            return gemma_protocol.assemble_prompt(system_block, turns, continue_open=False)
 
         messages = list(raw_input)
         system_block, messages = self._collect_system_block(messages, instructions)
@@ -122,30 +122,7 @@ class OpenAIResponsesAdapter(ResponsesCapable):
         # same turn; otherwise the last turn is the user's message and a fresh
         # model turn is primed.
         continue_open = bool(turns) and turns[-1].get("tool", False)
-        return self._assemble_gemma(system_block, turns, continue_open)
-
-    def _assemble_gemma(self, system_block: str, turns: list, continue_open: bool) -> str:
-        parts: list[str] = [gemma_protocol.BOS]
-
-        if system_block:
-            parts.append(gemma_protocol.render_turn("system", system_block))
-
-        body_turns = turns[:-1] if continue_open else turns
-        for turn in body_turns:
-            parts.append(gemma_protocol.render_turn(turn["role"], turn["content"]))
-
-        if continue_open:
-            last = turns[-1]
-            # Leave the model turn open so generation resumes it after the tool result.
-            parts.append(f"{gemma_protocol.TURN_OPEN}{last['role']}\n{last['content']}\n")
-        else:
-            parts.append(f"{gemma_protocol.TURN_OPEN}model\n")
-
-        # Empty-thought prime: suppresses the ghost reasoning channels the 12B
-        # otherwise emits (mirrors the chat harness). Load-bearing -- without it
-        # generation degenerates.
-        parts.append(gemma_protocol.THOUGHT_PRIME)
-        return "".join(parts)
+        return gemma_protocol.assemble_prompt(system_block, turns, continue_open)
 
     def _build_llama_prompt(self, raw_input, instructions: str, tools: list) -> str:
         if isinstance(raw_input, str):

@@ -885,6 +885,71 @@ Claude Code CLI (WSL coding harnesses) + one agentic harness (Hermes provisional
   (c) server `README.md` still describes Llama 3.2 3B -- rewrite once the context/VRAM envelope is known.
 
 Still open to close the milestone:
+
+**Align `gemma_protocol.py` with Google's official Gemma 4 tool-calling spec** (verified against the docs
+2026-07-06: [Function calling with Gemma 4](https://ai.google.dev/gemma/docs/capabilities/text/function-calling-gemma4),
+[Gemma 4 Prompt Formatting](https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4)). The empirically
+reverse-engineered token grammar is CONFIRMED correct (`<|turn>`, `<|tool_call>call:name{...}<tool_call|>`,
+`<|tool_response>`, `<|"|>`, `<|channel>thought`) -- these four are the remaining divergences from the trained
+format, surfaced while bringing up Hermes (which round-tripped tool calls fine; its own read-loop was a
+client-side `verify_on_stop`/`file_mutation_verifier` nag, NOT a wire bug -- see [[project_mis_test_environment]]).
+- [ ] **Tool DECLARATIONS use plain text, not the trained `<|tool>...<tool|>` tokens.**
+  `build_tool_injection` ([gemma_protocol.py:118](Mila/Inference/Server/gemma_protocol.py)) returns
+  `"You have access to the following tools:\n" + json.dumps(...)`. Google's spec places tool schemas in the
+  system turn wrapped in the trained token pair, `<|tool>declaration:name{description:...,parameters:...}<tool|>`.
+  The current plain-text form is off the training distribution. The docstring's "deliberately NO call-syntax
+  instructions" is correct and should stay (teaching a foreign *call* format confused Gemma), but that is
+  orthogonal to using the native *declaration* token wrapper. Needs an A/B (plain-text vs `<|tool>` declarations)
+  before committing -- measure tool-selection reliability, do not assume.
+- [x] **Replay spans now emit the `<|"|>` string delimiter -- DONE 2026-07-06.** New `_render_string_value` wraps
+  string values as `key:<|"|>value<|"|>` (trained form); `_render_gemma_args` (tool-call args) and
+  `format_tool_response` both use it. Numbers/bools stay bare. No backslash escaping (the trained format has none,
+  and the value between the delimiter tokens is literal); the only guard neutralizes an embedded `<|"|>` that would
+  close the span early. Removed the now-wrong `_escape_value` (it doubled backslashes / `\"`-escaped quotes, which
+  the parser never unescapes). Worker `<tool_call|>` stop is unaffected (args-rendering is prompt-side only) and
+  `extract_answer` still strips `STRING_DELIM` via CONTROL_TOKENS. Our `parse_tool_call` round-trips the delimiter
+  form (verified). NOTE: this diverges from the C++ chat harness `GemmaToolCallParser`, which still renders + parses
+  plain quotes only -- MIS is the spec-aligned one now.
+- [ ] **In-turn thoughts are dropped between tool calls.** Google's multi-turn rule: strip the model's thoughts
+  from *prior* turns before replay, but KEEP thoughts *between the function calls within a single model turn*. MIS
+  drops model thoughts entirely -- `_build_gemma_prompt` ([responses.py:98-111](Mila/Inference/Server/protocols/openai/responses.py))
+  replays only the `<|tool_call>`/`<|tool_response>` spans (the preceding `<|channel>thought` is discarded by
+  `parse_tool_call`/`extract_answer`), and each turn re-primes an empty `THOUGHT_PRIME`
+  ([gemma_protocol.py:43](Mila/Inference/Server/gemma_protocol.py)). Harmless while thinking is primed off, but
+  wrong once a single turn chains multiple tool calls with reasoning between them (the untested N-round case). Fold
+  into the channel-parser work already listed under first-pass limitations.
+- [x] **Failed tool errors now reach the model -- DONE 2026-07-06.** `format_tool_response` skips empty-string
+  `_OUTPUT_KEYS` candidates (an empty `content` no longer shadows a real `output`/`stdout` nor wins over an error)
+  AND surfaces `error` explicitly (it is not in `_OUTPUT_KEYS`). A failed `{"content":"","error":"file not found"}`
+  now renders `<|tool_response>response:read{error: <|"|>file not found<|"|>}<tool_response|>`; both output + error
+  render as two fields; a truly empty envelope falls back to the whole JSON. Verified across the empty/real/both/
+  plain-string cases.
+
+- [x] **Bring Gemma 4 tool calling to the Anthropic Messages path (`/v1/messages`) -- DONE 2026-07-06 (non-streaming).**
+  `AnthropicMessagesAdapter` ([messages.py](Mila/Inference/Server/protocols/anthropic/messages.py)) is now
+  family-branched (Gemma-native vs Llama-legacy). Inbound: `body["tools"]` (`input_schema` shape) -> a small
+  `_normalize_tools` adapter -> `gemma_protocol.build_tool_injection`; assistant `tool_use` blocks ->
+  `format_tool_call`, user `tool_result` blocks (`tool_use_id`+`content`) -> `format_tool_response`, both replayed as
+  model tool spans spliced into an OPEN model turn (`continue_open`). Preamble text + `tool_use` in one Anthropic
+  assistant message now merge into ONE model turn (back-to-back `<|turn>model` is off-distribution). Outbound:
+  `parse_tool_call` on raw text -> Anthropic `tool_use` block (`stop_reason:"tool_use"`), else `extract_answer` ->
+  text block (`end_turn`); `tool_use.id` = the deterministic `call_id` so it round-trips as the next
+  `tool_result.tool_use_id`. Extracted `gemma_protocol.assemble_prompt` as the shared single source of truth (both
+  `responses.py` and `messages.py` call it). **KEY FINDING: the worker's `<tool_call|>` stop + raw-passthrough were
+  NOT shared -- they lived only in `generate_streaming` (gemma + `stop_ctrl`). The blocking `generate()`/`decode()`
+  path has neither and `decode()` strips the `<|tool_call>` markers, so the non-streaming Responses tool path was
+  never actually functional (Codex works because it streams).** Added `ModelWorker.generate_collect` -- drives the
+  streaming primitive to completion, accumulates the RAW decode, honors the `<tool_call|>` stop + degeneration
+  backstop -- and `factory._dispatch` routes tool-capable gemma adapters (gated on
+  `hasattr(adapter,"parse_tool_call_from_text")` + gemma family) through it. Streaming `tool_use`
+  (`content_block_start{type:tool_use}` + `input_json_delta`) still DEFERRED -- if Claude Code always streams
+  `/v1/messages`, that becomes the next required step. The grammar-alignment items below were NOT bundled in
+  (kept the port minimal); they still apply to both paths. See [[project_mis_test_environment]].
+- [ ] **Follow-up: streaming `tool_use` on `/v1/messages`.** The non-streaming JSON path is done; streaming needs
+  `content_block_start{type:tool_use}` + `input_json_delta` + `content_block_stop` with `message_delta`
+  `stop_reason:"tool_use"`, driven off the raw accumulated text in `factory._stream` (currently tool-blind, strips
+  markers). Promote if Claude Code refuses non-streaming `/v1/messages`. Mirror `_stream_responses`' accumulate +
+  `parse_tool_call_from_text` at close.
 - [ ] **MIS `top_p` is dropped before the sampler.** `SamplingParams` now carries `top_p`, but the pybind
   `generate`/`generate_streaming` never grew a `top_p` arg, and `ModelWorker.generate`/`generate_streaming`
   ([model_worker.py](Mila/Inference/Server/model_worker.py)) accept `top_p` then omit it from the `self._model`
