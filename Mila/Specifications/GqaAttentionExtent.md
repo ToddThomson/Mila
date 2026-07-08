@@ -1,8 +1,9 @@
 # GQA Attention Extent: Attended Length vs Physical Stride
 
-Status: proposed (2026-07-07). Scope: `CudaGroupedQueryAttentionOp` unbounded/global
-prefill path and its prefill softmax kernels. Interim optimization ahead of the
-post-0.20 flash-attention prefill rewrite, which subsumes it.
+Status: implemented (2026-07-07), pending on-GPU parity + tax-gone validation. Scope:
+`CudaGroupedQueryAttentionOp` unbounded/global prefill path and its prefill softmax
+kernels. Interim optimization ahead of the post-0.20 flash-attention prefill rewrite,
+which subsumes it.
 
 ---
 
@@ -114,10 +115,11 @@ no value that reaches the output changes. This is a *where-we-compute*, not a
 ## 5. cuBLASLt plan geometry (the risk)
 
 `L` varies per chunk (`L = (i+1) * chunk` for full chunk `i`), so the QK/AV plans become
-shape-per-chunk. Extend the existing partial-plan cache
-(`getOrBuildPartialQKPlan_optimized` / `getOrBuildPartialAVPlan_optimized`, keyed on
-`chunk_len`) to key on `L` instead. Distinct plans ~= `seq / chunk` (~70 for a 35K
-prefill), built once and reused across prefills.
+shape-per-chunk. The partial-plan cache was generalized to
+`getOrBuildPrefillQKPlan_optimized` / `getOrBuildPrefillAVPlan_optimized`, keyed on
+`makePlanKey(chunk_len, L)` (both fields, since the bounded partial chunk shares
+`L == capacity` across prefills but varies `chunk_len`). Distinct plans ~= `seq / chunk`
+(~70 for a 35K prefill), built once and reused across prefills.
 
 The kernels need one new argument: `attended_len` distinct from the physical row stride.
 The partial-chunk note at

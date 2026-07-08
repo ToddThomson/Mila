@@ -41,7 +41,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
     void cuda_gqa_prefill_softmax_bf16(
         __nv_bfloat16* att, const __nv_bfloat16* preatt,
-        int B, int NH, int T_stride, int chunk_stride,
+        int B, int NH, int T_stride, int attended_len, int chunk_stride,
         int chunk_len, int position_offset, int window,
         cudaStream_t stream );
 
@@ -340,7 +340,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
     void cuda_gqa_prefill_softmax_fp32(
         float* att, const float* preatt,
-        int B, int NH, int T_stride, int chunk_stride,
+        int B, int NH, int T_stride, int attended_len, int chunk_stride,
         int chunk_len, int position_offset, int window,
         cudaStream_t stream );
 

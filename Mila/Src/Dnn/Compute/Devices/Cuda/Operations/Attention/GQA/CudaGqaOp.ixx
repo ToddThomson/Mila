@@ -414,8 +414,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         Detail::CublasLtMatMulPlan<NativeType> qk_decode_plan_optimized_;
         Detail::CublasLtMatMulPlan<NativeType> att_value_decode_plan_optimized_;
 
-        std::unordered_map<int, Detail::CublasLtMatMulPlan<NativeType>> qk_partial_prefill_plan_cache_optimized_;
-        std::unordered_map<int, Detail::CublasLtMatMulPlan<NativeType>> att_value_partial_prefill_plan_cache_optimized_;
+        // Keyed on makePlanKey(chunk_len, attended_len). Holds the unbounded causal-
+        // triangular prefill plans (attended_len < capacity) and the bounded partial-chunk
+        // plans (attended_len == capacity). See GqaAttentionExtent.md.
+        std::unordered_map<int64_t, Detail::CublasLtMatMulPlan<NativeType>> qk_prefill_plan_cache_optimized_;
+        std::unordered_map<int64_t, Detail::CublasLtMatMulPlan<NativeType>> att_value_prefill_plan_cache_optimized_;
 
         // ====================================================================
         // State tensors -- KV cache (compact NKV layout, retained across calls)
@@ -543,16 +546,20 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // column count. For the unbounded cache cache_capacity_ == T_, so these
             // plans are byte-identical to before; for the bounded ring they are sized
             // to the capacity, shrinking the GEMM N dimension to the window working set.
+            // Full-width prefill plans (attended_len == cache_capacity_). These serve the
+            // bounded ring's full chunks, which attend over every capacity slot. The
+            // unbounded path attends only position_offset + chunk_len keys per chunk and
+            // routes through the attended-length plan cache instead. See GqaAttentionExtent.md.
             qk_prefill_plan_optimized_ = Detail::build_qk_prefill_plan_optimized<NativeType>(
                 cublaslt_handle_,
                 B_, NKV_, GS_,
-                prefill_chunk_size_, cache_capacity_, HS_,
+                prefill_chunk_size_, cache_capacity_, HS_, cache_capacity_,
                 cuda_dt, compute_type, scale_type );
 
             att_value_prefill_plan_optimized_ = Detail::build_att_value_prefill_plan_optimized<NativeType>(
                 cublaslt_handle_,
                 B_, NKV_, GS_,
-                prefill_chunk_size_, cache_capacity_, HS_,
+                prefill_chunk_size_, cache_capacity_, HS_, cache_capacity_,
                 cuda_dt, compute_type, scale_type );
 
             qk_decode_plan_optimized_ = Detail::build_qk_decode_plan_optimized<NativeType>(
@@ -608,13 +615,23 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             Detail::cuda_gqa_kernels<NativeType>::permute_q_compact(
                 q_permute_opt_, Xq, B_, chunk_len, NH_, HS_, stream );
 
-            const bool is_full_chunk = (chunk_len == prefill_chunk_size_);
-            const auto& qk_plan = is_full_chunk
+            // Attended length L = causal key count for this chunk. For the unbounded
+            // cache this shrinks the QK/AV GEMM N/K extent (and softmax width) from the
+            // full allocated context to position_offset + chunk_len, making prefill
+            // attention causal-triangular and independent of the allocated context. The
+            // bounded ring attends over all cache_capacity_ ring slots (column j is a ring
+            // slot, not an absolute position), so it keeps the full-width plans. See
+            // GqaAttentionExtent.md.
+            const int attended_len = kBounded ? cache_capacity_ : ( position_offset + chunk_len );
+
+            const bool is_full_chunk = ( chunk_len == prefill_chunk_size_ );
+            const bool use_full_plan = kBounded && is_full_chunk;
+            const auto& qk_plan = use_full_plan
                 ? qk_prefill_plan_optimized_
-                : getOrBuildPartialQKPlan_optimized( chunk_len );
-            const auto& av_plan = is_full_chunk
+                : getOrBuildPrefillQKPlan_optimized( chunk_len, attended_len );
+            const auto& av_plan = use_full_plan
                 ? att_value_prefill_plan_optimized_
-                : getOrBuildPartialAVPlan_optimized( chunk_len );
+                : getOrBuildPrefillAVPlan_optimized( chunk_len, attended_len );
 
             execute_plan<NativeType>(
                 cublaslt_handle_, qk_plan,
@@ -637,7 +654,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             {
                 Detail::cuda_gqa_kernels<NativeType>::prefill_softmax(
                     att_opt_, preatt_opt_,
-                    B_, NH_, cache_capacity_, prefill_chunk_size_, chunk_len, position_offset, window_, stream );
+                    B_, NH_, cache_capacity_, attended_len, prefill_chunk_size_, chunk_len, position_offset, window_, stream );
             }
 
             execute_plan<NativeType>(
@@ -729,46 +746,58 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // Partial-chunk plan cache helpers (compact NKV layout)
         // ====================================================================
 
-        const Detail::CublasLtMatMulPlan<NativeType>& getOrBuildPartialQKPlan_optimized( int chunk_len )
+        // Plans vary per (chunk_len, attended_len): full unbounded chunks share chunk_len
+        // but differ in attended_len (= position_offset + chunk_len), while the bounded
+        // partial final chunk holds attended_len == cache_capacity_ with a per-prefill
+        // chunk_len, so both fields are needed to key uniquely. Distinct plans ~= seq/chunk
+        // for a full prefill; built once and reused across prefills. See GqaAttentionExtent.md.
+        static int64_t makePlanKey( int chunk_len, int attended_len ) noexcept
         {
-            auto it = qk_partial_prefill_plan_cache_optimized_.find( chunk_len );
+            return ( static_cast<int64_t>( chunk_len ) << 32 ) | static_cast<uint32_t>( attended_len );
+        }
 
-            if ( it == qk_partial_prefill_plan_cache_optimized_.end() )
+        const Detail::CublasLtMatMulPlan<NativeType>& getOrBuildPrefillQKPlan_optimized( int chunk_len, int attended_len )
+        {
+            const int64_t key = makePlanKey( chunk_len, attended_len );
+            auto it = qk_prefill_plan_cache_optimized_.find( key );
+
+            if ( it == qk_prefill_plan_cache_optimized_.end() )
             {
                 const cudaDataType_t cuda_dt = getCudaDataType();
                 cublasComputeType_t compute_type;
                 cudaDataType_t scale_type;
                 getComputeTypes( compute_type, scale_type );
 
-                it = qk_partial_prefill_plan_cache_optimized_.emplace(
-                    chunk_len,
+                it = qk_prefill_plan_cache_optimized_.emplace(
+                    key,
                     Detail::build_qk_prefill_plan_optimized<NativeType>(
                         cublaslt_handle_,
                         B_, NKV_, GS_,
-                        chunk_len, cache_capacity_, HS_,
+                        chunk_len, cache_capacity_, HS_, attended_len,
                         cuda_dt, compute_type, scale_type ) ).first;
             }
 
             return it->second;
         }
 
-        const Detail::CublasLtMatMulPlan<NativeType>& getOrBuildPartialAVPlan_optimized( int chunk_len )
+        const Detail::CublasLtMatMulPlan<NativeType>& getOrBuildPrefillAVPlan_optimized( int chunk_len, int attended_len )
         {
-            auto it = att_value_partial_prefill_plan_cache_optimized_.find( chunk_len );
+            const int64_t key = makePlanKey( chunk_len, attended_len );
+            auto it = att_value_prefill_plan_cache_optimized_.find( key );
 
-            if ( it == att_value_partial_prefill_plan_cache_optimized_.end() )
+            if ( it == att_value_prefill_plan_cache_optimized_.end() )
             {
                 const cudaDataType_t cuda_dt = getCudaDataType();
                 cublasComputeType_t compute_type;
                 cudaDataType_t scale_type;
                 getComputeTypes( compute_type, scale_type );
 
-                it = att_value_partial_prefill_plan_cache_optimized_.emplace(
-                    chunk_len,
+                it = att_value_prefill_plan_cache_optimized_.emplace(
+                    key,
                     Detail::build_att_value_prefill_plan_optimized<NativeType>(
                         cublaslt_handle_,
                         B_, NKV_, GS_,
-                        chunk_len, cache_capacity_, HS_,
+                        chunk_len, cache_capacity_, HS_, attended_len,
                         cuda_dt, compute_type, scale_type ) ).first;
             }
 

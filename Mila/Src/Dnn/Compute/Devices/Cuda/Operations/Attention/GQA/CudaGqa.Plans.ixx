@@ -560,6 +560,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
          * @param group_size     NH / NKV -- number of Q heads per KV head.
          * @param chunk_rows     Number of Q rows per chunk (kPrefillChunkSize for full chunks).
          * @param num_kv_heads   Number of KV heads (NKV).
+         * @param max_seq_length Physical KV cache row count (row stride / leading dim).
+         * @param attended_len   Logical key count for this chunk (the GEMM N dimension).
+         *                       Equals max_seq_length for the full-width path; smaller for
+         *                       the unbounded causal-triangular path (position_offset +
+         *                       chunk_rows). ld and strides stay on max_seq_length so the
+         *                       preatt row pitch is unchanged. See GqaAttentionExtent.md.
          */
         template <typename TNative>
         CublasLtMatMulPlan<TNative> build_qk_prefill_plan_optimized(
@@ -570,6 +576,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             int chunk_rows,
             int max_seq_length,
             int head_size,
+            int attended_len,
             cudaDataType_t      cuda_data_type,
             cublasComputeType_t compute_type,
             cudaDataType_t      scale_type )
@@ -577,18 +584,21 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const int batch_count = batch_size * num_kv_heads;
             const int m_rows = group_size * chunk_rows;
 
+            // Strides keep the PHYSICAL geometry (max_seq_length) so preatt's row pitch
+            // stays max_seq_length regardless of attended_len. Only the GEMM N extent
+            // (K rows read, preatt columns written) shrinks to attended_len.
             // Q compact: [B*NKV, GS*chunk, HS] -- stride between KV-group slices
             const long long strideA = static_cast<long long>(m_rows) * head_size;
             // K cache:   [B*NKV, T, HS]
             const long long strideB = static_cast<long long>(max_seq_length) * head_size;
-            // preatt:    [B*NKV, GS*chunk, T]
+            // preatt:    [B*NKV, GS*chunk, T] (physical), columns [0, attended_len) written
             const long long strideC = static_cast<long long>(m_rows) * max_seq_length;
 
             auto plan = build_strided_plan<TNative>(
                 handle,
-                m_rows,         head_size,      head_size,      strideA,
-                max_seq_length, head_size,      head_size,      strideB,
-                m_rows,         max_seq_length, max_seq_length, strideC,
+                m_rows,        head_size,      head_size,       strideA,
+                attended_len,  head_size,      head_size,       strideB,
+                m_rows,        attended_len,   max_seq_length,  strideC,
                 CUBLAS_OP_N, CUBLAS_OP_T,
                 batch_count, false,
                 compute_type, cuda_data_type, scale_type );
@@ -614,6 +624,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
          * @param group_size     NH / NKV.
          * @param chunk_rows     Number of Q rows per chunk (kPrefillChunkSize for full chunks).
          * @param num_kv_heads   Number of KV heads (NKV).
+         * @param max_seq_length Physical KV cache row count (row stride / leading dim).
+         * @param attended_len   Logical key count for this chunk (the GEMM K dimension).
+         *                       Equals max_seq_length for the full-width path; smaller for
+         *                       the unbounded causal-triangular path. ld and strides stay
+         *                       on max_seq_length. See GqaAttentionExtent.md.
          */
         template <typename TNative>
         CublasLtMatMulPlan<TNative> build_att_value_prefill_plan_optimized(
@@ -624,6 +639,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             int chunk_rows,
             int max_seq_length,
             int head_size,
+            int attended_len,
             cudaDataType_t      cuda_data_type,
             cublasComputeType_t compute_type,
             cudaDataType_t      scale_type )
@@ -631,7 +647,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const int batch_count = batch_size * num_kv_heads;
             const int m_rows = group_size * chunk_rows;
 
-            // att:   [B*NKV, GS*chunk, T]
+            // Strides keep the PHYSICAL geometry (max_seq_length). Only the GEMM K extent
+            // (att columns and V rows read) shrinks to attended_len.
+            // att:   [B*NKV, GS*chunk, T] (physical), columns [0, attended_len) read
             const long long strideA = static_cast<long long>(m_rows) * max_seq_length;
             // V cache: [B*NKV, T, HS]
             const long long strideB = static_cast<long long>(max_seq_length) * head_size;
@@ -640,9 +658,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             auto plan = build_strided_plan<TNative>(
                 handle,
-                m_rows,         max_seq_length, max_seq_length, strideA,
-                max_seq_length, head_size,      head_size,      strideB,
-                m_rows,         head_size,      head_size,      strideC,
+                m_rows,        attended_len,  max_seq_length, strideA,
+                attended_len,  head_size,     head_size,      strideB,
+                m_rows,        head_size,     head_size,      strideC,
                 CUBLAS_OP_N, CUBLAS_OP_N,
                 batch_count, false,
                 compute_type, cuda_data_type, scale_type );

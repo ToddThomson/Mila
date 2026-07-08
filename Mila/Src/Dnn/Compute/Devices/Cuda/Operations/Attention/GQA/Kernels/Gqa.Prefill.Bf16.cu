@@ -17,13 +17,22 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      * preserve numerical stability across the exp/normalize pass.
      *
      * Each thread owns one query row (b, nh, t), iterates over key positions
-     * [0, abs_t], and zeros positions (abs_t, T_stride).
+     * [0, abs_t], and zeros positions (abs_t, attended_len).
+     *
+     * T_stride is the PHYSICAL row width (KV cache capacity) used for addressing;
+     * attended_len is the LOGICAL number of valid keys for this chunk
+     * (position_offset + chunk_len). The two are decoupled so a short prompt over a
+     * large allocated context only touches attended_len columns, not T_stride. The
+     * QK GEMM writes columns [0, attended_len) and the AV GEMM reads the same range,
+     * so columns [attended_len, T_stride) are never consumed and need no zeroing.
+     * See GqaAttentionExtent.md.
      *
      * @param att            Output attention weights [B, NH, chunk_stride, T_stride].
      * @param preatt         Input pre-attention logits [B, NH, chunk_stride, T_stride].
      * @param B              Batch size.
      * @param NH             Number of query heads.
-     * @param T_stride       Maximum sequence length (row width in memory).
+     * @param T_stride       Physical KV cache row width (row pitch in memory).
+     * @param attended_len   Number of valid keys for this chunk (<= T_stride).
      * @param chunk_stride   Allocated chunk capacity (row pitch for the query axis).
      * @param chunk_len      Number of active query tokens in this chunk (<= chunk_stride).
      * @param position_offset Absolute position of the first token in this chunk.
@@ -34,6 +43,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int B,
         int NH,
         int T_stride,
+        int attended_len,
         int chunk_stride,
         int chunk_len,
         int position_offset,
@@ -64,7 +74,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         __nv_bfloat16* att_row = att + row_offset;
 
         int abs_t = position_offset + t;
-        int max_t2 = min( abs_t, T_stride - 1 );
+        int max_t2 = min( abs_t, attended_len - 1 );
 
         // Sliding-window lower bound. window <= 0 means global causal (window_start
         // = 0), which reproduces the unbounded behavior exactly.
@@ -89,12 +99,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         for ( int t2 = window_start; t2 <= max_t2; ++t2 )
             att_row[ t2 ] = __float2bfloat16( __bfloat162float( att_row[ t2 ] ) * inv_sum );
 
-        // Step 4: zero out positions outside the attended window — below the
-        // window [0, window_start) and the future [max_t2+1, T_stride).
+        // Step 4: zero out positions the AV GEMM will read but this row does not
+        // attend — below the window [0, window_start) and the causal future
+        // [max_t2+1, attended_len). Columns [attended_len, T_stride) are outside the
+        // AV GEMM's K extent, so they are never read and are left untouched.
         for ( int t2 = 0; t2 < window_start; ++t2 )
             att_row[ t2 ] = __float2bfloat16( 0.0f );
 
-        for ( int t2 = max_t2 + 1; t2 < T_stride; ++t2 )
+        for ( int t2 = max_t2 + 1; t2 < attended_len; ++t2 )
             att_row[ t2 ] = __float2bfloat16( 0.0f );
     }
 
@@ -218,7 +230,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
     void cuda_gqa_prefill_softmax_bf16(
         __nv_bfloat16* att, const __nv_bfloat16* preatt,
-        int B, int NH, int T_stride, int chunk_stride,
+        int B, int NH, int T_stride, int attended_len, int chunk_stride,
         int chunk_len, int position_offset, int window,
         cudaStream_t stream )
     {
@@ -228,7 +240,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
         prefill_softmax_bf16_kernel <<< grid_size, block_size, 0, stream >>> (
             att, preatt,
-            B, NH, T_stride, chunk_stride,
+            B, NH, T_stride, attended_len, chunk_stride,
             chunk_len, position_offset, window);
 
         cudaCheck( cudaGetLastError() );

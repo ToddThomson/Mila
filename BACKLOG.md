@@ -495,8 +495,35 @@ a 12 GB card.
   nsys needed for the throughput curve -- reserve nsys for dissecting a single point); (c) per-point try/catch
   so an OOM at high context reports "ceiling reached at N" instead of aborting the sweep. Enables the 512->64K
   sweep + the llama.cpp comparison above in one run. See [[project_gemma_inference_review]].
-- [ ] **[perf, CONFIRMED root cause] Global prefill/decode attention runs at width `context_length`, not used
-  KV length -- ~2x tax on short prompts in a large context.** Isolation experiment 2026-07-07 (fix seq_len=512,
+- [ ] **[tooling, minor] ProfileModel prints `FATAL ERROR: std::bad_function_call` at process teardown.**
+  Observed 2026-07-07 on the `--phase prefill` path (Gemma 12B FP4), AFTER the measured NVTX range closes, so
+  measurements are unaffected. Did not fire at ctx=512 but did at 2048/40960 (not obviously context-linked).
+  The prefill phase never invokes the generate callback, so an empty `std::function` is being called during
+  Mila/model shutdown -- likely a destructor or deferred cleanup calling an unset callback. Chat is green, so
+  it is ProfileModel-harness-local, not the runtime hot path. Repro: run `ProfileModel --model gemma --phase
+  prefill --seq-len 512 --context-length 2048 --quantization fp4` and watch stderr at exit.
+- [x] **[perf, CONFIRMED root cause] Global prefill/decode attention runs at width `context_length`, not used
+  KV length -- ~2x tax on short prompts in a large context.** PREFILL FIX IMPLEMENTED + VALIDATED 2026-07-07
+  (all three spec gates green: token-for-token parity via chat + 46/46 `CudaGqaOpTests` oracles Fp32/Bf16
+  incl `Prefill_PartialFinalChunk_MatchesOracle`/`PrefillThenDecode_MatchesOracle`; tax-gone sweep; existing
+  oracles green): unbounded prefill QK/AV GEMM N/K, softmax width, and Step-4
+  zeroing now run at `attended_len = position_offset + chunk_len`, with `T_` kept only as the physical row
+  stride (cuBLASLt ld/strides). Plans keyed on `makePlanKey(chunk_len, attended_len)`; bounded/local layers
+  unchanged. DECODE still descoped (only -8%, weight-bandwidth-bound; softmax-bound freebie left as follow-up).
+  TAX-GONE VALIDATED 2026-07-07 (nsys :prefill range, isolated per ctx -- back-to-back nsys runs contaminate,
+  giving a bogus fixed ~4594 ms; each ctx MUST run in its own process): fixed 512-token prompt prefill now
+  296.9 (ctx 512) -> 332.1 (2048) -> 332.3 (8192) -> 332.7 (16384) -> 405.5 ms (40960), vs old
+  298.6/343.5/380.6/430.4/639.5. FLAT ~332 ms through 16K (attention tax removed); short-prompt tax at 40960
+  cut 2.15x -> 1.37x. RESIDUAL DECOMPOSED (kernel breakdown): (1) +35 ms 512->2048-then-flat is the bounded
+  local-layer `prefill_softmax_ring_bf16_kernel` (17->40 ms) as ring capacity `min(T_, window+chunk-1)` grows
+  512->1535 and SATURATES -- inherent sliding-window cost, correct, not this fix's scope; (2) +73 ms at 40960
+  only is the chunk heuristic dropping 512->256 (512-tok prompt splits into 2 chunks: every kernel instance
+  count doubles, 40 ring + 8 global softmax = 48 Gemma layers/chunk) because the GQA preatt/att scratch is
+  sized to full `T_ctx` ([Gemma.ixx:791-793](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.ixx),
+  budgeted by `computeChunkRowCostBytes(B, T_ctx)` at :676) -- this is exactly the score-materialization the
+  post-0.20 flash-attention rewrite (GqaAttentionExtent.md 7) subsumes, so NOT worth a separate fix before it.
+  Extent fix cut prefill COMPUTE to attended_len but preatt ALLOCATION stays `T_ctx`-wide.
+  Isolation experiment 2026-07-07 (fix seq_len=512,
   vary context_length, Gemma 12B FP4, 4070): prefill of the SAME 512-token prompt goes 298.6 ms (ctx 512) ->
   343.5 (2048) -> 380.6 (8192) -> 430.4 (16384) -> **639.5 ms (40960)** -- 2.1x, ~linear in context. ROOT CAUSE
   (code): the unbounded/global GQA path uses `T_stride = cache_capacity_ = T_ = context_length`

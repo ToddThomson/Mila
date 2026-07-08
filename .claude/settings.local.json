@@ -86,7 +86,10 @@
       "mcp__visualize__read_me",
       "mcp__visualize__show_widget",
       "PowerShell(& \"C:\\\\Users\\\\ToddT\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\D--Repos-Mila\\\\d0d49f1a-20b3-42c2-97be-4461681b3699\\\\scratchpad\\\\context_tax.ps1\")",
-      "PowerShell(& \"C:\\\\Users\\\\ToddT\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\D--Repos-Mila\\\\d0d49f1a-20b3-42c2-97be-4461681b3699\\\\scratchpad\\\\decode_tax.ps1\")"
+      "PowerShell(& \"C:\\\\Users\\\\ToddT\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\D--Repos-Mila\\\\d0d49f1a-20b3-42c2-97be-4461681b3699\\\\scratchpad\\\\decode_tax.ps1\")",
+      "Bash(nsys --version)",
+      "Read(//c/Program Files/NVIDIA Corporation/**)",
+      "Bash(nsys stats *)"
     ]
   }
 }
