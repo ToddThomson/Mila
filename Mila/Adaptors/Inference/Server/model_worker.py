@@ -13,6 +13,7 @@ from config import settings, ModelFamily
 from gemma_protocol import (
     strip_control_tokens as _strip_gemma_control_tokens,
     TOOL_CALL_CLOSE,
+    TOOL_RESPONSE_OPEN,
     CHANNEL_OPEN,
 )
 
@@ -106,7 +107,7 @@ class ModelWorker:
         loop = asyncio.get_running_loop()
 
         def _run() -> list[int]:
-            return self._model.generate(prompt_tokens, max_new_tokens, temperature, top_k)
+            return self._model.generate(prompt_tokens, max_new_tokens, temperature, top_k, top_p)
 
         return await loop.run_in_executor(self._executor, _run)
 
@@ -173,11 +174,14 @@ class ModelWorker:
         Gemma native tool calls: <|tool_call> ... <tool_call|> is a registered
         protocol boundary. Left running, the model fabricates the tool result
         itself, so generation is stopped the moment <tool_call|> is decoded --
-        exactly mirroring the chat harness (Chat.ixx generateResponse). When
-        strip_control_tokens is False the raw decoded text (channel + tool-call
-        markers intact) is delivered so the caller can parse the native grammar;
-        the responses/tool path needs this, the plain-chat streaming path does
-        not.
+        exactly mirroring the chat harness (Chat.ixx generateResponse). Per the
+        Gemma 4 spec, <|tool_response> is ALSO a stop sequence: it is the engine's
+        turn to supply the result, never the model's, so if the model runs past a
+        malformed/unclosed call and starts emitting <|tool_response> we cut it off
+        before it can hallucinate an execution result. When strip_control_tokens is
+        False the raw decoded text (channel + tool-call markers intact) is delivered
+        so the caller can parse the native grammar; the responses/tool path needs
+        this, the plain-chat streaming path does not.
         """
         loop = asyncio.get_running_loop()
         token_buffer: list[int] = []
@@ -212,7 +216,10 @@ class ModelWorker:
 
             token_buffer.clear()
 
-            stop_now = self._is_gemma and TOOL_CALL_CLOSE in text
+            # <tool_call|> closes a well-formed call; <|tool_response> is the spec's
+            # additional stop (the model must never generate the result -- the engine
+            # supplies it), which also backstops a call the model failed to close.
+            stop_now = self._is_gemma and (TOOL_CALL_CLOSE in text or TOOL_RESPONSE_OPEN in text)
             if self._is_gemma and stop_ctrl is not None and _degenerating(text):
                 stop_now = True
 
@@ -226,7 +233,7 @@ class ModelWorker:
 
         def _run() -> None:
             self._model.generate_streaming(
-                prompt_tokens, _on_token, max_new_tokens, temperature, top_k, stop_ctrl
+                prompt_tokens, _on_token, max_new_tokens, temperature, top_k, top_p, stop_ctrl
             )
 
         await loop.run_in_executor(self._executor, _run)

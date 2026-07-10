@@ -150,12 +150,13 @@ namespace Mila::Bindings
 
     std::vector<int32_t> LlamaSession::generate(
         const std::vector<int32_t>& prompt_tokens,
-        std::size_t max_new_tokens, float temperature, int top_k )
+        std::size_t max_new_tokens, float temperature, int top_k, float top_p )
     {
         GenerateParams params;
         params.max_new_tokens = static_cast<int>( max_new_tokens );
         params.sampling.temperature = temperature;
         params.sampling.top_k = top_k;
+        params.sampling.top_p = top_p;
 
         // Blocking convenience over the streaming-only core primitive: collect the
         // generated tokens onto the prompt so the caller receives prompt + completion.
@@ -173,13 +174,14 @@ namespace Mila::Bindings
     void LlamaSession::generateStreaming(
         const std::vector<int32_t>& prompt_tokens,
         const std::function<void( int32_t )>& on_token,
-        std::size_t max_new_tokens, float temperature, int top_k,
+        std::size_t max_new_tokens, float temperature, int top_k, float top_p,
         std::stop_token stop )
     {
         GenerateParams params;
         params.max_new_tokens = static_cast<int>( max_new_tokens );
         params.sampling.temperature = temperature;
         params.sampling.top_k = top_k;
+        params.sampling.top_p = top_p;
         (void)impl_->model->generate(
             prompt_tokens, on_token, params, std::move( stop ) );
     }
@@ -235,12 +237,13 @@ namespace Mila::Bindings
 
     std::vector<int32_t> GemmaSession::generate(
         const std::vector<int32_t>& prompt_tokens,
-        std::size_t max_new_tokens, float temperature, int top_k )
+        std::size_t max_new_tokens, float temperature, int top_k, float top_p )
     {
         GenerateParams params;
         params.max_new_tokens = static_cast<int>( max_new_tokens );
         params.sampling.temperature = temperature;
         params.sampling.top_k = top_k;
+        params.sampling.top_p = top_p;
 
         // Blocking convenience over the streaming-only core primitive: collect the
         // generated tokens onto the prompt so the caller receives prompt + completion.
@@ -258,13 +261,14 @@ namespace Mila::Bindings
     void GemmaSession::generateStreaming(
         const std::vector<int32_t>& prompt_tokens,
         const std::function<void( int32_t )>& on_token,
-        std::size_t max_new_tokens, float temperature, int top_k,
+        std::size_t max_new_tokens, float temperature, int top_k, float top_p,
         std::stop_token stop )
     {
         GenerateParams params;
         params.max_new_tokens = static_cast<int>( max_new_tokens );
         params.sampling.temperature = temperature;
         params.sampling.top_k = top_k;
+        params.sampling.top_p = top_p;
         (void)impl_->model->generate(
             prompt_tokens, on_token, params, std::move( stop ) );
     }

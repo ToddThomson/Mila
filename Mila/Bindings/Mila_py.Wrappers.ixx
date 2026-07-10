@@ -94,12 +94,12 @@ namespace Mila::Bindings
 
         std::vector<int32_t> generate(
             const std::vector<int32_t>& prompt_tokens,
-            std::size_t max_new_tokens, float temperature, int top_k );
+            std::size_t max_new_tokens, float temperature, int top_k, float top_p );
 
         void generateStreaming(
             const std::vector<int32_t>& prompt_tokens,
             const std::function<void( int32_t )>& on_token,
-            std::size_t max_new_tokens, float temperature, int top_k,
+            std::size_t max_new_tokens, float temperature, int top_k, float top_p,
             std::stop_token stop );
 
         LlamaConfigInfo getConfig() const;
@@ -130,12 +130,12 @@ namespace Mila::Bindings
 
         std::vector<int32_t> generate(
             const std::vector<int32_t>& prompt_tokens,
-            std::size_t max_new_tokens, float temperature, int top_k );
+            std::size_t max_new_tokens, float temperature, int top_k, float top_p );
 
         void generateStreaming(
             const std::vector<int32_t>& prompt_tokens,
             const std::function<void( int32_t )>& on_token,
-            std::size_t max_new_tokens, float temperature, int top_k,
+            std::size_t max_new_tokens, float temperature, int top_k, float top_p,
             std::stop_token stop );
 
         GemmaConfigInfo getConfig() const;

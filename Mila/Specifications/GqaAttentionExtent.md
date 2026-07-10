@@ -135,9 +135,20 @@ Decode reads `cache_capacity_ == T_` columns per token
 ([CudaGqaOp.ixx:710-712](../Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOp.ixx),
 comment "Both read exactly cache_capacity_ columns"), so it has the same structural tax.
 But measured impact is only ~8% (weight-bandwidth-bound), not worth the plan surgery
-(`actual_len = position + 1` grows every token, so per-length plans explode). Optional
-low-risk freebie: tighten the decode softmax loop bound to the already-passed `actual_len`
--- recovers most of the 8% without touching the decode QK/AV plans. Leave the plans alone.
+(`actual_len = position + 1` grows every token, so per-length plans explode). Leave the plans alone.
+
+The "softmax freebie" this section originally proposed was investigated and **rejected**
+(decode profile, Gemma 12B FP4, 4070, 64-token decode, 2026-07-07). The decode softmax passes
+already loop to `actual_len`; the only `O(T_)` work is the tail-zeroing of `att[actual_len, T_)`
+in `softmax_decode_forward_bf16_kernel`, needed because the AV decode plan still reads `T_`
+columns. Measured cost: global decode softmax 0.89 ms (ctx 512) -> 7.68 ms (ctx 40960), i.e. the
+tail-zero is ~0.44% of decode GPU time at 40960 and ~0% at typical context -- not "most of the 8%".
+Removing it is not actually free: it requires an "att_decode tail stays zero" invariant across
+tokens that `rewindKvCache` violates (stale non-zero tail from before the rewind), so it needs
+re-zeroing on reset and rewind -- the garbage-output-class coupling section 5 warns about, for
+0.44%. The real decode context-tax is the QK/AV KV-cache reads; the right lever is bucketed decode
+plans (round `actual_len` up to the next chunk, ~80 plans capped) or flash/paged attention -- both
+post-0.20, both larger than a freebie.
 
 ## 7. Relationship to flash-attention
 

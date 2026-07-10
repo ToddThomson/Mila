@@ -65,6 +65,30 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int NQH, int HS,
         cudaStream_t stream );
 
+    /**
+     * @brief Fused FlashAttention prefill over the compact BF16 KV cache (Iteration 1).
+     *
+     * Streaming, causal, online-softmax attention that replaces the cuBLASLt
+     * QK -> prefill_softmax -> AV pipeline with a single kernel and zero transient
+     * attention workspace. Reads Q from the projection output [B, chunk_len, NH*HS]
+     * and K/V from the compact cache [B, NKV, cache_capacity, HS], writing the
+     * attention output directly to Y [B, chunk_len, NH*HS] -- no Q permute, no
+     * unpermute, no preatt/att/v_out materialization.
+     *
+     * Unbounded / global causal path only (the caller routes kBounded == false here);
+     * the bounded sliding-window ring is a later iteration. HS must be a multiple of
+     * 32 and <= 512 (Gemma 4 global_head_dim is 512, the head dim this path actually
+     * runs on; Llama 128 also qualifies). `scale` is the config-derived attention scale
+     * (1/sqrt(HS) for Llama, 1.0 for Gemma) -- never recomputed here. See
+     * GqaFlashAttention.md.
+     */
+    void cuda_gqa_flash_prefill_bf16(
+        const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
+        __nv_bfloat16* Y,
+        int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+        int position_offset, int window, float scale,
+        cudaStream_t stream );
+
     // ========================================================================
     // GQA KV Cache FP32
     // ========================================================================

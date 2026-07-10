@@ -11,6 +11,7 @@ stays tool-blind plain text. Non-streaming tool_use is wired here; streaming
 tool_use (content_block_start{type:tool_use} + input_json_delta) is deferred.
 """
 import json
+import logging
 import uuid
 
 from schemas.internal import InferenceRequest, InferenceResponse
@@ -19,6 +20,41 @@ from protocols.utils import DEFAULT_SYSTEM_PROMPT, MODEL_NAME, extract_content
 from prompt import build_instruct_prompt
 from config import settings, ModelFamily
 import gemma_protocol
+
+logger = logging.getLogger(__name__)
+
+
+def _summarize_messages(messages: list) -> list:
+    """Compact role/block-type/preview view of an inbound messages array for logging."""
+    summary = []
+
+    for msg in messages:
+        role = msg.get("role", "?")
+        content = msg.get("content", "")
+        blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
+        parts = []
+
+        for block in blocks:
+            if not isinstance(block, dict):
+                parts.append("?")
+                continue
+
+            btype = block.get("type", "text")
+
+            if btype == "text":
+                parts.append(f"text:{block.get('text', '')[:60]!r}")
+            elif btype == "tool_use":
+                parts.append(f"tool_use:{block.get('name')}({json.dumps(block.get('input', {}))[:80]})")
+            elif btype == "tool_result":
+                body = block.get("content", "")
+                body = body if isinstance(body, str) else json.dumps(body)
+                parts.append(f"tool_result[{block.get('tool_use_id', '')[:12]}]:{body[:80]!r}")
+            else:
+                parts.append(btype)
+
+        summary.append({role: parts})
+
+    return summary
 
 
 class AnthropicMessagesAdapter(ProtocolAdapter):
@@ -62,6 +98,14 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
         system_prompt = self._extract_system(body.get("system", DEFAULT_SYSTEM_PROMPT))
         messages = body.get("messages", [])
         tools = body.get("tools") or []
+
+        # Bring-up: log what Claude Code POSTED back -- the inbound message shape
+        # (roles + content-block types + previews). Reveals whether the prior
+        # assistant tool_use and the user's tool_result arrived well-formed before
+        # MIS reassembles them into the Gemma prompt.
+        logger.info(
+            "anthropic /v1/messages: %d msgs, %d tools; %s",
+            len(messages), len(tools), _summarize_messages(messages))
 
         if settings.model_family == ModelFamily.gemma:
             prompt_str = self._build_gemma_prompt(messages, system_prompt, tools)
@@ -133,8 +177,15 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
         ends on a tool result leaves that model turn open so the model continues it
         (mirrors responses.py / the chat harness splice-and-resume).
         """
-        system_block = system_prompt
-        system_block += gemma_protocol.build_tool_injection(self._normalize_tools(tools))
+        tool_injection = gemma_protocol.build_tool_injection(
+            self._normalize_tools(tools), settings.use_trained_tool_declarations)
+        # Bring-up: the tool declarations land in the SYSTEM turn (front of the
+        # prompt), so they never appear in the _dispatch tail log -- log length +
+        # head here to confirm they are actually injected, not filtered.
+        logger.info(
+            "gemma tool injection: %d tools in, %d chars out; head: %s",
+            len(tools), len(tool_injection), tool_injection[:400].replace("\n", " "))
+        system_block = system_prompt + tool_injection
 
         turns: list[dict] = []
         pending_names: dict[str, str] = {}  # tool_use.id -> tool name

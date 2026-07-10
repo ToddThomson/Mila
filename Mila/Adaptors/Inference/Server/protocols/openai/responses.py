@@ -75,13 +75,15 @@ class OpenAIResponsesAdapter(ResponsesCapable):
         """
         if isinstance(raw_input, str):
             system_block = instructions
-            system_block += gemma_protocol.build_tool_injection(tools)
+            system_block += gemma_protocol.build_tool_injection(
+                tools, settings.use_trained_tool_declarations)
             turns = [{"role": "user", "content": raw_input}]
             return gemma_protocol.assemble_prompt(system_block, turns, continue_open=False)
 
         messages = list(raw_input)
         system_block, messages = self._collect_system_block(messages, instructions)
-        system_block += gemma_protocol.build_tool_injection(tools)
+        system_block += gemma_protocol.build_tool_injection(
+            tools, settings.use_trained_tool_declarations)
 
         turns: list[dict] = []
         pending_names: dict[str, str] = {}  # call_id -> tool name

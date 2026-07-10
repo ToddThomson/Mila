@@ -465,7 +465,16 @@ a 12 GB card.
   prologue/tile load) deletes the separate pass. Pairs with the "Native Blackwell FP4 matmul" item above
   (line ~306). Biggest easy prefill win; directly cuts Claude Code first-token latency. See [[project_prefill_perf_beta]].
 - [ ] **[perf, prefill] Flash-attention-style global prefill kernel -- 36% of prefill (the single largest
-  cost).** Same capture: **`prefill_softmax_bf16_kernel` = 20.4 s / 56.9 s (36.1%)**, 1120 instances, 18.2 ms
+  cost).** STATUS 2026-07-10: Iteration 1 (naive scalar, no shared-memory K/V tiling) landed behind the
+  runtime `use_flash_prefill_` toggle (default OFF). It is CORRECT -- token-for-token model parity green,
+  op-level oracle `CudaGqaFlashPrefillParity.FlashMatchesCublasLt_GemmaGlobalConfig` green at the Gemma
+  global config (HS=512, NKV=1, window=0) -- but profiled a REGRESSION: `gqa_flash_prefill_bf16_kernel` =
+  74% of prefill GPU time, ~100x memory-bound (every query-row warp re-streams all of K/V from global).
+  So Iteration 1 is the correctness foundation only; the actual win is the TILED kernel
+  (`GqaFlashAttention.md` 5.2: block owns Br query rows, streams Bc key tiles into shared memory, K/V read
+  once per tile not per row), then WMMA (5.3) and scratch reclaim (5.6). THAT tiled kernel is this item.
+  See [[project_gqa_flash_attention]]. Original analysis below still holds:
+  Same capture: **`prefill_softmax_bf16_kernel` = 20.4 s / 56.9 s (36.1%)**, 1120 instances, 18.2 ms
   avg (max 27.8 ms). This is the 8 global layers' O(n^2) full-context attention at 35K tokens; the kernel
   materializes the full ~35K-wide score rows (memory-bound). The local bounded layers' `prefill_softmax_ring`
   add another 3.65 s (6.4%), so attention is ~42% of prefill total. A flash-attention formulation (tiled,
@@ -486,7 +495,11 @@ a 12 GB card.
   pp35719 = 628 tok/s. Goal: quantify the gap at short context (dequant tax) and long context (no flash
   attention) with hard data, and re-measure after the two prefill items above land. Needs a comparable GGUF
   build + a fair context-matched harness (same seq lens, warmup handling). See [[project_prefill_perf_beta]].
-- [ ] **[tooling] ProfileModel prefill sweep mode (load-once, self-timed).** Current `ProfileModel` does ONE
+- [ ] **[tooling] ProfileModel prefill sweep mode (load-once, self-timed).** PARTIAL 2026-07-10: part (b) done
+  -- the prefill phase now runs a few measured iterations under a `std::chrono` bracket and prints
+  `seq_len, context_length, min_ms, mean_ms` directly (no nsys needed for the throughput curve). Still open:
+  (a) load-once multi-seq-len sweep (each point still reloads the model ~30 s) and (c) per-point try/catch for
+  OOM ceilings. Current `ProfileModel` does ONE
   seq-len per process and the prefill phase prints no timing (throughput must be read from an nsys NVTX range),
   so a multi-point context sweep (e.g. 512 -> 64K) means N model reloads (~30 s each) + N nsys captures --
   hours, most of it wasted reload + warmup double-counting. Add: (a) a sweep spec (`--seq-len-start/-end/-step`
@@ -502,6 +515,33 @@ a 12 GB card.
   Mila/model shutdown -- likely a destructor or deferred cleanup calling an unset callback. Chat is green, so
   it is ProfileModel-harness-local, not the runtime hot path. Repro: run `ProfileModel --model gemma --phase
   prefill --seq-len 512 --context-length 2048 --quantization fp4` and watch stderr at exit.
+- [~] **[perf/memory, CONFIRMED] Tied `lm_head` allocates a ~1 GB FP8 weight at graph build that is freed
+  immediately at tie time -- a wasted load-time VRAM transient that lowers the loadable-context ceiling.**
+  FIX IMPLEMENTED 2026-07-07 (pending VS2026 build + on-GPU validation): thread the checkpoint tie flag into
+  the config (`GemmaConfig::withTieWordEmbeddings`, set in `configFromMetadata`) and, in the transformer
+  onBuilding, `installSharedWeight` the embedding table into `lm_head` BEFORE `lm_head->build()` when tied. New
+  `Linear::weight_installed_` flag (mirrors `output_installed_`): `installSharedWeight` now works pre-build
+  (sets the flag, defers operation wiring to onBuilding), and `initializeParameters` early-returns without
+  allocating the weight when installed. Files: Linear.ixx, Gemma.ixx, Gemma.Config.ixx, GemmaModel.ixx.
+  VALIDATION: re-run the ProfileModel sampler -- `largest transient freed` should drop ~1 GB->~0 at ctx 512 and
+  the load peak should no longer hit free=0 at 40960; `after model load` used should be UNCHANGED (settled state
+  identical); chat token-parity green; Linear/TokenEmbedding tying tests green. Original finding below.
+  Measured 2026-07-07 (ProfileModel VramHighWaterSampler, cudaMemGetInfo @3ms; nvidia-smi is blind under WDDM).
+  Gemma 12B FP4, 4070: during load VRAM PEAKS ~1 GB above the settled resident set, then returns -- ctx 512
+  peak used 11275 MiB -> settled 10278 (997 MiB freed); ctx 40960 peak hits 12282 = whole card (free 0) then
+  settles to 11568 (713 free). ROOT CAUSE: `createGraph` builds `lm_head` (Linear<...,PerChannelFp8<>>) with its
+  OWN `[vocab_size, model_dim]` FP8 weight (262144*3840*1B ~= 1 GB) because `tie_word_embeddings_` is not known
+  until `loadParameters` reads checkpoint metadata; tying then calls
+  `lm_head_->installSharedWeight(token_embedding_->getWeightTensorShared(), ...)`
+  ([Gemma.ixx:413-425](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.ixx)) which swaps in the shared embedding
+  table and DROPS the original 1 GB. So the head's own weight is pure waste on every tied load. IMPACT: the load
+  PEAK (not the steady state) is the binding constraint on max loadable context -- at 40960 the load momentarily
+  exhausts the card. FIX: peek `tie_word_embeddings` from the checkpoint header BEFORE building `lm_head`
+  (fromPretrainedImpl already opens the reader before build) and, when tied, build the head WITHOUT its own weight
+  allocation (install the shared table directly). Removes the ~1 GB load high-water -> raises the loadable-context
+  ceiling on the 12 GB 4070. Core change (thread the tie flag into the build path). See [[project_gemma_chat_vram]].
+  Also note nvidia-smi under WDDM cannot see this (reports idle baseline) -- ProfileModel's cudaMemGetInfo
+  sampler is the measurement tool.
 - [x] **[perf, CONFIRMED root cause] Global prefill/decode attention runs at width `context_length`, not used
   KV length -- ~2x tax on short prompts in a large context.** PREFILL FIX IMPLEMENTED + VALIDATED 2026-07-07
   (all three spec gates green: token-for-token parity via chat + 46/46 `CudaGqaOpTests` oracles Fp32/Bf16
@@ -976,10 +1016,40 @@ Claude Code CLI (WSL coding harnesses) + one agentic harness (Hermes provisional
   prime is LOAD-BEARING on the agentic path (removing it degenerates -- do not). REMAINING: N sequential distinct
   tool calls in one turn (lightly tested -- Codex batched); channel-content parser polish; top_p; then Claude
   Code `/v1/messages` (tool-blind today) + Hermes.
-- [ ] **First-pass Gemma limitations to revisit after step 3:** (a) decode strips channel *markers* but not
-  content between thought-channel markers -- fine while thinking is primed off, but a proper channel parser
-  (mirror the chat `ChannelParser`/`StreamingDisplay`) is the real fix; (b) `top_p` still dropped (item below);
+- [ ] **First-pass Gemma limitations to revisit after step 3:** (a) **DONE 2026-07-08 -- see the
+  channel/pipe-token root-cause entry below;** (b) `top_p` still dropped (item below);
   (c) server `README.md` still describes Llama 3.2 3B -- rewrite once the context/VRAM envelope is known.
+
+- [x] **Claude Code `/v1/messages` garbled output root-caused + fixed 2026-07-08 (channel leak + stray
+  pipe-token leak).** A WSL Claude Code HelloWorld session surfaced two leaks, both instances of "the Gemma
+  grammar recognizer is an incomplete allowlist":
+  - **Channel leak (Bug 1, was item (a) above -- worse than assumed).** `extract_answer`
+    ([gemma_protocol.py](Mila/Adaptors/Inference/Server/gemma_protocol.py)) unwrapped only the FIRST
+    `<|channel>...<channel|>` run; interior/trailing channels survived, and `strip_control_tokens` erased only
+    the `<|channel>` markers, leaving the label + reasoning body as literal text (a `thought\n<code>` block in the
+    answer). The transcript proved the "fine while thinking is primed off" caveat FALSE on the agentic path: the
+    12B emits mid-answer thought channels DESPITE the empty-thought prime, and the leaked content was the file
+    body the model meant to Write -- so it never became a tool call and nothing was created. **Fix:** `extract_answer`
+    now removes ALL channel spans via `_remove_spans(text, CHANNEL_OPEN, CHANNEL_CLOSE)` (drops an unclosed
+    trailing reasoning channel too), matching the tool-span handling.
+  - **Stray pipe-token leak (Bug 2).** A bare `<|>` (single-pipe registered token, NOT the enumerated `<|"|>`
+    STRING_DELIM) is in neither `CONTROL_TOKENS` nor the string-delimiter check, so it rode verbatim into both the
+    text answer and parsed tool arguments (`file_path: "../HelloWorld.cpp<|>"`, stray leading `,` on content).
+    **Fix:** new `strip_pipe_tokens` catch-all regex `<\|[^|>]*\|>|<\|>` (two-pipe delimiter family + bare `<|>`;
+    deliberately does NOT match the angle-form `<|channel>`/`<|tool_call>` markers). Wired into `strip_control_tokens`
+    (after the enumerated pass) and applied to the tool name + string arg values in `parse_tool_call`.
+  - **Diagnostic gap closed.** `_stream_buffered_tool` (the Anthropic/Claude Code path) had NO raw-output logging,
+    unlike `_stream_responses` (the Codex path). Added a `logger.info(... %r, full_text)` so the exact channel
+    structure + any un-enumerated tokens are visible ([factory.py](Mila/Adaptors/Inference/Server/routes/factory.py)).
+    **NEXT (needs the raw log from a live re-run):** confirm the exact byte form of `<|>` and whether the leading-comma
+    artifact has a residual cause in `_parse_arguments`' bare-literal fallback beyond the pipe-token (the catch-all
+    handles the observed case; the log will confirm there is nothing else). Verified via standalone tests:
+    multi-channel strip, unclosed channel, angle-marker safety, `<|>`/`<|"|>` scrub in text + args, and happy-path
+    round-trips (plain answer, single leading channel, normal + rendered tool calls) all pass.
+  - **Orthogonal (still open):** the 12B narrating file bodies as prose instead of emitting `<|tool_call>` at all on
+    some turns is a tool-reliability/prompting concern (pairs with the `<|tool>` declaration A/B item below), not a
+    parsing bug -- the fixes above ensure that WHEN it does call, the args are clean, and when it reasons, the
+    reasoning does not leak as the answer.
 
 Still open to close the milestone:
 
@@ -990,14 +1060,68 @@ reverse-engineered token grammar is CONFIRMED correct (`<|turn>`, `<|tool_call>c
 `<|tool_response>`, `<|"|>`, `<|channel>thought`) -- these four are the remaining divergences from the trained
 format, surfaced while bringing up Hermes (which round-tripped tool calls fine; its own read-loop was a
 client-side `verify_on_stop`/`file_mutation_verifier` nag, NOT a wire bug -- see [[project_mis_test_environment]]).
-- [ ] **Tool DECLARATIONS use plain text, not the trained `<|tool>...<tool|>` tokens.**
-  `build_tool_injection` ([gemma_protocol.py:118](Mila/Adaptors/Inference/Server/gemma_protocol.py)) returns
-  `"You have access to the following tools:\n" + json.dumps(...)`. Google's spec places tool schemas in the
-  system turn wrapped in the trained token pair, `<|tool>declaration:name{description:...,parameters:...}<tool|>`.
-  The current plain-text form is off the training distribution. The docstring's "deliberately NO call-syntax
-  instructions" is correct and should stay (teaching a foreign *call* format confused Gemma), but that is
-  orthogonal to using the native *declaration* token wrapper. Needs an A/B (plain-text vs `<|tool>` declarations)
-  before committing -- measure tool-selection reliability, do not assume.
+- [~] **Tool DECLARATIONS use plain text, not the trained `<|tool>...<tool|>` tokens -- A/B WIRED 2026-07-08,
+  awaiting measurement.** `build_tool_injection`
+  ([gemma_protocol.py](Mila/Adaptors/Inference/Server/gemma_protocol.py)) now takes `use_trained_declarations`
+  and renders `<|tool>declaration:name{description: <|"|>...<|"|>, parameters: {...json...}}<tool|>` via the new
+  `_build_trained_tool_declarations` when set; the plain-text JSON list stays the default. Gated by
+  `MILA_USE_TRAINED_TOOL_DECLARATIONS` ([config.py](Mila/Adaptors/Inference/Server/config.py)), threaded through
+  both Gemma call sites (Anthropic `messages.py`, OpenAI `responses.py`). **Motivating evidence (Claude Code
+  HelloWorld, raw log 2026-07-08):** with plain-text declarations the 12B DOES reach for `<|tool_call>` but
+  improvises an off-spec grammar -- `call:bash:command=<raw value>` (no `{...}` brace args), NO `<tool_call|>`
+  close (empty `<|channel>thought\n<channel|>` used as a separator between calls), and lowercased name `bash` vs
+  the offered `Bash`. `parse_tool_call` (needs `call:name{`) returns None on all of it. So the hypothesis is
+  concrete: the trained declaration frame should prime the trained call frame. **NEXT: set the env true, re-run the
+  exact "build the cmake project" turn, read the `buffered_tool full_text` log -- does the model flip to
+  `call:name{command: "..."}<tool_call|>`?** If it still improvises, only THEN consider tolerant parsing (the
+  `bash`/`Bash` case mismatch would still need handling) or a minimal trained call-syntax hint. Docstring's
+  "deliberately NO call-syntax instructions" stays -- declaration wrapper is orthogonal to call-format teaching.
+- [x] **Malformed/unclosed `<|tool_call>` no longer blanks the answer -- safety net DONE 2026-07-08.** When
+  `parse_tool_call` cannot classify a turn (e.g. the improvised `call:bash:command=` form above), the text path
+  ran `extract_answer` -> `_remove_spans(TOOL_CALL_OPEN, TOOL_CALL_CLOSE)`, which on a dangling open returns
+  `text[:start]`; a response STARTING with an unclosed `<|tool_call>` collapsed to an empty string (the client saw
+  a blank message -- worse than garbage). New `_strip_tool_spans` drops complete spans whole but removes only the
+  MARKER of a dangling open, keeping the body, so a malformed turn degrades to readable text (the trailing human
+  summary survives). Channels keep the truncating `_remove_spans` (a dangling reasoning channel SHOULD drop its
+  tail). Also note: because the model omits `<tool_call|>`, the worker's stop-at-`<tool_call|>` never fires (long
+  generations) and `parse_tool_call`'s `rfind` would only ever see the LAST of several calls -- both are subsumed
+  by the trained-declaration fix landing the proper close token.
+- [x] **`<|tool_response>` added as a stop sequence -- DONE 2026-07-08 (Gemma 4 spec compliance).** The Gemma 4
+  docs state `<|tool_response>` "acts as an additional stop sequence for the inference engine" -- it is the
+  ENGINE's turn to supply the result, never the model's. `_on_token`
+  ([model_worker.py](Mila/Adaptors/Inference/Server/model_worker.py)) stopped only at `TOOL_CALL_CLOSE`; now stops
+  at `TOOL_CALL_CLOSE OR TOOL_RESPONSE_OPEN`. Backstops a call the model fails to close (`<tool_call|>` stop never
+  fires): the moment it starts fabricating a `<|tool_response>` result we cut it off. Pure Python (the stop is
+  enforced in this decode callback, not C++). No risk to the good path -- a well-formed turn stops at `<tool_call|>`
+  before any `<|tool_response>` could be generated. NOTE: does not catch results fabricated as PLAIN PROSE (the
+  observed `</div>` + "build succeeded" case emitted no `<|tool_response>` token) -- that is the model-reliability
+  problem below, not a stop-sequence gap.
+- **DELIMITER DECISION SETTLED 2026-07-08 (Gemma 4 spec) -- keep `<|"|>`, do NOT flip replay to plain quotes.** The
+  spec is explicit: `<|"|>` is THE trained delimiter and "all string literals in declarations, calls, and responses
+  MUST be enclosed" in it, precisely so embedded `{ } , "` are literal. So MIS re-rendering replayed calls as
+  `command: <|"|>...<|"|>` (the 2026-07-06 item below) is CORRECT and REQUIRED; the model's fresh plain-`"` output
+  is the off-spec side. A mid-investigation hypothesis to replay in plain quotes is therefore REJECTED (it would
+  reintroduce the embedded-quote parse break `<|"|>` was added to fix). Ground truth from the instrumented run
+  (Claude Code HelloWorld, 2026-07-08): the pipeline is CORRECT end-to-end -- inbound `messages` clean, the
+  assembled prompt tail well-formed (`<|tool_call>call:Bash{command: <|"|>ls -F<|"|>}<tool_call|>` +
+  `<|tool_response>...<tool_response|>` + open turn), and the model mirrors the replayed `<|"|>` (cleanly one run,
+  as the malformed near-miss `<|>` -- middle quote dropped -- another). REMAINING = model RELIABILITY reproducing
+  `<|"|>` under sampling, NOT a format choice. **Sampling is NOT the lever (corrected 2026-07-08 vs the Gemma 4
+  model card):** the card standardizes temp=1.0 / top_p=0.95 / top_k=64 for ALL use cases, and `.env` ALREADY sets
+  exactly those (they override the stale config.py Field defaults 0.6/40/0.9). So the fumbling happens AT the
+  recommended config -- lowering temperature would be wrong (Gemma is calibrated for 1.0; low temp feeds the
+  degeneration backstop). Real remaining levers: (1) **wire top_p -- DONE 2026-07-08 (pending VS2026 mila.pyd
+  rebuild).** Root cause was NOT just the worker: the binding `generate`/`generate_streaming`
+  ([Mila_py.cpp](Mila/Bindings/Mila_py.cpp), [Mila_py.Wrappers.cpp](Mila/Bindings/Mila_py.Wrappers.cpp)) had no
+  top_p parameter at all, so `params.sampling.top_p` stayed at its struct default 1.0 (nucleus OFF) no matter what
+  `.env`/the client sent -- the Gemma sampler was running with top-p disabled the whole time. The kernel/op already
+  implement top_p ([CudaSamplingOp.ixx:224](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/CudaSamplingOp.ixx),
+  [SamplingParams.ixx:26](Mila/Src/Dnn/Components/Transformers/SamplingParams.ixx)), so this was pure plumbing:
+  added a `top_p` arg (default 1.0f -- backward-compatible) to both sessions' `generate`/`generate_streaming` across
+  the `.ixx` decls, `.cpp` defs (set `params.sampling.top_p`), and pybind `.def` args, and forwarded it from
+  `model_worker.py`. Requires a mila.pyd rebuild to take effect. (2) if still flaky after top_p lands, bounded
+  parser tolerance treating `<|>` as a degraded `<|"|>` (targets the one recurring malformation, not arbitrary junk
+  like `</div>`). Effective per-request sampling is logged in `_dispatch` to reveal any client override of `.env`.
 - [x] **Replay spans now emit the `<|"|>` string delimiter -- DONE 2026-07-06.** New `_render_string_value` wraps
   string values as `key:<|"|>value<|"|>` (trained form); `_render_gemma_args` (tool-call args) and
   `format_tool_response` both use it. Numbers/bools stay bare. No backslash escaping (the trained format has none,

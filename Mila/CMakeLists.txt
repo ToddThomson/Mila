@@ -518,6 +518,7 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Decode.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Flash.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Fp8Prefill/CudaFp8Prefill.cu"

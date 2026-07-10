@@ -570,4 +570,172 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
         // over the same shared ring buffer.
         this->expectSessionMatchesOracle( 2 * kPrefillChunk, kPrefillChunk );
     }
+
+    // ====================================================================
+    // FlashAttention prefill parity (GqaFlashAttention.md 10.1)
+    //
+    // Diffs the fused flash prefill against the cuBLASLt QK->softmax->AV path on
+    // the SAME unbounded BF16 op, toggled per-run via setUseFlashPrefill(). This
+    // is the direct oracle the bounded-vs-unbounded tests above cannot provide:
+    // they use the unbounded op AS their reference, and only at window 8, so
+    // flash's actual production config (the Gemma global layer) had no op-level
+    // check -- an HS-cap bug in the kernel therefore surfaced only 48 layers deep
+    // in the model parity test. The geometry here is that config exactly:
+    // head_dim 512 (the global_head_dim, NOT the sliding 256), single MQA KV head,
+    // window 0 (full causal), multi-chunk so later chunks attend historical cache
+    // (position_offset > 0) plus a partial final chunk. head_dim 512 is the value
+    // that overflowed the kernel's per-lane register arrays in Iteration 1 -- this
+    // test is the standing regression guard for that class of bug.
+    // ====================================================================
+
+    namespace
+    {
+        constexpr int kGBatch = 1;
+        constexpr int kGNumHeads = 16;     // Gemma 4 12B query heads
+        constexpr int kGNumKvHeads = 1;    // global layers are MQA (single shared KV head)
+        constexpr int kGHeadDim = 512;     // global_head_dim (NOT the sliding head_dim 256)
+        constexpr int kGModelDim = kGNumHeads * kGHeadDim;                         // 8192
+        constexpr int kGPackedQkv = ( kGNumHeads + 2 * kGNumKvHeads ) * kGHeadDim; // 9216
+        constexpr int kGContext = 80;      // T_
+        constexpr int kGPrefillChunk = 32; // 80 tokens -> chunks 32 + 32 + 16 (partial tail)
+        constexpr int kGWindow = 0;        // global / full causal
+
+        // Flash keeps QK scores in FP32; the cuBLASLt reference rounds preatt to BF16
+        // before softmax, so the two differ by that rounding, not by algorithm. A gross
+        // kernel bug (the HS=512 register overflow this guards) diverges by O(1), an
+        // order of magnitude above this bound.
+        constexpr float kGFlashAtol = 3e-2f;
+    }
+
+    class CudaGqaFlashPrefillParity : public ::testing::Test
+    {
+    protected:
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+        using DeviceBf16 = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+        using UnboundedBf16Op = Compute::Cuda::Gqa::CudaGqaOp<TensorDataType::BF16, false>;
+
+        void SetUp() override
+        {
+            try
+            {
+                cuda_context_ = createExecutionContext( Device::Cuda( 0 ) );
+            }
+            catch ( const std::exception& )
+            {
+                cuda_context_ = nullptr;
+            }
+
+            if ( !cuda_context_ )
+                GTEST_SKIP() << "CUDA device not available";
+        }
+
+        HostFp32 randomHost( const shape_t& shape, std::mt19937& rng )
+        {
+            std::uniform_real_distribution<float> dist( -1.0f, 1.0f );
+            HostFp32 host( Device::Cpu(), shape );
+
+            for ( size_t i = 0; i < host.size(); ++i )
+                host.data()[ i ] = dist( rng );
+
+            return host;
+        }
+
+        DeviceBf16 toDevice( const HostFp32& host )
+        {
+            DeviceBf16 device( Device::Cuda( 0 ), host.shape() );
+            copy( host, device, cuda_context_.get() );
+            cuda_context_->synchronize();
+
+            return device;
+        }
+
+        HostFp32 toFloat( const DeviceBf16& device )
+        {
+            auto host = toHost<TensorDataType::FP32>( device, cuda_context_.get() );
+            cuda_context_->synchronize();
+
+            return host;
+        }
+
+        // Chunked prefill of kGContext tokens through a fresh unbounded BF16 op with the
+        // flash path toggled on/off. The random q/k/v schedule is fixed by seed so both
+        // runs see identical input; returns per-position output rows [kGModelDim].
+        std::vector<std::vector<float>> runPrefill( bool useFlash )
+        {
+            std::mt19937 rng( 7u );
+
+            std::vector<HostFp32> qC, kC, vC;
+            std::vector<int> offs;
+            for ( int off = 0; off < kGContext; off += kGPrefillChunk )
+            {
+                const int clen = std::min( kGPrefillChunk, kGContext - off );
+                qC.push_back( randomHost( shape_t{ kGBatch, clen, kGNumHeads * kGHeadDim }, rng ) );
+                kC.push_back( randomHost( shape_t{ kGBatch, clen, kGNumKvHeads * kGHeadDim }, rng ) );
+                vC.push_back( randomHost( shape_t{ kGBatch, clen, kGNumKvHeads * kGHeadDim }, rng ) );
+                offs.push_back( off );
+            }
+
+            UnboundedBf16Op op( cuda_context_.get(),
+                GqaConfig( kGModelDim, kGNumHeads, kGNumKvHeads ).withWindow( kGWindow ) );
+            op.build( BuildContext( shape_t{ kGBatch, kGContext, kGPackedQkv },
+                RuntimeMode::Inference, false ).withPrefillSize( kGPrefillChunk ) );
+            op.initializeKvCache( kGBatch, kGContext );
+            op.setUseFlashPrefill( useFlash );
+
+            // Prefill scratch: consumed by the cuBLASLt path, ignored by flash.
+            DeviceBf16 q_permute( Device::Cuda( 0 ), shape_t{ kGBatch, kGNumHeads, kGPrefillChunk, kGHeadDim } );
+            DeviceBf16 preatt( Device::Cuda( 0 ), shape_t{ kGBatch, kGNumHeads, kGPrefillChunk, kGContext } );
+            DeviceBf16 att( Device::Cuda( 0 ), shape_t{ kGBatch, kGNumHeads, kGPrefillChunk, kGContext } );
+            DeviceBf16 v_out( Device::Cuda( 0 ), shape_t{ kGBatch, kGNumHeads, kGPrefillChunk, kGHeadDim } );
+
+            GqaState state;
+            state.q_permute = &q_permute;
+            state.preatt = &preatt;
+            state.att = &att;
+            state.v_out = &v_out;
+            op.setState( state );
+
+            std::vector<std::vector<float>> outputs;
+            for ( size_t c = 0; c < qC.size(); ++c )
+            {
+                const int clen = static_cast<int>( qC[ c ].shape()[ 1 ] );
+                DeviceBf16 q = toDevice( qC[ c ] );
+                DeviceBf16 k = toDevice( kC[ c ] );
+                DeviceBf16 v = toDevice( vC[ c ] );
+                DeviceBf16 out( Device::Cuda( 0 ), shape_t{ kGBatch, clen, kGModelDim } );
+
+                op.prefill( q, k, v, out, offs[ c ] );
+
+                HostFp32 host = toFloat( out );
+                for ( int t = 0; t < clen; ++t )
+                    outputs.emplace_back( host.data() + t * kGModelDim, host.data() + ( t + 1 ) * kGModelDim );
+            }
+
+            return outputs;
+        }
+
+        std::unique_ptr<IExecutionContext> cuda_context_;
+    };
+
+    TEST_F( CudaGqaFlashPrefillParity, FlashMatchesCublasLt_GemmaGlobalConfig )
+    {
+        auto flashOut = runPrefill( true );
+        auto cublasOut = runPrefill( false );
+
+        ASSERT_EQ( flashOut.size(), cublasOut.size() );
+        ASSERT_EQ( static_cast<int>( flashOut.size() ), kGContext );
+
+        float max_diff = 0.0f;
+        for ( size_t t = 0; t < flashOut.size(); ++t )
+        {
+            ASSERT_EQ( flashOut[ t ].size(), cublasOut[ t ].size() );
+
+            for ( size_t i = 0; i < flashOut[ t ].size(); ++i )
+                max_diff = std::max( max_diff, std::fabs( flashOut[ t ][ i ] - cublasOut[ t ][ i ] ) );
+        }
+
+        EXPECT_LT( max_diff, kGFlashAtol )
+            << "flash prefill diverged from cuBLASLt at the Gemma global config "
+               "(HS=512, NKV=1, window=0), max_diff=" << max_diff;
+    }
 }

@@ -400,6 +400,20 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 cuda_gqa_prefill_unpermute_output_padded_bf16( vaccum, out, B, chunk_len, T, NH, HS, stream );
             }
 
+            // Fused FlashAttention prefill (Iteration 1). BF16-only; the caller gates on
+            // NativeType == nv_bfloat16 so the FP32 specialization never needs this symbol.
+            static void flash_prefill(
+                const nv_bfloat16* Q, const nv_bfloat16* K, const nv_bfloat16* V,
+                nv_bfloat16* Y,
+                int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+                int position_offset, int window, float scale,
+                cudaStream_t stream )
+            {
+                cuda_gqa_flash_prefill_bf16(
+                    Q, K, V, Y, B, chunk_len, NH, NKV, HS, cache_capacity,
+                    position_offset, window, scale, stream );
+            }
+
             // ----------------------------------------------------------------
             // Common: softmax
             // ----------------------------------------------------------------

@@ -546,7 +546,8 @@ namespace Mila::Dnn
                 .withGlobalRotaryDim( static_cast<dim_t>(metadata.global_rotary_dim) )
                 .withRoPETheta( metadata.rope_theta_local )
                 .withGlobalRoPETheta( metadata.rope_theta_global )
-                .withFinalLogitSoftcapping( metadata.final_logit_softcapping );
+                .withFinalLogitSoftcapping( metadata.final_logit_softcapping )
+                .withTieWordEmbeddings( metadata.tie_word_embeddings );
 
             return config;
         }

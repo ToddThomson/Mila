@@ -75,6 +75,18 @@ async def _dispatch(
     adapter: ProtocolAdapter,
     is_chat: bool,
 ) -> JSONResponse | StreamingResponse:
+    # Bring-up: log the ASSEMBLED prompt MIS sends to the model. The tail is what
+    # matters -- the continuation seam (last user turn, replayed tool spans, the
+    # thought prime, the open model turn) where the model degrades. The static
+    # harness system prompt is the bulk; log the length + tail, not the whole
+    # thing. Pairs with the buffered_tool full_text (model OUTPUT) log.
+    logger.info("dispatch assembled prompt (%d chars); tail:\n%s", len(prompt_str), prompt_str[-3000:])
+    # Effective sampling AFTER request-body-vs-.env resolution -- shows whether the
+    # client overrode the Gemma-recommended defaults (temp 1.0 / top_k 64 / top_p 0.95).
+    logger.info(
+        "dispatch sampling: temperature=%.3f top_k=%d top_p=%.3f max_new_tokens=%d",
+        inf_req.temperature, inf_req.top_k, inf_req.top_p, inf_req.max_new_tokens)
+
     prompt_ids = await worker.encode(prompt_str)
 
     remaining = settings.context_length - len(prompt_ids)
@@ -335,6 +347,12 @@ async def _stream_buffered_tool(
             await generation
 
         full_text = "".join(accumulated)
+        # Bring-up: log the FULL raw model output (untruncated) so the exact
+        # channel structure and any stray registered tokens (e.g. a bare <|>)
+        # are visible on the Anthropic/Claude Code path, which otherwise had no
+        # raw logging (mirrors _stream_responses). Trim to a preview once the
+        # Gemma tool-call grammar is settled on this path.
+        logger.info("buffered_tool full_text (%d chars): %r", len(full_text), full_text)
         tool_call = adapter.parse_tool_call_from_text(full_text)
 
         if tool_call:

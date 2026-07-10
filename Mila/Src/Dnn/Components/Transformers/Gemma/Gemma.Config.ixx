@@ -230,6 +230,18 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Whether lm_head shares the token embedding table (weight tying). Set from
+         * checkpoint metadata; when true the transformer installs the shared table into
+         * lm_head BEFORE build so the head never allocates its own weight (WeightTying.md).
+         */
+        template <typename Self>
+        decltype(auto) withTieWordEmbeddings( this Self&& self, bool tie )
+        {
+            self.tie_word_embeddings_ = tie;
+            return std::forward<Self>( self );
+        }
+
+        /**
          * @brief Sliding/global interleave period. Pattern N means every Nth layer is
          * global (full attention) and the rest are sliding; Gemma 4 uses 6 (5 sliding :
          * 1 global), which also makes the final layer global for layer counts that are
@@ -458,6 +470,7 @@ namespace Mila::Dnn
         // ====================================================================
 
         dim_t getWindow() const noexcept { return window_; }
+        bool getTieWordEmbeddings() const noexcept { return tie_word_embeddings_; }
         dim_t getSlidingWindowPattern() const noexcept { return sliding_window_pattern_; }
         dim_t getGlobalRotaryDim() const noexcept { return global_rotary_dim_; }
         float getRoPEThetaLocal() const noexcept { return rope_theta_local_; }
@@ -796,6 +809,7 @@ namespace Mila::Dnn
         dim_t global_head_dim_ = 512;      // Gemma 4 12B global head_dim; 0 = use head_dim
         dim_t num_global_kv_heads_ = 1;    // Gemma 4 12B global KV heads (MQA); 0 = use num_kv_heads
         bool  key_equals_value_ = true;    // global layers share K=V (no separate v_proj)
+        bool  tie_word_embeddings_ = false; // lm_head shares the embedding table; set from checkpoint metadata
 
         // Chassis: sliding/global interleave, dual RoPE, logit softcap.
         dim_t window_ = 1024;                       // Gemma 4 12B sliding window

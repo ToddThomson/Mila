@@ -380,7 +380,32 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             return kBounded;
         }
 
+        /**
+         * @brief Runtime A/B toggle for the FlashAttention prefill path (test hook).
+         *
+         * Affects only the unbounded (kBounded == false) BF16 instantiation -- the
+         * bounded ring and FP32 always run the cuBLASLt pipeline regardless. Lets a
+         * single test process run the flash and cuBLASLt paths back-to-back and diff
+         * their outputs (GqaFlashAttention.md section 10). Defaults to true (flash on).
+         */
+        void setUseFlashPrefill( bool enabled ) noexcept
+        {
+            use_flash_prefill_ = enabled;
+        }
+
     private:
+
+        // A/B selector for the FlashAttention prefill path. When true, the unbounded/
+        // global BF16 prefill routes through the fused flash kernel
+        // (cuda_gqa_flash_prefill_bf16) instead of the cuBLASLt QK->softmax->AV pipeline.
+        // A runtime member (not compile-time) so a single test process can diff the two
+        // paths back-to-back via setUseFlashPrefill(). DEFAULTS TO FALSE: the Iteration 1
+        // kernel is correct but ~100x memory-bound (no shared-memory K/V tiling -- it
+        // re-reads all of K/V per query row), measured at 74% of prefill GPU time, so it
+        // is a regression versus cuBLASLt. It stays behind this toggle for development
+        // until the tiled kernel (GqaFlashAttention.md 5.2) lands. Only the unbounded
+        // (kBounded == false) BF16 path is gated; bounded ring and FP32 always cuBLASLt.
+        bool use_flash_prefill_{ false };
 
         GqaConfig config_;
         CudaExecutionContext* context_;
@@ -609,6 +634,25 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // cache_capacity_ == T_ so the wrap is the identity.
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
                 k_opt_, v_opt_, Xk, Xv, B_, chunk_len, NKV_, HS_, position_offset, cache_capacity_, stream );
+
+            // FlashAttention prefill (Iteration 1): fused, streaming, causal attention
+            // straight off the compact cache -- no Q permute, no preatt/att/v_out
+            // materialization, no unpermute. Only the unbounded/global BF16 path is gated
+            // here; the bounded ring and FP32 fall through to the cuBLASLt pipeline below.
+            if constexpr ( !kBounded && std::is_same_v<NativeType, nv_bfloat16> )
+            {
+                if ( use_flash_prefill_ )
+                {
+                    Detail::cuda_gqa_kernels<NativeType>::flash_prefill(
+                        Xq, k_opt_, v_opt_, Y,
+                        B_, chunk_len, NH_, NKV_, HS_, cache_capacity_,
+                        position_offset, window_, scale, stream );
+
+                    cached_seq_len_ = position_offset + chunk_len;
+
+                    return;
+                }
+            }
 
             // Permute Q from [B, chunk, NH*HS] into compact [B, NH, chunk, HS] scratch.
             // strideA = chunk*HS between heads -- matches the NKV-layout plan geometry.

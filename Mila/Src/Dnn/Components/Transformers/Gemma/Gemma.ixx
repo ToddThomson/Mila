@@ -498,6 +498,26 @@ namespace Mila::Dnn
             final_rmsnorm_->build( final_context );
 
             lm_head_ = this->template getComponentAs<LmHeadLinearType>( this->getName() + ".lm_head" );
+
+            // Tied lm_head: install the shared embedding table BEFORE build so the head
+            // never allocates its own [vocab_size, model_dim] weight (~1 GB FP8). Without
+            // this, build allocates that weight and loadParameters immediately frees it when
+            // it installs the shared table -- a wasted ~1 GB load-time VRAM transient that
+            // raises the load high-water and lowers the loadable-context ceiling. The tie
+            // flag comes from checkpoint metadata via config; token_embedding_ is built above
+            // so its table/scales allocations already exist. Inference only (the shared table
+            // is loaded/quantized by loadParameters). See WeightTying.md / GqaAttentionExtent
+            // sibling BACKLOG item.
+            if ( context.isInferenceMode() && config_.getTieWordEmbeddings() )
+            {
+                if constexpr ( TableQuantizationPolicy::kIsQuantized )
+                    lm_head_->installSharedWeight(
+                        token_embedding_->getWeightTensorShared(),
+                        token_embedding_->getWeightScalesTensorShared() );
+                else
+                    lm_head_->installSharedWeight( token_embedding_->getWeightTensorShared() );
+            }
+
             lm_head_->build( final_context );
 
             if ( context.isInferenceMode() )

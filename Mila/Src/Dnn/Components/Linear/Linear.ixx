@@ -494,7 +494,9 @@ namespace Mila::Dnn
          * @brief Replace the owned weight with a shared tensor (e.g. a tied lm_head
          *        sharing the token embedding table). See WeightTying.md.
          *
-         * Must be called after the component is built so operation_ is live.
+         * May be called BEFORE build (onBuilding then skips weight self-allocation and
+         * wires the installed weight) or AFTER build (rebinds the live operation). The
+         * former avoids allocating a weight that tying would immediately free.
          * Quantized instantiations must use the (weight, scales) overload -- a
          * quantized weight is meaningless without its dequantization scales.
          *
@@ -512,7 +514,10 @@ namespace Mila::Dnn
             else
             {
                 weight_ = std::move( shared_weight );
-                operation_->setParameters( weight_.get(), bias_.get() );
+                weight_installed_ = true;
+
+                if ( this->isBuilt() )
+                    operation_->setParameters( weight_.get(), bias_.get() );
             }
         }
 
@@ -536,9 +541,15 @@ namespace Mila::Dnn
             {
                 weight_ = std::move( shared_weight );
                 weight_scales_ = std::move( shared_scales );
+                weight_installed_ = true;
 
-                operation_->setParameters( weight_.get(), bias_.get() );
-                operation_->setWeightScales( weight_scales_.get() );
+                // Pre-build: onBuilding wires weight_/weight_scales_ after skipping self-
+                // allocation. Post-build: rebind the live operation to the shared tensors.
+                if ( this->isBuilt() )
+                {
+                    operation_->setParameters( weight_.get(), bias_.get() );
+                    operation_->setWeightScales( weight_scales_.get() );
+                }
             }
             else
             {
@@ -722,6 +733,9 @@ namespace Mila::Dnn
         // that the component views a prefix of.
         std::shared_ptr<TensorType> output_{ nullptr };
         bool output_installed_{ false };
+        // Set when a shared weight is installed (installSharedWeight). When installed BEFORE
+        // build, onBuilding/initializeParameters skip weight self-allocation entirely.
+        bool weight_installed_{ false };
         std::unique_ptr<TensorType> output_view_{ nullptr };
         std::unique_ptr<TensorType> input_grad_{ nullptr };
 
@@ -783,6 +797,25 @@ namespace Mila::Dnn
             int64_t input_features = config_.getInputFeatures();
             int64_t output_features = config_.getOutputFeatures();
             auto device = this->getExecutionContext()->getDeviceId();
+
+            // A weight (and scales) installed before build -- a tied lm_head adopting the
+            // token embedding table -- must NOT be self-allocated: that redundant weight is
+            // exactly the ~1 GB FP8 load-time allocation tying would only free again.
+            // weight_/weight_scales_ are already set; onBuilding wires them to the operation.
+            // Only an (uncommon) bias on such a head still needs its own allocation.
+            if ( weight_installed_ )
+            {
+                if ( config_.hasBias() )
+                {
+                    bias_ = std::make_shared<TensorType>(
+                        device, shape_t{ output_features }, this->getName() + ".bias" );
+
+                    if ( context.shouldInitializeParameters() )
+                        zero( *bias_, this->getExecutionContext() );
+                }
+
+                return;
+            }
 
             // Packed nibble formats (INT4, FP4 E2M1) store 2 elements per UINT8 byte,
             // so the physical column count is input_features/2.

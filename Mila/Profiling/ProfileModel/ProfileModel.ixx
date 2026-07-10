@@ -42,6 +42,11 @@ module;
 #include <stdexcept>
 #include <charconv>
 #include <format>
+#include <thread>
+#include <atomic>
+#include <algorithm>
+#include <limits>
+#include <cuda_runtime.h>
 #include <cuda_profiler_api.h>
 
 export module Profiling.ProfileModel;
@@ -86,6 +91,110 @@ namespace Mila::Profiling
             default:              return "generate";
         }
     }
+
+    // Device VRAM poll. nvidia-smi cannot see committed VRAM under Windows WDDM
+    // (it reports the idle baseline while a multi-GB model is resident), so the
+    // reliable footprint reading is cudaMemGetInfo from inside the process. Printed
+    // at baseline / after-load / after-run to bracket the chunk-scaled activation
+    // budget the prefill heuristic (Gemma resolvePrefillChunkSize) works against.
+    void printGpuMemory( const char* label )
+    {
+        size_t free_bytes = 0;
+        size_t total_bytes = 0;
+        const cudaError_t status = cudaMemGetInfo( &free_bytes, &total_bytes );
+
+        if ( status != cudaSuccess )
+        {
+            std::cout << std::format( "[mem] {}: cudaMemGetInfo failed ({})\n",
+                label, cudaGetErrorString( status ) );
+            return;
+        }
+
+        constexpr double mib = 1024.0 * 1024.0;
+        const size_t used_bytes = total_bytes - free_bytes;
+
+        std::cout << std::format(
+            "[mem] {}: used={:.0f} MiB  free={:.0f} MiB  total={:.0f} MiB\n",
+            label, used_bytes / mib, free_bytes / mib, total_bytes / mib );
+    }
+
+    // Background high-water sampler for a single scoped window (e.g. model load).
+    // The three point-polls (baseline/after-load/after-run) miss any transient that
+    // allocates and frees inside the window -- the quantize-on-load BF16 staging and
+    // the pinned/mmap load buffers do exactly that. This thread polls cudaMemGetInfo
+    // every few ms and reports the peak device usage (min free) it observed, which is
+    // the only in-process way to catch a load-time VRAM spike (nvidia-smi is blind
+    // under WDDM).
+    class VramHighWaterSampler
+    {
+    public:
+        void start()
+        {
+            stop_.store( false, std::memory_order_relaxed );
+            worker_ = std::thread( [this]
+            {
+                cudaSetDevice( 0 );
+
+                while ( !stop_.load( std::memory_order_relaxed ) )
+                {
+                    size_t free_bytes = 0;
+                    size_t total_bytes = 0;
+
+                    if ( cudaMemGetInfo( &free_bytes, &total_bytes ) == cudaSuccess )
+                    {
+                        total_bytes_ = total_bytes;
+
+                        if ( free_bytes < min_free_bytes_ )
+                            min_free_bytes_ = free_bytes;
+
+                        // Largest transient freed: track the running peak usage and the
+                        // deepest drop below it. A buffer allocated then freed EARLY in load
+                        // (before the resident set is fully built) never shows as the global
+                        // max-used, but it does show as a drawdown -- running_peak climbs over
+                        // it, then usage drops when it is freed. max_drawdown == the biggest
+                        // such alloc/free (the "~2 GB returned" the user sees in Task Manager).
+                        const size_t used = total_bytes - free_bytes;
+
+                        if ( used > running_peak_used_ )
+                            running_peak_used_ = used;
+
+                        const size_t drawdown = running_peak_used_ - used;
+
+                        if ( drawdown > max_drawdown_bytes_ )
+                            max_drawdown_bytes_ = drawdown;
+                    }
+
+                    std::this_thread::sleep_for( std::chrono::milliseconds( 3 ) );
+                }
+            } );
+        }
+
+        void stopAndReport( const char* label )
+        {
+            stop_.store( true, std::memory_order_relaxed );
+
+            if ( worker_.joinable() )
+                worker_.join();
+
+            constexpr double mib = 1024.0 * 1024.0;
+            const size_t peak_used = ( total_bytes_ > min_free_bytes_ )
+                ? total_bytes_ - min_free_bytes_ : 0;
+
+            std::cout << std::format(
+                "[mem-peak] {}: peak used={:.0f} MiB  min free={:.0f} MiB  "
+                "largest transient freed={:.0f} MiB  (sampled @3ms)\n",
+                label, peak_used / mib, min_free_bytes_ / mib, max_drawdown_bytes_ / mib );
+        }
+
+    private:
+        std::thread worker_;
+        std::atomic<bool> stop_{ false };
+        // Written only by the worker thread; read after join() -- no data race.
+        size_t min_free_bytes_{ std::numeric_limits<size_t>::max() };
+        size_t total_bytes_{ 0 };
+        size_t running_peak_used_{ 0 };
+        size_t max_drawdown_bytes_{ 0 };
+    };
 
     void printUsage( const char* program )
     {
@@ -281,28 +390,52 @@ namespace Mila::Profiling
             if ( options.prefill_seq_len > 0 )
                 prefill_tokens.assign( options.prefill_seq_len, 0 );
 
-            auto runPrefill = [&]( bool profiled )
+            // profilePrefill() runs the prompt forward pass and synchronizes, so a
+            // wall-clock bracket around it is a valid device-inclusive prefill time.
+            auto timedPrefill = [&]() -> float
             {
-                if ( profiled )
-                    cudaProfilerStart();
+                const auto start = std::chrono::high_resolution_clock::now();
 
                 {
                     Mila::Profiling::NvtxRange range( "prefill" );
                     model.profilePrefill( prefill_tokens );
                 }
 
-                if ( profiled )
-                    cudaProfilerStop();
+                const auto stop = std::chrono::high_resolution_clock::now();
+
+                return std::chrono::duration<float, std::milli>( stop - start ).count();
             };
 
             std::cout << std::format(
-                "[prefill] seq_len={} warmup_runs={}\n",
-                prefill_tokens.size(), options.warmup_runs );
+                "[prefill] seq_len={} context_length={} warmup_runs={}\n",
+                prefill_tokens.size(), options.context_length, options.warmup_runs );
 
             for ( int run = 0; run < options.warmup_runs; ++run )
-                runPrefill( false );
+                timedPrefill();
 
-            runPrefill( true );
+            // A few measured runs; report min (least noise) and mean. The tax-gone
+            // sweep (GqaFlashAttention.md 10, item 2) reads min_ms across context
+            // lengths -- a flat curve means the over-allocation tax is gone.
+            constexpr int kMeasuredRuns = 5;
+            float min_ms = std::numeric_limits<float>::max();
+            float sum_ms = 0.0f;
+
+            for ( int run = 0; run < kMeasuredRuns; ++run )
+            {
+                const float ms = timedPrefill();
+                min_ms = std::min( min_ms, ms );
+                sum_ms += ms;
+            }
+
+            std::cout << std::format(
+                "[prefill] runs={} min_ms={:.2f} mean_ms={:.2f}\n",
+                kMeasuredRuns, min_ms, sum_ms / kMeasuredRuns );
+
+            // Final capture run for Nsight (--capture-range=cudaProfilerApi): the
+            // attribution split (attention vs linear GEMM vs launch gaps) is read here.
+            cudaProfilerStart();
+            timedPrefill();
+            cudaProfilerStop();
 
             return;
         }
@@ -401,15 +534,23 @@ namespace Mila::Profiling
 
         std::cout << "Loading model: " << options.model_path << "\n";
 
+        VramHighWaterSampler load_sampler;
+        load_sampler.start();
+
         auto model = Model::fromPretrained( options.model_path, model_config, device );
 
         std::cout << "Model loaded.\n";
+        load_sampler.stopAndReport( "during load window (transient high-water)" );
+        std::cout << model->toString();
+        printGpuMemory( "after model load (weights + KV cache + prefill workspace)" );
 
         auto tokenizer = BpeTokenizer::loadLlama32( options.tokenizer_path );
         const auto encoded = tokenizer->encode( options.prompt );
         const std::vector<int32_t> prompt_tokens( encoded.begin(), encoded.end() );
 
         runPhases( *model, options, prompt_tokens );
+
+        printGpuMemory( "after run (includes cuBLASLt workspace growth)" );
     }
 
     template<TensorDataType TPrecision>
@@ -428,15 +569,23 @@ namespace Mila::Profiling
 
         std::cout << "Loading model: " << options.model_path << "\n";
 
+        VramHighWaterSampler load_sampler;
+        load_sampler.start();
+
         auto model = Model::fromPretrained( options.model_path, model_config, device );
 
         std::cout << "Model loaded.\n";
+        load_sampler.stopAndReport( "during load window (transient high-water)" );
+        std::cout << model->toString();
+        printGpuMemory( "after model load (weights + KV cache + prefill workspace)" );
 
         auto tokenizer = BpeTokenizer::loadGemma( options.tokenizer_path );
         const auto encoded = tokenizer->encode( options.prompt );
         const std::vector<int32_t> prompt_tokens( encoded.begin(), encoded.end() );
 
         runPhases( *model, options, prompt_tokens );
+
+        printGpuMemory( "after run (includes cuBLASLt workspace growth)" );
     }
 
     export int profileMain( int argc, char** argv )
@@ -444,6 +593,8 @@ namespace Mila::Profiling
         try
         {
             Mila::initialize();
+
+            printGpuMemory( "baseline (after init, before model load)" );
 
             const Options options = parseArgs( argc, argv );
 

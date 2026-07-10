@@ -148,15 +148,17 @@ static void bind_llama_model( py::module_& m )
                 const std::vector<int32_t>& prompt_tokens,
                 std::size_t max_new_tokens,
                 float temperature,
-                int top_k ) -> std::vector<int32_t>
+                int top_k,
+                float top_p ) -> std::vector<int32_t>
             {
                 py::gil_scoped_release _;
-                return self.generate( prompt_tokens, max_new_tokens, temperature, top_k );
+                return self.generate( prompt_tokens, max_new_tokens, temperature, top_k, top_p );
             },
             py::arg( "prompt_tokens" ),
             py::arg( "max_new_tokens" ) = 64,
             py::arg( "temperature" ) = 1.0f,
             py::arg( "top_k" ) = 0,
+            py::arg( "top_p" ) = 1.0f,
             "Blocking generation. Returns prompt tokens followed by all generated tokens." )
         .def( "generate_streaming",
             []( LlamaSession& self,
@@ -165,6 +167,7 @@ static void bind_llama_model( py::module_& m )
                 std::size_t max_new_tokens,
                 float temperature,
                 int top_k,
+                float top_p,
                 StopController* stop_ctrl )
             {
                 std::stop_token stop = stop_ctrl
@@ -179,7 +182,7 @@ static void bind_llama_model( py::module_& m )
                         py::gil_scoped_acquire acquire;
                         on_token( tok );
                     },
-                    max_new_tokens, temperature, top_k,
+                    max_new_tokens, temperature, top_k, top_p,
                     std::move( stop ) );
             },
             py::arg( "prompt_tokens" ),
@@ -187,6 +190,7 @@ static void bind_llama_model( py::module_& m )
             py::arg( "max_new_tokens" ) = 64,
             py::arg( "temperature" ) = 1.0f,
             py::arg( "top_k" ) = 0,
+            py::arg( "top_p" ) = 1.0f,
             py::arg( "stop_controller" ) = py::none(),
             "Stream generation token by token. on_token(id: int) is called for each "
             "generated token (EOS excluded). Blocks until generation completes or "
@@ -238,15 +242,17 @@ static void bind_gemma_model( py::module_& m )
                 const std::vector<int32_t>& prompt_tokens,
                 std::size_t max_new_tokens,
                 float temperature,
-                int top_k ) -> std::vector<int32_t>
+                int top_k,
+                float top_p ) -> std::vector<int32_t>
             {
                 py::gil_scoped_release _;
-                return self.generate( prompt_tokens, max_new_tokens, temperature, top_k );
+                return self.generate( prompt_tokens, max_new_tokens, temperature, top_k, top_p );
             },
             py::arg( "prompt_tokens" ),
             py::arg( "max_new_tokens" ) = 64,
             py::arg( "temperature" ) = 1.0f,
             py::arg( "top_k" ) = 0,
+            py::arg( "top_p" ) = 1.0f,
             "Blocking generation. Returns prompt tokens followed by all generated tokens.\n"
             "For HF token-for-token parity use temperature=0.0 (greedy argmax)." )
         .def( "generate_streaming",
@@ -256,6 +262,7 @@ static void bind_gemma_model( py::module_& m )
                 std::size_t max_new_tokens,
                 float temperature,
                 int top_k,
+                float top_p,
                 StopController* stop_ctrl )
             {
                 std::stop_token stop = stop_ctrl
@@ -270,7 +277,7 @@ static void bind_gemma_model( py::module_& m )
                         py::gil_scoped_acquire acquire;
                         on_token( tok );
                     },
-                    max_new_tokens, temperature, top_k,
+                    max_new_tokens, temperature, top_k, top_p,
                     std::move( stop ) );
             },
             py::arg( "prompt_tokens" ),
@@ -278,6 +285,7 @@ static void bind_gemma_model( py::module_& m )
             py::arg( "max_new_tokens" ) = 64,
             py::arg( "temperature" ) = 1.0f,
             py::arg( "top_k" ) = 0,
+            py::arg( "top_p" ) = 1.0f,
             py::arg( "stop_controller" ) = py::none(),
             "Stream generation token by token. on_token(id: int) is called for each "
             "generated token (EOS excluded)." )

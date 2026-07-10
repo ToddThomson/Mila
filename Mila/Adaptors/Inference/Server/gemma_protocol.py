@@ -18,6 +18,7 @@ bare handler name.
 """
 import hashlib
 import json
+import re
 import uuid
 
 # --- Template tokens (Mila Gemma checkpoint) ---
@@ -30,6 +31,10 @@ TOOL_CALL_OPEN = "<|tool_call>"
 TOOL_CALL_CLOSE = "<tool_call|>"
 TOOL_RESPONSE_OPEN = "<|tool_response>"
 TOOL_RESPONSE_CLOSE = "<tool_response|>"
+# Trained tool-DECLARATION tokens (Google Gemma 4 spec). Distinct from the
+# tool-CALL tokens above: these wrap the schemas advertised in the system turn.
+TOOL_DECL_OPEN = "<|tool>"
+TOOL_DECL_CLOSE = "<tool|>"
 
 # Gemma inconsistently wraps tool-call string values in this registered delimiter
 # instead of plain double quotes (e.g. cmd: <|"|>ls -F<|"|>). Confirmed empirically
@@ -107,24 +112,48 @@ def assemble_prompt(system_block: str, turns: list[dict], continue_open: bool) -
     return "".join(parts)
 
 
+# Catch-all for pipe-bracketed registered tokens that are NOT in CONTROL_TOKENS
+# (a sibling string delimiter or the bare <|> the checkpoint emits but this
+# grammar has not enumerated). Left in place they leak verbatim into text
+# answers and tool arguments. Two forms: the two-pipe delimiter family
+# <|...|> (e.g. <|"|>) and the bare single-pipe <|>. Neither alternative
+# matches the angle-form turn/channel markers (<|channel>, <|tool_call>),
+# which are enumerated in CONTROL_TOKENS and stripped before this runs.
+_PIPE_TOKEN = re.compile(r"<\|[^|>]*\|>|<\|>")
+
+
+def strip_pipe_tokens(text: str) -> str:
+    return _PIPE_TOKEN.sub("", text)
+
+
 def strip_control_tokens(text: str) -> str:
     for token in CONTROL_TOKENS:
         if token in text:
             text = text.replace(token, "")
 
-    return text
+    # Scrub any residual <|...|> registered token the enumerated set missed.
+    return strip_pipe_tokens(text)
 
 
 # ---------------------------------------------------------------------------
 # Tool advertisement (system prompt suffix)
 # ---------------------------------------------------------------------------
 
-def build_tool_injection(tools: list[dict]) -> str:
+def build_tool_injection(tools: list[dict], use_trained_declarations: bool = False) -> str:
     """
-    Distill OpenAI function tool schemas into a plain description appended to the
-    system turn. Deliberately NO call-syntax instructions: Gemma emits tool calls
-    via its trained <|tool_call> protocol, so teaching a foreign format (e.g.
-    Llama's <|python_tag|>) only confuses it (Chat.SystemPrompt.ixx).
+    Distill OpenAI function tool schemas into a system-turn suffix. Deliberately
+    NO call-syntax instructions: Gemma emits tool CALLS via its trained
+    <|tool_call> protocol, so teaching a foreign call format (e.g. Llama's
+    <|python_tag|>) only confuses it (Chat.SystemPrompt.ixx).
+
+    Two DECLARATION forms, selected by use_trained_declarations (A/B, see the MIS
+    backlog). The default plain-text JSON list tells the model WHAT tools exist
+    but gives it no anchor to the trained call grammar -- observed empirically to
+    let the 12B improvise off-spec calls (call:bash:command=... with no
+    <tool_call|> close) under the Claude Code harness. The trained form wraps each
+    schema in the Google Gemma 4 <|tool>declaration:name{...}<tool|> token pair,
+    on the theory that the trained declaration frame primes the trained call
+    frame. Measure tool-selection reliability before making either the default.
     """
     normalized: list[dict] = []
 
@@ -147,7 +176,30 @@ def build_tool_injection(tools: list[dict]) -> str:
     if not normalized:
         return ""
 
+    if use_trained_declarations:
+        return _build_trained_tool_declarations(normalized)
+
     return "\n\nYou have access to the following tools:\n" + json.dumps(normalized, indent=2)
+
+
+def _build_trained_tool_declarations(normalized: list[dict]) -> str:
+    """
+    Render tool schemas in Gemma 4's trained declaration grammar:
+    <|tool>declaration:name{description: <|"|>...<|"|>, parameters: {...json...}}<tool|>
+    one per line in the system turn. String values use the trained <|"|> delimiter
+    (mirrors _render_gemma_args); the parameters JSON-schema object is emitted as
+    compact JSON.
+    """
+    declarations = []
+
+    for tool in normalized:
+        body = _render_gemma_args({
+            "description": tool["description"],
+            "parameters": tool["parameters"],
+        })
+        declarations.append(f"{TOOL_DECL_OPEN}declaration:{tool['name']}{{{body}}}{TOOL_DECL_CLOSE}")
+
+    return "\n\n" + "\n".join(declarations)
 
 
 # ---------------------------------------------------------------------------
@@ -257,11 +309,19 @@ def parse_tool_call(text: str) -> dict | None:
     if brace_close == -1 or brace_close <= brace_open:
         return None
 
-    name = _strip_namespace(body[name_start:brace_open].strip())
+    name = strip_pipe_tokens(_strip_namespace(body[name_start:brace_open].strip()))
     if not name:
         return None
 
-    arguments = json.dumps(_parse_arguments(body[brace_open + 1:brace_close]))
+    # Scrub any stray <|...|> token the checkpoint slipped into a string value
+    # (a sibling delimiter this grammar has not enumerated). Left in place it
+    # rides into the client's tool arguments (e.g. file_path "foo.cpp<|>").
+    values = _parse_arguments(body[brace_open + 1:brace_close])
+    values = {
+        key: strip_pipe_tokens(value) if isinstance(value, str) else value
+        for key, value in values.items()
+    }
+    arguments = json.dumps(values)
 
     return {
         "type": "function_call",
@@ -381,39 +441,58 @@ def _remove_spans(text: str, open_token: str, close_token: str) -> str:
         text = text[:start] + text[end + len(close_token):]
 
 
+def _strip_tool_spans(text: str, open_token: str, close_token: str) -> str:
+    """
+    Remove tool-call / tool-response spans for the answer-text path. A COMPLETE
+    open..close span is dropped whole. A DANGLING open (no close) has ONLY its
+    marker removed, keeping the body -- so a malformed or truncated tool call
+    (e.g. the off-spec call:name:key=value form the 12B emits with no
+    <tool_call|> close) degrades to readable text instead of blanking the turn.
+
+    This is the safety net for the case parse_tool_call could not classify:
+    _remove_spans would truncate from the first open, and a response that STARTS
+    with an unclosed <|tool_call> would collapse to an empty string. Residual
+    open markers are cleared afterward by strip_control_tokens.
+    """
+    result = []
+    cursor = 0
+
+    while True:
+        start = text.find(open_token, cursor)
+        if start == -1:
+            result.append(text[cursor:])
+            break
+
+        end = text.find(close_token, start + len(open_token))
+        result.append(text[cursor:start])
+
+        if end == -1:
+            # Dangling open: skip only the marker, keep the body that follows.
+            cursor = start + len(open_token)
+        else:
+            cursor = end + len(close_token)
+
+    return "".join(result)
+
+
 def extract_answer(text: str) -> str:
     """
     Reduce a channel-structured Gemma response to just the user-facing answer:
-    drop any tool-call/response spans, take the text after the final reasoning
-    channel (Chat.ChannelParser), and strip residual control tokens.
+    drop every tool-call/response span and every reasoning-channel span
+    (<|channel>label\\nreasoning<channel|>), then strip residual control tokens.
+
+    Reasoning channels can appear more than once and interleaved with answer
+    text -- the 12B emits mid-answer thought channels on the agentic path
+    DESPITE the empty-thought prime -- so ALL channel spans are removed, not
+    just a leading run. The previous single-pass logic left interior/trailing
+    channels intact, and strip_control_tokens erased only the <|channel> markers
+    while leaving the label + reasoning body as literal text (a "thought\\n..."
+    block leaking into the answer, which is also why that content never became a
+    tool call). _remove_spans drops an unclosed trailing channel too: a response
+    cut off mid-reasoning yields the answer prefix, not a leaked reasoning tail.
     """
-    text = _remove_spans(text, TOOL_CALL_OPEN, TOOL_CALL_CLOSE)
-    text = _remove_spans(text, TOOL_RESPONSE_OPEN, TOOL_RESPONSE_CLOSE)
-
-    first_open = text.find(CHANNEL_OPEN)
-
-    if first_open != -1:
-        prefix = text[:first_open]
-        cursor = first_open
-
-        while True:
-            header_start = cursor + len(CHANNEL_OPEN)
-            close = text.find(CHANNEL_CLOSE, header_start)
-
-            if close == -1:
-                # Stopped inside the reasoning channel: no answer emitted.
-                text = prefix
-                break
-
-            after_close = close + len(CHANNEL_CLOSE)
-            next_open = text.find(CHANNEL_OPEN, after_close)
-            between = text[after_close:next_open] if next_open != -1 else text[after_close:]
-
-            if next_open != -1 and between.strip() == "":
-                cursor = next_open
-                continue
-
-            text = prefix + text[after_close:]
-            break
+    text = _strip_tool_spans(text, TOOL_CALL_OPEN, TOOL_CALL_CLOSE)
+    text = _strip_tool_spans(text, TOOL_RESPONSE_OPEN, TOOL_RESPONSE_CLOSE)
+    text = _remove_spans(text, CHANNEL_OPEN, CHANNEL_CLOSE)
 
     return strip_control_tokens(text).strip()
