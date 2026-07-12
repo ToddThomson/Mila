@@ -362,6 +362,15 @@ namespace Mila::Dnn
                 attn_->setState( state );
         }
 
+        // Route this block's GQA op through the fused FlashAttention prefill kernel. Only
+        // meaningful on the global (unbounded) BF16 layers; the transformer couples it to
+        // the shared preatt/att workspace width (GqaFlashAttention.md 5.6).
+        void setUseFlashPrefill( bool enabled )
+        {
+            if ( attn_ )
+                attn_->setUseFlashPrefill( enabled );
+        }
+
         bool supportsKVCache() const noexcept override
         {
             return attn_ && attn_->supportsKVCache();

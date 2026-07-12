@@ -89,7 +89,15 @@
       "PowerShell(& \"C:\\\\Users\\\\ToddT\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\D--Repos-Mila\\\\d0d49f1a-20b3-42c2-97be-4461681b3699\\\\scratchpad\\\\decode_tax.ps1\")",
       "Bash(nsys --version)",
       "Read(//c/Program Files/NVIDIA Corporation/**)",
-      "Bash(nsys stats *)"
+      "Bash(nsys stats *)",
+      "Bash('/c/Program Files/NVIDIA Corporation/Nsight Systems 2026.2.1/target-windows-x64/nsys' stats --report cuda_gpu_kern_sum /c/Users/ToddT/AppData/Local/Temp/claude/D--Repos-Mila/5e62e2b3-e335-488b-988d-6d403bae2f80/scratchpad/stage2a_8k.nsys-rep)",
+      "Read(//d/Repos/Mila/**)",
+      "Bash(./ProfileModel.exe --model gemma --phase prefill --seq-len 8192 --context-length 8192 --quantization fp4)",
+      "Bash(./ProfileModel.exe --model gemma --phase prefill --seq-len 32768 --context-length 32768 --quantization fp4)",
+      "Bash(./ProfileModel.exe --model gemma --phase prefill --seq-len 512 --context-length 65536 --quantization fp4)",
+      "PowerShell(Get-Process -Name ProfileModel,nsys,ncu,\"nv-nsight-cu-cli\",\"target-windows-x64\" -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,@{N='VRAM_MB';E={[math]::Round\\($_.WorkingSet64/1MB\\)}},StartTime | Format-Table -AutoSize)",
+      "Bash(./ProfileModel.exe --model gemma --phase prefill --seq-len 16384 --context-length 16384 --quantization fp4)",
+      "Bash(./ProfileModel.exe --model gemma --phase prefill --seq-len 512 --context-length 49152 --quantization fp4)"
     ]
   }
 }

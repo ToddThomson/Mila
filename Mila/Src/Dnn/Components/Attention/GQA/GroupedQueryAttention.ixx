@@ -333,6 +333,21 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Route the unbounded BF16 prefill through the fused FlashAttention kernel.
+         *
+         * Only the CUDA unbounded BF16 op honors this; other backends and the bounded ring
+         * ignore it. The transformer couples this to the shared preatt/att workspace width
+         * (flash on -> the O(chunk x T_ctx) score buffer is reclaimed), so it must be set
+         * consistently with that sizing -- a narrow workspace with flash off would overflow.
+         * See GqaFlashAttention.md 5.6.
+         */
+        void setUseFlashPrefill( bool enabled )
+        {
+            if constexpr ( TDeviceType == DeviceType::Cuda )
+                operation_->setUseFlashPrefill( enabled );
+        }
+
+        /**
          * @brief Reset the KV cache for a new generation session.
          *
          * Drops any active decode state so the next prefill starts a fresh

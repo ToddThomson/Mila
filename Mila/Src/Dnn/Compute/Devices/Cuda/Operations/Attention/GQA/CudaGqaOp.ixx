@@ -386,7 +386,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
          * Affects only the unbounded (kBounded == false) BF16 instantiation -- the
          * bounded ring and FP32 always run the cuBLASLt pipeline regardless. Lets a
          * single test process run the flash and cuBLASLt paths back-to-back and diff
-         * their outputs (GqaFlashAttention.md section 10). Defaults to true (flash on).
+         * their outputs (GqaFlashAttention.md section 10). Defaults to false (cuBLASLt);
+         * the flash default flips only once the tiled kernel (5.2) profiles faster.
          */
         void setUseFlashPrefill( bool enabled ) noexcept
         {
@@ -399,11 +400,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // global BF16 prefill routes through the fused flash kernel
         // (cuda_gqa_flash_prefill_bf16) instead of the cuBLASLt QK->softmax->AV pipeline.
         // A runtime member (not compile-time) so a single test process can diff the two
-        // paths back-to-back via setUseFlashPrefill(). DEFAULTS TO FALSE: the Iteration 1
-        // kernel is correct but ~100x memory-bound (no shared-memory K/V tiling -- it
-        // re-reads all of K/V per query row), measured at 74% of prefill GPU time, so it
-        // is a regression versus cuBLASLt. It stays behind this toggle for development
-        // until the tiled kernel (GqaFlashAttention.md 5.2) lands. Only the unbounded
+        // paths back-to-back via setUseFlashPrefill(). DEFAULTS TO FALSE (the safe cuBLASLt
+        // path): the Gemma transformer is the source of truth and enables flash explicitly
+        // on the global layers above a context threshold, coupling it to the reclaimed
+        // preatt/att workspace width (GqaFlashAttention.md 5.6). A standalone op left at the
+        // default therefore never flashes into a narrow shared buffer. Only the unbounded
         // (kBounded == false) BF16 path is gated; bounded ring and FP32 always cuBLASLt.
         bool use_flash_prefill_{ false };
 

@@ -464,6 +464,21 @@ a 12 GB card.
   as the intent -- so this is a design/impl gap, not a missing design. Fix: a W4A16 prefill GEMM (dequant in
   prologue/tile load) deletes the separate pass. Pairs with the "Native Blackwell FP4 matmul" item above
   (line ~306). Biggest easy prefill win; directly cuts Claude Code first-token latency. See [[project_prefill_perf_beta]].
+  CONFIRMED 2026-07-10 at 8K + 32K (flash A/B session, cuBLASLt path): dequantize_fp4 = 1.08s/6.4s (16.7%)
+  at 8K, 4.32s/35.4s (12.2%) at 32K -- clean O(S) scaling (4x for 4x ctx), pure waste.
+  CORRECTION 2026-07-11: the existing fused kernel (`CudaW4A16Gemm.Wmma.cu`, behind `kUseFusedFp4Gemm=false`)
+  is NAIVE (1 warp/block, one 16x16 tile, ~2.5 TFLOPS ~2% peak) -- that is WHY it is toggled off and the
+  2-phase dequant->cuBLASLt path (~3x faster) is default. So this is NOT "wire the existing kernel" (wiring it
+  makes prefill slower); it is OPTIMIZE the fused kernel to tensor-core rates. STAGE 1 IMPLEMENTED 2026-07-11
+  (rewrote `CudaW4A16Gemm.Wmma.cu`): multi-warp register-accumulator tiling (64x64 block, BK=32, 4 warps 2x2,
+  each warp 2x2 register-resident wmma [16x16] accumulators; safe wmma API -- a GEMM has no online-softmax
+  rescale so no mma.sync PTX; naive orientations/decode reused). Synchronous loads still (will Long-Scoreboard
+  stall like flash 2b); Stage 2 = cp.async double-buffer + swizzle + ldmatrix + bigger tiles (fa-5090 ladder).
+  W4A16 (BF16 acts, no numerics risk); W4A8 = later ceiling. VALIDATE: flip `kUseFusedFp4Gemm=true` + rebuild
+  -> `Linear.Cuda` `Forward_MatchesReference` (Linear<Cuda,BF16,PerGroupFp4<128>>, 5e-2) + Gemma parity. See
+  [[project_w4a16_prefill_gemm]]. RANK: at 32K the O(S^2)
+  global-softmax (flash, ~29%) has overtaken this as the #1 prefill cost, but this stays the highest-CERTAINTY
+  win (O(S), independent of attention); do BOTH. See [[project_gqa_flash_attention]] for the full 32K attribution.
 - [ ] **[perf, prefill] Flash-attention-style global prefill kernel -- 36% of prefill (the single largest
   cost).** STATUS 2026-07-10: Iteration 1 (naive scalar, no shared-memory K/V tiling) landed behind the
   runtime `use_flash_prefill_` toggle (default OFF). It is CORRECT -- token-for-token model parity green,
@@ -472,7 +487,66 @@ a 12 GB card.
   74% of prefill GPU time, ~100x memory-bound (every query-row warp re-streams all of K/V from global).
   So Iteration 1 is the correctness foundation only; the actual win is the TILED kernel
   (`GqaFlashAttention.md` 5.2: block owns Br query rows, streams Bc key tiles into shared memory, K/V read
-  once per tile not per row), then WMMA (5.3) and scratch reclaim (5.6). THAT tiled kernel is this item.
+  once per tile not per row), then WMMA (5.3) and scratch reclaim (5.6).
+  UPDATE 2026-07-10: Iteration 2 (5.2 tiled kernel) IMPLEMENTED in `Gqa.Flash.Bf16.cu` (Br=16 x Bc=32
+  smem tiling, K-then-V two-pass, FA-2 one-rescale-per-tile, causal tile-skip), correctness gates GREEN,
+  then PROFILED (flash-on vs cuBLASLt, 8192 prefill, 4070). RESULT: 5.2 is a NON-FIX. Flash 8192 prefill =
+  19068 ms wall vs cuBLASLt 6465 ms (still ~3x regression); gqa_flash kernel = 13.1 s (69.7%), 103 ms/inst
+  vs Iter1 127 ms -- tiling cut global traffic ~16x but bought only ~1.2x. Nsight Compute root cause: NOT
+  global-DRAM-bound (0 spilling, 65% occupancy, L2 hit 99.7%, only 10 GB/s) -- the scalar warp-per-row
+  kernel is LSU/shared-memory-INSTRUCTION bound (Mem Busy 87%, Compute 44%): one shared load per FMA. The
+  whole scalar family (Iter1 register-stream + Iter2 smem-tile) hits the same 1-FLOP/load ceiling; tiling
+  moved the loads (L2 -> shared) without cutting their count. `use_flash_prefill_` STAYS FALSE. The actual
+  fix is TENSOR CORES (5.3 WMMA): MMA does hundreds of FLOPs/load, the only escape from the ceiling. Iter2
+  kept in-tree (parity-green) as the smem-tiling SCAFFOLD 5.3 builds on (same block/tile/two-pass/online-
+  softmax, scalar loops -> MMAs). Spec §5.2.1 records the full attribution; §5.3 is now mandatory-next.
+  UPDATE 2026-07-10: Iteration 3 / WMMA Stage 1 (single-warp, O-in-smem, safe `wmma` ops only) landed in
+  `Gqa.Flash.Wmma.cu` and went GREEN on `CudaGqaFlashPrefillParity` -- tensor cores produce correct
+  attention; the hard correctness questions (WMMA GEMM orientations, cross-tile online softmax, causal mask)
+  are answered. Slow by design (single warp), not the design point.
+  UPDATE 2026-07-11: WMMA Stage 2a IMPLEMENTED (rewrote `Gqa.Flash.Wmma.cu`, same launcher signature so no
+  cuh/Dispatch/Op change) -- `W`-warp HS-split (warp `w` owns HSt=HS/W output columns; W=min(8,HS/16) pow2
+  keeping HSt%16==0 -> HS=512 gives W=8/HSt=64, 256 threads), split-K QK + smem `S` reduction, two-pass K/V,
+  per-warp `O_w` slice kept in smem + rescaled by per-row smem indexing (no `mma.sync` PTX -- that is Stage
+  2b). Disjoint HS slices -> PV/rescale need no cross-warp sync; ~6 `__syncthreads`/tile vs Stage 1's ~64.
+  smem 81 KB at HS=512 (under ~99 KB Ada opt-in). PENDING VS2026 build + `CudaGqaFlashPrefillParity`; then
+  profile vs cuBLASLt (2a may already win, deferring 2b). See spec §5.3.1.
+  PROFILED 2026-07-11 (8192 prefill, Gemma 12B FP4, 4070): oracle GREEN; a real step but NOT yet a win.
+  Wall = 11702 ms (vs cuBLASLt 6465, Iter2 scalar 19068). `gqa_flash_prefill_wmma_bf16_kernel` = 6.08 s
+  (52%), 47.5 ms/inst avg = 2.2x faster than the scalar Iter2 (103 ms/inst) with tensor cores confirmed
+  engaged, but still ~3.5x heavier than the cuBLASLt global attention it replaces (~1.7 s). ncu (heavy
+  81 ms instance): occupancy 16.67% SMEM-LIMITED to 1 block/SM (83.65 KB dyn smem), Compute 22% / Mem 16%
+  / DRAM 0.9% / 0 spills = LATENCY/STALL bound (NOT the scalar family's LSU ceiling). ROOT CAUSE = the
+  32 KB O[Br x HS] FP32 accumulator IN SMEM: caps occupancy AND forces the PV store->sync->smem-add->sync
+  serial chain. FIX = Stage 2b (move O_w into `mma.sync.m16n8k16` accumulator REGISTERS + per-row alpha on
+  those regs) -- frees ~32 KB smem + kills the chain; ncu vindicates 2b as the lever. `use_flash_prefill_`
+  stays FALSE. NEXT = implement Stage 2b (the raw-PTX squeeze).
+  STAGE 2b IMPLEMENTED 2026-07-11 (rewrote `Gqa.Flash.Wmma.cu`, same launcher signature). Risk-scoped:
+  ONLY PV is raw `mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32` -- QK keeps 2a's proven `wmma`
+  split-K (its S accumulator is transient -> smem for softmax anyway). Per-warp `O_w[Br x HSt]` is register-
+  resident (`float o_acc[HSt/8][4]`/thread, 32 regs at HS=512), A(P)/B(V) loaded manually from smem per the
+  documented m16n8k16 fragment layout, per-row alpha applied as two scalars/thread (c0,c1->row g; c2,c3->row
+  g+8). Drops O + PV scratch from smem: 81 KB -> 41 KB, should lift occupancy 1->2 blocks/SM. PENDING VS2026
+  build + `CudaGqaFlashPrefillParity`, then re-profile (watch occupancy + Compute-throughput %, spilling==0).
+  See spec §5.3.1.
+  PROFILED 2026-07-11 (8192, 4070): oracle green; worked as designed. Per-instance 47.5 -> 26.9 ms; wall
+  11702 -> 8820 ms (cuBLASLt 6465, now 1.36x off); flash kernel 3.44 s (37.8%, was 6.08/52%). ncu: Local
+  Memory Spilling = 0 (o_acc register-resident, confirmed), occupancy 16.7 -> 33% (regs 97/thd + smem 42.7
+  KB co-limit to 2 blocks/SM), Compute (SM) still ~30% = STILL latency-bound because the pipeline is FULLY
+  SYNCHRONOUS (K/V global->smem loads block the MMAs). Kernel now ~2x cuBLASLt attention (was 3.5x). NEXT =
+  Stage 2c: cp.async double-buffered K/V loads (overlap load with MMA -- the core FA2 software pipeline,
+  biggest remaining lever); cheaper first knobs = W=16 (occupancy up / O-regs down) + convert QK to mma.sync
+  (drop the split-K smem round-trip + 2 barriers). This is the llama.cpp fattn-mma playbook (no CUTLASS).
+  UPDATE 2026-07-11: FA re-justified as a MEMORY / context-scaling play (user goal = 64K on 12 GB), not
+  speed (~18% ceiling). 5.6 MEMORY RECLAIM IMPLEMENTED (Gemma, partial): with global attention on flash the
+  shared `preatt`/`att` buffer shrinks from `T_ctx` to the sliding layers' window-bounded width
+  (`min(T_ctx, window+chunk-1)`), reclaiming ~1 GB at 64K. Single source of truth
+  `GemmaTransformer::useFlashPrefillForContext(T_ctx)` (`kGemmaFlashPrefillMinContext` default 16384) couples
+  the op toggle (new `setUseFlashPrefill` passthrough GemmaBlock->GroupedQueryAttention->op) to the buffer
+  width; `CudaGqaOp::use_flash_prefill_` default restored to false (safe). Flash now runs only at
+  ctx >= threshold (below = cuBLASLt, faster + fits). PENDING VS2026 build + validate 64K fits. Stage 2c
+  (flash speed) de-prioritized. FOLLOW-UP: LlamaTransformer (all-global) can reclaim `preatt`/`att` entirely
+  with the same wiring. Next active work = fast fused W4A16 prefill GEMM. See spec 5.6.
   See [[project_gqa_flash_attention]]. Original analysis below still holds:
   Same capture: **`prefill_softmax_bf16_kernel` = 20.4 s / 56.9 s (36.1%)**, 1120 instances, 18.2 ms
   avg (max 27.8 ms). This is the 8 global layers' O(n^2) full-context attention at 35K tokens; the kernel

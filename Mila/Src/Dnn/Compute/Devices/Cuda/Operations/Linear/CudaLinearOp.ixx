@@ -127,8 +127,11 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         // Toggle between the fused FP4 GEMM kernels and the 2-phase dequant path for A/B testing.
         //   true  -- cuda_fp4a16_gemm_wmma / cuda_fp4a16_gemm: reads packed FP4 once, dequantizes
-        //            inline per tile, no staging buffer. Measured compute-bound at ~2.5 TFLOPS on
-        //            prefill-shaped M (Gemma4InferenceReview.md section 10.2).
+        //            inline per tile, no staging buffer. Stage 1 tiled rewrite (64x64/4-warp) is
+        //            CORRECT (Linear FP4 Forward_MatchesReference green) but still a ~5-7x prefill
+        //            regression vs the 2-phase path -- Long-Scoreboard bound (synchronous loads),
+        //            ~6.8 TFLOP/s vs cuBLASLt ~50. Needs Stage 2 (cp.async double-buffer, fa-5090
+        //            ladder) before it is competitive; stays FALSE until then. See project_w4a16_prefill_gemm.
         //   false -- cuda_fp4_dequantize_to_bf16 -> cuBLASLt BF16 GEMM -> cuda_add_bias, the same
         //            2-phase structure as the proven FP8 baseline path (the "P0" prefill fix).
         static constexpr bool kUseFusedFp4Gemm = false;

@@ -96,6 +96,16 @@ namespace Mila::Dnn
     // pooled (Gemma4InferenceReview.md sections 6-7).
     inline constexpr int64_t kGemmaPrefillChunkOverride = 0;
 
+    // Context length (>=) at which the global (unbounded) BF16 attention layers switch from
+    // the cuBLASLt prefill path to the fused FlashAttention kernel. Below it cuBLASLt is
+    // faster and its O(chunk x T_ctx) score workspace still fits; at/above it that workspace
+    // is the memory wall, so flash both removes the O(S^2) score materialization and lets the
+    // shared preatt/att buffer shrink to the window-bounded sliding layers -- the change that
+    // makes long context (target 64K) fit on a 12-16 GB card (GqaFlashAttention.md 5.6). The
+    // build-time context length alone decides this, so the workspace sizing and the op toggle
+    // stay coupled. 0 disables flash entirely (always cuBLASLt).
+    inline constexpr int64_t kGemmaFlashPrefillMinContext = 16384;
+
     // Activation budget for one prefill pass: every chunk-scaled term (the shared
     // block workspace, the GQA attention scratch, and the bounded-ring KV growth)
     // must fit under this cap. A fixed conservative cap rather than a live
@@ -480,6 +490,13 @@ namespace Mila::Dnn
                         block->installSharedWorkspace( block_workspace_ );
 
                     block->build( block_context );
+
+                    // Global (unbounded) layers own the O(chunk x T_ctx) score buffer. Route
+                    // them through fused flash prefill at long context so that buffer can be
+                    // reclaimed -- MUST agree with prefillScoreWidth() in the workspace sizing.
+                    if ( context.isInferenceMode() )
+                        block->setUseFlashPrefill( useFlashPrefillForContext( T ) );
+
                     layers_.push_back( static_cast<DecoderLayerType*>( block.get() ) );
                 }
                 else
@@ -693,6 +710,28 @@ namespace Mila::Dnn
         // (preatt/att span the context; q_permute/v_out span the max head width),
         // and -- bounded sliding policy only -- the per-row ring capacity growth
         // across the local layers.
+        // Whether the global (unbounded) BF16 layers run fused flash prefill at this
+        // build-time context length (kGemmaFlashPrefillMinContext). A pure function of
+        // T_ctx so the op toggle and the shared preatt/att workspace width stay coupled.
+        bool useFlashPrefillForContext( int64_t T_ctx ) const noexcept
+        {
+            return TPrecision == TensorDataType::BF16
+                && kGemmaFlashPrefillMinContext > 0
+                && T_ctx >= kGemmaFlashPrefillMinContext;
+        }
+
+        // Width of the shared prefill preatt/att score buffer. With flash on, the global
+        // layers no longer touch it, so it shrinks to the window-bounded sliding layers'
+        // exact need (matching CudaGqaOp cache_capacity_ for kBounded); otherwise the
+        // global cuBLASLt path needs the full context width.
+        int64_t prefillScoreWidth( int64_t T_ctx ) const noexcept
+        {
+            if ( useFlashPrefillForContext( T_ctx ) )
+                return std::min<int64_t>( T_ctx, config_.getWindow() + prefill_chunk_size_ - 1 );
+
+            return T_ctx;
+        }
+
         int64_t computeChunkRowCostBytes( int64_t B, int64_t T_ctx ) const
         {
             const int64_t precision_bytes =
@@ -702,8 +741,11 @@ namespace Mila::Dnn
 
             const int64_t workspace_bytes =
                 computeWorkspaceWidths().totalRowElements() * B * precision_bytes;
+            // With flash on the global layers, preatt/att shrink to the window-bounded
+            // sliding width, so the chunk heuristic is no longer throttled by the O(T_ctx)
+            // score span -- this is what decouples the prefill chunk size from long context.
             const int64_t attention_bytes =
-                B * NH * ( 2 * T_ctx + 2 * HS_max ) * precision_bytes;
+                B * NH * ( 2 * prefillScoreWidth( T_ctx ) + 2 * HS_max ) * precision_bytes;
 
             int64_t ring_bytes = 0;
 
@@ -725,11 +767,45 @@ namespace Mila::Dnn
             return workspace_bytes + attention_bytes + ring_bytes;
         }
 
+        // Global-layer KV cache bytes -- the context-dependent VRAM term. The global
+        // (unbounded) layers cache K and V over the full T_ctx; the sliding layers are
+        // window-bounded and fixed, so only this term grows with context. The cache is BF16
+        // (the config's FP8-KV label is inert -- OperationTraits has no PerChannelKvFp8
+        // specialization; the op stores TPrecision).
+        int64_t prefillGlobalKvBytes( int64_t B, int64_t T_ctx ) const
+        {
+            const int64_t precision_bytes =
+                static_cast<int64_t>( TensorDataTypeTraits<TPrecision>::size_in_bytes );
+
+            int64_t global_layers = 0;
+            for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
+            {
+                if ( config_.isGlobalLayer( static_cast<dim_t>( i ) ) )
+                    ++global_layers;
+            }
+
+            return global_layers * 2 * B
+                * static_cast<int64_t>( config_.getNumGlobalKVHeads() )
+                * T_ctx * static_cast<int64_t>( config_.getGlobalHeadDim() ) * precision_bytes;
+        }
+
         // Heuristic v2 (Gemma4InferenceReview.md section 6.4): largest chunk in
-        // {512, 256, 128, 64} whose complete row cost fits the activation budget.
-        // 512 is the ceiling (weight amortization is done by then); 64 is the floor
-        // (below it the GEMM M dimension is tensor-core-hostile on top of the weight
-        // re-read) -- if 64 does not fit, warn instead of silently limping.
+        // {1024, 512, 256, 128, 64} whose complete row cost fits the activation budget.
+        // 64 is the floor (below it the GEMM M dimension is tensor-core-hostile on top of
+        // the weight re-read) -- if 64 does not fit, warn instead of silently limping.
+        //
+        // The 1024 rung is enabled by the flash-prefill score-buffer reclaim (5.6): with the
+        // O(chunk x T_ctx) preatt/att gone on the global layers, the row cost drops far enough
+        // that a bigger chunk fits at long context. Its payoff is NOT linear-GEMM weight
+        // amortization (saturated by 512) but (a) halving the per-chunk FP4 weight DEQUANT
+        // passes (~14% of prefill at 16K, scales with chunk count) and (b) fattening each flash
+        // launch so its K/V loads amortize over more query rows.
+        //
+        // KV-AWARE BUDGET: the activation workspace shares VRAM with the KV cache, whose global
+        // term grows with T_ctx. Subtracting it from the fixed activation budget makes the
+        // effective budget shrink at long context, so the big-chunk rung self-limits (chunk
+        // 1024 through ~40K, back to 512 at 64K where the bigger chunk would collide with the
+        // weight-load transient) -- no hard context cap needed. 2048 is the next rung.
         int64_t resolvePrefillChunkSize( int64_t B, int64_t T_ctx ) const
         {
             if constexpr ( kGemmaPrefillChunkOverride > 0 )
@@ -742,13 +818,17 @@ namespace Mila::Dnn
                 return T_ctx;
 
             const int64_t row_cost = computeChunkRowCostBytes( B, T_ctx );
+            const int64_t kv_global = prefillGlobalKvBytes( B, T_ctx );
+            const int64_t budget = ( kGemmaPrefillActivationBudgetBytes > kv_global )
+                ? ( kGemmaPrefillActivationBudgetBytes - kv_global )
+                : int64_t{ 0 };
 
-            for ( int64_t candidate : { int64_t{ 512 }, int64_t{ 256 }, int64_t{ 128 }, int64_t{ 64 } } )
+            for ( int64_t candidate : { int64_t{ 1024 }, int64_t{ 512 }, int64_t{ 256 }, int64_t{ 128 }, int64_t{ 64 } } )
             {
                 if ( candidate > T_ctx )
                     continue;
 
-                if ( row_cost * candidate <= kGemmaPrefillActivationBudgetBytes )
+                if ( row_cost * candidate <= budget )
                     return candidate;
             }
 
@@ -807,10 +887,19 @@ namespace Mila::Dnn
 
             gqa_q_permute_ = std::make_unique<TensorType>(
                 device, shape_t{ B, NH, prefill_chunk_size_, HS_max }, n + ".gqa_ws.q_perm" );
+            // preatt/att carry the O(chunk x score_width) score matrix for the cuBLASLt
+            // path. With flash on the global layers, only the window-bounded sliding layers
+            // still use these, so score_width collapses from T_ctx to the ring capacity --
+            // reclaiming ~1 GB at 64K (GqaFlashAttention.md 5.6). MUST match the op's flash
+            // decision (set on the global blocks in the build loop via setUseFlashPrefill) or
+            // the cuBLASLt global path would overflow a narrow buffer; both derive from
+            // useFlashPrefillForContext(T_ctx).
+            const int64_t score_width = prefillScoreWidth( T_ctx );
+
             gqa_preatt_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, prefill_chunk_size_, T_ctx }, n + ".gqa_ws.preatt" );
+                device, shape_t{ B, NH, prefill_chunk_size_, score_width }, n + ".gqa_ws.preatt" );
             gqa_att_ = std::make_unique<TensorType>(
-                device, shape_t{ B, NH, prefill_chunk_size_, T_ctx }, n + ".gqa_ws.att" );
+                device, shape_t{ B, NH, prefill_chunk_size_, score_width }, n + ".gqa_ws.att" );
             gqa_v_out_ = std::make_unique<TensorType>(
                 device, shape_t{ B, NH, prefill_chunk_size_, HS_max }, n + ".gqa_ws.v_out" );
 

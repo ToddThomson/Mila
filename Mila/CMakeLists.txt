@@ -518,7 +518,11 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Decode.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Bf16.cu"
-            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Flash.Bf16.cu"
+            # Gqa.Flash.Bf16.cu (scalar Iteration 2) retired from the build -- profiled a
+            # non-fix (LSU-bound, GqaFlashAttention.md 5.2.1). Superseded by the WMMA path
+            # below; file kept in-tree for reference. Both define cuda_gqa_flash_prefill_bf16,
+            # so exactly one is compiled.
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Flash.Wmma.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Fp8Prefill/CudaFp8Prefill.cu"
