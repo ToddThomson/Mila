@@ -596,8 +596,12 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
         constexpr int kGHeadDim = 512;     // global_head_dim (NOT the sliding head_dim 256)
         constexpr int kGModelDim = kGNumHeads * kGHeadDim;                         // 8192
         constexpr int kGPackedQkv = ( kGNumHeads + 2 * kGNumKvHeads ) * kGHeadDim; // 9216
-        constexpr int kGContext = 80;      // T_
-        constexpr int kGPrefillChunk = 32; // 80 tokens -> chunks 32 + 32 + 16 (partial tail)
+        // 83 (not 80) is deliberate: the 19-token tail chunk is NOT a multiple of the
+        // WMMA kernel's 16-row query tile, so the ragged-tile masking is exercised, and
+        // its final key tile runs past cache_capacity, exercising the cp.async OOB row
+        // clamp. A multiple-of-16 context covers neither.
+        constexpr int kGContext = 83;      // T_
+        constexpr int kGPrefillChunk = 32; // 83 tokens -> chunks 32 + 32 + 19 (ragged tail)
         constexpr int kGWindow = 0;        // global / full causal
 
         // Flash keeps QK scores in FP32; the cuBLASLt reference rounds preatt to BF16

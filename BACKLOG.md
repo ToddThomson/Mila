@@ -746,6 +746,77 @@ a 12 GB card.
   Short Scoreboard, their V2) -> ldmatrix.x4 (V4) -> convert QK to mma.sync (drops split-K smem round-
   trip + a barrier). `use_flash_prefill_` op default STILL false; `GemmaTransformer` wires it on at
   ctx >= 16384. Llama sec 5.6 (all-global -> reclaim `preatt`/`att` entirely) still pending the same wiring.
+  UPDATE 2026-07-13: smem PADDING LANDED + MEASURED -- bank conflicts were NOT the binding constraint.
+  `kSmemSkew=8` in `Gqa.Flash.Wmma.cu` pads the Q/K/V smem row stride HS->HS+8 bf16 (breaks the
+  1024-B-row / 128-B-bank-cycle collision; storage stride only, math unchanged; 0 = exact unpadded
+  layout). Oracle green (strengthened same commit: `kGContext` 80->83 so the parity test now covers a
+  ragged 19-token query tile + the cp.async OOB row clamp -- 80 covered neither; nsys-verified the test
+  really runs both legs: 3 flash + 3 cuBLASLt-pipeline instances). ncu A/B on the heavy instance (seq
+  8192, ctx 49152, 4070): shared-load bank conflicts 944M -> 27.5M (34x reduction, padding works as
+  designed), L1/TEX pipe 52.95% -> 35.12%, Compute (SM) 25.6% -> 33.95% -- BUT Duration 22.78 -> 22.82 ms
+  = ZERO wall win. The prior "conflicts = smoking gun" diagnosis is FALSIFIED by the A/B: at 16.67%
+  occupancy (1 block/SM, ~91 KB smem double-buffer) the kernel is LATENCY-bound and the conflict
+  serialization sat off the critical path. Padding KEPT (free, correct, pre-clears the L1/TEX pipe for
+  when occupancy rises and conflicts would bind; costs +3 KB smem -> W=16 + skew fits the 101376-B Ada
+  cap with only 64 B spare). REAL remaining lever = OCCUPANCY: (a) W=16 warps/block (16 warps/SM at the
+  same 1 block/SM = 33% occupancy, HSt=32 halves O-regs; s_S_partial doubles to 16 KB), (b) single-V
+  buffer + prefetch-K-only (fa-5090 V5, frees ~17 KB), (c) QK -> mma.sync (drops the split-K smem
+  round-trip). Shared-STORE conflicts now dominate the residual (72M vs 27.5M loads: wmma
+  `store_matrix_sync` of S_w ldm=16 + s_P writes) -- only worth chasing after occupancy.
+  UPDATE 2026-07-13 (Stage 2d, later same day): FIRST REAL KERNEL WIN -- heavy instance 22.82 -> 20.64 ms
+  (-9.6%), wall @seq8192/ctx49152 ~5900 -> 5768 ms, Compute (SM) 34 -> 42% (highest yet). Two-step arc:
+  2d-v1 (QK -> raw mma.sync manual loads + barriers 5->3 + reduction fused into the 16-lane softmax) was
+  GREEN but a 57% REGRESSION (35.8 ms): fusing the 8-warp reduction into 16 lanes serialized ~1.5k
+  cycles/tile on half of warp 0 while 7.5 warps idled. THE STRUCTURAL LESSON: the single-warp softmax
+  section was the kernel's critical path all along -- it is why padding (34x fewer conflicts), W=16 (2x
+  occupancy), and barrier cuts alone never moved Duration. 2d-v2 DISTRIBUTED the softmax (each warp owns
+  Br/W=2 rows, 16 lanes/row, per-lane partial sums, __shfl_xor row max/sum; shuffles outside branches;
+  float2 partial stores at even stride 18) -> the win. Kernel renamed gqa_flash_prefill_mma_bf16_kernel
+  (no nvcuda::wmma left in the file). Per-instance project arc: 127 -> 103 -> 47.5 -> 26.9 -> 22.8 -> 20.6 ms.
+  SCOREBOARD IMPACT (22496-tok prefill @48K, 4070, min/5): 21350 -> 18941 ms = 1056 -> 1188 tok/s
+  (+11.3% end-to-end, FP8 OFF, zero numerics risk); llama.cpp gap 1.95x -> 1.74x. __expf adopted
+  (instance-neutral post-distribution, kept as free).
+  LDMATRIX RUNG LANDED 2026-07-13 (fa-5090 V4): all four fragment-load sites (Q, K-as-B, P, V.trans)
+  are warp-collective ldmatrix.x4 -- instance 20.4 -> 19.1 ms, scoreboard 18941 -> 18674 ms = 1205
+  tok/s, gap 1.71x. Session total: 21350 -> 18674 = 12.5%. HARD-WON CORRECTNESS LESSON riding this
+  rung: the first two builds did ILLEGAL shared reads that the parity oracle PASSED over (bogus
+  generic-space addresses alias correct data at small smem offsets, then crash at real scale --
+  cudaErrorIllegalAddress in ProfileModel/chat at ctx>=16384 only). Root cause was twofold and both
+  halves are load-bearing: (1) convert pointers with raw-PTX cvta.to.shared.u64 (CUTLASS
+  cast_smem_ptr_to_uint form), AND (2) the ldmatrix instruction MUST carry the `.shared` qualifier --
+  without it PTX uses generic addressing and dereferences the converted offset as a generic address.
+  (learn-cuda's reference wrapper omits `.shared` and survives only via truncated generic addresses;
+  do not copy it.) NEW GATE for any PTX-level kernel change: compute-sanitizer memcheck over
+  CudaGqaFlashPrefillParity (30 s; caught 11 invalid reads deterministically at the tiny oracle
+  geometry where parity alone stayed green). Also: chat/oracle "green" never covers flash below
+  ctx 16384 -- scale validation requires ProfileModel --model gemma --phase prefill at ctx >= 16384. Component breakdown (nsys, GPU-bound): BF16
+  linear GEMMs 43.4% | global flash attn 25.2% (avg 27.2 ms/inst) | local sliding attn 18.5% (ring
+  softmax 14.1 + QK/AV 4.4) | FP4 dequant 7.8% | rope/geglu/rmsnorm/rest ~5%. Remaining 8.0s gap to
+  llama.cpp fully mapped: ~4s linear (FP8 activations, blocked on per-token scale numerics), ~2-2.5s
+  local-layer flash (5.4 ring variant), ~1.5s flash ladder (42% compute vs fa-5090 94% SOL), ~0.8s
+  dequant.
+  fa-5090 / learn-cuda 07_attention (user-supplied, https://gau-nernst.github.io/fa-5090/) CROSS-CHECK:
+  their best kernel also runs exactly 3 barriers/iteration (we match); their register-only P flow needs
+  DIM<=128 (warp owns whole rows) so our smem-P round trip is the correct HS=512 adaptation; their
+  __expf (MUFU fast exp) ADOPTED in-tree (2 softmax call sites, pending build+oracle). REMAINING LADDER
+  from their V2/V4/V5, in likely value order for us: (a) single-V-buffer + interleaved prefetch
+  placement (prefetch V during the QK mma, K during PV -> also frees ~17 KB smem), (b) XOR-swizzle +
+  ldmatrix.x4 on the K/V loads (47M residual load conflicts; not binding at 42% compute, revisit after a).
+  UPDATE 2026-07-13 (same day): W=16 warps/block TRIED + MEASURED WORSE -> REVERTED to 8. Occupancy
+  doubled exactly as designed (16.67 -> 33.33% achieved) but the heavy instance got ~9% SLOWER
+  (22.82 -> 24.8-25.5 ms; load bank conflicts 27.5M -> 43.3M). WHY: the block is smem-limited to 1/SM,
+  so all warps share every per-tile `__syncthreads` -- extra warps in the SAME block cannot hide latency
+  across a block-wide barrier; they just halve per-warp work per barrier interval and double the split-K
+  reduction traffic. Occupancy-via-bigger-block is the WRONG axis; independent 2nd block/SM is
+  unreachable (any K+V double-buffer at HS=512 >> the ~48 KB that would allow 2 blocks). VERDICT: the
+  incremental knob ladder on Stage 2c is EXHAUSTED (padding = no wall change, W=16 = regression). The
+  remaining flash-kernel win requires the STRUCTURAL Stage 2d rewrite: QK -> `mma.sync` with manual
+  smem loads (drops the split-K S_w smem round-trip AND its 72M store conflicts AND ~2 of the ~5
+  barriers/tile), deterministic swizzle now that loads are manual, and ideally fewer/narrower barriers
+  so warps-in-flight starts paying. Reference wall at this config (seq 8192, ctx 49152, FP4, 4070,
+  min of 5): 5906 ms with W=8+skew8 kernel class (W=16 run measured 5906 before its instance regression
+  was known; W=8 wall to be re-confirmed next profiling pass). Report: flash2c_w16_ncu.txt (session
+  scratchpad).
   See [[project_gqa_flash_attention]]. Original analysis below still holds:
   Same capture: **`prefill_softmax_bf16_kernel` = 20.4 s / 56.9 s (36.1%)**, 1120 instances, 18.2 ms
   avg (max 27.8 ms). This is the 8 global layers' O(n^2) full-context attention at 35K tokens; the kernel
