@@ -479,6 +479,172 @@ a 12 GB card.
   [[project_w4a16_prefill_gemm]]. RANK: at 32K the O(S^2)
   global-softmax (flash, ~29%) has overtaken this as the #1 prefill cost, but this stays the highest-CERTAINTY
   win (O(S), independent of attention); do BOTH. See [[project_gqa_flash_attention]] for the full 32K attribution.
+  RE-BASELINE FIRST 2026-07-12 (decision: Gemma 4 prefill SPEED is now the active goal; measure before more
+  W4A16 Stage 2). The "4-5x llama.cpp gap" is STALE -- it predates flash 2c + 5.6 reclaim + chunk-1024, so
+  Mila's 40960 prefill is now faster; re-measure before scoping the optimization. TEST = head-to-head Gemma 4
+  prefill, Mila vs llama.cpp (LM Studio), on the 4070. RUNBOOK:
+  - COLD CACHE both sides -- MIS KV prefix reuse falsely reports ~instant on a 2nd identical request; use
+    first-request-after-load only (or disable). ONE MODEL AT A TIME (12 GB can't hold two 12B; load, measure,
+    unload, swap).
+  - FIXED workload = the ~35719-token Claude-CLI harness prompt; CAPTURE the blob once and REPLAY the same
+    bytes to each server (don't let live Claude CLI deliver it twice -- harness/network drift). Mila:
+    MILA_CONTEXT_LENGTH=40960 (its real chunk-1024 config).
+  - PREFILL METRIC = TTFT / prompt-eval tok/s. LM Studio's server log prints "prompt eval time / tok/s" = the
+    clean llama.cpp number.
+  - TIER 1 (kernel gap = the optimization target, no wire): `ProfileModel --phase prefill --seq-len 35719
+    --context-length 40960 --quantization fp4` vs LM Studio prompt-eval.
+  - TIER 2 (felt gap): Claude CLI -> MIS vs Claude CLI -> LM Studio -- includes Python/wire serving overhead,
+    which W4A16 does NOT touch (a separate lever if Tier 2 diverges from Tier 1).
+  - CEILING CAVEAT (sets the target): llama.cpp Gemma = Q4_K_M + MMQ = INT8 activations (W4A8); Mila = FP4 +
+    BF16 activations (W4A16). Int8 tensor cores ~2x BF16 throughput, so a PERFECT Mila W4A16 still sits ~2x
+    behind llama.cpp; closing that last 2x needs the W4A8 activation-quant fork (changes Mila's BF16-activation
+    numerics). W4A16 prize = "close most of the gap", NOT "match llama.cpp" -- read the result that way.
+  - MIS setup ([[project_mis_test_environment]]): WSL client -> MIS on Windows 0.0.0.0:8000, MIS's own cp313
+    venv (not the uv-3.11 shadow), MILA_CONTEXT_LENGTH=40960 to fit the harness prompt.
+  Then resume W4A16 Stage 2 (cp.async + swizzle + ldmatrix, the fa-5090 ladder) scoped against the measured gap.
+  RE-BASELINE RESULTS 2026-07-12 (4070, Gemma 4 12B; llama.cpp via LM Studio Q4_K_M; Mila FP4 W4A16 2-phase,
+  kUseFusedFp4Gemm=false; ProfileModel x64-profile). The live `claude -p` harness tokenized to 22496 tokens
+  (llama.cpp Gemma tokenizer), NOT the stale 35719 -- that older figure was a larger MIS-config harness, so
+  runs were matched at 22496. Tier 1 (kernel; ProfileModel --seq-len 22496 dummy tokens, --quantization fp4):
+    - llama.cpp @ 48K ctx: prompt eval 10902.98 ms / 22496 tok = 2063 tok/s (cold; declining 2410->2063 ramp
+      confirms a real full prefill, not a cache hit). Q4_K_M/MMQ = W4A8 (int8 activations).
+    - Mila @ 48K ctx (49152): min 39208 ms = 574 tok/s  -> 3.6x slower than llama.cpp.
+    - Mila @ 24K ctx (24576): min 21797 ms = 1032 tok/s -> 2.0x slower than llama.cpp.
+    - Mila @ 40960 ctx, 35719 tok (unmatched ref): min 47188 ms = 757 tok/s.
+  KEY FINDING: the stale "4-5x" gap is now 2.0-3.6x, decomposing into TWO independent factors:
+    (1) ~1.8x is Mila's VRAM-DRIVEN PREFILL CHUNK, not the kernel. Same 22496 tokens, only the context ceiling
+        changed (24K->48K) and throughput HALVED (1032->574). At 48K on the 12 GB card the chunk heuristic
+        shrinks the chunk to fit VRAM, multiplying (a) dequant redundancy (2-phase re-dequantizes every FP4
+        weight per chunk) and (b) small-M GEMM inefficiency (chunk == the prefill GEMM's M; cuBLASLt loses
+        tensor-core utilization at small M). This is a MEMORY/CONFIG lever (bigger card / flash+pooling reclaim
+        -> bigger chunk), independent of the kernel.
+    (2) residual ~2.0x (Mila best-chunk 1032 vs llama.cpp 2063) is the W4A16-vs-W4A8 tensor-core ceiling, as
+        the runbook's CEILING CAVEAT predicted (int8 acts ~2x BF16). A perfect W4A16 still sits ~2x behind;
+        closing it needs the W4A8 activation-quant fork, NOT W4A16 Stage 2.
+  STAGE 2 SCOPE (revised by this baseline): the fused W4A16 GEMM's real prize is killing per-chunk dequant
+  redundancy so chunk size stops costing dequant work -- it attacks factor (1) at high context where the
+  2-phase path is worst; it will NOT close factor (2). Worth resuming, scoped as "recover the high-context
+  chunk penalty", with W4A8 tracked separately as the final-2x lever. PENDING: Tier 2 (felt) = same `claude -p`
+  -> MIS vs -> LM Studio, to add Python/wire overhead AND confirm Mila's tokenizer encodes the same text to
+  ~22496 (a large divergence from llama.cpp's count would itself be a tokenizer finding). Logs in scratchpad
+  tier1_mila_prefill*.log. See [[project_w4a16_prefill_gemm]].
+  STAGE 2 IMPLEMENTED 2026-07-12 (rewrote CudaW4A16Gemm.Wmma.cu, same launcher signature -> no cuh/Dispatch/Op
+  change). cp.async double-buffered software pipeline over Stage 1's exact 64x64/4-warp/BK=32 geometry: while
+  the current K-tile's MMAs run, the next tile's activations (BF16, wmma-ready) + packed FP4 weights stream
+  global->smem via __pipeline_memcpy_async; the FP4 decode stays a smem->smem dequant pass into a single BF16
+  scratch (cp.async can't decode inline). Two-stage buffers: sA[2] + rawW[2] double-buffered, bf16W single.
+  Prologue-load + __pipeline_commit/wait_prior(1) hides the Long-Scoreboard global-load latency that pinned
+  Stage 1 (occupancy 33%, Compute 37%). Key simplifier: FP4 guarantees K%group_size==0 (group 64/128) so
+  K%64==0 -> BK divides K with no tail and all cp.async addrs are 16-byte aligned; bounds reduce to M/N row
+  edges (OOB rows zero-filled in smem). smem 18 KB (no opt-in).
+  VALIDATED + PROFILED 2026-07-12 (build green, Forward_MatchesReference + Gemma parity green, chat coherent =
+  Stage 2 CORRECT end-to-end). ProfileModel prefill A/B, 22496 tok:
+    - @48K: Stage 2 44178 ms (509 tok/s) vs 2-phase 39208 ms (574 tok/s) = 1.13x SLOWER.
+    - @24K: Stage 2 42660 ms (527 tok/s) vs 2-phase 21797 ms (1032 tok/s) = 1.96x SLOWER.
+  cp.async WORKED (Stage 1 was 4-7x regression -> Stage 2 is 1.1-2x): the Long-Scoreboard stall is largely
+  gone. KEY FINDING = the fused kernel is now nearly CHUNK-INDEPENDENT (~510-527 tok/s flat vs 2-phase's
+  574@48K -> 1032@24K), which VALIDATES the Stage 2 thesis (no per-chunk dequant redundancy, no small-M
+  penalty) -- BUT the flat level sits BELOW cuBLASLt at every measured chunk. It is now COMPUTE-bound below
+  cuBLASLt's BF16 GEMM, not latency-bound. So Stage 2 does NOT beat 2-phase; kUseFusedFp4Gemm reverted to
+  FALSE (don't ship regression; Stage 2 kept in-tree as the cp.async foundation for the ladder). STRATEGIC
+  PIVOT this surfaces: 2-phase at a BIG chunk (1032 tok/s @24K) already beats the fused kernel, so the
+  highest-CERTAINTY attack on the re-baseline's 1.8x chunk penalty is to UN-SHRINK the KV-aware chunk budget at
+  48K. NOTE: pooling + flash-5.6 reclaim are ALREADY SPENT (both baked into resolvePrefillChunkSize's row_cost:
+  pooling -> workspace_bytes, flash -> attention_bytes uses window-bounded prefillScoreWidth). What throttles
+  the chunk at 48K is the KV-AWARE BUDGET (Gemma.ixx:820): budget = 1536 MiB fixed - global_KV(T_ctx); global
+  KV is BF16 (8 layers x 1 KV head x hd512), = 384 MiB @24K (budget 1152 -> big chunk -> 1032 tok/s) vs 768 MiB
+  @48K (budget 768 -> small chunk -> 574). The one un-spent lever = WIRE FP8/INT8 GLOBAL-KV: the config's
+  FP8-KV label is INERT (Gemma.ixx:772, OperationTraits has no PerChannelKvFp8 spec, op stores TPrecision=BF16).
+  Halving 768->384 MiB restores 48K's budget to 1152 (== 24K's) -> 48K picks the same big chunk -> ~1032 tok/s,
+  closing ~all of the 1.8x. It is a KV numerics change (parity gate) + a real OperationTraits KV-policy spec
+  ("bounded+FP8 on globals" follow-up), and mainly helps the 12 GB 4070 (16 GB card likely already big-chunks
+  @48K). This is NOT more pooling. The fused kernel is NOT the lever for factor (1). The fused-kernel ladder (XOR swizzle -> ldmatrix -> bigger tiles 128x64/128x128; fa-5090 proved 94%
+  SOL is reachable) only pays off if it crosses cuBLASLt AND stays chunk-independent (flat >1032 would beat
+  2-phase at ALL contexts). DECISION PENDING user steer: (A) continue fused ladder, (B) pivot to memory-reclaim
+  big-chunk, (C) W4A8 for the residual 2x. ncu on fp4a16_wmma_gemm_kernel still useful to confirm the new
+  compute-bound bottleneck (bank conflicts / smem-instruction) before picking (A).
+  FACTOR 1 RESOLVED 2026-07-12 (chunk override experiment -- SUPERSEDES the FP8-KV framing above). Forced
+  kGemmaPrefillChunkOverride=1024 (2-phase, kUseFusedFp4Gemm=false), rebuilt, reprofiled 22496 tok:
+    - @48K forced-1024: 21350 ms = 1054 tok/s (vs heuristic 39208 ms / 574) = 1.84x FASTER, and it FIT
+      (used 11531 MiB, 750 MiB free -- no OOM). Matches 24K exactly.
+    - @24K forced-1024: 21289 ms (control, ~= heuristic 21797 -> 24K already used ~1024).
+  So the entire factor-(1) 1.8x is a FREE HEURISTIC FIX, NOT a fundamental chunk/KV limit and NOT needing
+  FP8-KV. The chunk heuristic throttles 48K to ~256 even though 1024 fits with 750 MiB to spare: the fixed
+  1536 MiB conservative cap (Gemma.ixx:115, minus full 768 MiB KV = 768 MiB modeled budget) is FAR more
+  pessimistic than real headroom. FIX = make resolvePrefillChunkSize budget against LIVE cudaMemGetInfo free
+  VRAM (the follow-up already noted at Gemma.ixx:111-113) minus a safety margin, so it picks the largest chunk
+  that ACTUALLY fits (1024 @48K, self-limiting toward 512 @64K where a fixed 1024 would OOM). No numerics
+  change, no new kernel. REVISED SCOREBOARD (4070, 22496 tok, 48K): llama.cpp 2063 / Mila-heuristic 574 (3.6x)
+  / Mila-chunk-fixed 1054 (2.0x, FREE) / +W4A8 ~2000 (~parity, structural). PLAN: (1) land the live-VRAM chunk
+  budget = free 1.8x -> 2.0x behind; (2) W4A8 for the structural 2x. FP8-KV demoted (helps 64K memory, not
+  this speed gap). Fused ladder + Stage 2 stay parked (kUseFusedFp4Gemm=false; big-chunk 2-phase now clearly
+  the better path). kGemmaPrefillChunkOverride reverted to 0.
+  CORRECTION 2026-07-12 (instrumented + re-measured CURRENT binary -- OVERTURNS "FACTOR 1 RESOLVED" above;
+  there is NO factor 1). A [chunk-diag] print in resolvePrefillChunkSize showed BOTH 24K and 48K pick
+  chunk=1024 (row_cost=662464=0.63 MiB, scoreWidth=1023 -> flash reclaim IS in the cost model). Re-ran the
+  CURRENT heuristic binary (override=0) at 22496 tok: @24K 21312 ms / @48K 21306 ms = 1055/1056 tok/s, IDENTICAL.
+  So the shipping code already runs 48K at chunk 1024 = 1056 tok/s. The slow 39208 ms / 574 tok/s @48K "baseline"
+  was a STALE BINARY (the first ProfileModel @08:57 predated flash-5.6's cost-model reclaim -> it alone picked a
+  small chunk). The whole "1.8x chunk penalty / free heuristic fix / live-VRAM budget / FP8-KV" thread is VOID --
+  flash-5.6 already fixed the chunk at build. TRUE SCOREBOARD (4070, 22496 tok, 48K): llama.cpp 2063 / Mila
+  SHIPPING 1056 (1.95x behind) / +W4A8 ~2000 (~parity). The ONLY remaining prefill lever vs llama.cpp is W4A8
+  (int8 activations = MMQ's 2x tensor-core rate); factor 1 does not exist. Chunk-heuristic diag + <iostream>
+  removed from Gemma.ixx (tree clean). LESSON: re-measure the CURRENT binary before trusting a baseline across
+  rebuilds -- a stale ProfileModel drove ~an entire session of wrong analysis.
+- [x] **[perf, prefill] FP8-activation prefill GEMM (W4A8-FP8) -- DONE + VALIDATED + PROFILED + SHIPPED ON
+  2026-07-12 (0.20.0-alpha.6+98); a real 1.24x prefill win, but attention -- not the GEMM -- is now the
+  dominant gap.** SPEC: `Mila/Specifications/Fp8ActivationPrefill.md`.
+  Run the batched prefill linear GEMMs on FP8 tensor cores (~2x BF16) instead of BF16, entirely inside
+  CudaLinearOp (internal op optimization; BF16 in/out contract preserved; same category as the existing FP4
+  weight quant, gated by the same Forward_MatchesReference 5e-2 + Gemma parity oracle). HARDWARE-VERIFIED:
+  cuBLASLt FP8xFP8 = ~2.0x BF16 on the 4070 (microbench scratchpad/fp8_gemm_bench.cu, 1.90-2.11x across prefill
+  shapes; regular FP32 accum already 2x -> no fast-accum). PIVOT CONSTRAINT: Gemma 4 12B weights STAY FP4 in
+  VRAM (12B/12GB fit); only a TRANSIENT FP4->FP8 E4M3 upcast feeds the GEMM (half the bytes of today's
+  FP4->BF16 staging; FP4->FP8 ~lossless). Activations: BF16->FP8 E4M3 dynamic scale (the one lossy step ->
+  the numerics gate). Decode (FP4 matvec) untouched. WHY FP8 not int8: same 2x, better numerics (float),
+  cuBLASLt-native (no MMQ hand-roll). EXPECTED: prefill 1.95x-behind -> ~1.1-1.3x (competitive). KEY RISK =
+  weight FP8 scale granularity (per-tensor may lose FP4 per-group precision -> escalate to per-channel/vector
+  scaling). Implement per spec S8 checklist behind kUseFp8ActivationPrefill (OFF until it beats BF16 + passes
+  parity). Current --quantization fp8 is W8A16 (dequant-to-BF16, no 2x -- measured fp8=fp4 on llama-3B), so
+  this is net-new wiring. See [[project_w4a16_prefill_gemm]].
+  IMPLEMENTED 2026-07-12 behind `kUseFp8ActivationPrefill` (CudaLinearOp.ixx, default FALSE). New:
+  `cuda_quantize_bf16_to_fp8` (act BF16->FP8 + dynamic per-tensor absmax scale; CudaFp8Prefill),
+  `cuda_fp4_dequantize_to_fp8` + `cuda_compute_fp8_weight_scale` (sB=(6/448)*max(FP4 group scales), derived
+  from stored scales -- no weight reread; CudaW4A16Gemm), `build_fp8_prefill_plan`/`execute_fp8_prefill_plan`
+  (TN col-major, BOTH operands E4M3, A=weight/A_SCALE=sB, B=act/B_SCALE=sA, FP32 accum, NO fast-accum, BF16
+  out; CublasLtLinearPlan). Op owns 2 device scalars (dynamic sA rewritten per forward, static sB @build) +
+  a conditional FP8 plan cache (std::monostate when off -> zero extra instantiation for other policies).
+  Shared scratch: weight-FP8 (16B-aligned) | activation-FP8. Decode (outer_size==1) untouched.
+  VALIDATED (toggle ON): Forward_MatchesReference 5e-2 + Gemma parity + chat coherent all GREEN, and the
+  PER-TENSOR weight scale SUFFICED -- the flagged per-channel-escalation risk did NOT bite.
+  PROFILED (4070, Gemma 4 12B, 22496 tok @48K, ProfileModel prefill fp4): FP8 17210 ms min/5 (mean 17235) =
+  **1307 tok/s** vs 2-phase OFF 21350 ms / 1056 = **1.24x prefill speedup**; 1.95x -> **1.58x behind
+  llama.cpp** (2063). Fits VRAM (used 11549 MiB, free 733, chunk 1024 held).
+  IMPORTANT CONTEXT: flash prefill was ALREADY ON in BOTH runs. It is build-time context-gated
+  (useFlashPrefillForContext = BF16 && T_ctx >= kGemmaFlashPrefillMinContext(16384), Gemma.ixx:716;
+  wired on global blocks via setUseFlashPrefill, Gemma.ixx:498); both runs used --context-length 49152.
+  So baseline 1056 = flash-on + FP8-off, and 1307 = flash-on + FP8-on: 1307 @48K IS the combined flash+FP8
+  target config, and the 1.24x is the PURE FP8-GEMM delta with flash held on in both.
+  (An earlier draft of this entry wrongly claimed the ~60% non-GEMM remainder was un-accelerated O(S^2)
+  BF16 attention and that flash was the next lever -- WRONG: flash was already applied to the global layers,
+  and the local layers are window-bounded (1024) = already cheap. The 40/60 split was a hand-wave from one
+  GEMM-delta subtraction, not a measured breakdown.)
+  NSYS KERNEL BREAKDOWN 2026-07-12 (combined flash+FP8 @48K, 22496 tok; capture = ~all 17.2s wall, GPU ~fully
+  busy, no launch-gap tax; report scratchpad/gemma_flash_fp8_48k.nsys-rep):
+    - Global flash attn (gqa_flash_prefill_wmma_bf16): 41.9% (176 inst = 8 global x 22 chunks) -- #1 cost.
+    - Local sliding attn (prefill_softmax_ring_bf16 15.4% + cutlass BF16 QK/AV GEMMs 4.8%): ~20.2% (softmax
+      880 inst = 40 local x 22 chunks; the 40 sliding layers are NOT flashed -- still cuBLASLt + ring softmax).
+    - FP8 linear GEMMs (sm89_xmma_e4m3 tn): 23.9% -- already fast (the landed FP8 win).
+    - FP4->FP8 weight upcast: 6.4%; RoPE 2.2%; activation->FP8 quant 1.8% (negligible); GeGLU/RmsNorm/misc ~3.6%.
+  CONCLUSION: attention is ~62% of prefill (42 global-flash + 20 local); linear GEMMs only ~24% (already FP8-
+  fast). llama.cpp's remaining 1.58x edge @48K is ATTENTION, NOT the matmul; FP8 quant overhead is negligible.
+  TWO LEVERS (ranked by measured cost): (1) optimize the flash WMMA kernel (41.9%; Stage 2c compute-bound below
+  cuBLASLt -> fa-5090 ladder swizzle/ldmatrix/bigger tiles) = biggest single win; (2) extend fused flash to the
+  40 LOCAL sliding-window layers (~20%; kill the ring-softmax + separate QK/AV BF16 GEMMs). Both are
+  [[project_gqa_flash_attention]] work; the matmul side is done (low ceiling for more matmul effort).
+  W4A8-FP8 clears its bar (beats BF16, parity green) and stacks on flash for the combined 1307 @48K; it
+  stays in-tree behind the toggle (returns to FALSE for the shipped default until a ship-on decision, same
+  discipline as kUseFusedFp4Gemm). Reusable microbench: scratchpad/fp8_gemm_bench.cu.
 - [ ] **[perf, prefill] Flash-attention-style global prefill kernel -- 36% of prefill (the single largest
   cost).** STATUS 2026-07-10: Iteration 1 (naive scalar, no shared-memory K/V tiling) landed behind the
   runtime `use_flash_prefill_` toggle (default OFF). It is CORRECT -- token-for-token model parity green,
@@ -547,6 +713,34 @@ a 12 GB card.
   ctx >= threshold (below = cuBLASLt, faster + fits). PENDING VS2026 build + validate 64K fits. Stage 2c
   (flash speed) de-prioritized. FOLLOW-UP: LlamaTransformer (all-global) can reclaim `preatt`/`att` entirely
   with the same wiring. Next active work = fast fused W4A16 prefill GEMM. See spec 5.6.
+  UPDATE 2026-07-12 (CATCH-UP -- the following all landed in commit +97 but were never written back
+  here; the omission cost a re-derivation the next session): STAGE 2c IMPLEMENTED + GREEN + PROFILED =
+  THE WIN. cp.async double-buffered K/V software pipeline (`__pipeline_memcpy_async`/commit/wait_prior
+  prefetches the next tile's K+V while the current tile's QK+softmax+PV run; math byte-identical to 2b
+  so the oracle stays exact) removed the #1 stall. Stall-reason ncu (2b, 8192) had pinned it: Long
+  Scoreboard 3.97 cyc/inst (~35%, synchronous global K/V loads) = #1; Short Scoreboard / bank conflicts
+  (536M) ~8.6% = #2. cp.async targets #1. Arc @32K: flash 2b ~98000 ms (2x regression) -> 2c wins.
+  CLEAN 32K A/B 2026-07-12 (threshold-flip rebuild, same binary both arms, min of 5 measured runs):
+  flash 2c = 35624 ms vs cuBLASLt (`kGemmaFlashPrefillMinContext=0`) = 39265 ms -> flash WINS ~9.3%
+  end-to-end at 32K (closes the "exact matched cuBLASLt @32K owed" item). 16K = ~parity (pre-cliff).
+  CAVEAT on the 9.3%: prefill chunk is coupled to the flash decision via `prefillScoreWidth`, so arm A
+  runs chunk 1024 while arm B (full-width score buffer) falls to ~512 -- the margin is the honest
+  end-to-end CONFIG delta (and the chunk-1024 win is itself flash-ENABLED: cuBLASLt's full-width buffer
+  can't fit chunk 1024), not a pure-kernel delta.
+  5.6 RECLAIM VALIDATED -> 64K FITS on a 12 GB 4070 (the memory/context-scaling payoff = the real
+  justification, not the speed). Fit-probes (short seq, full context) confirmed the KV-aware chunk
+  boundary: 48K -> chunk 1024, used 11652 MiB, free 630 MiB, load transient min-free 438 MiB; 64K ->
+  chunk 512, used 11524 MiB, free 757 MiB, load transient 470 MiB. Both load + fit positive, no OOM.
+  KV-AWARE PREFILL BUDGET landed (subtracts KV(T_ctx) from the 1536 MB activation budget; removed the
+  magic 32768 cap): chunk 1024 holds to ~57-58K then drops to 512, so the user's 40960 Claude-CLI
+  workload gets chunk 1024 (~8% faster across 16K-48K) and 64K auto-falls to 512 (safe). Tightest case
+  = the load transient in the ~48-57K band (chunk 1024); if a 50-57K run ever load-OOMs, nudge
+  `kGemmaPrefillActivationBudgetBytes` down (~1410 MB) to move the 1024->512 transition earlier without
+  touching 40K or 64K. (48K/64K full-timing runs skipped; throughput follows the measured 16K/32K curve.)
+  REMAINING flash levers (fa-5090 ladder, data-backed order): XOR-swizzle smem (kills the 536M-conflict
+  Short Scoreboard, their V2) -> ldmatrix.x4 (V4) -> convert QK to mma.sync (drops split-K smem round-
+  trip + a barrier). `use_flash_prefill_` op default STILL false; `GemmaTransformer` wires it on at
+  ctx >= 16384. Llama sec 5.6 (all-global -> reclaim `preatt`/`att` entirely) still pending the same wiring.
   See [[project_gqa_flash_attention]]. Original analysis below still holds:
   Same capture: **`prefill_softmax_bf16_kernel` = 20.4 s / 56.9 s (36.1%)**, 1120 instances, 18.2 ms
   avg (max 27.8 ms). This is the 8 global layers' O(n^2) full-context attention at 35K tokens; the kernel

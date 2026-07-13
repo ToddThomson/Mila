@@ -26,6 +26,7 @@ module;
 #include <cassert>
 #include <algorithm>
 #include <cmath>
+#include <variant>
 #include "Kernels/Linear.cuh"
 #include "Kernels/Fp8Prefill/CudaFp8Prefill.cuh"
 #include "Kernels/W8A16Gemm/CudaW8A16Gemm.cuh"
@@ -127,17 +128,46 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         // Toggle between the fused FP4 GEMM kernels and the 2-phase dequant path for A/B testing.
         //   true  -- cuda_fp4a16_gemm_wmma / cuda_fp4a16_gemm: reads packed FP4 once, dequantizes
-        //            inline per tile, no staging buffer. Stage 1 tiled rewrite (64x64/4-warp) is
-        //            CORRECT (Linear FP4 Forward_MatchesReference green) but still a ~5-7x prefill
-        //            regression vs the 2-phase path -- Long-Scoreboard bound (synchronous loads),
-        //            ~6.8 TFLOP/s vs cuBLASLt ~50. Needs Stage 2 (cp.async double-buffer, fa-5090
-        //            ladder) before it is competitive; stays FALSE until then. See project_w4a16_prefill_gemm.
+        //            inline per tile, no staging buffer. Stage 1 tiled rewrite (64x64/4-warp) was
+        //            CORRECT but ~5-7x prefill regression vs 2-phase -- Long-Scoreboard bound
+        //            (synchronous loads), ~6.8 TFLOP/s. Stage 2 (cp.async double-buffered software
+        //            pipeline) IMPLEMENTED 2026-07-12: correct + chunk-INDEPENDENT (~510-527 tok/s
+        //            flat vs 2-phase 574@48K/1032@24K), but still below cuBLASLt at every chunk
+        //            (1.13x slower @48K, 1.96x @24K) -- cp.async killed the Stage 1 latency stall,
+        //            the kernel is now compute-bound below cuBLASLt's BF16 GEMM. Needs the rest of
+        //            the ladder (swizzle/ldmatrix/bigger tiles) to cross it; stays FALSE until then.
+        //            See project_w4a16_prefill_gemm.
         //   false -- cuda_fp4_dequantize_to_bf16 -> cuBLASLt BF16 GEMM -> cuda_add_bias, the same
         //            2-phase structure as the proven FP8 baseline path (the "P0" prefill fix).
         static constexpr bool kUseFusedFp4Gemm = false;
 
+        // Toggle the W4A8-FP8 prefill path for the FP4 weight policy. When true, batched
+        // (prefill) forwards upcast the FP4 weights transiently to FP8_E4M3, quantize the
+        // BF16 activations to FP8, and run a native FP8xFP8 cuBLASLt GEMM (~2x BF16 on Ada)
+        // instead of the 2-phase FP4->BF16 staging + BF16 GEMM. Weights STAY FP4 in VRAM;
+        // only the transient staging buffer is FP8 (half the bytes of the BF16 staging).
+        // Decode (outer_size == 1) is untouched -- it stays on the FP4 matvec.
+        // ON by default: validated (Forward_MatchesReference 5e-2 + Gemma token parity green,
+        // per-tensor weight scale sufficed) and profiled 1.24x faster prefill @48K on the 4070
+        // (1056 -> 1307 tok/s, flash on in both). See Mila/Specifications/Fp8ActivationPrefill.md.
+        static constexpr bool kUseFp8ActivationPrefill = true;
+
         static constexpr TensorDataType kWeightDtype = kIsQuantized
             ? TWeightQuant::kStorageDtype : TComputePrecision;
+
+        // True only for the FP4 E2M1 weight policy -- guards TWeightQuant::kIsFp4E2M1,
+        // which is not a member of NoWeightQuant / the FP8 per-channel policy.
+        static constexpr bool kIsFp4Weight = []
+        {
+            if constexpr ( kIsPerGroupQuantized )
+                return TWeightQuant::kIsFp4E2M1;
+            else
+                return false;
+        }();
+
+        // Compile-time predicate for the active W4A8-FP8 prefill path: FP4 weights AND the
+        // toggle on. Gates the FP8 plan cache member type and every FP8-specific branch.
+        static constexpr bool kUseFp8ActivationPrefillPath = kIsFp4Weight && kUseFp8ActivationPrefill;
 
         using WeightType = typename TensorDataTypeMap<kWeightDtype>::device_type;
 
@@ -554,7 +584,63 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 }
                 else if constexpr ( kIsPerGroupQuantized )
                 {
-                    if constexpr ( TWeightQuant::kIsFp4E2M1 && !kUseFusedFp4Gemm )
+                    if constexpr ( kUseFp8ActivationPrefillPath )
+                    {
+                        // W4A8-FP8 prefill: transient FP4->FP8 weight upcast + dynamic BF16->FP8
+                        // activation quantize, then a native FP8xFP8 cuBLASLt GEMM (~2x BF16 on
+                        // Ada). Weights stay FP4 in VRAM; only this staging buffer is FP8. Both
+                        // FP8 operands share one scratch allocation (weight region 16-byte aligned
+                        // for cuBLASLt). Fetched per-forward, never cached: the scratch buffer may
+                        // be reallocated on grow.
+                        const size_t weight_fp8_bytes = static_cast<size_t>( out_features_ )
+                            * static_cast<size_t>( cached_in_features_ );
+                        const size_t weight_fp8_bytes_aligned =
+                            ( weight_fp8_bytes + 15u ) & ~static_cast<size_t>( 15u );
+                        const size_t activation_fp8_bytes = static_cast<size_t>( outer_size )
+                            * static_cast<size_t>( cached_in_features_ );
+
+                        auto* scratch = static_cast<char*>(
+                            context_->getDeviceScratchBuffer( weight_fp8_bytes_aligned + activation_fp8_bytes ) );
+                        auto* weight_fp8 = reinterpret_cast<__nv_fp8_e4m3*>( scratch );
+                        auto* activation_fp8 = reinterpret_cast<__nv_fp8_e4m3*>( scratch + weight_fp8_bytes_aligned );
+
+                        cuda_fp4_dequantize_to_fp8(
+                            weight_fp8,
+                            weight_,
+                            weight_scales_,
+                            weight_fp8_scale_,
+                            out_features_, cached_in_features_,
+                            weight_group_size_,
+                            stream );
+
+                        cuda_quantize_bf16_to_fp8(
+                            activation_fp8,
+                            activation_fp8_scale_,
+                            input_ptr,
+                            outer_size, cached_in_features_,
+                            stream );
+
+                        const float alpha = 1.0f;
+                        const float beta  = 0.0f;
+
+                        execute_fp8_prefill_plan<TComputePrecision>(
+                            cached_cublaslt_handle_,
+                            fp8_forward_plan_cache_.get( outer_size ),
+                            &alpha,
+                            weight_fp8,
+                            activation_fp8,
+                            &beta,
+                            output_ptr,
+                            stream,
+                            context_->getCublasLtWorkspace(),
+                            context_->getCublasLtWorkspaceSize() );
+
+                        if ( bias_ != nullptr )
+                        {
+                            cuda_add_bias( output_ptr, bias_, outer_size, out_features_, stream );
+                        }
+                    }
+                    else if constexpr ( TWeightQuant::kIsFp4E2M1 && !kUseFusedFp4Gemm )
                     {
                         // 2-phase FP4 prefill path (mirrors the FP8 baseline above):
                         //   Phase 1 -- expand packed FP4 weights into the shared BF16 staging buffer.
@@ -794,7 +880,12 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             }
         }
 
-        ~CudaLinearOp() = default;
+        ~CudaLinearOp()
+        {
+            // Persistent FP8 scale scalars owned by the op (W4A8-FP8 path only; nullptr otherwise).
+            if ( activation_fp8_scale_ != nullptr ) cudaFree( activation_fp8_scale_ );
+            if ( weight_fp8_scale_ != nullptr ) cudaFree( weight_fp8_scale_ );
+        }
 
         OperationType getOperationType() const override
         {
@@ -851,6 +942,19 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         // kIsPerChannelQuantized + !kUseW8A16Gemm: BF16xBF16 NT plan fed by the FP8->BF16 staging buffer.
         // Non-quantized: BF16xBF16 (or FP32xFP32) plan fed directly by the weight tensor.
         CublasLtPlanCache<CublasLtLinearPlan<TComputePrecision>> forward_plan_cache_;
+
+        // W4A8-FP8 prefill path only. Persistent device scalars: the dynamic per-tensor
+        // activation scale (rewritten each forward) and the static per-tensor weight scale
+        // (computed once at build from the FP4 group scales). Their pointers are baked into
+        // the FP8 plan's A_SCALE/B_SCALE. Freed in the destructor.
+        float* activation_fp8_scale_{ nullptr };
+        float* weight_fp8_scale_{ nullptr };
+
+        // FP8xFP8 forward plan cache -- present only on the active W4A8-FP8 path (std::monostate
+        // otherwise, so no CublasLtLinearPlan<*, FP8_E4M3> is instantiated for other policies).
+        using Fp8LinearPlan = CublasLtLinearPlan<TComputePrecision, TensorDataType::FP8_E4M3>;
+        std::conditional_t<kUseFp8ActivationPrefillPath,
+            CublasLtPlanCache<Fp8LinearPlan>, std::monostate> fp8_forward_plan_cache_;
 
         CublasLtPlanCache<CublasLtMatMulPlan<ComputeType>> backward_input_plan_cache_;
         CublasLtMatMulPlan<ComputeType> backward_weight_plan_;
@@ -973,6 +1077,41 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             if constexpr ( kIsPerGroupQuantized )
             {
+                if constexpr ( kUseFp8ActivationPrefillPath )
+                {
+                    // W4A8-FP8 prefill path. Allocate the persistent per-tensor scale scalars
+                    // (freed in the destructor) and compute the static weight scale from the
+                    // already-stored FP4 group scales. Both pointers are baked into the FP8
+                    // plan below; the weight scale value is final now, the activation scale is
+                    // refreshed on the stream by cuda_quantize_bf16_to_fp8 each forward.
+                    cudaMalloc( reinterpret_cast<void**>( &activation_fp8_scale_ ), sizeof( float ) );
+                    cudaMalloc( reinterpret_cast<void**>( &weight_fp8_scale_ ), sizeof( float ) );
+
+                    const int64_t num_scales = static_cast<int64_t>( out_features_ )
+                        * ( cached_in_features_ / weight_group_size_ );
+                    cuda_compute_fp8_weight_scale(
+                        weight_fp8_scale_, weight_scales_, num_scales, context_->getStream() );
+
+                    fp8_forward_plan_cache_ = CublasLtPlanCache<Fp8LinearPlan>(
+                        cached_outer_size_,
+                        [&]( int bucket )
+                        {
+                            return build_fp8_prefill_plan<TComputePrecision>(
+                                cached_cublaslt_handle_,
+                                bucket,
+                                cached_in_features_,
+                                out_features_,
+                                activation_fp8_scale_,
+                                weight_fp8_scale_ );
+                        } );
+
+                    Logging::Logger::info( std::format(
+                        "CudaLinearOp: FP4->FP8 upcast + FP8xFP8 cuBLASLt GEMM (W4A8) -- {} in -> {} out (group_size={})",
+                        cached_in_features_, out_features_, weight_group_size_ ) );
+
+                    return;
+                }
+
                 if constexpr ( TWeightQuant::kIsFp4E2M1 && !kUseFusedFp4Gemm )
                 {
                     // 2-phase FP4 prefill path: packed FP4 weights are expanded into the

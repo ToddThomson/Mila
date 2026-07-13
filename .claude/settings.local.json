@@ -97,7 +97,25 @@
       "Bash(./ProfileModel.exe --model gemma --phase prefill --seq-len 512 --context-length 65536 --quantization fp4)",
       "PowerShell(Get-Process -Name ProfileModel,nsys,ncu,\"nv-nsight-cu-cli\",\"target-windows-x64\" -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,@{N='VRAM_MB';E={[math]::Round\\($_.WorkingSet64/1MB\\)}},StartTime | Format-Table -AutoSize)",
       "Bash(./ProfileModel.exe --model gemma --phase prefill --seq-len 16384 --context-length 16384 --quantization fp4)",
-      "Bash(./ProfileModel.exe --model gemma --phase prefill --seq-len 512 --context-length 49152 --quantization fp4)"
+      "Bash(./ProfileModel.exe --model gemma --phase prefill --seq-len 512 --context-length 49152 --quantization fp4)",
+      "PowerShell(Get-Process ProfileModel -ErrorAction SilentlyContinue | ForEach-Object { \"orphan PID $\\($_.Id\\) — stopping\"; Stop-Process -Id $_.Id -Force }; \"done\")",
+      "PowerShell(\\(Get-Item \"out\\\\build\\\\x64-profile\\\\ProfileModel.exe\"\\).LastWriteTime)",
+      "Bash(nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv)",
+      "Bash(nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv)",
+      "Bash(mkdir -p \"C:/Users/ToddT/AppData/Local/Temp/claude/D--Repos-Mila/492a3d60-1195-4422-bd3b-647669cba9a3/scratchpad\")",
+      "Bash(./ProfileModel.exe --model gemma --phase prefill --seq-len 35719 --context-length 40960 --quantization fp4)",
+      "Bash(tee \"C:/Users/ToddT/AppData/Local/Temp/claude/D--Repos-Mila/492a3d60-1195-4422-bd3b-647669cba9a3/scratchpad/tier1_mila_prefill.log\")",
+      "Bash(nvidia-smi --query-gpu=memory.used,memory.free --format=csv,noheader)",
+      "Bash(tasklist)",
+      "Bash(./ProfileModel.exe --model gemma --phase prefill --seq-len 22496 --context-length 49152 --quantization fp4)",
+      "Bash(tee \"C:/Users/ToddT/AppData/Local/Temp/claude/D--Repos-Mila/492a3d60-1195-4422-bd3b-647669cba9a3/scratchpad/tier1_mila_prefill_22496_48k.log\")",
+      "Bash(./ProfileModel.exe --model gemma --phase prefill --seq-len 22496 --context-length 24576 --quantization fp4)",
+      "Bash(tee \"C:/Users/ToddT/AppData/Local/Temp/claude/D--Repos-Mila/492a3d60-1195-4422-bd3b-647669cba9a3/scratchpad/tier1_mila_prefill_22496_24k.log\")",
+      "Bash(curl -s -m 4 http://localhost:8000/v1/models)",
+      "Bash(./ProfileModel.exe --model gemma --phase prefill --seq-len 64 --context-length 49152 --quantization fp4)",
+      "Bash(nvcc -O3 -arch=sm_89 fp8_gemm_bench.cu -lcublasLt -o fp8_gemm_bench.exe)",
+      "Bash(cd /d/Repos/Mila)",
+      "Bash(./out/build/x64-profile/ProfileModel.exe --model gemma --phase prefill --quantization fp4 --seq-len 22496 --context-length 49152)"
     ]
   }
 }

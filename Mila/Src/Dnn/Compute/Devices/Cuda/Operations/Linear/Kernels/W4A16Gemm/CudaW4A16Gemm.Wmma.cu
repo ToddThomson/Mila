@@ -7,28 +7,38 @@
  * K-group) FP32 scales, and C is BF16. M = tokens (prefill chunk), N = out_features,
  * K = in_features.
  *
- * STAGE 1 (multi-warp register-accumulator tiling). The prior kernel was one warp per
- * block computing a single [16 x 16] tile -- no A/W reuse, ~1 block-per-16x16, measured
- * ~2.5 TFLOPS (Gemma4InferenceReview.md 10.2), which is why the 2-phase dequant ->
- * cuBLASLt path was faster and the fused kernel stayed toggled off. This rewrite tiles
- * a 64 x 64 output block across 4 warps (2 x 2), each owning a 32 x 32 sub-tile as
- * register-resident wmma accumulators that persist across the whole K loop, so each A
- * row-strip feeds all BN columns and each W column-strip feeds all BM rows -- the reuse
- * the naive kernel lacked. A GEMM has no online-softmax rescale, so the safe nvcuda::wmma
- * API suffices (no mma.sync PTX). The per-tile FP4 decode, scale indexing, and fragment
- * orientations are reused verbatim from the proven naive kernel.
+ * STAGE 2 (cp.async double-buffered software pipeline). Stage 1 tiled a 64 x 64 output
+ * block across 4 warps with register-resident wmma accumulators, but loaded each K-tile
+ * synchronously: the global reads blocked the MMAs, so the kernel profiled Stall Long
+ * Scoreboard bound (global-load latency) at ~33% occupancy, Compute (SM) ~37% -- latency
+ * starved, not throughput starved. Stage 2 keeps the exact tile geometry, warp layout,
+ * MMA, and epilogue, and replaces the synchronous loads with a two-stage cp.async
+ * pipeline: while the current K-tile's MMAs run, the next tile's activations and packed
+ * weights stream global->smem asynchronously, hiding the latency without needing more
+ * occupancy (software pipelining substitutes for occupancy-based latency hiding).
  *
- * NEXT (Stage 2): cp.async double-buffered global->smem loads (overlap load with MMA --
- * the "Stall Long Scoreboard" fix), XOR swizzle to kill smem bank conflicts, ldmatrix,
- * and larger tiles. See the fa-5090 optimization ladder in GqaFlashAttention.md notes.
+ * W4A16 wrinkle: cp.async copies raw bytes and cannot decode FP4 inline, so the packed
+ * weight tile is double-buffered as raw nibbles (rawW) and a single BF16 scratch (bf16W)
+ * is filled by a dequant pass each iteration -- that pass reads smem (short scoreboard),
+ * not global, so the expensive latency is the one cp.async now overlaps. Activations are
+ * already BF16, so sA is double-buffered and fed to wmma directly.
  *
- * Fragment B orientation (unchanged): sW holds the dequantized tile as [n_local, k_local]
- * row-major. Loading it as wmma matrix_b col_major with ldm = BK yields B[k][n] =
- * sW[n][k] = W^T, the transposed weight required for C = A . W^T.
+ * The FP4 path guarantees K % group_size == 0 (per-group scales), and group_size is 64 or
+ * 128, so K is a multiple of 64: BK=32 divides K with no tail and every cp.async address
+ * is 16-byte aligned. Bounds handling therefore reduces to the M (token) and N (channel)
+ * row edges; OOB rows are zero-filled in smem so the MMA/dequant math is unchanged.
+ *
+ * NEXT (Stage 2 ladder): XOR swizzle to kill smem bank conflicts, ldmatrix, and larger
+ * tiles (128x64 / 128x128). See the fa-5090 optimization ladder in GqaFlashAttention.md.
+ *
+ * Fragment B orientation (unchanged): bf16W holds the dequantized tile as [n_local,
+ * k_local] row-major. Loading it as wmma matrix_b col_major with ldm = kBlockK yields
+ * B[k][n] = bf16W[n][k] = W^T, the transposed weight required for C = A . W^T.
  */
 
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
+#include <cuda_pipeline.h>
 #include <mma.h>
 #include <cstdint>
 #include "CudaW4A16Gemm.Wmma.cuh"
@@ -56,6 +66,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         static constexpr int kWarpTilesM = kWarpM / kWmmaM;    // 2
         static constexpr int kWarpTilesN = kWarpN / kWmmaN;    // 2
         static constexpr int kKSubTiles = kBlockK / kWmmaK;    // 2
+        static constexpr int kPackedBytesPerRow = kBlockK / 2; // 16 packed FP4 bytes per weight row
 
         /**
          * @brief Decode a 4-bit FP4 E2M1 nibble to float32.
@@ -68,7 +79,57 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         }
 
         /**
-         * @brief Multi-warp WMMA FP4 E2M1 x BF16 GEMM kernel.
+         * @brief Issue the cp.async global->smem copies for one K-tile.
+         *
+         * Activations land in sA_buf ready for wmma; packed FP4 weights land in rawW_buf and
+         * are decoded later by the dequant pass. OOB M/N rows are zero-filled synchronously so
+         * the async group only covers valid data. The caller commits the group and waits.
+         *
+         * K is a multiple of kBlockK (FP4 group_size constraint), so k0 + kBlockK <= K always
+         * and every 16-byte copy is in-bounds along K and 16-byte aligned.
+         */
+        __device__ __forceinline__ void loadTileAsync(
+            __nv_bfloat16 (&sA_buf)[ kBlockM ][ kBlockK ],
+            uint8_t (&rawW_buf)[ kBlockN ][ kPackedBytesPerRow ],
+            const __nv_bfloat16* __restrict__ activations,
+            const uint8_t* __restrict__       weights_packed,
+            int m_block, int n_block, int k0,
+            int M, int N, int K, int half_K, int tid )
+        {
+            // Activation tile: 16-byte (8 bf16) chunks, kBlockK/8 chunks per row.
+            constexpr int kAChunksPerRow = kBlockK / 8;
+#pragma unroll
+            for ( int c = tid; c < kBlockM * kAChunksPerRow; c += kBlockThreads )
+            {
+                const int row = c / kAChunksPerRow;
+                const int col = ( c % kAChunksPerRow ) * 8;
+                const int gm  = m_block + row;
+                void* dst = &sA_buf[ row ][ col ];
+
+                if ( gm < M )
+                    __pipeline_memcpy_async(
+                        dst, &activations[ static_cast<int64_t>( gm ) * K + k0 + col ], 16 );
+                else
+                    *reinterpret_cast<float4*>( dst ) = make_float4( 0.0f, 0.0f, 0.0f, 0.0f );
+            }
+
+            // Weight tile: one 16-byte (kBlockK/2 packed) copy per row.
+#pragma unroll
+            for ( int c = tid; c < kBlockN; c += kBlockThreads )
+            {
+                const int gn = n_block + c;
+                void* dst = &rawW_buf[ c ][ 0 ];
+
+                if ( gn < N )
+                    __pipeline_memcpy_async(
+                        dst, &weights_packed[ static_cast<int64_t>( gn ) * half_K + k0 / 2 ], 16 );
+                else
+                    *reinterpret_cast<float4*>( dst ) = make_float4( 0.0f, 0.0f, 0.0f, 0.0f );
+            }
+        }
+
+        /**
+         * @brief Multi-warp cp.async double-buffered WMMA FP4 E2M1 x BF16 GEMM kernel.
          *
          * @tparam kGroupSize Quantization group size along K (64 or 128).
          *
@@ -101,8 +162,12 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             const int half_K     = K / 2;
             const int num_groups = K / kGroupSize;
 
-            __shared__ __nv_bfloat16 sA[ kBlockM ][ kBlockK ];
-            __shared__ __nv_bfloat16 sW[ kBlockN ][ kBlockK ];
+            // Double-buffered raw inputs (cp.async targets) + single-buffered dequantized
+            // weight scratch (produced fresh each iteration). 16-byte aligned so the cp.async
+            // and float4 zero-fill stores are legal.
+            __shared__ __align__(16) __nv_bfloat16 sA[ 2 ][ kBlockM ][ kBlockK ];
+            __shared__ __align__(16) uint8_t       rawW[ 2 ][ kBlockN ][ kPackedBytesPerRow ];
+            __shared__ __align__(16) __nv_bfloat16 bf16W[ kBlockN ][ kBlockK ];
             // Epilogue staging: one [16 x 16] tile per warp, reused across its sub-tiles.
             __shared__ float sOut[ kNumWarps ][ kWmmaM ][ kWmmaN ];
 
@@ -115,40 +180,46 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 for ( int j = 0; j < kWarpTilesN; ++j )
                     wmma::fill_fragment( c_frag[ i ][ j ], 0.0f );
 
-            for ( int k0 = 0; k0 < K; k0 += kBlockK )
+            const int num_k_tiles = K / kBlockK;
+
+            // Prologue: kick off the first tile's async loads.
+            loadTileAsync( sA[ 0 ], rawW[ 0 ], activations, weights_packed,
+                m_block, n_block, 0, M, N, K, half_K, tid );
+            __pipeline_commit();
+
+            for ( int k = 0; k < num_k_tiles; ++k )
             {
-                // --- cooperative load of the activation tile sA[kBlockM][kBlockK] (BF16) ---
-#pragma unroll
-                for ( int e = tid; e < kBlockM * kBlockK; e += kBlockThreads )
+                const int cur = k & 1;
+
+                // Prefetch the next tile so its global latency overlaps this tile's dequant + MMA.
+                if ( k + 1 < num_k_tiles )
                 {
-                    const int row = e / kBlockK;
-                    const int col = e % kBlockK;
-                    const int gm  = m_block + row;
-                    const int gk  = k0 + col;
-
-                    sA[ row ][ col ] = ( gm < M && gk < K )
-                        ? activations[ static_cast<int64_t>( gm ) * K + gk ]
-                        : __float2bfloat16( 0.0f );
+                    loadTileAsync( sA[ ( k + 1 ) & 1 ], rawW[ ( k + 1 ) & 1 ],
+                        activations, weights_packed,
+                        m_block, n_block, ( k + 1 ) * kBlockK, M, N, K, half_K, tid );
+                    __pipeline_commit();
+                    __pipeline_wait_prior( 1 );   // this tile (1 group behind) is now resident
                 }
+                else
+                    __pipeline_wait_prior( 0 );   // drain the final tile
 
-                // --- cooperative dequant of the weight tile sW[kBlockN][kBlockK] (FP4 -> BF16) ---
+                __syncthreads();
+
+                // --- dequant this tile's weights sm(raw) -> smem(bf16); reads smem, not global ---
 #pragma unroll
                 for ( int e = tid; e < kBlockN * kBlockK; e += kBlockThreads )
                 {
                     const int row = e / kBlockK;   // n_local
                     const int col = e % kBlockK;   // k_local
                     const int gn  = n_block + row;
-                    const int gk  = k0 + col;
+                    const int gk  = k * kBlockK + col;
 
-                    if ( gn < N && gk < K )
-                    {
-                        const uint8_t byte   = weights_packed[ static_cast<int64_t>( gn ) * half_K + gk / 2 ];
-                        const uint8_t nibble = ( gk % 2 == 0 ) ? ( byte & 0xFu ) : ( byte >> 4 );
-                        const float   scale  = scales[ static_cast<int64_t>( gn ) * num_groups + gk / kGroupSize ];
-                        sW[ row ][ col ] = __float2bfloat16( fp4_e2m1_decode( nibble ) * scale );
-                    }
-                    else
-                        sW[ row ][ col ] = __float2bfloat16( 0.0f );
+                    const uint8_t byte   = rawW[ cur ][ row ][ col >> 1 ];
+                    const uint8_t nibble = ( col & 1 ) ? ( byte >> 4 ) : ( byte & 0xFu );
+                    const float   scale  = ( gn < N )
+                        ? scales[ static_cast<int64_t>( gn ) * num_groups + gk / kGroupSize ]
+                        : 0.0f;
+                    bf16W[ row ][ col ] = __float2bfloat16( fp4_e2m1_decode( nibble ) * scale );
                 }
 
                 __syncthreads();
@@ -164,11 +235,11 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
 #pragma unroll
                     for ( int i = 0; i < kWarpTilesM; ++i )
-                        wmma::load_matrix_sync( a_frag[ i ], &sA[ warp_row * kWarpM + i * kWmmaM ][ k_sub ], kBlockK );
+                        wmma::load_matrix_sync( a_frag[ i ], &sA[ cur ][ warp_row * kWarpM + i * kWmmaM ][ k_sub ], kBlockK );
 
 #pragma unroll
                     for ( int j = 0; j < kWarpTilesN; ++j )
-                        wmma::load_matrix_sync( b_frag[ j ], &sW[ warp_col * kWarpN + j * kWmmaN ][ k_sub ], kBlockK );
+                        wmma::load_matrix_sync( b_frag[ j ], &bf16W[ warp_col * kWarpN + j * kWmmaN ][ k_sub ], kBlockK );
 
 #pragma unroll
                     for ( int i = 0; i < kWarpTilesM; ++i )
@@ -177,6 +248,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                             wmma::mma_sync( c_frag[ i ][ j ], a_frag[ i ], b_frag[ j ], c_frag[ i ][ j ] );
                 }
 
+                // Barrier so this tile's MMA finishes reading bf16W (single-buffered) and
+                // sA[cur]/rawW[cur] before the next iteration's dequant overwrites bf16W and
+                // its prefetch reissues cp.async into buf[cur].
                 __syncthreads();
             }
 

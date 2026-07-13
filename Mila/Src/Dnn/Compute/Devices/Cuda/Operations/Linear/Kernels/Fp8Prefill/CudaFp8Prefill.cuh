@@ -53,6 +53,34 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         cudaStream_t stream );
 
     /**
+     * @brief Quantize a BF16 activation matrix to FP8_E4M3 with a dynamic per-tensor scale.
+     *
+     * Prefill activation path for the W4A8-FP8 GEMM. Two passes on stream:
+     *   1. absmax reduction over all outer_size * in_features elements ->
+     *      scale_out = max(absmax, epsilon) / 448.0f  (448 = E4M3 max magnitude).
+     *   2. elementwise quantize: fp8_out[i] = E4M3( input[i] / scale_out ).
+     *
+     * The scale is dynamic (recomputed every forward) because activation dynamic
+     * range varies with the input. scale_out is a device float the caller owns and
+     * whose pointer is bound to the cuBLASLt B_SCALE_POINTER; the value is fresh by
+     * the time the GEMM executes because all work is ordered on the same stream.
+     *
+     * @param fp8_out     Device FP8_E4M3 tensor [outer_size * in_features], written.
+     * @param scale_out   Device float scalar, written with the per-tensor activation scale.
+     * @param input       Device BF16 activations [outer_size * in_features], read-only.
+     * @param outer_size  Number of tokens (batch * sequence_length for prefill).
+     * @param in_features Inner dimension K.
+     * @param stream      CUDA stream.
+     */
+    void cuda_quantize_bf16_to_fp8(
+        __nv_fp8_e4m3* fp8_out,
+        float*         scale_out,
+        const __nv_bfloat16* input,
+        int            outer_size,
+        int            in_features,
+        cudaStream_t   stream );
+
+    /**
      * @brief Add a bias vector to every row of a BF16 output matrix.
      *
      * Computes output[t, out] += bias[out] for all t in [0, outer_size).

@@ -38,6 +38,7 @@
 
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
+#include <cuda_fp8.h>
 #include <cstdint>
 #include "CudaW4A16Gemm.cuh"
 
@@ -233,6 +234,96 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             }
         }
 
+        /**
+         * @brief Max-reduce the FP4 per-group scales into a raw absmax scalar.
+         *
+         * Grid-stride reduction; atomicMax on the int reinterpretation is valid because
+         * the scales are non-negative (their IEEE-754 patterns order as signed ints).
+         * out must be pre-zeroed. Finalized by fp8_weight_scale_finalize_kernel.
+         */
+        __global__ void fp8_weight_scale_reduce_kernel(
+            const float* __restrict__ fp4_group_scales,
+            int64_t num_scales,
+            float* __restrict__ out )
+        {
+            __shared__ float shared_max[ 256 ];
+
+            float local = 0.0f;
+
+            for ( int64_t i = static_cast<int64_t>( blockIdx.x ) * blockDim.x + threadIdx.x;
+                  i < num_scales;
+                  i += static_cast<int64_t>( gridDim.x ) * blockDim.x )
+            {
+                local = fmaxf( local, fp4_group_scales[ i ] );
+            }
+
+            shared_max[ threadIdx.x ] = local;
+            __syncthreads();
+
+            for ( int offset = blockDim.x / 2; offset > 0; offset >>= 1 )
+            {
+                if ( threadIdx.x < offset )
+                {
+                    shared_max[ threadIdx.x ] = fmaxf( shared_max[ threadIdx.x ], shared_max[ threadIdx.x + offset ] );
+                }
+
+                __syncthreads();
+            }
+
+            if ( threadIdx.x == 0 )
+            {
+                atomicMax( reinterpret_cast<int*>( out ), __float_as_int( shared_max[ 0 ] ) );
+            }
+        }
+
+        /**
+         * @brief Fold the raw max group scale into the E4M3 weight scale.
+         *
+         * weight_fp8_scale = (6 / 448) * max(scale). The 6 lifts the group scale back to
+         * the weight absmax (peak FP4 magnitude); the /448 maps that to E4M3 range.
+         */
+        __global__ void fp8_weight_scale_finalize_kernel( float* __restrict__ out )
+        {
+            *out = fmaxf( *out, 1e-12f ) * ( 6.0f / 448.0f );
+        }
+
+        /**
+         * @brief Per-group FP4 E2M1 -> FP8_E4M3 weight upcast (prefill staging).
+         *
+         * One block per output channel; threads stride over the packed bytes and write
+         * two FP8 values per byte. Both nibbles of a byte share one group scale (group_size
+         * is a multiple of 64, so a byte never straddles groups). The per-group scale is
+         * folded in and the values divided by the per-tensor weight scale so they land in
+         * E4M3 range; cuBLASLt's A_SCALE recovers the per-tensor factor at GEMM time.
+         */
+        template <int kGroupSize>
+        __global__ void dequantize_fp4_to_fp8_kernel(
+            __nv_fp8_e4m3* __restrict__ output,
+            const uint8_t* __restrict__ weights_packed,
+            const float* __restrict__ scales,
+            const float* __restrict__ weight_fp8_scale,
+            int in_features )
+        {
+            const int output_channel = static_cast<int>( blockIdx.x );
+            const int half_k = in_features / 2;
+            const int num_groups = in_features / kGroupSize;
+            const float inv_weight_scale = 1.0f / ( *weight_fp8_scale );
+
+            const uint8_t* row_source = weights_packed + static_cast<ptrdiff_t>( output_channel ) * half_k;
+            const float* row_scales = scales + static_cast<ptrdiff_t>( output_channel ) * num_groups;
+            __nv_fp8_e4m3* row_dest = output + static_cast<ptrdiff_t>( output_channel ) * in_features;
+
+            for ( int b = static_cast<int>( threadIdx.x ); b < half_k; b += static_cast<int>( blockDim.x ) )
+            {
+                const uint8_t byte = row_source[ b ];
+                const float scale = row_scales[ b / ( kGroupSize / 2 ) ] * inv_weight_scale;
+
+                // Packing contract: low nibble = element 2b, high nibble = element 2b + 1.
+                row_dest[ 2 * b ]     = __nv_fp8_e4m3( fp4_e2m1_decode( byte & 0xFu ) * scale );
+                row_dest[ 2 * b + 1 ] = __nv_fp8_e4m3( fp4_e2m1_decode( byte >> 4 ) * scale );
+            }
+        }
+
     } // anonymous namespace
 
     void cuda_w4a16_gemm(
@@ -331,6 +422,55 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             case 128:
                 dequantize_fp4_to_bf16_kernel<128><<<grid, kBlockSize, 0, stream>>>(
                     output, weights_packed, scales, in_features );
+                break;
+
+            default:
+                // Unsupported group_size -- caller must validate before dispatch.
+                break;
+        }
+    }
+
+    void cuda_compute_fp8_weight_scale(
+        float*       weight_fp8_scale_out,
+        const float* fp4_group_scales,
+        int64_t      num_scales,
+        cudaStream_t stream )
+    {
+        constexpr int kBlockSize = 256;
+        int64_t blocks = ( num_scales + kBlockSize - 1 ) / kBlockSize;
+        if ( blocks < 1 ) blocks = 1;
+        if ( blocks > 1024 ) blocks = 1024;
+        const auto grid = static_cast<unsigned int>( blocks );
+
+        cudaMemsetAsync( weight_fp8_scale_out, 0, sizeof( float ), stream );
+        fp8_weight_scale_reduce_kernel<<<grid, kBlockSize, 0, stream>>>(
+            fp4_group_scales, num_scales, weight_fp8_scale_out );
+        fp8_weight_scale_finalize_kernel<<<1, 1, 0, stream>>>( weight_fp8_scale_out );
+    }
+
+    void cuda_fp4_dequantize_to_fp8(
+        __nv_fp8_e4m3* output,
+        const uint8_t* weights_packed,
+        const float*   scales,
+        const float*   weight_fp8_scale,
+        int            out_features,
+        int            in_features,
+        int            group_size,
+        cudaStream_t   stream )
+    {
+        constexpr int kBlockSize = 256;
+        const auto grid = static_cast<unsigned int>( out_features );
+
+        switch ( group_size )
+        {
+            case 64:
+                dequantize_fp4_to_fp8_kernel<64><<<grid, kBlockSize, 0, stream>>>(
+                    output, weights_packed, scales, weight_fp8_scale, in_features );
+                break;
+
+            case 128:
+                dequantize_fp4_to_fp8_kernel<128><<<grid, kBlockSize, 0, stream>>>(
+                    output, weights_packed, scales, weight_fp8_scale, in_features );
                 break;
 
             default:
