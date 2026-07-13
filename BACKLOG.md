@@ -591,9 +591,14 @@ a 12 GB card.
   (int8 activations = MMQ's 2x tensor-core rate); factor 1 does not exist. Chunk-heuristic diag + <iostream>
   removed from Gemma.ixx (tree clean). LESSON: re-measure the CURRENT binary before trusting a baseline across
   rebuilds -- a stale ProfileModel drove ~an entire session of wrong analysis.
-- [x] **[perf, prefill] FP8-activation prefill GEMM (W4A8-FP8) -- DONE + VALIDATED + PROFILED + SHIPPED ON
-  2026-07-12 (0.20.0-alpha.6+98); a real 1.24x prefill win, but attention -- not the GEMM -- is now the
-  dominant gap.** SPEC: `Mila/Specifications/Fp8ActivationPrefill.md`.
+- [~] **[perf, prefill] FP8-activation prefill GEMM (W4A8-FP8) -- IMPLEMENTED + PROFILED, but default OFF:
+  numerics incomplete.** GEMM is correct + 1.24x faster @48K, BUT per-tensor FP8-activation scales produce
+  INCOHERENT Gemma generation (per-layer Forward_MatchesReference 5e-2 passed; shipped ON in +98, reverted
+  OFF in +99 after a clean build generated garbage -- the per-layer oracle does NOT gate generation). OPEN
+  WORK to re-enable: (1) per-token activation absmax scale (cuBLASLt vector B_SCALE) and/or per-channel
+  weight scale (vector A_SCALE), spec 5.1/5.2; (2) RE-GATE on Gemma token-for-token parity vs BF16 + a
+  coherent chat, NOT the per-layer oracle. Then flip kUseFp8ActivationPrefill back on only if both green.
+  SPEC: `Mila/Specifications/Fp8ActivationPrefill.md`.
   Run the batched prefill linear GEMMs on FP8 tensor cores (~2x BF16) instead of BF16, entirely inside
   CudaLinearOp (internal op optimization; BF16 in/out contract preserved; same category as the existing FP4
   weight quant, gated by the same Forward_MatchesReference 5e-2 + Gemma parity oracle). HARDWARE-VERIFIED:

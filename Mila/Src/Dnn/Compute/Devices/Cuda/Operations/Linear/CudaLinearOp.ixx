@@ -147,10 +147,14 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         // instead of the 2-phase FP4->BF16 staging + BF16 GEMM. Weights STAY FP4 in VRAM;
         // only the transient staging buffer is FP8 (half the bytes of the BF16 staging).
         // Decode (outer_size == 1) is untouched -- it stays on the FP4 matvec.
-        // ON by default: validated (Forward_MatchesReference 5e-2 + Gemma token parity green,
-        // per-tensor weight scale sufficed) and profiled 1.24x faster prefill @48K on the 4070
-        // (1056 -> 1307 tok/s, flash on in both). See Mila/Specifications/Fp8ActivationPrefill.md.
-        static constexpr bool kUseFp8ActivationPrefill = true;
+        // OFF pending a numerics fix. Shipped ON in +98 on the strength of Forward_MatchesReference
+        // (5e-2) but WITHOUT a real coherent-chat check; a clean +98 build produces incoherent Gemma
+        // generation, so the per-layer oracle passing is not sufficient -- 48 layers of per-tensor
+        // FP8-activation error compound. Suspect the per-tensor activation (and/or weight) scale is
+        // too coarse; the fix is per-token activation absmax and/or per-channel weight scale (see
+        // Fp8ActivationPrefill.md sections 5.1/5.2). Do NOT re-enable until Gemma token-for-token
+        // parity vs the BF16 path AND a coherent chat are both confirmed.
+        static constexpr bool kUseFp8ActivationPrefill = false;
 
         static constexpr TensorDataType kWeightDtype = kIsQuantized
             ? TWeightQuant::kStorageDtype : TComputePrecision;

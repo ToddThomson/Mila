@@ -16,7 +16,19 @@ release notes.
 The bridge from "the features work" to a tree honest enough to call beta. Milestone vision
 is in ROADMAP; open triage buckets are in BACKLOG.
 
-### W4A8-FP8 prefill GEMM — DONE + VALIDATED + PROFILED (0.20.0-alpha.6+98)
+### W4A8-FP8 prefill default reverted to OFF (0.20.0-alpha.6+99)
+
+`kUseFp8ActivationPrefill` was shipped ON in +98 on the strength of the per-layer
+`Forward_MatchesReference` oracle (atol 5e-2), but a clean +98 build produces **incoherent Gemma
+generation** — the per-tensor FP8-activation error compounds across 48 layers, which a single-Linear
+5e-2 tolerance does not catch. Reverted the default to OFF (the path and its kernels stay in-tree,
+inert behind the toggle; the 2-phase FP4->BF16 GEMM is the shipped path again, restoring +97-coherent
+chat). The ~1.24x GEMM speedup is real; the remaining work is the numerics — per-token activation
+absmax and/or per-channel weight scale — and it will be re-enabled only when gated by **Gemma
+token-for-token parity AND a coherent chat**, not a per-layer tolerance. Process lesson: a lossy
+activation path must be validated at generation level before it becomes a default.
+
+### W4A8-FP8 prefill GEMM — IMPLEMENTED + PROFILED (behind toggle; default OFF as of +99) (0.20.0-alpha.6+98)
 
 The FP8-activation prefill path: batched (prefill) linear GEMMs now run on native FP8xFP8 tensor cores
 (~2x BF16 on Ada) instead of the 2-phase FP4->BF16 staging + BF16 GEMM. Weights stay FP4 in VRAM (the 12B/
@@ -31,10 +43,13 @@ quant. Decode (`outer_size == 1`) is untouched — it stays on the FP4 matvec. D
   the stored FP4 group scales, computed once at load).
 - New cuBLASLt plan `build_fp8_prefill_plan` / `execute_fp8_prefill_plan` (TN col-major, both operands E4M3,
   A_SCALE = weight scale, B_SCALE = activation scale, FP32 accumulate, no fast-accum, BF16 output).
-- Wired behind `kUseFp8ActivationPrefill` (default ON). The op owns two device scale scalars and a conditional
-  FP8 plan cache (collapses to `std::monostate` for non-FP4 policies, so no extra instantiation).
-- Validated: `Linear<Cuda, BF16, PerGroupFp4<128>>` `Forward_MatchesReference` (5e-2) + Gemma 4 12B token
-  parity + chat coherent, all green — the per-tensor weight scale sufficed (no per-channel escalation needed).
+- Wired behind `kUseFp8ActivationPrefill` (shipped ON in +98, reverted to **OFF** in +99 — see above).
+  The op owns two device scale scalars and a conditional FP8 plan cache (collapses to `std::monostate`
+  for non-FP4 policies, so no extra instantiation).
+- Numerics status (corrected): `Forward_MatchesReference` (5e-2) passed, but that per-layer tolerance did
+  **not** guarantee generation quality — a clean +98 build generates incoherently, so the per-tensor
+  activation/weight scales are too coarse across 48 layers. The generation-level gate (token parity +
+  coherent chat) was not actually cleared before +98 shipped it on. Fix = finer scales (per-token/per-channel).
 - Profiled (RTX 4070, Gemma 4 12B, 22496-token prefill @48K, flash on in both): 1056 -> 1307 tok/s = 1.24x,
   fits VRAM (chunk 1024 held). nsys finding: the linear GEMMs are only ~24% of prefill (attention ~62%), so
   the ~2x GEMM speedup yields 1.24x end-to-end; the next prefill levers are in attention, not the matmul.

@@ -1,15 +1,19 @@
 # FP8-Activation Prefill GEMM (W4A8-FP8)
 
-Status: **Implemented + shipped ON** (spec 2026-07-12; landed + validated + profiled same day). The path is
-live behind `kUseFp8ActivationPrefill = true` (default on): `Forward_MatchesReference` 5e-2 + Gemma token
-parity green (per-tensor weight scale sufficed — no per-channel escalation needed), and it profiled 1.24x
-faster prefill @48K on the RTX 4070 (1056 -> 1307 tok/s, flash on in both). Owner surface:
-`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx` and its FP4 dequant kernels. This is
-an **internal op optimization** — no component API change.
+Status: **Implemented, default OFF — numerics incomplete** (spec 2026-07-12; implemented + profiled same day;
+shipped ON in +98 then reverted to OFF in +99). The path is in-tree behind `kUseFp8ActivationPrefill`
+(default **false**). It profiled 1.24x faster prefill @48K on the RTX 4070 (1056 -> 1307 tok/s, flash on in
+both) and `Forward_MatchesReference` (5e-2) passes — but that per-layer tolerance is NOT sufficient: a clean
+build with the toggle ON generates **incoherent** Gemma text, because per-tensor FP8-activation error
+compounds across 48 layers. The GEMM mechanics are correct and fast; the **scale granularity is the open
+problem** (Section 5.1/5.2): move to per-token activation absmax and/or per-channel weight scale, and re-gate
+on **Gemma token-for-token parity + a coherent chat**, never the per-layer oracle alone. Owner surface:
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx` and its FP4 dequant kernels. Internal
+op optimization — no component API change.
 
-Measured caveat (nsys @48K): the linear GEMMs are only ~24% of Gemma prefill, so the ~2x GEMM speedup yields
-1.24x end-to-end; attention (~62%: global flash + local sliding-window) is the dominant remaining cost — the
-next levers are the flash kernel ladder and flashing the local layers, not more matmul work.
+Measured caveat (nsys @48K): even once correct, the linear GEMMs are only ~24% of Gemma prefill, so the ~2x
+GEMM speedup yields ~1.24x end-to-end; attention (~62%: global flash + local sliding-window) is the dominant
+remaining cost — the next levers are the flash kernel ladder and flashing the local layers, not more matmul.
 
 ---
 
