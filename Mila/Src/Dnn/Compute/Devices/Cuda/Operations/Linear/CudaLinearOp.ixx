@@ -147,14 +147,19 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         // instead of the 2-phase FP4->BF16 staging + BF16 GEMM. Weights STAY FP4 in VRAM;
         // only the transient staging buffer is FP8 (half the bytes of the BF16 staging).
         // Decode (outer_size == 1) is untouched -- it stays on the FP4 matvec.
-        // OFF pending a numerics fix. Shipped ON in +98 on the strength of Forward_MatchesReference
-        // (5e-2) but WITHOUT a real coherent-chat check; a clean +98 build produces incoherent Gemma
-        // generation, so the per-layer oracle passing is not sufficient -- 48 layers of per-tensor
-        // FP8-activation error compound. Suspect the per-tensor activation (and/or weight) scale is
-        // too coarse; the fix is per-token activation absmax and/or per-channel weight scale (see
-        // Fp8ActivationPrefill.md sections 5.1/5.2). Do NOT re-enable until Gemma token-for-token
-        // parity vs the BF16 path AND a coherent chat are both confirmed.
-        static constexpr bool kUseFp8ActivationPrefill = false;
+        // NUMERICS HISTORY: +98 shipped ON and generated incoherently; +99 reverted to OFF blaming
+        // the per-TENSOR activation scale. The actual root cause (found 2026-07-13): the static
+        // FP8 weight scale sB was computed at build() time from the FP4 group-scales buffer, which
+        // loadParameter()/quantize() only fills LATER -- an uninitialized-memory read. sB cancels
+        // in the GEMM (A_SCALE = sB, weights staged as W/sB), so benign junk generated correctly
+        // and zeroed pages saturated every weight -- run-to-run luck, which is why +98 validated
+        // coherent one day and produced garbage the next. sB is now computed in quantize() where
+        // the group scales are produced. Activation scales are per-TOKEN (row absmax), applied
+        // exactly by a post-GEMM epilogue because Ada cuBLASLt accepts only per-tensor scale
+        // pointers (see Fp8ActivationPrefill.md section 5.2). Gate for keeping this ON: Linear FP8
+        // oracle AND Gemma token-for-token parity vs the BF16 path AND a coherent chat -- a
+        // per-layer oracle alone is NOT sufficient.
+        static constexpr bool kUseFp8ActivationPrefill = true;
 
         static constexpr TensorDataType kWeightDtype = kIsQuantized
             ? TWeightQuant::kStorageDtype : TComputePrecision;
@@ -328,6 +333,28 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     blob, weight_out, scales_out, expected_shape,
                     TWeightQuant::kQuantizationGroupSize,
                     staging, stream );
+
+                if constexpr ( kUseFp8ActivationPrefillPath )
+                {
+                    // The static FP8 weight scale sB is a function of the group scales,
+                    // so it is computed HERE, where those scales are produced -- NOT at
+                    // build() time. build() runs before loadParameter() in every flow, so
+                    // a build-time computation reads the pre-allocated but not-yet-filled
+                    // scales buffer: uninitialized memory. sB cancels algebraically in
+                    // the GEMM (A_SCALE = sB, weights staged as W/sB), which made that
+                    // bug LUCK-DEPENDENT -- benign junk generated correctly, zeroed pages
+                    // saturated every weight to +-448 and produced incoherent generation
+                    // (the +98/+99 incident). Same stream as the scale upload above, so
+                    // the reduction reads the freshly written values.
+                    ensureFp8ScaleScalarsAllocated();
+
+                    const int64_t num_scales = ( out_features * in_features )
+                        / TWeightQuant::kQuantizationGroupSize;
+                    cuda_compute_fp8_weight_scale(
+                        weight_fp8_scale_,
+                        static_cast<const float*>( scales_out.rawData() ),
+                        num_scales, stream );
+                }
             }
             else
             {
@@ -590,23 +617,33 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 {
                     if constexpr ( kUseFp8ActivationPrefillPath )
                     {
-                        // W4A8-FP8 prefill: transient FP4->FP8 weight upcast + dynamic BF16->FP8
-                        // activation quantize, then a native FP8xFP8 cuBLASLt GEMM (~2x BF16 on
-                        // Ada). Weights stay FP4 in VRAM; only this staging buffer is FP8. Both
-                        // FP8 operands share one scratch allocation (weight region 16-byte aligned
-                        // for cuBLASLt). Fetched per-forward, never cached: the scratch buffer may
-                        // be reallocated on grow.
+                        // W4A8-FP8 prefill: transient FP4->FP8 weight upcast + dynamic per-token
+                        // BF16->FP8 activation quantize, then a native FP8xFP8 cuBLASLt GEMM
+                        // (~2x BF16 on Ada). Weights stay FP4 in VRAM; only this staging buffer
+                        // is FP8. The GEMM runs with a unit activation scale (Ada cuBLASLt
+                        // accepts only per-tensor scale pointers); the true per-token scales are
+                        // applied exactly by the post-GEMM epilogue below, which also folds the
+                        // bias. All three regions (FP8 weight, FP8 activation, per-token scales)
+                        // share one scratch allocation, each 16-byte aligned for cuBLASLt.
+                        // Fetched per-forward, never cached: the scratch buffer may be
+                        // reallocated on grow.
                         const size_t weight_fp8_bytes = static_cast<size_t>( out_features_ )
                             * static_cast<size_t>( cached_in_features_ );
                         const size_t weight_fp8_bytes_aligned =
                             ( weight_fp8_bytes + 15u ) & ~static_cast<size_t>( 15u );
                         const size_t activation_fp8_bytes = static_cast<size_t>( outer_size )
                             * static_cast<size_t>( cached_in_features_ );
+                        const size_t activation_fp8_bytes_aligned =
+                            ( activation_fp8_bytes + 15u ) & ~static_cast<size_t>( 15u );
+                        const size_t token_scale_bytes = static_cast<size_t>( outer_size )
+                            * sizeof( float );
 
-                        auto* scratch = static_cast<char*>(
-                            context_->getDeviceScratchBuffer( weight_fp8_bytes_aligned + activation_fp8_bytes ) );
+                        auto* scratch = static_cast<char*>( context_->getDeviceScratchBuffer(
+                            weight_fp8_bytes_aligned + activation_fp8_bytes_aligned + token_scale_bytes ) );
                         auto* weight_fp8 = reinterpret_cast<__nv_fp8_e4m3*>( scratch );
                         auto* activation_fp8 = reinterpret_cast<__nv_fp8_e4m3*>( scratch + weight_fp8_bytes_aligned );
+                        auto* activation_token_scales = reinterpret_cast<float*>(
+                            scratch + weight_fp8_bytes_aligned + activation_fp8_bytes_aligned );
 
                         cuda_fp4_dequantize_to_fp8(
                             weight_fp8,
@@ -617,9 +654,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                             weight_group_size_,
                             stream );
 
-                        cuda_quantize_bf16_to_fp8(
+                        cuda_quantize_bf16_to_fp8_per_token(
                             activation_fp8,
-                            activation_fp8_scale_,
+                            activation_token_scales,
                             input_ptr,
                             outer_size, cached_in_features_,
                             stream );
@@ -639,10 +676,12 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                             context_->getCublasLtWorkspace(),
                             context_->getCublasLtWorkspaceSize() );
 
-                        if ( bias_ != nullptr )
-                        {
-                            cuda_add_bias( output_ptr, bias_, outer_size, out_features_, stream );
-                        }
+                        cuda_fp8_apply_per_token_scales(
+                            output_ptr,
+                            activation_token_scales,
+                            bias_,
+                            outer_size, out_features_,
+                            stream );
                     }
                     else if constexpr ( TWeightQuant::kIsFp4E2M1 && !kUseFusedFp4Gemm )
                     {
@@ -887,7 +926,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         ~CudaLinearOp()
         {
             // Persistent FP8 scale scalars owned by the op (W4A8-FP8 path only; nullptr otherwise).
-            if ( activation_fp8_scale_ != nullptr ) cudaFree( activation_fp8_scale_ );
+            if ( activation_fp8_unit_scale_ != nullptr ) cudaFree( activation_fp8_unit_scale_ );
             if ( weight_fp8_scale_ != nullptr ) cudaFree( weight_fp8_scale_ );
         }
 
@@ -947,11 +986,14 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         // Non-quantized: BF16xBF16 (or FP32xFP32) plan fed directly by the weight tensor.
         CublasLtPlanCache<CublasLtLinearPlan<TComputePrecision>> forward_plan_cache_;
 
-        // W4A8-FP8 prefill path only. Persistent device scalars: the dynamic per-tensor
-        // activation scale (rewritten each forward) and the static per-tensor weight scale
-        // (computed once at build from the FP4 group scales). Their pointers are baked into
-        // the FP8 plan's A_SCALE/B_SCALE. Freed in the destructor.
-        float* activation_fp8_scale_{ nullptr };
+        // W4A8-FP8 prefill path only. Persistent device scalars baked into the FP8 plan's
+        // A_SCALE/B_SCALE, allocated by ensureFp8ScaleScalarsAllocated() and freed in the
+        // destructor. The weight scale VALUE is written by quantize() at loadParameter()
+        // time, where the FP4 group scales it derives from are produced (build() runs
+        // before the scales exist). The activation scale is a constant 1.0f: Ada cuBLASLt
+        // accepts only per-tensor scale pointers, so the true per-token activation scales
+        // live in scratch and are applied post-GEMM (exact factorization).
+        float* activation_fp8_unit_scale_{ nullptr };
         float* weight_fp8_scale_{ nullptr };
 
         // FP8xFP8 forward plan cache -- present only on the active W4A8-FP8 path (std::monostate
@@ -1033,6 +1075,29 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 compute_type = CUBLAS_COMPUTE_32F;
         }
 
+        /**
+         * @brief Allocate the two persistent FP8 scale scalars on first use (idempotent).
+         *
+         * Called from both quantize() (which writes the sB value into weight_fp8_scale_)
+         * and buildCublasLtPlans() (which bakes both pointers into the FP8 plan
+         * descriptor). Neither caller may assume the other ran first: build() precedes
+         * loadParameter() in the model flows, but the scalars must exist wherever the
+         * first of the two arrives. The unit activation scale is a constant, so its
+         * value is final at allocation.
+         */
+        void ensureFp8ScaleScalarsAllocated() requires kUseFp8ActivationPrefillPath
+        {
+            if ( weight_fp8_scale_ != nullptr )
+                return;
+
+            cudaMalloc( reinterpret_cast<void**>( &activation_fp8_unit_scale_ ), sizeof( float ) );
+            cudaMalloc( reinterpret_cast<void**>( &weight_fp8_scale_ ), sizeof( float ) );
+
+            const float unit_scale = 1.0f;
+            cudaMemcpy( activation_fp8_unit_scale_, &unit_scale, sizeof( float ),
+                cudaMemcpyHostToDevice );
+        }
+
         void buildCublasLtPlans()
         {
             cuda_data_type_ = getActivationCudaDataType();
@@ -1083,18 +1148,15 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             {
                 if constexpr ( kUseFp8ActivationPrefillPath )
                 {
-                    // W4A8-FP8 prefill path. Allocate the persistent per-tensor scale scalars
-                    // (freed in the destructor) and compute the static weight scale from the
-                    // already-stored FP4 group scales. Both pointers are baked into the FP8
-                    // plan below; the weight scale value is final now, the activation scale is
-                    // refreshed on the stream by cuda_quantize_bf16_to_fp8 each forward.
-                    cudaMalloc( reinterpret_cast<void**>( &activation_fp8_scale_ ), sizeof( float ) );
-                    cudaMalloc( reinterpret_cast<void**>( &weight_fp8_scale_ ), sizeof( float ) );
-
-                    const int64_t num_scales = static_cast<int64_t>( out_features_ )
-                        * ( cached_in_features_ / weight_group_size_ );
-                    cuda_compute_fp8_weight_scale(
-                        weight_fp8_scale_, weight_scales_, num_scales, context_->getStream() );
+                    // W4A8-FP8 prefill path. The persistent scale scalars must exist here so
+                    // their pointers can be baked into the FP8 plan descriptor below -- but
+                    // ONLY the pointers. The weight scale VALUE is written by quantize() at
+                    // loadParameter() time, where the FP4 group scales it derives from are
+                    // produced; computing it here read the pre-allocated, not-yet-filled
+                    // scales buffer (the +98/+99 incoherence root cause). The activation
+                    // B_SCALE is a constant 1.0f: the true per-token activation scales are
+                    // applied post-GEMM (Ada cuBLASLt accepts only per-tensor scale pointers).
+                    ensureFp8ScaleScalarsAllocated();
 
                     fp8_forward_plan_cache_ = CublasLtPlanCache<Fp8LinearPlan>(
                         cached_outer_size_,
@@ -1105,7 +1167,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                                 bucket,
                                 cached_in_features_,
                                 out_features_,
-                                activation_fp8_scale_,
+                                activation_fp8_unit_scale_,
                                 weight_fp8_scale_ );
                         } );
 

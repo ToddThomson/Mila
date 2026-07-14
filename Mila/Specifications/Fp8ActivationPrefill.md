@@ -1,13 +1,26 @@
 # FP8-Activation Prefill GEMM (W4A8-FP8)
 
-Status: **Implemented, default OFF — numerics incomplete** (spec 2026-07-12; implemented + profiled same day;
-shipped ON in +98 then reverted to OFF in +99). The path is in-tree behind `kUseFp8ActivationPrefill`
-(default **false**). It profiled 1.24x faster prefill @48K on the RTX 4070 (1056 -> 1307 tok/s, flash on in
-both) and `Forward_MatchesReference` (5e-2) passes — but that per-layer tolerance is NOT sufficient: a clean
-build with the toggle ON generates **incoherent** Gemma text, because per-tensor FP8-activation error
-compounds across 48 layers. The GEMM mechanics are correct and fast; the **scale granularity is the open
-problem** (Section 5.1/5.2): move to per-token activation absmax and/or per-channel weight scale, and re-gate
-on **Gemma token-for-token parity + a coherent chat**, never the per-layer oracle alone. Owner surface:
+Status: **VALIDATED, shipped ON — all gates green 2026-07-13** (spec 2026-07-12; per-tensor version
+shipped ON in +98, reverted in +99 for incoherent generation; root-caused and fixed 2026-07-13). Final
+form: **per-token** (row absmax) activation scales applied exactly by a post-GEMM epilogue (Section 5.2),
+plus the stale-`sB` fix below — the actual root cause of the +98 incoherence. Gates passed: the
+`Forward_Fp4PrefillMatchesDecodeAcrossTokenMagnitudes` Linear oracle, **Gemma token-for-token parity, a
+coherent chat**, and the @48K scoreboard. Measured (RTX 4070, Gemma 4 12B FP4, 22496-token prefill @48K):
+**12761 ms min/5 = 1763 tok/s** vs 16395 ms / 1372 tok/s with the toggle off on the same +101 flash base —
+a 1.285x prefill speedup, moving Mila from 1.50x to **1.17x behind llama.cpp** (1.95x at this thread's
+start). VRAM fits with margin (load peak 11658 MiB, min free 623). `kUseFp8ActivationPrefill = true` is
+now the shipped default.
+
+**Root cause of the +98/+99 incoherence found 2026-07-13 (second pass): stale `sB`, not scale
+granularity.** The static FP8 weight scale was computed at `build()` time from the FP4 group-scales
+device buffer, which `quantize()` only fills later during `loadParameter()` — an uninitialized-memory
+read. Because `sB` cancels algebraically in the GEMM (`A_SCALE = sB`, weights staged as `W/sB`), benign
+junk generated correctly and zeroed pages saturated every weight to ±448 — run-to-run luck, which is why
++98 validated coherent one day and generated garbage the next, and why a per-layer oracle can never catch
+it reliably. Fixed: `sB` is now computed at the tail of `quantize()`, where the group scales are
+produced; `build()` only allocates and binds the scalar pointers. Deterministic detector for this bug
+class: `compute-sanitizer --tool initcheck` over the Linear quantized tests — part of the FP8 gate ladder
+from now on. Owner surface:
 `Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx` and its FP4 dequant kernels. Internal
 op optimization — no component API change.
 
@@ -115,9 +128,20 @@ Out of scope (explicitly):
    - Compute the FP8 weight scale(s) at load, store alongside the FP4 weight (small).
 
 2. **Activation FP8 scale granularity** — dynamic (activations change per forward).
-   - Default: **per-tensor absmax** (one `sA` per forward) — simplest, single cuBLASLt A_scale.
-   - Fallback if parity/accuracy needs it: **per-token (per-row) absmax** (cuBLASLt vector scaling). Per-token
-     is the standard robust choice (llama.cpp's Q8_1 is per-32-block); start per-tensor, escalate if needed.
+   - ~~Default: **per-tensor absmax** (one `sA` per forward) — simplest, single cuBLASLt A_scale.~~
+     **FAILED in practice (+98):** the per-layer oracle passed at 5e-2 but generation was incoherent —
+     one outlier token sets the tensor scale and crushes every other token's FP8 resolution, and the
+     error compounds across 48 layers.
+   - **DECIDED 2026-07-13: per-token (per-row) absmax**, the standard robust choice (llama.cpp's Q8_1 is
+     per-32-block; TensorRT-LLM uses per-token dynamic). *Mechanism:* Ada cuBLASLt accepts only per-tensor
+     scale pointers (the outer-vector scale modes are Blackwell-era), so the per-token scales are NOT bound
+     to the GEMM. Instead the exact factorization
+     `Y[m,n] = sA[m] * (sB * sum_k X8[m,k] * W8[n,k])` is applied by a post-GEMM epilogue
+     (`cuda_fp8_apply_per_token_scales`, which also folds the bias): the GEMM runs with `B_SCALE = 1.0f`
+     (a persistent constant scalar, so the descriptor stays identical to the proven-fast config), and the
+     quantizer (`cuda_quantize_bf16_to_fp8_per_token`, one block per row, absmax + quantize in one launch)
+     writes `sA[]` into the shared scratch carve. The double BF16 rounding (GEMM output, then epilogue) is
+     ~2^-9 relative twice — noise against the FP8 quantization error itself.
 
 3. **Scratch buffers.** Reuse `ExecutionContext::getDeviceScratchBuffer` (grow-on-demand) for the FP8 weight
    staging (half the current BF16 staging) and the FP8 activation buffer. **Fetch at forward() time, never
@@ -136,9 +160,12 @@ Out of scope (explicitly):
 
 Same oracle that already blesses FP4 weights — this change lives under it:
 
-1. `Linear.Cuda` `Forward_MatchesReference` for `Linear<Cuda, BF16, PerGroupFp4<128>>`, `forward_atol 5e-2`,
-   with `kUseFp8ActivationPrefill=true`. If per-tensor scales are too coarse, this is where it shows; escalate
-   scale granularity (Section 5.1/5.2) until green — do NOT loosen the tolerance without cause.
+1. `LinearCudaQuantizedTests.Forward_Fp4PrefillMatchesDecodeAcrossTokenMagnitudes` (added 2026-07-13 —
+   no FP4 forward-numerics oracle existed at Linear level before, which is how +98 shipped): the batched
+   prefill forward vs the decode FP4 matvec (independent proven path, same loaded weights), 16 input rows
+   spanning 1e-8..1e+7 magnitudes, per-row tolerance 5e-2 x row absmax. The magnitude spread is the
+   fixture per-tensor scaling fails and per-token scaling passes. Do NOT loosen the tolerance without
+   cause.
 2. **Gemma 4 12B token-for-token parity** vs the BF16 prefill path (the decisive end-to-end gate — activation
    FP8 is the one lossy step).
 3. Chat coherence smoke (the real harness prompt).

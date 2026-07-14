@@ -29,6 +29,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <bit>
 #include <cmath>
 #include <cstddef>
@@ -652,6 +653,128 @@ namespace Mila::Tests::Dnn::Components::Linear
         {
             EXPECT_EQ( tied_host.data()[ i ], direct_host.data()[ i ] )
                 << "tied FP8 head diverged from direct quantized load at index " << i;
+        }
+    }
+
+    // W4A8-FP8 prefill numerics oracle (Fp8ActivationPrefill.md section 6): the
+    // batched prefill forward must match the decode matvec -- an independent, proven
+    // FP4 path over the SAME loaded weights -- row for row. Input rows span fifteen
+    // decades of magnitude: under this fixture per-TENSOR activation scaling fails
+    // (the +98 incoherence -- one outlier row crushes every other row's FP8
+    // resolution) while per-TOKEN scaling passes. The comparison budget is per-row,
+    // proportional to the row's reference absmax, because FP8 activation error is
+    // relative to each token's own scale. The test stays valid with
+    // kUseFp8ActivationPrefill=false (BF16 staging GEMM vs matvec, passes with
+    // margin), so it does not depend on the toggle state.
+    TEST( LinearCudaQuantizedTests, Forward_Fp4PrefillMatchesDecodeAcrossTokenMagnitudes )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerGroupFp4<128>>;
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+        using DeviceBf16 = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+
+        // Realistic layer-ish dims: in_features spans four FP4 groups of 128, and
+        // both GEMM dims are large enough for the cuBLASLt FP8 heuristic.
+        constexpr int64_t kFp8Rows = 16;
+        constexpr int64_t kFp8InFeatures = 512;
+        constexpr int64_t kFp8OutFeatures = 256;
+
+        std::unique_ptr<IExecutionContext> context;
+        try
+        {
+            context = createExecutionContext( Device::Cuda( 0 ) );
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "CUDA device not available";
+        }
+
+        // BF16 weight blob, quantized to FP4 by loadParameter.
+        std::vector<uint16_t> weight_bits( static_cast<size_t>( kFp8OutFeatures * kFp8InFeatures ) );
+        for ( int64_t o = 0; o < kFp8OutFeatures; ++o )
+        {
+            for ( int64_t i = 0; i < kFp8InFeatures; ++i )
+            {
+                const uint32_t bits = std::bit_cast<uint32_t>( weightValue( o, i ) );
+                const uint32_t rounding = 0x7FFF + ( ( bits >> 16 ) & 1 );
+                weight_bits[ o * kFp8InFeatures + i ] = static_cast<uint16_t>( ( bits + rounding ) >> 16 );
+            }
+        }
+
+        const size_t blob_bytes = weight_bits.size() * sizeof( uint16_t );
+
+        LinearConfig config( kFp8InFeatures, kFp8OutFeatures );
+        config.withBias( false );
+
+        QuantizedLinear linear( "linear_fp4_prefill", config, Device::Cuda( 0 ) );
+        linear.build( BuildContext( shape_t{ kFp8Rows, kFp8InFeatures }, RuntimeMode::Inference, false ) );
+
+        Serialization::TensorMetadata weight_meta{
+            TensorDataType::BF16, shape_t{ kFp8OutFeatures, kFp8InFeatures }, blob_bytes };
+        Serialization::TensorBlobView weight_blob( weight_meta, weight_bits.data(), blob_bytes );
+        linear.loadParameter( "weight", weight_blob );
+        context->synchronize();
+
+        // Row m carries magnitude 10^(m-8): 1e-8 .. 1e+7 across the batch.
+        HostFp32 host_input( Device::Cpu(), shape_t{ kFp8Rows, kFp8InFeatures } );
+        for ( int64_t m = 0; m < kFp8Rows; ++m )
+        {
+            const float row_scale = std::pow( 10.0f, static_cast<float>( m ) - 8.0f );
+
+            for ( int64_t k = 0; k < kFp8InFeatures; ++k )
+            {
+                const float spread = static_cast<float>( ( m * 31 + k * 17 ) % 257 ) / 128.0f - 1.0f;
+                host_input.data()[ m * kFp8InFeatures + k ] = row_scale * spread;
+            }
+        }
+
+        DeviceBf16 device_input( Device::Cuda( 0 ), shape_t{ kFp8Rows, kFp8InFeatures } );
+        copy( host_input, device_input, context.get() );
+        context->synchronize();
+
+        // Prefill leg: batched forward (the W4A8-FP8 GEMM when the toggle is on).
+        auto& prefill_out = linear.forward( device_input );
+        linear.synchronize();
+        auto prefill_host = toHost<TensorDataType::FP32>( prefill_out, context.get() );
+        context->synchronize();
+
+        // The op reuses its output tensor across forwards -- keep a copy before the
+        // decode legs overwrite it.
+        std::vector<float> prefill(
+            prefill_host.data(), prefill_host.data() + kFp8Rows * kFp8OutFeatures );
+
+        // Decode legs: one matvec forward per row, same op instance, same weights.
+        for ( int64_t m = 0; m < kFp8Rows; ++m )
+        {
+            HostFp32 host_row( Device::Cpu(), shape_t{ 1, kFp8InFeatures } );
+            for ( int64_t k = 0; k < kFp8InFeatures; ++k )
+            {
+                host_row.data()[ k ] = host_input.data()[ m * kFp8InFeatures + k ];
+            }
+
+            DeviceBf16 device_row( Device::Cuda( 0 ), shape_t{ 1, kFp8InFeatures } );
+            copy( host_row, device_row, context.get() );
+            context->synchronize();
+
+            auto& decode_out = linear.forward( device_row );
+            linear.synchronize();
+            auto decode_host = toHost<TensorDataType::FP32>( decode_out, context.get() );
+            context->synchronize();
+
+            float row_absmax = 0.0f;
+            for ( int64_t n = 0; n < kFp8OutFeatures; ++n )
+            {
+                row_absmax = std::max( row_absmax, std::fabs( decode_host.data()[ n ] ) );
+            }
+
+            const float tolerance = 5e-2f * row_absmax;
+
+            for ( int64_t n = 0; n < kFp8OutFeatures; ++n )
+            {
+                EXPECT_NEAR( prefill[ m * kFp8OutFeatures + n ], decode_host.data()[ n ], tolerance )
+                    << "prefill/decode mismatch at row " << m << " (magnitude 1e"
+                    << ( m - 8 ) << "), column " << n;
+            }
         }
     }
 

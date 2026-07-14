@@ -515,16 +515,19 @@ namespace Mila::Dnn::Compute::Cuda
      *   A = weight (FP8)      col-major [K x N], lda = K    op(A) = W[N, K]
      *   B = activation (FP8)  col-major [K x M], ldb = K    op(B) = X^T[K, M]
      *   C = output            col-major [N x M], ldc = N    == row-major Y[M, N]
-     *   A_SCALE_POINTER = weight scale (per-tensor, static),  B_SCALE_POINTER = activation scale (dynamic)
+     *   A_SCALE_POINTER = weight scale (per-tensor, static),  B_SCALE_POINTER = constant 1.0f
      *
-     * Both scale pointers are bound at build time -- they are stable device scalars whose
-     * values are refreshed on the stream before each matmul, and they must be present in
-     * the descriptor before cublasLtMatmulAlgoGetHeuristic so FP8 algorithms are enumerated.
+     * Ada cuBLASLt accepts only per-tensor scale pointers, so the activation B_SCALE is a
+     * constant unit scalar; the true per-token activation scales are applied exactly by a
+     * post-GEMM epilogue in the caller (cuda_fp8_apply_per_token_scales). Both scale
+     * pointers are bound at build time -- they are stable device scalars, and they must be
+     * present in the descriptor before cublasLtMatmulAlgoGetHeuristic so FP8 algorithms
+     * are enumerated.
      *
      * @param outer_size        Token count M.
      * @param in_features       Inner dimension K.
      * @param out_features       Output channels N.
-     * @param activation_scale  Device float scalar for the FP8 activation operand (B_SCALE).
+     * @param activation_scale  Device float scalar for the FP8 activation operand (B_SCALE, 1.0f).
      * @param weight_scale      Device float scalar for the FP8 weight operand (A_SCALE).
      */
     export template<TensorDataType TComputePrecision>

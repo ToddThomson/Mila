@@ -1,16 +1,7 @@
 /**
  * @file CudaFp8Prefill.cu
- * @brief FP8 prefill CUDA kernels: per-channel scale application and FP8→BF16 dequantization.
- *
- * Two kernels support the FP8 prefill GEMM paths in CudaLinearOp:
- *
- *  - cuda_fp8_apply_per_channel_scales: post-GEMM correction for the native FP8
- *    cuBLASLt path. cuBLASLt accepts only a per-tensor scale at execute time; we
- *    set that to 1.0f and apply the true per-channel scales here.
- *
- *  - cuda_fp8_dequantize_to_bf16: FP8-E4M3 weight matrix → BF16 conversion for
- *    the fallback path, producing a temporary BF16 copy that feeds the standard
- *    BF16 cuBLASLt GEMM plan.
+ * @brief FP8 prefill CUDA kernels: scale application, dequantization, and the
+ * per-token BF16 -> FP8 activation quantizer for the W4A8-FP8 prefill GEMM.
  */
 
 #include <cuda_runtime.h>
@@ -111,29 +102,34 @@ namespace Mila::Dnn::Compute::Cuda::Linear
     }
 
     // =========================================================================
-    // cuda_quantize_bf16_to_fp8
+    // cuda_quantize_bf16_to_fp8_per_token
     // =========================================================================
 
     /**
-     * Pass 1: grid-stride absmax reduction into scale_out (raw absmax, atomicMax on
-     * the int reinterpretation -- valid because all values are non-negative, whose
-     * IEEE-754 bit patterns order monotonically as signed ints). scale_out must be
-     * pre-zeroed (0.0f == int 0, the correct identity for a non-negative max).
+     * One block per token (row). Phase 1: shared-memory absmax reduction over the
+     * row. Phase 2 (same launch, after the reduction converges): every thread reads
+     * the row scale from shared memory and quantizes its strided slice. Epsilon
+     * guards an all-zero row from producing a zero scale (and a division by zero).
+     * The E4M3 constructor saturates, but inputs are already scaled into
+     * [-448, 448] so no clamping occurs in practice.
      */
-    __global__ void fp8_activation_absmax_kernel(
+    __global__ void fp8_activation_quantize_per_token_kernel(
         const __nv_bfloat16* __restrict__ input,
-        int64_t n,
-        float* __restrict__ absmax_out )
+        __nv_fp8_e4m3* __restrict__ output,
+        float* __restrict__ scales,
+        int in_features )
     {
         __shared__ float shared_max[ 256 ];
 
+        const int64_t row_offset = static_cast<int64_t>( blockIdx.x ) * in_features;
+        const __nv_bfloat16* row_source = input + row_offset;
+        __nv_fp8_e4m3* row_dest = output + row_offset;
+
         float local = 0.0f;
 
-        for ( int64_t i = static_cast<int64_t>( blockIdx.x ) * blockDim.x + threadIdx.x;
-              i < n;
-              i += static_cast<int64_t>( gridDim.x ) * blockDim.x )
+        for ( int k = static_cast<int>( threadIdx.x ); k < in_features; k += static_cast<int>( blockDim.x ) )
         {
-            local = fmaxf( local, fabsf( __bfloat162float( input[ i ] ) ) );
+            local = fmaxf( local, fabsf( __bfloat162float( row_source[ k ] ) ) );
         }
 
         shared_max[ threadIdx.x ] = local;
@@ -149,61 +145,87 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             __syncthreads();
         }
 
+        // The reduction loop ends on a __syncthreads(), so shared_max[0] is visible
+        // to every thread here.
+        const float scale = fmaxf( shared_max[ 0 ], 1e-12f ) / 448.0f;
+
         if ( threadIdx.x == 0 )
         {
-            atomicMax( reinterpret_cast<int*>( absmax_out ), __float_as_int( shared_max[ 0 ] ) );
+            scales[ blockIdx.x ] = scale;
         }
-    }
 
-    /**
-     * Pass 1b: fold the raw absmax into the E4M3 scale. Epsilon guards an all-zero
-     * activation matrix from producing a zero (and later a division by zero).
-     */
-    __global__ void fp8_activation_finalize_scale_kernel( float* __restrict__ scale )
-    {
-        *scale = fmaxf( *scale, 1e-12f ) / 448.0f;
-    }
+        const float inv_scale = 1.0f / scale;
 
-    /**
-     * Pass 2: grid-stride elementwise quantize. The E4M3 constructor saturates, but
-     * inputs are already scaled into [-448, 448] so no clamping occurs in practice.
-     */
-    __global__ void fp8_activation_quantize_kernel(
-        const __nv_bfloat16* __restrict__ input,
-        __nv_fp8_e4m3* __restrict__ output,
-        int64_t n,
-        const float* __restrict__ scale )
-    {
-        const float inv_scale = 1.0f / ( *scale );
-
-        for ( int64_t i = static_cast<int64_t>( blockIdx.x ) * blockDim.x + threadIdx.x;
-              i < n;
-              i += static_cast<int64_t>( gridDim.x ) * blockDim.x )
+        for ( int k = static_cast<int>( threadIdx.x ); k < in_features; k += static_cast<int>( blockDim.x ) )
         {
-            output[ i ] = __nv_fp8_e4m3( __bfloat162float( input[ i ] ) * inv_scale );
+            row_dest[ k ] = __nv_fp8_e4m3( __bfloat162float( row_source[ k ] ) * inv_scale );
         }
     }
 
-    void cuda_quantize_bf16_to_fp8(
+    void cuda_quantize_bf16_to_fp8_per_token(
         __nv_fp8_e4m3* fp8_out,
-        float*         scale_out,
+        float*         scales_out,
         const __nv_bfloat16* input,
         int            outer_size,
         int            in_features,
         cudaStream_t   stream )
     {
-        const int64_t n = static_cast<int64_t>( outer_size ) * in_features;
-
         constexpr int kBlockSize = 256;
-        int64_t blocks = ( n + kBlockSize - 1 ) / kBlockSize;
-        if ( blocks < 1 ) blocks = 1;
-        if ( blocks > 1024 ) blocks = 1024;
-        const auto grid = static_cast<unsigned int>( blocks );
 
-        cudaMemsetAsync( scale_out, 0, sizeof( float ), stream );
-        fp8_activation_absmax_kernel<<<grid, kBlockSize, 0, stream>>>( input, n, scale_out );
-        fp8_activation_finalize_scale_kernel<<<1, 1, 0, stream>>>( scale_out );
-        fp8_activation_quantize_kernel<<<grid, kBlockSize, 0, stream>>>( input, fp8_out, n, scale_out );
+        fp8_activation_quantize_per_token_kernel<<<
+            static_cast<unsigned int>( outer_size ),
+            kBlockSize,
+            0,
+            stream>>>(
+                input, fp8_out, scales_out, in_features );
+    }
+
+    // =========================================================================
+    // cuda_fp8_apply_per_token_scales
+    // =========================================================================
+
+    /**
+     * One block per token (row); threads stride over out_features. The row scale is
+     * loaded once per block. Bias is folded in when present (nullptr otherwise).
+     */
+    __global__ void apply_per_token_scales_kernel(
+        __nv_bfloat16* __restrict__ output,
+        const float* __restrict__ scales,
+        const __nv_bfloat16* __restrict__ bias,
+        int out_features )
+    {
+        const float scale = scales[ blockIdx.x ];
+        __nv_bfloat16* row = output + static_cast<int64_t>( blockIdx.x ) * out_features;
+
+        for ( int out = static_cast<int>( threadIdx.x ); out < out_features; out += static_cast<int>( blockDim.x ) )
+        {
+            float value = __bfloat162float( row[ out ] ) * scale;
+
+            if ( bias != nullptr )
+            {
+                value += __bfloat162float( bias[ out ] );
+            }
+
+            row[ out ] = __float2bfloat16( value );
+        }
+    }
+
+    void cuda_fp8_apply_per_token_scales(
+        __nv_bfloat16* output,
+        const float* scales,
+        const __nv_bfloat16* bias,
+        int outer_size,
+        int out_features,
+        cudaStream_t stream )
+    {
+        constexpr int kBlockSize = 256;
+
+        apply_per_token_scales_kernel<<<
+            static_cast<unsigned int>( outer_size ),
+            kBlockSize,
+            0,
+            stream>>>(
+                output, scales, bias, out_features );
     }
 
     // =========================================================================

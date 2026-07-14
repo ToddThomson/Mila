@@ -650,6 +650,56 @@ a 12 GB card.
   W4A8-FP8 clears its bar (beats BF16, parity green) and stacks on flash for the combined 1307 @48K; it
   stays in-tree behind the toggle (returns to FALSE for the shipped default until a ship-on decision, same
   discipline as kUseFusedFp4Gemm). Reusable microbench: scratchpad/fp8_gemm_bench.cu.
+  UPDATE 2026-07-13 -- PER-TOKEN ACTIVATION SCALES IMPLEMENTED (the numerics fix; pending VS2026 build +
+  gates). Design: Ada cuBLASLt accepts only per-tensor scale pointers (outer-vector scale modes are
+  Blackwell-era), so the per-token scales are NOT bound to the GEMM descriptor; instead the exact
+  factorization Y[m,n] = sA[m] * (sB * sum_k X8[m,k]*W8[n,k]) is applied post-GEMM. Changes:
+  (1) CudaFp8Prefill: `cuda_quantize_bf16_to_fp8` (per-tensor, 3 launches + memset + global atomics)
+  REPLACED by `cuda_quantize_bf16_to_fp8_per_token` (ONE kernel, block per row: shared-mem row absmax ->
+  sA[row]=absmax/448 -> quantize in the same launch); new `cuda_fp8_apply_per_token_scales` epilogue
+  (block per row, output[t,:] = output[t,:]*sA[t] + bias, folds the old cuda_add_bias pass -- for
+  bias-less Gemma this is the one new kernel per linear, ~M*N BF16 read+write, small vs the GEMM win).
+  (2) CudaLinearOp: scratch carve now weight-FP8 | activation-FP8 | per-token scales (each 16B-aligned);
+  B_SCALE binds a persistent constant-1.0f scalar (`activation_fp8_unit_scale_`, set once at build) so
+  the plan descriptor stays byte-identical to the proven-fast +98 config for the heuristic; toggle
+  flipped ON for the validation build (ship-default decision = after gates). (3) NEW ORACLE
+  `LinearCudaQuantizedTests.Forward_Fp4PrefillMatchesDecodeAcrossTokenMagnitudes` (Linear.Cuda.cpp):
+  prefill FP8-GEMM leg vs decode FP4-matvec leg (independent proven path, same loaded weights), 16 rows
+  spanning 1e-8..1e+7 magnitudes, per-row tolerance 5e-2 * row absmax -- this fixture FAILS under the
+  +98 per-tensor scheme (one outlier row crushes all other rows' FP8 resolution) and passes per-token;
+  it is the missing gate the +98 incident showed (no FP4 forward-numerics oracle existed at Linear
+  level). Double BF16 rounding (GEMM out, then epilogue) is ~2^-9 relative twice = noise vs FP8 quant
+  error. GATES (in order, none skippable): new Linear oracle -> GemmaModelParity token-for-token ->
+  coherent chat at default ctx -> ProfileModel scoreboard @48K vs 16395 ms (est ~1650-1700 tok/s on the
+  +101 base; old 1307 was on the 2c kernel base).
+  UPDATE 2026-07-13 (second pass) -- REAL ROOT CAUSE FOUND: STALE sB, not activation-scale granularity.
+  First per-token build: Linear oracle GREEN but GemmaModelParity RED + chat incoherent. Forensics: the
+  static FP8 weight scale sB was computed in buildCublasLtPlans() (build() time) by reading the FP4
+  group-scales DEVICE buffer -- which quantize() only fills LATER, during loadParameter() (Linear.ixx
+  allocates at build, fills at load). sB is therefore derived from UNINITIALIZED memory. Because sB
+  cancels algebraically in the GEMM (A_SCALE = sB, weights staged as W/sB), the bug is LUCK-DEPENDENT:
+  junk in a benign band (~1e-4..2 for these weights) generates CORRECTLY; zeroed pages give
+  sB = 1e-12*6/448 ~ 1.3e-14 -> every FP4 weight saturates to +-448 in E4M3 -> garbage forward. This
+  explains the ENTIRE +98/+99 flip-flop (validated coherent 07-12, incoherent clean build 07-13 -- the
+  per-tensor activation scale was likely INNOCENT) and the oracle-green/Gemma-red split (test process =
+  recycled allocator junk = benign sB; fresh model process = zeroed pages = saturation). FIX: sB now
+  computed at the tail of quantize() (same stream as the scale upload, so the reduction reads the fresh
+  values); buildCublasLtPlans() only allocates/binds the scalar pointers via new idempotent
+  ensureFp8ScaleScalarsAllocated() (either order of build/load works). LESSON for the gate ladder:
+  an uninitialized-memory read is deterministically catchable with compute-sanitizer
+  --tool initcheck on the Linear tests -- add that to the FP8-path gates alongside memcheck (parity
+  oracles CANNOT catch luck-dependent bugs reliably).
+  VALIDATED 2026-07-13 -- ALL GATES GREEN, SHIP-ON BAR CLEARED. Build green; Linear oracle green;
+  GemmaModelParity token-for-token GREEN; chat coherent (user). SCOREBOARD (ProfileModel --model gemma
+  --phase prefill --seq-len 22496 --context-length 49152 fp4; clean 1162 MiB baseline verified, orphan
+  cleaned): **12761 ms min/5 (mean 12791) = 1763 tok/s @48K** on the +101 ring-flash base -- vs 16395 ms
+  / 1372 tok/s FP8-off = **1.285x GEMM-path speedup, -22.2% wall**, beating the ~1650-1700 estimate.
+  llama.cpp gap: 10903 ms / 2063 tok/s -> **1.17x behind** (was 1.95x at the start of this thread).
+  VRAM @48K: load peak 11658 MiB (min free 623), after-run 11431 -- fits with margin, chunk 1024 held.
+  Toggle kUseFp8ActivationPrefill stays TRUE in tree: the kUseFusedFp4Gemm-style bar (beats BF16 +
+  parity + coherent chat) is cleared, so ON is now the shipped default (user commit decision).
+  Remaining prefill gap map (~1.9 s): flash ladder headroom (~1.5 s, global kernel 42% compute vs
+  fa-5090's 94% SOL), local ring L2-bound rework, FP4->FP8 upcast transient.
 - [ ] **[perf, prefill] Flash-attention-style global prefill kernel -- 36% of prefill (the single largest
   cost).** STATUS 2026-07-10: Iteration 1 (naive scalar, no shared-memory K/V tiling) landed behind the
   runtime `use_flash_prefill_` toggle (default OFF). It is CORRECT -- token-for-token model parity green,
