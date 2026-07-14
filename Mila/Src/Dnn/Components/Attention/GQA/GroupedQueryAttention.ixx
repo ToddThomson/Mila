@@ -333,12 +333,13 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Route the unbounded BF16 prefill through the fused FlashAttention kernel.
+         * @brief Route the BF16 prefill through the fused FlashAttention kernel.
          *
-         * Only the CUDA unbounded BF16 op honors this; other backends and the bounded ring
-         * ignore it. The transformer couples this to the shared preatt/att workspace width
-         * (flash on -> the O(chunk x T_ctx) score buffer is reclaimed), so it must be set
-         * consistently with that sizing -- a narrow workspace with flash off would overflow.
+         * Only the CUDA BF16 ops honor this -- the unbounded/global kernel and the bounded
+         * sliding-window ring variant; other backends and FP32 ignore it. The transformer
+         * couples this to the shared preatt/att workspace width (flash on -> the
+         * O(chunk x T_ctx) score buffer is reclaimed), so it must be set consistently with
+         * that sizing -- a narrow workspace with flash off would overflow.
          * See GqaFlashAttention.md 5.6.
          */
         void setUseFlashPrefill( bool enabled )

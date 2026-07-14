@@ -383,11 +383,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         /**
          * @brief Runtime A/B toggle for the FlashAttention prefill path (test hook).
          *
-         * Affects only the unbounded (kBounded == false) BF16 instantiation -- the
-         * bounded ring and FP32 always run the cuBLASLt pipeline regardless. Lets a
-         * single test process run the flash and cuBLASLt paths back-to-back and diff
-         * their outputs (GqaFlashAttention.md section 10). Defaults to false (cuBLASLt);
-         * the flash default flips only once the tiled kernel (5.2) profiles faster.
+         * Affects both BF16 instantiations -- the unbounded/global kernel and the
+         * bounded sliding-window ring variant; FP32 always runs the cuBLASLt pipeline
+         * regardless. Lets a single test process run the flash and cuBLASLt paths
+         * back-to-back and diff their outputs (GqaFlashAttention.md section 10).
+         * Defaults to false (cuBLASLt); the Gemma transformer enables it explicitly
+         * above the context threshold.
          */
         void setUseFlashPrefill( bool enabled ) noexcept
         {
@@ -396,16 +397,16 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
     private:
 
-        // A/B selector for the FlashAttention prefill path. When true, the unbounded/
-        // global BF16 prefill routes through the fused flash kernel
-        // (cuda_gqa_flash_prefill_bf16) instead of the cuBLASLt QK->softmax->AV pipeline.
-        // A runtime member (not compile-time) so a single test process can diff the two
-        // paths back-to-back via setUseFlashPrefill(). DEFAULTS TO FALSE (the safe cuBLASLt
-        // path): the Gemma transformer is the source of truth and enables flash explicitly
-        // on the global layers above a context threshold, coupling it to the reclaimed
-        // preatt/att workspace width (GqaFlashAttention.md 5.6). A standalone op left at the
-        // default therefore never flashes into a narrow shared buffer. Only the unbounded
-        // (kBounded == false) BF16 path is gated; bounded ring and FP32 always cuBLASLt.
+        // A/B selector for the FlashAttention prefill path. When true, the BF16 prefill
+        // routes through the fused flash kernel -- cuda_gqa_flash_prefill_bf16 (unbounded/
+        // global) or cuda_gqa_flash_prefill_ring_bf16 (bounded sliding-window ring) --
+        // instead of the cuBLASLt QK->softmax->AV pipeline. A runtime member (not
+        // compile-time) so a single test process can diff the two paths back-to-back via
+        // setUseFlashPrefill(). DEFAULTS TO FALSE (the safe cuBLASLt path): the Gemma
+        // transformer is the source of truth and enables flash explicitly on both layer
+        // kinds above a context threshold, coupling it to the reclaimed preatt/att
+        // workspace width (GqaFlashAttention.md 5.6). A standalone op left at the default
+        // therefore never flashes into a narrow shared buffer. FP32 always cuBLASLt.
         bool use_flash_prefill_{ false };
 
         GqaConfig config_;
@@ -636,18 +637,29 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
                 k_opt_, v_opt_, Xk, Xv, B_, chunk_len, NKV_, HS_, position_offset, cache_capacity_, stream );
 
-            // FlashAttention prefill (Iteration 1): fused, streaming, causal attention
-            // straight off the compact cache -- no Q permute, no preatt/att/v_out
-            // materialization, no unpermute. Only the unbounded/global BF16 path is gated
-            // here; the bounded ring and FP32 fall through to the cuBLASLt pipeline below.
-            if constexpr ( !kBounded && std::is_same_v<NativeType, nv_bfloat16> )
+            // FlashAttention prefill: fused, streaming, causal attention straight off the
+            // compact cache -- no Q permute, no preatt/att/v_out materialization, no
+            // unpermute. BF16 only; FP32 falls through to the cuBLASLt pipeline below. The
+            // bounded ring routes to the kBoundedRing kernel variant (ring row mapping +
+            // band-start key loop); the unbounded/global path is unchanged.
+            if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
             {
                 if ( use_flash_prefill_ )
                 {
-                    Detail::cuda_gqa_kernels<NativeType>::flash_prefill(
-                        Xq, k_opt_, v_opt_, Y,
-                        B_, chunk_len, NH_, NKV_, HS_, cache_capacity_,
-                        position_offset, window_, scale, stream );
+                    if constexpr ( kBounded )
+                    {
+                        Detail::cuda_gqa_kernels<NativeType>::flash_prefill_ring(
+                            Xq, k_opt_, v_opt_, Y,
+                            B_, chunk_len, NH_, NKV_, HS_, cache_capacity_,
+                            position_offset, window_, scale, stream );
+                    }
+                    else
+                    {
+                        Detail::cuda_gqa_kernels<NativeType>::flash_prefill(
+                            Xq, k_opt_, v_opt_, Y,
+                            B_, chunk_len, NH_, NKV_, HS_, cache_capacity_,
+                            position_offset, window_, scale, stream );
+                    }
 
                     cached_seq_len_ = position_offset + chunk_len;
 

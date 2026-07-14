@@ -51,9 +51,21 @@
 // CONSECUTIVE dims of key row g (one uint32), b1 the same row 8 dims later -- the manual
 // loads stay 4-byte aligned and stride the skew-padded smem row.
 //
-// Unbounded / global causal path only (kBounded == false, window == 0 for Gemma global;
-// full causal for Llama). HS a multiple of 16, HSt = HS/W a multiple of 16, HSt <=
-// kMaxNTiles*8. Physical cache row == absolute position.
+// TWO CACHE VARIANTS, one skeleton (kBoundedRing template axis, if constexpr deltas only):
+//   - Unbounded (kBoundedRing == false): physical cache row == absolute position, OOB key
+//     rows clamp to the last valid row (masked downstream). window == 0 for Gemma global /
+//     Llama full causal; window > 0 is honored by the masking either way.
+//   - Bounded sliding-window ring (kBoundedRing == true): the KV cache holds
+//     cache_capacity = window + prefill_chunk - 1 rows and physical row = abs_pos %
+//     cache_capacity. The kernel iterates ABSOLUTE key positions (the ring mapping lives
+//     only in the cp.async source math), so the score/mask/softmax logic is byte-identical
+//     to the unbounded variant. Ring slots aliased by newer or older absolute positions
+//     land exclusively on columns the per-row causal + window mask already forces to -inf:
+//     stale-below-band columns only occur under the block-wide band minimum (masked for
+//     every row), and future-position columns are causally masked. The band-start loop
+//     bound makes the key loop CONSTANT (~window/Bc + 1 tiles) instead of triangular.
+//
+// HS a multiple of 16, HSt = HS/W a multiple of 16, HSt <= kMaxNTiles*8.
 
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
@@ -107,9 +119,19 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // pays if the per-tile barrier count drops further still.
         constexpr int kMaxWarps = 8;
 
-        __host__ __device__ inline int flash_warp_count( int HS )
+        // W ceiling for the bounded-ring variant. At its production geometry (Gemma local
+        // sliding, HS = 256) W = 4 keeps the block under half the Ada per-SM shared memory
+        // (47552 B + the 1 KB per-block reservation, vs 102400 B/SM), so TWO independent
+        // blocks co-reside per SM -- the occupancy regime the HS = 512 global variant cannot
+        // reach with any double-buffer. The per-warp tile shape (hs_tile 64, 8 n-tiles) is
+        // identical to the proven HS = 512 / W = 8 shape. W = 8 at HS = 256 would cost
+        // 52160 B -> 1 block/SM: 8 warps sharing every block-wide barrier, the axis the
+        // W = 16 experiment measured as a regression.
+        constexpr int kMaxWarpsBounded = 4;
+
+        __host__ __device__ inline int flash_warp_count( int HS, int max_warps )
         {
-            int W = kMaxWarps;
+            int W = max_warps;
 
             while ( W > 1 && ( HS % W != 0 || ( HS / W ) % kMmaK != 0 ) )
                 W /= 2;
@@ -174,9 +196,14 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
 
         // Prefetch one key tile's K and V ([Bc x HS] BF16 each) from global into the given
-        // smem stage via 16-byte cp.async copies. OOB key rows are clamped to the last valid
-        // cache row (their contribution is masked out downstream). Caller commits + waits.
-        // Global rows stride HS; smem rows stride the padded hs_pad (kSmemSkew).
+        // smem stage via 16-byte cp.async copies. The tile is addressed by ABSOLUTE key
+        // position; the cache-row mapping is the single point where the two variants differ.
+        // Unbounded: OOB key rows clamp to the last valid cache row. Bounded ring: row =
+        // abs_pos % cache_capacity -- always in-bounds, and any slot whose resident absolute
+        // position differs from the requested one is a column the causal/window mask forces
+        // to -inf (see the file header). Caller commits + waits. Global rows stride HS;
+        // smem rows stride the padded hs_pad (kSmemSkew).
+        template<bool kBoundedRing>
         __device__ __forceinline__ void cp_async_kv_tile(
             __nv_bfloat16* s_K_stage, __nv_bfloat16* s_V_stage,
             const __nv_bfloat16* K, const __nv_bfloat16* V,
@@ -191,7 +218,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 const int p_local = c / chunks_per_row;
                 const int d0 = ( c % chunks_per_row ) * kCopyElems;
                 const int p = tile_start + p_local;
-                const int p_src = ( p < cache_capacity ) ? p : ( cache_capacity - 1 );
+                int p_src;
+
+                if constexpr ( kBoundedRing )
+                    p_src = p % cache_capacity;
+                else
+                    p_src = ( p < cache_capacity ) ? p : ( cache_capacity - 1 );
 
                 const size_t g_off = kv_head_base + static_cast<size_t>( p_src ) * HS + d0;
                 const int s_off = p_local * hs_pad + d0;
@@ -207,7 +239,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
     // the head dimension (warp w owns output columns [w*HSt, (w+1)*HSt)). K and V key tiles
     // are DOUBLE-BUFFERED in smem and prefetched with cp.async one tile ahead. Q is resident
     // for the whole key loop; O_w and the split-K QK partials are register-resident
-    // (mma.sync). Three block-wide barriers per key tile.
+    // (mma.sync). Three block-wide barriers per key tile. kBoundedRing selects the
+    // sliding-window ring cache-row mapping (see the file header); the math is otherwise
+    // identical.
+    template<bool kBoundedRing>
     __global__ void gqa_flash_prefill_mma_bf16_kernel(
         const __nv_bfloat16* __restrict__ Q,   // [B, chunk_len, NH * HS]
         const __nv_bfloat16* __restrict__ K,   // [B, NKV, cache_capacity, HS]
@@ -289,11 +324,23 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const int block_max_key = position_offset + last_row;
         const int num_tiles = block_max_key / kKeysPerTile + 1;
 
-        // --- prologue: prefetch key tile 0 into stage 0 ---
-        cp_async_kv_tile( s_K, s_V, K, V, kv_head_base, 0, HS, hs_pad, cache_capacity, tid, block_threads );
+        // First key tile of the attended band. window_start grows with the row index, so
+        // the block-wide minimum is the FIRST row's -- every column in an earlier tile sits
+        // below every row's window and would be masked to -inf; skipping those tiles makes
+        // the sliding-window key loop CONSTANT (~window/Bc + 1 tiles) instead of causal-
+        // triangular. window == 0 (global) keeps first_tile == 0 and the loop unchanged.
+        const int band_start =
+            ( window > 0 ) ? max( 0, position_offset + qrow0 - window + 1 ) : 0;
+        const int first_tile = band_start / kKeysPerTile;
+
+        // --- prologue: prefetch the first attended key tile into its parity stage ---
+        cp_async_kv_tile<kBoundedRing>( s_K + ( first_tile & 1 ) * stage_elems,
+            s_V + ( first_tile & 1 ) * stage_elems,
+            K, V, kv_head_base, first_tile * kKeysPerTile, HS, hs_pad, cache_capacity,
+            tid, block_threads );
         __pipeline_commit();
 
-        for ( int t = 0; t < num_tiles; ++t )
+        for ( int t = first_tile; t < num_tiles; ++t )
         {
             const int tile_start = t * kKeysPerTile;
             const int stage = t & 1;
@@ -304,8 +351,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // iteration: the next prefetch is issued only after the barrier below.
             __pipeline_wait_prior( 0 );
 
-            // Barrier 1 of 3: this tile's K/V (and, on t == 0, s_Q and the softmax
-            // state) visible to all threads. Because every thread has fully finished
+            // Barrier 1 of 3: this tile's K/V (and, on the first iteration, s_Q and the
+            // softmax state) visible to all threads. Because every thread has fully finished
             // iteration t-1 to get here, it ALSO proves the stage buffer the next
             // prefetch writes (tile t+1 -> stage of t-1) has no remaining readers --
             // the former end-of-loop barrier is subsumed.
@@ -314,7 +361,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             if ( t + 1 < num_tiles )
             {
                 const int next_stage = ( t + 1 ) & 1;
-                cp_async_kv_tile( s_K + next_stage * stage_elems, s_V + next_stage * stage_elems,
+                cp_async_kv_tile<kBoundedRing>( s_K + next_stage * stage_elems, s_V + next_stage * stage_elems,
                     K, V, kv_head_base, ( t + 1 ) * kKeysPerTile, HS, hs_pad, cache_capacity, tid, block_threads );
                 __pipeline_commit();
             }
@@ -544,7 +591,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         return f32_elems * sizeof( float ) + bf16_elems * sizeof( __nv_bfloat16 );
     }
 
-    void cuda_gqa_flash_prefill_bf16(
+    template<bool kBoundedRing>
+    static void launch_flash_prefill_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
         __nv_bfloat16* Y,
         int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
@@ -555,7 +603,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             throw std::runtime_error(
                 "cuda_gqa_flash_prefill_bf16 (MMA): head_size must be a multiple of 16" );
 
-        const int warps = flash_warp_count( HS );
+        const int warps =
+            flash_warp_count( HS, kBoundedRing ? kMaxWarpsBounded : kMaxWarps );
         const int hs_tile = HS / warps;
 
         if ( hs_tile % kMmaK != 0 )
@@ -571,6 +620,10 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             throw std::runtime_error(
                 "cuda_gqa_flash_prefill_bf16 (MMA): head_size must be a multiple of 8 for cp.async" );
 
+        if ( kBoundedRing && window <= 0 )
+            throw std::runtime_error(
+                "cuda_gqa_flash_prefill_ring_bf16 (MMA): bounded ring requires a positive window" );
+
         int device = 0;
         int sm_major = 0;
         cudaCheck( cudaGetDevice( &device ) );
@@ -583,7 +636,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const size_t smem_bytes = flash_stage2d_smem_bytes( HS, warps );
 
         cudaCheck( cudaFuncSetAttribute(
-            gqa_flash_prefill_mma_bf16_kernel,
+            gqa_flash_prefill_mma_bf16_kernel<kBoundedRing>,
             cudaFuncAttributeMaxDynamicSharedMemorySize,
             static_cast<int>( smem_bytes ) ) );
 
@@ -591,11 +644,35 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         dim3 grid( num_query_tiles, NH, B );
         dim3 block( warps * 32, 1, 1 );
 
-        gqa_flash_prefill_mma_bf16_kernel <<< grid, block, smem_bytes, stream >>> (
+        gqa_flash_prefill_mma_bf16_kernel<kBoundedRing> <<< grid, block, smem_bytes, stream >>> (
             Q, K, V, Y,
             B, chunk_len, NH, NKV, HS, cache_capacity,
             position_offset, window, scale );
 
         cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_gqa_flash_prefill_bf16(
+        const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
+        __nv_bfloat16* Y,
+        int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+        int position_offset, int window, float scale,
+        cudaStream_t stream )
+    {
+        launch_flash_prefill_bf16<false>(
+            Q, K, V, Y, B, chunk_len, NH, NKV, HS, cache_capacity,
+            position_offset, window, scale, stream );
+    }
+
+    void cuda_gqa_flash_prefill_ring_bf16(
+        const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
+        __nv_bfloat16* Y,
+        int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+        int position_offset, int window, float scale,
+        cudaStream_t stream )
+    {
+        launch_flash_prefill_bf16<true>(
+            Q, K, V, Y, B, chunk_len, NH, NKV, HS, cache_capacity,
+            position_offset, window, scale, stream );
     }
 }

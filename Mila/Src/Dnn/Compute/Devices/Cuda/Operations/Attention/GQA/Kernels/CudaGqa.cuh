@@ -75,14 +75,31 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      * attention output directly to Y [B, chunk_len, NH*HS] -- no Q permute, no
      * unpermute, no preatt/att/v_out materialization.
      *
-     * Unbounded / global causal path only (the caller routes kBounded == false here);
-     * the bounded sliding-window ring is a later iteration. HS must be a multiple of
-     * 32 and <= 512 (Gemma 4 global_head_dim is 512, the head dim this path actually
-     * runs on; Llama 128 also qualifies). `scale` is the config-derived attention scale
-     * (1/sqrt(HS) for Llama, 1.0 for Gemma) -- never recomputed here. See
+     * Unbounded / global causal path (the caller routes kBounded == false here; the
+     * bounded ring routes to cuda_gqa_flash_prefill_ring_bf16 below). HS must be a
+     * multiple of 32 and <= 512 (Gemma 4 global_head_dim is 512, the head dim this path
+     * actually runs on; Llama 128 also qualifies). `scale` is the config-derived attention
+     * scale (1/sqrt(HS) for Llama, 1.0 for Gemma) -- never recomputed here. See
      * GqaFlashAttention.md.
      */
     void cuda_gqa_flash_prefill_bf16(
+        const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
+        __nv_bfloat16* Y,
+        int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+        int position_offset, int window, float scale,
+        cudaStream_t stream );
+
+    /**
+     * @brief Fused FlashAttention prefill over the bounded sliding-window ring cache (BF16).
+     *
+     * Ring variant of cuda_gqa_flash_prefill_bf16 for the kBounded op: K/V physical row =
+     * absolute position % cache_capacity (capacity = window + prefill_chunk - 1), and the
+     * key-tile loop starts at the sliding band (~window keys per query tile, constant per
+     * block) instead of running causal-triangular from zero. Replaces the cuBLASLt QK ->
+     * prefill_softmax_ring -> AV pipeline on Gemma's local sliding layers. Requires
+     * window > 0. See GqaFlashAttention.md.
+     */
+    void cuda_gqa_flash_prefill_ring_bf16(
         const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
         __nv_bfloat16* Y,
         int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,

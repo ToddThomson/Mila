@@ -742,4 +742,181 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
             << "flash prefill diverged from cuBLASLt at the Gemma global config "
                "(HS=512, NKV=1, window=0), max_diff=" << max_diff;
     }
+
+    // ====================================================================
+    // Bounded-ring FlashAttention prefill parity (GqaFlashAttention.md 10.1)
+    //
+    // Diffs the bounded flash prefill (kBoundedRing kernel variant: ring row
+    // mapping in cp.async + band-start key loop) against the cuBLASLt ring
+    // pipeline (QK -> prefill_softmax_ring -> AV) on the SAME bounded BF16 op,
+    // toggled per-run via setUseFlashPrefill(). The geometry is the Gemma 4 12B
+    // LOCAL sliding layer exactly: head_dim 256 (W=4 / hs_tile 64 / 8 n-tiles --
+    // the 2-blocks-per-SM configuration), NKV 8 (GS=2), context 83 so the final
+    // 19-token chunk exercises the ragged query tile. Two windows split the risk:
+    //   - kLWindowWrap 24: capacity 55 < 83, the ring WRAPS mid-prefill -- the
+    //     cp.async ring source math and the masked-alias argument are on trial.
+    //   - kLWindowNoWrap 64: capacity clamps to 83, the ring mapping is the
+    //     identity -- isolates the band-start loop bound and window masking.
+    // PTX-change gate discipline: any edit to the kernel's address paths must
+    // also run compute-sanitizer memcheck over this fixture (a generic-address
+    // ldmatrix bug once passed the parity oracle while doing UB at scale).
+    // ====================================================================
+
+    namespace
+    {
+        constexpr int kLBatch = 1;
+        constexpr int kLNumHeads = 16;     // Gemma 4 12B query heads
+        constexpr int kLNumKvHeads = 8;    // local sliding layers are GQA (GS = 2)
+        constexpr int kLHeadDim = 256;     // sliding head_dim (NOT the global 512)
+        constexpr int kLModelDim = kLNumHeads * kLHeadDim;                          // 4096
+        constexpr int kLPackedQkv = ( kLNumHeads + 2 * kLNumKvHeads ) * kLHeadDim;  // 8192
+        constexpr int kLContext = 83;      // T_ (ragged 19-token tail chunk)
+        constexpr int kLPrefillChunk = 32; // 83 tokens -> chunks 32 + 32 + 19
+        constexpr int kLWindowWrap = 24;   // capacity min(83, 24+32-1) = 55 -> ring wraps
+        constexpr int kLWindowNoWrap = 64; // capacity min(83, 64+32-1) = 83 -> identity ring
+        constexpr float kLFlashAtol = 3e-2f;
+    }
+
+    class CudaGqaFlashRingPrefillParity : public ::testing::Test
+    {
+    protected:
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+        using DeviceBf16 = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+        using BoundedBf16Op = Compute::Cuda::Gqa::CudaGqaOp<TensorDataType::BF16, true>;
+
+        void SetUp() override
+        {
+            try
+            {
+                cuda_context_ = createExecutionContext( Device::Cuda( 0 ) );
+            }
+            catch ( const std::exception& )
+            {
+                cuda_context_ = nullptr;
+            }
+
+            if ( !cuda_context_ )
+                GTEST_SKIP() << "CUDA device not available";
+        }
+
+        HostFp32 randomHost( const shape_t& shape, std::mt19937& rng )
+        {
+            std::uniform_real_distribution<float> dist( -1.0f, 1.0f );
+            HostFp32 host( Device::Cpu(), shape );
+
+            for ( size_t i = 0; i < host.size(); ++i )
+                host.data()[ i ] = dist( rng );
+
+            return host;
+        }
+
+        DeviceBf16 toDevice( const HostFp32& host )
+        {
+            DeviceBf16 device( Device::Cuda( 0 ), host.shape() );
+            copy( host, device, cuda_context_.get() );
+            cuda_context_->synchronize();
+
+            return device;
+        }
+
+        HostFp32 toFloat( const DeviceBf16& device )
+        {
+            auto host = toHost<TensorDataType::FP32>( device, cuda_context_.get() );
+            cuda_context_->synchronize();
+
+            return host;
+        }
+
+        // Chunked prefill of kLContext tokens through a fresh bounded BF16 op with the
+        // flash path toggled on/off. The random q/k/v schedule is fixed by seed so both
+        // runs see identical input; returns per-position output rows [kLModelDim].
+        std::vector<std::vector<float>> runPrefill( bool useFlash, int window )
+        {
+            std::mt19937 rng( 11u );
+
+            std::vector<HostFp32> qC, kC, vC;
+            std::vector<int> offs;
+            for ( int off = 0; off < kLContext; off += kLPrefillChunk )
+            {
+                const int clen = std::min( kLPrefillChunk, kLContext - off );
+                qC.push_back( randomHost( shape_t{ kLBatch, clen, kLNumHeads * kLHeadDim }, rng ) );
+                kC.push_back( randomHost( shape_t{ kLBatch, clen, kLNumKvHeads * kLHeadDim }, rng ) );
+                vC.push_back( randomHost( shape_t{ kLBatch, clen, kLNumKvHeads * kLHeadDim }, rng ) );
+                offs.push_back( off );
+            }
+
+            BoundedBf16Op op( cuda_context_.get(),
+                GqaConfig( kLModelDim, kLNumHeads, kLNumKvHeads ).withWindow( window ) );
+            op.build( BuildContext( shape_t{ kLBatch, kLContext, kLPackedQkv },
+                RuntimeMode::Inference, false ).withPrefillSize( kLPrefillChunk ) );
+            op.initializeKvCache( kLBatch, kLContext );
+            op.setUseFlashPrefill( useFlash );
+
+            // Prefill scratch: consumed by the cuBLASLt ring path, ignored by flash.
+            // preatt/att are context-wide, a superset of the capacity columns it uses.
+            DeviceBf16 q_permute( Device::Cuda( 0 ), shape_t{ kLBatch, kLNumHeads, kLPrefillChunk, kLHeadDim } );
+            DeviceBf16 preatt( Device::Cuda( 0 ), shape_t{ kLBatch, kLNumHeads, kLPrefillChunk, kLContext } );
+            DeviceBf16 att( Device::Cuda( 0 ), shape_t{ kLBatch, kLNumHeads, kLPrefillChunk, kLContext } );
+            DeviceBf16 v_out( Device::Cuda( 0 ), shape_t{ kLBatch, kLNumHeads, kLPrefillChunk, kLHeadDim } );
+
+            GqaState state;
+            state.q_permute = &q_permute;
+            state.preatt = &preatt;
+            state.att = &att;
+            state.v_out = &v_out;
+            op.setState( state );
+
+            std::vector<std::vector<float>> outputs;
+            for ( size_t c = 0; c < qC.size(); ++c )
+            {
+                const int clen = static_cast<int>( qC[ c ].shape()[ 1 ] );
+                DeviceBf16 q = toDevice( qC[ c ] );
+                DeviceBf16 k = toDevice( kC[ c ] );
+                DeviceBf16 v = toDevice( vC[ c ] );
+                DeviceBf16 out( Device::Cuda( 0 ), shape_t{ kLBatch, clen, kLModelDim } );
+
+                op.prefill( q, k, v, out, offs[ c ] );
+
+                HostFp32 host = toFloat( out );
+                for ( int t = 0; t < clen; ++t )
+                    outputs.emplace_back( host.data() + t * kLModelDim, host.data() + ( t + 1 ) * kLModelDim );
+            }
+
+            return outputs;
+        }
+
+        void expectFlashMatchesRing( int window )
+        {
+            auto flashOut = runPrefill( true, window );
+            auto cublasOut = runPrefill( false, window );
+
+            ASSERT_EQ( flashOut.size(), cublasOut.size() );
+            ASSERT_EQ( static_cast<int>( flashOut.size() ), kLContext );
+
+            float max_diff = 0.0f;
+            for ( size_t t = 0; t < flashOut.size(); ++t )
+            {
+                ASSERT_EQ( flashOut[ t ].size(), cublasOut[ t ].size() );
+
+                for ( size_t i = 0; i < flashOut[ t ].size(); ++i )
+                    max_diff = std::max( max_diff, std::fabs( flashOut[ t ][ i ] - cublasOut[ t ][ i ] ) );
+            }
+
+            EXPECT_LT( max_diff, kLFlashAtol )
+                << "bounded flash prefill diverged from the cuBLASLt ring path at the Gemma "
+                   "local config (HS=256, NKV=8, window=" << window << "), max_diff=" << max_diff;
+        }
+
+        std::unique_ptr<IExecutionContext> cuda_context_;
+    };
+
+    TEST_F( CudaGqaFlashRingPrefillParity, FlashMatchesCublasLtRing_RingWraps )
+    {
+        expectFlashMatchesRing( kLWindowWrap );
+    }
+
+    TEST_F( CudaGqaFlashRingPrefillParity, FlashMatchesCublasLtRing_NoWrap )
+    {
+        expectFlashMatchesRing( kLWindowNoWrap );
+    }
 }

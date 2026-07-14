@@ -817,6 +817,52 @@ a 12 GB card.
   min of 5): 5906 ms with W=8+skew8 kernel class (W=16 run measured 5906 before its instance regression
   was known; W=8 wall to be re-confirmed next profiling pass). Report: flash2c_w16_ncu.txt (session
   scratchpad).
+  UPDATE 2026-07-13 (LOCAL SLIDING LAYERS, spec 5.4): BOUNDED-RING FLASH VARIANT IMPLEMENTED (pending
+  VS2026 build + gates). Targets the 18.5% local-attention bucket @48K (ring softmax 2.69 s + QK 0.46 +
+  AV 0.38 over 22496 tok); expected ~1.5-2 s off the 18674 ms wall (-> ~1330-1350 tok/s). Design = fork
+  of the OPTIMIZED 2d skeleton in `Gqa.Flash.Wmma.cu` as a `kBoundedRing` compile-time template axis
+  (if constexpr deltas, NOT a copy). Three deltas only: (1) RING INDEXING -- cp.async source row =
+  abs_pos % cache_capacity (replaces the OOB clamp); safe because every aliased ring slot (newer or
+  older absolute position than requested) lands on a column the per-row causal+window mask already
+  forces to -inf (band-minimum argument documented in the kernel header). (2) BAND-START key loop --
+  first tile = min window_start over the block's rows (the FIRST row's, since window_start grows with
+  row index); makes the sliding key loop CONSTANT (~window/16 + 1 tiles) instead of causal-triangular.
+  Computed at runtime from `window`, so the global path (window 0) is instruction-identical. (3) W=4
+  at HS=256 (`kMaxWarpsBounded`): block smem 47552 B + 1 KB reserve < half of Ada's 102400 B/SM ->
+  TWO independent blocks/SM, the occupancy regime HS=512 cannot reach (W=8 at HS=256 = 52160 B = 1
+  block/SM = the barrier-shared-warps axis W=16 proved a regression); per-warp tile shape (hs_tile 64,
+  8 n-tiles) identical to the proven HS=512/W=8 shape. WIRING: new `cuda_gqa_flash_prefill_ring_bf16`
+  launcher + `flash_prefill_ring` dispatcher; `CudaGqaOp::prefill_optimized` flash gate extended from
+  `!kBounded && BF16` to all BF16 (kBounded routes to the ring launcher); Gemma build loop now sets
+  `setUseFlashPrefill` on LOCAL blocks too (same `useFlashPrefillForContext` threshold, ctx >= 16384).
+  `prefillScoreWidth` deliberately UNCHANGED (locals stop reading preatt/att when flashed, but the
+  width keeps the cuBLASLt fallback valid + keeps the A/B chunk-config clean); shrinking it further
+  (~100+ MB at chunk 1024) is a follow-up on this item. NEW ORACLE: `CudaGqaFlashRingPrefillParity`
+  (bounded op flash-on vs flash-off cuBLASLt ring path, real local geometry HS=256/NKV=8/ctx 83 ragged
+  chunks 32+32+19) x2 windows: 24 (capacity 55 -> ring WRAPS mid-prefill) and 64 (capacity 83 ->
+  identity ring, isolates band-start + masking). GATES (per the ldmatrix lesson, none skippable):
+  (1) both parity fixtures green, (2) compute-sanitizer memcheck over BOTH fixtures (ring math changes
+  the cp.async/ldmatrix address paths; parity alone once passed over generic-address UB), (3)
+  `ProfileModel --model gemma --phase prefill` at ctx >= 16384 (chat-default ctx never runs flash),
+  (4) chat coherence at ctx >= 16384. Then ncu the ring kernel (occupancy: expect 2 blocks/SM) + the
+  22496-tok scoreboard vs 18674 ms.
+  VALIDATED 2026-07-13 (same day, all four gates green): parities green in VS2026 AND under
+  compute-sanitizer memcheck (0 errors, 3 tests); chat coherent (user); ProfileModel green.
+  SCOREBOARD (4070, 22496 tok, ctx 49152, FP4, min/5): 18674 -> 16395 ms (mean 16408) = 1205 -> 1372
+  tok/s, -12.2% end-to-end -- BEAT the 1330-1350 estimate; llama.cpp gap 1.71x -> 1.50x. seq-8192
+  wall 5768 -> 4827 ms (-16%). ncu ring instance (chunk 1024, demangled filter
+  `gqa_flash_prefill_mma_bf16_kernel<(bool)1>`, skip 200): Duration 1.46 ms CONSTANT per instance;
+  2 BLOCKS/SM CONFIRMED (Waves/SM 11.13 = 1024 blocks / 46 SMs / 2; smem block limit 2 at 47.55 KB
+  + 1 KB driver). CAVEAT understood: occupancy % READS 16.67% -- 2 blocks x 4 warps = the same 8
+  warps/SM as the global variant's 1x8; the win is INDEPENDENT barriers, not more warps -- do not
+  chase the percentage. Counters: Compute (SM) 31.4%, L2 49% (now the top unit -- the band loop
+  re-reads K/V through L2), DRAM 5%, regs 129/thread (limit 3 blocks, not binding). ACCOUNTING
+  CLOSED: 880 instances x 1.46 ms = 1.29 s local-attention bucket vs 3.52 s prior = the full 2.28 s
+  wall delta, no mystery. Updated gap map @48K (16.4 s wall): BF16 linear GEMMs ~8.2 s (FP8 acts =
+  the big remaining lever) | global flash ~4.8 s (ladder headroom ~1.5 s: 42% compute vs fa-5090 94%
+  SOL; ring kernel's own headroom = L2-bound at 49%) | local ring flash ~1.29 s (DONE) | FP4 dequant
+  ~1.5 s | rest ~0.7 s. Remaining on this item: preatt/att further shrink (locals no longer read
+  them when flashed) + Llama all-global reclaim (5.6 sibling).
   See [[project_gqa_flash_attention]]. Original analysis below still holds:
   Same capture: **`prefill_softmax_bf16_kernel` = 20.4 s / 56.9 s (36.1%)**, 1120 instances, 18.2 ms
   avg (max 27.8 ms). This is the 8 global layers' O(n^2) full-context attention at 35K tokens; the kernel

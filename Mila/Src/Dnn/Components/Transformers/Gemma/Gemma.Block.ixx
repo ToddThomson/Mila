@@ -362,9 +362,10 @@ namespace Mila::Dnn
                 attn_->setState( state );
         }
 
-        // Route this block's GQA op through the fused FlashAttention prefill kernel. Only
-        // meaningful on the global (unbounded) BF16 layers; the transformer couples it to
-        // the shared preatt/att workspace width (GqaFlashAttention.md 5.6).
+        // Route this block's GQA op through the fused FlashAttention prefill kernel --
+        // the unbounded kernel on global layers, the ring variant on local (sliding)
+        // layers. BF16 only; the transformer couples it to the shared preatt/att
+        // workspace width (GqaFlashAttention.md 5.6).
         void setUseFlashPrefill( bool enabled )
         {
             if ( attn_ )

@@ -96,14 +96,16 @@ namespace Mila::Dnn
     // pooled (Gemma4InferenceReview.md sections 6-7).
     inline constexpr int64_t kGemmaPrefillChunkOverride = 0;
 
-    // Context length (>=) at which the global (unbounded) BF16 attention layers switch from
-    // the cuBLASLt prefill path to the fused FlashAttention kernel. Below it cuBLASLt is
-    // faster and its O(chunk x T_ctx) score workspace still fits; at/above it that workspace
-    // is the memory wall, so flash both removes the O(S^2) score materialization and lets the
-    // shared preatt/att buffer shrink to the window-bounded sliding layers -- the change that
-    // makes long context (target 64K) fit on a 12-16 GB card (GqaFlashAttention.md 5.6). The
-    // build-time context length alone decides this, so the workspace sizing and the op toggle
-    // stay coupled. 0 disables flash entirely (always cuBLASLt).
+    // Context length (>=) at which the BF16 attention layers switch from the cuBLASLt
+    // prefill path to the fused FlashAttention kernels -- the unbounded kernel on the
+    // global layers, the bounded-ring variant on the local sliding layers. Below it
+    // cuBLASLt is faster and its O(chunk x T_ctx) score workspace still fits; at/above it
+    // that workspace is the memory wall, so flash both removes the O(S^2) score
+    // materialization and lets the shared preatt/att buffer shrink to the window-bounded
+    // sliding width -- the change that makes long context (target 64K) fit on a 12-16 GB
+    // card (GqaFlashAttention.md 5.6). The build-time context length alone decides this,
+    // so the workspace sizing and the op toggle stay coupled. 0 disables flash entirely
+    // (always cuBLASLt).
     inline constexpr int64_t kGemmaFlashPrefillMinContext = 16384;
 
     // Activation budget for one prefill pass: every chunk-scaled term (the shared
@@ -507,6 +509,15 @@ namespace Mila::Dnn
                         block->installSharedWorkspace( block_workspace_ );
 
                     block->build( block_context );
+
+                    // Local (sliding) layers flash at the same threshold via the bounded-
+                    // ring kernel variant, replacing the ring softmax + separate QK/AV
+                    // GEMMs. They stop reading the shared preatt/att buffer when flashed;
+                    // prefillScoreWidth() deliberately still sizes it for them so the
+                    // cuBLASLt fallback stays valid (further reclaim tracked in BACKLOG).
+                    if ( context.isInferenceMode() )
+                        block->setUseFlashPrefill( useFlashPrefillForContext( T ) );
+
                     layers_.push_back( static_cast<DecoderLayerType*>( block.get() ) );
                 }
             }
@@ -710,8 +721,8 @@ namespace Mila::Dnn
         // (preatt/att span the context; q_permute/v_out span the max head width),
         // and -- bounded sliding policy only -- the per-row ring capacity growth
         // across the local layers.
-        // Whether the global (unbounded) BF16 layers run fused flash prefill at this
-        // build-time context length (kGemmaFlashPrefillMinContext). A pure function of
+        // Whether the BF16 layers (global AND local sliding) run fused flash prefill at
+        // this build-time context length (kGemmaFlashPrefillMinContext). A pure function of
         // T_ctx so the op toggle and the shared preatt/att workspace width stay coupled.
         bool useFlashPrefillForContext( int64_t T_ctx ) const noexcept
         {
@@ -723,7 +734,10 @@ namespace Mila::Dnn
         // Width of the shared prefill preatt/att score buffer. With flash on, the global
         // layers no longer touch it, so it shrinks to the window-bounded sliding layers'
         // exact need (matching CudaGqaOp cache_capacity_ for kBounded); otherwise the
-        // global cuBLASLt path needs the full context width.
+        // global cuBLASLt path needs the full context width. With the local layers now
+        // also flashed, no prefill path reads it at all above the threshold -- the width
+        // is deliberately KEPT at the sliding need so the cuBLASLt fallback (flash toggled
+        // off on a standalone op) stays valid; shrinking further is a tracked follow-up.
         int64_t prefillScoreWidth( int64_t T_ctx ) const noexcept
         {
             if ( useFlashPrefillForContext( T_ctx ) )

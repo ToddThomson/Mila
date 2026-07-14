@@ -414,6 +414,20 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     position_offset, window, scale, stream );
             }
 
+            // Bounded sliding-window ring variant of flash_prefill (kBounded op). BF16-only,
+            // same gating as flash_prefill.
+            static void flash_prefill_ring(
+                const nv_bfloat16* Q, const nv_bfloat16* K, const nv_bfloat16* V,
+                nv_bfloat16* Y,
+                int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+                int position_offset, int window, float scale,
+                cudaStream_t stream )
+            {
+                cuda_gqa_flash_prefill_ring_bf16(
+                    Q, K, V, Y, B, chunk_len, NH, NKV, HS, cache_capacity,
+                    position_offset, window, scale, stream );
+            }
+
             // ----------------------------------------------------------------
             // Common: softmax
             // ----------------------------------------------------------------
