@@ -523,6 +523,10 @@ if(MILA_HAS_CUDA)
             # below; file kept in-tree for reference. Both define cuda_gqa_flash_prefill_bf16,
             # so exactly one is compiled.
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Flash.Wmma.cu"
+            # Gqa.Flash.Fa2.cu owns cuda_gqa_flash_prefill_ring_bf16 (the HS=256 local
+            # sliding layers) as a row-split FA-2 kernel; Wmma.cu keeps only the HS=512
+            # unbounded global symbol. Exactly one TU defines each flash entry point.
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Flash.Fa2.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Fp8Prefill/CudaFp8Prefill.cu"

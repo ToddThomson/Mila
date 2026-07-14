@@ -591,8 +591,48 @@ a 12 GB card.
   (int8 activations = MMQ's 2x tensor-core rate); factor 1 does not exist. Chunk-heuristic diag + <iostream>
   removed from Gemma.ixx (tree clean). LESSON: re-measure the CURRENT binary before trusting a baseline across
   rebuilds -- a stale ProfileModel drove ~an entire session of wrong analysis.
-- [~] **[perf, prefill] FP8-activation prefill GEMM (W4A8-FP8) -- IMPLEMENTED + PROFILED, but default OFF:
-  numerics incomplete.** GEMM is correct + 1.24x faster @48K, BUT per-tensor FP8-activation scales produce
+- [ ] **[perf, prefill] Gemma prefill competitiveness -- at 1.136x behind llama.cpp (1817 tok/s @48K) as of
+  +104; remaining levers DEFERRED ("scrape the bones later", user call).** Success criterion ("close, not
+  miles behind") MET: this arc drove 1.95x -> 1.136x (39208 -> 12382 ms, 22496 tok @48K; llama.cpp 10903 ms
+  / 2063 tok/s). Shipped: +103 (W4A8-FP8 + ring flash, 1.17x) then +104 (local FA-2 kernel, 1.17x ->
+  1.136x). Crossing UNDER the line is a stacked campaign, not one fix, and the biggest bucket is at its Ada
+  floor -- deferred by design. Gap map (nsys, +103 base, GPU-bound): global flash 4.51s/36% (Ada floor) |
+  FP8 GEMMs 4.11s/33% (DONE) | local flash ~0.9s (was 1.12s ring, now FA-2 kernel) | FP4->FP8 upcast
+  1.10s/8.8% | epilogue+quant 0.65s | rope/geglu/rmsnorm/misc ~0.94s.
+  DEFERRED LEVERS (ranked; full scope + arithmetic in [[project_w4a16_prefill_gemm]] +
+  [[project_gqa_flash_attention]]):
+  - **Lever A -- FP4->FP8 upcast HOIST (~-1.0s, biggest clean win).** The 1.10s upcast bucket is REDUNDANCY:
+    192 linears x 22 chunks re-upcast ALL weights every chunk (356 GB/run vs 16.2 GB once). Kernel is
+    already ~325 GB/s (~65% peak) -- not slowness, repetition. FIX = layer-outer/chunk-inner prefill
+    restructure in Gemma.ixx (embed full-seq into ONE in-place residual buffer; per-layer: upcast once,
+    run all chunks, stitch outputs back) + a per-layer-pass upcast-reuse hook. REQUIRES core API change
+    (new IDecoderLayer beginPrefillPass/endPrefillPass -> GemmaBlock -> CudaLinearOp; ~224 MB per-layer FP8
+    staging pool). MEMORY: ~+330 MB resident (full-seq residual +165, FP8 pool +165) vs ~623 MiB free =
+    ~290 MiB margin, FITS (chunk-inner keeps the 691 MB full-seq FFN intermediate OFF the table -- the trap
+    to avoid). GATE: GemmaModelParity token-for-token (same math reordered) -> chat -> scoreboard vs 12761.
+    Projected ~1.08x (does NOT alone cross the line). BLOCKED on user sign-off for the core-library hook.
+  - **[x] Local sliding-layer row-split FA-2 kernel -- DONE +104 (2026-07-14): 1.17x -> 1.136x, local
+    bucket ~tapped.** New `Gqa.Flash.Fa2.cu` owns `cuda_gqa_flash_prefill_ring_bf16` (the HS=256 local
+    layers) as a true FA-2 kernel: each warp owns a full 16-row query tile with register-resident O and P,
+    one block-barrier per key tile (vs the HS-split's three). 1.47 ms/launch (HS-split ring) -> 1.00
+    ms/launch (-32%). ncu-confirmed levers: register-P + warp independence beat the HS-split's latency
+    bound; occupancy raised via kFa2WarpsPerBlock=6 (1.0 -> 1.5 warps/sched, the barrier structure lets
+    more warps/block lift warps/SM directly). FALSIFIED en route (do NOT retry): a two-pass HS split to
+    kill the 4 MB O spill REGRESSED (+276 ms) -- at 1 warp/sched the recompute cost more than the
+    L1-cached spill; occupancy, not the spill, was the lever. Full arc in [[project_gqa_flash_attention]].
+  - **Global FP8-K/V-in-smem two-block attempt (BORDERLINE, big-upside/high-risk).** Global KV already FP8;
+    keep K/V FP8 in smem (halve the bytes) + register upcast. Real carve: 93 KB -> ~60 KB, STILL ~10 KB
+    over the ~50 KB two-block threshold -> needs ALSO single-buffering (kills cp.async overlap) or FP8-Q
+    (numerics). 2-3 stacked risky changes for an uncertain 2-block payoff. Prove smem crosses 50 KB before
+    writing code.
+  - **Small fusions ~-0.3..0.5s** (rope into split/kv-write, rmsnorm+residual, epilogue folds); **global
+    flash ILP ~-0.3..0.7s** (fragment/register double-buffer + mma pipelining vs the 36% exec-dependency
+    stall -- refinement, not rewrite; global kernel is at its Ada occupancy floor); **local ring L2 rework
+    ~-0.3s**. Any A + fusions + one attention nibble lands at/under the line.
+- [x] **[perf, prefill] FP8-activation prefill GEMM (W4A8-FP8) -- SHIPPED ON at +103 (2026-07-13):
+  1763 tok/s @48K, 1.17x behind llama.cpp.** (History below; resolution at the "VALIDATED -- ALL GATES
+  GREEN" line. The per-token-scale + stale-sB fixes closed the +98/+99 incoherence.) Original framing:
+  GEMM is correct + 1.24x faster @48K, BUT per-tensor FP8-activation scales produced
   INCOHERENT Gemma generation (per-layer Forward_MatchesReference 5e-2 passed; shipped ON in +98, reverted
   OFF in +99 after a clean build generated garbage -- the per-layer oracle does NOT gate generation). OPEN
   WORK to re-enable: (1) per-token activation absmax scale (cuBLASLt vector B_SCALE) and/or per-channel

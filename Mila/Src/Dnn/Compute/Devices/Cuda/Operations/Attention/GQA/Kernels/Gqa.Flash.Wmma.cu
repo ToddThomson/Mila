@@ -664,15 +664,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             position_offset, window, scale, stream );
     }
 
-    void cuda_gqa_flash_prefill_ring_bf16(
-        const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
-        __nv_bfloat16* Y,
-        int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
-        int position_offset, int window, float scale,
-        cudaStream_t stream )
-    {
-        launch_flash_prefill_bf16<true>(
-            Q, K, V, Y, B, chunk_len, NH, NKV, HS, cache_capacity,
-            position_offset, window, scale, stream );
-    }
+    // cuda_gqa_flash_prefill_ring_bf16 (the bounded sliding-window local layers) now lives
+    // in Gqa.Flash.Fa2.cu: at HS = 256 the local layers use a row-split FA-2 kernel
+    // (register-resident O + P, one barrier per tile) that the HS = 512 global variant
+    // here cannot -- see that file's header. This unit owns only the unbounded global
+    // symbol, so launch_flash_prefill_bf16<true> is no longer instantiated.
 }
