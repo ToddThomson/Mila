@@ -142,7 +142,27 @@
       "Bash(ls -la out/build/*/  2>/dev/null | head -40; echo \"===PROFILEMODEL===\"; find . -name \"ProfileModel*.exe\" 2>/dev/null; echo \"===NCU===\"; which ncu 2>/dev/null; ls \"/c/Program Files/NVIDIA Corporation/Nsight Compute\"* 2>/dev/null)",
       "Bash(stat -c '%y  %n' out/build/x64-debug/ProfileModel.exe out/build/x64-profile/ProfileModel.exe 2>/dev/null; echo \"===NCU PATH===\"; ls \"/c/Program Files/NVIDIA Corporation/Nsight Compute\"*/ncu.bat 2>/dev/null; ls \"/c/Program Files/NVIDIA Corporation/\"| grep -i nsight)",
       "Bash(echo \"===compute-sanitizer===\"; ls \"/c/Program Files/NVIDIA GPU Computing Toolkit/CUDA\"/*/bin/compute-sanitizer* 2>/dev/null; echo \"===GQA test binary \\(recent builds\\)===\"; find out/build -iname \"*GqaOp*Test*.exe\" -o -iname \"*Gqa*Tests.exe\" 2>/dev/null | head; echo \"===any recent test exe under Attention===\"; find out/build -ipath \"*Attention*\" -iname \"*.exe\" -newermt \"2026-07-14\" 2>/dev/null | head)",
-      "Bash(find \"/c/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.3\" -iname \"compute-sanitizer.exe\" 2>/dev/null; echo \"---profile MilaTests timestamp---\"; stat -c '%y %n' out/build/x64-profile/Mila/Tests/MilaTests.exe)"
+      "Bash(find \"/c/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.3\" -iname \"compute-sanitizer.exe\" 2>/dev/null; echo \"---profile MilaTests timestamp---\"; stat -c '%y %n' out/build/x64-profile/Mila/Tests/MilaTests.exe)",
+      "Bash(stat -c '%y %n' \"D:/Repos/Mila/out/build/x64-profile/ProfileModel.exe\" \"D:/Repos/Mila/Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatVec/CudaMatVecBias.Bf16.cu\"; date)",
+      "Bash(awk '{print $6, $7, $8, $NF}')",
+      "Bash(./MilaTests.exe --gtest_filter=\"CudaGqaDecodeParity.*\")",
+      "Bash(\"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/compute-sanitizer/compute-sanitizer.exe\" --tool memcheck ./MilaTests.exe --gtest_filter=\"CudaGqaDecodeParity.*\")",
+      "Bash(./ProfileModel.exe --model gemma --phase decode --context-length 4096 --tokens 128)",
+      "Bash(./ProfileModel.exe --model gemma --phase decode --context-length 32768 --tokens 128)",
+      "Bash(nvcc -std=c++20 -arch=sm_89 -O2 -ccbin \"C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64\" -I \"D:/Repos/Mila/Mila/Src/Dnn/Compute/Devices/Cuda/Helpers\" -I \"D:/Repos/Mila/Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels\" decode_attn_check.cu -o decode_attn_check.exe)",
+      "Bash(grep -iv \"cudafe1\\\\|^decode_attn_check.cu$\")",
+      "Bash(./decode_attn_check.exe)",
+      "Bash(\"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/compute-sanitizer/compute-sanitizer.exe\" --tool memcheck ./decode_attn_check.exe)",
+      "Bash(\"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/compute-sanitizer/compute-sanitizer.exe\" --tool initcheck ./decode_attn_check.exe)",
+      "Bash(nvcc -std=c++20 -arch=sm_89 -O3 -ccbin \"C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64\" -I \"D:/Repos/Mila/Mila/Src/Dnn/Compute/Devices/Cuda/Helpers\" -I \"D:/Repos/Mila/Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels\" decode_attn_bench.cu -o decode_attn_bench.exe)",
+      "Bash(grep -iv \"cudafe1\\\\|^decode_attn_bench.cu$\")",
+      "Bash(./decode_attn_bench.exe)",
+      "Bash(\"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.1/compute-sanitizer/compute-sanitizer.exe\" --tool racecheck ./decode_attn_check.exe)",
+      "Bash(nsys profile *)",
+      "Bash(tasklist //FI \"IMAGENAME eq Chat.exe\")",
+      "Bash(tasklist //FI \"IMAGENAME eq ProfileModel.exe\")",
+      "Bash(nvidia-smi --query-gpu=memory.used --format=csv,noheader)",
+      "Bash(python -c ' *)"
     ]
   }
 }

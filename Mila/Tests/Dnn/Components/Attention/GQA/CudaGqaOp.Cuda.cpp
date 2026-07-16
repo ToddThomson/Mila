@@ -919,4 +919,204 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
     {
         expectFlashMatchesRing( kLWindowNoWrap );
     }
+
+    // ====================================================================
+    // Fused decode-attention parity
+    //
+    // Diffs the fused decode kernel (cuda_gqa_decode_attention_bf16: streaming
+    // online-softmax over the live band, split-K across blocks with a fixup
+    // merge) against the cuBLASLt QK -> softmax_decode -> AV pipeline on the
+    // SAME op, toggled per-run via setUseFlashDecode(). Three geometries pin
+    // the three production shapes, and the position schedules pin the risky
+    // regimes: the splits==1 direct-write path (early positions), the split-K
+    // partial + fixup path (band > 64 positions), pre-window decode
+    // (position < window), and ring-wrapped reads (position past the bounded
+    // capacity). Both legs share one op instance, so the KV cache state is
+    // identical by construction -- each position's K/V write is idempotent.
+    // ====================================================================
+
+    namespace
+    {
+        // Same rounding argument as the flash prefill parities: the fused kernel
+        // keeps scores/probabilities in FP32 while the cuBLASLt reference rounds
+        // preatt and att to BF16 between stages.
+        constexpr float kDecodeParityAtol = 3e-2f;
+    }
+
+    class CudaGqaDecodeParity : public ::testing::Test
+    {
+    protected:
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+        using DeviceBf16 = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+        using UnboundedBf16Op = Compute::Cuda::Gqa::CudaGqaOp<TensorDataType::BF16, false>;
+        using BoundedBf16Op = Compute::Cuda::Gqa::CudaGqaOp<TensorDataType::BF16, true>;
+
+        void SetUp() override
+        {
+            try
+            {
+                cuda_context_ = createExecutionContext( Device::Cuda( 0 ) );
+            }
+            catch ( const std::exception& )
+            {
+                cuda_context_ = nullptr;
+            }
+
+            if ( !cuda_context_ )
+                GTEST_SKIP() << "CUDA device not available";
+        }
+
+        HostFp32 randomHost( const shape_t& shape, std::mt19937& rng )
+        {
+            std::uniform_real_distribution<float> dist( -1.0f, 1.0f );
+            HostFp32 host( Device::Cpu(), shape );
+
+            for ( size_t i = 0; i < host.size(); ++i )
+                host.data()[ i ] = dist( rng );
+
+            return host;
+        }
+
+        DeviceBf16 toDevice( const HostFp32& host )
+        {
+            DeviceBf16 device( Device::Cuda( 0 ), host.shape() );
+            copy( host, device, cuda_context_.get() );
+            cuda_context_->synchronize();
+
+            return device;
+        }
+
+        HostFp32 toFloat( const DeviceBf16& device )
+        {
+            auto host = toHost<TensorDataType::FP32>( device, cuda_context_.get() );
+            cuda_context_->synchronize();
+
+            return host;
+        }
+
+        // Decode `steps` identical random tokens from position 0 through a fresh op
+        // with the fused decode toggled on/off; returns per-position output rows.
+        template<typename OpT>
+        std::vector<std::vector<float>> runDecode(
+            bool useFused, int batch, int num_heads, int num_kv_heads, int head_dim,
+            int window, int context, int prefill_chunk, int steps, unsigned seed )
+        {
+            const int model_dim = num_heads * head_dim;
+            const int packed_qkv = ( num_heads + 2 * num_kv_heads ) * head_dim;
+
+            std::mt19937 rng( seed );
+            std::vector<HostFp32> qs, ks, vs;
+
+            for ( int t = 0; t < steps; ++t )
+            {
+                qs.push_back( randomHost( shape_t{ batch, 1, num_heads * head_dim }, rng ) );
+                ks.push_back( randomHost( shape_t{ batch, 1, num_kv_heads * head_dim }, rng ) );
+                vs.push_back( randomHost( shape_t{ batch, 1, num_kv_heads * head_dim }, rng ) );
+            }
+
+            OpT op( cuda_context_.get(),
+                GqaConfig( model_dim, num_heads, num_kv_heads ).withWindow( window ) );
+            op.build( BuildContext( shape_t{ batch, context, packed_qkv },
+                RuntimeMode::Inference, false ).withPrefillSize( prefill_chunk ) );
+            op.initializeKvCache( batch, context );
+            op.setUseFlashDecode( useFused );
+
+            // Decode scratch: consumed by the cuBLASLt path, ignored by the fused
+            // kernel (its split-K partials come from the shared context scratch).
+            // preatt/att are context-wide, a superset of the bounded capacity columns.
+            DeviceBf16 q_permute( Device::Cuda( 0 ), shape_t{ batch, num_heads, 1, head_dim } );
+            DeviceBf16 preatt_decode( Device::Cuda( 0 ), shape_t{ batch, num_heads, 1, context } );
+            DeviceBf16 att_decode( Device::Cuda( 0 ), shape_t{ batch, num_heads, 1, context } );
+            DeviceBf16 v_out_decode( Device::Cuda( 0 ), shape_t{ batch, num_heads, 1, head_dim } );
+
+            GqaState state;
+            state.q_permute = &q_permute;
+            state.preatt_decode = &preatt_decode;
+            state.att_decode = &att_decode;
+            state.v_out_decode = &v_out_decode;
+            op.setState( state );
+
+            std::vector<std::vector<float>> outputs;
+            outputs.reserve( qs.size() );
+
+            for ( int t = 0; t < steps; ++t )
+            {
+                DeviceBf16 q = toDevice( qs[ t ] );
+                DeviceBf16 k = toDevice( ks[ t ] );
+                DeviceBf16 v = toDevice( vs[ t ] );
+                DeviceBf16 out( Device::Cuda( 0 ), shape_t{ batch, 1, model_dim } );
+
+                op.decode( q, k, v, out, t );
+
+                HostFp32 host = toFloat( out );
+                outputs.emplace_back( host.data(), host.data() + host.size() );
+            }
+
+            return outputs;
+        }
+
+        static float maxDifference(
+            const std::vector<std::vector<float>>& a,
+            const std::vector<std::vector<float>>& b )
+        {
+            EXPECT_EQ( a.size(), b.size() );
+
+            float max_diff = 0.0f;
+
+            for ( size_t t = 0; t < a.size() && t < b.size(); ++t )
+            {
+                EXPECT_EQ( a[ t ].size(), b[ t ].size() );
+
+                for ( size_t i = 0; i < a[ t ].size(); ++i )
+                    max_diff = std::max( max_diff, std::fabs( a[ t ][ i ] - b[ t ][ i ] ) );
+            }
+
+            return max_diff;
+        }
+
+        std::unique_ptr<IExecutionContext> cuda_context_;
+    };
+
+    TEST_F( CudaGqaDecodeParity, FusedMatchesCublasLt_GemmaGlobalConfig )
+    {
+        // Gemma global layer exactly: MQA (NKV=1, GS=16), head_dim 512, full causal.
+        // batch 2 exercises the batch strides in both the main kernel and the fixup.
+        // 300 steps: positions 0..64 run splits==1 (direct write), later positions
+        // engage the split-K partials + fixup merge (band > 64).
+        auto fused = runDecode<UnboundedBf16Op>( true, 2, 16, 1, 512, 0, 512, 32, 300, 11u );
+        auto reference = runDecode<UnboundedBf16Op>( false, 2, 16, 1, 512, 0, 512, 32, 300, 11u );
+
+        const float max_diff = maxDifference( fused, reference );
+        EXPECT_LT( max_diff, kDecodeParityAtol )
+            << "fused decode diverged from cuBLASLt at the Gemma global config "
+               "(HS=512, NKV=1, window=0), max_diff=" << max_diff;
+    }
+
+    TEST_F( CudaGqaDecodeParity, FusedMatchesCublasLtRing_GemmaLocalConfig )
+    {
+        // Gemma local layer at test scale: bounded ring, NKV=8 (GS=2), head_dim 256,
+        // window 24, context 83, chunk 32 -> capacity 55 < 83. Decoding 0..82 covers
+        // pre-window positions (band < window), post-window sliding, and ring-wrapped
+        // reads once positions pass the 55-slot capacity.
+        auto fused = runDecode<BoundedBf16Op>( true, 1, 16, 8, 256, 24, 83, 32, 83, 23u );
+        auto reference = runDecode<BoundedBf16Op>( false, 1, 16, 8, 256, 24, 83, 32, 83, 23u );
+
+        const float max_diff = maxDifference( fused, reference );
+        EXPECT_LT( max_diff, kDecodeParityAtol )
+            << "fused decode diverged from the cuBLASLt ring path at the Gemma local "
+               "config (HS=256, NKV=8, window=24, ring wraps), max_diff=" << max_diff;
+    }
+
+    TEST_F( CudaGqaDecodeParity, FusedMatchesCublasLt_LlamaConfig )
+    {
+        // Llama shape at test scale: GS=4, head_dim 128, full causal. 200 steps so
+        // the split-K path engages (band > 64) on the NKV=2 grid.
+        auto fused = runDecode<UnboundedBf16Op>( true, 1, 8, 2, 128, 0, 256, 32, 200, 37u );
+        auto reference = runDecode<UnboundedBf16Op>( false, 1, 8, 2, 128, 0, 256, 32, 200, 37u );
+
+        const float max_diff = maxDifference( fused, reference );
+        EXPECT_LT( max_diff, kDecodeParityAtol )
+            << "fused decode diverged from cuBLASLt at the Llama config "
+               "(HS=128, GS=4, window=0), max_diff=" << max_diff;
+    }
 }

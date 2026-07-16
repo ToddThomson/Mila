@@ -496,8 +496,13 @@ namespace Mila::Dnn
                     // Global (unbounded) layers own the O(chunk x T_ctx) score buffer. Route
                     // them through fused flash prefill at long context so that buffer can be
                     // reclaimed -- MUST agree with prefillScoreWidth() in the workspace sizing.
+                    // Fused decode is unconditional (band-limited, no workspace coupling; the
+                    // BF16 op honors it, FP32 ignores it).
                     if ( context.isInferenceMode() )
+                    {
                         block->setUseFlashPrefill( useFlashPrefillForContext( T ) );
+                        block->setUseFlashDecode( true );
+                    }
 
                     layers_.push_back( static_cast<DecoderLayerType*>( block.get() ) );
                 }
@@ -515,8 +520,12 @@ namespace Mila::Dnn
                     // GEMMs. They stop reading the shared preatt/att buffer when flashed;
                     // prefillScoreWidth() deliberately still sizes it for them so the
                     // cuBLASLt fallback stays valid (further reclaim tracked in BACKLOG).
+                    // Fused decode is unconditional, same as the global blocks above.
                     if ( context.isInferenceMode() )
+                    {
                         block->setUseFlashPrefill( useFlashPrefillForContext( T ) );
+                        block->setUseFlashDecode( true );
+                    }
 
                     layers_.push_back( static_cast<DecoderLayerType*>( block.get() ) );
                 }

@@ -23,6 +23,53 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             const float mag = kLut[ nibble & 0x7u ];
             return ( nibble & 0x8u ) ? -mag : mag;
         }
+
+        // Decodes 8 packed FP4-E2M1 nibbles (one uint32, low nibble = even column)
+        // into four raw (unscaled) BF16 pairs via byte-permute table selects. All
+        // eight E2M1 magnitudes {0, 0.5, 1, 1.5, 2, 3, 4, 6} are exact in BF16, so
+        // this is value-identical to fp4_e2m1_decode -- but with no dynamically
+        // indexed constant-memory LUT, whose per-lane address divergence replays
+        // the load up to 8 ways across a warp. The PRMT selectors must be masked
+        // to 3 bits per nibble: selector bit 3 engages PRMT's sign-replicate mode,
+        // and the FP4 sign bit is instead injected into BF16 bit 15 afterwards.
+        __device__ __forceinline__ void fp4x8_decode_bf16x2(
+            uint32_t w_packed,
+            __nv_bfloat162 ( &w )[ 4 ] )
+        {
+            // Per-index byte tables of the BF16 magnitude patterns:
+            // index:   0       1       2       3       4       5       6       7
+            // bf16: 0x0000  0x3F00  0x3F80  0x3FC0  0x4000  0x4040  0x4080  0x40C0
+            constexpr uint32_t kHighBytes0123 = 0x3F3F3F00u;
+            constexpr uint32_t kHighBytes4567 = 0x40404040u;
+            constexpr uint32_t kLowBytes0123 = 0xC0800000u;
+            constexpr uint32_t kLowBytes4567 = 0xC0804000u;
+
+            const uint32_t selector_lo = w_packed & 0x7777u;
+            const uint32_t selector_hi = ( w_packed >> 16 ) & 0x7777u;
+
+            const uint32_t high_lo4 = __byte_perm( kHighBytes0123, kHighBytes4567, selector_lo );
+            const uint32_t low_lo4 = __byte_perm( kLowBytes0123, kLowBytes4567, selector_lo );
+            const uint32_t high_hi4 = __byte_perm( kHighBytes0123, kHighBytes4567, selector_hi );
+            const uint32_t low_hi4 = __byte_perm( kLowBytes0123, kLowBytes4567, selector_hi );
+
+            // Interleave low/high bytes into two BF16 values per word, then inject
+            // the FP4 sign bits (bit 4j+3 of w_packed) into BF16 bit 15.
+            uint32_t pair01 = __byte_perm( low_lo4, high_lo4, 0x5140 );
+            uint32_t pair23 = __byte_perm( low_lo4, high_lo4, 0x7362 );
+            uint32_t pair45 = __byte_perm( low_hi4, high_hi4, 0x5140 );
+            uint32_t pair67 = __byte_perm( low_hi4, high_hi4, 0x7362 );
+
+            const uint32_t w_high = w_packed >> 16;
+            pair01 |= ( ( w_packed & 0x8u ) << 12 ) | ( ( w_packed & 0x80u ) << 24 );
+            pair23 |= ( ( w_packed & 0x800u ) << 4 ) | ( ( w_packed & 0x8000u ) << 16 );
+            pair45 |= ( ( w_high & 0x8u ) << 12 ) | ( ( w_high & 0x80u ) << 24 );
+            pair67 |= ( ( w_high & 0x800u ) << 4 ) | ( ( w_high & 0x8000u ) << 16 );
+
+            w[ 0 ] = *reinterpret_cast<const __nv_bfloat162*>( &pair01 );
+            w[ 1 ] = *reinterpret_cast<const __nv_bfloat162*>( &pair23 );
+            w[ 2 ] = *reinterpret_cast<const __nv_bfloat162*>( &pair45 );
+            w[ 3 ] = *reinterpret_cast<const __nv_bfloat162*>( &pair67 );
+        }
     } // anonymous namespace
     // Loads 4 BF16 elements as two __nv_bfloat162 pairs via an int2 (8-byte) load.
     // Requires ptr to be 8-byte aligned, guaranteed when C % 4 == 0.
@@ -298,21 +345,26 @@ namespace Mila::Dnn::Compute::Cuda::Linear
     /**
      * @brief Wide-load variant of matvec_decode_bf16_qfp4_kernel (D6 bandwidth).
      *
-     * Identical arithmetic and per-group scale semantics to the 8-nibble kernel;
-     * the only change is the weight fetch width -- each thread loads
-     * kNibblesPerThread nibbles per iteration via a single 64-bit int2
-     * (16 nibbles) or 128-bit int4 (32 nibbles) load. The 8-nibble kernel proved
-     * bandwidth-bound at ~75% of peak because it issued 32-bit weight loads
-     * while the peak-hitting BF16 lm_head matvec (~484 GB/s, 96% of peak in the
-     * same file) uses 64-bit int2.
+     * Same contract and per-group scale semantics as the 8-nibble kernel; each
+     * thread loads kNibblesPerThread nibbles per iteration via a single 64-bit
+     * int2 (16 nibbles) or 128-bit int4 (32 nibbles) load. The 16/32 dispatch
+     * split by reduction length is documented at cuda_matvec_decode_bf16_qfp4.
      *
-     * Measured 2026-07-04 (RTX 4070, gemma_decode_d6): the 32-nibble load only
-     * pays off when the per-thread loop is long enough to hide load latency --
-     * C = 15360 (fc_down) improved 379 -> 396 GB/s, but C = 3840/4096 shapes
-     * dropped to ~260-350 GB/s (3-4 loop iterations, divergent tail). The
-     * 16-nibble instantiation halves the stride (7-8 iterations at C = 3840,
-     * matching the lm_head load width) and is the dispatch choice for the
-     * short shapes.
+     * Inner-loop organization (decode-matvec diet, 2026-07-16 -- the ncu-measured
+     * baseline ran SM busier than DRAM on every decode shape, i.e. the dequant
+     * arithmetic co-limited a kernel that should be a pure weight stream):
+     *  - Nibbles decode to raw BF16 pairs via byte-permute table selects
+     *    (fp4x8_decode_bf16x2) instead of a dynamically indexed LUT with
+     *    per-lane replay.
+     *  - The group scale is folded out of the per-weight math: each iteration
+     *    accumulates raw dot-product partials into two independent FP32
+     *    sub-accumulators (halving the FMA dependency chain), then applies the
+     *    scale once via a single FMA. Valid because an iteration's nibbles share
+     *    one quantization group (static_assert below); reassociates the FP32
+     *    sum, which the decode oracles' tolerances absorb.
+     *  - Weight, activation, and scale loads are software-pipelined one
+     *    iteration ahead, so the short shapes (C = 3840/4096, 7-8 iterations)
+     *    overlap load latency with compute instead of stalling every iteration.
      *
      * Requirements:
      *   - C must be divisible by kNibblesPerThread (weight/activation load
@@ -347,64 +399,99 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         const uint8_t* w_row      = weights_packed + oc * ( C / 2 );
         const int      num_groups = C / kGroupSize;
 
-        float acc = 0.0f;
-
         const int c_start = threadIdx.x * kNibblesPerThread;
         const int c_step  = kMatvecThreadsPerOC * kNibblesPerThread;
 
-        for ( int c = c_start; c < C; c += c_step )
-        {
-            // One vector load of kNibblesPerThread/2 packed weight bytes; thread k
-            // reads a contiguous byte offset, so the warp covers a contiguous
-            // 256-byte (int2) or 512-byte (int4) segment per iteration.
-            uint32_t w_words[ kSubWords ];
+        // One-iteration-ahead staging registers for the software pipeline. One
+        // vector load covers kNibblesPerThread/2 packed weight bytes; thread k
+        // reads a contiguous byte offset, so the warp covers a contiguous
+        // 256-byte (int2) or 512-byte (int4) segment per iteration. All nibbles
+        // of one iteration share one group (static_assert above), so one scale
+        // load rides along.
+        uint32_t w_stage[ kSubWords ];
+        int4     x_stage[ kSubWords ];
+        float    scale_stage = 0.0f;
 
+        const auto stage = [&]( int chunk_c )
+        {
             if constexpr ( kNibblesPerThread == 32 )
             {
-                const int4 w_packed4 = *reinterpret_cast<const int4*>( w_row + c / 2 );
-                w_words[ 0 ] = static_cast<uint32_t>( w_packed4.x );
-                w_words[ 1 ] = static_cast<uint32_t>( w_packed4.y );
-                w_words[ 2 ] = static_cast<uint32_t>( w_packed4.z );
-                w_words[ 3 ] = static_cast<uint32_t>( w_packed4.w );
+                const int4 w_packed4 = *reinterpret_cast<const int4*>( w_row + chunk_c / 2 );
+                w_stage[ 0 ] = static_cast<uint32_t>( w_packed4.x );
+                w_stage[ 1 ] = static_cast<uint32_t>( w_packed4.y );
+                w_stage[ 2 ] = static_cast<uint32_t>( w_packed4.z );
+                w_stage[ 3 ] = static_cast<uint32_t>( w_packed4.w );
             }
             else
             {
-                const int2 w_packed2 = *reinterpret_cast<const int2*>( w_row + c / 2 );
-                w_words[ 0 ] = static_cast<uint32_t>( w_packed2.x );
-                w_words[ 1 ] = static_cast<uint32_t>( w_packed2.y );
+                const int2 w_packed2 = *reinterpret_cast<const int2*>( w_row + chunk_c / 2 );
+                w_stage[ 0 ] = static_cast<uint32_t>( w_packed2.x );
+                w_stage[ 1 ] = static_cast<uint32_t>( w_packed2.y );
             }
 
-            // All nibbles in [c, c + kNibblesPerThread) share one group (static_assert above).
-            const float scale = scales[ oc * num_groups + c / kGroupSize ];
+#pragma unroll
+            for ( int j = 0; j < kSubWords; ++j )
+                x_stage[ j ] = *reinterpret_cast<const int4*>( x + chunk_c + j * 8 );
 
-            // 8-nibble sub-words, each paired with 8 BF16 activations (one int4 load).
+            scale_stage = scales[ oc * num_groups + chunk_c / kGroupSize ];
+        };
+
+        float acc = 0.0f;
+
+        if ( c_start < C )
+            stage( c_start );
+
+        for ( int c = c_start; c < C; c += c_step )
+        {
+            uint32_t w_words[ kSubWords ];
+            int4     x_words[ kSubWords ];
+
 #pragma unroll
             for ( int j = 0; j < kSubWords; ++j )
             {
-                const uint32_t w_packed = w_words[ j ];
-
-                __nv_bfloat162 x0h, x1h, x2h, x3h;
-                ld_bf16x8( x0h, x1h, x2h, x3h, x + c + j * 8 );
-
-                float w_f[8];
-#pragma unroll
-                for ( int b = 0; b < 4; ++b )
-                {
-                    const uint8_t byte = ( w_packed >> ( b * 8 ) ) & 0xFFu;
-                    w_f[ 2 * b     ] = fp4_e2m1_decode( byte & 0xFu ) * scale;
-                    w_f[ 2 * b + 1 ] = fp4_e2m1_decode( byte >> 4   ) * scale;
-                }
-
-                const float2 x0 = __bfloat1622float2( x0h );
-                const float2 x1 = __bfloat1622float2( x1h );
-                const float2 x2 = __bfloat1622float2( x2h );
-                const float2 x3 = __bfloat1622float2( x3h );
-
-                acc += x0.x * w_f[0] + x0.y * w_f[1]
-                     + x1.x * w_f[2] + x1.y * w_f[3]
-                     + x2.x * w_f[4] + x2.y * w_f[5]
-                     + x3.x * w_f[6] + x3.y * w_f[7];
+                w_words[ j ] = w_stage[ j ];
+                x_words[ j ] = x_stage[ j ];
             }
+
+            const float scale = scale_stage;
+
+            if ( c + c_step < C )
+                stage( c + c_step );
+
+            // Raw (unscaled) partials in two independent FMA chains; the group
+            // scale is applied once per iteration below.
+            float sub_even = 0.0f;
+            float sub_odd = 0.0f;
+
+            // 8-nibble sub-words, each paired with 8 BF16 activations.
+#pragma unroll
+            for ( int j = 0; j < kSubWords; ++j )
+            {
+                __nv_bfloat162 w_pairs[ 4 ];
+                fp4x8_decode_bf16x2( w_words[ j ], w_pairs );
+
+                const __nv_bfloat162* x_pairs =
+                    reinterpret_cast<const __nv_bfloat162*>( &x_words[ j ] );
+
+                const float2 x0 = __bfloat1622float2( x_pairs[ 0 ] );
+                const float2 x1 = __bfloat1622float2( x_pairs[ 1 ] );
+                const float2 x2 = __bfloat1622float2( x_pairs[ 2 ] );
+                const float2 x3 = __bfloat1622float2( x_pairs[ 3 ] );
+
+                const float2 w0 = __bfloat1622float2( w_pairs[ 0 ] );
+                const float2 w1 = __bfloat1622float2( w_pairs[ 1 ] );
+                const float2 w2 = __bfloat1622float2( w_pairs[ 2 ] );
+                const float2 w3 = __bfloat1622float2( w_pairs[ 3 ] );
+
+                float& sub = ( j % 2 == 0 ) ? sub_even : sub_odd;
+
+                sub += x0.x * w0.x + x0.y * w0.y
+                     + x1.x * w1.x + x1.y * w1.y
+                     + x2.x * w2.x + x2.y * w2.y
+                     + x3.x * w3.x + x3.y * w3.y;
+            }
+
+            acc = fmaf( scale, sub_even + sub_odd, acc );
         }
 
 #pragma unroll

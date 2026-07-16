@@ -372,6 +372,15 @@ namespace Mila::Dnn
                 attn_->setUseFlashPrefill( enabled );
         }
 
+        // Route this block's GQA op through the fused decode-attention kernel.
+        // BF16 only; unlike prefill there is no context threshold and no workspace
+        // coupling -- the fused decode is band-limited and unconditionally cheaper.
+        void setUseFlashDecode( bool enabled )
+        {
+            if ( attn_ )
+                attn_->setUseFlashDecode( enabled );
+        }
+
         bool supportsKVCache() const noexcept override
         {
             return attn_ && attn_->supportsKVCache();

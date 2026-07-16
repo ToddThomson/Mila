@@ -16,6 +16,16 @@ Thank you for your interest in contributing to Mila! This document provides guid
 
 We expect all contributors to be respectful and constructive. By participating in this project, you agree to maintain a welcoming, inclusive, and harassment-free environment for everyone.
 
+### No self-promotion or spam
+
+Mila's Issues and Discussions are for the project itself — its code, design, and use. Unsolicited promotion is not welcome and will be removed without notice, including:
+
+- Advertising a product, service, paid offering, or hosting/GPU provider.
+- Comments whose main purpose is to drive traffic to an external link, especially generic praise followed by a promotional pitch.
+- Recruiting, soliciting, or affiliate/referral links.
+
+Mentioning a relevant open-source tool or a personal project in genuine, on-topic context is fine. The line is intent: are you contributing to the conversation, or using it as a billboard? Maintainers may hide, delete, or lock content and block accounts at their discretion. To reduce drive-by spam, Discussion and Issue participation may be rate-limited or restricted to existing contributors during high-noise periods.
+
 ## Getting Started
 
 1. Fork the repository on GitHub

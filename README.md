@@ -78,6 +78,11 @@ nibbles dequantized per-group inline at inference time, forward-compatible with 
 native FP4 compute when it becomes available.
 
 ---
+## Attributions
+
+For research and open-source acknowledgements, see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
+
+---
 
 ## Current Status — Alpha.6
 

@@ -349,6 +349,20 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Route the BF16 decode through the fused decode-attention kernel.
+         *
+         * Only the CUDA BF16 ops honor this; other backends, FP32, and unsupported
+         * geometries keep the cuBLASLt decode pipeline. Unlike setUseFlashPrefill
+         * there is no workspace-width coupling -- the fused path draws its split-K
+         * scratch from the shared execution-context buffer at decode time.
+         */
+        void setUseFlashDecode( bool enabled )
+        {
+            if constexpr ( TDeviceType == DeviceType::Cuda )
+                operation_->setUseFlashDecode( enabled );
+        }
+
+        /**
          * @brief Reset the KV cache for a new generation session.
          *
          * Drops any active decode state so the next prefill starts a fresh

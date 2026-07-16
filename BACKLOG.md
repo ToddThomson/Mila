@@ -244,6 +244,7 @@ CI correctness:
 
 - [ ] CI/CD pipeline efficiency pass (**[deferred, optimization not a trust gate]**) — measured master run: Build ~18.5 min + packaging gates ~25 min = ~44 min; dev pushes ~20 min. Dominant cost is **C++23 module compilation, not `.cu` kernels** — so the CUDA-only ccache launcher misses the bottleneck. The module tree compiles up to **three times per master run** (Build, `find_package` gate, FetchContent gate). Levers ranked: (1) module-aware caching — spike whether clang-21 + ccache 4.x can reliably cache module compiles (BMIs are compiler/path-sensitive) — highest value, hardest, only one hitting the bottleneck; (2) `-O0`/Debug in CI (partial win — BMI generation is front-end work `-O0` does not reduce); (3) move FetchContent full-rebuild to tag-only if cadence rises
 - [ ] Broaden compiler coverage toward the supported matrix — CI builds only **clang-21**; the primary dev compiler (MSVC 2026) and the working GCC 16 path are untested, so the compiler that previously broke the build (VS 2026 pre-18.6.2 module regression) is the one CI cannot catch. A multi-compiler CI is also the cross-compiler oracle the include/import hygiene pass needs
+- [ ] Reproducible **build container** — pin a CUDA `-devel` Ubuntu 26.04 image that builds Mila (+ tests) from a clean clone, the same image CI uses, so the Linux build reproduces without host toolchain drift. This is the `dev-container build` noted in the Module Hygiene intro (currently prose, not a task). Distinct from the **runtime** image under *Project Hygiene* (Distribution), which packages the already-built artifacts, not the build toolchain. Surfaces the Linux-platform ROADMAP gate (Production Hardening) alongside the compiler-matrix item above
 
 Docker image publish is optional and only if the runtime image stays a beta deliverable —
 a release-tagged GHCR push is a natural CI-on-tag job but equally a local `docker build &&
@@ -309,11 +310,28 @@ missing specialization is a hard compile error. What makes it **more than adding
   computed *in the forward pass, every call* — a new hot-path activation-quantize step + scale tensors
   riding alongside activations. Format choice (MXFP4 vs NVFP4) is itself a decision.
 - [ ] **[deferred]** **The one real design decision: is "compute precision" a concept distinct
-  from `TPrecision`?** `TPrecision` today effectively means "activations = BF16," and BF16-primacy is
-  baked in around it (the FP32 gradient boundary, the KV-cache dtype, the up-convert points in
-  component orchestration — residual/norm/softmax run higher precision). Native FP4 compute adds
-  FP4<->BF16<->FP32 transitions where there is only BF16<->FP32 now. Decide: redefine `TPrecision`, add
-  a new axis, or add an activation-quant policy mirroring `TWeightQuantization`.
+  from `TPrecision`? -- LEANING (2026-07-15 FP8-linear design discussion): a new activation-quant
+  policy axis, NOT redefining `TPrecision`.** `TPrecision` today conflates two roles: the activation
+  *dataflow* dtype (the residual stream that RMSNorm/RoPE/softmax/residual all consume) AND the
+  *accumulation* dtype -- and tensor-core accumulation is FP32 regardless of input encoding
+  (FP8xFP8->FP32, FP4xFP4->FP32), so FP8/FP4 is only ever a per-GEMM **input encoding**, never the
+  network compute type. That rules out "redefine `TPrecision` = FP8/FP4" as a category error (it would
+  assert an FP8 residual stream + FP8 accumulate, both false; BF16-primacy is baked in around it -- the
+  FP32 gradient boundary, KV-cache dtype, and residual/norm/softmax up-convert points). The clean shape
+  is a `TActivationQuantization` policy axis **mirroring `TWeightQuantization`** (`NoActQuant` /
+  `PerTokenFp8` / microscaled `MXFP4`/`NVFP4`), leaving `TComputePrecision` = BF16 as the
+  dataflow/accumulate type it already is; configs then read as the (W,A) pairs the literature uses --
+  W4A16 / W8A8 / W4A8 / W4A4. **NOT purely Blackwell future work -- the present-day first consumer
+  already exists:** the Ada W4A8-FP8 prefill path (`kUseFp8ActivationPrefill`, shipped ON +103,
+  [CudaLinearOp.ixx:162](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx)) is
+  exactly activation-FP8 done as an internal bool with prefill-only per-token scales; the axis would
+  re-express it as `TActivationQuant = PerTokenFp8` and retire the magic toggle, unifying today's Ada
+  W4A8 and tomorrow's Blackwell W4A4 under one seam (aligns with the "generalize the weight-side scale
+  machinery for activations first" sequencing item below). Wrinkles to resolve: the axis is
+  **phase-dependent** (prefill quantizes activations; decode's memory-bound matvec does not -- unlike
+  weight quant, which is phase-uniform), and a 5th `Linear` template axis grows the `OperationTraits`
+  specialization set, so gate instantiation of unvalidated (W,A) pairs per
+  [[feedback_validate_generation_not_just_oracle]].
 - [ ] **[deferred]** **Per-arch gating gets finer.** Blackwell kernels (sm_120, CUTLASS 4.x)
   must be gated so the Ada (sm_89) build still compiles and runs — same discipline as the
   `MILA_ENABLE_CUDA` split but arch-conditional and partly *runtime* (one binary, two GPUs in the A/B
@@ -1070,6 +1088,185 @@ a 12 GB card.
   b~=1.95e-8 s/tok^2; attention crossover (a*n=b*n^2) ~=33K tokens -- Claude Code (35.7K) sits just past it.
   DESIGN: [Mila/Specifications/GqaAttentionExtent.md](Mila/Specifications/GqaAttentionExtent.md) (attended-length
   vs physical-stride fix; interim ahead of the post-0.20 flash-attention rewrite that subsumes it). See [[project_gemma_inference_review]].
+  UPDATE 2026-07-16: the decode side was re-measured and decomposed — see the "GQA decode attention" item below;
+  the fused decode-attention kernel proposed there subsumes the descoped decode freebie.
+- [ ] **[perf, MEASURED 2026-07-16] GQA decode attention costs 4.63 ms/token = 18.6% of decode GPU busy
+  (Gemma 12B FP4, 4070, 32K allocated context) — a fused decode-attention kernel is the lever.**
+  MEASUREMENTS (ProfileModel `--model gemma --phase decode --tokens 128`, greedy, decode positions ~16-144,
+  i.e. near-empty cache): 40.15 tok/s (ctx 4096) -> 39.82 (16384) -> 38.65 (32768) — decode slows with
+  ALLOCATED context at a fixed position, ~0.96 ms/token tax at 32K, matching the full-capacity global K/V
+  read model exactly (8 global layers x 2 tensors x 32768 x 512 x 2B = 537 MB of mostly-uninitialized reads
+  @ ~430 GB/s). nsys per-token decomposition @32K (64-token run, 63 decode steps, GPU busy 24.86 ms vs wall
+  ~25.9 — the ~1 ms residual is the known launch-gap tax): FP4 weight matvecs 15.17 ms (190 launches) |
+  RMSNorm 2.47 ms (337 launches — the D2 fusion target) | lm_head FP8 matvec 2.16 ms (262K vocab, at
+  bandwidth floor) | **GQA total 4.63 ms** = local AV GEMM 1.74 (193 GB/s effective — worst kernel) + local
+  QK 0.93 (361 GB/s) + global AV 0.67 (398 GB/s) + global QK+splitK 0.61 (456 GB/s) + ring softmax 0.42 +
+  global softmax 0.10 + permute/unpermute/kvwrite 0.16 | rope/residual/geglu/split3/scale 0.41 | argmax 0.03.
+  ROOT CAUSES (all in `CudaGqaOp::decode_optimized` + the decode plans, [CudaGqaOp.ixx:733-801](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/CudaGqaOp.ixx)):
+  (1) decode QK/AV plans are built once with `N = cache_capacity_` — globals read the full allocated
+  `T_ctx` rows of K and V every token regardless of `actual_len`; (2) local (bounded) layers read the full
+  ring capacity `window + chunk - 1 = 2047` rows when only `window+1 = 1025` are ever in-window — and
+  post-wrap the live slots are rotated, so a GEMM extent shrink CANNOT fix locals, only a slot-mapped
+  kernel can; (3) the matvec-shaped cuBLASLt GEMMs are inefficient (local AV is M=GS=2, N=HS=256, K=2047,
+  batch=8 -> 193 GB/s = ~40% of achievable); (4) `permute_q_compact` and `unpermute_output` at T=1 are
+  byte-identity copies ([B,1,NH*HS] and [B*NKV,GS,HS] have the same linear layout) — 2 dead launches/layer
+  = 96 launches + ~0.11 ms/token; (5) decode softmax zero-fills [actual_len, capacity) every token solely
+  to keep the full-width AV GEMM valid. RANKED LEVERS:
+  1. **Fused decode-attention kernel** (flash-decode style, one launch/layer, the llama.cpp approach):
+     Q resident in registers/smem (global: GS=16 rows x HS 512, NKV=1 MQA; local: GS=2 x HS 256 x NKV=8),
+     walk ONLY the live band (globals [0, pos]; locals the slot-mapped window), online softmax, K+V each
+     read once, no preatt/att global round-trip, input taken straight from Xq and output written straight
+     to Y (identity permutes fall out). 6 launches/layer -> 2 (kvcache_write + fused). Expected GQA bucket
+     4.63 -> ~1.0 ms (mid context) / ~1.9 ms (full 32K, bandwidth floor) => ~+14-16% decode tok/s at 32K
+     alloc; the in-tree `matvec_decode_bf16_qfp4` kernels prove ~460-470 GB/s is attainable on this GPU.
+     Gates: op-level decode oracle vs the cuBLASLt path (unbounded + bounded ring-wrap fixtures),
+     compute-sanitizer memcheck (PTX lesson), GemmaModelParity, coherent chat, ProfileModel decode
+     scoreboard at ctx 4096 + 32768 (the 4K/32K spread should collapse).
+  2. Interim if (1) is deferred: **bucketed decode plan extents on the globals** — reuse the existing
+     `makePlanKey` plan-cache machinery with `N = actual_len` rounded up to 2048; reclaims the
+     allocation-scaled tax (~1 ms @32K, ~1.6 @49K near-empty; decays as the cache fills). Helps locals
+     only pre-wrap (see root cause 2).
+  SCOPED 2026-07-16 (fused kernel, lever 1 — user green-lit attempt; payoff re-checked on post-matvec-diet
+  baselines 43.24/41.26 tok/s: ~+8 tok/s common case, ~+5 worst case full-cache => clears the +5 bar):
+  - KERNEL (new, lives in the empty placeholder `Gqa.Decode.Bf16.cu`): one flash-decode kernel templated
+    on kHeadSize {128, 256, 512}, runtime GS/window/capacity/actual_len/scale — serves Llama (GS=4/HS128),
+    Gemma local ring (GS=2/HS256), Gemma global MQA (GS=16/HS512). Walks ABSOLUTE positions p in
+    [window_start, actual_len), slot = p % capacity (identity when unbounded; provably reads the same rows
+    as the ring softmax's slot->abs reconstruction since the KV write wraps by capacity). Block = GS warps,
+    one warp per Q row: per-lane O accumulator = HS/32 fp32 regs (16/8/4 — fits every geometry), online
+    softmax state per warp, K/V staged to smem in double-buffered position tiles (8 positions @HS512 =
+    32 KB + Q 16 KB; 16 @HS256), cooperative load + 1 barrier/tile. Q read directly from Xq
+    ([B,1,NH*HS] — the identity-permute elimination falls out), output written directly to Y.
+  - SPLIT-K ACROSS BLOCKS (mandatory — Gemma global has NKV=1: without splits, 1 block = 45 idle SMs):
+    grid (NKV, splits, B); each block covers a contiguous position chunk and writes partial (m, l, O[GS][HS])
+    fp32 to scratch; a small fixup kernel merges via the online-softmax combine. splits =
+    clamp(ceil(band_len/256), 1, ~128); splits==1 writes Y directly (no fixup launch). Scratch = splits_max
+    x NH x (HS_max+2) x 4B (~4 MB) carved from `ExecutionContext::getDeviceScratchBuffer()` AT decode time
+    (never cached — the FP8-staging lesson), so NO GqaState/transformer plumbing.
+  - WIRING (mirrors the flash-prefill pattern): CudaGqa.cuh decl + Dispatch `decode_attention` + BF16
+    branch in `decode_optimized` (both kBounded instantiations, one kernel) behind a runtime
+    `setUseFlashDecode` A/B hook, default OFF at the op; Gemma.ixx (and Llama.ixx as a stretch gate)
+    enable it unconditionally for BF16. cuBLASLt decode plans + preatt/att_decode scratch KEPT as the
+    fallback/oracle leg (reclaim recorded as follow-up). kvcache_write/RoPE/cache layout/FP32 path/public
+    API untouched. Launches per layer 6 -> 2-3.
+  - NEW ORACLE `CudaGqaDecodeParity` in CudaGqaOp.Cuda.cpp (mirrors the ring-prefill parity harness):
+    fused-vs-cuBLASLt on all three real geometries, positions pinning band edges {pos < window, pos ==
+    window boundary, ring-wrapped, splits forced > 1}, tol ~3e-2. compute-sanitizer memcheck on it is
+    MANDATORY (new kernel + smem/cp.async addressing — the +100 ldmatrix lesson).
+  - PHASES/GATES: P1 kernel+wiring+oracle (gates: oracle green + sanitizer 0 errors); P2 enable in Gemma
+    (gates: GemmaModelParity token-for-token, coherent chat, ProfileModel decode 4K/32K vs 43.24/41.26,
+    long-context decode probe at position >> window for the full-cache case); P2b Llama enable (own parity
+    gate). FOLLOW-UPS (recorded, not blocking): single-launch atomic fixup, decode-plan/scratch reclaim
+    when fused is on, FP8-KV inline dequant in the tile load (multiplies with this kernel).
+  - RISKS: split-K merge numerics (classic fixup — oracle forces splits>1); ring/window edges (fixtures
+    pin); smem budget at HS=512 (32+16 KB, checked); barrier cadence amortized by position tiles.
+    Estimated 2-3 sessions (kernel is family-adjacent to the validated flash-prefill work).
+  **P1+P2 VALIDATED ALL GATES GREEN 2026-07-16** (v1 single-buffered kernel, user build): all 3
+  `CudaGqaDecodeParity` oracles green (Gemma global MQA / Gemma local ring-wrap / Llama), compute-sanitizer
+  memcheck on the in-tree oracle **0 errors**, GemmaModelParity + coherent chat (user), scoreboard
+  **43.24 -> 48.87 tok/s @4K (+13%)**, **41.26 -> 49.09 @32K (+19%)** — the 4K/32K allocation spread is
+  GONE (32K now ~= 4K, the predicted signature). Decode campaign cumulative 2026-07-16: 40.15 -> 48.87 @4K
+  (+21.7%), 38.65 -> 49.09 @32K (+27%). Implementation: `Gqa.Decode.Bf16.cu` (filled the empty placeholder,
+  already in CMake) + cuh/Dispatch entries + `setUseFlashDecode` on op/component/block + Gemma.ixx enables
+  unconditionally in inference mode; split-K scratch from `getDeviceScratchBuffer` fetched per call;
+  cuBLASLt decode plans + scratch kept as fallback/oracle leg. Pre-build validation method (worked twice
+  now — record): standalone nvcc harness including the production .cu, FP64 host reference, NaN-poisoned
+  out-of-band cache slots (proves band-limited reads), 19 fixtures pinning splits==1/split-K/pre-window/
+  window-boundary/ring-wrap/batch-2.
+  **RUNG 2 IN TREE (pending VS2026 rebuild + regates): cp.async double-buffer + tile-granular online
+  softmax.** v1 measured (standalone bench, rotating DRAM-honest buffers): local full-window 22.7 us/layer
+  (3.4x over old 77) but global full-band only 227 GB/s (295 us/layer at 32K fill — WORSE than the old
+  GEMMs' ~158 us there; single-buffer load/compute serialization + per-position warp serialization).
+  Rung 2 = double-buffered cp.async stages (2x16 KB) + phase-split tile compute (all tile scores with
+  independent interleaved reduce chains, then ONE m/l rescale per tile; ragged tail rows zero-filled +
+  -inf score mask). Standalone-validated: 19/19 oracle fixtures + memcheck/initcheck/racecheck all 0;
+  bench: **local 14.5 us/layer (5.3x over old)**, global full-band 247 GB/s (271 us). Expected in-model:
+  a bit more off the locals; full-cache global case still net-positive overall (~-1.6 ms/token vs old
+  path at full 32K: locals -2.5, globals +0.9) but not maximal.
+  **RESIDUAL (follow-up, analyzed): global MQA kernel at full band is DRAM-LATENCY-LIMITED, not
+  bandwidth-limited** — Little's law needs ~300 KB in flight/SM at ~600 ns latency; the design carries
+  ~45 KB (one 16 KB prefetch x 2.8 blocks/SM). Deeper smem pipelines fight the smem budget (3 stages ->
+  48 KB -> fewer blocks). Candidate fixes if revisited: (a) direct per-warp LDG streaming with
+  position-unrolled ILP (no smem share; L1/MSHR merges the 16-row reuse); (b) smaller stages x more of
+  them; (c) **FP8 KV cache halves the band bytes and therefore halves this residual** — it is the
+  planned next multiplier anyway, so the residual may never need its own fix.
+  **RUNG 2 VALIDATED ALL GATES GREEN 2026-07-16 — CAMPAIGN ITEM COMPLETE.** User rebuild: parity oracles
+  green, chat coherent, ~49 tok/s (no wall change vs v1 — expected: rung 2's ~0.2-0.3 ms is noise at a
+  20.4 ms wall). Fresh nsys decomposition on the fused build @32K (63 steps, busy 18.9 / wall 20.4 ms):
+  **GQA decode total 0.369 ms/token (local 0.181 + global 0.109 + kvwrite 0.058 + fixup 0.022) — 12.5x
+  down from the 4.63 ms that opened this item.** New wall map: FP4 matvecs 13.60 (67%, post-diet ~92%
+  DRAM = format floor) | RMSNorm 2.36 (337 launches) | lm_head 2.18 (floor) | rope/misc 0.40 |
+  launch-gap ~1.4. CONSEQUENCE: **FP8 KV is demoted from decode-perf lever to memory/long-context lever**
+  (GQA decode reads are now worth ~0.15 ms/token at most). Remaining decode levers, re-ranked: (1)
+  RMSNorm fusion (2.36 ms, 337 launches/token — the D2 item, est ~+3 tok/s); (2) CUDA Graphs decode step
+  (the ~1.4 ms launch-gap tax, D1 finding, est ~+3.5 tok/s); together ~56 tok/s. Absolute ceiling for
+  this model/GPU/format ~62-65 tok/s (FP4 weight bytes at DRAM floor).
+  EXTERNAL REFERENCE MEASURED 2026-07-16: llama.cpp decode = **50.3-50.7 tok/s** (LM Studio Gemma 4 12B
+  Q4_K_M, same 4070, 32K context, 128-token generations, temp 0, 3 runs via `lms` + native REST
+  /api/v0/chat/completions stats). Mila 49.09 => **decode gap 1.03x** (was 1.30x at session start);
+  prefill gap 1.136x. The two queued levers above would cross under llama.cpp decode.
+  3. **Identity-copy elimination**: pass Xq directly as the QK A operand and write the AV output straight
+     to Y — deletes `permute_q_compact` + `unpermute_output` from decode (~0.11 ms + 96 launches/token).
+     Trivial, zero-risk, subsumed by (1).
+  4. **FP8 KV cache** (existing follow-up, both layer kinds): halves decode K/V traffic AND KV VRAM;
+     multiplies with (1) via inline dequant in the fused kernel.
+  MEMORY NOTES @32K alloc (B=1): KV VRAM is locals 671 MB (40 layers x 8 KV heads x 2047-slot ring x 256
+  x 2B — locals DOMINATE despite the ring) + globals 537 MB (MQA NKV=1 keeps them cheap); the ring
+  capacity is `window + prefill_chunk - 1`, so the chunk-1024 rung costs +33% local KV VRAM vs chunk 512
+  (2047 vs 1535 slots) — a decode-time reason to keep the chunk heuristic honest; decode scratch is
+  trivial (preatt/att_decode [1,16,1,T_ctx] ~4 MB total); no per-token VRAM growth over a 128-token run
+  (one-time cuBLASLt workspace +63 MB). Core Mila (`Src/.../GQA` op + decode kernels + plans) — needs
+  agreement + VS2026 build. See [[project_gemma_inference_review]].
+- [ ] **[perf, MEASURED 2026-07-16] FP4 decode matvec is NOT at the bandwidth floor: 63-78% of DRAM peak
+  vs 97% for the FP8 lm_head matvec in the same decode — dequant ALU co-limits.** The 15.17 ms/token FP4
+  matvec bucket (61% of decode busy) was assumed bandwidth-floor'd; ncu per-shape measurement (Gemma 12B
+  FP4 decode, 4070, 5 instances/shape, `matvec_decode_bf16_qfp4_wide_kernel` in
+  [CudaMatVecBias.Bf16.cu](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/MatVec/CudaMatVecBias.Bf16.cu))
+  says otherwise: gate_up C=3840 77.8% DRAM / **82.4% SM** | local qkv C=3840 67.2 / 77.0 | down C=15360
+  68.2 / 69.7 (occupancy only 31% — investigate) | o_proj C=4096 63.1 / 67.9. **SM > DRAM on every shape**:
+  the inner loop spends, per weight, an `fp4_e2m1_decode` + a per-nibble `* scale` + an FP32 FMA into ONE
+  serial accumulator — the kernel is arithmetic-co-limited, not purely latency-bound (long-scoreboard ~4
+  warps/issue is secondary). The FP8 lm_head (1 FMA/byte, no dequant) hits 490 GB/s / 97.2% in the same
+  token loop, so the machine can stream at the floor — the FP4 inner loop cannot. LEVERS (kernel-local,
+  no format change): (1) **fold the group scale out of the inner loop** — accumulate a per-group partial
+  and multiply once per group (kills 1 FP32 mul per weight, the cheapest big ALU cut); (2) **paired
+  bf16x2/half2 FMA** (`__hfma2`-style) on dequantized pairs to halve FMA issue count (numerics
+  tolerance-gated, weights are 4-bit anyway); (3) two+ independent accumulators to break the serial FMA
+  dependency chain; (4) fc_down occupancy (31%) — check register count / blocks-per-SM. PAYOFF: lifting
+  63-78% -> ~92% cuts the bucket 15.17 -> ~12.2 ms/token = **~+12-15% decode tok/s** — the single biggest
+  decode lever found in the 2026-07-16 review (larger than the GQA fused-decode item above; the two stack
+  to ~25.9 -> ~19 ms/token ~= 52 tok/s). NOT a lever: FP8 weight storage for decode (doubles DRAM bytes;
+  FP4 at 70% still streams more params/s than FP8 at 97%), and "FP8 scalar" compute (does not exist on
+  Ada CUDA cores — FP8 is storage + tensor-core-only; scalar math would convert to half/float regardless).
+  Gates: existing Linear decode oracles + `Forward_Fp4PrefillMatchesDecodeAcrossTokenMagnitudes` +
+  GemmaModelParity + chat + ProfileModel decode scoreboard. Core Mila (Linear kernels) — needs agreement.
+  IMPLEMENTED 2026-07-16 (rungs 1+2 together, in tree, PENDING VS2026 build + gates): rewrote
+  `matvec_decode_bf16_qfp4_wide_kernel` (both 16/32-nibble instantiations; 8-nibble fallback and FP8/BF16
+  matvecs untouched) — (a) new `fp4x8_decode_bf16x2` helper decodes 8 nibbles to raw BF16 pairs via
+  `__byte_perm` table selects (all E2M1 magnitudes exact in BF16; PRMT selectors masked 0x7777 because
+  selector bit 3 = sign-replicate mode; FP4 sign injected into BF16 bit 15); (b) group scale folded out of
+  the per-weight math into one `fmaf(scale, sub_even + sub_odd, acc)` per iteration with two independent
+  raw sub-accumulators; (c) weight/activation/scale loads software-pipelined one iteration ahead.
+  PRE-BUILD VALIDATION (standalone nvcc harness incl. the production file, scratchpad matvec_diet_check/
+  matvec_ab): decode helper EXHAUSTIVE pass (65536 words x 8 nibbles vs `fp4_e2m1_decode`, 0 mismatches);
+  full-kernel oracle vs FP64 host reference PASS on all 7 real shapes (worst rel 3.9e-3 = bf16 output
+  rounding); old-vs-new A/B with rotating weight buffers (defeats L2, old side reproduces the in-model
+  356-404 GB/s baseline): gate_up +16.7% (370->432 GB/s) | local qkv +17.7% (365->430) | local o_proj
+  +20.2% (356->427) | global qkv +19.1% (371->442) | fc_down +14.7% (404->463) | global o_proj +25.6%
+  (364->457). Bucket-weighted estimate ~-2.3 ms/token => decode ~40.15->~44 tok/s @4K alloc. Rung 3
+  (bf16x2 paired FMA) held back pending post-build ncu (only if SM% still > DRAM%); rung 4 (fc_down tail)
+  deferred.
+  **VALIDATED ALL GATES GREEN 2026-07-16** (user: build + Linear oracles + GemmaModelParity + coherent
+  chat with better stats t/s; me: scoreboard + ncu): ProfileModel decode **40.15 -> 43.24 tok/s @4K
+  (+7.7%)**, **38.65 -> 41.26 @32K (+6.8%)** (-1.8 / -1.6 ms/token). ncu per-shape: the SM-vs-DRAM
+  co-limit is GONE — **SM% now BELOW DRAM% on every shape**: gate_up DRAM 77.8 -> **90.1%** (SM 82.4 ->
+  73.8) | fc_down 68.2 -> **87.0** (SM 69.7 -> 60.5) | local qkv 67.2 -> **81.6** (SM 77.0 -> 70.0) |
+  o_proj 63.1 -> **78.7** (SM 67.9 -> 63.7). Long-scoreboard stall rose 4.3 -> 6.4 warps/issue as
+  expected (kernels now genuinely memory-bound). RUNG 3 SKIPPED per the pre-agreed rule (SM% < DRAM%
+  everywhere — paired-FMA issue relief would not pay). RESIDUAL headroom (accepted for now): the two
+  smallest shapes (qkv 81.6%, o_proj 78.7%) trail the big ones — tail/ramp at 25-50 us kernel size and
+  59/57% occupancy, i.e. rung-4 territory (tail shaping), revisit only if the decode campaign needs it;
+  fc_down occupancy still 31% yet hits 87% DRAM (occupancy was never the binding constraint). COMMIT-READY.
 - [ ] **[minor, stats accounting] Shared RoPE cos/sin cache is attributed to whichever op built
   first.** `CudaRopeOp` keeps the frequency tables in a process-wide shared cache
   ([CudaRopeOp.Cache.ixx](Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.Cache.ixx))

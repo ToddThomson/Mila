@@ -8,7 +8,7 @@ Where Mila is going — the durable narrative of each release and what it means.
 
 The roadmap shows two releases at a time — the one in flight and the one after (**vNext**) — plus a
 **Future Directions** tail. Each release is reached through **milestones** tracked by task completion
-(see [RELEASING.md](RELEASING.md)). Current version: **`0.20.0-alpha.6+79`**.
+(see [RELEASING.md](RELEASING.md)). Current version: **`0.20.0-alpha.6+105`**.
 
 The **Gemma 4 12B dense chassis** has been delivered into v0.20 (HF token-for-token parity, 2026-06-23
 — see CHANGELOG); its memory-fit gates (weight-tying + bounded-KV ring cache) both landed in +78, and
@@ -71,6 +71,7 @@ consolidation.
 - [~] FFN consolidation — de-polymorphize `MLP`: the **blocking** runtime activation dispatch is gone (`MLP` holds a concrete `Gelu` child; the `mlp_activation_impl` / `std::function` bridge / SwiGLU branch retired in `MLP.Dispatch.ixx`, out of build), `Swiglu` -> `FFN/Swiglu/` and `MLP` -> `FFN/MLP/` relocated, and `MLP<Cpu>` / `GptBlock<Cpu>` / `GptTransformer<Cpu>` now build (their `.Cpu.cpp` tests are active). **Remaining (deferred):** fold the fixed `Gelu` child onto the generalized `Activation<…, ActivationType TFn = Gelu>` — the compile-time-`TActivation` endgame — tracked under the `Activation` elementwise-primitive item below. Design: `Specifications/FfnAndMoE.md`
 - [~] FFN consolidation — `Activation` elementwise primitive: compile-time `TFn`, the `MILA_HD` functor library, and the Cpu/Cuda `ElementwiseActivationOp` (functor-templated, not a traits axis); `Gelu` folds in. **Landed alongside `Gelu`:** the functor library (all 8 functions), `Cpu`/`Cuda` `ElementwiseActivationOp` (FP32 / FP32+BF16), the member-template `op_for<Functor>` traits, the `Activation<…, TFn>` component + config, and its CPU/CUDA tests. The reusable `GatedMLP` gated FFN (single-expert reference, `TGate` fixed to SiLU) landed with it. **Remaining:** fold `Gelu` (+ `MLP`'s child) onto `Activation`; CPU `SwigluOp` + `Swiglu<…, TGate>` generalization — tracked in BACKLOG
 - [x] Hardening — couple the `initialize_parameters` default to `RuntimeMode` — the `BuildContext` third argument is now `std::optional<bool>` (nullopt => derived: Training initializes, Inference skips), so an inference-mode build can no longer silently run then discard parameter initialization by omitting the flag; all existing explicit call sites (`false` on the three `fromPretrained` paths, propagated `shouldInitializeParameters()` in Llama/Gemma) compile unchanged
+- [ ] Resolve the poisoned BF16 dispatch rows — `OperationTraits<{Gelu,MultiHeadAttention,Softmax,Lpe}Op, Cuda, BF16>` advertise ops whose kernels are `float || half` only, so instantiating them is a hard compile error the moment a BF16 typed test touches them (surfaced by Test Suite Revival). Drop the rows (FP32-only is honest) or add BF16 kernels; audit for other traits-vs-kernel desync during the FP16 removal. See BACKLOG, *Consolidation* (poisoned-row item) and *Dispatch error UX*
 
 **Exit:** every box checked, no literal `FIXME` in public source, debug instrumentation gone, and the
 Component lifecycle is sound enough to re-enable the component/training tests.
@@ -217,16 +218,40 @@ in [BACKLOG.md](BACKLOG.md) under *Module Hygiene*, *Public API Surface*, and *R
 *Validate, package, and distribute for external contributors. No new features beyond the frozen set.*
 
 - [ ] Llama 3.2 1B FP32, 3.2 3B BF16, 3.1 8B FP8 validated against the HuggingFace oracle
+- [ ] Triage the `Llama.Block.ixx:132` view-aliasing concern in the primary validated target (the Q/K/V splits of `qkv_out` may not be contiguous) — confirm live-vs-benign and fix if live before claiming Llama HF validation. See BACKLOG, *Project Hygiene* marker bucket D
 - [ ] Tool calling validated on Llama 3.2 3B and 3.1 8B Instruct
 - [x] Gemma 4 12B FP4 fits a 12 GB card — both memory gates DONE (0.20.0-alpha.6+78): weight-tying (~2 GB reclaimed) + bounded-KV sliding-window ring (persistent-KV growth now 16 KB/token, the 8 global layers only). Coherent 8192-context chat with the ring engaged. Extended 2026-07-03 by activation pooling (shared block workspace, Gemma4InferenceReview.md section 7): the 48 per-layer activation buffer sets collapsed to one, retiring the chunk-32 operating point — prefill runs at chunk 512 via the activation-aware heuristic v2 (2048-token prefill 20.77 s -> 1.57 s same-day)
 - [ ] `CONTRIBUTING.md` coding standards + `getting-started.md` onboarding guide
 - [ ] Guided reading path — the comprehensibility deliverable: a document tracing one token's
   journey (embed -> attend -> sample -> decode) through the actual source, readable by a strong
   C++ developer unaided; distinct from `getting-started.md` (build/run onboarding)
-- [ ] Grammar-in-runtime consolidation — canonical C++ Gemma token grammar in the runtime, Chat
+- [~] Grammar-in-runtime consolidation — canonical C++ Gemma token grammar in the runtime, Chat
   consuming it, the Chat/MIS `<|"|>` drift closed (correctness consolidation, not a new feature —
-  see BACKLOG, *Product Family — Grammar-in-Runtime Consolidation*)
-- [ ] `find_package(Mila)` validated by an external consumer build
+  see BACKLOG, *Product Family — Grammar-in-Runtime Consolidation*). The C++ side is done (runtime
+  `Dnn.Components.GemmaProtocol` module + Chat consuming it); the remaining MIS execution-time scope
+  call moves to the *Product Family — Adaptor Validation* milestone below
+- [ ] `find_package(Mila)` builds for an external consumer — today it **fails**: C++23 module units
+  recompile on the consumer side and their file-relative kernel includes resolve against the wrong
+  tree. Not a validation pass but a *coherent target-composition restructuring* (`FILE_SET HEADERS`,
+  angled includes anchored at one `Src` root, CUDA sources under `MILA_HAS_CUDA`), validated by a
+  throwaway `find_package(Mila)` + `import Mila;` consumer wired into CI. See BACKLOG, *Packaging* (a `[gate]`)
+- [ ] Freeze the narrowest defensible public export surface — define the `Mila.ixx` allowlist, demote
+  internal modules, stop re-exporting vendored `nlohmann`. At freeze the cost is asymmetric (too-broad
+  can only be undone by a breaking removal). See BACKLOG, *Public API Surface*
+- [ ] Dispatch error UX — a missing/broken `(Op, Device, Precision)` specialization must read as a
+  sentence, not a 200-line MSVC constraint cascade (`static_assert(always_false)` on the traits
+  primary + a shared `OperationSupported<...>` predicate). Contributor-readiness gate; pairs with the
+  poisoned-row fix under Consolidation. See BACKLOG, *Project Hygiene — Dispatch error UX*
+- [ ] Add the Samples build to CI (only the tests build today) so a contributor's first sample build is not the thing that breaks
+- [ ] Linux build validated as a first-class platform — Mila builds and its tests pass on Linux across
+  the supported compiler matrix (Clang 19+ and GCC 16, CUDA 13.3), not just the single CI clang-21
+  slice. The WSL Clang oracle already exists; remaining is the GCC 16 path and wiring the matrix into
+  CI so a module-portability regression (the class MSVC's transitive resolution hides) fails loudly.
+  See BACKLOG, *Module Hygiene* (cross-compiler oracle) and *Release Assets & CI* (broaden compiler coverage)
+- [ ] Reproducible container build — a pinned build container (CUDA `-devel` on Ubuntu 26.04) that
+  builds Mila from a clean clone, so a contributor or CI reproduces the Linux build without host
+  toolchain drift. This is the *build* environment; distinct from the runtime image below, which only
+  packages the already-built artifacts. See BACKLOG, *Module Hygiene* (dev-container build)
 - [ ] Published Docker runtime image (slim multi-stage GPU runtime, release-tagged)
 - [ ] Ungated GPT-2 quick-start path for zero-auth first run
 - [ ] `good first issue` labels on GitHub
@@ -234,6 +259,49 @@ in [BACKLOG.md](BACKLOG.md) under *Module Hygiene*, *Public API Surface*, and *R
 GPU-first: the CUDA backend is the validated inference path (HuggingFace is the correctness oracle);
 full CPU op parity is not a gate. Engineering detail (packaging, module hygiene, public-API
 narrowing, dispatch diagnostics, CI) lives in [BACKLOG.md](BACKLOG.md).
+
+### Milestone: Product Family — Adaptor Validation
+
+*Prove the locked product definition's central claim: the whole path is demonstrable end-to-end. The
+[MilaProductFamily.md](Mila/Specifications/MilaProductFamily.md) definition ships two adaptors with
+v0.20 — Chat (human gate) and MIS (Python wire) — distinguished by who closes the generation loop.
+The release bar is that a foreign agentic harness can drive Gemma 4 12B FP4 through MIS with tool
+use. The existing Chat surface is validated (net-new Chat feature work is its own milestone below);
+this milestone closes MIS.*
+
+The Agentic adaptor stays explicitly post-release (the named scope-creep vector). This milestone is
+validation and a single execution-time scope call, not new adaptor surface.
+
+**Success criteria:** a foreign harness (Codex CLI and Claude Code CLI over the OpenAI/Anthropic wire
+shapes) drives Gemma 4 12B FP4 through MIS across plain-chat, single-tool, and tool-result-resume
+flows with no leaked control tokens; the C++/Python grammar duplication is resolved by an explicit
+decision (single-sourced via pybind, or pinned by a cross-language parity test).
+
+- [ ] MIS Gemma 4 tool-calling validated end-to-end through the foreign-harness test suite — the
+  Codex + Claude Code CLI round-trips are live (see BACKLOG, *MIS -> Gemma 4 migration*); close the
+  remaining tail: N sequential distinct tool calls in one turn, channel-content parser polish, and
+  the Claude Code `/v1/messages` path (tool-blind today)
+- [ ] Grammar-in-runtime execution-time scope call — **either** expose the runtime C++ Gemma grammar
+  via pybind so `gemma_protocol.py` consumes one source, **or**, if that is not bounded for v0.20,
+  keep MIS on Python and pin the two implementations with a cross-language parity test (same fixture
+  corpus, both parsers). A decision, not just a task — see BACKLOG, *Product Family — Grammar-in-Runtime Consolidation*
+
+### Milestone: Chat
+
+*Net-new Chat harness features and changes for v0.20. Chat is a first-class adaptor — the human-gate
+peer of MIS under `Mila/Adaptors/Chat/` ([MilaProductFamily.md](Mila/Specifications/MilaProductFamily.md)),
+a maintained surface that gains rigor over time, not a throwaway sample. This milestone owns feature
+work beyond the current validated Chat surface (which the Adaptor Validation milestone above records
+as done).*
+
+> **Scope pending — full spec to be authored 2026-07-16.** The success criteria and task list below
+> are placeholders; they are replaced from that spec once it lands (spec home: `Mila/Specifications/`).
+> Per the locked product definition, Chat features stay human-gate concerns built on the runtime's
+> compute primitives — the Agentic adaptor remains explicitly post-release.
+
+**Success criteria:** _TBD from the Chat feature spec._
+
+- [ ] _Scope TBD — itemized when the spec lands (2026-07-16)._
 
 ### Milestone: LanguageNetwork — Sample API
 
@@ -313,6 +381,40 @@ Remaining to close the milestone:
 built into an app-level `GenerateSession`; its bounded-KV-ring gate closed 2026-06-30, so it is unblockable
 but out of scope here.
 
+### Milestone: Gemma 4 Inference Competitiveness (Prefill + Decode)
+
+*A craft goal, **not a release gate.** Mila is a mastery project, not a llama.cpp/vLLM competitor — the
+release ships regardless of where this lands. This milestone records the flash-attention + FP8-GEMM
+prefill work and the decode campaign delivered in the alpha.6 line, plus the deferred levers, so the
+shipped result reads as done rather than aspirational.*
+
+The target was framed as "close, not miles behind" on Gemma 4 12B FP4 prefill at 48K context (4070,
+22496 tokens), measured against llama.cpp (LM Studio, Q4_K_M) as the external reference. That criterion
+is **MET**: the campaign drove the gap from **1.95x → 1.136x behind** (39208 → 12382 ms; llama.cpp 10903
+ms / 2063 tok/s → Mila 1817 tok/s), through a stacked sequence of tensor-core flash-attention kernels
+and an FP8-activation GEMM path. Crossing *under* llama.cpp is a further stacked campaign whose biggest
+remaining bucket (global flash, ~36% of prefill) sits at the Ada architectural floor — so the remaining
+levers are **deferred by choice** ("scrape the bones later"), not blocked.
+
+**Success criterion (MET):** Gemma 4 12B FP4 prefill "close, not miles behind" llama.cpp at 48K context
+— achieved 1.136x (was 1.95x). Full gap map, ncu evidence, and lever arithmetic live in
+[BACKLOG.md](BACKLOG.md) *Gemma 4 — Dense Chassis* and the perf memory files.
+
+- [x] Bounded-ring tensor-core flash prefill on the 40 local sliding layers (+101, then a row-split FA-2 kernel at +104) — 1.71x → 1.136x
+- [x] W4A8-FP8 activation prefill GEMM shipped ON (+103) — per-token activation scales, stale-`sB` root cause fixed; 1.50x → 1.17x
+- [ ] **[deferred — needs core-API sign-off]** Lever A: FP4→FP8 upcast hoist (~−1.0s) — layer-outer/chunk-inner prefill restructure + an `IDecoderLayer::beginPrefillPass/endPrefillPass` hook; projects to ~1.08x, does not alone cross the line
+- [ ] **[deferred]** Remaining levers — `warps=7` local-FA-2 probe, global FP8-K/V-in-smem two-block (borderline), small fusions (rope/rmsnorm+residual/epilogue), global-flash ILP, local-ring L2 rework. Any of Lever A + fusions + one attention nibble lands at/under the line
+
+**Decode campaign (2026-07-16, +105):** Gemma 4 12B FP4 decode **38.65 → 49.09 tok/s @32K (+27%)**,
+40.15 → 48.87 @4K. Decode no longer scales with *allocated* context (the 4K/32K spread is gone). The
+GQA attention bucket fell 4.63 → 0.37 ms/token (12.5x). Remaining wall is FP4 weight bytes at ~92% of
+DRAM peak (the format floor); measured next levers are RMSNorm fusion (2.36 ms, 337 launches/token) and
+a CUDA-Graphs decode step (~1.4 ms launch-gap tax), projecting ~56 tok/s against a ~62–65 format ceiling.
+
+- [x] FP4 decode matvec inner-loop diet — PRMT byte-permute nibble decode (no constant-LUT replay), per-group scale fold, dual accumulators, one-ahead load pipeline; 63–78% → 79–90% of DRAM peak
+- [x] Fused decode-attention kernel (`Gqa.Decode.Bf16.cu`) — streaming online-softmax over the live band only (`slot = position % capacity` serves unbounded and ring caches), split-K across blocks + fixup merge for the MQA global layers, cp.async double-buffered K/V tiles, tile-granular rescale; replaces the cuBLASLt QK→softmax→AV pipeline and its T=1 identity permutes; `CudaGqaDecodeParity` oracles + sanitizer trio green
+- [ ] **[deferred]** RMSNorm fusion + CUDA-Graphs decode step (the two measured levers above); FP8 KV cache re-scoped as a memory/long-context enabler (~1 GB at 64K), no longer a decode-perf lever
+
 ---
 
 ## vNext — Qwen 3
@@ -349,5 +451,6 @@ version, date, GitHub Milestone) when it is scheduled.
   v0.20 Consolidation). The **Gemma 4** dense chassis delivered in v0.20 is the precursor that de-risks
   this: the 26B-A4B MoE model reuses the Gemma chassis, swapping only the FFN block. Also: speculative
   decoding, additional attention variants.
-- **Performance** — Flash Attention integration, tensor parallelism, deterministic gradient
-  accumulation for training reproducibility.
+- **Performance** — tensor parallelism and deterministic gradient accumulation for training
+  reproducibility. (Tensor-core flash-attention prefill already shipped in the v0.20 alpha.6 line —
+  see the *Gemma 4 Prefill Competitiveness* milestone above; what remains there is deferred by choice.)

@@ -428,6 +428,31 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     position_offset, window, scale, stream );
             }
 
+            // Fused single-token decode attention (BF16-only; both kBounded ops route
+            // here -- the kernel walks absolute positions with row = p % capacity, the
+            // identity when unbounded). See cuda_gqa_decode_attention_bf16.
+            static bool decode_attention_supported( int head_size, int group_size )
+            {
+                return cuda_gqa_decode_attention_supported( head_size, group_size );
+            }
+
+            static size_t decode_attention_scratch_bytes( int B, int NH, int HS )
+            {
+                return cuda_gqa_decode_attention_scratch_bytes( B, NH, HS );
+            }
+
+            static void decode_attention(
+                const nv_bfloat16* Q, const nv_bfloat16* K, const nv_bfloat16* V,
+                nv_bfloat16* Y, float* split_scratch,
+                int B, int NH, int NKV, int HS, int cache_capacity,
+                int actual_len, int window, float scale,
+                cudaStream_t stream )
+            {
+                cuda_gqa_decode_attention_bf16(
+                    Q, K, V, Y, split_scratch, B, NH, NKV, HS, cache_capacity,
+                    actual_len, window, scale, stream );
+            }
+
             // ----------------------------------------------------------------
             // Common: softmax
             // ----------------------------------------------------------------

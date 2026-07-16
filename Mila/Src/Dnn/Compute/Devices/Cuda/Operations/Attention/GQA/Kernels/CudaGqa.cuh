@@ -107,6 +107,41 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         cudaStream_t stream );
 
     // ========================================================================
+    // GQA Decode — fused attention (BF16)
+    // ========================================================================
+
+    /// True when the fused decode kernel covers this geometry (head_size in
+    /// {128, 256, 512}, group_size 1..16); the caller falls back to the
+    /// cuBLASLt decode pipeline otherwise.
+    bool cuda_gqa_decode_attention_supported( int head_size, int group_size );
+
+    /// Device scratch bytes the fused decode kernel needs for its split-K
+    /// partials at the worst-case split count. Fetch via
+    /// ExecutionContext::getDeviceScratchBuffer at decode time.
+    size_t cuda_gqa_decode_attention_scratch_bytes( int B, int NH, int HS );
+
+    /**
+     * @brief Fused single-token decode attention over the compact BF16 KV cache.
+     *
+     * Replaces the cuBLASLt QK -> softmax_decode -> AV pipeline (and its
+     * T=1 identity Q-permute/unpermute copies) with one streaming
+     * online-softmax kernel that reads only the live attention band:
+     * absolute positions [max(0, actual_len - window), actual_len), physical
+     * cache row = position % cache_capacity (identity when unbounded). Serves
+     * both the unbounded and bounded-ring ops. Q is read from the projection
+     * output [B, 1, NH*HS]; Y is written as [B, 1, NH*HS]. Long bands are
+     * split-K parallelized across blocks with a fixup merge launch;
+     * split_scratch must hold cuda_gqa_decode_attention_scratch_bytes.
+     * `scale` is the config-derived attention scale, applied to the QK dots.
+     */
+    void cuda_gqa_decode_attention_bf16(
+        const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
+        __nv_bfloat16* Y, float* split_scratch,
+        int B, int NH, int NKV, int HS, int cache_capacity,
+        int actual_len, int window, float scale,
+        cudaStream_t stream );
+
+    // ========================================================================
     // GQA KV Cache FP32
     // ========================================================================
 

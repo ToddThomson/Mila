@@ -395,6 +395,22 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             use_flash_prefill_ = enabled;
         }
 
+        /**
+         * @brief Runtime A/B toggle for the fused decode-attention path (test hook).
+         *
+         * When enabled, BF16 decode routes through cuda_gqa_decode_attention_bf16 --
+         * one streaming online-softmax kernel over the live attention band --
+         * instead of the cuBLASLt QK -> softmax_decode -> AV pipeline (which reads
+         * the FULL allocated cache_capacity_ every token). Both kBounded
+         * instantiations share the fused kernel. FP32 and unsupported geometries
+         * always run cuBLASLt. Defaults to false so a single test process can diff
+         * the two paths back-to-back; the transformers enable it explicitly.
+         */
+        void setUseFlashDecode( bool enabled ) noexcept
+        {
+            use_flash_decode_ = enabled;
+        }
+
     private:
 
         // A/B selector for the FlashAttention prefill path. When true, the BF16 prefill
@@ -408,6 +424,13 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         // workspace width (GqaFlashAttention.md 5.6). A standalone op left at the default
         // therefore never flashes into a narrow shared buffer. FP32 always cuBLASLt.
         bool use_flash_prefill_{ false };
+
+        // A/B selector for the fused decode-attention path (see setUseFlashDecode).
+        // Unlike prefill, no workspace-width coupling: the fused path allocates its
+        // split-K partials from the shared ExecutionContext scratch at decode time,
+        // and the cuBLASLt fallback's preatt/att_decode buffers stay wired via
+        // setState either way.
+        bool use_flash_decode_{ false };
 
         GqaConfig config_;
         CudaExecutionContext* context_;
@@ -756,6 +779,31 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // cache_capacity_ == T_ so the wrap is the identity.
             Detail::cuda_gqa_kernels<NativeType>::kvcache_write_kv(
                 k_opt_, v_opt_, Xk, Xv, B_, 1, NKV_, HS_, position, cache_capacity_, stream );
+
+            // Fused decode attention: one streaming online-softmax kernel over the live
+            // band, straight from Xq to Y -- no Q permute, no preatt/att round-trip, no
+            // unpermute, and no full-capacity garbage reads. BF16 only; FP32 and
+            // unsupported geometries fall through to the cuBLASLt pipeline below. The
+            // split-K partial scratch is fetched from the shared context buffer on every
+            // call -- it may be reallocated on grow, so the pointer is never cached.
+            if constexpr ( std::is_same_v<NativeType, nv_bfloat16> )
+            {
+                if ( use_flash_decode_
+                    && Detail::cuda_gqa_kernels<NativeType>::decode_attention_supported( HS_, GS_ ) )
+                {
+                    float* split_scratch = static_cast<float*>( context_->getDeviceScratchBuffer(
+                        Detail::cuda_gqa_kernels<NativeType>::decode_attention_scratch_bytes( B_, NH_, HS_ ) ) );
+
+                    Detail::cuda_gqa_kernels<NativeType>::decode_attention(
+                        Xq, k_opt_, v_opt_, Y, split_scratch,
+                        B_, NH_, NKV_, HS_, cache_capacity_, actual_len, window_, scale, stream );
+
+                    if ( actual_len > cached_seq_len_ )
+                        cached_seq_len_ = actual_len;
+
+                    return;
+                }
+            }
 
             // Permute single Q token from [B, 1, NH*HS] into compact [B, NH, 1, HS] scratch.
             // strideA = 1*HS = HS between heads -- matches the NKV-layout decode plan geometry.
