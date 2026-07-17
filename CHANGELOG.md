@@ -16,6 +16,25 @@ release notes.
 The bridge from "the features work" to a tree honest enough to call beta. Milestone vision
 is in ROADMAP; open triage buckets are in BACKLOG.
 
+### CI portability gate restored to green (0.20.0-alpha.6+109)
+
+The clang-21 compile gate had been red on `dev`. Three independent clang-vs-MSVC gaps, none
+visible from the VS2026 build:
+
+- **Hard error (the actual failure):** `Mila_py.Wrappers.cpp` used `std::stop_token` without
+  `#include <stop_token>`. MSVC resolved it transitively; clang rejects it. Added the include,
+  matching the two sibling binding units that already carried it.
+- **`nvcc` host-compiler conflict:** the Clang branch in `Mila/CMakeLists.txt` was overriding the
+  caller-chosen CUDA host compiler and appending a second `-ccbin`, producing "incompatible
+  redefinition for option 'compiler-bindir'" on every `.cu` and silently hosting nvcc on the
+  unsupported clang-21 instead of the intended gcc-15. It now only defaults the host when the caller
+  hasn't set one; CI, `build-chat.sh`, and the getting-started doc pass `CMAKE_CUDA_HOST_COMPILER=gcc-15`
+  to match the Linux preset (single, consistent `-ccbin`).
+- **`-Winconsistent-missing-override` (18 sites):** added `override` to `toMetadata`/`fromMetadata`
+  in the eight component `.Config.ixx` classes and to `getDeviceId`/`save_` in `Network.ixx`.
+
+MSVC-path unaffected (the CMake and portability fixes are all clang-only or non-semantic).
+
 ### W4A8-FP8 prefill default reverted to OFF (0.20.0-alpha.6+99)
 
 `kUseFp8ActivationPrefill` was shipped ON in +98 on the strength of the per-layer

@@ -234,7 +234,7 @@ namespace Mila::Dnn
 
         // Serialization helpers
 
-        SerializationMetadata toMetadata() const
+        SerializationMetadata toMetadata() const override
         {
             SerializationMetadata meta;
 
@@ -253,7 +253,7 @@ namespace Mila::Dnn
             return meta;
         }
 
-        void fromMetadata( const SerializationMetadata& meta )
+        void fromMetadata( const SerializationMetadata& meta ) override
         {
             if ( auto vs = meta.tryGetInt( "vocab_size" ) )
             {

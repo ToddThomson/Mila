@@ -41,7 +41,8 @@ cmake -S "${SRC}" -B "${BUILD}" -G Ninja \
     -DCMAKE_CXX_COMPILER=clang++-21 \
     -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
     -DCUDAToolkit_ROOT=/usr/local/cuda \
-    -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler -ccbin=gcc-15" \
+    -DCMAKE_CUDA_HOST_COMPILER=gcc-15 \
+    -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" \
     -DCMAKE_CUDA_ARCHITECTURES="${MILA_CUDA_ARCH}" \
     -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
     -DMILA_ENABLE_ADAPTORS=ON \

@@ -136,7 +136,7 @@ namespace Mila::Dnn
             }
         }
 
-        SerializationMetadata toMetadata() const
+        SerializationMetadata toMetadata() const override
         {
             SerializationMetadata meta;
             meta.set( "vocab_size", static_cast<int64_t>(vocab_size_) )
@@ -150,7 +150,7 @@ namespace Mila::Dnn
             return meta;
         }
 
-        void fromMetadata( const SerializationMetadata& meta )
+        void fromMetadata( const SerializationMetadata& meta ) override
         {
             // Required integer fields with common fallbacks used by exporters
             if ( auto vs = meta.tryGetInt( "vocab_size" ) )

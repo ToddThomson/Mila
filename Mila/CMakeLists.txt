@@ -80,8 +80,15 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     NAMES clang-scan-deps clang-scan-deps-21 clang-scan-deps-20 clang-scan-deps-19
     REQUIRED)
   set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${MILA_CLANG_SCAN_DEPS}")
-  set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")
-  set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -ccbin ${CMAKE_CXX_COMPILER}")
+  # nvcc's host compiler for the (module-free) .cu files. Only default it to the
+  # C++ compiler when the caller hasn't chosen one -- the Linux presets and CI set
+  # gcc-15 (nvcc 13's max supported host), and overriding that here produces a
+  # second, conflicting -ccbin ("incompatible redefinition for option
+  # 'compiler-bindir'" on every .cu). Setting CMAKE_CUDA_HOST_COMPILER is
+  # sufficient; CMake emits the -ccbin itself, so no manual flag append.
+  if(NOT CMAKE_CUDA_HOST_COMPILER)
+    set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")
+  endif()
 endif()
 
 # Emit device-side line info under RelWithDebInfo so Nsight Compute/Systems can

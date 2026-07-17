@@ -60,7 +60,7 @@ namespace Mila::Dnn
          *
          * @return SerializationMetadata containing configuration parameters
          */
-        SerializationMetadata toMetadata() const
+        SerializationMetadata toMetadata() const override
         {
             SerializationMetadata meta;
             meta.set( "axis", axis_ );
@@ -75,7 +75,7 @@ namespace Mila::Dnn
          *
          * @param meta SerializationMetadata containing configuration parameters
          */
-        void fromMetadata( const SerializationMetadata& meta )
+        void fromMetadata( const SerializationMetadata& meta ) override
         {
             if ( meta.has( "axis" ) )
             {

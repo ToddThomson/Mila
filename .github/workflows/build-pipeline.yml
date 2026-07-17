@@ -79,7 +79,8 @@ jobs:
             -DCMAKE_CXX_COMPILER=clang++-21 \
             -DCMAKE_CUDA_COMPILER=${CUDA_PATH}/bin/nvcc \
             -DCUDAToolkit_ROOT=${CUDA_PATH} \
-            -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler -ccbin=gcc-15" \
+            -DCMAKE_CUDA_HOST_COMPILER=gcc-15 \
+            -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" \
             -DCMAKE_CUDA_ARCHITECTURES=86 \
             -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
             -DMILA_ENABLE_TESTING=ON \

@@ -19,6 +19,7 @@ module;
 #include <memory>
 #include <optional>
 #include <span>
+#include <stop_token>
 #include <string>
 #include <unordered_map>
 #include <utility>

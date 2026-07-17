@@ -281,7 +281,7 @@ namespace Mila::Dnn
          * Produces a SerializationMetadata object containing all configuration
          * fields suitable for writing into an archive by the caller.
          */
-        SerializationMetadata toMetadata() const
+        SerializationMetadata toMetadata() const override
         {
             SerializationMetadata meta;
 
@@ -302,7 +302,7 @@ namespace Mila::Dnn
          * that older checkpoints without num_kv_heads fall back to the
          * constructor-supplied default.
          */
-        void fromMetadata( const SerializationMetadata& meta )
+        void fromMetadata( const SerializationMetadata& meta ) override
         {
             if ( auto md = meta.tryGetInt( "model_dim" ) )
             {

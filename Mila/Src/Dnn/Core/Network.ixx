@@ -141,7 +141,7 @@ namespace Mila::Dnn
         ~Network() override = default;
 
         // Network.ixx -- add alongside synchronize()
-        DeviceId getDeviceId() const noexcept
+        DeviceId getDeviceId() const noexcept override
         {
             return this->getExecutionContext()->getDeviceId();
         }
@@ -325,7 +325,7 @@ namespace Mila::Dnn
          * @param archive Archive to write to
          * @param mode Serialization mode (passed from save())
          */
-        virtual void save_(ModelArchive& archive, SerializationMode mode) const = 0;
+        virtual void save_(ModelArchive& archive, SerializationMode mode) const override = 0;
 
         /**
          * @brief Verify that imported model is compatible with network architecture

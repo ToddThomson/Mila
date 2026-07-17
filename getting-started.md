@@ -180,7 +180,9 @@ cmake -S . -B out/build/linux-release -G Ninja \
 ```
 
 For the CI-validated Clang path, swap in `-DCMAKE_C_COMPILER=clang-19
--DCMAKE_CXX_COMPILER=clang++-19` and append `-ccbin=gcc-14` to `CMAKE_CUDA_FLAGS`.
+-DCMAKE_CXX_COMPILER=clang++-19` and set `-DCMAKE_CUDA_HOST_COMPILER=gcc-14` (nvcc's
+host compiler for the `.cu` files -- do not put `-ccbin` in `CMAKE_CUDA_FLAGS`, that
+conflicts with the one CMake emits from `CMAKE_CUDA_HOST_COMPILER`).
 
 Notes:
 - Set `-DCMAKE_CUDA_ARCHITECTURES` to your GPU's arch (`89` = Ada). `native` fails on GPUs

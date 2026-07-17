@@ -217,7 +217,13 @@ in [BACKLOG.md](BACKLOG.md) under *Module Hygiene*, *Public API Surface*, and *R
 
 *Validate, package, and distribute for external contributors. No new features beyond the frozen set.*
 
-- [ ] Llama 3.2 1B FP32, 3.2 3B BF16, 3.1 8B FP8 validated against the HuggingFace oracle
+- [~] Llama HF-oracle parity — 1B FP32 (*Alpha.2*) and 3.2 3B BF16 (*Alpha.3*) were validated
+  token-for-token against HuggingFace at delivery (see CHANGELOG), but that validation is **not captured
+  as a permanent regression test** — Gemma has `GemmaModel.Parity.Cuda.cpp`, Llama has none — so it is
+  unguarded against the inference-era API churn (OperationTraits, quantization, the `Operation` base
+  collapse) that landed after it. Remaining: add the `LlamaModel` HF-parity regression test (the Gemma
+  equivalent) covering 1B FP32 / 3B BF16, and formally validate + record 3.1 8B FP8 (not in the
+  CHANGELOG). Folds into Test Suite Revival's Llama-path backfill
 - [ ] Triage the `Llama.Block.ixx:132` view-aliasing concern in the primary validated target (the Q/K/V splits of `qkv_out` may not be contiguous) — confirm live-vs-benign and fix if live before claiming Llama HF validation. See BACKLOG, *Project Hygiene* marker bucket D
 - [ ] Tool calling validated on Llama 3.2 3B and 3.1 8B Instruct
 - [x] Gemma 4 12B FP4 fits a 12 GB card — both memory gates DONE (0.20.0-alpha.6+78): weight-tying (~2 GB reclaimed) + bounded-KV sliding-window ring (persistent-KV growth now 16 KB/token, the 8 global layers only). Coherent 8192-context chat with the ring engaged. Extended 2026-07-03 by activation pooling (shared block workspace, Gemma4InferenceReview.md section 7): the 48 per-layer activation buffer sets collapsed to one, retiring the chunk-32 operating point — prefill runs at chunk 512 via the activation-aware heuristic v2 (2048-token prefill 20.77 s -> 1.57 s same-day)
