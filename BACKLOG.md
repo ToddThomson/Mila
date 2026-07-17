@@ -178,8 +178,9 @@ Doxygen. Both are large, mechanical, low-risk-per-edit, high-volume diffs, defer
 a cross-compiler build existed (a hard prerequisite for the include work). The WSL Clang
 oracle now exists (Clang 21 + CUDA 13.3 + gcc-15 host), and the dev-container build is validated
 (2026-07-17: `Docker/` reworked onto the CI toolchain, builds Mila + runs Gemma 4 12B FP4 Chat on the
-GPU — surfaced + fixed two clang-only transitive-import breaks, `Network.ixx` + `Gemma.ixx`); GCC 16
-remains the outstanding second module oracle. Surface: 287 `.ixx` units, ~1,810 `import` lines, ~1,419 `#include`
+GPU — surfaced + fixed two clang-only transitive-import breaks, `Network.ixx` + `Gemma.ixx`). GCC 16
+(a second, independent module oracle) is **deferred to vNext** — the v0.20 supported Linux compiler is
+Clang-only (see [ROADMAP.md](ROADMAP.md), *Production Hardening* / vNext hardening carry-over). Surface: 287 `.ixx` units, ~1,810 `import` lines, ~1,419 `#include`
 lines, ~1,950 `@brief` / ~1,100 `@param` / ~257 `@tparam` / ~218 `@file` tags across 258 files.
 
 There is no reliable off-the-shelf tool for C++23 module `import` cleanup (IWYU and clangd
@@ -385,6 +386,38 @@ missing specialization is a hard compile error. What makes it **more than adding
   Before scoping, audit where BF16 is *assumed* vs *parameterized* (default template args,
   KV-cache dtype, conversion/loader code, the FP32 gradient boundary) — the `= TensorDataType::BF16`
   defaults are where "BF16 is the target" hides in places a kernel addition will not reach.
+
+---
+
+## Model Loading — load-time performance
+
+Model load for Gemma 4 12B FP4 is ~12 s native (SN850X Gen4 NVMe). Measured decomposition 2026-07-17
+(ProfileModel `[load]` + nsys `model_load` NVTX range + a temporary read/consume split): the load is
+**read-bound** — H2D PCIe (2.65 s for 23.8 GB) and on-device FP4 quantize (2.21 s) both overlap and hide
+under the disk read; the wall is the mmap→pinned staging read. The shipped `readAt` positioned-read fix
+(15.5 → 12.1 s, 1.43 → 1.91 GiB/s, +22%) removed the mmap 4 KB page-fault storm, but the read still runs
+at ~2.34 GiB/s on a drive rated ~7.3 GB/s.
+
+- [ ] **Concurrent / async read I/O for real queue depth** — the read is throttled at effective queue
+  depth 1; a synchronous single-thread `pread`/`ReadFile` loop cannot saturate a Gen4 NVMe (it needs
+  several in-flight requests). **PROVEN USELESS 2026-07-17 (do not repeat):** N reader threads sharing
+  ONE file handle — Windows `ReadFile` serializes concurrent ops on a *synchronous* handle, so 4 threads
+  just split the same ~2.4 GB/s (measured summed-read ≈ 4× wall, zero speedup); a shared-buffer pool also
+  **deadlocks** (in-order consumer + the oldest-blob reader starved of a buffer by readers racing ahead).
+  **START FROM:** per-reader file handles (each reader opens its OWN `HANDLE`/`fd` → independent I/O
+  streams) OR overlapped/async I/O (`FILE_FLAG_OVERLAPPED` on Windows, io_uring/aio on POSIX) issuing
+  several reads at once. The reverted **striped private-double-buffer** reader (in `PretrainedReader`
+  git history, 2026-07-17) is the correct deadlock-free *thread* skeleton if per-handle proves out — only
+  the shared handle was wrong. **Measure before investing:** if per-handle reads don't raise throughput,
+  the access pattern genuinely caps ~2.4 GB/s and this lever is dead. Est. best case ~7 GB/s → read ~3 s
+  → load ~6 s.
+- [ ] **[post-0.20] FP4 weight sidecar cache** — the checkpoint is 22 GB BF16 but the resident model is
+  ~6 GB FP4; every load reads 22 GB and re-quantizes. A first-load-writes / later-loads-read sidecar of
+  the quantized FP4 weights + scales next to the `.bin` cuts the read 22 → 6 GB *and* skips the 2.2 s
+  on-device quantize (≈ 2.6 s load even at the current QD1 rate; stacks with the read-QD lever above).
+  Canonical distributable checkpoint stays BF16 (design intact — CLAUDE.md "no quantized checkpoint
+  format"); the cache is a local perf artifact like a `.pyc`, needing a checkpoint mtime/hash
+  invalidation. New on-disk artifact → post-0.20. The bigger single win on this model.
 
 ---
 

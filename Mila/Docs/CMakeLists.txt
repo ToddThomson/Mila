@@ -9,7 +9,12 @@
 # The Doxyfile enables WARN_AS_ERROR (the ratchet), so this target fails on any doc
 # warning. It needs only Doxygen (graphs are disabled in the Doxyfile; no Graphviz).
 
-find_package(Doxygen REQUIRED)
+# Not REQUIRED: MILA_ENABLE_DOCS defaults ON, but a normal compile (CI's build-and-gate
+# job, or a contributor without Doxygen installed) must still configure -- the docs are
+# built by the separate docs.yml workflow, not this build. Missing Doxygen degrades to a
+# warning and no 'docs' target (handled by the DOXYGEN_FOUND branch below), not a hard
+# configure failure.
+find_package(Doxygen)
 
 if(DOXYGEN_FOUND)
     add_custom_target(docs

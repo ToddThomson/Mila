@@ -8,10 +8,14 @@
  * The whole file is memory-mapped at construction (CreateFileMapping/MapViewOfFile
  * on Windows, mmap on POSIX). streamTensorBlobs() consumes blobs in ascending file
  * offset order, turning the former 224+ random per-tensor reads into a single
- * sequential scan the OS reads ahead. On the CUDA path a background producer thread
- * stages each blob mmap -> pinned host buffer (double-buffered) so disk I/O overlaps
- * the H2D copy; all CUDA work stays on the consuming thread. The legacy per-tensor
- * readTensorBlob<MR>() is retained as a random-access fallback.
+ * sequential scan. On the CUDA path a background producer thread stages each blob
+ * into a pinned host buffer (double-buffered) so disk I/O overlaps the H2D copy; all
+ * CUDA work stays on the consuming thread. Staging reads each blob directly from the
+ * file handle (positioned ReadFile/pread), not by faulting through the mapped view --
+ * the map's 4 KB on-demand faults throttle a large model well below disk bandwidth
+ * once the file no longer fits resident alongside the model's own GPU staging. The
+ * mapping is kept for oversized blobs (consumed straight from the view) and the
+ * legacy random-access readTensorBlob<MR>() fallback.
  */
 
 module;
@@ -415,6 +419,58 @@ namespace Mila::Dnn::Serialization
         const uint8_t* map_base_{ nullptr };
         size_t map_size_{ 0 };
 
+        // Positioned read of nbytes at file offset into dst. The pinned-staging producer
+        // uses this instead of a memcpy through the mapped view: blobs are visited in
+        // ascending file order, so these are sequential reads that stream off disk into
+        // pinned memory at full bandwidth. It avoids the 4 KB on-demand page-fault path,
+        // which throttles a large mmap once the whole file no longer fits resident (the
+        // model's own GPU staging is multi-GB) -- the measured cause of a load running
+        // ~5x below disk bandwidth.
+        void readAt( uint64_t offset, void* dst, size_t nbytes ) const
+        {
+            auto* out = static_cast<uint8_t*>( dst );
+            size_t done = 0;
+
+            while ( done < nbytes )
+            {
+                const size_t remaining = nbytes - done;
+#ifdef _WIN32
+                // A synchronous handle honors OVERLAPPED.Offset as the read position and
+                // completes synchronously; only the single producer thread touches the
+                // handle, so there is no shared-file-pointer race.
+                const uint64_t position = offset + done;
+                OVERLAPPED overlapped{};
+                overlapped.Offset = static_cast<DWORD>( position & 0xFFFFFFFFull );
+                overlapped.OffsetHigh = static_cast<DWORD>( position >> 32 );
+
+                const DWORD to_read = static_cast<DWORD>(
+                    std::min<size_t>( remaining, 0x40000000ull ) );  // 1 GiB per call
+                DWORD got = 0;
+
+                if ( !ReadFile( file_handle_, out + done, to_read, &got, &overlapped ) || got == 0 )
+                {
+                    throw std::runtime_error( std::format(
+                        "PretrainedReader: read failed at offset {} ({}/{} bytes) for {}",
+                        offset, done, nbytes, filepath_.string() ) );
+                }
+
+                done += got;
+#else
+                const ssize_t got = ::pread(
+                    fd_, out + done, remaining, static_cast<off_t>( offset + done ) );
+
+                if ( got <= 0 )
+                {
+                    throw std::runtime_error( std::format(
+                        "PretrainedReader: read failed at offset {} ({}/{} bytes) for {}",
+                        offset, done, nbytes, filepath_.string() ) );
+                }
+
+                done += static_cast<size_t>( got );
+#endif
+            }
+        }
+
         const TensorBlobMetadata& getTensorBlobMetadata( const std::string& name ) const
         {
             auto it = tensor_index_.find( name );
@@ -492,14 +548,12 @@ namespace Mila::Dnn::Serialization
 
             map_base_ = static_cast<const uint8_t*>( view );
 
-            // Best-effort: prime the page cache with the whole file up front so disk
-            // readahead is already in flight before the consumer asks for the first blob.
-            // FILE_FLAG_SEQUENTIAL_SCAN above already biases the OS toward readahead; this
-            // just kicks it off eagerly. Requires the Windows 8+ API surface.
-#if defined( _WIN32_WINNT ) && ( _WIN32_WINNT >= 0x0602 )
-            WIN32_MEMORY_RANGE_ENTRY range{ const_cast<uint8_t*>( map_base_ ), map_size_ };
-            PrefetchVirtualMemory( GetCurrentProcess(), 1, &range, 0 );
-#endif
+            // No whole-file prefetch: the staged path (readAt) streams each blob straight
+            // off disk into pinned memory in file order, so priming the page cache with
+            // all 22 GB here only competes with the model's own multi-GB GPU staging for
+            // RAM and is evicted before it helps -- the measured cause of the fault-bound
+            // load. FILE_FLAG_SEQUENTIAL_SCAN (above) keeps the OS read-ahead bias for
+            // both those sequential reads and the oversized-blob mapped path.
 #else
             fd_ = ::open( filepath_.c_str(), O_RDONLY );
 
@@ -530,8 +584,11 @@ namespace Mila::Dnn::Serialization
 
             map_base_ = static_cast<const uint8_t*>( view );
 
+            // MADV_SEQUENTIAL biases read-ahead for the oversized-blob mapped path; the
+            // staged reads use pread (see readAt), so there is no whole-file MADV_WILLNEED
+            // -- it would prime the page cache with the entire file only to be evicted
+            // under the model's own multi-GB GPU staging before it helped.
             ::madvise( view, map_size_, MADV_SEQUENTIAL );
-            ::madvise( view, map_size_, MADV_WILLNEED );
 #endif
         }
 
@@ -642,7 +699,8 @@ namespace Mila::Dnn::Serialization
 
                         if ( static_cast<size_t>( meta->nbytes ) <= staging_bytes )
                         {
-                            std::memcpy( staging[ slot ]->data(), src, static_cast<size_t>( meta->nbytes ) );
+                            readAt( static_cast<uint64_t>( meta->offset ),
+                                staging[ slot ]->data(), static_cast<size_t>( meta->nbytes ) );
                             ptr = staging[ slot ]->data();
                         }
                         else

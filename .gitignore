@@ -65,6 +65,9 @@ bld/
 [Ll]og/
 [Ll]ogs/
 
+# CMake/CTest test-discovery scratch emitted at the configure root
+cmake_test_discovery_*.json
+
 # Claude's Visual Studio cache/options directory
 .claude/
 .claude/settings.local.json

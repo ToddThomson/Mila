@@ -243,11 +243,12 @@ in [BACKLOG.md](BACKLOG.md) under *Module Hygiene*, *Public API Surface*, and *R
   primary + a shared `OperationSupported<...>` predicate). Contributor-readiness gate; pairs with the
   poisoned-row fix under Consolidation. See BACKLOG, *Project Hygiene — Dispatch error UX*
 - [ ] Add the Samples build to CI (only the tests build today) so a contributor's first sample build is not the thing that breaks
-- [ ] Linux build validated as a first-class platform — Mila builds and its tests pass on Linux across
-  the supported compiler matrix (Clang 19+ and GCC 16, CUDA 13.3), not just the single CI clang-21
-  slice. The WSL Clang oracle already exists; remaining is the GCC 16 path and wiring the matrix into
-  CI so a module-portability regression (the class MSVC's transitive resolution hides) fails loudly.
-  See BACKLOG, *Module Hygiene* (cross-compiler oracle) and *Release Assets & CI* (broaden compiler coverage)
+- [~] Linux build validated as a first-class platform — for v0.20 the supported Linux compiler is
+  **Clang (19+/21), CUDA 13.3**. The WSL Clang oracle exists, CI compiles the tree under clang-21, and
+  the dev container now builds Mila + runs Gemma 4 12B FP4 Chat on the GPU (2026-07-17). **GCC 16 as a
+  second module oracle is deferred to vNext** — the full compiler matrix is a post-v0.20 hardening pass,
+  not a beta gate, so the v0.20 Linux claim is Clang-only. See BACKLOG, *Module Hygiene* (cross-compiler
+  oracle) and *Release Assets & CI* (broaden compiler coverage)
 - [~] Reproducible container build — a pinned build container (CUDA `-devel` on Ubuntu 26.04) that
   builds Mila from a clean clone, so a contributor or CI reproduces the Linux build without host
   toolchain drift. This is the *build* environment; distinct from the runtime image below, which only
@@ -444,6 +445,11 @@ token-for-token; tool calling validated end-to-end; thinking-mode suppression co
 cache quality acceptable vs. the BF16 baseline.
 
 Tasks are itemized when the milestone opens.
+
+Carried-over hardening (deferred from v0.20): add GCC 16 as a second, independent C++23-module oracle
+(distinct strictness from Clang — two-phase lookup, export/linkage — so it catches a portability class
+both MSVC and Clang miss) and wire it into CI, broadening the Linux compiler matrix beyond the
+Clang-only v0.20 claim.
 
 ---
 

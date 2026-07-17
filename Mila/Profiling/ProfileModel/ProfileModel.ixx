@@ -118,6 +118,34 @@ namespace Mila::Profiling
             label, used_bytes / mib, free_bytes / mib, total_bytes / mib );
     }
 
+    // Model-load timing: wall time plus the effective end-to-end throughput
+    // (checkpoint bytes on disk / wall). The checkpoint is BF16 (~4x the resident
+    // FP4 weights), so this throughput is the efficiency of the whole read -> H2D ->
+    // on-device-quantize pipeline. A number well under the disk's sequential-read
+    // ceiling points at the read/transfer stage, not the (device) quantize -- which
+    // is what tells us whether a load-time optimization has anything to bite on.
+    void reportLoad( const std::filesystem::path& model_path, double load_ms )
+    {
+        constexpr double gib = 1024.0 * 1024.0 * 1024.0;
+
+        std::error_code ec;
+        const auto bytes = std::filesystem::file_size( model_path, ec );
+
+        if ( ec )
+        {
+            std::cout << std::format( "[load] wall_ms={:.1f}  (checkpoint size unavailable: {})\n",
+                load_ms, ec.message() );
+            return;
+        }
+
+        const double gib_bytes = static_cast<double>( bytes ) / gib;
+        const double gib_per_s = gib_bytes / ( load_ms / 1000.0 );
+
+        std::cout << std::format(
+            "[load] wall_ms={:.1f}  checkpoint={:.2f} GiB  throughput={:.2f} GiB/s\n",
+            load_ms, gib_bytes, gib_per_s );
+    }
+
     // Background high-water sampler for a single scoped window (e.g. model load).
     // The three point-polls (baseline/after-load/after-run) miss any transient that
     // allocates and frees inside the window -- the quantize-on-load BF16 staging and
@@ -536,10 +564,21 @@ namespace Mila::Profiling
 
         VramHighWaterSampler load_sampler;
         load_sampler.start();
+        const auto load_start = std::chrono::high_resolution_clock::now();
 
-        auto model = Model::fromPretrained( options.model_path, model_config, device );
+        // IIFE so the NVTX "model_load" range covers exactly the load (visible under
+        // nsys for the H2D memcpy breakdown) while keeping model in the outer scope.
+        auto model = [&]
+        {
+            NvtxRange range( "model_load" );
+            return Model::fromPretrained( options.model_path, model_config, device );
+        }();
+
+        const double load_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::high_resolution_clock::now() - load_start ).count();
 
         std::cout << "Model loaded.\n";
+        reportLoad( options.model_path, load_ms );
         load_sampler.stopAndReport( "during load window (transient high-water)" );
         std::cout << model->toString();
         printGpuMemory( "after model load (weights + KV cache + prefill workspace)" );
@@ -571,10 +610,21 @@ namespace Mila::Profiling
 
         VramHighWaterSampler load_sampler;
         load_sampler.start();
+        const auto load_start = std::chrono::high_resolution_clock::now();
 
-        auto model = Model::fromPretrained( options.model_path, model_config, device );
+        // IIFE so the NVTX "model_load" range covers exactly the load (visible under
+        // nsys for the H2D memcpy breakdown) while keeping model in the outer scope.
+        auto model = [&]
+        {
+            NvtxRange range( "model_load" );
+            return Model::fromPretrained( options.model_path, model_config, device );
+        }();
+
+        const double load_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::high_resolution_clock::now() - load_start ).count();
 
         std::cout << "Model loaded.\n";
+        reportLoad( options.model_path, load_ms );
         load_sampler.stopAndReport( "during load window (transient high-water)" );
         std::cout << model->toString();
         printGpuMemory( "after model load (weights + KV cache + prefill workspace)" );
