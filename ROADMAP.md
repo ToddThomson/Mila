@@ -248,10 +248,16 @@ in [BACKLOG.md](BACKLOG.md) under *Module Hygiene*, *Public API Surface*, and *R
   slice. The WSL Clang oracle already exists; remaining is the GCC 16 path and wiring the matrix into
   CI so a module-portability regression (the class MSVC's transitive resolution hides) fails loudly.
   See BACKLOG, *Module Hygiene* (cross-compiler oracle) and *Release Assets & CI* (broaden compiler coverage)
-- [ ] Reproducible container build — a pinned build container (CUDA `-devel` on Ubuntu 26.04) that
+- [~] Reproducible container build — a pinned build container (CUDA `-devel` on Ubuntu 26.04) that
   builds Mila from a clean clone, so a contributor or CI reproduces the Linux build without host
   toolchain drift. This is the *build* environment; distinct from the runtime image below, which only
-  packages the already-built artifacts. See BACKLOG, *Module Hygiene* (dev-container build)
+  packages the already-built artifacts. **Validated 2026-07-17:** `Docker/` reworked onto the CI
+  toolchain (clang-21 modules + gcc-15 nvcc host, CUDA 13.3, CMake 4.2.3, Ninja, ccache); the image
+  builds Mila + the Chat adaptor and runs Gemma 4 12B FP4 on the GPU at native decode speed (~49 tok/s),
+  surfacing + fixing two clang-only transitive-import breaks (`Network.ixx`, `Gemma.ixx`). **Remaining:**
+  validated against the bind-mounted working tree rather than a from-scratch in-container `git clone`,
+  and CI still apt-installs the toolchain rather than building `FROM` this image. See BACKLOG, *Module
+  Hygiene* (dev-container build)
 - [ ] Published Docker runtime image (slim multi-stage GPU runtime, release-tagged)
 - [ ] Ungated GPT-2 quick-start path for zero-auth first run
 - [ ] `good first issue` labels on GitHub

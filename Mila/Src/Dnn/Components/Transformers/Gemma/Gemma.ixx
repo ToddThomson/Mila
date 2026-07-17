@@ -78,6 +78,7 @@ import Compute.CudaPinnedMemoryResource;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
+import Serialization.Mode;
 import Serialization.Metadata;
 import Serialization.PretrainedReader;
 import Serialization.Tensor;

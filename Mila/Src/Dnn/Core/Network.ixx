@@ -31,6 +31,7 @@ import Dnn.TensorDataType;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.DeviceId;
+import Compute.IExecutionContext;
 import Compute.OptimizerBase;
 import Serialization.ModelArchive;
 import Serialization.Mode;

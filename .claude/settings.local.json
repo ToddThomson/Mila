@@ -167,7 +167,9 @@
       "Bash(wsl.exe -d Ubuntu-Dev -e bash -lc \"ls ~/mis_ab/out/B_* 2>/dev/null | wc -l\")",
       "Bash(wsl.exe -d Ubuntu-Dev -e bash -lc \"ls ~/mis_ab/out/V_* 2>/dev/null | wc -l\")",
       "Bash(wsl.exe -d Ubuntu-Dev -e bash -lc 'cd ~/mis_ab && for f in out/V_write_*.jsonl; do grep -q '\\\\''\"type\":\"result\"'\\\\'' $f 2>/dev/null && python3 score.py $f; done')",
-      "Bash(wsl.exe -d Ubuntu-Dev -e bash -lc 'grep -q \"\\\\\"type\\\\\":\\\\\"result\\\\\"\" ~/mis_ab/out/V_todo_5.jsonl 2>/dev/null')"
+      "Bash(wsl.exe -d Ubuntu-Dev -e bash -lc 'grep -q \"\\\\\"type\\\\\":\\\\\"result\\\\\"\" ~/mis_ab/out/V_todo_5.jsonl 2>/dev/null')",
+      "Bash(time docker compose -f Docker/docker-compose.yml run -T --rm mila-dev mila-build-chat)",
+      "Bash(time docker compose -f Docker/docker-compose.yml run -T --rm -e MILA_BUILD_JOBS=3 mila-dev mila-build-chat)"
     ]
   }
 }
