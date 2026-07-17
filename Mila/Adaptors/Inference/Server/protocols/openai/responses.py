@@ -74,23 +74,23 @@ class OpenAIResponsesAdapter(ResponsesCapable):
         the model continues it (mirrors the chat harness splice-and-resume).
         """
         if isinstance(raw_input, str):
-            system_block = instructions
-            system_block += gemma_protocol.build_tool_injection(
-                tools, settings.use_trained_tool_declarations)
+            system_block = instructions + gemma_protocol.build_tool_injection(tools)
             turns = [{"role": "user", "content": raw_input}]
             return gemma_protocol.assemble_prompt(system_block, turns, continue_open=False)
 
         messages = list(raw_input)
         system_block, messages = self._collect_system_block(messages, instructions)
-        system_block += gemma_protocol.build_tool_injection(
-            tools, settings.use_trained_tool_declarations)
+        system_block += gemma_protocol.build_tool_injection(tools)
 
         turns: list[dict] = []
         pending_names: dict[str, str] = {}  # call_id -> tool name
 
         def append_model_tool_span(span: str) -> None:
+            # Spans concatenate with NO separator: the reference template emits
+            # <tool_call|><|tool_response> back-to-back, and these are atomic special
+            # tokens -- a newline between them is an extra token the model never saw.
             if turns and turns[-1]["role"] == "model" and turns[-1].get("tool"):
-                turns[-1]["content"] += "\n" + span
+                turns[-1]["content"] += span
             else:
                 turns.append({"role": "model", "content": span, "tool": True})
 

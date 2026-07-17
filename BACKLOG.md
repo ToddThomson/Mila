@@ -257,6 +257,38 @@ docker push`; automation-of-convenience, not a gate.
 A beta is a trust signal; these items are about the project not contradicting itself or
 wasting a newcomer's first hour.
 
+- [x] **Third-party licensing policy — DECIDED + IMPLEMENTED 2026-07-17. THE RULE: everything in the repo that
+  Mila did not write is recorded in the single root [NOTICE.md](NOTICE.md), and nowhere else.**
+  Raised because Google's Gemma 4 `chat_template.jinja` was vendored as a test oracle and then documented ad hoc
+  (a per-file `PROVENANCE.md` sidecar + an `ATTRIBUTIONS.md` section) — two mechanisms, neither decided. Both
+  reverted; `NOTICE.md` replaces them.
+  - **`NOTICE.md`** — vendored files (path, origin, license, modified?) + the build-fetched dependencies and
+    their licenses. One place answers "what isn't ours, and under what terms?".
+  - **`License.md`** — untouched, purely Mila's MIT grant. Deliberately NOT extended: license scanners parse it,
+    and mixing third-party notices in makes Mila's own licensing harder to read.
+  - **`ATTRIBUTIONS.md`** — intellectual debt ONLY (Karpathy, FlashAttention, online softmax). It defines itself
+    as *the ideas, algorithms, and software projects that influenced Mila's implementation*; a vendored test
+    fixture is a licensing matter, not an influence. Carries no licensing meaning.
+  - **Vendored files stay pristine.** No prepended headers. If one is ever modified, say so in NOTICE.md AND in
+    the file (also what Gemma ToU 3.1(3) would require). Engineering notes (how to refresh, upstream quirks) live
+    with the consuming code, not in the licensing doc.
+  - **Gap this closed:** `Cmake/CPM.cmake` has always been vendored third-party (MIT, Lars Melchior) and nothing
+    outside the file itself said so. Now listed.
+  - **Legal question RESOLVED by reading the terms (I had asserted it unverified):** the
+    [Gemma Terms](https://ai.google.dev/gemma/terms) define *Gemma* as the models/weights/parameters, *Model
+    Derivatives* as pattern-transfer from the weights, and *Output* as what the model emits. **A chat template is
+    none of those**, so the §3.1 notice/passthrough obligations are very likely NOT triggered by vendoring it.
+    Recorded in NOTICE.md anyway — provenance and hygiene, not compliance theater. NOTE this makes the earlier
+    "governed by the Gemma ToU, not MIT" phrasing an over-claim.
+  - **Sizing rationale (revisit if it changes):** a single root list fits a repo with TWO vendored files. The
+    Chromium pattern (`third_party/<dep>/` + a per-directory `README.chromium` recording name/URL/version/
+    license) is the better answer at scale and is what the improvised sidecar was unknowingly imitating — adopt
+    it if Mila ever grows a real `third_party/` tree. `ThirdPartyNotices.txt` (the Microsoft style) targets
+    binary redistribution; Mila ships source.
+  - **STILL OPEN (separate decision, deliberately not bolted on):** a binary release that links cutlass /
+    nlohmann / pybind11 / gtest / miniz / benchmark would need to carry their notices. Source distribution
+    carries no such obligation, so this only bites when release artifacts contain binaries. NOTICE.md flags it.
+
 - [ ] Marker debt triage (IN PROGRESS) — the earlier `FIXME`/`TODO` burndown (the bypassed weight initializers + CUDA `setCurrentDevice`, both DONE + validated, see CHANGELOG) is complete; **2026-06-19 all surviving `FIXME:`/`TODO:` were converted to `REVIEW:`** so nothing reads as "known broken" in public source. A fresh bucket analysis of the ~94 remaining `REVIEW:` markers (56 files) sorted them; dispositions and homes:
   - **A — dead/deprecated dispatch (~15).** GQA portion is the `CudaGqaOp` legacy A/B retirement (see Consolidation item above; Pass 1 done, Pass 2 = rename). Stragglers folded there: `CudaResidualOp.ixx:116-117` unused `input_A`/`input_B` params, `CudaOps.h:30` "declarations no longer needed", `Linear.cuh:83` "are these functions required".
   - **B — FP16 → BF16 / poisoned dispatch rows.** Already tracked: "Remove FP16" + the poisoned-row item under Consolidation.
@@ -1992,6 +2024,315 @@ client-side `verify_on_stop`/`file_mutation_verifier` nag, NOT a wire bug -- see
   layer already done); [ ] multi-turn TTFT measurement in chat (the "KV prefix reuse" log line +
   per-round stats). The per-conversation `GenerateSession` convenience and multi-session paged
   caching (vLLM-style radix/eviction) stay deferred as before.
+
+- [x] **Google published a canonical Gemma 4 chat template 2026-07-09 — audited 2026-07-16, 9 divergences found,
+  ALL RESOLVED. MIS now matches the reference prompt byte-for-byte on both the fresh-turn and resumed-after-tool
+  cases.** (1)(2)(3)(4)(5)(6)(7)(9) fixed + gated; (8) investigated and correctly closed as LATENT (no reasoning
+  exists to preserve while thinking is off). Remaining follow-ups, none blocking: promote the reference diff to a
+  permanent test (needs a vendoring decision); optional N=20/arm declaration A/B to make that result quotable;
+  re-check whether the `extract_answer` all-channels sweep and unclosed-tool-call net are still load-bearing now
+  that (7) and (6) are fixed. Original audit below.** Upstream
+  [chat_template.jinja](https://huggingface.co/google/gemma-4-12B-it/raw/main/chat_template.jinja) (header:
+  "Fixed tool-calling loops, turn closures, and thinking content-ordering"; HF discussions
+  [12B #35](https://huggingface.co/google/gemma-4-12B-it/discussions/35),
+  [26B #20](https://huggingface.co/google/gemma-4-26B-A4B-it/discussions/20),
+  [#47](https://huggingface.co/google/gemma-4-26B-A4B-it/discussions/47)) is now a REFERENCE SPEC we can diff
+  against — it is not a drop-in, we build prompts natively in
+  [Gemma.Protocol.ixx](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx) +
+  [gemma_protocol.py](Mila/Adaptors/Inference/Server/gemma_protocol.py). **Confirmed correct:** the `<|turn>`/
+  `<turn|>` + `<|channel>` + `<|"|>` vocabulary; tool spans living INSIDE an open model turn (upstream never
+  closes the turn between call and response — our `continue_open` matches); and the empty-thought prime, which
+  upstream emits verbatim as `<|channel>thought\n<channel|>` when `add_generation_prompt and not enable_thinking`
+  — our empirical "load-bearing" finding is canonical. Divergences, highest-suspicion first:
+  - **(1) Argument separator whitespace — every call and response we replay is off-spec.** Upstream emits
+    `key:value` and `,` (template L172-175, L251-255). We emit `key: value` and `", "`
+    (`detail::renderArguments` [Gemma.Protocol.ixx:244](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx:244),
+    `_render_gemma_args` [gemma_protocol.py:354](Mila/Adaptors/Inference/Server/gemma_protocol.py:354)). Different
+    tokens in a TRAINED format. We parse tolerantly but emit wrong — asymmetry hid it.
+  - **(2) Nested/array argument values fall out of the DSL into raw JSON.** Upstream recurses via
+    `format_argument(..., escape_keys=False)`: an array renders `[<|"|>a<|"|>,<|"|>b<|"|>]`, a nested object
+    `{k:<|"|>v<|"|>}`. We `json.dumps(value)` / `it.value().dump()` → `["a", "b"]` with plain double quotes. Any
+    tool with a non-scalar parameter (Claude Code's Edit/MultiEdit, Codex apply_patch) hits this on every call.
+  - **(3) `result:` vs upstream's `value:` for a non-mapping tool response.** Template L178 emits
+    `response:name{value:...}`; we emit `result:` ([gemma_protocol.py:422](Mila/Adaptors/Inference/Server/gemma_protocol.py:422),
+    [Gemma.Protocol.ixx:390](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx:390)).
+  - **(4) DONE 2026-07-16 (Python green; C++ leg pending user build). Argument ORDER — C++ and Python disagreed
+    with each other.** Upstream `| dictsort` (sorted keys) everywhere. C++ `nlohmann::json` is `std::map` → sorted
+    (accidentally correct); Python dicts kept insertion order → unsorted. `format_tool_response` emitted
+    `result,error` (Python) vs `error,result` (C++) for identical input — **reproduced empirically before fixing**,
+    not just read off the source. A cross-implementation parity bug independent of upstream. **Fix:** Python-only —
+    `_render_gemma_args` now sorts by key ([gemma_protocol.py:349](Mila/Adaptors/Inference/Server/gemma_protocol.py:349));
+    the C++ renderer was already correct and is now PINNED (its sort is implicit via `std::map`, so
+    `nlohmann::ordered_json` would silently reintroduce the split). **Parity mechanism:** both suites assert the
+    same golden literals, cross-referenced by comment — no shared-fixture plumbing (tests are one `MilaTests`
+    target with no data-file precedent; revisit if (1)/(2)/(5) make the goldens unwieldy). New
+    `GemmaProtocolParity.*` x4 in [Gemma.Protocol.cpp](Mila/Tests/Dnn/Components/Transformers/Gemma/Gemma.Protocol.cpp)
+    + **the first Python tests in MIS** (`Server/tests/{conftest.py,test_gemma_protocol.py}`, 6 passing; `conftest`
+    puts the run-in-place server dir on `sys.path`; `pytest` installed into the MIS venv — it was a declared `dev`
+    extra that had never been installed). **Gate remaining:** the 4 `GemmaProtocolParity` C++ tests on a VS2026
+    build — their goldens are PREDICTED from reading the renderer, not yet executed. NOTE: the goldens encode the
+    CURRENT `": "` / `", "` spacing, which divergence (1) will rewrite on both sides in one commit.
+  - **(5) Trained tool DECLARATIONS are a hand-rolled approximation.** `_build_trained_tool_declarations`
+    ([gemma_protocol.py:185](Mila/Adaptors/Inference/Server/gemma_protocol.py:185)) emits
+    `declaration:name{description:<|"|>...<|"|>, parameters:{...compact JSON...}}` joined by `\n`. Upstream
+    `format_function_declaration` (L92-123) emits a full DSL: `parameters:{properties:{...},required:[<|"|>x<|"|>],
+    type:<|"|>OBJECT<|"|>}`, types UPPERCASED, `nullable:true`, enum/items recursion, and NO separator between
+    declarations. Per [[project_mis_test_environment]] the trained-declaration flag was *the* lever for tool
+    reliability — so closing the gap between "approximately trained" and "actually trained" is the highest-value
+    item here even though it is listed 5th.
+  - **(6) We re-prime an empty thought channel after every tool response; upstream primes NOTHING there.**
+    `assemble_prompt` appends `THOUGHT_PRIME` unconditionally including the `continue_open` path
+    ([gemma_protocol.py:101-111](Mila/Adaptors/Inference/Server/gemma_protocol.py:101)). Upstream: when
+    `prev_message_type == 'tool_response'` and thinking is off it emits nothing at all (L381-389). HYPOTHESIS
+    (untested, plausible not proven): this stray mid-turn `<|channel>thought\n<channel|>` is what provokes the
+    "12B emits mid-answer thought channels DESPITE the empty-thought prime" behavior the channel-leak entry above
+    documents — i.e. our safety net may be treating a prompt bug as a model quirk. Same question applies to the
+    unclosed-tool-call net (upstream opens a bare `<|tool_response>` for an unanswered call, L369-370).
+  - **(7) FIXED 2026-07-16 (Python green, 25 tests; C++ leg pending user build). The PARSER was not the inverse
+    of the renderer — the model->us direction (worse).** `_parse_arguments` / `detail::parseArguments` handled
+    delimiter-quoted
+    strings and bare scalars only; they have no recursion for `[...]` or `{...}`, so a non-scalar value is fed to
+    the bare-literal branch, which terminates at the FIRST comma inside the container. **Measured repro:**
+    `<|tool_call>call:edit{lines:[<|"|>a<|"|>,<|"|>b<|"|>]}<tool_call|>` parses to `{"lines": "[a"}`;
+    `{opts:{n:1}}` parses to `{"opts": "{n:1}"}`. Silent truncation to a wrong-typed string — no error, no
+    nullopt. **NOT a regression** (the old raw-JSON render mangled identically: `["a", "b"]` -> `["a"`), but (2)
+    makes it testable and raises the stakes: a model trained on the canonical grammar WILL emit
+    `[<|"|>a<|"|>,<|"|>b<|"|>]`, and we hand the tool a truncated string. Any array/object-valued tool argument
+    from the model is corrupt today. **Fix = a real recursive-descent parse of the value grammar** (mirror of the
+    now-recursive renderer) in both implementations, with the render->parse round trip as the oracle — currently
+    only flat-scalar calls round-trip. Deliberately NOT fixed in the (1)+(2)+(5) change: different direction,
+    different design, and it deserves its own gate.
+    **CONFIRMED IN THE WILD 2026-07-16 during the harness A/B, and WORSE than the repro above.** Live Claude Code
+    trial (arm A, todo task): the model emitted `metadata:{alpha:Done,beta:Done,gamma:Done}` and we handed the
+    harness `{"metadata": "{alpha:Done", "beta": "Done", "gamma": "Done", "},subject": "Create todo list"}`.
+    The container does not merely truncate — its remaining contents **SHRED INTO BOGUS SIBLING ARGUMENTS**, and
+    the corruption reaches legitimate keys: the model's correct `subject` argument was destroyed into a key
+    literally named `},subject`. So the blast radius is the ENTIRE argument object, not just the container-valued
+    key. A second trial did the same with quoted keys (`"metadata": "{\"alpha\": \"Done\"", "\"beta\"": "Done"`).
+    Frequency: 1 of 5 todo trials (the model only sometimes reaches for a container-valued argument), 0 of 5 on
+    the flat-string write task — consistent with the mechanism.
+    **FIX LANDED 2026-07-16 — recursive-descent parse, both implementations.** A shared `Cursor` (text +
+    position) replaces the find-next-comma scan; `parseValue` dispatches on the first character
+    (`<|"|>` / `"` / `{` / `[` / bare) and `parseObject`/`parseArray` recurse through it, so container boundaries
+    are actually seen. `null` added to `coerceBare`. Python's pipe-token scrub in `parse_tool_call` made
+    recursive too (`_scrub_pipe_tokens_deep`) — with containers now parsing, a nested string would otherwise
+    escape the scrub that top-level strings get. Renderer stays STRICT (trained form only); parser is LENIENT
+    (accepts plain quotes + stray whitespace) because it reads what the model emits. Malformed input degrades:
+    a truncated call keeps the arguments parsed so far rather than throwing or blanking.
+    **Oracle = render->parse identity** (12 cases incl. arrays, nested objects, arrays-of-objects, deep nesting,
+    empty containers, null/bool, and grammar punctuation inside strings — `"func() { return [1,2]; }"` must be
+    inert). Plus a shredding regression pinning the wild case and, critically, that SIBLING arguments survive.
+    **Verified the tests fail against the old parser before trusting them** (old: `{"lines": "[a"}`,
+    `{"opts": "{n:1}"}`, and the metadata shred; new: correct containers).
+    CAVEAT: the regression fixture RECONSTRUCTS the wild call's shape — only the parsed wreckage was captured
+    from the transcript, not the model's verbatim bytes; it reproduces the truncation + sibling leak but not the
+    exact `},subject` key. **Gate owed: VS2026 build + the new C++ `GemmaProtocolRoundTrip`/`GemmaProtocolShredding`
+    tests.**
+  - **(8) LATENT, NOT ACTIVE — corrected 2026-07-16 within the hour of filing it. Read the correction at the
+    bottom of this item before acting on it.** Originally filed as "we delete the model's reasoning on every tool
+    round"; that claim did not survive checking. Keep for when thinking mode goes ON.
+    **(original framing, premise now known false)** The Gemma 4 doc forbids stripping thoughts mid-tool-turn and
+    names loops as the consequence.
+    [prompt-formatting-gemma4](https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4): thoughts are
+    stripped BETWEEN turns, but *"If a single model turn involves function or tool calls, thoughts must NOT be
+    removed between the function call and the tool response"* — the model needs its own prior reasoning to know
+    why it called the tool and how to read the result; stripping it mid-turn is documented to trap the model in
+    cyclical reasoning loops. The upstream template honors this (its thinking gate renders reasoning for any
+    message after the last user message, i.e. the in-flight tool turn, independent of `preserve_thinking`, which
+    only covers OLDER turns).
+    **MEASURED, not theorized.** A rebuilt round-2 prompt from the 2026-07-16 A/B (mis_armA.log) reads:
+    ```
+    <|turn>model
+    <|tool_call>call:Write{content:<|"|>hello world<|"|>,...}<tool_call|>
+    <|tool_response>response:Write{value:<|"|>File created successfully...<|"|>}<tool_response|>
+    <|channel>thought
+    <channel|>
+    ```
+    Google's shape is `<|turn>model <|channel>thought ...reasoning... <channel|><|tool_call>..<|tool_response>..`
+    then generate. **Ours is the inverse: the real reasoning is GONE from before the call, and an EMPTY channel is
+    bolted on after the response.** (6) and (8) are the same four lines.
+    **Root cause — the reasoning cannot survive the round trip.** `extract_answer` strips all channels before the
+    response leaves (verified: a `<|channel>thought\nI should write the file first.<channel|><|tool_call>...`
+    emission reduces to `''`), and MIS has NO reasoning field on the wire in either direction — `grep` for
+    thinking/reasoning across `protocols/anthropic/messages.py`, `routes/factory.py`, `protocols/openai/responses.py`
+    returns nothing. The prompt is rebuilt purely from the client's message history, so what we deleted can never
+    come back.
+    **Fix direction (needs design agreement, NOT started):** carry reasoning on the wire the way the template
+    expects it — the template reads `message.get('reasoning') or message.get('reasoning_content')` off the
+    assistant message and re-renders it into the channel. Anthropic's analog is `thinking` content blocks, which
+    Claude Code already round-trips across tool calls. So: emit reasoning as `thinking` blocks, and on rebuild
+    render them back into `<|channel>thought\n..<channel|>` BEFORE the tool call. Server-side caching keyed on
+    tool_use id is the stateful alternative (MIS is stateless per request today — worse fit).
+    **CORRECTION 2026-07-16 — (8) IS LATENT, NOT ACTIVE. I over-claimed; the premise failed on inspection.**
+    I verified that the rebuilt prompt carries no reasoning before the tool call, then *inferred* that we had
+    deleted some. Never checked whether the model PRODUCES any. It does not: with thinking off, across the A/B's
+    **39 (arm A) / 37 (arm B) raw model outputs, only 2 / 4 contained a `<|channel>` at all** — and every one of
+    those is an EMPTY channel, not reasoning. The model goes straight to `<|tool_call>`. The doc's retention rule
+    presupposes thinking mode is ON (there must be thoughts to retain); we run it OFF. **So there is nothing to
+    preserve and no wire carrier is needed today.** Revisit only if thinking mode is enabled for agentic use — at
+    which point the fix direction above (reasoning as Anthropic `thinking` blocks / the template's
+    `message['reasoning']`) is the right starting point.
+    **What the same evidence DOES show — the model PARROTS the empty prime (this is (6)'s real mechanism):**
+    ```
+    arm A (682 chars): <|channel>thought\n<channel|><|channel>thought\n<channel|>...   <- RUNAWAY, capped by the backstop
+    arm B (165 chars): <|channel>thought\n<channel|><|tool_call>call:TaskCreate{...}<tool_call|>
+    arm B (205 chars): <|channel>thought\n<channel|><|channel>thought\n<channel|><|tool_call>call:TaskCreate{...}
+    ```
+    We show it an empty thought channel; it emits empty thought channels back, sometimes several, once runaway.
+    **That 682-char output is the documented "empty-thought loop" caught live** — and it is the degeneration
+    backstop earning its keep. NOTE the arm-B cases follow a TURN-START prime (round 1, no tool response yet), so
+    the echo is NOT exclusively (6)'s stray injection — the turn-start prime is parroted too. Tension to resolve:
+    the doc offers the prime as the CURE for ghost channels, our notes say removing it degenerates, and this data
+    shows the model echoing it. All three can be true only if the prime trades reasoning-degeneration for a
+    low-rate empty-echo. **Do not "fix" this by intuition — it needs the measurement.**
+    **METHOD LESSON (second over-claim of the session, same shape):** I called this "MEASURED, not theorized" while
+    having measured only the *absence* in the output and inferred the cause. Absence of X in the result does not
+    establish that X was produced and removed. Check the producer before blaming the remover.
+  - **(6)+(9) FIXED 2026-07-16 — MIS now matches the reference template BYTE-FOR-BYTE on both cases.**
+    `assemble_prompt` ([gemma_protocol.py:116](Mila/Adaptors/Inference/Server/gemma_protocol.py:116)): the
+    thought prime moved INSIDE the `else` (fresh-turn) branch and the `continue_open` branch lost its trailing
+    `"\n"` — a resumed turn now stops dead at `<tool_response|>` so the next token continues it.
+    `append_model_tool_span` in BOTH adapters ([messages.py](Mila/Adaptors/Inference/Server/protocols/anthropic/messages.py),
+    [responses.py](Mila/Adaptors/Inference/Server/protocols/openai/responses.py) — Codex had the identical bug)
+    joins spans with `""` not `"\n"`.
+    **GATE GREEN: the reference diff is EMPTY on both cases**, driving the real adapter (`_build_gemma_prompt`),
+    not a hand-built span. Pinned by `TestPromptShape` (4 tests) + 29 Python tests green. Verified the new tests
+    fail against the old assembler first (old resumed prompt ended `<tool_call|>\n<|channel>thought\n<channel|>`).
+    NOTE: Python-only change — no C++ involvement, `assemble_prompt` has no runtime twin.
+    **LIVE MIS VERIFICATION 2026-07-16 (user asked for it before commit — correctly; (6)/(7)/(9) had only ever
+    seen unit tests and string diffs, never a model). Same 10 trials as the A/B, directly comparable to arm A:**
+    | metric | arm A (before 6/7/9) | V (current tree) |
+    |---|---|---|
+    | write task artifacts | 5/5 correct | **5/5 correct** |
+    | todo task first tool | `TaskCreate` x5 | **`TaskCreate` x5** |
+    | shredded sibling keys | 1 (the `},subject` wreck) | **0** |
+    | raw outputs with a `<|channel>` | 2/39 (5%) | **12/32 (37.5%)** |
+    | longest raw output | **682 chars (runaway loop)** | 324 chars |
+    - **NO REGRESSION.** Every artifact correct, no errors, no shredding, tool selection unchanged.
+    - **MY (6) HYPOTHESIS IS FALSIFIED — record it.** I predicted removing the stray prime would REDUCE ghost
+      channels. It did the opposite: 5% -> 37.5%. The prime was suppressing the model's own emission on the
+      resumed path; without it the model generates the empty channel itself, which is precisely what the
+      reference produces (reference primes nothing there -> model supplies its own). Benign — the channels are
+      EMPTY and `extract_answer` strips them; cost is ~6 tokens per resumed turn. **(6) is still right, but for
+      spec-conformance, NOT for the reason I gave.**
+    - **Do NOT claim the runaway is fixed.** The 682-char loop did not recur, but baseline rate was 1/39 (2.6%);
+      P(0 in 32) ~= 0.43 by chance. Not evidence.
+    - **(7) was NOT exercised live this run** — the model emitted no container-valued argument in 32 outputs (it
+      reached for one 1/5 times in the baseline; chance). So (7) is "no regression" here; its fix rests on the
+      unit tests + reconstructed repro, not a live container.
+    - **Parser tolerance vindicated on real output:** the model emitted `status:<|"|>completed,<|"|>` (comma
+      INSIDE the string -- faithfully preserved, model sloppiness not our bug) and `taskId:<|"|>1}` with an
+      UNTERMINATED delimiter -- the degradation path recovered `"1"` instead of dropping the argument.
+    - **OPEN TRADEOFF (do not paper over):** keeping the off-spec prime measurably suppresses the resumed-turn
+      echo (37.5% -> 5%). We chose reference-conformance over echo suppression. Defensible (the reference is what
+      the model trained on; the doc scopes the remediation to turn-start; the one runaway happened WITH the
+      prime) but it IS a real trade, not a free win.
+  - **(9) — stray `\n` between tool spans (FIXED, see above).** `append_model_tool_span`
+    ([messages.py:199](Mila/Adaptors/Inference/Server/protocols/anthropic/messages.py:199)) joins spans with
+    `"\n"`; the reference concatenates directly (`<tool_call|><|tool_response>`). Also `assemble_prompt`'s
+    `continue_open` branch appends a trailing `"\n"` after the turn content. Found only because the reference
+    diff below is byte-exact. Fix rides with (6) — same two lines.
+
+- [x] **REFERENCE-PROMPT DIFF RIG 2026-07-16 (user's idea, redirected from LM Studio) — the strongest oracle we
+  have, and it VALIDATES the whole (1)+(2)+(4)+(5) change byte-for-byte.** Rather than trace LM Studio (llama.cpp
+  + Q4_K_M + a *stale* bundled template — see
+  [lmstudio-bug-tracker#2012](https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/2012), its Gemma 4
+  template crashes on tool calls from a missing `format_type_argument` macro), render Google's
+  `chat_template.jinja` **directly with jinja2** and diff against `assemble_prompt`. No GPU, no quant confound,
+  exact answer, seconds per run. Scripts: session scratchpad `render_ref.py` + `diff_prompt.py`.
+  - **Environment must mirror `transformers.apply_chat_template`:** `ImmutableSandboxedEnvironment`,
+    `trim_blocks=True`, `lstrip_blocks=True`, and **DEFAULT (non-strict) undefined**. `StrictUndefined` blows up
+    on `value['enum']` — the template relies on missing schema keys being falsy, so PR #47's "consistent .get()
+    access to prevent StrictUndefined errors" fixed the *message* keys but NOT the parameter-schema ones.
+  - **RESULT — fresh turn (thinking off, 1 tool): BYTE-FOR-BYTE MATCH.** Our system turn, our trained declaration
+    DSL (hand-written from reading the Jinja), our `key:value` spacing, our sorting, our turn-start prime — all
+    identical to the reference. Independent confirmation that (1), (2), (4), (5) are right.
+  - **RESULT — resumed after tool result: differs in EXACTLY two places**, both ours to fix: the stray `\n`
+    between tool spans (9), and the trailing empty thought channel (6). Nothing else.
+  - **PROMOTED TO A PERMANENT ORACLE 2026-07-16 (user: "the Google template obtained today should be the
+    oracle").** Template vendored UNMODIFIED at
+    [tests/reference/](Mila/Adaptors/Inference/Server/tests/reference/gemma4_12b_chat_template.jinja) with
+    [PROVENANCE.md](Mila/Adaptors/Inference/Server/tests/reference/PROVENANCE.md) (source URL, retrieval date,
+    sha256 `ae53464b...`, Gemma Terms of Use — NOT Mila's MIT); `jinja2` added to the `dev` extra (test-only —
+    MIS never runs Jinja at serving time); attribution added to ATTRIBUTIONS.md under a new *Vendored
+    Third-Party Files* section. New `test_reference_parity.py` drives the REAL adapter and asserts
+    byte-identity on both cases. `conftest.py` now defaults the model-path env vars so the suite runs from any
+    directory (verified: green from the server dir AND the repo root). 31 tests green.
+    **Why this test is different from every other one in the suite:** the others encode *our reading* of the
+    format, so a misreading yields a confidently green suite over a broken prompt — which is precisely what
+    happened for nine divergences. This one takes its answer from Google's implementation. **If it goes red
+    after a template re-download, that is a FINDING (upstream moved), not a test bug — do not edit the vendored
+    file to make it pass.**
+  - **Sequencing:** these are prompt-construction fixes in the adaptor + the runtime grammar module (a
+    `Mila/Src/` change → needs agreement per CLAUDE.md). (4) landed first (self-evident bug with an oracle);
+    (1)+(2)+(3)+(5) landed together 2026-07-16 as the "emit the trained format" change; (6) is behavioral and
+    needs the ghost-channel symptom as its gate; (7) is its own session.
+
+- [~] **(1)+(2)+(3)+(5) IMPLEMENTED 2026-07-16 — Python green (16 tests), C++ leg + harness A/B PENDING.**
+  One change, because all four are "emit the trained format" and share a gate. (3) was folded in beyond the
+  originally-agreed (1)+(2)+(5) scope: it is one word, and leaving it would put a known deviation INSIDE the
+  spec-conformant arm of the A/B.
+  - **Runtime** ([Gemma.Protocol.ixx](Mila/Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx)): new
+    recursive `detail::renderValue` (null/bool bare, strings delimiter-wrapped, objects/arrays recurse with bare
+    keys per the template's `escape_keys=False`); `renderArguments` now emits `key:value` / `,` with no
+    whitespace; non-mapping tool response keys on `value:` not `result:`.
+  - **MIS** ([gemma_protocol.py](Mila/Adaptors/Inference/Server/gemma_protocol.py)): mirror `_render_value`
+    (bool checked BEFORE the numeric fallback — bool is an int subclass in Python); `_render_gemma_args` matches;
+    `_build_trained_tool_declarations` rewritten from a compact-JSON approximation to the full
+    `format_function_declaration` DSL — `properties:{name:{description:..,type:<|"|>STRING<|"|>}}`,
+    `required:[<|"|>x<|"|>]`, UPPERCASED types, enum/items/nullable branches, positional (NOT alphabetical) field
+    order, declarations concatenated with no separator and no leading blank line.
+  - **Deliberate deviation from upstream (documented in-code):** the template closes the `parameters` block from
+    inside its `type:` branch, so a schema with no `type` leaves it unclosed with a dangling comma. We always
+    close it.
+  - **Tests:** Python 16 passing (`TestTrainedValueGrammar`, `TestTrainedToolDeclarations` + the (4) parity
+    class); C++ goldens updated for the new spacing + 5 new `GemmaProtocolParity` recursion/`value:` tests.
+    Declaration grammar is MIS-only (the runtime module has no declaration renderer), so it has no parity twin.
+  - **Gates: BOTH CLOSED 2026-07-16.** (1) VS2026 build + `GemmaProtocolParity` C++ tests GREEN (user); the
+    predicted goldens were correct. (2) Harness A/B RUN — see below.
+
+- [x] **HARNESS A/B RUN 2026-07-16 — trained declarations WIN on tool-name reliability, and cost 15% LESS
+  context. FLAG AND LOSING BRANCH DELETED 2026-07-17 (user: "why do we need the flag at all?" — correct).**
+  `use_trained_tool_declarations` (config Field + `.env` line + the `build_tool_injection` parameter + 3 call
+  sites + 5 test kwargs) is gone; `build_tool_injection(tools)` always emits the trained grammar.
+  **The deciding argument was conformance, NOT this A/B** (which was N=5 and not significant): the false branch
+  was never a Gemma format — it was prose + `json.dumps`, invented before Google published the template, and the
+  reference-parity test can never match it. Gemma has exactly ONE declaration form, so there was nothing to
+  toggle between. Also removes a trap: the code default was `False`, so anyone running MIS without the shipped
+  `.env` silently got the off-spec path. The evidence below stays here — where a settled question belongs —
+  rather than as a live switch.
+  Setup: Claude Code CLI 2.1.207 (WSL Ubuntu-Dev, `networkingMode=mirrored` so `localhost:8000` reaches the
+  Windows host) -> MIS `/v1/messages` -> Gemma 4 12B FP4, ctx 49152, temp 1.0 / top_k 64 / top_p 0.95 (.env
+  defaults, NOT pinned — every trial is a fresh sample). 2 tasks x 5 trials x 2 arms. Arm B via env override
+  `MILA_USE_TRAINED_TOOL_DECLARATIONS=false` (server restart between arms; the setting is read once at startup).
+  Scripts + raw JSONL transcripts: WSL `~/mis_ab/` (run_trial.sh, score.py, out/*.jsonl).
+  - **RESULT — first tool call per trial:**
+    | arm | write task | todo task |
+    |---|---|---|
+    | A (trained) | `Write` x5 — **5/5 correct** | `TaskCreate` x5 |
+    | B (plain JSON) | `default_write`, `Write`, `Write`, `default_write_file`, `Write` — **2/5 HALLUCINATED** | `TaskCreate` x5 |
+  - **The hallucinated names are the tell:** `default_write` / `default_write_file`. That `default_` prefix is the
+    `default_api` tool-module habit already documented in this file's namespace-stripping entry — the model
+    reaches for its trained convention, and a plain JSON list gives it nothing to anchor to. The trained
+    `<|tool>declaration:` frame does. This is exactly the hypothesis `_build_trained_tool_declarations` was
+    written against ("the trained declaration frame primes the trained call frame") and it now has direct
+    evidence. Cost: B_write_1 never created the file at all (2 failed calls, gave up); B_write_4 burned 2 turns
+    before recovering to `Write`.
+  - **Context cost runs the SAME direction (bonus, was expected to be the tradeoff):** the trained DSL is
+    **79,456 chars vs 93,955** for the plain JSON list at 27 Claude Code tools = **~15% cheaper**. Better AND
+    smaller. (Pre-run worry that the fuller DSL would eat the 49152 ceiling was BACKWARDS.)
+  - **STATISTICS — do not oversell:** 2/5 vs 0/5 at N=5/arm is **not statistically significant** (Fisher exact
+    two-tailed p ~= 0.44). What carries the result is the *mechanism* (the `default_` namespace habit is a known,
+    documented failure mode), its *asymmetry* (0 hallucinations in 10 arm-A trials, 2 in 5 arm-B write trials),
+    and the *context win* (which is deterministic, not sampled). Treat as strong-directional, not proven. Worth
+    N=20/arm before the result is quoted as fact.
+  - **NULL RESULT on the todo task:** both arms picked `TaskCreate` 5/5 — the declaration form made no difference
+    there. The signal is confined to the write task. Also note the model chose `TaskCreate` over the requested
+    `TodoWrite` in all 10 trials, both arms — a separate tool-SELECTION question, unrelated to declarations.
+  - **METHOD LESSON (cost me a wrong claim mid-run):** a Claude Code `--output-format stream-json` transcript is
+    appended live, so scoring a file before its `{"type":"result"}` event lands reports "no tool call" for a
+    trial that is merely still running. I reported one such phantom before catching it. **Gate every score on the
+    result event** (`grep -q '"type":"result"'`), never on file existence.
 
 ## Product Family — Grammar-in-Runtime Consolidation
 

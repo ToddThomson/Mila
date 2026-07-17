@@ -52,14 +52,5 @@ class Settings(BaseSettings):
     # Protocol
     protocol: ProtocolMode = Field(ProtocolMode.openai, description="API protocol to expose.")
 
-    # Tool calling (Gemma). A/B toggle: when true, advertise tool schemas wrapped
-    # in Gemma 4's trained <|tool>declaration:name{...}<tool|> tokens instead of a
-    # plain-text JSON list, on the theory that the trained declaration frame primes
-    # the model's trained <|tool_call> call frame. See the MIS backlog.
-    use_trained_tool_declarations: bool = Field(
-        False,
-        description="Advertise Gemma tools via the trained <|tool> declaration tokens (A/B).",
-    )
-
 
 settings = Settings()

@@ -277,14 +277,21 @@ shapes) drives Gemma 4 12B FP4 through MIS across plain-chat, single-tool, and t
 flows with no leaked control tokens; the C++/Python grammar duplication is resolved by an explicit
 decision (single-sourced via pybind, or pinned by a cross-language parity test).
 
-- [ ] MIS Gemma 4 tool-calling validated end-to-end through the foreign-harness test suite — the
-  Codex + Claude Code CLI round-trips are live (see BACKLOG, *MIS -> Gemma 4 migration*); close the
-  remaining tail: N sequential distinct tool calls in one turn, channel-content parser polish, and
-  the Claude Code `/v1/messages` path (tool-blind today)
-- [ ] Grammar-in-runtime execution-time scope call — **either** expose the runtime C++ Gemma grammar
-  via pybind so `gemma_protocol.py` consumes one source, **or**, if that is not bounded for v0.20,
-  keep MIS on Python and pin the two implementations with a cross-language parity test (same fixture
-  corpus, both parsers). A decision, not just a task — see BACKLOG, *Product Family — Grammar-in-Runtime Consolidation*
+- [~] MIS Gemma 4 tool-calling validated end-to-end through the foreign-harness test suite — the
+  Codex + Claude Code CLI round-trips are live, and the Claude Code `/v1/messages` tool path is
+  driving real tool calls (the "tool-blind today" note here was stale). **2026-07-16: the native
+  grammar was reconciled against Google's canonical chat template — nine divergences found and
+  fixed, one of which was silently corrupting every tool call carrying a list or object argument.**
+  MIS now emits a prompt byte-identical to Google's own template renderer, pinned by a permanent
+  oracle (see BACKLOG, *MIS -> Gemma 4 migration*). Remaining tail: N sequential distinct tool calls
+  in one turn, channel-content parser polish, and direct Codex-CLI re-validation on the reconciled
+  grammar
+- [~] Grammar-in-runtime execution-time scope call — **decided in practice 2026-07-16: MIS stays on
+  Python, pinned.** The C++ and Python grammars are now held together by a cross-language parity test
+  (both suites assert the same golden literals — it caught them emitting different argument order for
+  identical input), and MIS's prompt construction is additionally pinned to Google's vendored template
+  as an independent oracle. **Left open for explicit user sign-off:** whether this closes the item or
+  the pybind single-sourcing is still wanted for v0.20 — see BACKLOG, *Product Family — Grammar-in-Runtime Consolidation*
 
 ### Milestone: Chat
 

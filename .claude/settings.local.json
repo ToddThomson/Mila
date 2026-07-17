@@ -162,7 +162,12 @@
       "Bash(tasklist //FI \"IMAGENAME eq Chat.exe\")",
       "Bash(tasklist //FI \"IMAGENAME eq ProfileModel.exe\")",
       "Bash(nvidia-smi --query-gpu=memory.used --format=csv,noheader)",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(curl -sSL -o gemma4_12b_chat_template.jinja \"https://huggingface.co/google/gemma-4-12B-it/raw/main/chat_template.jinja\")",
+      "Bash(wsl.exe -d Ubuntu-Dev -e bash -lc \"ls ~/mis_ab/out/B_* 2>/dev/null | wc -l\")",
+      "Bash(wsl.exe -d Ubuntu-Dev -e bash -lc \"ls ~/mis_ab/out/V_* 2>/dev/null | wc -l\")",
+      "Bash(wsl.exe -d Ubuntu-Dev -e bash -lc 'cd ~/mis_ab && for f in out/V_write_*.jsonl; do grep -q '\\\\''\"type\":\"result\"'\\\\'' $f 2>/dev/null && python3 score.py $f; done')",
+      "Bash(wsl.exe -d Ubuntu-Dev -e bash -lc 'grep -q \"\\\\\"type\\\\\":\\\\\"result\\\\\"\" ~/mis_ab/out/V_todo_5.jsonl 2>/dev/null')"
     ]
   }
 }

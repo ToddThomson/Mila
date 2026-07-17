@@ -177,8 +177,7 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
         ends on a tool result leaves that model turn open so the model continues it
         (mirrors responses.py / the chat harness splice-and-resume).
         """
-        tool_injection = gemma_protocol.build_tool_injection(
-            self._normalize_tools(tools), settings.use_trained_tool_declarations)
+        tool_injection = gemma_protocol.build_tool_injection(self._normalize_tools(tools))
         # Bring-up: the tool declarations land in the SYSTEM turn (front of the
         # prompt), so they never appear in the _dispatch tail log -- log length +
         # head here to confirm they are actually injected, not filtered.
@@ -195,8 +194,12 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
             # assistant's preamble text) so a single Anthropic assistant message
             # that carries text + tool_use stays one model turn -- back-to-back
             # <|turn>model turns are off-distribution for Gemma.
+            #
+            # NO separator: the reference template emits <tool_call|><|tool_response>
+            # back-to-back, and these are atomic special tokens -- a newline between
+            # them is an extra token the model never saw in training.
             if turns and turns[-1]["role"] == "model":
-                turns[-1]["content"] += "\n" + span
+                turns[-1]["content"] += span
                 turns[-1]["tool"] = True
             else:
                 turns.append({"role": "model", "content": span, "tool": True})

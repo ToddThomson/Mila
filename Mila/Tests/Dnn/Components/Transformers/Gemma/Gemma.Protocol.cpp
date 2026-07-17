@@ -163,6 +163,203 @@ namespace Dnn::Components::Transformers::Tests
         EXPECT_NE( out.find( std::string( kStringDelimiter ) ), std::string::npos );
     }
 
+    // ---- Argument-order parity with gemma_protocol.py -----------------------
+
+    // The golden strings below are asserted verbatim by the Python twin in
+    // Mila/Adaptors/Inference/Server/tests/test_gemma_protocol.py -- the two suites
+    // agreeing on the same literals is what makes "parity" mean something. Change a
+    // golden here and the Python counterpart must change in the same commit.
+    //
+    // Keys render SORTED. This side got it for free (nlohmann::json is a std::map);
+    // Python preserved insertion order and so emitted a different prompt for identical
+    // input until it was taught to sort. Google's canonical chat_template.jinja sorts
+    // too (Jinja `| dictsort`), so sorted is the spec, not a coin flip. Pinned here
+    // because the ordering is implicit -- switching to nlohmann::ordered_json would
+    // silently reintroduce the split.
+
+    TEST( GemmaProtocolParity, ToolCallArgumentsRenderInSortedOrder )
+    {
+        // Supplied in NON-sorted order so insertion order cannot pass. No whitespace
+        // around ':' or ',' -- the trained format has none, and in a tokenized grammar
+        // "key: value" and "key:value" are different tokens.
+        EXPECT_EQ( formatToolCall( "get_weather", R"({"units":"c","location":"Paris"})" ),
+            R"(<|tool_call>call:get_weather{location:<|"|>Paris<|"|>,units:<|"|>c<|"|>}<tool_call|>)" );
+    }
+
+    TEST( GemmaProtocolParity, ToolCallArgumentOrderIsInputOrderIndependent )
+    {
+        EXPECT_EQ( formatToolCall( "get_weather", R"({"location":"Paris","units":"c"})" ),
+            formatToolCall( "get_weather", R"({"units":"c","location":"Paris"})" ) );
+    }
+
+    TEST( GemmaProtocolParity, FailedToolResponseSortsErrorBeforeResult )
+    {
+        // The exact input that split the two implementations: the response fields are
+        // built {result, error}, so insertion order and sorted order disagree.
+        EXPECT_EQ( formatToolResponse( "run", R"({"output":"partial","error":"boom"})" ),
+            R"(<|tool_response>response:run{error:<|"|>boom<|"|>,result:<|"|>partial<|"|>}<tool_response|>)" );
+    }
+
+    TEST( GemmaProtocolParity, ManyArgumentsRenderInSortedOrder )
+    {
+        EXPECT_EQ( formatToolCall( "configure", R"({"zeta":1,"alpha":2,"middle":3})" ),
+            "<|tool_call>call:configure{alpha:2,middle:3,zeta:1}<tool_call|>" );
+    }
+
+    // ---- Trained value grammar (non-scalar arguments) -----------------------
+
+    // Non-scalar values RECURSE into the trained DSL rather than collapsing to raw
+    // JSON. These are the cases that previously emitted plain double quotes -- tokens
+    // the model never trained on -- on every call carrying an object or array
+    // parameter. Goldens mirrored in test_gemma_protocol.py TestTrainedValueGrammar.
+
+    TEST( GemmaProtocolParity, ArrayOfStringsUsesTrainedDelimiterNotJson )
+    {
+        const std::string rendered = formatToolCall( "edit", R"({"lines":["a","b"]})" );
+
+        EXPECT_EQ( rendered, R"(<|tool_call>call:edit{lines:[<|"|>a<|"|>,<|"|>b<|"|>]}<tool_call|>)" );
+        EXPECT_EQ( rendered.find( "\"a\"" ), std::string::npos );
+    }
+
+    TEST( GemmaProtocolParity, NestedObjectRecursesWithBareKeys )
+    {
+        // Argument bodies render with the template's escape_keys=False, so nested
+        // keys stay bare; only declarations wrap keys in the delimiter.
+        EXPECT_EQ( formatToolCall( "configure", R"({"opts":{"n":1,"deep":true}})" ),
+            "<|tool_call>call:configure{opts:{deep:true,n:1}}<tool_call|>" );
+    }
+
+    TEST( GemmaProtocolParity, NullAndBoolRenderAsBareLiterals )
+    {
+        EXPECT_EQ( formatToolCall( "set", R"({"flag":false,"missing":null})" ),
+            "<|tool_call>call:set{flag:false,missing:null}<tool_call|>" );
+    }
+
+    TEST( GemmaProtocolParity, ArrayOfObjectsRecurses )
+    {
+        EXPECT_EQ( formatToolCall( "todo", R"({"items":[{"id":1,"tag":"x"}]})" ),
+            R"(<|tool_call>call:todo{items:[{id:1,tag:<|"|>x<|"|>}]}<tool_call|>)" );
+    }
+
+    TEST( GemmaProtocolParity, NonMappingResponseUsesValueKey )
+    {
+        // The canonical template emits `value:` (not `result:`) for a non-mapping response.
+        EXPECT_EQ( formatToolResponse( "echo", "plain text" ),
+            R"(<|tool_response>response:echo{value:<|"|>plain text<|"|>}<tool_response|>)" );
+    }
+
+    // ---- Round-trip oracle (recursive-descent parser) -----------------------
+
+    // render -> parse identity is THE oracle for the parser: it is correct exactly when
+    // it is the inverse of renderValue over the value grammar. Before the recursive
+    // rewrite only flat-scalar calls round-tripped -- a container truncated at the first
+    // comma inside itself AND spilled its remaining contents out as sibling arguments.
+    // Mirrored in test_gemma_protocol.py TestRoundTripOracle.
+
+    namespace
+    {
+        /// Render `arguments_json` as a tool call, parse it back, return the arguments.
+        nlohmann::json roundTrip( const std::string& arguments_json )
+        {
+            const auto call = parseToolCall( formatToolCall( "t", arguments_json ) );
+
+            if ( !call.has_value() )
+                return nlohmann::json( "PARSE FAILED" );
+
+            return nlohmann::json::parse( call->arguments );
+        }
+    }
+
+    TEST( GemmaProtocolRoundTrip, FlatScalarsSurvive )
+    {
+        const std::string arguments = R"({"count":42,"label":"hi","ratio":0.5,"flag":false})";
+        EXPECT_EQ( roundTrip( arguments ), nlohmann::json::parse( arguments ) );
+    }
+
+    TEST( GemmaProtocolRoundTrip, ContainersSurvive )
+    {
+        const std::string arrays = R"({"lines":["a","b"]})";
+        const std::string nested = R"({"opts":{"deep":true,"n":1}})";
+        const std::string objects = R"({"items":[{"id":1,"tag":"x"},{"id":2,"tag":"y"}]})";
+        const std::string deep = R"({"a":{"b":{"c":["d",{"e":1}]}}})";
+
+        EXPECT_EQ( roundTrip( arrays ), nlohmann::json::parse( arrays ) );
+        EXPECT_EQ( roundTrip( nested ), nlohmann::json::parse( nested ) );
+        EXPECT_EQ( roundTrip( objects ), nlohmann::json::parse( objects ) );
+        EXPECT_EQ( roundTrip( deep ), nlohmann::json::parse( deep ) );
+    }
+
+    TEST( GemmaProtocolRoundTrip, NullAndEmptyContainersSurvive )
+    {
+        const std::string arguments = R"({"blank":{},"missing":null,"nothing":[]})";
+        EXPECT_EQ( roundTrip( arguments ), nlohmann::json::parse( arguments ) );
+    }
+
+    TEST( GemmaProtocolRoundTrip, GrammarPunctuationInsideStringsSurvives )
+    {
+        // The case the delimiter exists for: braces/brackets/commas that ARE grammar
+        // elsewhere must be inert inside a delimited string.
+        const std::string arguments = R"({"code":"func() { return [1,2]; }","where":"Toronto, Canada"})";
+        EXPECT_EQ( roundTrip( arguments ), nlohmann::json::parse( arguments ) );
+    }
+
+    TEST( GemmaProtocolRoundTrip, ContainerValueIsAContainerNotAString )
+    {
+        const auto arguments = roundTrip( R"({"lines":["a","b"]})" );
+
+        ASSERT_TRUE( arguments.at( "lines" ).is_array() );
+        EXPECT_EQ( arguments.at( "lines" ).size(), 2u );
+    }
+
+    // ---- Container-shredding regression -------------------------------------
+
+    // Reconstructs the live failure from the 2026-07-16 Claude Code A/B: the old parser
+    // returned {"metadata":"{alpha:Done","beta":"Done","gamma":"Done","},subject":...}
+    // -- the container's contents leaked out as sibling arguments and destroyed the
+    // model's legitimate `subject` argument. Mirrored in test_gemma_protocol.py.
+
+    TEST( GemmaProtocolShredding, ContainerParsesAsContainerAndSiblingsSurvive )
+    {
+        const auto call = parseToolCall(
+            R"(<|tool_call>call:TaskUpdate{metadata:{alpha:Done,beta:Done,gamma:Done},subject:<|"|>Create todo list<|"|>,taskId:1}<tool_call|>)" );
+
+        ASSERT_TRUE( call.has_value() );
+        const auto arguments = nlohmann::json::parse( call->arguments );
+
+        EXPECT_EQ( arguments.at( "metadata" ), nlohmann::json::parse( R"({"alpha":"Done","beta":"Done","gamma":"Done"})" ) );
+        EXPECT_EQ( arguments.at( "subject" ), "Create todo list" );
+        EXPECT_EQ( arguments.at( "taskId" ), 1 );
+        EXPECT_EQ( arguments.size(), 3u );
+
+        // The shredded siblings the old parser invented must not exist.
+        EXPECT_FALSE( arguments.contains( "beta" ) );
+        EXPECT_FALSE( arguments.contains( "gamma" ) );
+    }
+
+    // ---- Parser tolerance ----------------------------------------------------
+
+    // The parser reads what the model EMITS, which is inconsistent: it stays lenient on
+    // input while the renderer stays strict on output.
+
+    TEST( GemmaProtocolParse, WhitespaceAroundSeparatorsIsTolerated )
+    {
+        const auto call = parseToolCall( R"(<|tool_call>call:t{a: <|"|>x<|"|> , b: [1, 2]}<tool_call|>)" );
+
+        ASSERT_TRUE( call.has_value() );
+        const auto arguments = nlohmann::json::parse( call->arguments );
+        EXPECT_EQ( arguments.at( "a" ), "x" );
+        EXPECT_EQ( arguments.at( "b" ), nlohmann::json::parse( "[1,2]" ) );
+    }
+
+    TEST( GemmaProtocolParse, TruncatedBodyKeepsWhatParsed )
+    {
+        // A cut-off call surfaces partially rather than blanking the turn.
+        const auto call = parseToolCall( R"(<|tool_call>call:t{a:<|"|>x<|"|>,b:{c:1}<tool_call|>)" );
+
+        ASSERT_TRUE( call.has_value() );
+        EXPECT_EQ( nlohmann::json::parse( call->arguments ).at( "a" ), "x" );
+    }
+
     // ---- Control-token constants --------------------------------------------
 
     TEST( GemmaProtocolConstants, StringDelimiterIsTheRegisteredToken )

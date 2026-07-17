@@ -80,14 +80,50 @@ Unlike Llama's text-convention tool calls (bracket/JSON heuristics), Gemma 4's
 registered vocabulary tokens (see Token registration below) — the call/response
 boundary is unambiguous, not pattern-matched.
 
-**Call body grammar (confirmed empirically against the live 12B FP4 checkpoint,
-2026-07-01):**
+**Call body grammar (confirmed empirically against the live 12B FP4 checkpoint
+2026-07-01; reconciled 2026-07-16 against Google's canonical
+[chat_template.jinja](https://huggingface.co/google/gemma-4-12B-it/raw/main/chat_template.jinja),
+which is now the reference spec — Mila builds prompts natively rather than running Jinja):**
 
 ```
-<|tool_call>call:function_name{key: "string value", key2: 42}<tool_call|>
+<|tool_call>call:function_name{key:<|"|>string value<|"|>,key2:42}<tool_call|>
 ```
 
-`key: value` pairs, comma-separated; bare literals (number/bool) unquoted.
+`key:value` pairs, comma-separated. **No whitespace around `:` or `,`** — this is a
+tokenized format, and `key: value` and `key:value` are different tokens. **Keys render
+in sorted order** (the template renders every argument body through Jinja's `| dictsort`).
+Bare literals (number/bool/null) unquoted; strings take the `<|"|>` delimiter.
+
+**Container values recurse into the same grammar** — an array is
+`[<|"|>a<|"|>,<|"|>b<|"|>]` and a nested object is `{key:<|"|>v<|"|>}`, never raw JSON.
+Nested object keys stay **bare** in argument bodies (the template's `escape_keys=False`);
+only tool *declarations* wrap keys in the delimiter.
+
+*Corrected 2026-07-16: the `key: value` spacing and the raw-JSON container rendering
+documented here previously were both off-spec — see BACKLOG "MIS -> Gemma 4 migration".*
+
+**Tool declaration grammar** (advertised in the system turn, MIS only — the runtime
+module has no declaration renderer):
+
+```
+<|tool>declaration:name{description:<|"|>..<|"|>,parameters:{properties:{city:{description:<|"|>..<|"|>,type:<|"|>STRING<|"|>}},required:[<|"|>city<|"|>],type:<|"|>OBJECT<|"|>}}<tool|>
+```
+
+Types are UPPERCASED; declaration field order is positional (description, enum/items,
+nullable, properties/required, type), not alphabetical; declarations concatenate with no
+separator.
+
+**Render and parse are inverses** over this value grammar (recursive descent both ways),
+pinned by a render→parse round-trip oracle in both implementations. The renderer is
+STRICT — it emits only the trained form. The parser is LENIENT — it also accepts plain
+double quotes and stray whitespace around `:` and `,`, because it reads what the model
+emits and the model is inconsistent. Malformed input degrades (a truncated call keeps the
+arguments parsed so far) rather than throwing.
+
+*Fixed 2026-07-16: the parser previously had no container recursion, so an array- or
+object-valued argument truncated at the first comma inside the container and spilled the
+remainder out as bogus sibling arguments, destroying unrelated keys. Observed live under
+Claude Code. See BACKLOG "MIS -> Gemma 4 migration" item (7).*
 
 **String-value delimiter (corrected 2026-07-06).** String values are wrapped in the
 registered `<|"|>` delimiter token (`cmd: <|"|>ls -F<|"|>`), NOT plain ASCII double
@@ -124,9 +160,10 @@ reaches the callback normally. The grammar itself lives in the runtime, not the
 harness: `Mila::Dnn::Gemma::parseToolCall` (module `Dnn.Components.GemmaProtocol`,
 `Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx`) extracts the call from the
 accumulated text; `Mila::Dnn::Gemma::formatToolResponse` mirrors the dispatched result
-back into the `key: value` grammar for the spliced response, surfacing the primary
+back into the `key:value` grammar for the spliced response, surfacing the primary
 output field (or the `error` field on a failed tool) and rendering string values in
-the trained `<|"|>` delimiter. The harness then re-prefills prompt + full accumulated
+the trained `<|"|>` delimiter. A non-JSON result passes through under the `value:` key,
+matching the canonical template's non-mapping response form. The harness then re-prefills prompt + full accumulated
 turn text and resumes generation, looping up to a small round cap. (This runtime module
 replaced the retired `Chat.GemmaToolCallParser.ixx` on 2026-07-07 and is shared with the
 Python inference server's `gemma_protocol.py` — one grammar, both adaptors.)

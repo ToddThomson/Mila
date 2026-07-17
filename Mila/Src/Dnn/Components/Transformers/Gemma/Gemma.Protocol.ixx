@@ -112,6 +112,9 @@ namespace Mila::Dnn::Gemma
          */
         inline nlohmann::json coerceBare( std::string_view bare )
         {
+            if ( bare == "null" )
+                return nullptr;
+
             if ( bare == "true" )
                 return true;
 
@@ -136,72 +139,244 @@ namespace Mila::Dnn::Gemma
         }
 
         /**
-         * @brief Parse a `key: "value", key2: 42` argument body into a JSON object.
+         * @brief A read cursor over an argument body, for the recursive-descent parse.
          *
-         * String values are wrapped either in the registered <|"|> delimiter or in
-         * plain double quotes; bare literals coerce via coerceBare. A quoted value
-         * may contain commas (they do not terminate the value).
+         * The grammar nests (objects and arrays hold values that are themselves objects
+         * and arrays), so a single left-to-right scan with a shared position is the only
+         * thing that composes. The predecessor searched for the next ',' from the start
+         * of each value and so could not see container boundaries at all.
+         */
+        struct Cursor
+        {
+            std::string_view text;
+            size_t position = 0;
+
+            bool atEnd() const { return position >= text.size(); }
+            char peek() const { return text[ position ]; }
+            bool startsWith( std::string_view token ) const { return text.compare( position, token.size(), token ) == 0; }
+
+            void skipWhitespace()
+            {
+                while ( position < text.size() && ( text[ position ] == ' ' || text[ position ] == '\t'
+                    || text[ position ] == '\r' || text[ position ] == '\n' ) )
+                {
+                    ++position;
+                }
+            }
+        };
+
+        /// Consume a <|"|>-delimited span. The span is literal: the trained format has no
+        /// backslash escaping, so it ends at the next delimiter token and nothing else.
+        inline std::string parseDelimitedString( Cursor& cursor )
+        {
+            cursor.position += kStringDelimiter.size();
+            const auto close = cursor.text.find( kStringDelimiter, cursor.position );
+
+            if ( close == std::string_view::npos )
+            {
+                // Unterminated: take the rest rather than discarding the argument.
+                std::string value( cursor.text.substr( cursor.position ) );
+                cursor.position = cursor.text.size();
+
+                return value;
+            }
+
+            std::string value( cursor.text.substr( cursor.position, close - cursor.position ) );
+            cursor.position = close + kStringDelimiter.size();
+
+            return value;
+        }
+
+        /// Consume a plain "..." span -- the alternate quoting the model also emits.
+        inline std::string parseQuotedString( Cursor& cursor )
+        {
+            ++cursor.position;
+            const auto close = cursor.text.find( '"', cursor.position );
+
+            if ( close == std::string_view::npos )
+            {
+                std::string value( cursor.text.substr( cursor.position ) );
+                cursor.position = cursor.text.size();
+
+                return value;
+            }
+
+            std::string value( cursor.text.substr( cursor.position, close - cursor.position ) );
+            cursor.position = close + 1;
+
+            return value;
+        }
+
+        /// Consume a bare literal, stopping at whatever closes the enclosing construct.
+        inline nlohmann::json parseBare( Cursor& cursor )
+        {
+            const size_t start = cursor.position;
+
+            while ( !cursor.atEnd() && cursor.peek() != ',' && cursor.peek() != '}' && cursor.peek() != ']' )
+                ++cursor.position;
+
+            return coerceBare( trim( cursor.text.substr( start, cursor.position - start ) ) );
+        }
+
+        inline nlohmann::json parseValue( Cursor& cursor );
+
+        /// Consume a key: bare, or delimiter-/quote-wrapped (declarations wrap keys, and
+        /// the model sometimes mirrors that inside call arguments).
+        inline std::string parseKey( Cursor& cursor )
+        {
+            cursor.skipWhitespace();
+
+            if ( cursor.startsWith( kStringDelimiter ) )
+                return parseDelimitedString( cursor );
+
+            if ( !cursor.atEnd() && cursor.peek() == '"' )
+                return parseQuotedString( cursor );
+
+            const size_t start = cursor.position;
+
+            while ( !cursor.atEnd() && cursor.peek() != ':' && cursor.peek() != ',' && cursor.peek() != '}' )
+                ++cursor.position;
+
+            return std::string( trim( cursor.text.substr( start, cursor.position - start ) ) );
+        }
+
+        inline nlohmann::json parseObject( Cursor& cursor )
+        {
+            nlohmann::json object = nlohmann::json::object();
+            ++cursor.position;
+            cursor.skipWhitespace();
+
+            if ( !cursor.atEnd() && cursor.peek() == '}' )
+            {
+                ++cursor.position;
+
+                return object;
+            }
+
+            while ( !cursor.atEnd() )
+            {
+                const std::string key = parseKey( cursor );
+                cursor.skipWhitespace();
+
+                if ( cursor.atEnd() || cursor.peek() != ':' )
+                    break;
+
+                ++cursor.position;
+                object[ key ] = parseValue( cursor );
+                cursor.skipWhitespace();
+
+                if ( !cursor.atEnd() && cursor.peek() == ',' )
+                {
+                    ++cursor.position;
+                    cursor.skipWhitespace();
+
+                    continue;
+                }
+
+                if ( !cursor.atEnd() && cursor.peek() == '}' )
+                    ++cursor.position;
+
+                break;
+            }
+
+            return object;
+        }
+
+        inline nlohmann::json parseArray( Cursor& cursor )
+        {
+            nlohmann::json array = nlohmann::json::array();
+            ++cursor.position;
+            cursor.skipWhitespace();
+
+            if ( !cursor.atEnd() && cursor.peek() == ']' )
+            {
+                ++cursor.position;
+
+                return array;
+            }
+
+            while ( !cursor.atEnd() )
+            {
+                array.push_back( parseValue( cursor ) );
+                cursor.skipWhitespace();
+
+                if ( !cursor.atEnd() && cursor.peek() == ',' )
+                {
+                    ++cursor.position;
+
+                    continue;
+                }
+
+                if ( !cursor.atEnd() && cursor.peek() == ']' )
+                    ++cursor.position;
+
+                break;
+            }
+
+            return array;
+        }
+
+        /**
+         * @brief Parse one value of the trained grammar -- the inverse of renderValue.
+         */
+        inline nlohmann::json parseValue( Cursor& cursor )
+        {
+            cursor.skipWhitespace();
+
+            if ( cursor.atEnd() )
+                return nullptr;
+
+            if ( cursor.startsWith( kStringDelimiter ) )
+                return parseDelimitedString( cursor );
+
+            if ( cursor.peek() == '"' )
+                return parseQuotedString( cursor );
+
+            if ( cursor.peek() == '{' )
+                return parseObject( cursor );
+
+            if ( cursor.peek() == '[' )
+                return parseArray( cursor );
+
+            return parseBare( cursor );
+        }
+
+        /**
+         * @brief Parse a `key:value,key2:42` argument body into a JSON object.
+         *
+         * The inverse of renderArguments, and recursive: container values parse back to
+         * containers. Whitespace around ':' and ',' is tolerated on the way in even though
+         * the trained format emits none.
+         *
+         * Malformed input degrades rather than throwing -- a truncated body keeps the
+         * arguments parsed so far, so a cut-off tool call surfaces partially instead of
+         * blanking. It is NOT strict: this reads what the model emits, and the model is
+         * inconsistent (see the plain-quote and namespacing notes above).
          */
         inline nlohmann::json parseArguments( std::string_view body )
         {
             nlohmann::json arguments = nlohmann::json::object();
-            std::string_view remaining = body;
+            Cursor cursor{ body, 0 };
 
-            while ( !remaining.empty() )
+            while ( true )
             {
-                const auto colon = remaining.find( ':' );
+                cursor.skipWhitespace();
 
-                if ( colon == std::string_view::npos )
+                if ( cursor.atEnd() )
                     break;
 
-                const std::string key( trim( remaining.substr( 0, colon ) ) );
-                remaining = remaining.substr( colon + 1 );
+                const std::string key = parseKey( cursor );
+                cursor.skipWhitespace();
 
-                const auto value_start = remaining.find_first_not_of( " \t" );
-                remaining = ( value_start == std::string_view::npos )
-                    ? std::string_view{}
-                    : remaining.substr( value_start );
-
-                if ( remaining.empty() )
+                if ( key.empty() || cursor.atEnd() || cursor.peek() != ':' )
                     break;
 
-                if ( remaining.substr( 0, kStringDelimiter.size() ) == kStringDelimiter )
-                {
-                    const auto close = remaining.find( kStringDelimiter, kStringDelimiter.size() );
+                ++cursor.position;
+                arguments[ key ] = parseValue( cursor );
+                cursor.skipWhitespace();
 
-                    if ( close == std::string_view::npos )
-                        break;
-
-                    arguments[ key ] = std::string(
-                        remaining.substr( kStringDelimiter.size(), close - kStringDelimiter.size() ) );
-
-                    const auto after = remaining.find_first_not_of( ", \t", close + kStringDelimiter.size() );
-                    remaining = ( after == std::string_view::npos ) ? std::string_view{} : remaining.substr( after );
-                }
-                else if ( remaining.front() == '"' )
-                {
-                    const auto close = remaining.find( '"', 1 );
-
-                    if ( close == std::string_view::npos )
-                        break;
-
-                    arguments[ key ] = std::string( remaining.substr( 1, close - 1 ) );
-
-                    const auto after = remaining.find_first_not_of( ", \t", close + 1 );
-                    remaining = ( after == std::string_view::npos ) ? std::string_view{} : remaining.substr( after );
-                }
-                else
-                {
-                    const auto comma = remaining.find( ',' );
-                    const std::string_view bare = trim( comma == std::string_view::npos
-                        ? remaining
-                        : remaining.substr( 0, comma ) );
-                    remaining = ( comma == std::string_view::npos )
-                        ? std::string_view{}
-                        : remaining.substr( comma + 1 );
-
-                    arguments[ key ] = coerceBare( bare );
-                }
+                if ( !cursor.atEnd() && cursor.peek() == ',' )
+                    ++cursor.position;
             }
 
             return arguments;
@@ -228,8 +403,75 @@ namespace Mila::Dnn::Gemma
             return std::string( kStringDelimiter ) + escaped + std::string( kStringDelimiter );
         }
 
-        /// Render a JSON object as Gemma's `key: value, ...` body (string values in
-        /// the trained delimiter; everything else as its compact JSON form).
+        /**
+         * @brief Render one argument value in Gemma's trained grammar.
+         *
+         * Mirrors format_argument in Google's canonical chat_template.jinja: strings
+         * take the <|"|> delimiter, null and bool are bare literals, and containers
+         * RECURSE into the same grammar. Recursion is the point -- emitting a nested
+         * object or array as raw JSON (["a","b"]) instead of the trained form
+         * ([<|"|>a<|"|>,<|"|>b<|"|>]) puts untrained tokens in front of the model on
+         * every call carrying a non-scalar parameter.
+         *
+         * Object keys stay bare: the template renders argument bodies with
+         * escape_keys=False, reserving <|"|>-wrapped keys for tool declarations.
+         */
+        inline std::string renderValue( const nlohmann::json& value )
+        {
+            if ( value.is_null() )
+                return "null";
+
+            if ( value.is_string() )
+                return renderStringValue( value.get<std::string>() );
+
+            if ( value.is_boolean() )
+                return value.get<bool>() ? "true" : "false";
+
+            if ( value.is_object() )
+            {
+                std::string body = "{";
+                bool first = true;
+
+                for ( auto it = value.begin(); it != value.end(); ++it )
+                {
+                    if ( !first )
+                        body += ",";
+                    first = false;
+
+                    body += it.key() + ":" + renderValue( it.value() );
+                }
+
+                return body + "}";
+            }
+
+            if ( value.is_array() )
+            {
+                std::string body = "[";
+                bool first = true;
+
+                for ( const auto& item : value )
+                {
+                    if ( !first )
+                        body += ",";
+                    first = false;
+
+                    body += renderValue( item );
+                }
+
+                return body + "]";
+            }
+
+            return value.dump();
+        }
+
+        /**
+         * @brief Render a JSON object as Gemma's trained `key:value,...` argument body.
+         *
+         * No whitespace around ':' or ',' -- the trained format has none, and in a
+         * tokenized grammar "key: value" and "key:value" are different tokens. Key
+         * order is nlohmann's std::map ordering (sorted), matching the template's
+         * `| dictsort` and the Python twin; see Gemma.Protocol.cpp GemmaProtocolParity.
+         */
         inline std::string renderArguments( const nlohmann::json& values )
         {
             std::string body;
@@ -238,13 +480,10 @@ namespace Mila::Dnn::Gemma
             for ( auto it = values.begin(); it != values.end(); ++it )
             {
                 if ( !first )
-                    body += ", ";
+                    body += ",";
                 first = false;
 
-                body += it.key() + ": ";
-                body += it.value().is_string()
-                    ? renderStringValue( it.value().get<std::string>() )
-                    : it.value().dump();
+                body += it.key() + ":" + renderValue( it.value() );
             }
 
             return body;
@@ -341,7 +580,8 @@ namespace Mila::Dnn::Gemma
      * are dropped. A failed tool ({"content": "", "error": "..."}) has no usable
      * output field, so its `error` is surfaced explicitly -- without it the model
      * sees an empty result and blind-retries. A non-JSON result is passed through
-     * as a single `result:` string.
+     * under the `value:` key, which is what the canonical template emits for a
+     * non-mapping response.
      */
     export std::string formatToolResponse( std::string_view name, std::string_view result_json )
     {
@@ -387,7 +627,7 @@ namespace Mila::Dnn::Gemma
         }
         else
         {
-            body = "result: " + detail::renderStringValue( std::string( result_json ) );
+            body = "value:" + detail::renderStringValue( std::string( result_json ) );
         }
 
         return std::string( kToolResponseOpen ) + "response:" + std::string( name )
