@@ -36,6 +36,11 @@
 
 import Mila;
 import Compute.ExecutionContext;
+// Weight-quant policy structs and the serialization metadata type are not re-exported
+// through the Mila umbrella; import their modules directly (as the Src consumers do).
+// MSVC surfaced them transitively via import Mila, clang does not.
+import Dnn.Quantization.Weight.Policies;
+import Serialization.Tensor;
 
 namespace Mila::Tests::Dnn::Components::Embeddings
 {

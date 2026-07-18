@@ -8,6 +8,14 @@
 	"workspaceFolder": "/mila",
 	"customizations": {
 		"vscode": {
+			"settings": {
+				// Cap CMake Tools build parallelism so the several-GB module TUs
+				// (OperationTraits.ixx et al.) do not exhaust the container VM's RAM and
+				// hang. The root CMakeLists also enforces this via a Ninja compile job pool
+				// (MILA_COMPILE_JOB_POOL_SIZE, seeded in the Dockerfile); this is the
+				// belt-and-suspenders for CMake Tools.
+				"cmake.parallelJobs": 4
+			},
 			"extensions": [
 				"ms-vscode.cpptools",
 				"ms-vscode.cmake-tools",

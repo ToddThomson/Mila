@@ -389,7 +389,7 @@ namespace Bard
         std::cout << "Model built successfully!" << std::endl;
         std::cout << model->toString() << std::endl;
 
-        auto optimizer = model->createOptimizer<AdamWOptimizer<TDeviceType, TDataType>>(
+        auto optimizer = model->template createOptimizer<AdamWOptimizer<TDeviceType, TDataType>>(
             AdamWConfig()
             .withLearningRate( config.learning_rate )
             .withBeta1( config.beta1 )

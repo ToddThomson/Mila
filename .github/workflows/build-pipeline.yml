@@ -90,7 +90,10 @@ jobs:
       # check. MSVC silently resolves includes/conformance that clang rejects. Runs on
       # every push/PR -- this is the fast feedback that matters on dev.
       - name: Build
-        run: cmake --build build -- -j $(nproc)
+        # -k 0: keep going after the first error so one run surfaces the full
+        # clang-portability error list (the gate fails one file at a time otherwise,
+        # and each round trip is ~25 min). -j caps parallelism at the runner width.
+        run: cmake --build build -- -k 0 -j $(nproc)
 
       # GPU-free by construction: the gates install Mila and build consumers against it
       # (find_package) and embed it as a subproject (FetchContent). No device used.

@@ -26,6 +26,32 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
+# Compile job pool -- bound peak build RAM by capping concurrent compile jobs.
+#
+# The heaviest module interface units (Compute/Operations/OperationTraits.ixx and the
+# CUDA op .ixx units) each instantiate the full device x precision x quantization
+# dispatch table and cost several GB of RAM to compile. When an IDE (VS 2026 or VSCode
+# CMake Tools) drives Ninja at full core-count parallelism inside a memory-constrained
+# container or WSL VM, several land at once, exhaust the VM's RAM, and the build appears
+# to HANG at OperationTraits.ixx -- it is swap-thrashing, not stuck. A Ninja compile job
+# pool caps concurrent compiles regardless of how the build is launched, unlike the
+# mila-build-* scripts' `-j` which an IDE-driven build never sees. Default 0 = unlimited
+# (no pool), so RAM-rich native builds are unaffected; the build container seeds a safe
+# value via the MILA_COMPILE_JOB_POOL_SIZE env var (Docker/Dockerfile). Ninja-only;
+# other generators ignore JOB_POOLS.
+if(DEFINED ENV{MILA_COMPILE_JOB_POOL_SIZE})
+    set(_mila_default_compile_pool $ENV{MILA_COMPILE_JOB_POOL_SIZE})
+else()
+    set(_mila_default_compile_pool 0)
+endif()
+set(MILA_COMPILE_JOB_POOL_SIZE "${_mila_default_compile_pool}" CACHE STRING
+    "Max concurrent compile jobs (0 = unlimited); bounds peak build RAM on constrained VMs")
+if(MILA_COMPILE_JOB_POOL_SIZE GREATER 0)
+    set_property(GLOBAL PROPERTY JOB_POOLS mila_compile=${MILA_COMPILE_JOB_POOL_SIZE})
+    set(CMAKE_JOB_POOL_COMPILE mila_compile)
+    message(STATUS "Mila: compile job pool capped at ${MILA_COMPILE_JOB_POOL_SIZE} concurrent jobs")
+endif()
+
 # On for a top-level build (like SAMPLES/PROFILING/INSTALL), off when Mila is embedded
 # via add_subdirectory/FetchContent/CPM -- so a consumer never builds Mila's tests or
 # pulls googletest. The genuinely heavy gates (full install + subproject rebuild) are a

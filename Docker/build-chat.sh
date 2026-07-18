@@ -13,14 +13,16 @@
 # profiling, docs, or Python binding -- none are on the path to a running Chat.
 set -euo pipefail
 
-# CUDA arch for targets that do not pin their own. NOTE: the Mila library target
-# hard-sets CUDA_ARCHITECTURES "75;80;86;89;90" (a portable fat binary for
-# find_package consumers), and a target property overrides this global -- so the
-# library always builds all five arches regardless of MILA_CUDA_ARCH. sm_89 (Ada /
-# RTX 4070) is in that set, so the result runs on the 4070; MILA_CUDA_ARCH only
-# affects any non-pinning target. Trimming the library to one arch for a faster
-# container build is a follow-up (an opt-in override in Mila/CMakeLists.txt).
-: "${MILA_CUDA_ARCH:=89}"
+# CUDA arch(es) to build for. Default `native`: CMake detects the arch of the GPU(s)
+# actually present at configure time (the container reserves the host GPUs -- see
+# docker-compose.yml), so the build matches THIS machine's hardware, and a host with
+# multiple cards of different archs builds for all of them. This is passed to BOTH the
+# global CMAKE_CUDA_ARCHITECTURES and the library's MILA_LIBRARY_CUDA_ARCHITECTURES
+# override, so the library now compiles only these arch(es) instead of its default
+# 5-arch portable fat binary -- the dominant build-time saving. (Previously the library
+# target property ignored the pin and always built all five.) Override for a specific
+# arch, cross-building, or a GPU-less configure: MILA_CUDA_ARCH=89.
+: "${MILA_CUDA_ARCH:=native}"
 : "${MILA_BUILD_TYPE:=Release}"
 
 # Build parallelism is a MEMORY limit, not a core-count one. The heaviest module
@@ -44,6 +46,7 @@ cmake -S "${SRC}" -B "${BUILD}" -G Ninja \
     -DCMAKE_CUDA_HOST_COMPILER=gcc-15 \
     -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" \
     -DCMAKE_CUDA_ARCHITECTURES="${MILA_CUDA_ARCH}" \
+    -DMILA_LIBRARY_CUDA_ARCHITECTURES="${MILA_CUDA_ARCH}" \
     -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
     -DMILA_ENABLE_ADAPTORS=ON \
     -DMILA_ENABLE_CUDA=ON \
@@ -56,4 +59,4 @@ cmake -S "${SRC}" -B "${BUILD}" -G Ninja \
 
 cmake --build "${BUILD}" --target ChatApp -- -j "${MILA_BUILD_JOBS}"
 
-echo "Built ${BUILD}/ChatApp (arch sm_${MILA_CUDA_ARCH}, ${MILA_BUILD_TYPE}, -j ${MILA_BUILD_JOBS}). Run it with: mila-chat"
+echo "Built ${BUILD}/ChatApp (arch ${MILA_CUDA_ARCH}, ${MILA_BUILD_TYPE}, -j ${MILA_BUILD_JOBS}). Run it with: mila-chat"

@@ -64,3 +64,7 @@ Both rest on the online normalizer calculation for softmax introduced by Milakov
 ```
 
 </details>
+
+## A Steam Shovel Named Mary Anne
+
+Some of Mila's instincts predate any paper. Virginia Lee Burton's *Mike Mulligan and His Steam Shovel* (1939) — a favorite of mine as a boy — quietly shaped how I frame a solution.  Mike's loyalty to a machine he understands completely, in an age of flashier ones, is the mastery-over-novelty stance of a hand-built C++/CUDA runtime. And Burton's honest cutaway drawings — which let a child see exactly how the machine works — are the same promise as Mila's readable path from prompt to kernel, with no hidden engine. With gratitude to a steam shovel that dug this particular corner long before I did.

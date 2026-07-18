@@ -16,24 +16,48 @@ release notes.
 The bridge from "the features work" to a tree honest enough to call beta. Milestone vision
 is in ROADMAP; open triage buckets are in BACKLOG.
 
-### CI portability gate restored to green (0.20.0-alpha.6+109)
+### Full clang-21 / Linux build brought green — MSVC-invisible portability + build-infra batch (0.20.0-alpha.6+109..+110)
 
-The clang-21 compile gate had been red on `dev`. Three independent clang-vs-MSVC gaps, none
-visible from the VS2026 build:
+The clang-21 build (CI's compile gate and the WSL `linux-clang-debug` full build) had been red on
+`dev`. A batch of independent clang-vs-MSVC gaps, none visible from the VS2026 build, plus two
+build-infrastructure fixes surfaced along the way. Validated by a **full WSL `Build All` green** —
+library + tests + samples + the Python binding all compiling under clang-21. `+110` also switched the
+CI build to `ninja -k 0` so one run surfaces the full error list instead of one file per ~25-minute
+round trip.
 
-- **Hard error (the actual failure):** `Mila_py.Wrappers.cpp` used `std::stop_token` without
-  `#include <stop_token>`. MSVC resolved it transitively; clang rejects it. Added the include,
-  matching the two sibling binding units that already carried it.
+Portability (compile/link):
+- **Missing include:** `Mila_py.Wrappers.cpp` used `std::stop_token` without `#include <stop_token>`
+  (MSVC resolved it transitively; clang rejects it) — matched the sibling binding units.
 - **`nvcc` host-compiler conflict:** the Clang branch in `Mila/CMakeLists.txt` was overriding the
-  caller-chosen CUDA host compiler and appending a second `-ccbin`, producing "incompatible
-  redefinition for option 'compiler-bindir'" on every `.cu` and silently hosting nvcc on the
-  unsupported clang-21 instead of the intended gcc-15. It now only defaults the host when the caller
-  hasn't set one; CI, `build-chat.sh`, and the getting-started doc pass `CMAKE_CUDA_HOST_COMPILER=gcc-15`
-  to match the Linux preset (single, consistent `-ccbin`).
-- **`-Winconsistent-missing-override` (18 sites):** added `override` to `toMetadata`/`fromMetadata`
-  in the eight component `.Config.ixx` classes and to `getDeviceId`/`save_` in `Network.ixx`.
+  caller's CUDA host compiler and appending a second `-ccbin` ("incompatible redefinition for option
+  'compiler-bindir'" on every `.cu`, and silently hosting nvcc on unsupported clang-21). It now only
+  defaults the host when unset; CI, `build-chat.sh`, and getting-started pass
+  `CMAKE_CUDA_HOST_COMPILER=gcc-15` to match the Linux preset.
+- **`-Winconsistent-missing-override` (18 sites):** `override` added to `toMetadata`/`fromMetadata` in
+  eight `.Config.ixx` classes and `getDeviceId`/`save_` in `Network.ixx`.
+- **`std::min` type deduction:** `std::min(int64_t, N LL)` is a hard deduction conflict on Linux
+  (`int64_t` is `long`, not `long long`); fixed to `std::min<int64_t>( …, N )` in `TokenSequenceLoader`.
+- **Position-independent code:** the `Mila` static library was non-PIC, so linking it into the shared
+  `mila` binding failed on Linux ("relocation R_X86_64_PC32 … can not be used when making a shared
+  object; recompile with -fPIC"). `POSITION_INDEPENDENT_CODE ON` on the target (no-op on Windows).
+- **C++23 module transitive-import strictness:** the `Mila` umbrella does not re-export several internal
+  modules, so consumers must import them directly (as the `Src` consumers do). clang enforces this;
+  MSVC surfaced them transitively. Added the missing `import`s to the GQA / Gemma / TokenEmbedding /
+  Linear CUDA tests (`Dnn.Quantization.KvCache.Policy`, `Dnn.Quantization.Weight.Policies`,
+  `Serialization.Tensor`).
+- **Dependent template name:** `model->createOptimizer<…>()` needs the `->template` disambiguator on
+  a dependent type (two-phase lookup — clang/GCC require it, MSVC does not); fixed in the Bard and
+  MNIST samples.
 
-MSVC-path unaffected (the CMake and portability fixes are all clang-only or non-semantic).
+Build infrastructure:
+- **Compile job pool** (fixes the `OperationTraits.ixx` "hang"): the several-GB module TUs, run at full
+  IDE parallelism inside a RAM-constrained container/WSL VM, exhaust memory and swap-thrash. A Ninja
+  compile job pool (`MILA_COMPILE_JOB_POOL_SIZE`, default `0` = unlimited so native builds are
+  unaffected) caps concurrent compiles regardless of how the build is launched — seeded to 4 in the
+  Dockerfile, the `linux-clang` preset, and the devcontainer.
+- **`ninja -k 0` in CI** so one run reports every error, not just the first.
+
+MSVC-path unaffected (every fix is clang-only, PIC-neutral on Windows, or non-semantic).
 
 ### W4A8-FP8 prefill default reverted to OFF (0.20.0-alpha.6+99)
 

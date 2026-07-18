@@ -8,6 +8,17 @@ set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 # longer drags in CUDA sources.
 add_library( Mila STATIC )
 
+# CUDA architectures the Mila library target is compiled for. The default is a
+# portable fat binary spanning every supported arch, so a find_package consumer's
+# Mila.lib runs on any of them. This is a target property, so it overrides any global
+# CMAKE_CUDA_ARCHITECTURES -- which is why the library always built all five arches
+# regardless of a caller's -DCMAKE_CUDA_ARCHITECTURES. A local build that targets one
+# known GPU (the devcontainer/WSL convenience path, or any single-card dev build) can
+# pin a single arch for a much faster build via -DMILA_LIBRARY_CUDA_ARCHITECTURES=89.
+# Opt-in: the default is unchanged, so releases and packaged consumers stay portable.
+set(MILA_LIBRARY_CUDA_ARCHITECTURES "75;80;86;89;90" CACHE STRING
+    "CUDA architectures for the Mila library target (default: portable fat binary)")
+
 set_target_properties( Mila PROPERTIES
 	CXX_STANDARD 23
 	CXX_STANDARD_REQUIRED ON
@@ -23,7 +34,15 @@ set_target_properties( Mila PROPERTIES
     # unresolved __cudaRegisterLinkedBinary_*. Resolving device symbols here runs the
     # device link when Mila.lib is created, making the shipped archive self-contained.
     CUDA_RESOLVE_DEVICE_SYMBOLS ON
-    CUDA_ARCHITECTURES "75;80;86;89;90"
+    CUDA_ARCHITECTURES "${MILA_LIBRARY_CUDA_ARCHITECTURES}"
+
+    # The MilaPy binding is a SHARED object, and on Linux a shared object may contain only
+    # position-independent code. A non-PIC static Mila library (the default) makes the
+    # pybind11 module link fail: "relocation R_X86_64_PC32 against symbol ... can not be
+    # used when making a shared object; recompile with -fPIC". MSVC has no PIC/non-PIC
+    # distinction, so this never surfaces on Windows. PIC static code also links cleanly
+    # into the Chat/sample executables, so enable it unconditionally.
+    POSITION_INDEPENDENT_CODE ON
 )
 
 # C++23 is selected via the CXX_STANDARD properties above and forced per-compiler

@@ -32,6 +32,11 @@
 #include <stdexcept>
 
 import Mila;
+// SlidingWindowKvCache is used directly (KV-cache policy wiring test) but is not
+// re-exported through the Mila umbrella; import the policy module directly, as the Src
+// consumers do. MSVC surfaced it transitively via import Mila, clang does not.
+import Dnn.Quantization.KvCache.Policy;
+import Dnn.Quantization.Weight.Policies;
 
 namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 {

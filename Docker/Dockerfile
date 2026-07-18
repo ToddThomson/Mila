@@ -26,7 +26,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   ninja      -- the C++23 module-dyndep generator the build requires
 #   ccache     -- persists .cu object codegen across runs (CUDA launcher only;
 #                 ccache's module-unit support is unreliable, so C++ is unwrapped)
-#   python3    -- CUTLASS's configure needs find_package(Python3 REQUIRED)
+#   python3    -- CUTLASS's configure needs find_package(Python3 REQUIRED); also the
+#                 interpreter the mila binding is built against + MIS runs under
+#   python3-venv -- so mila-build-mis can create the MIS server venv (Debian/Ubuntu
+#                 split venv/ensurepip out of the base python3 package)
 # gdb/less are dev-shell niceties. Dependencies (GoogleTest, nlohmann_json, miniz,
 # CUTLASS) are fetched by CPM/FetchContent at configure time and are not installed.
 RUN apt-get update \
@@ -42,6 +45,7 @@ RUN apt-get update \
         clang-21 \
         python3 \
         python3-dev \
+        python3-venv \
         gdb \
         less \
     && apt-get clean \
@@ -57,13 +61,28 @@ ENV PATH=${CUDA_HOME}/bin:${PATH}
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
 ENV CCACHE_DIR=/ccache
 
+# Cap concurrent compile jobs so an IDE-driven build (VS 2026 / VSCode CMake Tools,
+# which do not read the mila-build-* scripts' -j) cannot starve this container's RAM on
+# the several-GB module TUs (OperationTraits.ixx et al.) and hang. The root CMakeLists
+# turns this into a Ninja compile job pool; 4 matches the scripts' default MILA_BUILD_JOBS.
+# A RAM-rich WSL2 VM can raise it (and %USERPROFILE%\.wslconfig memory=).
+ENV MILA_COMPILE_JOB_POOL_SIZE=4
+
 # Convenience entry points baked into the image so the exact configure flags live in
 # one versioned place (see the scripts for the flag rationale):
-#   mila-build-chat  -- configure + build the ChatApp target
+#   mila-build-chat  -- configure + build just the ChatApp target (fast path)
+#   mila-build-all   -- configure + build the full product set (library, samples,
+#                       Chat, Python binding); single-arch for a fast one-GPU build
+#   mila-build-mis   -- build the mila binding + the MIS Python server venv
 #   mila-chat        -- run the built ChatApp
+#   mila-mis         -- run the Mila Inference Server (HTTP wire adaptor)
 COPY Docker/build-chat.sh /usr/local/bin/mila-build-chat
+COPY Docker/build-all.sh  /usr/local/bin/mila-build-all
+COPY Docker/build-mis.sh  /usr/local/bin/mila-build-mis
 COPY Docker/run-chat.sh   /usr/local/bin/mila-chat
-RUN chmod +x /usr/local/bin/mila-build-chat /usr/local/bin/mila-chat
+COPY Docker/run-mis.sh    /usr/local/bin/mila-mis
+RUN chmod +x /usr/local/bin/mila-build-chat /usr/local/bin/mila-build-all \
+             /usr/local/bin/mila-build-mis /usr/local/bin/mila-chat /usr/local/bin/mila-mis
 
 WORKDIR /mila
 

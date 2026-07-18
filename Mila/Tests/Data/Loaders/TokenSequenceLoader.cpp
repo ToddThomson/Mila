@@ -269,7 +269,7 @@ namespace Mila::Data::Tests
         EXPECT_EQ( loader.currentBatch(), 0 );
         EXPECT_TRUE( loader.hasNext() );
 
-        for ( int64_t i = 0; i < std::min( total_batches, 5LL ); ++i )
+        for ( int64_t i = 0; i < std::min<int64_t>( total_batches, 5 ); ++i )
         {
             loader.nextBatch();
             std::this_thread::sleep_for( std::chrono::milliseconds( 50 ) );
@@ -290,7 +290,7 @@ namespace Mila::Data::Tests
             false,
             Device::Cpu() );
 
-        const int64_t batches_to_process = std::min( loader.numBatches(), 3LL );
+        const int64_t batches_to_process = std::min<int64_t>( loader.numBatches(), 3 );
 
         for ( int64_t i = 0; i < batches_to_process; ++i )
         {
@@ -485,7 +485,7 @@ namespace Mila::Data::Tests
             true,
             Device::Cpu() );
 
-        const int64_t batches_to_process = std::min( loader.numBatches(), 20LL );
+        const int64_t batches_to_process = std::min<int64_t>( loader.numBatches(), 20 );
 
         for ( int64_t i = 0; i < batches_to_process; ++i )
         {
@@ -516,7 +516,7 @@ namespace Mila::Data::Tests
             false,
             Device::Cpu() );
 
-        for ( int64_t batch_idx = 0; batch_idx < std::min( loader.numBatches(), 5LL ); ++batch_idx )
+        for ( int64_t batch_idx = 0; batch_idx < std::min<int64_t>( loader.numBatches(), 5 ); ++batch_idx )
         {
             loader.nextBatch();
             std::this_thread::sleep_for( std::chrono::milliseconds( 50 ) );

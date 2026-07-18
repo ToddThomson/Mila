@@ -183,6 +183,45 @@ smoke test, not a gate you clear before committing.
 
 ---
 
+## Cross-platform build policy
+
+MSVC / VS 2026 is the primary development toolchain; the Linux/clang path is where portability
+regressions hide (MSVC silently resolves includes and conformance that clang rejects). Two of the
+three Linux surfaces are **maintainer gates** (do we ship a tree that compiles everywhere and passes
+on hardware); the third is an **end-user feature** we verify but do not gate with:
+
+| Surface | Role | What it does | GPU? |
+|---|---|---|---|
+| **GitHub CI** (`build-pipeline.yml`) | maintainer gate | *compiles* the full tree under clang-21 + packaging gates | no (hosted, no GPU) |
+| **WSL** (`linux-clang-debug` preset) | maintainer gate | compiles the full tree under clang **and runs the CUDA test suite on real hardware** | yes |
+| **Devcontainer** (`Docker/build-chat.sh`) | end-user convenience | a completely known build environment — clone, one step, a running Mila | yes |
+
+The division that matters:
+
+- **CI compiles but never executes on a GPU** ("device tests would be theater" on hosted runners);
+  **WSL** adds the real-hardware test execution CI structurally cannot do. Together they are the
+  portability + correctness gate.
+- The **devcontainer is not a portability gate** — it is the *end-user's* known-good build
+  environment, a convenience/onboarding feature we **ship** (the goal is "using Mila is a single easy
+  step"). It is scoped to the Chat runtime path today, so it is deliberately blind to the test/binding
+  tree; do **not** mistake a green devcontainer for portability coverage (that misread is how the
+  `stop_token` and `std::min` clang breaks reached CI ungated — CI/WSL catch those, the container
+  never will).
+
+**The rules:**
+
+1. **On `dev`, CI is the portability tripwire.** Do not run the Linux builds on every commit — the
+   VS 2026 inner loop stays fast. Let CI catch the breaks.
+2. **When dev CI goes red on a compile error, switch to the local WSL loop to reach green — do not
+   debug portability through CI.** Each CI round trip is ~25 minutes; WSL gives the full error list
+   in minutes. (CI runs `ninja -k 0`, so one red run now reports *every* error, not just the first —
+   fix the batch locally, then push once.) CI should *confirm* green, not be the tool you iterate in.
+3. **Before merging `dev -> master`:** the **WSL build** must pass (the portability + test gate), and
+   the **devcontainer build** must still succeed — the latter because a broken end-user onboarding
+   path is a shipped-product defect, not because it is a portability oracle.
+
+---
+
 ## Everyday commit (on `dev`)
 
 1. Make your change.

@@ -23,6 +23,55 @@ stated trigger · **[contributor]** good-first-contribution / demand-driven, not
 
 ---
 
+## Beta.1 Exit Checklist (release-gate rollup)
+
+Not a milestone — a **synthesis view** of what honestly gates the `alpha.6 -> beta.1` stage flip.
+Per [RELEASING.md](RELEASING.md), `beta.X` means **"feature-frozen; hardening only"**, and a beta is
+a **trust signal** ("the project not contradicting itself"). So this is *not* the full craft-complete
+v0.20 scope — most ROADMAP milestones are either done, self-declared non-gates, or feature work you
+**freeze** rather than finish. Each line points at where the real task lives; do not double-book status
+here — tick the owning milestone item, and re-derive this rollup from it.
+
+**Decision (not code) — the biggest unblock:**
+- [ ] **Freeze the feature set** — resolve every open *feature* milestone **done-or-deferred**: the
+  *Generation API* tail (SamplerConfig rename, Llama/Gpt seedable sampling, eager sampler, accessor
+  propagation), the *LanguageNetwork — Sample API* Llama/Gpt migration, and the **unspecced *Chat*
+  milestone** (a live scope hole — either spec a minimal frozen surface or defer it to vNext). You
+  cannot flip to `beta` with open feature milestones. Finish the trivial Gemma-adjacent tails; punt
+  the rest to vNext.
+
+**Engineering gates (the three that are real work):**
+- [ ] **Close Consolidation** — the milestone that literally "earns the right to call it beta." One
+  hard item open: the **poisoned BF16 dispatch rows** (see *Consolidation* / *Project Hygiene —
+  Dispatch error UX*); the [~] remainders (marker burndown, FFN fold, legacy-dispatch retire) need
+  conscious done-or-deferred disposition, not new work. Pairs with **Dispatch error UX**. Standing
+  recommendation for the next session.
+- [ ] **Test Suite Revival CI ratchet** — the correctness keystone: full suite green in one pass +
+  wire the `MILA_ENABLE_CUDA=OFF` CPU-only gate (see *Test Suite Revival*, the `[gate]` item).
+  Blocked by the poisoned BF16 rows above (they hard-error the BF16 typed tests), so Consolidation
+  unblocks this.
+- [ ] **`find_package(Mila)` builds for an external consumer** — today it **fails** (see
+  *Packaging*, a `[gate]`). Shipping a beta a contributor cannot `find_package` + `import Mila;`
+  contradicts the trust signal.
+
+**Trust-signal hygiene (cheap, mostly not code — but the export freeze is an asymmetric decision):**
+- [ ] **Freeze the narrowest defensible public export surface** (see *Public API Surface*) — must
+  happen *before* the freeze; too-broad can only be undone by a breaking removal.
+- [ ] `CONTRIBUTING.md` + `getting-started.md`, `good first issue` labels, ungated GPT-2 quick-start,
+  default-branch flip `dev -> master` (see *Release Assets & CI* / *Production Hardening*).
+
+**Explicitly NOT beta.1 gates** (do not let these compete for attention):
+- **Gemma 4 Inference Competitiveness (prefill + decode)** — self-declared *"NOT a release gate"*,
+  deferred by choice. Zero beta weight.
+- **API Documentation** — effectively done (ratchet green; Tier 3 folded into Test Suite Revival;
+  only a live docs-CI run pending).
+- **Published Docker runtime image** — *optional* beta deliverable.
+- **Training Revival** beyond "samples run" — the primitive test suite overlaps the Test Suite
+  Revival gate above; Llama training is a Future Direction.
+- **MoE / Qwen 3 / Ministral / advanced training** — future.
+
+---
+
 ## Consolidation
 
 Alpha.5's success criteria are met (greedy decode at FP8 with no catastrophic divergence on

@@ -282,7 +282,7 @@ void trainMnist( const MnistConfig& config )
     // AdamW optimizer setup
     // Create optimizer (automatic training mode + registration)
     // ============================================================
-    auto optimizer = mnist_net->createOptimizer<AdamWOptimizer<TDeviceType, TDataType>>(
+    auto optimizer = mnist_net->template createOptimizer<AdamWOptimizer<TDeviceType, TDataType>>(
         AdamWConfig()
         .withLearningRate( config.learning_rate )
         .withBeta1( config.beta1 )

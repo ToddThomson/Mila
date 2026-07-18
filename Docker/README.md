@@ -47,12 +47,22 @@ docker compose -f Docker/docker-compose.yml run --rm mila-dev mila-build-chat
 docker compose -f Docker/docker-compose.yml run --rm mila-dev mila-chat
 ```
 
+Want more than Chat? `mila-build-all` builds the full product set (library, samples,
+Chat, Python binding) in the same known environment:
+
+```bash
+docker compose -f Docker/docker-compose.yml run --rm mila-dev mila-build-all
+```
+
 Convenience wrappers under `scripts/` do the same (`.sh` and `.ps1`):
 
 ```
 scripts/build-docker.{sh,ps1}   # docker compose build
 scripts/chat-build.{sh,ps1}     # mila-build-chat
+scripts/all-build.{sh,ps1}      # mila-build-all
 scripts/chat-run.{sh,ps1}       # mila-chat   (args forwarded, e.g. --help)
+scripts/mis-build.{sh,ps1}      # mila-build-mis
+scripts/mis-run.{sh,ps1}        # mila-mis     (publishes the port to the host)
 ```
 
 ## How it fits together
@@ -64,8 +74,55 @@ scripts/chat-run.{sh,ps1}       # mila-chat   (args forwarded, e.g. --help)
   host↔container filesystem boundary. `ccache` persists in the `mila-ccache` volume. Both
   survive `run --rm`, so rebuilds are incremental.
 - **`mila-build-chat`** configures + builds only the `ChatApp` target (no tests, samples,
-  profiling, docs, or Python binding). **`mila-chat`** `cd`s into `/build` (where the
-  POST_BUILD step copies `Data/`) and runs `ChatApp`; arguments are forwarded.
+  profiling, docs, or Python binding) — the fast path when you just want to run Chat.
+  **`mila-chat`** `cd`s into `/build` (where the POST_BUILD step copies `Data/`) and runs
+  `ChatApp`; arguments are forwarded.
+- **`mila-build-all`** configures + builds the full user-facing product set — library,
+  samples, Chat, and the Python binding — for someone who wants more than Chat from the
+  known environment. It builds for `MILA_CUDA_ARCH` (default `native` — CMake detects the
+  arch of the GPU(s) present, so a multi-card host builds for all of them) instead of the
+  library's portable five, which is the main build-time saving; set `MILA_CUDA_ARCH=89` to
+  target a specific arch. Tests are off by default (this is a convenience build, not a
+  portability/test gate — those are owned by CI and the WSL build; see the repo-root
+  `RELEASING.md`); set `MILA_ENABLE_TESTING=ON` to also build the GTest suite.
+- **`mila-build-mis`** builds the `mila` Python binding (the `MilaPy` target — no Chat,
+  samples, or tests) and a Python venv at `/build/mis-venv` with the MIS server deps.
+  **`mila-mis`** runs the server. See the next section.
+
+## Driving Mila from a harness (MIS)
+
+The **Mila Inference Server** is the HTTP *wire adaptor*: it serves the `mila` binding under
+an OpenAI / Anthropic / Mila-native protocol, so a foreign harness (Codex CLI, Claude Code
+CLI, …) can use Mila as its model brain. The container is the easy path — on the host, MIS
+means reconciling a Python-3.13-locked binding against an isolated venv; in the container
+there is one Python, so the binding and server always match.
+
+```bash
+# 1. Build the binding + server venv (once, or after changing the binding)
+docker compose -f Docker/docker-compose.yml run --rm mila-dev mila-build-mis
+
+# 2. Run the server, publishing its port to the host (default 6452)
+docker compose -f Docker/docker-compose.yml run --rm --publish 6452:6452 \
+    -e MILA_PORT=6452 mila-dev mila-mis
+```
+
+The host wrappers `scripts/mis-build.{sh,ps1}` and `scripts/mis-run.{sh,ps1}` do the same
+(the run wrapper handles `--publish` for you). Then point a harness at
+`http://localhost:6452` — e.g. an OpenAI-compatible client at `http://localhost:6452/v1`,
+or Claude Code at the Anthropic `/v1/messages` path (launch with `MILA_PROTOCOL=anthropic`).
+
+- **Port:** `6452` by default (`MILA_PORT`) — distinctive and collision-unlikely ("MILA" on
+  a phone keypad), deliberately not the crowded generic-HTTP `8000`.
+- **Protocol:** `MILA_PROTOCOL` selects one adapter per launch (`openai` default, or
+  `anthropic` / `mila`). Only that protocol's routes are registered.
+- **Model:** defaults to the Gemma 4 12B artifacts under the bind-mounted
+  `/mila/Data/Models`; override with `MILA_MODEL_PATH` / `MILA_TOKENIZER_PATH` /
+  `MILA_MODEL_FAMILY`. These are exported by `mila-mis` so they win over the committed
+  `Server/.env` (whose Windows paths don't exist in the container); the tuned
+  `MILA_CONTEXT_LENGTH` and generation defaults in that `.env` still apply.
+
+See `Mila/Adaptors/Inference/Server/README.md` for the full protocol/endpoint and
+configuration reference.
 
 ## VS Code Dev Container
 

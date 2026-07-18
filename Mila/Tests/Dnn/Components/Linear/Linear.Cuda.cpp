@@ -43,6 +43,11 @@ import Mila;
 // concrete ExecutionContext<Cuda> methods (getCublasLtHandle, etc.). The Mila
 // umbrella does not complete that type for a consumer TU, so import it directly.
 import Compute.ExecutionContext;
+// Same reason: the weight-quant policy structs (PerChannelFp8 / PerGroupFp4) and the
+// serialization blob types (TensorMetadata / TensorBlobView) are not re-exported through
+// the Mila umbrella, so import their modules directly (clang requires it; MSVC did not).
+import Dnn.Quantization.Weight.Policies;
+import Serialization.Tensor;
 
 namespace Mila::Tests::Dnn::Components::Linear
 {
