@@ -251,20 +251,27 @@ in [BACKLOG.md](BACKLOG.md) under *Module Hygiene*, *Public API Surface*, and *R
 - [ ] Add the Samples build to CI (only the tests build today) so a contributor's first sample build is not the thing that breaks
 - [~] Linux build validated as a first-class platform — for v0.20 the supported Linux compiler is
   **Clang (19+/21), CUDA 13.3**. The WSL Clang oracle exists, CI compiles the tree under clang-21, and
-  the dev container now builds Mila + runs Gemma 4 12B FP4 Chat on the GPU (2026-07-17). **GCC 16 as a
-  second module oracle is deferred to vNext** — the full compiler matrix is a post-v0.20 hardening pass,
-  not a beta gate, so the v0.20 Linux claim is Clang-only. See BACKLOG, *Module Hygiene* (cross-compiler
-  oracle) and *Release Assets & CI* (broaden compiler coverage)
+  the dev container now builds Mila + runs Gemma 4 12B FP4 Chat on the GPU (2026-07-17). The full WSL
+  `Build All` (library + tests + samples + Python binding) is now green under clang-21 (2026-07-18),
+  after a batch of MSVC-invisible fixes — PIC on the static library so the binding `.so` links, the
+  C++23 module direct-imports the umbrella does not re-export, and the two-phase-lookup `->template`
+  disambiguator in the samples (see CHANGELOG). So the samples and binding — not just lib + tests — now
+  compile clean under clang, de-risking their addition to CI. **GCC 16 as a second module oracle is
+  deferred to vNext** — the full compiler matrix is a post-v0.20 hardening pass, not a beta gate, so the
+  v0.20 Linux claim is Clang-only. See BACKLOG, *Module Hygiene* (cross-compiler oracle) and *Release
+  Assets & CI* (broaden compiler coverage)
 - [~] Reproducible container build — a pinned build container (CUDA `-devel` on Ubuntu 26.04) that
   builds Mila from a clean clone, so a contributor or CI reproduces the Linux build without host
   toolchain drift. This is the *build* environment; distinct from the runtime image below, which only
   packages the already-built artifacts. **Validated 2026-07-17:** `Docker/` reworked onto the CI
   toolchain (clang-21 modules + gcc-15 nvcc host, CUDA 13.3, CMake 4.2.3, Ninja, ccache); the image
   builds Mila + the Chat adaptor and runs Gemma 4 12B FP4 on the GPU at native decode speed (~49 tok/s),
-  surfacing + fixing two clang-only transitive-import breaks (`Network.ixx`, `Gemma.ixx`). **Remaining:**
-  validated against the bind-mounted working tree rather than a from-scratch in-container `git clone`,
-  and CI still apt-installs the toolchain rather than building `FROM` this image. See BACKLOG, *Module
-  Hygiene* (dev-container build)
+  surfacing + fixing two clang-only transitive-import breaks (`Network.ixx`, `Gemma.ixx`). Extended
+  2026-07-18: the container now also builds the full product set (`mila-build-all`) and the **MIS wire
+  server** (`mila-build-mis` / `mila-mis`) — validated end-to-end, serving Gemma 4 12B FP4 on `:6452` with
+  the FastAPI docs reachable from a host browser. **Remaining:** validated against the bind-mounted working
+  tree rather than a from-scratch in-container `git clone`, and CI still apt-installs the toolchain rather
+  than building `FROM` this image. See BACKLOG, *Module Hygiene* (dev-container build)
 - [ ] Published Docker runtime image (slim multi-stage GPU runtime, release-tagged)
 - [ ] Ungated GPT-2 quick-start path for zero-auth first run
 - [ ] `good first issue` labels on GitHub

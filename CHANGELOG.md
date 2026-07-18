@@ -16,6 +16,18 @@ release notes.
 The bridge from "the features work" to a tree honest enough to call beta. Milestone vision
 is in ROADMAP; open triage buckets are in BACKLOG.
 
+### Container MIS path validated end-to-end (0.20.0-alpha.6+111)
+
+The container `build-all` / MIS scaffolding shipped in +110 is now validated. `mila-build-mis` builds
+the `mila` binding (PIC-linked) and the server venv; `mila-mis` serves **Gemma 4 12B FP4 on `:6452`** —
+`/v1/health`, `/`, and `/v1/models` all answered from the host, and the FastAPI Swagger UI renders in a
+browser (prompt → binding → Gemma on a 12 GB card, tool-calling advertised). The container's Python is
+**3.14**, confirming the choice to install the server deps explicitly rather than via the pyproject
+(whose `>=3.13,<3.14` pin would have rejected it). Fixed two `run-mis.sh` bugs the smoke test surfaced:
+the server path was missing the nested `Mila/` segment (the binding lives at
+`Mila/Adaptors/Inference/Server`), and the model directory default used lowercase `gemma` where the real
+directory is `Gemma` — harmless on Windows, fatal on case-sensitive Linux.
+
 ### Full clang-21 / Linux build brought green — MSVC-invisible portability + build-infra batch (0.20.0-alpha.6+109..+110)
 
 The clang-21 build (CI's compile gate and the WSL `linux-clang-debug` full build) had been red on

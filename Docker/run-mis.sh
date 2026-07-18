@@ -18,7 +18,7 @@
 set -euo pipefail
 
 VENV=/build/mis-venv
-SERVER=/mila/Adaptors/Inference/Server
+SERVER=/mila/Mila/Adaptors/Inference/Server
 
 if [ ! -x "${VENV}/bin/python" ]; then
     echo "MIS is not built. Build it first with: mila-build-mis" >&2
@@ -36,8 +36,8 @@ export MILA_HOST="${MILA_HOST:-0.0.0.0}"
 export MILA_PORT="${MILA_PORT:-6452}"
 export MILA_PROTOCOL="${MILA_PROTOCOL:-openai}"
 export MILA_MODEL_FAMILY="${MILA_MODEL_FAMILY:-gemma}"
-export MILA_MODEL_PATH="${MILA_MODEL_PATH:-/mila/Data/Models/gemma/gemma4_12b_it_bf16.bin}"
-export MILA_TOKENIZER_PATH="${MILA_TOKENIZER_PATH:-/mila/Data/Models/gemma/gemma_tokenizer.bin}"
+export MILA_MODEL_PATH="${MILA_MODEL_PATH:-/mila/Data/Models/Gemma/gemma4_12b_it_bf16.bin}"
+export MILA_TOKENIZER_PATH="${MILA_TOKENIZER_PATH:-/mila/Data/Models/Gemma/gemma_tokenizer.bin}"
 
 if [ ! -f "${MILA_MODEL_PATH}" ]; then
     echo "Model file not found: ${MILA_MODEL_PATH}" >&2
