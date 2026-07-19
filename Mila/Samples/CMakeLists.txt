@@ -16,11 +16,11 @@ endif()
 # Mila/Adaptors/CMakeLists.txt.
 
 # QuickStart is intentionally NOT add_subdirectory()'d here. It is a standalone
-# find_package(Mila) example/consumer that must be configured on its own against an
-# install prefix, not built in-tree (an in-tree add_subdirectory would call
-# find_package(Mila) before Mila is installed, and would link the in-tree target
-# rather than the installed package). The Tests/Packaging gate drives it. See
-# QuickStart/README.md.
+# FetchContent(Mila) example/consumer -- it stands in for a downstream app that pulls
+# Mila in as a dependency, so it configures on its own and fetches Mila itself (an
+# in-tree add_subdirectory would be circular). The Tests/Packaging
+# packaging_fetchcontent_consumer gate validates the same mechanism against the local
+# tree. See QuickStart/README.md.
 
 if(WIN32)
   #add_subdirectory(Viz)

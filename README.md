@@ -221,6 +221,13 @@ double as a ruthless validation oracle.
 Located under `Samples/Mnist`. Trains a 3-layer MLP on MNIST to 97.5% test accuracy.
 Demonstrates the full training loop: data loading, forward pass, loss, backward pass, AdamW step.
 
+### QuickStart — consume Mila via FetchContent
+
+Located under `Samples/QuickStart`. A standalone downstream project showing how to depend on Mila
+with `FetchContent` (the supported consumption path for a C++23 module library) and call its public
+API. See [getting-started.md §7](getting-started.md) and the sample's
+[README](Mila/Samples/QuickStart/README.md).
+
 ---
 
 ## Build

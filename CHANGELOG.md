@@ -16,6 +16,17 @@ release notes.
 The bridge from "the features work" to a tree honest enough to call beta. Milestone vision
 is in ROADMAP; open triage buckets are in BACKLOG.
 
+### QuickStart sample + getting-started reframed to FetchContent (0.20.0-alpha.6+116)
+
+The find_package parking (+115) followed through into the consumer-facing sample and docs.
+`Samples/QuickStart` is reframed from a `find_package(Mila)` consumer to a **FetchContent** consumer —
+the standalone template a downstream app copies: its `CMakeLists.txt` uses `FetchContent_Declare` +
+`FetchContent_MakeAvailable` + link `Mila::Mila`, and its README + `main.cpp` docs are rewritten to the
+FetchContent flow. `getting-started.md` gains a new *"Consume Mila in your own project (FetchContent)"*
+section (§7, with Contributing/Where-to-go-next renumbered to §8/§9 and cross-references updated), and the
+root README lists QuickStart as the FetchContent consumer sample. `find_package` is presented as parked
+throughout.
+
 ### find_package parked; FetchContent is the supported consumption path (0.20.0-alpha.6+115)
 
 Resolves beta.1 gate #3 by reframing it. A C++23 module library is a source distribution — module
