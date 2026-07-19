@@ -57,9 +57,11 @@ here — tick the owning milestone item, and re-derive this rollup from it.
   build clean, ~980 ctest cases green in one pass); the `cpu-only-tests` CI job runs the CPU suite on
   every push/PR. Closes when the first GitHub Actions run is green. (Unblocked as predicted by the
   +112 poisoned-row drop — no BF16 typed test hard-errors.)
-- [ ] **`find_package(Mila)` builds for an external consumer** — today it **fails** (see
-  *Packaging*, a `[gate]`). Shipping a beta a contributor cannot `find_package` + `import Mila;`
-  contradicts the trust signal.
+- [x] **An external consumer can build against Mila (FetchContent) — MET; `find_package` PARKED
+  (2026-07-19).** Decided: a C++23 module library is a source distribution, so `find_package`'s
+  prebuilt-binary benefit is void; FetchContent (compile-once in the consumer's toolchain, link
+  `Mila::Mila`) is the supported path, validated green by `packaging_fetchcontent_consumer`.
+  `find_package` is parked (retired-in-place, opt-in; `MILA_INSTALL` OFF by default). See *Packaging*.
 
 **Trust-signal hygiene (cheap, mostly not code — but the export freeze is an asymmetric decision):**
 - [ ] **Freeze the narrowest defensible public export surface** (see *Public API Surface*) — must
@@ -211,19 +213,35 @@ Llama 3.1/3.2 fine-tuning is explicitly out of this release, remaining a Future 
 
 ## Packaging
 
-A downstream app consuming Mila via `find_package(Mila)` currently fails to build. C++23
-module interface units cannot ship as portable BMIs, so the consumer's toolchain
-recompiles the installed `.ixx` units, and each pulls its kernel header via a file-relative
-quoted include that resolves against the wrong tree on install. The real defect is how the
-`Mila` target is composed: kernel `.cuh`/`.h` headers are raw `add_library` sources (no base
-dir, no install rule, no usage requirement); CUDA sources are added unconditionally though
-`enable_language(CUDA)` is gated on `MILA_HAS_CUDA`; and three categories (`.cu` link-only
-instantiations, `.cuh`/`.h` shippable declarations, `.ixx` interface units) are flattened
-into one list.
+**`find_package(Mila)` is PARKED in favor of FetchContent (decided 2026-07-19).** A C++23 module
+library is a *source distribution*: interface units cannot ship as portable BMIs, so a consumer
+recompiles the `.ixx` graph in its own toolchain either way. That voids `find_package`'s
+prebuilt-binary benefit while carrying an install-layout apparatus (FILE_SETs, kernel-header
+mirroring, the `MilaTargets` export) plus toolchain/ABI coupling between the prebuilt `.a` and the
+consumer's recompiled modules. **FetchContent** compiles Mila once, in the consumer's own toolchain
+(`FetchContent_Declare(Mila GIT_REPOSITORY/URL ...)` + `FetchContent_MakeAvailable(Mila)` + link
+`Mila::Mila`) — the same mechanism Mila already uses for its own deps (googletest, CUTLASS,
+nlohmann) — and is the supported consumption path.
 
-- [ ] **[gate]** Single coherent restructuring (not a destination patch): model headers as `FILE_SET HEADERS TYPE HEADERS BASE_DIRS Src`; migrate file-relative quoted includes to angled includes anchored at one `Src` root (vendored `Deps` gets its own root so nlohmann becomes `<nlohmann/json.hpp>`); set `BASE_DIRS` on the `CXX_MODULES` file sets to the same `Src` root; move all CUDA `.cu`/`.cuh` sources under `if(MILA_HAS_CUDA)` via `target_sources`; replace the `install(DIRECTORY …)` glob with `install(TARGETS Mila … FILE_SET HEADERS)`. The include root must be on Mila's own build path (current root at `Mila/CMakeLists.txt:128` is INTERFACE-only — make it PUBLIC or add a PRIVATE entry or the in-tree build breaks once includes are anchored); install the generated `Version.h` and `Deps/` alongside the modules. Validate with a throwaway `find_package(Mila)` + `import Mila;` consumer wired into CI (Mila's own CI stays green and will not catch packaging regressions on its own)
-- [ ] Suggested sequencing: convert one CUDA op to angled includes and get the in-tree build green first (proves the root/`-I` model), then bulk-convert backend-by-backend (the compiler flags every missed header), then do the install-side CMake and the consumer test last
-- [ ] **[deferred, later in Beta]** Decide whether the kernel `.cuh` *declarations* belong in the public install surface at all — kernels are explicitly instantiated per precision in `.cu` files compiled into the archive, so consumers link the symbols and only need declarations to call the launch wrappers; the shippable surface may be reducible. Separate architectural decision, out of scope for the packaging fix above
+- [x] **[gate — MET via FetchContent]** A downstream consumer builds against Mila: the
+  `packaging_fetchcontent_consumer` gate embeds Mila as a subproject (`add_subdirectory`) and links
+  `Mila::Mila`, proving Mila is subproject-friendly (no `CMAKE_SOURCE_DIR`/top-level assumptions, no
+  install-rule leakage). This is the supported path and the beta gate. The opt-in
+  `packaging_cpm_consumer` (network, requires a pushed tag) additionally proves a published tag is
+  fetchable. The former find_package restructuring is largely already in the tree (FILE_SETs, `BASE_DIRS`,
+  `MILA_HAS_CUDA` gating, install-tree mirror, `Deps/`+`Version.h`, no header drift) — but it is no longer
+  a gate
+- [~] **[PARKED]** `find_package(Mila)` install-layout — retired in place, not deleted. `MILA_INSTALL`
+  and the `MILA_ENABLE_FIND_PACKAGE_GATE` test gate both default **OFF**; the fixture
+  (`Samples/QuickStart`, `drive_consumer.cmake`) and the `if(MILA_INSTALL)` install/export block stay on
+  disk. Un-park only if a genuine find_package consumer need appears, then finish + re-gate. Two dormant
+  install-path warts found 2026-07-18 while probing the gate (both fire only under `MILA_INSTALL=ON`, so
+  moot while parked): (a) `install(TARGETS tokenize)` ([Mila/Tools/Tokenize/CMakeLists.txt:18](Mila/Tools/Tokenize/CMakeLists.txt))
+  is unconditional, so a library-only `cmake --install` requires the dev tool built; (b) googletest install
+  rules run under `MILA_ENABLE_TESTING=ON` (no `INSTALL_GTEST=OFF` / `EXCLUDE_FROM_ALL`), so the parked
+  install tree would drag gtest
+- [~] **[PARKED]** Whether the kernel `.cuh` declarations belong in the (parked) install surface — moot
+  while find_package is parked; revisit only if un-parked
 
 ---
 
@@ -284,8 +302,8 @@ transitive closure into BMIs, and (2) every re-exported symbol as a frozen promi
 
 ## Release Assets & CI
 
-Mila is source-distributed (clone to contribute; `find_package(Mila)` from a source install
-to consume), so most release-asset machinery is unnecessary — GitHub auto-generates source
+Mila is source-distributed (clone to contribute; **FetchContent** to consume — `find_package`
+is parked, see *Packaging*), so most release-asset machinery is unnecessary — GitHub auto-generates source
 archives per tag, so **tagging `master` is the release**. Release flow is a `dev` → `master`
 PR; CI validates on the PR; docs publish only from `master`. During alpha the **default
 branch is `dev`**; at beta **switch the default to `master`** (README/roadmap links are

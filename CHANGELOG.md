@@ -16,6 +16,26 @@ release notes.
 The bridge from "the features work" to a tree honest enough to call beta. Milestone vision
 is in ROADMAP; open triage buckets are in BACKLOG.
 
+### find_package parked; FetchContent is the supported consumption path (0.20.0-alpha.6+115)
+
+Resolves beta.1 gate #3 by reframing it. A C++23 module library is a source distribution — module
+BMIs are not portable, so a consumer recompiles Mila's `.ixx` graph in its own toolchain regardless —
+which voids `find_package`'s prebuilt-binary benefit while carrying an install-layout apparatus and
+toolchain/ABI coupling between the prebuilt archive and the consumer's recompiled modules.
+**FetchContent** compiles Mila once, in the consumer's own toolchain
+(`FetchContent_Declare(Mila GIT_REPOSITORY/URL ...)` + `FetchContent_MakeAvailable(Mila)` + link
+`Mila::Mila`), the same mechanism Mila already uses for its own dependencies (googletest, CUTLASS,
+nlohmann). It is validated green by the `packaging_fetchcontent_consumer` gate, which becomes the
+primary packaging gate.
+
+`find_package(Mila)` is **parked, not removed** — retired in place: `MILA_INSTALL` and a new
+`MILA_ENABLE_FIND_PACKAGE_GATE` both default `OFF`, so no install/export rules are generated and the
+find_package gate does not run, but the fixture (`Samples/QuickStart`, `drive_consumer.cmake`) and the
+`if(MILA_INSTALL)` install block stay on disk for opt-in use. Two dormant install-path warts were found
+while probing the gate (both fire only under `MILA_INSTALL=ON`, so moot while parked, recorded in
+BACKLOG): the unconditional `install(TARGETS tokenize)` and googletest's install rules under
+`MILA_ENABLE_TESTING=ON`.
+
 ### Feature freeze declared + Consolidation milestone closed (0.20.0-alpha.6+113)
 
 v0.20 is **feature frozen** — no more additions, hardening only (the beta.1 posture). Every open

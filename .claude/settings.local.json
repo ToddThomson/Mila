@@ -170,7 +170,8 @@
       "Bash(wsl.exe -d Ubuntu-Dev -e bash -lc 'grep -q \"\\\\\"type\\\\\":\\\\\"result\\\\\"\" ~/mis_ab/out/V_todo_5.jsonl 2>/dev/null')",
       "Bash(time docker compose -f Docker/docker-compose.yml run -T --rm mila-dev mila-build-chat)",
       "Bash(time docker compose -f Docker/docker-compose.yml run -T --rm -e MILA_BUILD_JOBS=3 mila-dev mila-build-chat)",
-      "Bash(docker compose *)"
+      "Bash(docker compose *)",
+      "Bash(docker compose -f Docker/docker-compose.yml run --rm -T mila-dev bash -lc ' *)"
     ]
   }
 }

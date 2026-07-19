@@ -244,11 +244,15 @@ in [BACKLOG.md](BACKLOG.md) under *Module Hygiene*, *Public API Surface*, and *R
   see BACKLOG, *Product Family — Grammar-in-Runtime Consolidation*). The C++ side is done (runtime
   `Dnn.Components.GemmaProtocol` module + Chat consuming it); the remaining MIS execution-time scope
   call moves to the *Product Family — Adaptor Validation* milestone below
-- [ ] `find_package(Mila)` builds for an external consumer — today it **fails**: C++23 module units
-  recompile on the consumer side and their file-relative kernel includes resolve against the wrong
-  tree. Not a validation pass but a *coherent target-composition restructuring* (`FILE_SET HEADERS`,
-  angled includes anchored at one `Src` root, CUDA sources under `MILA_HAS_CUDA`), validated by a
-  throwaway `find_package(Mila)` + `import Mila;` consumer wired into CI. See BACKLOG, *Packaging* (a `[gate]`)
+- [x] An external consumer can build against Mila — **via FetchContent, the supported path (gate met).**
+  Decided 2026-07-19: a C++23 module library is a *source distribution* (BMIs are not portable, so a
+  consumer recompiles the module graph either way), which voids `find_package`'s prebuilt-binary benefit
+  while carrying an install-layout apparatus and toolchain/ABI coupling. FetchContent compiles Mila once,
+  in the consumer's own toolchain — `FetchContent_Declare(Mila GIT_REPOSITORY/URL ...)` +
+  `FetchContent_MakeAvailable(Mila)` + link `Mila::Mila` — the way Mila already consumes its own deps
+  (googletest, CUTLASS, nlohmann). This is validated green by the `packaging_fetchcontent_consumer` gate.
+  **`find_package(Mila)` is PARKED** (retired in place, opt-in `MILA_ENABLE_FIND_PACKAGE_GATE` / `MILA_INSTALL`
+  OFF by default) — a non-gate. See BACKLOG, *Packaging*
 - [ ] Freeze the narrowest defensible public export surface — define the `Mila.ixx` allowlist, demote
   internal modules, stop re-exporting vendored `nlohmann`. At freeze the cost is asymmetric (too-broad
   can only be undone by a breaking removal). See BACKLOG, *Public API Surface*
