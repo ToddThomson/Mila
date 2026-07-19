@@ -16,6 +16,35 @@ release notes.
 The bridge from "the features work" to a tree honest enough to call beta. Milestone vision
 is in ROADMAP; open triage buckets are in BACKLOG.
 
+### Dispatch pair — poisoned BF16 rows dropped + `OperationSupported` predicate (0.20.0-alpha.6+112)
+
+Closes Consolidation's last hard box and the paired *Dispatch error UX* deliverable, and unblocks the
+Test Suite Revival CI ratchet (BF16 typed tests can no longer hard-error on a bad dispatch row). Two
+compile-time-only core-library edits:
+
+- **Dropped the four poisoned BF16 dispatch rows** — `OperationTraits<{Gelu,MultiHeadAttention,Softmax,
+  Lpe}Op, Cuda, BF16>`. Each named a `CudaXxxOp<BF16>` whose kernel is constrained `float || half`, so
+  the row advertised an op that hard-errors the moment a BF16 typed test constructs it. FP32-only is the
+  honest advertisement: all four are GPT-2 lineage or off the BF16 inference path (the BF16 FFN uses
+  Geglu, attention uses GQA, positions use RoPE; GPT-2 MHA/Lpe run FP32). Each row is replaced by a
+  comment explaining the rationale and how to re-add a real BF16 kernel later; the BF16 `REVIEW:` markers
+  in `CudaMhaOp.Dispatch.ixx` / `CudaLpeOp.Dispatch.ixx` are resolved. The desync audit is discharged —
+  those four were the only poisoned rows (the remaining BF16 rows are exercised in production, and
+  CrossEntropy's kernel is genuinely `float || nv_bfloat16`).
+- **Added the `OperationSupported<...>` concept** and a declaration-only-primary contract on
+  `OperationTraits`. An unsupported tuple now names an incomplete type, so the compiler emits a
+  one-line "use of undefined type `OperationTraits<Op,Device,Precision,Policy>`" naming the exact tuple
+  instead of a multi-hundred-line constraint cascade. The SFINAE-safe `OperationSupported` predicate
+  (a completeness probe covering both `type`- and `op_for`-bearing specializations) lets a
+  multi-precision typed test skip the precisions an op does not implement via `if constexpr`. A literal
+  `static_assert(always_false)` on the primary body was rejected as mutually exclusive with a
+  SFINAE-safe predicate — probing an always-asserting primary fires the assert — so the declaration-only
+  primary delivers the readable diagnostic and the probeable predicate as one mechanism.
+
+Safe by construction: the green-build invariant, the four active CUDA tests already being FP32-only by
+explicit design, and the models using MHA/Lpe only on the FP32 path all confirm nothing formed a BF16
+`OpType` alias for these ops.
+
 ### Container MIS path validated end-to-end (0.20.0-alpha.6+111)
 
 The container `build-all` / MIS scaffolding shipped in +110 is now validated. `mila-build-mis` builds

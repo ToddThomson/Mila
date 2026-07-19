@@ -71,7 +71,7 @@ consolidation.
 - [~] FFN consolidation — de-polymorphize `MLP`: the **blocking** runtime activation dispatch is gone (`MLP` holds a concrete `Gelu` child; the `mlp_activation_impl` / `std::function` bridge / SwiGLU branch retired in `MLP.Dispatch.ixx`, out of build), `Swiglu` -> `FFN/Swiglu/` and `MLP` -> `FFN/MLP/` relocated, and `MLP<Cpu>` / `GptBlock<Cpu>` / `GptTransformer<Cpu>` now build (their `.Cpu.cpp` tests are active). **Remaining (deferred):** fold the fixed `Gelu` child onto the generalized `Activation<…, ActivationType TFn = Gelu>` — the compile-time-`TActivation` endgame — tracked under the `Activation` elementwise-primitive item below. Design: `Specifications/FfnAndMoE.md`
 - [~] FFN consolidation — `Activation` elementwise primitive: compile-time `TFn`, the `MILA_HD` functor library, and the Cpu/Cuda `ElementwiseActivationOp` (functor-templated, not a traits axis); `Gelu` folds in. **Landed alongside `Gelu`:** the functor library (all 8 functions), `Cpu`/`Cuda` `ElementwiseActivationOp` (FP32 / FP32+BF16), the member-template `op_for<Functor>` traits, the `Activation<…, TFn>` component + config, and its CPU/CUDA tests. The reusable `GatedMLP` gated FFN (single-expert reference, `TGate` fixed to SiLU) landed with it. **Remaining:** fold `Gelu` (+ `MLP`'s child) onto `Activation`; CPU `SwigluOp` + `Swiglu<…, TGate>` generalization — tracked in BACKLOG
 - [x] Hardening — couple the `initialize_parameters` default to `RuntimeMode` — the `BuildContext` third argument is now `std::optional<bool>` (nullopt => derived: Training initializes, Inference skips), so an inference-mode build can no longer silently run then discard parameter initialization by omitting the flag; all existing explicit call sites (`false` on the three `fromPretrained` paths, propagated `shouldInitializeParameters()` in Llama/Gemma) compile unchanged
-- [ ] Resolve the poisoned BF16 dispatch rows — `OperationTraits<{Gelu,MultiHeadAttention,Softmax,Lpe}Op, Cuda, BF16>` advertise ops whose kernels are `float || half` only, so instantiating them is a hard compile error the moment a BF16 typed test touches them (surfaced by Test Suite Revival). Drop the rows (FP32-only is honest) or add BF16 kernels; audit for other traits-vs-kernel desync during the FP16 removal. See BACKLOG, *Consolidation* (poisoned-row item) and *Dispatch error UX*
+- [x] Resolve the poisoned BF16 dispatch rows — **DONE (0.20.0-alpha.6+112, VS2026 build green):** the four rows `OperationTraits<{Gelu,MultiHeadAttention,Softmax,Lpe}Op, Cuda, BF16>` are dropped (FP32-only is the honest advertisement — those ops' kernels are `float || half` only, the BF16 FFN/attention paths use Geglu/GQA/RoPE, and GPT-2 MHA/Lpe run FP32). Paired with the **Dispatch error UX** deliverable below (`OperationSupported<...>` predicate + declaration-only primary => a missing tuple reads as a one-line "undefined type" naming the tuple, not a cascade). The desync audit is discharged: those four were the only poisoned rows (CrossEntropy's BF16 row is honest — its kernel is `float || nv_bfloat16`). The active CUDA tests were already FP32-only by explicit design, so no test needed changing. See BACKLOG, *Consolidation* (poisoned-row item) and *Dispatch error UX*
 
 **Exit:** every box checked, no literal `FIXME` in public source, debug instrumentation gone, and the
 Component lifecycle is sound enough to re-enable the component/training tests.
@@ -244,10 +244,18 @@ in [BACKLOG.md](BACKLOG.md) under *Module Hygiene*, *Public API Surface*, and *R
 - [ ] Freeze the narrowest defensible public export surface — define the `Mila.ixx` allowlist, demote
   internal modules, stop re-exporting vendored `nlohmann`. At freeze the cost is asymmetric (too-broad
   can only be undone by a breaking removal). See BACKLOG, *Public API Surface*
-- [ ] Dispatch error UX — a missing/broken `(Op, Device, Precision)` specialization must read as a
-  sentence, not a 200-line MSVC constraint cascade (`static_assert(always_false)` on the traits
-  primary + a shared `OperationSupported<...>` predicate). Contributor-readiness gate; pairs with the
-  poisoned-row fix under Consolidation. See BACKLOG, *Project Hygiene — Dispatch error UX*
+- [~] Dispatch error UX — a missing/broken `(Op, Device, Precision)` specialization must read as a
+  sentence, not a 200-line MSVC constraint cascade. **Core landed (0.20.0-alpha.6+112, VS2026 build
+  green); optional (C) named kernel concepts + §12 spec reconcile remain:** the
+  `OperationTraits` primary stays declaration-only, so an unsupported tuple names an incomplete type
+  and the compiler emits a one-line "use of undefined type `OperationTraits<Op,Device,Precision,Policy>`"
+  naming the exact tuple; the shared **`OperationSupported<...>` concept** (SFINAE-safe completeness
+  probe, covers both `type`- and `op_for`-bearing specializations) lets a multi-precision typed test
+  skip unsupported precisions via `if constexpr`. Note vs. the original sketch: a literal
+  `static_assert(always_false)` *on the primary body* is mutually exclusive with a SFINAE-safe
+  predicate (the probe would instantiate the primary and fire the assert), so the diagnostic rides the
+  declaration-only primary + the predicate instead. Pairs with the poisoned-row drop under
+  Consolidation. See BACKLOG, *Project Hygiene — Dispatch error UX*
 - [ ] Add the Samples build to CI (only the tests build today) so a contributor's first sample build is not the thing that breaks
 - [~] Linux build validated as a first-class platform — for v0.20 the supported Linux compiler is
   **Clang (19+/21), CUDA 13.3**. The WSL Clang oracle exists, CI compiles the tree under clang-21, and

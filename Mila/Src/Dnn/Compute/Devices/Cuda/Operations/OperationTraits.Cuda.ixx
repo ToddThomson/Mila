@@ -143,11 +143,10 @@ namespace Mila::Dnn::Compute
         using type = Cuda::Gelu::CudaGeluOp<TensorDataType::FP32>;
     };
 
-    template<>
-    struct OperationTraits<OperationType::GeluOp, DeviceType::Cuda, TensorDataType::BF16, void>
-    {
-        using type = Cuda::Gelu::CudaGeluOp<TensorDataType::BF16>;
-    };
+    // No BF16 row: cuda_gelu_impl is `float || half` only, so a BF16 row would advertise
+    // an op that hard-errors on instantiation. FP32-only is the honest advertisement; the
+    // BF16 FFN path uses GegluOp, not the standalone GeluOp. Re-add with a BF16 kernel, not
+    // a bare row, if a BF16 GeluOp is ever needed.
 
     // -------------------------------------------------------------------------
     // ElementwiseActivationOp -- CUDA specializations (FP32, BF16)
@@ -232,11 +231,9 @@ namespace Mila::Dnn::Compute
         using type = Cuda::Softmax::CudaSoftmaxOp<TensorDataType::FP32>;
     };
 
-    template<>
-    struct OperationTraits<OperationType::SoftmaxOp, DeviceType::Cuda, TensorDataType::BF16, void>
-    {
-        using type = Cuda::Softmax::CudaSoftmaxOp<TensorDataType::BF16>;
-    };
+    // No BF16 row: cuda_softmax_forward is `float || half` only. The BF16 attention path
+    // runs softmax inside the fused GQA/decode kernels, not through the standalone SoftmaxOp.
+    // FP32-only is honest here; re-add with a BF16 kernel, not a bare row, if ever needed.
 
     // -------------------------------------------------------------------------
     // SwigluOp -- CUDA specializations
@@ -280,11 +277,9 @@ namespace Mila::Dnn::Compute
         using type = Cuda::MultiHeadAttention::CudaMultiHeadAttentionOp<TensorDataType::FP32>;
     };
 
-    template<>
-    struct OperationTraits<OperationType::MultiHeadAttentionOp, DeviceType::Cuda, TensorDataType::BF16, void>
-    {
-        using type = Cuda::MultiHeadAttention::CudaMultiHeadAttentionOp<TensorDataType::BF16>;
-    };
+    // No BF16 row: CudaMhaOp dispatch is `float || half` only (the GPT-2 lineage runs MHA at
+    // FP32). Llama/Gemma use GQA, not MHA. FP32-only is honest; re-add with a BF16 kernel,
+    // not a bare row, if a BF16 MHA is ever needed. (Resolves the BF16 REVIEW in CudaMhaOp.Dispatch.ixx.)
 
     // -------------------------------------------------------------------------
     // RopeOp -- CUDA specializations
@@ -313,11 +308,10 @@ namespace Mila::Dnn::Compute
         using type = Cuda::Lpe::CudaLpeOp<TensorDataType::INT32, TensorDataType::FP32>;
     };
 
-    template<>
-    struct OperationTraits<OperationType::LpeOp, DeviceType::Cuda, TensorDataType::BF16, void>
-    {
-        using type = Cuda::Lpe::CudaLpeOp<TensorDataType::INT32, TensorDataType::BF16>;
-    };
+    // No BF16 row: CudaLpeOp dispatch is `float || half` only. Learned positional embeddings
+    // are a GPT-2-lineage feature and that path runs at FP32; Llama/Gemma use RoPE. FP32-only
+    // is honest; re-add with a BF16 kernel, not a bare row, if ever needed. (Resolves the BF16
+    // REVIEW in CudaLpeOp.Dispatch.ixx.)
 
     // -------------------------------------------------------------------------
     // TokenEmbeddingOp -- CUDA specializations
