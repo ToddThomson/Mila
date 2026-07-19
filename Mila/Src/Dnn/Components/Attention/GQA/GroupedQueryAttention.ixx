@@ -174,7 +174,11 @@ namespace Mila::Dnn
                     cache_initialized_ = true;
                 }
 
-                // REVIEW: Needs triage to understand the reason for this FIXME commented out code.
+                // REVIEW: dead branch -- for the KV-cache backend forward() returns an
+                // un-computed output_view_ and is unreached in the validated path (Llama/Gemma
+                // drive prefill()/decode() directly). The retired call below used a stale 3-arg
+                // prefill(input, output, 0) signature that no longer exists. Retire-vs-wire is
+                // tracked: see BACKLOG, "GroupedQueryAttention::forward standalone path is a no-op stub".
                 // positional_op_->prefill( input, *output_view_, 0 );
                 return *output_view_;
             }

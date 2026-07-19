@@ -33,20 +33,24 @@ v0.20 scope — most ROADMAP milestones are either done, self-declared non-gates
 here — tick the owning milestone item, and re-derive this rollup from it.
 
 **Decision (not code) — the biggest unblock:**
-- [ ] **Freeze the feature set** — resolve every open *feature* milestone **done-or-deferred**: the
+- [x] **Freeze the feature set — DECIDED 2026-07-18 (user, emphatic: "no more additions, period").**
+  A hard freeze — nothing is "finished," every open *feature* milestone is **deferred to vNext**: the
   *Generation API* tail (SamplerConfig rename, Llama/Gpt seedable sampling, eager sampler, accessor
   propagation), the *LanguageNetwork — Sample API* Llama/Gpt migration, and the **unspecced *Chat*
-  milestone** (a live scope hole — either spec a minimal frozen surface or defer it to vNext). You
-  cannot flip to `beta` with open feature milestones. Finish the trivial Gemma-adjacent tails; punt
-  the rest to vNext.
+  milestone** (deferred whole — no spec authored, no surface added). This is the beta.1 posture
+  (`beta.X` = feature-frozen, hardening only). What stays in v0.20 is **not** feature work: Test Suite
+  Revival, Training Revival (recovery of already-validated samples), API Documentation, Production
+  Hardening, and MIS Adaptor Validation — the path *to* beta. New "nice additions" go to the vNext /
+  Future section, never into v0.20.
 
 **Engineering gates (the three that are real work):**
-- [~] **Close Consolidation** — the milestone that literally "earns the right to call it beta." The
-  one hard item — the **poisoned BF16 dispatch rows** — is **done (dropped, awaiting VS2026 build)**,
-  landed together with the **Dispatch error UX** `OperationSupported<...>` predicate (see *Consolidation*
-  / *Project Hygiene — Dispatch error UX*). Remaining to formally close: the [~] remainders (marker
-  burndown, FFN fold, legacy-dispatch retire) need a conscious done-or-deferred disposition, not new
-  work.
+- [x] **Close Consolidation — DONE 2026-07-18 (0.20.0-alpha.6+112..+113).** The milestone that literally
+  "earns the right to call it beta." The hard item — the **poisoned BF16 dispatch rows** — dropped at +112
+  (VS2026 green), landed with the **Dispatch error UX** `OperationSupported<...>` predicate. The four
+  scope-complete `[~]` remainders (legacy-dispatch retire, marker burndown, both FFN items) were ticked
+  at +113 with their net-new/training remainders relocated to vNext / Training Revival under the feature
+  freeze; the last stray literal `FIXME` (GQA `forward()` dead-branch) reworded, and the orphaned
+  `Dnn/Decoders/` skeleton moved out of the tree. See ROADMAP *Consolidation* (CLOSED note).
 - [ ] **Test Suite Revival CI ratchet** — the correctness keystone: full suite green in one pass +
   wire the `MILA_ENABLE_CUDA=OFF` CPU-only gate (see *Test Suite Revival*, the `[gate]` item).
   Blocked by the poisoned BF16 rows above (they hard-error the BF16 typed tests), so Consolidation

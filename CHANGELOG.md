@@ -16,6 +16,24 @@ release notes.
 The bridge from "the features work" to a tree honest enough to call beta. Milestone vision
 is in ROADMAP; open triage buckets are in BACKLOG.
 
+### Feature freeze declared + Consolidation milestone closed (0.20.0-alpha.6+113)
+
+v0.20 is **feature frozen** — no more additions, hardening only (the beta.1 posture). Every open
+*feature* milestone is deferred to vNext rather than finished: the Generation API tail, the Sample-API
+Llama/Gpt migration, and the unspecced Chat milestone. What remains in v0.20 is recovery and validation,
+not new features — Test Suite Revival, Training-sample revival, API Documentation, Production Hardening,
+and MIS Adaptor Validation.
+
+With the freeze in place, the **Consolidation milestone is closed.** Its one hard item (the poisoned BF16
+dispatch rows) landed at +112; the four scope-complete remainders — legacy-dispatch retire, marker
+burndown, and both FFN-consolidation items — are ticked with their net-new / training-only remainders
+relocated to vNext and Training Revival. The last stray literal `FIXME` in public source (the
+`GroupedQueryAttention::forward()` dead-branch comment, an unreached KV-cache path — Llama/Gemma drive
+`prefill()`/`decode()`) was reworded to a clean `REVIEW` pointing at its tracked bug, and the orphaned
+`Dnn/Decoders/` skeleton (superseded by `Dnn.Samplers`) was moved out of the tree. Consolidation's exit
+criteria are met: no literal `FIXME` in public source, debug instrumentation gone, and a Component
+lifecycle sound enough that the component tests are re-enabled.
+
 ### Dispatch pair — poisoned BF16 rows dropped + `OperationSupported` predicate (0.20.0-alpha.6+112)
 
 Closes Consolidation's last hard box and the paired *Dispatch error UX* deliverable, and unblocks the
