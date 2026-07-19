@@ -58,6 +58,28 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     },
     {
+      "name": "linux-clang-cpu-debug",
+      "displayName": "Linux Clang CPU-only Debug",
+      "description": "Clang, MILA_ENABLE_CUDA=OFF -- the CPU-only test-ratchet build (Mila lib + MilaTests only; no CUDA language, samples, or adaptors). Verifies the CPU-only clang path and runs the CPU suite via ctest. CUDA is not enabled (project() declares only CXX; enable_language(CUDA) is gated on MILA_ENABLE_CUDA), so no nvcc/toolkit is required and CUTLASS is not fetched.",
+      "inherits": "linux-clang-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MILA_ENABLE_CUDA": "OFF",
+        "MILA_ENABLE_SAMPLES": "OFF",
+        "MILA_ENABLE_ADAPTORS": "OFF",
+        "MILA_ENABLE_PYTHON_BINDINGS": "OFF",
+        "MILA_ENABLE_PROFILING": "OFF",
+        "MILA_ENABLE_DOCS": "OFF"
+      }
+    },
+    {
+      "name": "linux-clang-cpu-release",
+      "displayName": "Linux Clang CPU-only Release",
+      "description": "Release variant of linux-clang-cpu-debug (the config the CPU-only CI ratchet job mirrors).",
+      "inherits": "linux-clang-cpu-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
       "name": "macos-debug",
       "displayName": "macOS Debug",
       "description": "Target a remote macOS system.",
