@@ -124,7 +124,7 @@ so a future API churn fails loudly instead of silently rotting coverage.
 - [ ] Backfill the inference-drought coverage the old suite never had — load-time quantization (`PerChannelFp8` / `PerGroupFp4`, the decode matvec kernels), `OperationTraits` dispatch, and the Llama path (RmsNorm / SwiGLU / GQA / RoPE components + `LlamaModel::fromPretrained`); the `CudaLinearOp` quantization white-box is the sole legitimate op-layer test. Genuinely new, not recovery
 - [~] Re-green in sample-revival order — MNIST spine first, Bard spine second (mirrors Training Revival sequencing). MNIST spine mostly landed (`CompositeComponent`, `AdamW.Cpu`, `DataLoader`(+`.Cuda`), `Network.Cpu`, `TensorOps/Random.Cpu`); remaining: the thin `Core/Network.cpp` delta + the GPU companions (`Network.Cuda` / `AdamW.Cuda`), then the Bard GPT-2 stack tail
 - [x] Verify the full suite green in one pass (CPU-only `MILA_ENABLE_CUDA=OFF` and the CUDA build) — **CPU-only leg verified 2026-07-18:** a from-scratch `linux-clang-cpu-debug` build (new preset) compiled clean under clang-21 (the CPU-only library path had *not* bit-rotted — no portability fixes needed) and `ctest` ran green in one pass (~980 cases, zero failures; GPU/data-dependent cases self-skip). The CUDA-build leg is green in the user's VS2026 / WSL `Build All`. Baseline established for the CI gate
-- [~] **[gate]** Wire the suite into CI as the anti-rot ratchet, building on the `MILA_ENABLE_CUDA=OFF` CPU-only gate so a future API churn fails the build instead of silently re-commenting coverage — the deliverable that keeps the revival alive. **Wired (0.20.0-alpha.6+114, awaiting first CI run):** a `cpu-only-tests` job in `build-pipeline.yml` runs the CPU suite on every push/PR to dev+master — plain `ubuntu:26.04` (clang-21, no CUDA image/toolkit, no CUTLASS fetch), mirroring the `linux-clang-cpu-release` preset, `ctest --output-on-failure`. This is the first CI job that *runs* tests (compile-and-gate only compiles; GPU tests stay local). Confirm green on the first GitHub Actions run, then close
+- [x] **[gate]** Wire the suite into CI as the anti-rot ratchet, building on the `MILA_ENABLE_CUDA=OFF` CPU-only gate so a future API churn fails the build instead of silently re-commenting coverage — the deliverable that keeps the revival alive. **DONE (wired 0.20.0-alpha.6+114; GitHub Actions confirmed green at +116, 2026-07-19):** a `cpu-only-tests` job in `build-pipeline.yml` runs the CPU suite on every push/PR to dev+master — plain `ubuntu:26.04` (clang-21, no CUDA image/toolkit, no CUTLASS fetch), mirroring the `linux-clang-cpu-release` preset, `ctest --output-on-failure`. This is the first CI job that *runs* tests (compile-and-gate only compiles; GPU tests stay local). The ratchet is live and enforcing
 
 ### Milestone: Training Revival
 
@@ -293,7 +293,10 @@ in [BACKLOG.md](BACKLOG.md) under *Module Hygiene*, *Public API Surface*, and *R
   tree rather than a from-scratch in-container `git clone`, and CI still apt-installs the toolchain rather
   than building `FROM` this image. See BACKLOG, *Module Hygiene* (dev-container build)
 - [ ] Published Docker runtime image (slim multi-stage GPU runtime, release-tagged)
-- [ ] Ungated GPT-2 quick-start path for zero-auth first run
+- [ ] **[deferred to vNext]** Ungated GPT-2 quick-start path for zero-auth first run — the specified
+  form (weights fetched on first run over HTTPS) is a runtime *addition* and a new dependency, which
+  the v0.20 feature freeze excludes. Deferred whole; see BACKLOG for the freeze-compatible descope
+  (host the pre-converted blob + a documented one-line download) if it is revived
 - [ ] `good first issue` labels on GitHub
 
 GPU-first: the CUDA backend is the validated inference path (HuggingFace is the correctness oracle);

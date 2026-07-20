@@ -14,6 +14,19 @@ module;
 
 export module Mila;
 
+// The export list below IS the public API spec: `import Mila;` is the single supported entry point,
+// and the public surface is exactly what this umbrella re-exports.
+//
+// WHY THIS LIST IS BROAD (investigated 2026-07-19 -- do not "narrow" it without a full rebuild):
+// under MSVC C++23 modules a type named in a public template's interface -- a member or a base, e.g.
+// TensorBuffer inside Tensor<>, or OperationTraits/OperationType/Operation inside every component --
+// must be VISIBLE in the consumer's TU at instantiation, not merely reachable. Dropping such a module
+// from this list breaks every consumer that instantiates the template, even though no consumer ever
+// names the type, so grepping for the symbol finds nothing. Modules exporting free functions have the
+// same property: unqualified calls (e.g. getDeviceCount) resolve only through this re-export.
+// Widening later is non-breaking; narrowing is breaking -- and how far it can narrow is bounded by
+// the above, not by taste.
+
 export import Mila.Version;
 
 // ====================================================================
@@ -30,9 +43,13 @@ export import Logging.FileSink;
 export import Logging.NullSink;
 
 // ====================================================================
-// Compute - Base
+// Compute - Base ( PUBLIC -- required visible for component instantiation )
 // ====================================================================
-// REVIEW: Should we make Operations internal only?
+// The old "make Operations internal only?" REVIEW is answered NO by the module rules: public
+// component templates name these at instantiation (e.g. Linear<>'s
+// `using OpType = OperationTraits<OperationType::LinearOp, ...>::type`, and every component derives
+// from Operation<>). Under MSVC modules those names must be VISIBLE, not merely reachable, in any
+// consumer TU that instantiates a component -- so they are public and must be re-exported.
 export import Compute.OperationBase;
 export import Compute.OperationType;
 
@@ -64,6 +81,9 @@ export import Compute.OptimizerBase;
 // ====================================================================
 // Compute - Device Registry
 // ====================================================================
+// DeviceRegistryHelpers exports free functions (getDeviceCount / getBestDevice /
+// listDevicesByName / listDevicesByType) that the test suite uses pervasively as
+// CUDA-availability guards; unqualified calls resolve only if the module is re-exported here.
 import Compute.DeviceRegistrar; // Not part of the Mila public API
 export import Compute.DeviceRegistry;
 export import Compute.DeviceRegistryHelpers;
@@ -148,7 +168,9 @@ export import Dnn.RuntimeMode;
 // ====================================================================
 export import Dnn.Tensor;
 export import Dnn.ITensor;
-export import Dnn.TensorBuffer; // TJT: Remove after testing
+// Dnn.TensorBuffer is PUBLIC: it is a member type of the Tensor<> template (Tensor::buffer_),
+// so consumers instantiating Tensor need it visible under MSVC modules.
+export import Dnn.TensorBuffer;
 export import Dnn.TensorTypes;
 export import Dnn.TensorDataType;
 export import Dnn.TensorDataTypeTraits;
@@ -178,6 +200,8 @@ export import Dnn.Components.LayerNorm;
 export import Dnn.Components.RmsNorm;
 export import Dnn.Components.TokenEmbedding;
 
+// Compute.OperationTraits is PUBLIC: component templates name it at instantiation (see the
+// Compute - Base note) -- consumers instantiating any component need it visible.
 export import Compute.OperationTraits;
 
 export import Dnn.Components.Linear;
@@ -263,7 +287,6 @@ export import Data.BpePreTokenizationMode;
 // ============================================================================
 // Data - Datasets
 // ============================================================================
-export import Data.DataLoader;
 export import Data.TokenSequenceLoader;
 
 /**

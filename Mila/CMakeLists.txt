@@ -1033,10 +1033,6 @@ if(MILA_ENABLE_TESTING)
     add_subdirectory(Tests)
 endif()
 
-if(MILA_ENABLE_BENCHMARKS)
-    add_subdirectory(Benchmarks)
-endif()
- 
 if(MILA_ENABLE_SAMPLES)
      message(STATUS "MILA_ENABLE_SAMPLES is ON - adding Samples subdirectory")
      add_subdirectory(Samples)

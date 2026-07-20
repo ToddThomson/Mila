@@ -35,7 +35,6 @@ what terms?" in one place.
 | [NVIDIA/cutlass](https://github.com/NVIDIA/cutlass) | v4.5.1 | BSD-3-Clause | CUDA builds |
 | [pybind11](https://github.com/pybind/pybind11) | v3.0.4 | BSD-3-Clause | `MILA_ENABLE_PYTHON_BINDINGS` |
 | [googletest](https://github.com/google/googletest) | v1.17.0 | BSD-3-Clause | Tests |
-| [google/benchmark](https://github.com/google/benchmark) | v1.9.5 | Apache-2.0 | Benchmarks |
 
 Licenses are as declared by each project. Mila is distributed as source, so these arrive from their
 own repositories rather than from this one. **A binary distribution that links them would need to

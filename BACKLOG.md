@@ -51,12 +51,13 @@ here — tick the owning milestone item, and re-derive this rollup from it.
   at +113 with their net-new/training remainders relocated to vNext / Training Revival under the feature
   freeze; the last stray literal `FIXME` (GQA `forward()` dead-branch) reworded, and the orphaned
   `Dnn/Decoders/` skeleton moved out of the tree. See ROADMAP *Consolidation* (CLOSED note).
-- [~] **Test Suite Revival CI ratchet — wired (0.20.0-alpha.6+114, awaiting first CI run).** The
-  correctness keystone: full suite green in one pass + the `MILA_ENABLE_CUDA=OFF` CPU-only gate (see
-  *Test Suite Revival*, the `[gate]` item). CPU-only leg verified 2026-07-18 (from-scratch clang-21
-  build clean, ~980 ctest cases green in one pass); the `cpu-only-tests` CI job runs the CPU suite on
-  every push/PR. Closes when the first GitHub Actions run is green. (Unblocked as predicted by the
-  +112 poisoned-row drop — no BF16 typed test hard-errors.)
+- [x] **Test Suite Revival CI ratchet — MET (wired 0.20.0-alpha.6+114, CI-confirmed green at +116).**
+  The correctness keystone: full suite green in one pass + the `MILA_ENABLE_CUDA=OFF` CPU-only gate
+  (see *Test Suite Revival*, the `[gate]` item). CPU-only leg verified 2026-07-18 (from-scratch
+  clang-21 build clean, ~980 ctest cases green in one pass); the `cpu-only-tests` CI job runs the CPU
+  suite on every push/PR to `dev`/`master`. **GitHub Actions green at +116 (2026-07-19)** — the
+  ratchet is live and enforcing. (Unblocked as predicted by the +112 poisoned-row drop — no BF16
+  typed test hard-errors.)
 - [x] **An external consumer can build against Mila (FetchContent) — MET; `find_package` PARKED
   (2026-07-19).** Decided: a C++23 module library is a source distribution, so `find_package`'s
   prebuilt-binary benefit is void; FetchContent (compile-once in the consumer's toolchain, link
@@ -64,10 +65,18 @@ here — tick the owning milestone item, and re-derive this rollup from it.
   `find_package` is parked (retired-in-place, opt-in; `MILA_INSTALL` OFF by default). See *Packaging*.
 
 **Trust-signal hygiene (cheap, mostly not code — but the export freeze is an asymmetric decision):**
-- [ ] **Freeze the narrowest defensible public export surface** (see *Public API Surface*) — must
-  happen *before* the freeze; too-broad can only be undone by a breaking removal.
-- [ ] `CONTRIBUTING.md` + `getting-started.md`, `good first issue` labels, ungated GPT-2 quick-start,
-  default-branch flip `dev -> master` (see *Release Assets & CI* / *Production Hardening*).
+- [x] **Freeze the narrowest defensible public export surface** (see *Public API Surface*) — **RESOLVED
+  (0.20.0-alpha.6+118): the umbrella is already as narrow as C++23 modules allow.** A demotion attempt
+  produced hundreds of compile errors and was reverted; the binding constraint is that a type named in a
+  public template's interface must be *visible* (not merely reachable) in the consumer TU at
+  instantiation, so it must stay re-exported. Kept: a `Mila.ixx` header contract recording the rule so
+  the list is not "cleaned up" again, plus a duplicate `Data.DataLoader` export removed. Training/data/
+  serialization stay **public** by decision (MNIST/Bard/Tokenize build on `import Mila;` alone).
+- [~] Contributor onboarding + beta posture — `CONTRIBUTING.md` **DONE**, `getting-started.md` **DONE**
+  (+116). Remaining (both GitHub-side, done at the flip): `good first issue` labels and the
+  default-branch flip `dev -> master` (see *Release Assets & CI* / *Production Hardening*). The
+  ungated GPT-2 zero-auth quick-start is **deferred to vNext** (freeze: it needs a runtime HTTPS
+  fetch — see *Production Hardening*).
 
 **Explicitly NOT beta.1 gates** (do not let these compete for attention):
 - **Gemma 4 Inference Competitiveness (prefill + decode)** — self-declared *"NOT a release gate"*,
@@ -292,9 +301,9 @@ exports (breaking). Beta should freeze the **narrowest defensible** surface. Tod
 re-exports essentially the whole tree, locking in (1) every consumer recompiling the full
 transitive closure into BMIs, and (2) every re-exported symbol as a frozen promise.
 
-- [ ] Define an explicit public allowlist for `Mila.ixx` — the inference surface (models, components, tensors, execution context, `initialize`/`shutdown`, tokenizers); treat the export list as the literal API spec
-- [ ] Demote non-public modules to unexported internal (still directly importable by tests/samples): `OperationRegistry`/`OperationRegistryHelpers`/`OperationsRegistrar`, `UnaryOperation`/`BinaryOperation` (both slated for removal), `Dnn.TensorBuffer` ("remove after testing"), the per-device operation modules
-- [ ] Stop re-exporting the vendored `nlohmann` module/namespace through the public surface — it hands a breaking change to a third party's release schedule; the Chat sample's direct `import nlohmann.json` is a sample-layer concern
+- [x] Define an explicit public allowlist for `Mila.ixx` — **DONE (+118).** The umbrella carries a header contract stating the export list *is* the public API spec, **and why it must stay broad** (the visibility rule below). Surface = inference (models, components, tensors, execution context, `initialize`/`shutdown`, tokenizers) **plus** the training/data/serialization modules MNIST/Bard/Tokenize consume (public by decision — those three must build on `import Mila;` alone)
+- [x] ~~Demote non-public modules to unexported internal~~ — **NOT VIABLE (+118, measured).** Demoting `OperationBase`/`OperationType`/`OperationTraits`, `DeviceRegistry`/`DeviceRegistryHelpers`, `TensorBuffer`, `NetworkFactory` produced hundreds of compile errors and was reverted. Under MSVC C++23 modules a type named in a public template's interface (member or base — `TensorBuffer` in `Tensor<>`; `OperationTraits`/`OperationType`/`Operation` in every component) must be **visible** in the consumer TU at instantiation, not merely reachable; consumers never *name* these types, so a symbol grep cannot find them — the only reliable oracle is a full rebuild. Free-function modules behave the same (`DeviceRegistryHelpers`' `getDeviceCount`/`getBestDevice`/`listDevicesBy*` are the suite's CUDA guards, resolved unqualified only via the re-export). Genuinely demotable set = `Dnn.NetworkFactory` alone — not worth a breaking change. The old `OperationRegistry`/`Registrar` and `UnaryOperation`/`BinaryOperation` were already retired/unexported; per-device operation modules were never exported
+- [x] Stop re-exporting the vendored `nlohmann` module/namespace through the public surface — **already satisfied (verified +118):** every internal module uses non-exporting `import nlohmann.json`; there is no `export import nlohmann` anywhere, so it never reached the umbrella. The Chat sample's direct `import nlohmann.json` is a sample-layer concern
 - [ ] Domain-qualify generic single-segment module names that are global-collision magnets on co-link — `Core`, `Utils`, `Components`, `Profiling` (e.g. `Dnn.Core`, `Dnn.Utils`); targeted handful of renames, independent of the no-`Mila.`-prefix rule
 - [ ] **[deferred, non-breaking]** If training becomes a first-class public concern, add a separate `Mila.Training` umbrella rather than widening `Mila` — the additive direction keeps the inference surface tight
 
@@ -366,7 +375,7 @@ wasting a newcomer's first hour.
     it if Mila ever grows a real `third_party/` tree. `ThirdPartyNotices.txt` (the Microsoft style) targets
     binary redistribution; Mila ships source.
   - **STILL OPEN (separate decision, deliberately not bolted on):** a binary release that links cutlass /
-    nlohmann / pybind11 / gtest / miniz / benchmark would need to carry their notices. Source distribution
+    nlohmann / pybind11 / gtest / miniz would need to carry their notices. Source distribution
     carries no such obligation, so this only bites when release artifacts contain binaries. NOTICE.md flags it.
 
 - [ ] Marker debt triage (IN PROGRESS) — the earlier `FIXME`/`TODO` burndown (the bypassed weight initializers + CUDA `setCurrentDevice`, both DONE + validated, see CHANGELOG) is complete; **2026-06-19 all surviving `FIXME:`/`TODO:` were converted to `REVIEW:`** so nothing reads as "known broken" in public source. A fresh bucket analysis of the ~94 remaining `REVIEW:` markers (56 files) sorted them; dispositions and homes:
@@ -394,7 +403,7 @@ wasting a newcomer's first hour.
 - [ ] Add the Samples build to CI (currently only tests build) so a contributor's first sample build is not the thing that breaks
 - [ ] `good first issue` labels on GitHub (Beta requirement) — the exact label is `good first issue` (spaces, lowercase; hyphens break GitHub's `/contribute` + aggregator discovery). These are maintainer-authored discovery Issues promoted from this backlog (a GitHub *mechanism*, distinct from inbound user issues), each well-scoped with acceptance criteria + file paths. Mint when courting contributors (~default-branch switch); pairs with the community-health files already landed and the `CONTRIBUTING.md` gate
 - [ ] `CONTRIBUTING.md` coding-standards section + `getting-started.md` onboarding guide (user-first, contributor superset) (Beta requirements)
-- [ ] Ungated GPT-2 quick-start path for zero-auth first run (Beta requirement) — pre-converted permissively-licensed weights hosted on Hugging Face, fetched on first run via `resolve/` URLs over HTTPS (no Python/venv/auth); gated weights (Llama) stay a user-supplied offline conversion step
+- [ ] **[deferred to vNext, 2026-07-19]** Ungated GPT-2 quick-start path for zero-auth first run — pre-converted permissively-licensed weights hosted on Hugging Face, fetched on first run via `resolve/` URLs over HTTPS (no Python/venv/auth); gated weights (Llama) stay a user-supplied offline conversion step. **Deferred:** on-first-run HTTPS fetching is a runtime addition plus a new HTTP dependency in a tree that has none, which the v0.20 feature freeze excludes. The documentation half already exists (`getting-started.md` §5b frames GPT-2 as the ungated easiest target); the remaining cliff is the Python/venv/PyTorch conversion step. **Freeze-compatible descope if revived:** host the pre-converted `.bin` + tokenizer on HF and document a one-line `curl`/`Invoke-WebRequest` download — same zero-auth/no-Python outcome, zero new code or dependencies; in-process auto-fetch stays vNext
 - [ ] Published Docker runtime image — slim multi-stage GPU runtime (built in CUDA `-devel`, artifacts copied into `-runtime`), release-tagged; gated weights never baked in (Beta requirement, see Distribution in ROADMAP)
 
 ---

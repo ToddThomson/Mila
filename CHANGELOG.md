@@ -16,6 +16,50 @@ release notes.
 The bridge from "the features work" to a tree honest enough to call beta. Milestone vision
 is in ROADMAP; open triage buckets are in BACKLOG.
 
+### Beta.1 gate closed: the CPU-only test ratchet is live in CI (confirmed at 0.20.0-alpha.6+116)
+
+The `cpu-only-tests` job wired at +114 has now run green on GitHub Actions (confirmed 2026-07-19 at
++116), closing the Test Suite Revival CI-ratchet gate. The suite is executed -- not merely compiled --
+on every push/PR to `dev` and `master`, in a plain `ubuntu:26.04` container (clang-21; no CUDA image,
+toolkit, or CUTLASS fetch), mirroring the `linux-clang-cpu-release` preset with
+`ctest --output-on-failure`. This is the first CI job that *runs* tests; GPU-dependent cases remain
+local by design and self-skip. The anti-rot ratchet that keeps the revived suite green is now
+enforcing, so future API churn fails the build instead of silently re-commenting coverage.
+
+### Export-surface freeze investigated: the umbrella cannot meaningfully narrow (0.20.0-alpha.6+118)
+
+An attempt to narrow the `import Mila;` umbrella by demoting "internal" modules was **reverted after
+it produced hundreds of compile errors**, and the finding is now recorded in `Mila.ixx` itself. Under
+MSVC C++23 modules, a type named in a public template's interface -- a member or a base, e.g.
+`TensorBuffer` inside `Tensor<>`, or `OperationTraits`/`OperationType`/`Operation` inside every
+component -- must be **visible** in the consumer's translation unit at instantiation, not merely
+reachable. Dropping such a module from the umbrella breaks every consumer that instantiates the
+template even though no consumer ever *names* the type, which also makes those consumers invisible to
+a symbol grep. Modules exporting free functions behave the same way: `DeviceRegistryHelpers`'
+`getDeviceCount`/`getBestDevice`/`listDevicesBy*` are the test suite's CUDA-availability guards and
+resolve unqualified only through the re-export. The genuinely demotable set turned out to be
+`Dnn.NetworkFactory` alone -- not worth a breaking change.
+
+Kept from the pass: a `Mila.ixx` header contract stating that the export list *is* the public API spec
+**and why it must stay broad** (so it is not "cleaned up" again without a full rebuild), and removal of
+a duplicate `Data.DataLoader` export. The vendored `nlohmann` module was separately verified to never
+reach the umbrella -- every internal use is a non-exporting `import`, and there is no
+`export import nlohmann` anywhere. Training, data-loading, and serialization stay public by decision:
+MNIST, Bard, and the Tokenize tool must build on `import Mila;` alone.
+
+### Retired GBench, the early kernel microbenchmark tool (0.20.0-alpha.6+117)
+
+`Mila/Benchmarks` (the `MilaBenchmarks`/GBench Google Benchmark harness) is retired to `Dev/`. It
+was an early bring-up tool for checking that individual FP32 forward kernels (linear/softmax/gelu)
+worked and how fast they ran, and it had not compiled since the runtime `OperationRegistry` ->
+compile-time `OperationTraits` dispatch migration: all three benchmarks still called the retired
+`OperationRegistry::instance().createUnaryOperation<>(...)`. It was gated behind
+`MILA_ENABLE_BENCHMARKS` (default OFF), so it was absent from CI, the CPU-only gate, and packaging,
+and rotted unnoticed. Its role -- correctness and per-kernel timing -- is now covered by the test
+oracles and by `ProfileModel` + Nsight (nsys/ncu) at the model level. Removed the
+`MILA_ENABLE_BENCHMARKS` option and the `add_subdirectory(Benchmarks)` wiring; dropped the now-unused
+`google/benchmark` row from `NOTICE.md` (it was the sole consumer of that FetchContent dependency).
+
 ### QuickStart sample + getting-started reframed to FetchContent (0.20.0-alpha.6+116)
 
 The find_package parking (+115) followed through into the consumer-facing sample and docs.
