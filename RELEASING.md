@@ -1,13 +1,12 @@
-# Releasing & Work-Tracking
+# Releasing
 
-How Mila is versioned, planned, validated, and tagged. The [ROADMAP](ROADMAP.md) shows *where* Mila
-is going; this document is the home for the *mechanics* — the version scheme, how the roadmap and its
-milestones map to GitHub, label conventions, and the release procedure — kept out of the ROADMAP so
-that stays a clean, public-facing narrative.
+How Mila is versioned, branched, validated, and tagged into a consumable release. Planning and
+progress live in [ROADMAP.md](ROADMAP.md) / [BACKLOG.md](BACKLOG.md) / [CHANGELOG.md](CHANGELOG.md);
+this document is only the release mechanics.
 
-Two things to internalize up front: the version scheme carries a **stage** (the codebase's maturity,
-not a milestone label) and a ticking **build** counter held in semver build metadata (next section),
-and there are **two distinct validation moments**, only one of which involves a tag (further down).
+One thing to internalize up front: the version scheme carries a **stage** (the codebase's maturity,
+not a task or phase label) and a ticking **build** counter held in semver build metadata, detailed in
+the next section.
 
 ---
 
@@ -19,17 +18,18 @@ Mila uses a repeating **release-cycle** model: `MAJOR.MINOR.PATCH-stage.X+build`
 - **minor** — feature-set era.
 - **patch** — part of the target release (usually `.0`).
 - **stage** — the codebase's maturity: `alpha.X -> beta.X -> rc.X ->` unsuffixed stable. `X` is the
-  stage **checkpoint ordinal** — it ticks each time a checkpoint is tagged within a stage, and is
-  **decoupled from milestones** (it does not name or count them). Milestones are named by theme and
-  namespaced by their planned release (see below), so a stage number never appears in a milestone
-  title.
-- **build** — a running per-commit counter carried as **semver build metadata** (after `+`). It ticks
-  every commit as provenance and is **ignored for version precedence** by the spec.
+  stage **checkpoint ordinal** — it ticks each time a checkpoint is tagged within a stage. It is a
+  pure release-provenance count: it does not name, count, or correspond to any unit of planned work.
+- **build** — a per-commit counter carried as **semver build metadata** (after `+`). It counts the
+  `dev` commits accumulated toward the next checkpoint and **resets at every checkpoint tag**, so it
+  reads as "commits since the last release" — not a repo-lifetime counter. It is **ignored for
+  version precedence** by the spec.
 
 Each feature set opens a new minor and runs its own ladder; features never land inside a hardening
 ladder — a stabilizing release takes only patch-level fixes. Mila is pre-1.0, so any release may
 carry breaking changes: `0.20.0` "production" means validated and polished, **not** API-frozen. An
-API-stability promise is a separate, deliberate `1.0.0` decision, intentionally deferred.
+API-stability promise is a separate, deliberate `1.0.0` decision, intentionally deferred. (How
+releases land on `master` and ramp through the stage ladder is the **Branching** section below.)
 
 **Why the build counter sits in build metadata.** Everything before the dash is the *target
 release*, which must not move every commit, so a free-running counter cannot live in the patch slot.
@@ -42,16 +42,16 @@ provenance — it distinguishes dev commits between checkpoints, never two relea
 image tags forbid `+`, so the optional runtime-image tag must sanitize it — drop the metadata or map
 `+` to `-`.)
 
-**The `0.13 -> 0.20` jump.** The minor jumps to mark the production tier, and the jump lands now:
-the current pre-releases rebase onto the `0.20.0` target. This stays forward in semver
+**The `0.13 -> 0.20` jump.** The minor was jumped from `0.13` to `0.20` to mark the production tier,
+and the pre-release ladder rebased onto the `0.20.0` target. This stays forward in semver
 (`0.20.0-… > 0.13.46-…`, minor compared first), keeping the timeline monotonic past already-published
 tags like `v0.13.46-alpha.5` — which is why the target is `0.20.0` and not `0.13.0` (the latter would
 sort *below* what is already released).
 
 | Stage | Meaning | Example |
 |---|---|---|
-| `alpha.X` | features still landing; unstable | `0.20.0-alpha.6+56` (now) |
-| `beta.X` | feature-frozen; hardening only | `0.20.0-beta.1+N` |
+| `alpha.X` | features still landing; unstable | `0.20.0-alpha.6+119` (now) |
+| `beta.X` | feature-frozen; hardening only | `0.20.0-beta.1` |
 | `rc.X` | release candidate | `0.20.0-rc.1+N` |
 | _(none)_ | production-tagged | `0.20.0` |
 
@@ -66,120 +66,52 @@ that reports that exact version.
 
 ---
 
-## The roadmap: releases, milestones, Future Directions
+## Branching
 
-The ROADMAP shows **two production releases at a time** — the one in flight (top) and the one after
-(**vNext**) — plus a non-tracked **Future Directions** tail.
+Mila uses two long-lived branches with a strict one-way flow between them:
 
-- **Current release** — a pinned version, a *Committed* Release Date, and an eventual git tag.
-  Reached through one or more **milestones**.
-- **vNext** — identified by **theme, not version**; a target *range*, no tag. Its version, date, and
-  tag crystallize when it promotes to Current.
-- **Future Directions** — uncommitted vision; no milestone, no date.
-
-A **milestone** is a step inside a release box. The milestones of a box share its version and are
-distinguished by **theme** (a short descriptive name), **not** by stage or number. Stage is a
-property of the codebase's maturity, not a milestone label: several milestones can land within the
-same stage, and the `alpha -> beta` transition is a maturity judgment over the whole box (it opens
-with Production Hardening), not the closing of any one milestone. Milestones are therefore namespaced
-by their planned **release**, never by stage — which is also how a recurring theme (e.g. API
-Documentation, Production Hardening) stays unique across releases.
-
----
-
-## Milestones <-> GitHub Milestones
-
-Every milestone maps **1:1 to a GitHub Milestone**. The GitHub Milestone title uses the form
-**`Release v<version> - <theme>`** — release version (the namespace) plus a short theme, **no
-stage** — so it is readable, self-locating in GitHub's flat namespace, and a recurring theme stays
-unique by release:
-
-- `Release v0.20.0 - Consolidation`
-- `Release v0.20.0 - API Documentation` (a recurring theme; next cycle is `Release v0.21.0 - API
-  Documentation` — the **release** disambiguates, never the stage)
-- `Release v0.20.0 - Production Hardening` — the **single** hardening milestone; `beta.X` and `rc.X`
-  are *tags* cut from it as it converges, **not** separate milestones (only the checkpoint ordinal
-  and the tag iteration move; the milestone does not split)
-- `vNext - Qwen 3` — the exception: no version yet, so no `Release v…` prefix; it is renamed to the
-  full form when it promotes to Current
-
-User issues (bugs, feature requests) are filed against the milestone they belong to.
-
----
-
-## Dates and progress
-
-**Milestones are dateless.** With no date, **task completion is the progress metric**: each
-milestone's `- [ ]` checklist in the ROADMAP is its GitHub Issue set (one box ~ one Issue), so
-GitHub's milestone progress bar (closed / total) shows how far along it is. The milestone is done
-when the boxes are checked.
-
-**Releases carry a Release Date**, following a 3-tier precision rule (GitHub's date field drives
-"overdue" styling, so only populate it when you will be held to it):
-
-| Tier | Release Date | GitHub date fields | Applies to |
+| Branch | Role | Audience | Contents |
 |---|---|---|---|
-| **Committed** | exact date | milestone fields stay empty; the date is the release/tag target | the Current release |
-| **Target** | a range in prose ("H2 2026") | empty | vNext |
-| **Unscheduled** | "Unscheduled" | none | Future Directions |
+| **`dev`** | working trunk / workbench | maintainers, contributors | every commit; CI-gated; `+build` ticks here |
+| **`master`** | release front door (GitHub **default branch**) | end users | **only tagged releases** — nothing else |
 
-(If a GitHub-visible date is ever wanted, mirror the Committed Release Date onto the *terminal*
-milestone's due date, since its completion is the release. Default is to leave milestone date fields
-empty and let the progress bar carry the signal.)
+**Why `master` is the default branch — the audience split made structural.** End users consume Mila
+by pinning a **tagged release** via CMake FetchContent, so the branch a repo visitor lands on should
+be the released artifact, not in-flight work. `master` (releases only) is that front door; `dev` is
+the workbench. Contributors branch from and target `dev` (see
+[getting-started](getting-started.md)).
 
----
+**Work flows one way** — from the dev machine, out to `dev`, then a chosen checkpoint is promoted to
+`master`:
 
-## Roadmap lifecycle and promotion
+```
+dev machine  ->  dev (GitHub)  ->  master (GitHub)
+  git push       maintainer         release PR of a chosen dev checkpoint,
+                 commits            tagged vX.Y.Z[-stage.X], --prerelease for any pre-release tag
+```
 
-Status is encoded by **position** (Current is at the top of the ROADMAP) and **GitHub open/closed**
-— there is no "Current/Planned" label. *Open* means on-the-board-and-unshipped; future milestones
-are created **open** up front so issues can be filed against them before work starts.
+**`master` invariants:**
 
-When the Current release ships, four things happen together (one event, kept mutually consistent in
-the same commit — the same rule that binds ROADMAP / BACKLOG / CHANGELOG):
+- Every commit on `master` **is** a tagged release — a `dev` checkpoint promoted through a single
+  `dev -> master` PR and tagged `vX.Y.Z-stage.X` (pre-release) or `vX.Y.Z` (production).
+- `master` **never** receives a direct commit and **never** carries an untagged one; it changes
+  *only* via a release PR. (A stray direct edit to `master` is what diverged it from `dev` and caused
+  the README merge conflict in the first release — treat `master` as release-only.)
 
-1. its prose moves to [CHANGELOG.md](CHANGELOG.md);
-2. its box is **deleted** from the ROADMAP;
-3. its GitHub Milestones **close**;
-4. **vNext promotes to Current** — acquiring a version number, a Committed Release Date, and a tag
-   target — and a new vNext is drawn from Future Directions.
+**A cycle is a ramp of releases on `master`.** One feature-set era plays out as a sequence of
+`dev -> master` release PRs climbing the stage ladder, each arrow its own tagged checkpoint:
 
-The ROADMAP therefore always shows exactly two release boxes plus Future Directions; it never
-sprawls.
+```
+alpha.1 -> alpha.2 -> ... -> beta.1 -> ... -> rc.1 -> ... -> X.Y.Z (production)
+```
 
----
-
-## Labels
-
-Labels carry what milestones cannot:
-
-- `release:<version>` — *(optional)* unions the milestones of a multi-milestone release box (e.g.
-  `release:0.20` over its alpha + beta milestones) into one filter. Only earns its keep when a box
-  spans more than one milestone; vNext (single milestone, no version) gets none until it grows one.
-- `future` — the GitHub home for Future-Directions issues that have no milestone.
-- `bug` / `feature` / `good first issue` and `area:*` — orthogonal type/area classification.
-
-**Discipline:** never add a label that merely restates an issue's Milestone field — that is the
-double-bookkeeping the work-tracking model exists to avoid.
-
----
-
-## The two validation moments
-
-| | Pre-commit | Post-tag (release smoke test) |
-|---|---|---|
-| Preset | `x64-validate` | `x64-release-cpm-gate` |
-| What it checks | unit tests + find_package + FetchContent gates | a **pushed tag** is fetchable + buildable via CPM |
-| Consumes | the **local working tree** | the **GitHub remote** at the tag |
-| Tag / `Version.txt` dependency | **none** | needs the matching tag already pushed |
-| Network | no | yes (git clone of the repo) |
-
-**Pre-commit has no coupling to `Version.txt` or any tag** — bump the version before or
-after running `x64-validate`, it makes no difference. There is nothing to sequence.
-
-**The CPM gate is inherently post-push.** The tag for the current version does not exist
-until you push it, so this gate can only be run *after* a release is tagged. It is a
-smoke test, not a gate you clear before committing.
+A pre-release ladder always opens on a **new** target, never on a version already shipped — once
+`0.20.0` is tagged, the next cycle opens `0.21.0-alpha.1`. This stays monotonic
+(`0.20.0 < 0.21.0-alpha.1 < … < 0.21.0`) because semver compares the numeric triple before the
+pre-release tag, so a pre-release always sorts above every earlier stable and below its own final.
+The one hazard: **never open a ladder on a shipped version** — `0.20.0-alpha.1` sorts *below*
+`0.20.0` and rewinds the timeline; a hardening ramp opens on the next patch instead
+(`0.20.1-alpha.1`).
 
 ---
 
@@ -226,15 +158,16 @@ The division that matters:
 
 1. Make your change.
 2. Bump `Version.txt` to the version this commit introduces.
-3. Configure + build the **`x64-validate`** preset, then `ctest` it:
+3. In VS 2026, select the preset shown as **"x64 Release (full validation - run before committing)"**
+   (its CMake `name` is `x64-validate` — the folder under `out/build/`), build, then `ctest` it:
    ```
    ctest --test-dir out/build/x64-validate --output-on-failure
    ```
    Expect: unit tests + `packaging_find_package_consumer` + `packaging_fetchcontent_consumer` green.
 4. Commit and push to `dev`.
 
-`dev` is the CI-gated trunk during alpha (it is the GitHub default branch); `master` tracks
-tagged releases.
+`dev` is the CI-gated trunk; releases reach `master` only through a `dev -> master` PR (see
+**Branching**).
 
 ---
 
@@ -257,10 +190,13 @@ not by the Release. See the note below.
    ```
    gh release create v0.13.46-alpha.5 --generate-notes --prerelease
    ```
-   Use `--prerelease` for any `-alpha`/`-beta` tag; drop it for a final release. Or draft it in
-   the **Releases** web UI for full hand-curation. Nothing downstream depends on this, so do it
-   on your own schedule.
-6. **Post-tag smoke test:** configure the **`x64-release-cpm-gate`** preset and run:
+   Apply `--prerelease` to **every** `dev -> master` pre-release flip — `alpha.N`, `beta.N`, and
+   `rc.N` alike — and drop it **only** for the final production tag. GitHub never awards the "Latest
+   release" badge to a prerelease, so this is what keeps the last production release badged as Latest
+   throughout the next cycle's pre-release ramp. Or draft it in the **Releases** web UI for full
+   hand-curation. Nothing downstream depends on this, so do it on your own schedule.
+6. **Post-tag smoke test:** select the preset shown as **"x64 Release (CPM release-access gate)"**
+   (CMake `name` `x64-release-cpm-gate`) and run:
    ```
    ctest --test-dir out/build/x64-release-cpm-gate -R packaging_cpm_consumer --output-on-failure
    ```
@@ -272,9 +208,6 @@ not by the Release. See the note below.
 
 ## Notes
 
-- **Never commit directly to `master`.** It changes *only* via a `dev -> master` release PR.
-  A stray direct edit to `master` is what caused the README merge conflict in the first release
-  — `master` and `dev` diverged and had to be hand-reconciled. Treat `master` as release-only.
 - **Releases are created by hand (no release workflow).** The GitHub Release is human-facing
   only — CPM and FetchContent resolve by git **tag**, and GitHub serves source archives from the
   tag regardless — so the Release object is curated manually (`gh release create` or the web UI)
@@ -290,5 +223,3 @@ not by the Release. See the note below.
 - **Stale CPM cache:** the CPM gate keeps a source cache across runs for speed
   (`.../Mila/Tests/Packaging/cpm-cache`). If a re-run misbehaves after a failed attempt,
   delete that folder to force a clean fetch.
-- **At beta:** the GitHub default branch switches from `dev` to `master` so the front door
-  is the released artifact. Until then, releases are infrequent and the audience targets `dev`.

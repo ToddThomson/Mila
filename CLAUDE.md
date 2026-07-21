@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Mila is a C++23 module-based DNN library for CUDA/CPU inference. It is in active alpha development (currently **Alpha.6**). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
+Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. It is in late alpha (currently **`0.20.0-alpha.6`** — feature-frozen, hardening toward the v0.20 first production release). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
 
 Primary validated targets: Llama 3.2 3B Instruct (BF16, FP8, FP4), Llama 3.1 8B Instruct (FP4 default, FP8 alternative), and Gemma 4 12B Instruct (FP4). The chat CLI default is Gemma 4 12B FP4.
 
@@ -34,7 +34,7 @@ ctest --test-dir out/build/x64-debug
 ./out/build/x64-debug/Mila/Tests/Dnn/Components/Activations/Gelu/GeluTests
 ```
 
-CMake presets are in `CMakePresets.json`: `x64-debug`, `x64-release`, `x86-debug`, `x86-release`. The output directory is always `out/build/<preset-name>`.
+CMake presets are in `CMakePresets.json`: `x64-debug`, `x64-release`, `x64-profile`, `x64-coverage`, `x64-validate` (pre-commit full validation), `x64-release-cpm-gate` (post-tag release smoke test), `x86-debug`, `x86-release`, plus the Linux/WSL presets `linux-clang-debug`/`-release` and `linux-clang-cpu-debug`/`-release`. The output directory is always `out/build/<preset-name>`. Note: VS 2026 shows each preset's `displayName`, not its `name` (e.g. `x64-validate` appears as "x64 Release (full validation - run before committing)").
 
 ---
 
@@ -150,7 +150,7 @@ Key files:
 
 Model aliases: `gpt2`, `llama-1b`, `llama-3b`, `llama-8b`, and `-fp32` variants. `llama-8b` uses the `llama31` family prefix in filename construction; 1B/3B use `llama32`.
 
-All responses are fully buffered before display — streaming has been removed from the hot path.
+Gemma streams live token-by-token through `Chat.StreamingDisplay` (channel-aware — thinking / tool-call / final routed by the four control-token ids; a stream validator asserts the streamed transcript equals the buffered render). Llama and GPT-2 stay buffered until their sampler/tool migration, and streaming falls back to buffered when the vocabulary lacks the channel-routing tokens.
 
 ---
 
@@ -198,15 +198,20 @@ Module partition files (`:Cuda`, `:Cpu` suffixes) are used to separate backend s
 Four files at the repo root stay **mutually consistent**, updated in the **same commit** as the
 work they describe — never deferred to "later":
 
-- **`ROADMAP.md`** — milestone *vision + success criteria*, **current and future stages only**.
-  No marker counts or task status (they drift — point to BACKLOG instead). When a stage
-  completes, **delete its section and its versioning-table row** — do *not* relabel it "Complete"
-  and leave it; move any unique success-criteria prose into CHANGELOG. The current stage is always
-  the top milestone section.
-- **`BACKLOG.md`** — open engineering tasks. Not GitHub Issues (those are requester-authored).
-- **`CHANGELOG.md`** — completed, validated work, newest first.
-- **`Version.txt`** — `MAJOR.MINOR.PATCH-stage.N`. On a stage transition, bump it and flip the
-  ROADMAP/CHANGELOG stage labels in the same commit.
+- **`ROADMAP.md`** — the durable **narrative + success criteria** of each release, organized by
+  **theme** (not milestone). Shows the release in flight plus a single **Future** tail. **Narrative
+  only — no task lists, checkboxes, or status** (they drift; point to BACKLOG). When a release ships,
+  its section moves to CHANGELOG.
+- **`BACKLOG.md`** — the working task list. `## Current release` holds one **theme bucket** per
+  ROADMAP theme (matching names — the only join) with a 3-state gauge (`[ ]` open / `[~]` in progress /
+  `[x]` done); `## Future` is a flat, coarse parking list. `[x]` is pruned **only at a production
+  (unsuffixed) release**; open items carry forward. Detailed tasking is for the current release only.
+  Not GitHub Issues (a decoupled, requester-authored end-user layer — see RELEASING).
+- **`CHANGELOG.md`** — the permanent record, newest first. Each entry is the release notes for one
+  `dev -> master` PR, generated from its commit range (not hand-authored).
+- **`Version.txt`** — `MAJOR.MINOR.PATCH-stage.N`, bumped **before committing** (see
+  [RELEASING.md](RELEASING.md) for the scheme). GitHub Milestones/Issues/Labels are an end-user triage
+  layer, decoupled from this workflow.
 
 ---
 

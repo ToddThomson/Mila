@@ -2,9 +2,9 @@
 
 ## Supported versions
 
-Mila is in active alpha development, and breaking changes are expected between releases.
+Mila is pre-1.0 (currently in late alpha), and breaking changes are expected between releases.
 Security fixes are applied only to the latest tagged release and the `dev` trunk. There is
-no back-porting to older alpha tags.
+no back-porting to older pre-release tags.
 
 | Version | Supported |
 |---|---|

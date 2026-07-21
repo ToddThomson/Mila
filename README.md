@@ -1,6 +1,6 @@
 # Mila
 
-**A C++23 module-based deep neural network library for those who want full control&mdash;to work at the metal.**
+**A C++23 library for open LLMs at the metal — inference and training, built from explicit neural-network components you can read and understand.**
 
 *Mila is a **craft project** — built for working at the metal: understanding exactly what every forward pass, gradient, and kernel does, which is also how you make them fast. Mastery is what that craft leads to.*
 
@@ -8,7 +8,8 @@ Mila is built for researchers, engineers, and developers who find high-level fra
 and write kernels that do precisely what they intend. No autograd engine. No runtime
 dispatch magic. Just C++23, CUDA, and full control.
 
-> *Currently in active alpha development. API is not yet stable.*
+> *Currently in late alpha (`0.20.0-alpha.6`) — feature-frozen and hardening toward the v0.20 first
+> production release. Pre-1.0: the API is not yet stable.*
 > *Active development lands on the [`dev`](https://github.com/ToddThomson/Mila/tree/dev) branch; `master` tracks tagged releases.*
 > *See the [Roadmap](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for current status and trajectory.*
 
@@ -23,7 +24,7 @@ dispatch magic. Just C++23, CUDA, and full control.
 
 ## What Mila Is
 
-Mila is a component-based DNN library, crafted so that **device and precision are chosen at compile
+Mila is a component-based neural-network library for open LLMs, crafted so that **device and precision are chosen at compile
 time, every forward and backward pass is explicit, and every gradient is yours to inspect**.
 
 There is no hidden execution engine. When you call `forward()`, you know exactly what runs.
@@ -40,10 +41,16 @@ the loop, and the tools — Mila makes the model an ordinary C++ object inside t
 positioning lives in
 [MilaProductFamily.md](https://github.com/ToddThomson/Mila/blob/dev/Mila/Specifications/MilaProductFamily.md).
 
+Mila does not try to run everything the way the industry standards do — llama.cpp and vLLM already
+do that. It aims instead to *crest the wave*: to bring up the current best open models as they arrive
+and put them within reach on home and edge hardware — a 12 GB card on your desk, not a rack in a
+datacenter. A short, curated set, each one raised from the metal and held to parity or better. Not a
+model zoo, and not second-best on the models it runs.
+
 **This makes Mila well-suited for:**
 - Researchers implementing novel architectures who need full visibility into compute
 - Engineers studying training dynamics, gradient flow, or numerical precision
-- Developers building custom CUDA kernels who want a structured C++ framework around them
+- Developers building custom CUDA kernels who want structured, modern C++ around them
 - Anyone who learns best by reading code that does not hide what it does
 
 ---
@@ -78,84 +85,82 @@ nibbles dequantized per-group inline at inference time, forward-compatible with 
 native FP4 compute when it becomes available.
 
 ---
-## Attributions
 
-For research and open-source acknowledgements, see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
+## Model Families
+
+Mila's validated targets, in priority order — the current best open models that fit home and edge
+hardware.
+
+### Gemma 4 12B — the flagship
+
+Gemma 4 12B Instruct is Mila's most capable inference target and the chat CLI default. It runs the
+full Gemma 4 architecture — per-layer sliding-window local/global attention, dual local/global RoPE,
+GeGLU, RMSNorm, and final logit softcap — validated **token-for-token against HuggingFace**.
+
+- **Fits a 12 GB consumer card at FP4**, with a large context window: weight-tying reclaims ~2 GB and
+  a bounded-KV sliding-window ring cache holds persistent KV growth to the global layers, so long
+  chats stay inside the budget.
+- **Tensor-core flash-attention prefill** — a warp-tiled flash-attention kernel on the sliding local
+  layers. Prefill lands within _(figure pending a profile run)_ of llama.cpp at long context.
+  <!-- BACKFILL: prefill-vs-llama.cpp %, from beta.1 profile run -->
+- **On-device sampling** — logits never leave the GPU; only the sampled token is read back, at
+  _(tok/s pending a profile run)_ FP4 decode on a 12 GB card.
+  <!-- BACKFILL: FP4 decode tok/s, from beta.1 profile run -->
+- **Native tool calling** — Gemma's trained tool grammar, reconciled byte-for-byte to Google's
+  canonical chat template, driven end-to-end through MIS by foreign harnesses (Codex CLI, Claude Code)
+  across plain-chat, single-tool, and tool-result-resume flows.
+
+### Llama 3.x
+
+Mila's primary validated inference lineage — Llama 3.2 1B, 3.2 3B, and 3.1 8B — built from RMSNorm,
+SwiGLU, Grouped Query Attention, and RoPE, with SentencePiece tokenization and HuggingFace weight
+conversion. Each is validated **token-for-token against HuggingFace**: 1B at FP32, 3B at BF16, and the
+quantized paths (FP8 E4M3 per-channel, FP4 E2M1 per-group) against that baseline. Llama 3.1 8B at FP4
+(~6 GB) is the small-footprint workhorse — it fits a 12 GB card with room to spare — with FP8 as the
+finer-precision alternative. Tool calling is validated on Llama 3.2 3B Instruct.
+
+### GPT-2 — where it started
+
+GPT-2 is where Mila began — built from scratch in the spirit of Karpathy's [`llm.c`](https://github.com/karpathy/llm.c)
+and its ethos of *understanding a model by building it*. Mila took that in its own direction — a
+component-based C++23 library rather than a single file, but the same conviction that a language model
+should be readable all the way to the metal. The full stack — BPE tokenizer, learned positional embeddings, multi-head attention,
+MLP, and KV-cache — is validated **token-for-token against HuggingFace** (greedy and sampled). It
+remains Mila's training reference — the Bard sample trains a GPT-2 from scratch — and the simplest
+place to read one token's journey end to end.
 
 ---
 
-## Current Status — Alpha.6
+## Current Status — Alpha.6 (feature-frozen, hardening)
 
-Mila is under active development toward a public, craft-complete first release (v0.20). The alpha
+Mila is in late alpha, hardening toward a public, craft-complete first release (v0.20). The alpha
 phase built and validated the core architecture against known-good reference implementations; the
-current focus is consolidating that work and recovering the full GPT-2 / training foundation, so the
-first release ships everything Mila has built — inference and training — as one coherent, tested,
-documented package.
+feature set is now **frozen**, and the remaining work is validation, packaging, documentation, and
+recovering the full GPT-2 / training foundation — so the first release ships everything Mila has
+built, inference and training, as one coherent, tested, documented package.
 
-**Alpha.1 — Complete**
-GPT-2 inference validated token-for-token against HuggingFace using greedy decoding.
-The full GPT-2 stack — tokenizer, embeddings, attention, MLP, KV-cache — is implemented,
-tested, and confirmed correct.
+**Hardening toward beta.1 (Production Hardening)**
+Feature-frozen: validation, packaging, and documentation only. The v0.20 workstreams still in flight
+are test-suite revival, training revival (the MNIST and Bard GPT-2 samples re-aligned to the current
+API — Llama 3.1/3.2 training is not part of this release), API documentation, and production
+hardening itself, from which the `beta.X` and `rc.X` tags will be cut. See
+[RELEASING.md](https://github.com/ToddThomson/Mila/blob/dev/RELEASING.md) for how stages and tags
+relate.
 
-**Alpha.2 — Complete**
-Llama architecture validated token-for-token against HuggingFace at FP32. RoPE, RMSNorm,
-SwiGLU, and Grouped Query Attention are implemented and confirmed correct. The full
-LlamaModel stack — including SentencePiece tokenization and HuggingFace weight conversion
-— matches HuggingFace LlamaForCausalLM token-for-token on greedy decode.
-
-**Alpha.3 — Complete**
-BF16 compute backend validated token-for-token against HuggingFace. Greedy decode of
-Llama 3.2 3B matches HuggingFace LlamaForCausalLM at BF16 using the same methodology
-applied to FP32.
-
-**Alpha.4 — Complete**
-Instruction following and tool calling, validated on Llama 3.2 3B Instruct at BF16.
-Delivers the structured message and tool calling infrastructure in the Chat application
-layer. No model architecture changes required.
-
-**Alpha.5 — Complete**
-FP8 and FP4 E2M1 load-time weight quantization, validated on Llama 3.2 3B and Llama 3.1 8B
-Instruct. Weights are quantized from BF16 at model load time inside `Linear` via a compile-time
-`TWeightQuant` policy — no quantized checkpoint format required. FP8 uses per-channel
-absmax scaling with cuBLASLt mixed-precision GEMM; FP4 E2M1 uses per-group absmax scaling
-with a dedicated decode matvec kernel. Llama 3.1 8B at FP4 (~6 GB) is the production default,
-fitting comfortably within a 12 GB VRAM budget; FP8 is the validated finer-precision
-alternative. Both paths are validated against the existing BF16 baseline.
-
-Alpha.5 also introduces compile-time operation dispatch via `OperationTraits<OperationType,
-TDeviceType, TPrecision, TPolicy>`. `Linear` is the reference implementation — a missing
-specialization is a compile error, not a registry miss. All remaining components migrate
-to `OperationTraits` dispatch as part of this alpha. The component type system
-(`ComponentType`, `OperationType`) has been audited for completeness and consistency
-across all leaf components.
-
-**Alpha.6 — In Progress (Consolidation)**
-Debt burndown to earn the beta label, plus the architectural foundation for recovering the parked
-training path. Alpha.6 also delivered the **Gemma 4 12B dense chassis** — validated token-for-token
-against HuggingFace (per-layer sliding-window local/global attention, dual RoPE, GeGLU, RMSNorm, final
-logit softcap), now the chat CLI default at FP4. It runs within a 12 GB budget at a reduced context
-window today; the bounded-KV ring cache and weight-tying gates (in progress) unlock a much larger
-context window within the same budget. The first release (v0.20) then proceeds through Alpha.7
-(test-suite revival), Alpha.8 (training revival — the GPT-2 / MLP samples MNIST and Bard re-aligned
-to the current API; Llama 3.1/3.2 training is not part of this release), and Alpha.9 (API
-documentation), before Beta.1 production hardening.
-
-**vNext — Qwen 3**
-Qwen 3 transformer architecture with thinking mode and model-agnostic tool calling, validated on
-Qwen 3 8B Instruct at BF16 and FP8, with FP8 KV cache compression. Follows the v0.20 release.
-
-See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for the full milestone breakdown.
+See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for the full roadmap,
+including what comes after v0.20.
 
 ---
 
 ## Validated Capabilities
 
-Primary inference targets, in priority order: **Gemma 4 12B**, **Llama 3.x** (1B / 3B / 8B), and **GPT-2**.
+The complete validated surface — the model paths from **Model Families** above, plus the components,
+tokenizers, and tooling beneath them.
 
 | Capability | Status |
 |---|---|
 | Gemma 4 12B Instruct inference — greedy decode | Validated against HuggingFace (token-for-token) |
-| Gemma 4 12B Instruct — FP4 E2M1 per-group quantization | Validated — chat CLI default; runs in 12 GB at a reduced context window |
+| Gemma 4 12B Instruct — FP4 E2M1 per-group quantization | Validated — chat CLI default; runs a large context window in 12 GB (weight-tying + bounded-KV ring) |
 | Llama 3.1 8B inference — FP4 E2M1 per-group quantization | Validated — ~6 GB, ~57 tok/s decode, fits 12 GB |
 | Llama 3.1 8B inference — FP8 E4M3 per-channel quantization | Validated — ~11.6 GB at ctx 8192 |
 | Llama 3.2 3B inference — FP4 E2M1 per-group quantization | Validated — coherent generation, 44–48 tok/s decode |
@@ -170,10 +175,10 @@ Primary inference targets, in priority order: **Gemma 4 12B**, **Llama 3.x** (1B
 | Instruction following — Llama 3.2 3B Instruct | Validated |
 | Tool calling framework | Complete |
 | Chat CLI | Complete |
-| MNIST training — 97.5% test accuracy | Complete |
+| MNIST training — ~97.9% test accuracy | Complete |
 | AdamW optimizer | Complete |
 | cuBLASLt Linear — forward + backward | Complete |
-| LayerNorm, RMSNorm, GELU, SiLU, Softmax, CrossEntropy | Complete |
+| LayerNorm, RMSNorm, GELU, SiLU, Softmax | Complete |
 | SwiGLU MLP — forward + CUDA kernel | Complete |
 | Multi-Head Attention — forward + backward | Complete |
 | Grouped Query Attention — GQA with KV-cache | Complete |
@@ -203,9 +208,9 @@ Mila: It stores the key and value tensors from earlier tokens so each new token 
 Located under `Mila/Adaptors/Chat`. An instruction-following chat harness that closes the
 loop in-process with a human in the gate — the default model is Gemma 4 12B Instruct at FP4,
 loaded via the two-phase (prefill + decode) KV-cache pipeline, with model hot-switching
-(`/model <alias> [quant]`) and tool calling. On a 12 GB card, Gemma 4 12B FP4 runs at a
-reduced context window today; the bounded-KV ring cache and weight-tying work (see ROADMAP)
-expand that context within the same budget.
+(`/model <alias> [quant]`) and tool calling. On a 12 GB card, Gemma 4 12B FP4 runs a large context
+window — its two memory-fit gates, weight-tying and the bounded-KV sliding-window ring cache, landed
+in the alpha.6 line.
 
 ### Mila Inference Server (MIS) — a foreign harness over the wire
 
@@ -214,16 +219,24 @@ OpenAI/Anthropic-compatible wire (a pybind11 bridge plus a Python server) so a b
 harness you did not write — Codex, Claude Code — can drive Mila from another process, and
 double as a ruthless validation oracle.
 
+---
+
 ## Samples
 
 ### MNIST Classifier
 
-Located under `Samples/Mnist`. Trains a 3-layer MLP on MNIST to 97.5% test accuracy.
+Located under `Mila/Samples/MNIST`. Trains a 3-layer MLP on MNIST to ~97.9% test accuracy.
 Demonstrates the full training loop: data loading, forward pass, loss, backward pass, AdamW step.
+
+### Bard — GPT-2 character-level training
+
+Located under `Mila/Samples/Bard`. Trains a small GPT-2-style transformer on Tiny Shakespeare to
+coherent, Shakespeare-structured text — the transformer counterpart to MNIST's MLP, revived to the
+current API as part of v0.20 Training Revival.
 
 ### QuickStart — consume Mila via FetchContent
 
-Located under `Samples/QuickStart`. A standalone downstream project showing how to depend on Mila
+Located under `Mila/Samples/QuickStart`. A standalone downstream project showing how to depend on Mila
 with `FetchContent` (the supported consumption path for a C++23 module library) and call its public
 API. See [getting-started.md §7](getting-started.md) and the sample's
 [README](Mila/Samples/QuickStart/README.md).
@@ -281,9 +294,9 @@ Select the Ninja generator and Release configuration. Build with F7.
 
 ### Docker
 
-A development container provides a reproducible Linux build toolchain (CUDA 13.0,
-Clang 19, CMake 4.x, Ninja) — the simplest way to build Mila without installing the
-toolchain locally, for example from WSL. It mounts the repo at `/mila` with GPU access.
+A development container provides a reproducible Linux build toolchain (CUDA 13.3,
+Clang 21 with a gcc-15 nvcc host, CMake 4.x, Ninja) — the simplest way to build Mila without
+installing the toolchain locally, for example from WSL. It mounts the repo at `/mila` with GPU access.
 
 ```bash
 # Build and start the dev container (requires the NVIDIA Container Toolkit for GPU access)
@@ -316,7 +329,7 @@ Updated automatically on every push to master.
 
 ## Contributing
 
-Mila is approaching a public beta and welcomes contributors who share its philosophy.
+Mila is in late alpha (feature-frozen, hardening toward v0.20) and welcomes contributors who share its philosophy.
 Good starting points are CPU reference ops, test coverage, and new encoding strategies
 under /Components/Encodings/. Mila is GPU-first by design: the CUDA backend is the
 validated inference path, and CPU op coverage beyond the GPT-2 lineage is intentionally
@@ -331,6 +344,12 @@ is a well-scoped, self-contained first contribution, not a gap to apologize for.
 New contributors: [getting-started.md](https://github.com/ToddThomson/Mila/blob/dev/getting-started.md) walks through a fresh clone,
 build, model weight conversion, running inference, and opening your first PR.
 See CONTRIBUTING.md for coding standards and the pull request process.
+
+---
+
+## Attributions
+
+For research and open-source acknowledgements, see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
 
 ---
 

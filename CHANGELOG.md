@@ -1,19 +1,18 @@
 # Mila — Changelog
 
-Completed, validated work, newest first.
+Completed, validated work, newest first. Each entry is the release notes for one `dev -> master`
+release, generated from that PR's commit range (see [RELEASING.md](RELEASING.md) for the mechanics).
 
 - **Open tasks** live in [BACKLOG.md](BACKLOG.md).
-- **Milestone vision and success criteria** live in [ROADMAP.md](ROADMAP.md).
+- **Release narrative and success criteria** live in [ROADMAP.md](ROADMAP.md).
 
-Versions are the `Version.txt` stamp at the time the work landed. During alpha, releases
-are tagged off `master` (see Release Assets in BACKLOG); completed phases below double as the
-release notes.
+Versions are the `Version.txt` stamp at the time the work landed.
 
 ---
 
-## Alpha.6 — Consolidation (feature freeze + debt burndown; in progress)
+## Alpha.6 — Consolidation (feature freeze + debt burndown)
 
-The bridge from "the features work" to a tree honest enough to call beta. Milestone vision
+The bridge from "the features work" to a tree honest enough to call beta. Release narrative
 is in ROADMAP; open triage buckets are in BACKLOG.
 
 ### Beta.1 gate closed: the CPU-only test ratchet is live in CI (confirmed at 0.20.0-alpha.6+116)
@@ -192,6 +191,37 @@ Build infrastructure:
 - **`ninja -k 0` in CI** so one run reports every error, not just the first.
 
 MSVC-path unaffected (every fix is clang-only, PIC-neutral on Windows, or non-semantic).
+
+### Gemma 4 inference competitiveness — criterion MET, campaign closed (0.20.0-alpha.6+101..+105)
+
+A craft goal, never a release gate: Mila is a mastery project, not a llama.cpp/vLLM competitor, and the
+release ships regardless of where this lands. The target was "close, not miles behind" on Gemma 4 12B FP4
+at 48K context (RTX 4070, 22496-token prefill), measured against llama.cpp (LM Studio, Q4_K_M).
+
+**Prefill: 1.95x -> 1.136x behind** (39208 -> 12382 ms; llama.cpp 10903 ms / 2063 tok/s vs Mila 1817
+tok/s), through a stacked sequence of tensor-core flash-attention kernels plus the FP8-activation GEMM
+path. The two levers that carried it: a bounded-ring tensor-core flash prefill on the 40 local
+sliding-window layers (+101, then a row-split FA-2 kernel at +104), 1.71x -> 1.136x; and the W4A8-FP8
+activation prefill GEMM shipped ON at +103 with per-token activation scales after the stale-`sB` root
+cause was fixed, 1.50x -> 1.17x (see the +98/+99 entries below for that path's earlier reversal).
+
+**Decode: 38.65 -> 49.09 tok/s @32K (+27%)**, 40.15 -> 48.87 @4K (+105) -- decode no longer scales with
+*allocated* context, the 4K/32K spread is gone. The GQA attention bucket fell 4.63 -> 0.37 ms/token
+(12.5x). Two kernels did it: an FP4 decode matvec inner-loop diet (PRMT byte-permute nibble decode with
+no constant-LUT replay, per-group scale fold, dual accumulators, one-ahead load pipeline) taking 63-78%
+-> 79-90% of DRAM peak; and a fused decode-attention kernel (`Gqa.Decode.Bf16.cu`) doing streaming
+online-softmax over the live band only, split-K with fixup merge for the MQA global layers, cp.async
+double-buffered K/V tiles -- replacing the cuBLASLt QK->softmax->AV pipeline. `CudaGqaDecodeParity`
+oracles and the sanitizer trio green.
+
+The remaining wall is FP4 weight bytes at ~92% of DRAM peak (the format floor). Crossing *under*
+llama.cpp is a further stacked campaign whose biggest bucket (global flash, ~36% of prefill) sits at the
+Ada architectural floor, so the remaining levers are **deferred by choice, not blocked**: the FP4->FP8
+upcast hoist (needs a core-API sign-off for an `IDecoderLayer::beginPrefillPass/endPrefillPass` hook,
+projects ~1.08x), RMSNorm fusion (2.36 ms, 337 launches/token), and a CUDA-Graphs decode step (~1.4 ms
+launch-gap tax) projecting ~56 tok/s against a ~62-65 format ceiling. FP8 KV cache is re-scoped as a
+memory/long-context enabler (~1 GB at 64K), no longer a decode-perf lever. Full gap map, ncu evidence,
+and lever arithmetic stay in BACKLOG, *Gemma 4 — Dense Chassis*.
 
 ### W4A8-FP8 prefill default reverted to OFF (0.20.0-alpha.6+99)
 
