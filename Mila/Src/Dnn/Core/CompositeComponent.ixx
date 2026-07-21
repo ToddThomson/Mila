@@ -152,8 +152,11 @@ namespace Mila::Dnn
             if ( this->hasExecutionContext() )
             {
                 component->setExecutionContext( this->getExecutionContext() );
-                // FIXME: This is a bug: setTraining cannot be called until after build()!
-                // component->setTraining( this->isTraining() );
+                // No training-state propagation here by design: RuntimeMode reaches children
+                // at build() time (the parent's onBuilding() builds each child with its
+                // RuntimeMode), and the runtime TrainingMode toggle propagates post-build via
+                // onTrainingModeChanging(). addComponent() runs pre-build, so a setTrainingMode()
+                // call here could never satisfy its built precondition.
             }
 
             std::string name = component->getName();
@@ -604,9 +607,13 @@ namespace Mila::Dnn
         /**
          * @brief Get all parameter gradients from all children.
          *
-         * @return Vector of non-owning pointers to gradient tensors
+         * Gradient buffers are allocated only when built in training mode, so a
+         * component built for inference yields an empty result. This mirrors the
+         * leaf-component contract (e.g. Linear) and the symmetry with getParameters().
          *
-         * @throws std::runtime_error if called before build() or not in training mode
+         * @return Vector of non-owning pointers to gradient tensors (empty in inference mode)
+         *
+         * @throws std::runtime_error if called before build()
          */
         std::vector<ITensor*> getGradients() const override
         {
@@ -614,13 +621,6 @@ namespace Mila::Dnn
             {
                 throw std::runtime_error(
                     "Cannot get parameter gradients before build()"
-                );
-            }
-
-            if ( !this->build_context_.isTrainingMode() )
-            {
-                throw std::runtime_error(
-                    "Cannot get parameter gradients when not in training mode"
                 );
             }
 
@@ -729,9 +729,9 @@ namespace Mila::Dnn
          * @brief Hook invoked when training mode is about to change.
          *
          * Propagates the new mode to all child components. The hook runs with
-         * the Component's training mutex held; it MUST NOT call setTraining().
+         * the Component's training mutex held; it MUST NOT call setTrainingMode().
          *
-         * @param is_training New training mode (true = training, false = eval)
+         * @param training_mode New training mode (Normal or Eval)
          */
         void onTrainingModeChanging( TrainingMode training_mode ) override
         {

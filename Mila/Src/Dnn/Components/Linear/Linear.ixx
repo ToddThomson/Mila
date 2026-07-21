@@ -76,7 +76,7 @@ namespace Mila::Dnn
      * @tparam TDeviceType        Target device.
      * @tparam TComputePrecision  Activation and accumulation precision.
      * @tparam TWeightQuant       Weight quantization policy. Must satisfy WeightQuantPolicy.
-     *                            Defaults to NoWeightQuant (identity — no quantization).
+     *                            Defaults to NoWeightQuant (identity -- no quantization).
      */
     export template<DeviceType TDeviceType, TensorDataType TComputePrecision, WeightQuantPolicy TWeightQuant = NoWeightQuant>
         requires PrecisionSupportedOnDevice<TComputePrecision, TDeviceType>
@@ -92,7 +92,7 @@ namespace Mila::Dnn
         // here. Placing a static_assert in the class template body forces MSVC to fully
         // instantiate OpType (including all member function bodies) before the CUDA execution
         // context is complete. A missing OperationTraits specialization already produces a hard
-        // compile error on ::type — that is the practical guard.
+        // compile error on ::type -- that is the practical guard.
 
         static constexpr bool kIsQuantized = TWeightQuant::kIsQuantized;
 
@@ -170,7 +170,9 @@ namespace Mila::Dnn
 
             TensorType* result = nullptr;
 
-            if ( input_shape == leading_shape_ )
+            // With an installed shared slot the raw output_ may be wider than the
+            // result; always return the shape-adjusted view in that case.
+            if ( !output_installed_ && input_shape == leading_shape_ )
             {
                 result = output_.get();
             }
@@ -194,7 +196,7 @@ namespace Mila::Dnn
          * buffers bound via setGradients() using += semantics; pre-zeroing ensures
          * clean gradient state across calls.
          *
-         * Not supported on quantized paths (kIsQuantized == true) — the backend
+         * Not supported on quantized paths (kIsQuantized == true) -- the backend
          * operation will throw std::logic_error if backward is attempted.
          *
          * @param input       Original forward-pass input tensor.
@@ -440,11 +442,11 @@ namespace Mila::Dnn
          *   - Quantized path (kIsQuantized == true): the blob dtype must be
          *     TComputePrecision (the full-precision source type). The backend operation's
          *     quantize() method performs per-channel absmax scale computation, quantizes
-         *     weights from TComputePrecision to kWeightDtype (e.g. BF16 → FP8_E4M3),
+         *     weights from TComputePrecision to kWeightDtype (e.g. BF16 -> FP8_E4M3),
          *     and uploads both the quantized weights and FP32 scales to device.
          *     The weight_scales_ tensor was pre-allocated in initializeParameters() and
          *     its device pointer was already bound to the operation in onBuilding() via
-         *     setWeightScales() — quantize() writes directly into that allocation.
+         *     setWeightScales() -- quantize() writes directly into that allocation.
          *
          * Bias is always stored and loaded at TComputePrecision regardless of TWeightQuant.
          *
@@ -452,7 +454,8 @@ namespace Mila::Dnn
          * @param blob Serialized tensor blob from PretrainedModelReader.
          *
          * @throws std::invalid_argument if the blob dtype does not match the expected
-         *         source precision, or if the blob shape does not match the config.
+         *         source precision, if the blob shape does not match the config, or if
+         *         name is neither "weight" nor "bias".
          */
         void loadParameter( const std::string& name, const ITensorBlob& blob ) override
         {
@@ -481,8 +484,100 @@ namespace Mila::Dnn
             }
             else
             {
-                this->loadParameter( name, blob );
+                throw std::invalid_argument( std::format(
+                    "Linear '{}': unknown parameter '{}' (expected 'weight' or 'bias')",
+                    this->getName(), name ) );
             }
+        }
+
+        /**
+         * @brief Replace the owned weight with a shared tensor (e.g. a tied lm_head
+         *        sharing the token embedding table). See WeightTying.md.
+         *
+         * May be called BEFORE build (onBuilding then skips weight self-allocation and
+         * wires the installed weight) or AFTER build (rebinds the live operation). The
+         * former avoids allocating a weight that tying would immediately free.
+         * Quantized instantiations must use the (weight, scales) overload -- a
+         * quantized weight is meaningless without its dequantization scales.
+         *
+         * @param shared_weight Shared device tensor; must match the configured shape.
+         */
+        void installSharedWeight( std::shared_ptr<WeightTensorType> shared_weight )
+        {
+            if constexpr ( kIsQuantized )
+            {
+                throw std::logic_error( std::format(
+                    "Linear '{}': a quantized tied lm_head requires the "
+                    "installSharedWeight(weight, scales) overload",
+                    this->getName() ) );
+            }
+            else
+            {
+                weight_ = std::move( shared_weight );
+                weight_installed_ = true;
+
+                if ( this->isBuilt() )
+                    operation_->setParameters( weight_.get(), bias_.get() );
+            }
+        }
+
+        /**
+         * @brief Replace the owned weight and scales with shared tensors -- the tied
+         *        FP8 embedding/lm_head table (D4 Design B).
+         *
+         * Only per-channel policies are installable: the per-output-channel scale
+         * axis IS the vocabulary row the embedding gathers, so one scale tensor
+         * serves both consumers. Per-group scales sit on the input axis and do not
+         * transfer to a row gather -- those instantiations throw.
+         *
+         * @param shared_weight Shared quantized device tensor [out_features, in_features].
+         * @param shared_scales Shared FP32 scale tensor [out_features].
+         */
+        void installSharedWeight(
+            std::shared_ptr<WeightTensorType> shared_weight,
+            std::shared_ptr<WeightScaleTensorType> shared_scales )
+        {
+            if constexpr ( kIsQuantized && TWeightQuant::kPerChannel )
+            {
+                weight_ = std::move( shared_weight );
+                weight_scales_ = std::move( shared_scales );
+                weight_installed_ = true;
+
+                // Pre-build: onBuilding wires weight_/weight_scales_ after skipping self-
+                // allocation. Post-build: rebind the live operation to the shared tensors.
+                if ( this->isBuilt() )
+                {
+                    operation_->setParameters( weight_.get(), bias_.get() );
+                    operation_->setWeightScales( weight_scales_.get() );
+                }
+            }
+            else
+            {
+                throw std::logic_error( std::format(
+                    "Linear '{}': installSharedWeight with scales requires a per-channel "
+                    "quantized lm_head; per-group scales sit on the input axis and do not "
+                    "transfer to a row gather",
+                    this->getName() ) );
+            }
+        }
+
+        /**
+         * @brief Install a shared output slot (activation pooling).
+         *
+         * Must be called before build(): onBuilding then skips output self-allocation
+         * after validating the slot's storage covers the build shape, and forward()
+         * always returns a shape-adjusted view so a wider slot never leaks its
+         * geometry to callers. Mirrors installSharedWeight; self-allocation remains
+         * the default. The slot is owned and memory-accounted by the installer.
+         */
+        void installSharedOutput( std::shared_ptr<TensorType> output )
+        {
+            if ( this->isBuilt() )
+                throw std::logic_error(
+                    "Linear '" + this->getName() + "': installSharedOutput must be called before build()" );
+
+            output_ = std::move( output );
+            output_installed_ = true;
         }
 
         MemoryStats getMemoryStats() const override
@@ -504,7 +599,8 @@ namespace Mila::Dnn
                 stats.device_parameter_bytes += bias_->getStorageSize();
             }
 
-            if ( output_ != nullptr )
+            // An installed shared output slot is owned and counted by the installer.
+            if ( output_ != nullptr && !output_installed_ )
             {
                 stats.device_state_bytes += output_->getStorageSize();
             }
@@ -555,7 +651,21 @@ namespace Mila::Dnn
 
             shape_t output_shape = input_shape;
             output_shape.back() = config_.getOutputFeatures();
-            output_ = std::make_unique<TensorType>( device_id, output_shape, this->getName() + ".output" );
+
+            if ( output_installed_ )
+            {
+                int64_t needed = 1;
+                for ( auto d : output_shape )
+                    needed *= d;
+
+                if ( !output_ || output_->size() < needed )
+                    throw std::invalid_argument(
+                        "Linear '" + this->getName() + "': installed shared output slot is smaller than the build shape requires" );
+            }
+            else
+            {
+                output_ = std::make_shared<TensorType>( device_id, output_shape, this->getName() + ".output" );
+            }
 
             if ( context.isTrainingMode() )
             {
@@ -602,15 +712,16 @@ namespace Mila::Dnn
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
         std::shared_ptr<OpType> operation_{ nullptr };
 
-        // Weight storage dtype is kWeightDtype — equals TComputePrecision on the unquantized
+        // Weight storage dtype is kWeightDtype -- equals TComputePrecision on the unquantized
         // path; equals TWeightQuant::kStorageDtype (e.g. FP8_E4M3) on the quantized path.
         std::shared_ptr<WeightTensorType> weight_{ nullptr };
 
         // Per-channel FP32 absmax scales [output_features]. Non-null only on the quantized
         // path (kIsQuantized == true). Allocated in initializeParameters(), bound to the
         // backend operation in onBuilding() via setWeightScales(), and filled at load time
-        // by operation_->quantize() inside loadParameter().
-        std::unique_ptr<WeightScaleTensorType> weight_scales_{ nullptr };
+        // by operation_->quantize() inside loadParameter(). shared_ptr so a tied lm_head
+        // can adopt the token embedding's row scales via installSharedWeight (D4 Design B).
+        std::shared_ptr<WeightScaleTensorType> weight_scales_{ nullptr };
 
         // Bias always stored at activation precision.
         std::shared_ptr<TensorType> bias_{ nullptr };
@@ -618,7 +729,13 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> weight_grad_{ nullptr };
         std::shared_ptr<TensorType> bias_grad_{ nullptr };
 
-        std::unique_ptr<TensorType> output_{ nullptr };
+        // Self-allocated at build, or an installed shared slot (installSharedOutput)
+        // that the component views a prefix of.
+        std::shared_ptr<TensorType> output_{ nullptr };
+        bool output_installed_{ false };
+        // Set when a shared weight is installed (installSharedWeight). When installed BEFORE
+        // build, onBuilding/initializeParameters skip weight self-allocation entirely.
+        bool weight_installed_{ false };
         std::unique_ptr<TensorType> output_view_{ nullptr };
         std::unique_ptr<TensorType> input_grad_{ nullptr };
 
@@ -636,7 +753,7 @@ namespace Mila::Dnn
             if ( input_shape.back() != config_.getInputFeatures() )
             {
                 throw std::invalid_argument( std::format(
-                    "Linear '{}': input features mismatch — expected {}, got {}",
+                    "Linear '{}': input features mismatch -- expected {}, got {}",
                     this->getName(), config_.getInputFeatures(), input_shape.back() ) );
             }
         }
@@ -681,9 +798,28 @@ namespace Mila::Dnn
             int64_t output_features = config_.getOutputFeatures();
             auto device = this->getExecutionContext()->getDeviceId();
 
+            // A weight (and scales) installed before build -- a tied lm_head adopting the
+            // token embedding table -- must NOT be self-allocated: that redundant weight is
+            // exactly the ~1 GB FP8 load-time allocation tying would only free again.
+            // weight_/weight_scales_ are already set; onBuilding wires them to the operation.
+            // Only an (uncommon) bias on such a head still needs its own allocation.
+            if ( weight_installed_ )
+            {
+                if ( config_.hasBias() )
+                {
+                    bias_ = std::make_shared<TensorType>(
+                        device, shape_t{ output_features }, this->getName() + ".bias" );
+
+                    if ( context.shouldInitializeParameters() )
+                        zero( *bias_, this->getExecutionContext() );
+                }
+
+                return;
+            }
+
             // Packed nibble formats (INT4, FP4 E2M1) store 2 elements per UINT8 byte,
             // so the physical column count is input_features/2.
-            // FP8 and unquantized formats store one element per storage byte — full width.
+            // FP8 and unquantized formats store one element per storage byte -- full width.
             const int64_t weight_cols = ( kIsQuantized && !TWeightQuant::kPerChannel )
                 ? input_features / 2
                 : input_features;
@@ -695,22 +831,28 @@ namespace Mila::Dnn
             {
                 if constexpr ( TWeightQuant::kPerChannel )
                 {
-                    // Per-channel: one scale per output channel — shape [out_features].
-                    weight_scales_ = std::make_unique<WeightScaleTensorType>(
+                    // Per-channel: one scale per output channel -- shape [out_features].
+                    weight_scales_ = std::make_shared<WeightScaleTensorType>(
                         device, shape_t{ output_features }, this->getName() + ".weight.scales" );
                 }
                 else
                 {
-                    // Per-group: one scale per (output channel, K-group) — shape [out_features, K/group_size].
+                    // Per-group: one scale per (output channel, K-group) -- shape [out_features, K/group_size].
                     const int64_t num_groups = input_features / TWeightQuant::kQuantizationGroupSize;
-                    weight_scales_ = std::make_unique<WeightScaleTensorType>(
+                    weight_scales_ = std::make_shared<WeightScaleTensorType>(
                         device, shape_t{ output_features, num_groups }, this->getName() + ".weight.scales" );
                 }
             }
 
-            if ( context.shouldInitializeParameters() )
+            if constexpr ( !kIsQuantized )
             {
-                // FIXME: xavier<WeightTensorType, MR>( *weight_, input_features, output_features );
+                if ( context.shouldInitializeParameters() )
+                {
+                    // REVIEW: Let's get rid of these ugly static_casts. we should be using dim_t everywhere for shape dimensions,
+                    // and the config should be updated to reflect that.
+
+                    xavier( *weight_, static_cast<size_t>( input_features ), static_cast<size_t>( output_features ), this->getExecutionContext() );
+                }
             }
 
             if ( config_.hasBias() )
@@ -720,7 +862,7 @@ namespace Mila::Dnn
 
                 if ( context.shouldInitializeParameters() )
                 {
-                    // FIXME: zero( *bias_ );
+                    zero( *bias_, this->getExecutionContext() );
                 }
             }
         }
@@ -728,7 +870,7 @@ namespace Mila::Dnn
         /**
          * @brief Instantiate the backend compute operation via compile-time traits dispatch.
          *
-         * OpType is resolved by OperationTraits at instantiation time — no registry lookup,
+         * OpType is resolved by OperationTraits at instantiation time -- no registry lookup,
          * no string key, no runtime hash map. A missing specialization is a compile error.
          */
         void createOperation()

@@ -1,5 +1,5 @@
 /**
- * @file VulkanMemoryResource.ixx
+ * @file RocmMemoryResource.ixx
  * @brief Vulkan memory resource implementation for cross-platform GPU compute
  *
  * This module provides Vulkan memory management for heterogeneous compute devices

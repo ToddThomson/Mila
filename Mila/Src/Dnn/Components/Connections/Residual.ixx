@@ -37,8 +37,6 @@ import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
-import Compute.UnaryOperation;
-import Compute.BinaryOperation;
 import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -86,7 +84,7 @@ namespace Mila::Dnn
          * - Shared mode (no device_id): parent must call setExecutionContext() prior to build().
          *
          * @param name Component name identifier (mandatory).
-         * @param build_config Residual configuration.
+         * @param config Residual configuration.
          * @param device_id Optional device identifier to create owned ExecutionContext.
          *
          * @throws std::invalid_argument if build_config is invalid or device type mismatches.
@@ -140,7 +138,9 @@ namespace Mila::Dnn
 
             auto input_shape = input_a.shape();
 
-            if ( input_shape == leading_shape_ )
+            // With an installed shared slot the raw output_ may be wider than the
+            // result; always return the shape-adjusted view in that case.
+            if ( !output_installed_ && input_shape == leading_shape_ )
             {
                 return *output_;
             }
@@ -242,7 +242,7 @@ namespace Mila::Dnn
         {
             std::ostringstream oss;
             oss << "Residual: " << this->getName() << std::endl;
-            // REVEIW: oss << "Training mode: " << (this->isTraining() ? "true" : "false") << std::endl;
+            oss << "Training mode: " << (this->isTrainingMode() ? "true" : "false") << std::endl;
             oss << "Built: " << (this->isBuilt() ? "true" : "false") << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
 
@@ -274,24 +274,38 @@ namespace Mila::Dnn
         /**
          * @brief Return non-owning pointers to parameter gradient tensors.
          *
-         * Only valid in training mode. Residual has no trainable parameters by default.
+         * Residual has no trainable parameters by default; return empty list.
          */
         std::vector<ITensor*> getGradients() const override
         {
-            // REVIEW:
-            /*if ( !this->isTraining() )
-            {
-                throw std::runtime_error( "Residual: getGradients called when not in training mode" );
-            }*/
-
             return {};
+        }
+
+        /**
+         * @brief Install a shared output slot (activation pooling).
+         *
+         * Must be called before build(): onBuilding then skips output self-allocation
+         * after validating the slot's storage covers the build shape, and forward()
+         * always returns a shape-adjusted view so a wider slot never leaks its
+         * geometry to callers. Mirrors Linear::installSharedWeight; self-allocation
+         * remains the default. The slot is owned and memory-accounted by the installer.
+         */
+        void installSharedOutput( std::shared_ptr<TensorType> output )
+        {
+            if ( this->isBuilt() )
+                throw std::logic_error(
+                    "Residual '" + this->getName() + "': installSharedOutput must be called before build()" );
+
+            output_ = std::move( output );
+            output_installed_ = true;
         }
 
         MemoryStats getMemoryStats() const override
         {
             MemoryStats stats;
 
-            if ( output_ != nullptr )
+            // An installed shared output slot is owned and counted by the installer.
+            if ( output_ != nullptr && !output_installed_ )
             {
                 stats.device_state_bytes += output_->getStorageSize();
             }
@@ -330,14 +344,14 @@ namespace Mila::Dnn
          * ## Output buffer
          *
          * The output buffer matches the full input shape. Residual is a
-         * pure elementwise addition with no sequence dimension concern —
+         * pure elementwise addition with no sequence dimension concern --
          * RuntimeMode does not influence output buffer allocation.
          *
          * ## Gradient buffers
          *
          * input_a_grad_ and input_b_grad_ are allocated only for
          * RuntimeMode::Training builds. Both are the same shape as the
-         * input — Residual is elementwise addition and both inputs are
+         * input -- Residual is elementwise addition and both inputs are
          * always symmetric in shape.
          *
          * @param build_config Full input shape and RuntimeMode for this build.
@@ -350,8 +364,21 @@ namespace Mila::Dnn
 
             auto device = this->getExecutionContext()->getDeviceId();
 
-            output_ = std::make_unique<TensorType>(
-                device, input_shape, this->getName() + ".output" );
+            if ( output_installed_ )
+            {
+                int64_t needed = 1;
+                for ( auto d : input_shape )
+                    needed *= d;
+
+                if ( !output_ || output_->size() < needed )
+                    throw std::invalid_argument(
+                        "Residual '" + this->getName() + "': installed shared output slot is smaller than the build shape requires" );
+            }
+            else
+            {
+                output_ = std::make_shared<TensorType>(
+                    device, input_shape, this->getName() + ".output" );
+            }
 
             if ( build_config.isTrainingMode() )
             {
@@ -372,7 +399,7 @@ namespace Mila::Dnn
          * training, explicitly unbind any parameter-gradient pointers on the
          * backend to avoid accidental use or pinned memory.
          *
-         * Called with Component's training mutex held; do not call setTraining() here.
+         * Called with Component's training mutex held; do not call setTrainingMode() here.
          */
         void onTrainingModeChanging( TrainingMode training_mode ) override
         {
@@ -389,7 +416,10 @@ namespace Mila::Dnn
         std::shared_ptr<OpType> operation_{ nullptr };
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
-        std::unique_ptr<TensorType> output_{ nullptr };
+        // Self-allocated at build, or an installed shared slot (installSharedOutput)
+        // that the component views a prefix of.
+        std::shared_ptr<TensorType> output_{ nullptr };
+        bool output_installed_{ false };
         std::unique_ptr<TensorType> output_view_{ nullptr };
         std::unique_ptr<TensorType> input_a_grad_{ nullptr };
         std::unique_ptr<TensorType> input_b_grad_{ nullptr };

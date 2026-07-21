@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mila-inference-server"
+version = "0.1.0"
+# Pinned to 3.13.x: the mila binding is a version-locked CPython extension
+# (mila.cp313-win_amd64.pyd) that loads only under the interpreter it was built
+# for. A wider range lets pip install under a Python that cannot import mila.
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fastapi>=0.136.0",
+    "uvicorn[standard]>=0.44.0",
+    "pydantic>=2.13.3",
+    "pydantic-settings>=2.14.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.27.0",
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+    # Renders the vendored Gemma 4 reference template (tests/reference/) so the
+    # prompt tests can diff against Google's own implementation rather than against
+    # our reading of it. Test-only -- MIS builds prompts natively and never runs Jinja
+    # at serving time.
+    "jinja2>=3.1.0",
+]
+
+[tool.setuptools]
+# MIS is run in place (python main.py / uvicorn main:app) from this directory, not
+# imported as an installed library. This install exists only to pull the runtime
+# dependencies, so declare no importable packages and skip setuptools flat-layout
+# autodiscovery (which otherwise fails on the routes/schemas/protocols top-level dirs).
+py-modules = []

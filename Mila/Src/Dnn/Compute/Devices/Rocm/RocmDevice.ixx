@@ -1,5 +1,5 @@
 /**
- * @file VulkanDevice.ixx
+ * @file RocmDevice.ixx
  * @brief Minimal Vulkan-based compute device for the Mila framework.
  *
  * This implementation provides a lightweight, cross-platform placeholder

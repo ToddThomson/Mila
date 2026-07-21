@@ -1,12 +1,11 @@
 #include <gtest/gtest.h>
-
-import Mila;
-
 #include <filesystem>
 #include <vector>
 #include <string>
 #include <sstream>
 #include <iomanip>
+
+import Mila;
 
 namespace Data::Tokenizers::BpeTokenizer_Gpt2Loader_Tests
 {

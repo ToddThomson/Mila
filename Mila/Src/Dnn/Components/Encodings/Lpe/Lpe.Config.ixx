@@ -1,5 +1,5 @@
 /**
- * @file EncoderConfig.ixx
+ * @file Lpe.Config.ixx
  * @brief Configuration interface for the Encoder module in the Mila DNN framework.
  *
  * Defines the EncoderConfig class, providing a type-safe fluent interface for configuring

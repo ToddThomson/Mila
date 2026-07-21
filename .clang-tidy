@@ -1,0 +1,34 @@
+# Mila .clang-tidy
+#
+# STATUS: editor aid + statement of intent, NOT a CI gate (yet).
+#
+# clang-tidy needs a compile_commands.json (compilation database), and its C++23-module
+# support is still immature -- the same reason IWYU/clangd can't reason about Mila's
+# module graph (see ROADMAP.md "Module Hygiene"). So this file is here to give clangd
+# users in-editor diagnostics and to record the checks we care about; it is not wired
+# into the build pipeline. Wiring it in depends on a working module-aware compile DB.
+#
+# Deliberately conservative: high-signal, low-false-positive checks only. Notably absent:
+#   * readability-identifier-naming -- cannot detect Mila's "no abbreviations" rule, and
+#     would flood the report with false positives. Naming stays a review-time convention.
+#   * Most cppcoreguidelines-* / modernize-* -- too noisy against a module + CUDA codebase.
+
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  performance-*,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-equals-default,
+  modernize-use-equals-delete,
+  readability-misleading-indentation,
+  readability-redundant-control-flow,
+  readability-redundant-member-init
+
+# Lint only Mila's own sources, never vendored Deps or system/CUDA headers.
+HeaderFilterRegex: 'Mila/Src/.*'
+
+# Advisory only -- never fail a build on a tidy finding.
+WarningsAsErrors: ''

@@ -1,5 +1,5 @@
 /**
- * @file Gpt2Encoder.ixx
+ * @file Lpe.ixx
  * @brief Device-templated Encoder module for token and positional embeddings.
  *
  * Delegates compute to a UnaryOperation backend. Module owns token (wte) and
@@ -36,7 +36,6 @@ import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
-import Compute.UnaryOperation;
 import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -182,8 +181,11 @@ namespace Mila::Dnn
 
             if ( !this->isTrainingMode() )
             {
-                throw std::runtime_error( "Encoder module must be in training mode to call backward. Call setTraining(true) first." );
+                throw std::runtime_error( "Encoder module must be in training mode to call backward." );
             }
+
+            // REVIEW: The following checks are not required. If built and in training mode,
+            // these buffers should always be initialized in onBuilding. If not, it's a bug.
 
             if ( !wte_grad_ || !wpe_grad_ )
             {
@@ -217,7 +219,7 @@ namespace Mila::Dnn
          * Unlike forward() which processes a full sequence [B, T] and uses positions
          * 0..T-1, decode() processes a single token and uses the caller-supplied
          * position for the positional embedding lookup. This is critical for
-         * correctness in KV cache autoregressive generation — without the correct
+         * correctness in KV cache autoregressive generation -- without the correct
          * position, wpe[0] would be used for every generated token, corrupting
          * all subsequent attention computations.
          *
@@ -234,7 +236,7 @@ namespace Mila::Dnn
 
             // Resolved IPositionalDecode from onBuilding
             if ( !decode_path_ )
-                throw std::runtime_error( "Lpe: backend operation does not support decode() — IPositionalDecode not implemented" );
+                throw std::runtime_error( "Lpe: backend operation does not support decode() -- IPositionalDecode not implemented" );
 
             decode_path_->decode( input, *output_, position );
 
@@ -460,6 +462,15 @@ namespace Mila::Dnn
             operation_->setParameters( wte_.get(), wpe_.get() );
             operation_->build( build_config );
 
+            // Positional encodings are initialized only for train-from-scratch; the
+            // pretrained load path overwrites wte/wpe immediately after build().
+            if ( build_config.shouldInitializeParameters() )
+            {
+                const float std_dev = 1.0f / std::sqrt( static_cast<float>( config_.getEmbeddingDim() ) );
+                fill_normal( *wte_, 0.0f, std_dev, this->getExecutionContext() );
+                fill_normal( *wpe_, 0.0f, std_dev, this->getExecutionContext() );
+            }
+
             // Allocate and cache component-owned output and input-grad tensors.
             auto device = this->getExecutionContext()->getDeviceId();
             shape_t max_out_shape = { max_batch_size_, max_seq_len_, static_cast<dim_t>( config_.getEmbeddingDim() ) };
@@ -572,18 +583,13 @@ namespace Mila::Dnn
             int64_t max_seq_len = config_.getMaxSequenceLength();
             int64_t embedding_dim = config_.getEmbeddingDim();
 
-            // Standard deviation = 1/sqrt(embedding_dim)
-            float std_dev = 1.0f / std::sqrt( static_cast<float>(embedding_dim) );
-
             auto device_id = this->getExecutionContext()->getDeviceId();
 
             wte_ = std::make_unique<EmbeddingsTensorType>( device_id, shape_t{ vocab_size, embedding_dim } );
             wte_->setName( this->getName() + ".wte" );
-            // FIXME: normal( *wte_, std_dev );
 
             wpe_ = std::make_unique<EmbeddingsTensorType>( device_id, shape_t{ max_seq_len, embedding_dim } );
             wpe_->setName( this->getName() + ".wpe" );
-            // FIXME: normal( *wpe_, std_dev );
         }
 
         void createOperation()

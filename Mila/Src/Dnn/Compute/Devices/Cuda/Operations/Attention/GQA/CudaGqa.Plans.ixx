@@ -1,5 +1,5 @@
-﻿/**
- * @file CudaGqaOp.Plans.ixx
+/**
+ * @file CudaGqa.Plans.ixx
  * @brief cuBLASLt matmul plan builders for the Grouped-Query Attention CUDA op.
  *
  * GQA plan construction mirrors MHA with one systematic difference: operations
@@ -7,27 +7,27 @@
  * operations keep batch_count = B * NH.
  *
  * Plan inventory
- * ──────────────
+ * --------------
  * Forward training (square, full T)
- *   qk_score_plan_         : [B*NH, T,     HS] @ [B*NH, T, HS]^T → [B*NH, T,     T]
- *   att_value_plan_        : [B*NH, T,     T]  @ [B*NH, T, HS]   → [B*NH, T,     HS]
+ *   qk_score_plan_         : [B*NH, T,     HS] @ [B*NH, T, HS]^T -> [B*NH, T,     T]
+ *   att_value_plan_        : [B*NH, T,     T]  @ [B*NH, T, HS]   -> [B*NH, T,     HS]
  *
  * Forward prefill / chunked inference
- *   qk_prefill_plan_       : [B*NH, chunk, HS] @ [B*NH, T, HS]^T → [B*NH, chunk, T]
- *   att_value_prefill_plan_: [B*NH, chunk, T]  @ [B*NH, T, HS]   → [B*NH, chunk, HS]
+ *   qk_prefill_plan_       : [B*NH, chunk, HS] @ [B*NH, T, HS]^T -> [B*NH, chunk, T]
+ *   att_value_prefill_plan_: [B*NH, chunk, T]  @ [B*NH, T, HS]   -> [B*NH, chunk, HS]
  *
  * Forward decode (KV-cache)
- *   qk_decode_plan_        : [B*NH, 1,     HS] @ [B*NH, T, HS]^T → [B*NH, 1,     T]
- *   att_value_decode_plan_ : [B*NH, 1,     T]  @ [B*NH, T, HS]   → [B*NH, 1,     HS]
+ *   qk_decode_plan_        : [B*NH, 1,     HS] @ [B*NH, T, HS]^T -> [B*NH, 1,     T]
+ *   att_value_decode_plan_ : [B*NH, 1,     T]  @ [B*NH, T, HS]   -> [B*NH, 1,     HS]
  *
  * Backward (training only)
- *   backward_v_plan_    : [B*NKV, T, T]^T  @ [B*NH,  T, HS]    → [B*NKV, T, HS]  (dV)
- *   backward_att_plan_  : [B*NH,  T, HS]   @ [B*NKV, T, HS]^T  → [B*NH,  T, T]   (dAtt)
- *   backward_q_plan_    : [B*NH,  T, T]    @ [B*NKV, T, HS]    → [B*NH,  T, HS]  (dQ)
- *   backward_k_plan_    : [B*NH,  T, T]^T  @ [B*NH,  T, HS]    → [B*NKV, T, HS]  (dK)
+ *   backward_v_plan_    : [B*NKV, T, T]^T  @ [B*NH,  T, HS]    -> [B*NKV, T, HS]  (dV)
+ *   backward_att_plan_  : [B*NH,  T, HS]   @ [B*NKV, T, HS]^T  -> [B*NH,  T, T]   (dAtt)
+ *   backward_q_plan_    : [B*NH,  T, T]    @ [B*NKV, T, HS]    -> [B*NH,  T, HS]  (dQ)
+ *   backward_k_plan_    : [B*NH,  T, T]^T  @ [B*NH,  T, HS]    -> [B*NKV, T, HS]  (dK)
  *
  * Note on KV-group broadcasting
- * ──────────────────────────────
+ * ------------------------------
  * cuBLASLt strided-batch gemm does not natively broadcast across batch
  * dimensions, so it cannot directly express the many-Q-to-one-KV grouping.
  * The approach taken here is to let the permute kernels (CudaGqa.cuh) expand
@@ -39,7 +39,7 @@
  * expansion entirely (see NVIDIA FasterTransformer / vLLM PagedAttention).
  *
  * Optimized NKV-layout plans (Phase 1)
- * ──────────────────────────────────────
+ * --------------------------------------
  * The _optimized builders below use batch_count = B * NKV and fold the GS
  * Q heads into the M dimension, avoiding the expanded [B, NH, T, HS] buffers
  * entirely. K and V are read directly from their compact [B, NKV, T, HS] cache.
@@ -82,13 +82,25 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         using CublasLtMatMulPlan = CublasLtMatMulPlan<TNative>;
 
         // ====================================================================
-        // Forward training plans — square [T x T] attention matrices
+        // DORMANT -- expanded [B,NH,T,HS]-layout plan builders.
+        //
+        // The live inference op (CudaGqaOp) builds only the _optimized (compact
+        // NKV-layout) plans further below; the builders in this block are no
+        // longer called. They are retained, NOT deleted, as the substrate for a
+        // future GQA training path: the expanded-layout forward/backward derived
+        // from a working MHA, and the clean expand_kv <-> reduce_kv_grad gradient
+        // pairing makes the expanded layout the likely training vehicle. See the
+        // BACKLOG "Retire the CudaGqaOp legacy A/B path" item and GqaMemory.md.
+        // ====================================================================
+
+        // ====================================================================
+        // Forward training plans -- square [T x T] attention matrices
         // ====================================================================
 
         /**
          * @brief Q @ K^T attention score plan (training, full sequence length).
          *
-         * After KV expansion: K is [B, NH, T, HS] — same layout as MHA.
+         * After KV expansion: K is [B, NH, T, HS] -- same layout as MHA.
          * batch_count = B * NH.
          */
         template <typename TNative>
@@ -164,7 +176,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         }
 
         // ====================================================================
-        // Forward prefill plans — rectangular [chunk x T] attention matrices
+        // Forward prefill plans -- rectangular [chunk x T] attention matrices
         //
         // Q has chunk_rows rows (kPrefillChunkSize); K and V cover the full
         // context [T, HS].  The A stride uses the full T-row Q-buffer offset
@@ -202,15 +214,6 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // though only chunk_rows rows are read from each slice.
             const long long strideA = static_cast<long long>(max_seq_length) * head_size;
             const long long strideB = static_cast<long long>(max_seq_length) * head_size;
-
-            // FIXME: POSSIBLE BUG
-            //
-            // prefill_window_size is kPrefillChunkSize( 64 ).So strideC = 64 * 4096 = 262144 elements between heads in preatt_.
-            // But for a partial chunk with chunk_rows = 11, the actual output layout is[ 11, T ] per head — only 11 * 4096 = 45056 elements.The next head's data starts 262144 elements later in the buffer, but the softmax (now correctly using chunk_len as the row stride) reads with stride 11 * 4096 = 45056.
-            // So cuBLASLt writes preatt_ with stride 262144 between heads, but the softmax reads it with stride 45056. Every head beyond head 0 reads from the wrong location — pure garbage into softmax.
-            // The fix — strideC must use chunk_rows, not prefill_window_size:
-            // WAS: const long long strideC = static_cast<long long>(prefill_window_size) * max_seq_length;
-
             const long long strideC = static_cast<long long>(chunk_rows) * max_seq_length;
 
             auto plan = build_strided_plan<TNative>(
@@ -259,14 +262,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // Mathematical operation: v_out[chunk_rows, HS] = att[chunk_rows, T] @ v_exp[T, HS]
             //
 
-            // POSSIBLE BUG: strideA must also use chunk_rows, not prefill_window_size
-            // WAS const long long strideA = static_cast<long long>(prefill_window_size) * max_seq_length;
             const long long strideA = static_cast<long long>(chunk_rows) * max_seq_length;
-
             const long long strideB = static_cast<long long>(max_seq_length) * head_size;
-
-            // POSSIBLE BUG: strideC must use chunk_rows, not prefill_window_size, to match the actual output layout and softmax read pattern.
-            // WAS: const long long strideC = static_cast<long long>(prefill_window_size) * head_size;
             const long long strideC = static_cast<long long>(chunk_rows) * head_size;
 
             auto plan = build_strided_plan<TNative>(
@@ -308,7 +305,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         {
             const int batch_count = batch_size * num_heads;
 
-            // Q slice: [1, HS] — single token; K cache: [T, HS]
+            // Q slice: [1, HS] -- single token; K cache: [T, HS]
             const long long strideA = static_cast<long long>(max_seq_length) * head_size;
             const long long strideB = static_cast<long long>(max_seq_length) * head_size;
             const long long strideC = static_cast<long long>(max_seq_length);
@@ -545,8 +542,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         //   K           = 128         (HS)
         //   N           = 4096        (T)
         //
-        // TEMP: Remove legacy plan builders and these _optimized builders once
-        //       the optimized path is validated and the gate is removed.
+        // LIVE: these compact-NKV builders are the only ones CudaGqaOp calls.
+        // The expanded-layout builders above are dormant training substrate.
         // ====================================================================
 
         /**
@@ -560,9 +557,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
          * strideB = T * HS           (K cache head stride)
          * strideC = GS * chunk * T   (preatt head stride)
          *
-         * @param group_size     NH / NKV — number of Q heads per KV head.
+         * @param group_size     NH / NKV -- number of Q heads per KV head.
          * @param chunk_rows     Number of Q rows per chunk (kPrefillChunkSize for full chunks).
          * @param num_kv_heads   Number of KV heads (NKV).
+         * @param max_seq_length Physical KV cache row count (row stride / leading dim).
+         * @param attended_len   Logical key count for this chunk (the GEMM N dimension).
+         *                       Equals max_seq_length for the full-width path; smaller for
+         *                       the unbounded causal-triangular path (position_offset +
+         *                       chunk_rows). ld and strides stay on max_seq_length so the
+         *                       preatt row pitch is unchanged. See GqaAttentionExtent.md.
          */
         template <typename TNative>
         CublasLtMatMulPlan<TNative> build_qk_prefill_plan_optimized(
@@ -573,6 +576,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             int chunk_rows,
             int max_seq_length,
             int head_size,
+            int attended_len,
             cudaDataType_t      cuda_data_type,
             cublasComputeType_t compute_type,
             cudaDataType_t      scale_type )
@@ -580,18 +584,21 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const int batch_count = batch_size * num_kv_heads;
             const int m_rows = group_size * chunk_rows;
 
-            // Q compact: [B*NKV, GS*chunk, HS] — stride between KV-group slices
+            // Strides keep the PHYSICAL geometry (max_seq_length) so preatt's row pitch
+            // stays max_seq_length regardless of attended_len. Only the GEMM N extent
+            // (K rows read, preatt columns written) shrinks to attended_len.
+            // Q compact: [B*NKV, GS*chunk, HS] -- stride between KV-group slices
             const long long strideA = static_cast<long long>(m_rows) * head_size;
             // K cache:   [B*NKV, T, HS]
             const long long strideB = static_cast<long long>(max_seq_length) * head_size;
-            // preatt:    [B*NKV, GS*chunk, T]
+            // preatt:    [B*NKV, GS*chunk, T] (physical), columns [0, attended_len) written
             const long long strideC = static_cast<long long>(m_rows) * max_seq_length;
 
             auto plan = build_strided_plan<TNative>(
                 handle,
-                m_rows,         head_size,      head_size,      strideA,
-                max_seq_length, head_size,      head_size,      strideB,
-                m_rows,         max_seq_length, max_seq_length, strideC,
+                m_rows,        head_size,      head_size,       strideA,
+                attended_len,  head_size,      head_size,       strideB,
+                m_rows,        attended_len,   max_seq_length,  strideC,
                 CUBLAS_OP_N, CUBLAS_OP_T,
                 batch_count, false,
                 compute_type, cuda_data_type, scale_type );
@@ -617,6 +624,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
          * @param group_size     NH / NKV.
          * @param chunk_rows     Number of Q rows per chunk (kPrefillChunkSize for full chunks).
          * @param num_kv_heads   Number of KV heads (NKV).
+         * @param max_seq_length Physical KV cache row count (row stride / leading dim).
+         * @param attended_len   Logical key count for this chunk (the GEMM K dimension).
+         *                       Equals max_seq_length for the full-width path; smaller for
+         *                       the unbounded causal-triangular path. ld and strides stay
+         *                       on max_seq_length. See GqaAttentionExtent.md.
          */
         template <typename TNative>
         CublasLtMatMulPlan<TNative> build_att_value_prefill_plan_optimized(
@@ -627,6 +639,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             int chunk_rows,
             int max_seq_length,
             int head_size,
+            int attended_len,
             cudaDataType_t      cuda_data_type,
             cublasComputeType_t compute_type,
             cudaDataType_t      scale_type )
@@ -634,7 +647,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const int batch_count = batch_size * num_kv_heads;
             const int m_rows = group_size * chunk_rows;
 
-            // att:   [B*NKV, GS*chunk, T]
+            // Strides keep the PHYSICAL geometry (max_seq_length). Only the GEMM K extent
+            // (att columns and V rows read) shrinks to attended_len.
+            // att:   [B*NKV, GS*chunk, T] (physical), columns [0, attended_len) read
             const long long strideA = static_cast<long long>(m_rows) * max_seq_length;
             // V cache: [B*NKV, T, HS]
             const long long strideB = static_cast<long long>(max_seq_length) * head_size;
@@ -643,9 +658,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             auto plan = build_strided_plan<TNative>(
                 handle,
-                m_rows,         max_seq_length, max_seq_length, strideA,
-                max_seq_length, head_size,      head_size,      strideB,
-                m_rows,         head_size,      head_size,      strideC,
+                m_rows,        attended_len,  max_seq_length, strideA,
+                attended_len,  head_size,     head_size,      strideB,
+                m_rows,        head_size,     head_size,      strideC,
                 CUBLAS_OP_N, CUBLAS_OP_N,
                 batch_count, false,
                 compute_type, cuda_data_type, scale_type );

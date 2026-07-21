@@ -86,23 +86,6 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         // Use provided epsilon for numerical stability
         float s = rsqrtf( m2 / static_cast<float>( norm_dim ) + epsilon );
 
-#ifndef NDEBUG
-        // Lightweight kernel-level sanity check (debug-only).
-        // Runs only on lane 0 of each warp and aborts with assert if mean/rstd are NaN/Inf or exceed threshold.
-        // This is cheap compared to D2H copies and helps catch upstream kernel/precision errors early.
-        constexpr float kLayerNormKernelLimit = 100.0f;
-        if ( lane_id == 0 )
-        {
-            if ( !isfinite( m ) || !isfinite( s ) || fabsf( m ) > kLayerNormKernelLimit || fabsf( s ) > kLayerNormKernelLimit )
-            {
-                // Print minimal diagnostic to aid locating the offending slice (cheap relative to full copy).
-                printf( "LayerNorm FWD anomaly: idx=%d outer=%d inner=%d mean=%f rstd=%f norm_dim=%d inner_size=%d\n",
-                        idx, outer_idx, inner_idx, m, s, norm_dim, inner_size );
-                assert( false );
-            }
-        }
-#endif
-
         if ( lane_id == 0 )
         {
             if ( mean != nullptr )
@@ -124,18 +107,6 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             float w = weight ? weight[i] : 1.0f;
             float b = bias ? bias[ i ] : 0.0f;
             float res = s * ( val - m ) * w + b;
-
-        #ifndef NDEBUG
-            constexpr float kLayerNormOutputAbsLimit = 50.0f;  // Normalized output should be small
-            if ( !isfinite( res ) || fabsf( res ) > kLayerNormOutputAbsLimit )
-            {
-                printf(
-                    "LayerNorm OUTPUT anomaly: idx=%d i=%d val=%f mean=%f rstd=%f weight=%f bias=%f output=%f\n",
-                    idx, i, val, m, s, w, b, res
-                );
-                assert( false );
-            }
-        #endif
 
             o[ offset ] = res;
         }

@@ -27,7 +27,7 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Compute.PairedOperation;
+import Compute.OperationBase;
 import Compute.IPositionalPairedOp;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
@@ -35,7 +35,6 @@ import Compute.ExecutionContext;
 import Compute.OperationType;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
-import Compute.OperationRegistrarHelpers;
 
 import Logging.Logger;
 import Cuda.Debug;
@@ -81,7 +80,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
      */
     export template<TensorDataType TComputePrecision>
         requires PrecisionSupportedOnDevice<TComputePrecision, DeviceType::Cuda>
-    class CudaRopeOp : public PairedOperation<DeviceType::Cuda, TComputePrecision>, public IPositionalPairedOp
+    class CudaRopeOp : public Operation<DeviceType::Cuda, TComputePrecision>, public IPositionalPairedOp
     {
     public:
 
@@ -184,16 +183,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                     static_cast<int>(config_.getMaxSequenceLength()),
                     static_cast<int>(config_.getHeadDim()),
                     config_.getBase(),
+                    static_cast<int>(config_.getRotaryDim()),
                     context_->getStream() );
 
                 // Ensure cache is ready before any op can use it.
                 context_->synchronize(); 
-
-                // DEBUG:
-                //std::cout << "CudaRopeOp::build: cache built for max_seq_len=" << config_.getMaxSequenceLength()
-                //    << ", head_dim=" << config_.getHeadDim() << ", base=" << config_.getBase() << "\n";
-                //std::cout << "Cache size (bytes): " << ( cache_bytes * 2 ) << "\n";
-                // END DEBUG
             }
 
             this->is_built_ = true;
@@ -207,7 +201,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
          */
         void forward(
             const ITensor& Q_in, const ITensor& K_in,
-            ITensor& Q_out, ITensor& K_out ) const override
+            ITensor& Q_out, ITensor& K_out ) const
         {
             ensureBuilt();
 
@@ -233,7 +227,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
          */
         void backward(
             const ITensor& dQ_out, const ITensor& dK_out,
-            ITensor& dQ_in, ITensor& dK_in ) const override
+            ITensor& dQ_in, ITensor& dK_in ) const
         {
             ensureBuilt();
 
@@ -401,6 +395,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 context_->getDeviceId().index,
                 config_.getMaxSequenceLength(),
                 config_.getHeadDim(),
+                config_.getRotaryDim(),
                 config_.getBase(),
                 TensorDataType::FP32
             };
@@ -433,20 +428,4 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         }
     };
 
-    // ========================================================================
-    // Registrar
-    // ========================================================================
-
-    export class CudaRopeOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            const std::string opName = "RopeOp";
-
-            registerPairedOpType<DeviceType::Cuda, CudaRopeOp<TensorDataType::FP32>, TensorDataType::FP32>( opName );
-
-            registerPairedOpType<DeviceType::Cuda, CudaRopeOp<TensorDataType::BF16>, TensorDataType::BF16>( opName );
-        }
-    };
 }

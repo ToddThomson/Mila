@@ -10,6 +10,7 @@ module;
 #include <concepts>
 #include <span>
 #include <cstdint>
+#include <cmath>
 
 export module Dnn.TensorOps:Random;
 
@@ -17,7 +18,6 @@ import Dnn.Tensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps.Base;
-//import Compute.DeviceTraits;
 import Compute.ExecutionContext;
 import Compute.DeviceType;
 
@@ -47,5 +47,27 @@ namespace Mila::Dnn
     {
         constexpr DeviceType device = TMemoryResource::device_type;
         TensorOps<device>::fill_uniform( tensor, min_val, max_val, exec_context );
+    }
+
+    /**
+     * @brief Xavier/Glorot uniform initialization: U(-limit, limit), limit = sqrt(6 / (fan_in + fan_out)).
+     *
+     * Convenience over fill_uniform that computes the Glorot bound. Device-agnostic;
+     * dispatches through fill_uniform to the backend RandomOps.
+     */
+    export template<TensorDataType TDataType, typename TMemoryResource>
+        requires isValidTensor<TDataType, TMemoryResource> && TensorDataTypeTraits<TDataType>::is_float_type
+    void xavier(
+        Tensor<TDataType, TMemoryResource>& tensor,
+        size_t fan_in,
+        size_t fan_out,
+        IExecutionContext* exec_context = nullptr )
+    {
+        const float limit = std::sqrt( 6.0f / static_cast<float>( fan_in + fan_out ) );
+
+        fill_uniform( tensor,
+            static_cast<host_value_t<TDataType>>( -limit ),
+            static_cast<host_value_t<TDataType>>( limit ),
+            exec_context );
     }
 }

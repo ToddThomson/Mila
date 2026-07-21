@@ -78,6 +78,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
      * @param inner_size Product of dims after normalization axis
      * @param norm_dim Size of the normalized dimension
      * @param epsilon Numerical stability constant
+     * @param weight_offset Added to each loaded weight before scaling (Gemma (1+w): 1.0; else 0.0)
      * @param stream CUDA stream for async execution
      */
     void cuda_rmsnorm_forward_fp32(
@@ -87,6 +88,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const float* weight, const float* bias,
         int outer_size, int inner_size, int norm_dim,
         float epsilon,
+        float weight_offset,
         cudaStream_t stream );
 
     /**
@@ -127,6 +129,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const __nv_bfloat16* weight, const __nv_bfloat16* bias,
         int outer_size, int inner_size, int norm_dim,
         float epsilon,
+        float weight_offset,
         cudaStream_t stream );
 
     /**

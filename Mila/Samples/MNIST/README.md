@@ -1,6 +1,6 @@
 # MNIST Handwritten Digit Classification
 
-This sample demonstrates training a feed-forward neural network on the MNIST dataset using the Mila deep learning framework.
+This sample demonstrates training a feed-forward neural network on the MNIST dataset using the Mila neural-network library.
 
 ## Overview
 
@@ -10,7 +10,7 @@ The MNIST classifier implements a simple three-layer fully connected neural netw
 Input (784) -> Linear (128) -> GELU -> Linear (64) -> GELU -> Linear (10) -> Output
 ```
 
-The model classifies 28×28 grayscale images of handwritten digits (0-9) into their corresponding classes.
+The model classifies 28ï¿½28 grayscale images of handwritten digits (0-9) into their corresponding classes.
 
 ## Features
 
@@ -24,7 +24,7 @@ The model classifies 28×28 grayscale images of handwritten digits (0-9) into the
 ## Architecture Details
 
 ### MnistClassifier
-- **Input**: 784 features (28×28 flattened images)
+- **Input**: 784 features (28ï¿½28 flattened images)
 - **Hidden Layer 1**: 784 -> 128 neurons + GELU activation
 - **Hidden Layer 2**: 128 -> 64 neurons + GELU activation
 - **Output Layer**: 64 -> 10 classes (one-hot encoded)

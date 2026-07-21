@@ -206,9 +206,9 @@ namespace Mila::Dnn::Compute
          * @brief Gets or grows a general-purpose device scratch buffer.
          *
          * Used by operations that need a temporary device buffer during forward passes
-         * (e.g. FP8→BF16 weight dequantization before a cuBLASLt GEMM). Grown on demand,
+         * (e.g. FP8->BF16 weight dequantization before a cuBLASLt GEMM). Grown on demand,
          * never shrunk. Because all operations on this context share a single stream, the
-         * buffer can be safely reused across sequential ops — each op finishes before the
+         * buffer can be safely reused across sequential ops -- each op finishes before the
          * next one writes to the buffer.
          *
          * Freed in releaseResources().

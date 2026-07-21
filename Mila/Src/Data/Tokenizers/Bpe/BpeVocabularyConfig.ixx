@@ -221,7 +221,7 @@ namespace Mila::Data
             if ( auto v = meta.tryGetBool( "use_sep" ) )  special_tokens_.use_sep = *v;
             if ( auto v = meta.tryGetBool( "use_cls" ) )  special_tokens_.use_cls = *v;
 
-            // token strings — absent in old files, defaults are preserved via tryGetString
+            // token strings -- absent in old files, defaults are preserved via tryGetString
             if ( auto v = meta.tryGetString( "pad_token" ) )  special_tokens_.pad_token = *v;
             if ( auto v = meta.tryGetString( "unk_token" ) )  special_tokens_.unk_token = *v;
             if ( auto v = meta.tryGetString( "bos_token" ) )  special_tokens_.bos_token = *v;

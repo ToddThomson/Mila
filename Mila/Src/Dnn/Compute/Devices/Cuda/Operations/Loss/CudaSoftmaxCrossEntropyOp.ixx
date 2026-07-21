@@ -33,8 +33,6 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
-import Compute.BinaryOperation;
-import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.OperationType;
@@ -156,11 +154,10 @@ namespace Mila::Dnn::Compute::Cuda::SoftmaxCrossEntropy
      */
     export template<TensorDataType TPrecision, TensorDataType TLogits = TPrecision, TensorDataType TTargets = TensorDataType::INT32>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda> && PrecisionSupportedOnDevice<TLogits, DeviceType::Cuda>
-    class CudaSoftmaxCrossEntropyOp : public BinaryOperation<DeviceType::Cuda, TPrecision, TLogits, TTargets>
+    class CudaSoftmaxCrossEntropyOp : public Operation<DeviceType::Cuda, TPrecision>
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using BinaryOperationBase = BinaryOperation<DeviceType::Cuda, TPrecision, TLogits, TTargets>;
         using LogitsTensorType = Tensor<TLogits, MR>;
         using TargetsTensorType = Tensor<TTargets, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TLogits>::device_type;
@@ -280,7 +277,7 @@ namespace Mila::Dnn::Compute::Cuda::SoftmaxCrossEntropy
             // Allocate internal probability cache for backward pass
             cached_probs_ = std::make_shared<LogitsTensorType>( context_->getDeviceId(), input_shape );
 
-            BinaryOperationBase::is_built_ = true;
+            this->is_built_ = true;
         }
 
         // ====================================================================
@@ -305,7 +302,7 @@ namespace Mila::Dnn::Compute::Cuda::SoftmaxCrossEntropy
         void forward(
             const ITensor& logits,
             const ITensor& targets,
-            ITensor& output ) const override
+            ITensor& output ) const
         {
             const NativeType* logits_ptr = static_cast<const NativeType*>(logits.rawData());
             const TargetsNativeType* targets_ptr = static_cast<const TargetsNativeType*>(targets.rawData());
@@ -352,7 +349,7 @@ namespace Mila::Dnn::Compute::Cuda::SoftmaxCrossEntropy
             const ITensor& targets,
             const ITensor& loss_grad,
             ITensor& logits_grad,
-            ITensor& targets_grad /* not used */) const override
+            ITensor& targets_grad /* not used */) const
         {
             const TargetsNativeType* targets_ptr = static_cast<const TargetsNativeType*>(targets.rawData());
             const NativeType* dlosses_ptr = static_cast<const NativeType*>( loss_grad.rawData());
@@ -412,27 +409,4 @@ namespace Mila::Dnn::Compute::Cuda::SoftmaxCrossEntropy
         cudaStream_t cached_stream_{ nullptr };
     };
 
-    /**
-     * @brief Registrar for fused Softmax+CrossEntropy CUDA operation.
-     */
-    export class CudaSoftmaxCrossEntropyOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            const std::string opName = "SoftmaxCrossEntropyOp";
-
-            OperationRegistry::instance().registerBinaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>(
-                opName,
-                []( IExecutionContext* context, const ComponentConfig& config )
-                -> std::shared_ptr<BinaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>>
-                {
-                    const auto& crossEntropyConfig = static_cast<const CrossEntropyConfig&>(config);
-
-                    return std::make_shared<CudaSoftmaxCrossEntropyOp<TensorDataType::FP32, TensorDataType::FP32, TensorDataType::INT32>>(
-                        context, crossEntropyConfig );
-                }
-            );
-        }
-    };
 }

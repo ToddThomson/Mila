@@ -24,8 +24,7 @@ import Compute.IExecutionContext;
 import Compute.ExecutionContextTemplate;
 import Compute.OperationType;
 import Dnn.Component;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
+import Compute.OperationBase;
 import Compute.CpuMemoryResource;
 
 namespace Mila::Dnn::Compute
@@ -60,11 +59,10 @@ namespace Mila::Dnn::Compute
      * @note Currently only FP32 (float) is fully supported
      * @note Other precisions will require template specialization
      */
-    export class CpuGeluOp : public UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>
+    export class CpuGeluOp : public Operation<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
         using MR = CpuMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>;
         using TensorType = Tensor<TensorDataType::FP32, MR>;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
@@ -124,7 +122,7 @@ namespace Mila::Dnn::Compute
          * @param output The output tensor (resized to match input shape).
          * @param output_state Cache for intermediate results (not used in current implementation).
          */
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             if (!this->is_built_)
             {
@@ -167,7 +165,7 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
             {
 
             // Resize input_grad to match input shape if needed
@@ -225,36 +223,4 @@ namespace Mila::Dnn::Compute
         IExecutionContext* context_{ nullptr };
     };
 
-    /**
-     * @brief Class responsible for registering CPU GELU operations
-     *
-     * Registers CPU GELU operation implementations with the OperationRegistry
-     * for different precisions. Currently supports FP32.
-     *
-     * The registrar uses static initialization to automatically register
-     * operations when the module is loaded.
-     */
-    export class CpuGeluOpRegistrar {
-    public:
-        /**
-         * @brief Registers CPU GELU operations with the OperationRegistry
-         *
-         * Registers factory functions for creating CPU GELU operations with
-         * different data types. Currently registers:
-         * - FP32 (TensorDataType::FP32)
-         */
-        static void registerOperations()
-        {
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
-                "GeluOp",
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::unique_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>>
-                {
-                    const auto& geluConfig = static_cast<const GeluConfig&>(config);
-                    
-                    return std::make_unique<CpuGeluOp>( context, geluConfig );
-                }
-            );
-        }
-    };
 }

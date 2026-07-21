@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file GroupedQueryAttention.ixx
  * @brief Grouped-Query Attention module (concatenated QKV input).
  */
@@ -66,12 +66,13 @@ namespace Mila::Dnn
      * both IPositionalUnaryOp (prefill/decode dispatch) and IKVCacheLifecycle
      * (cache init/reset). Both pointers are resolved once at build time.
      *
-     * The KV cache lifecycle (initializeKVCache / resetKVCache) is intended to
-     * be driven exclusively by the owning transformer's generate() method.
+     * The cache self-initializes on the first prefill/forward; resetKVCache() is
+     * the public hook the owning decoder layer / transformer drives to start a new
+     * generation session.
      *
-     * REVIEW: initializeKVCache() and resetKVCache() are currently public.
+     * REVIEW: resetKVCache() is public (initialization stays internal to prefill).
      * When TransformerBase<> is introduced as the common base for GptTransformer,
-     * LlamaTransformer, MistralTransformer etc., revisit whether these should
+     * LlamaTransformer, MistralTransformer etc., revisit whether it should
      * become private with 'friend class TransformerBase<TDeviceType, TPrecision>'
      * to enforce that only the generate() orchestration path may manage the
      * KV cache lifecycle.
@@ -135,7 +136,7 @@ namespace Mila::Dnn
          * KV caching, the first forward() call initialises and populates the
          * cache (prefill with position_offset=0). When called again after
          * decode() steps, it automatically resets the cache and begins a new
-         * prefill session — no explicit session management required by callers.
+         * prefill session -- no explicit session management required by callers.
          *
          * @param input Concatenated QKV input [B, T, (Q + 2*KV) * head_dim].
          * @return Reference to component-owned output tensor [B, T, model_dim].
@@ -173,7 +174,12 @@ namespace Mila::Dnn
                     cache_initialized_ = true;
                 }
 
-                // FIXME: positional_op_->prefill( input, *output_view_, 0 );
+                // REVIEW: dead branch -- for the KV-cache backend forward() returns an
+                // un-computed output_view_ and is unreached in the validated path (Llama/Gemma
+                // drive prefill()/decode() directly). The retired call below used a stale 3-arg
+                // prefill(input, output, 0) signature that no longer exists. Retire-vs-wire is
+                // tracked: see BACKLOG, "GroupedQueryAttention::forward standalone path is a no-op stub".
+                // positional_op_->prefill( input, *output_view_, 0 );
                 return *output_view_;
             }
 
@@ -199,8 +205,7 @@ namespace Mila::Dnn
             if ( !this->isTrainingMode() )
             {
                 throw std::runtime_error(
-                    "GroupedQueryAttention must be in training mode to call backward. "
-                    "Call setTraining(true) first." );
+                    "GroupedQueryAttention must be in training mode to call backward." );
             }
 
             validateConcatenatedQKVShape( input.shape() );
@@ -220,7 +225,9 @@ namespace Mila::Dnn
          * Called by the transformer block during chunked prefill. The KV cache
          * must already be initialized (via onBuilding or forward()).
          *
-         * @param input           Concatenated QKV input [B, T_chunk, (Q + 2*KV) * head_dim].
+         * @param q               Query tensor [B, T_chunk, Q * head_dim].
+         * @param k               Key tensor [B, T_chunk, KV * head_dim].
+         * @param v               Value tensor [B, T_chunk, KV * head_dim].
          * @param position_offset Absolute position of the first token in this chunk.
          * @return Reference to component-owned output tensor.
          */
@@ -265,8 +272,10 @@ namespace Mila::Dnn
          * Precondition: forward() must have been called at least once to
          * populate the KV cache before decode() is called.
          *
-         * @param input    Single-token QKV input [B, 1, (Q + 2*KV) * head_dim].
-         * @param position Current sequence position (0-based).
+         * @param q               Query tensor [B, 1, Q * head_dim].
+         * @param k               Key tensor [B, 1, KV * head_dim].
+         * @param v               Value tensor [B, 1, KV * head_dim].
+         * @param position_offset Absolute position of the token (0-based).
          * @return Reference to component-owned single-token output tensor.
          */
         TensorType& decode( const TensorType& q, const TensorType& k, const TensorType& v, int position_offset )
@@ -285,8 +294,10 @@ namespace Mila::Dnn
                 return *decode_output_;
             }
 
-            // Fallback — backend does not support KV caching or cache not yet initialized.
-            // FIXME:
+            // Fallback -- backend does not support KV caching or cache not yet initialized.
+
+            // REVIEW: The Fallback here is stale and needs to be reviewed for correctness.
+
             //shape_t output_shape = input.shape();
             //output_shape.back() = config_.getModelDim();
 
@@ -323,6 +334,69 @@ namespace Mila::Dnn
         void setState( const GqaState& state )
         {
             operation_->setState( state );
+        }
+
+        /**
+         * @brief Route the BF16 prefill through the fused FlashAttention kernel.
+         *
+         * Only the CUDA BF16 ops honor this -- the unbounded/global kernel and the bounded
+         * sliding-window ring variant; other backends and FP32 ignore it. The transformer
+         * couples this to the shared preatt/att workspace width (flash on -> the
+         * O(chunk x T_ctx) score buffer is reclaimed), so it must be set consistently with
+         * that sizing -- a narrow workspace with flash off would overflow.
+         * See GqaFlashAttention.md 5.6.
+         */
+        void setUseFlashPrefill( bool enabled )
+        {
+            if constexpr ( TDeviceType == DeviceType::Cuda )
+                operation_->setUseFlashPrefill( enabled );
+        }
+
+        /**
+         * @brief Route the BF16 decode through the fused decode-attention kernel.
+         *
+         * Only the CUDA BF16 ops honor this; other backends, FP32, and unsupported
+         * geometries keep the cuBLASLt decode pipeline. Unlike setUseFlashPrefill
+         * there is no workspace-width coupling -- the fused path draws its split-K
+         * scratch from the shared execution-context buffer at decode time.
+         */
+        void setUseFlashDecode( bool enabled )
+        {
+            if constexpr ( TDeviceType == DeviceType::Cuda )
+                operation_->setUseFlashDecode( enabled );
+        }
+
+        /**
+         * @brief Reset the KV cache for a new generation session.
+         *
+         * Drops any active decode state so the next prefill starts a fresh
+         * sequence. A no-op on backends without KV-cache support, and harmless
+         * when no decode session is active.
+         */
+        void resetKVCache()
+        {
+            if ( kv_cache_op_ && cache_initialized_ )
+            {
+                kv_cache_op_->resetKvCache();
+                cache_initialized_ = false;
+                decode_active_ = false;
+            }
+        }
+
+        /**
+         * @brief Rewind the cache fill position for prompt-prefix reuse
+         * (PromptCaching.md). Unlike resetKVCache() the cache session stays live:
+         * initialization state and device contents are untouched, and positions
+         * [0, position) remain valid for a subsequent prefillFrom.
+         *
+         * @return true when the underlying operation accepted the rewind.
+         */
+        bool rewindKvCache( int position )
+        {
+            if ( !kv_cache_op_ || !cache_initialized_ )
+                return false;
+
+            return kv_cache_op_->rewindKvCache( position );
         }
 
         // ====================================================================
@@ -373,13 +447,34 @@ namespace Mila::Dnn
             return 0;
         }
 
+        /**
+         * @brief Install a shared prefill-output slot (activation pooling).
+         *
+         * Must be called before build(): onBuilding then skips the prefill output
+         * self-allocation after validating the slot's storage covers the build
+         * shape; prefill() already always returns a shape-adjusted view. The tiny
+         * per-token decode output (decode_output_) stays component-owned. Mirrors
+         * Linear::installSharedWeight; self-allocation remains the default. The
+         * slot is owned and memory-accounted by the installer.
+         */
+        void installSharedOutput( std::shared_ptr<TensorType> output )
+        {
+            if ( this->isBuilt() )
+                throw std::logic_error(
+                    "GroupedQueryAttention '" + this->getName() + "': installSharedOutput must be called before build()" );
+
+            output_ = std::move( output );
+            output_installed_ = true;
+        }
+
         MemoryStats getMemoryStats() const override
         {
             MemoryStats stats;
 
             stats.device_state_bytes += operation_->getStateMemorySize();
 
-            if ( output_ != nullptr )
+            // An installed shared output slot is owned and counted by the installer.
+            if ( output_ != nullptr && !output_installed_ )
                 stats.device_state_bytes += output_->getStorageSize();
 
             if ( decode_output_ != nullptr )
@@ -472,24 +567,40 @@ namespace Mila::Dnn
                     cache_initialized_ = true;
                 }
 
-                // Decode path output: T=1
+                // Decode path output: T=1. Always component-owned (tiny, not pooled).
                 shape_t decode_output_shape = { input_shape[ 0 ], 1, config_.getModelDim() };
                 decode_output_ = std::make_unique<TensorType>( device, decode_output_shape, this->getName() + ".output_decode" );
 
-                // Prefill path output — sized for one prefill chunk at a time
+                // Prefill path output -- sized for one prefill chunk at a time.
                 shape_t output_shape = { B, context.getPrefillSize(), config_.getModelDim() };
-                output_ = std::make_unique<TensorType>( device, output_shape, this->getName() + ".output_prefill" );
-                output_view_.emplace( output_->view( output_->shape() ) );
+
+                if ( output_installed_ )
+                {
+                    int64_t needed = 1;
+                    for ( auto d : output_shape )
+                        needed *= d;
+
+                    if ( !output_ || output_->size() < needed )
+                        throw std::invalid_argument(
+                            "GroupedQueryAttention '" + this->getName() + "': installed shared output slot is smaller than the build shape requires" );
+                }
+                else
+                {
+                    output_ = std::make_shared<TensorType>( device, output_shape, this->getName() + ".output_prefill" );
+                }
+
+                // View the BUILD shape, not the slot shape -- an installed slot may be wider.
+                output_view_.emplace( output_->view( output_shape ) );
             }
             else
             {
-                // Training — full sequence output buffer.
+                // Training -- full sequence output buffer (never pooled).
                 shape_t output_shape = input_shape;
                 output_shape.back() = config_.getModelDim();
-                output_ = std::make_unique<TensorType>( device, output_shape, this->getName() + ".output" );
-                output_view_.emplace( output_->view( output_->shape() ) );
+                output_ = std::make_shared<TensorType>( device, output_shape, this->getName() + ".output" );
+                output_view_.emplace( output_->view( output_shape ) );
 
-                // Input gradient — same shape as packed QKV input.
+                // Input gradient -- same shape as packed QKV input.
                 input_grad_ = std::make_unique<TensorType>( device, input_shape, this->getName() + ".input.grad" );
             }
         }
@@ -526,7 +637,10 @@ namespace Mila::Dnn
         bool cache_initialized_{ false };
         bool decode_active_{ false };
 
-        std::unique_ptr<TensorType> output_{ nullptr };
+        // Self-allocated at build, or an installed shared slot (installSharedOutput)
+        // that the component views a prefix of. decode_output_ is always owned.
+        std::shared_ptr<TensorType> output_{ nullptr };
+        bool output_installed_{ false };
         std::optional<TensorType> output_view_;
         std::unique_ptr<TensorType> input_grad_{ nullptr };
         std::unique_ptr<TensorType> decode_output_{ nullptr };
@@ -534,21 +648,6 @@ namespace Mila::Dnn
         // ====================================================================
         // Private helpers
         // ====================================================================
-
-        // TODO: Remove after testing
-        /*TensorType& resolveOutputView( const shape_t& input_shape )
-        {
-            if ( input_shape == max_input_shape_ )
-            {
-                return *output_;
-            }
-
-            auto output_shape = input_shape;
-            output_shape.back() = config_.getModelDim();
-            output_view_ = std::make_unique<TensorType>( output_->view( output_shape ) );
-
-            return *output_view_;
-        }*/
 
         /**
          * @brief Validate that the input tensor has the expected GQA-packed QKV shape.
@@ -566,8 +665,7 @@ namespace Mila::Dnn
 
             const int64_t head_dim = config_.getModelDim() / config_.getNumHeads();
             const int64_t trailing = shape.back();
-            const int64_t expected =
-                (config_.getNumHeads() + 2 * config_.getNumKvHeads()) * head_dim;
+            const int64_t expected = (config_.getNumHeads() + 2 * config_.getNumKvHeads()) * head_dim;
 
             if ( trailing != expected )
             {
@@ -591,18 +689,6 @@ namespace Mila::Dnn
             {
                 throw std::runtime_error( "GroupedQueryAttention: failed to create operation." );
             }
-            
-            //operation_ = OperationRegistry::instance()
-            //    .createUnaryOperation<TDeviceType, TComputePrecision>(
-            //        "GroupedQueryAttentionOp",
-            //        this->getExecutionContext(),
-            //        config_ );
-
-            //if ( !operation_ )
-            //{
-            //    throw std::runtime_error(
-            //        "Failed to create GroupedQueryAttention compute backend operation." );
-            //}
         }
     };
 }

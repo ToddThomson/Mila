@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file Component.ixx
  * @brief Base component interface for Mila DNN components.
  *
@@ -59,7 +59,7 @@ namespace Mila::Dnn
      * Components progress through a well-defined lifecycle. Each stage has
      * a single responsibility and a designated hook for subclass extension.
      *
-     * ### Stage 1 — Construction
+     * ### Stage 1 -- Construction
      *
      * The component is constructed with its name and component config.
      * No device resources are allocated. No ExecutionContext is required.
@@ -68,7 +68,7 @@ namespace Mila::Dnn
      *   auto linear = std::make_unique<Linear>( "fc", config, context );
      * @endcode
      *
-     * ### Stage 2 — Build  [ onBuilding() ]
+     * ### Stage 2 -- Build  [ onBuilding() ]
      *
      * build() is called with a BuildContext carrying the leading shape
      * { B, T, ... } and the ExecutionMode that governs buffer allocation.
@@ -97,7 +97,7 @@ namespace Mila::Dnn
      *   model->build( config );
      * @endcode
      *
-     * ### Stage 3 — Evaluation mode  [ onEvaluationChanging() ]
+     * ### Stage 3 -- Evaluation mode  [ onEvaluationChanging() ]
      *
      * Only valid for Training-built components. setEvaluation( false ) triggers
      * gradient buffer allocation on the first call. Subsequent calls zero
@@ -110,12 +110,12 @@ namespace Mila::Dnn
      *   - bias_grad_            bias gradient buffer
      *
      * @code
-     *   model->setEvaluation( true );    // suspend backward — eval checkpoint
+     *   model->setEvaluation( true );    // suspend backward -- eval checkpoint
      *   generateSample( model );
      *   model->setEvaluation( false );   // resume training
      * @endcode
      *
-     * ### Stage 4 — Forward / Decode / Backward
+     * ### Stage 4 -- Forward / Decode / Backward
      *
      * Runtime dimensions are read from the input tensor shape on each call.
      * No shape information is cached from build time beyond what is in
@@ -187,13 +187,13 @@ namespace Mila::Dnn
          *
          * After onBuilding() returns without throwing, the component is marked
          * built and isBuilt() returns true. If onBuilding() throws, built_
-         * remains false and build() may be retried — but only if the
+         * remains false and build() may be retried -- but only if the
          * onBuilding() implementation leaves component state coherent on failure.
          *
          * The stored BuildContext is accessible to derived classes via the
          * protected build_config_ member throughout the component lifetime.
          *
-         * @param config Build-time configuration carrying the leading shape
+         * @param context Build-time configuration carrying the leading shape
          *               { B, T, ... }, ExecutionMode, and optional
          *               micro-batching settings.
          *
@@ -236,7 +236,7 @@ namespace Mila::Dnn
          * @brief Set the runtime behavioral mode for this Component.
          *
          * Toggles between Training and Eval behavioral states at runtime.
-         * Only valid on Components built with RuntimeMode::Training —
+         * Only valid on Components built with RuntimeMode::Training --
          * throws if called on a Component built with RuntimeMode::Inference.
          *
          * ## State transitions
@@ -282,7 +282,7 @@ namespace Mila::Dnn
          * Returns the current TrainingMode for Components built with
          * RuntimeMode::Training. For Components built with
          * RuntimeMode::Inference the return value is always
-         * TrainingMode::Eval — inference components never compute gradients.
+         * TrainingMode::Eval -- inference components never compute gradients.
          *
          * @return Current TrainingMode.
          */
@@ -298,7 +298,7 @@ namespace Mila::Dnn
 
         // REVIEW: Ambiguous and does not add value
         ///**
-        // * @brief Convenience accessor — true if currently in Eval mode.
+        // * @brief Convenience accessor -- true if currently in Eval mode.
         // *
         // * Equivalent to getTrainingMode() == TrainingMode::Eval.
         // * Valid for both RuntimeMode::Inference and RuntimeMode::Training
@@ -454,15 +454,15 @@ namespace Mila::Dnn
          * Reflects allocations at the moment of the call. The returned stats
          * naturally track the component lifecycle:
          *
-         *   After construction              — parameters only
-         *   After build( Inference )        — parameters + T=1 state buffers
-         *   After build( Training )         — parameters + T=full state buffers
-         *   After setEvaluation( false )    — parameters + state + gradients
+         *   After construction              -- parameters only
+         *   After build( Inference )        -- parameters + T=1 state buffers
+         *   After build( Training )         -- parameters + T=full state buffers
+         *   After setEvaluation( false )    -- parameters + state + gradients
          *
          * For CompositeComponent and Network, the returned stats are the
          * recursive aggregate of all child components.
          *
-         * May be called at any time — no lifecycle preconditions.
+         * May be called at any time -- no lifecycle preconditions.
          *
          * @return MemoryStats reflecting current allocations.
          */
@@ -497,8 +497,8 @@ namespace Mila::Dnn
          *
          * The component validates that the blob's shape matches the parameter's
          * expected shape, then delegates to the backend to perform:
-         * - Precision conversion (blob dtype → parameter dtype)
-         * - Device upload (CPU bytes → target device)
+         * - Precision conversion (blob dtype -> parameter dtype)
+         * - Device upload (CPU bytes -> target device)
          *
          * @param name Parameter name used to locate the target tensor.
          * @param blob Serialized tensor metadata and raw bytes.
@@ -537,10 +537,13 @@ namespace Mila::Dnn
         /**
          * @brief Return non-owning pointers to parameter gradient tensors.
          *
-         * Only valid when isTraining() is true.
+         * Gradient buffers are allocated only when the component is built in
+         * training mode, so a component built for inference returns an empty
+         * vector. Stateless components return empty in either mode. This is the
+         * accessor counterpart to getParameters() and does not throw on mode.
          *
-         * @throws std::runtime_error if called when not in training mode or
-         *         before the component has been built.
+         * @return Vector of gradient pointers; empty when built for inference.
+         * @throws std::runtime_error if called before the component has been built.
          */
         virtual std::vector<ITensor*> getGradients() const = 0;
 
@@ -550,15 +553,15 @@ namespace Mila::Dnn
         /**
          * @brief The BuildContext stored at build time.
          *
-         * Available to derived classes throughout the component lifetime —
+         * Available to derived classes throughout the component lifetime --
          * in onBuilding(), onEvaluationChanging(), forward(), backward(),
          * and any other method that needs build-time configuration.
          *
          * Key uses:
-         * - build_config_.allocationSeqLen() — use when sizing output buffers
+         * - build_config_.allocationSeqLen() -- use when sizing output buffers
          *   in onBuilding(). Returns 1 for Inference, leading_shape[1] for Training.
-         * - build_config_.isInference() / isTraining() — query the policy.
-         * - build_config_.batchSize() — the batch dimension.
+         * - build_config_.isInference() / isTrainingMode() -- query the policy.
+         * - build_config_.batchSize() -- the batch dimension.
          *
          * Initialized to a placeholder before build() completes. Only valid
          * after isBuilt() returns true.
@@ -573,7 +576,7 @@ namespace Mila::Dnn
          * @brief Set the execution context for this component.
          *
          * Establishes the device and execution environment. Can only be called
-         * once — the execution context is immutable after setting.
+         * once -- the execution context is immutable after setting.
          *
          * Called by:
          * - The component itself (standalone mode with owned context)
@@ -701,12 +704,12 @@ namespace Mila::Dnn
          * @brief Hook invoked by build() to allocate component buffers.
          *
          * Receives the stored BuildContext. Implementations must use
-         * config.allocationSeqLen() when sizing output buffers — this is
+         * config.allocationSeqLen() when sizing output buffers -- this is
          * the single call that makes Inference and Training allocate the
          * correct buffer sizes automatically without per-component logic.
          *
          * @code
-         *   // Example — Linear component:
+         *   // Example -- Linear component:
          *   shape_t out_shape =
          *   {
          *       config.batchSize(),
@@ -737,7 +740,7 @@ namespace Mila::Dnn
          *
          * Called by setTrainingMode() after validation and lock acquisition,
          * before the internal state is updated. Derived classes override to
-         * respond to the transition — e.g. zeroing gradient buffers on
+         * respond to the transition -- e.g. zeroing gradient buffers on
          * transition to Eval, or re-enabling dropout on transition to Training.
          *
          * The default implementation is a no-op.

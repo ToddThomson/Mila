@@ -23,7 +23,8 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const float* __restrict__ inp,
         const float* __restrict__ weight,
         const float* __restrict__ bias,
-        int num_slices, int norm_dim, int inner_size, float epsilon )
+        int num_slices, int norm_dim, int inner_size, float epsilon,
+        float weight_offset )
     {
         int lane_id = threadIdx.x % WARP_SIZE;
         int warp_id = threadIdx.x / WARP_SIZE;
@@ -64,19 +65,6 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         float inv_n = 1.0f / static_cast<float>(norm_dim);
         float rstd_val = rsqrtf( m2 * inv_n + epsilon );
 
-    #ifndef NDEBUG
-        constexpr float kRmsNormKernelLimit = 1e6f;
-        if ( lane_id == 0 )
-        {
-            if ( !isfinite( rstd_val ) || fabsf( rstd_val ) > kRmsNormKernelLimit )
-            {
-                printf( "RMSNorm FWD anomaly: idx=%d outer=%d inner=%d m2=%f rstd=%f norm_dim=%d inner_size=%d\n",
-                    idx, outer_idx, inner_idx, m2, rstd_val, norm_dim, inner_size );
-                assert( false );
-            }
-        }
-    #endif
-
         // Store rstd for backward pass
         if ( lane_id == 0 && rstd != nullptr )
         {
@@ -88,22 +76,10 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         {
             size_t offset = static_cast<size_t>( i ) * static_cast<size_t>( inner_size );
             float xv = x[ offset ];
-            float w = weight ? weight[ i ] : 1.0f;
+            float w = weight ? (weight[ i ] + weight_offset) : 1.0f;
             float b = bias ? bias[ i ] : 0.0f;
             float xhat = xv * rstd_val;
             float res = xhat * w + b;
-
-        #ifndef NDEBUG
-            constexpr float kRmsNormOutputAbsLimit = 1e4f;
-            if ( !isfinite( res ) || fabsf( res ) > kRmsNormOutputAbsLimit )
-            {
-                printf(
-                    "RMSNorm OUTPUT anomaly: idx=%d i=%d val=%f m2=%f rstd=%f weight=%f bias=%f output=%f\n",
-                    idx, i, xv, m2, rstd_val, w, b, res
-                );
-                assert( false );
-            }
-        #endif
 
             o[ offset ] = res;
         }
@@ -178,7 +154,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         // Broadcast final sum to all lanes
         sum_gx = __shfl_sync( 0xffffffff, sum_gx, 0 );
 
-        // Compute input gradient: dx = rstd * g - x * rstd³ * (1/N * sum(g * x))
+        // Compute input gradient: dx = rstd * g - x * rstd * (1/N * sum(g * x))
         float rstd3 = rstd_val * rstd_val * rstd_val;
         float correction = rstd3 * inv_n * sum_gx;
 
@@ -205,6 +181,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const float* X, const float* weight, const float* bias,
         int outer_size, int inner_size, int norm_dim,
         float epsilon,
+        float weight_offset,
         cudaStream_t stream )
     {
         const int block_size = 512;
@@ -213,7 +190,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         const int grid_size = (num_slices + warps_per_block - 1) / warps_per_block;
 
         rmsnorm_forward_fp32_kernel << <grid_size, block_size, 0, stream >> > (
-            Y, rstd, X, weight, bias, num_slices, norm_dim, inner_size, epsilon);
+            Y, rstd, X, weight, bias, num_slices, norm_dim, inner_size, epsilon, weight_offset);
 
         cudaCheck( cudaGetLastError() );
     }

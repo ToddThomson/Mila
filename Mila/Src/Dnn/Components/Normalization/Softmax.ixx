@@ -33,7 +33,6 @@ import Compute.DeviceTypeTraits;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
-import Compute.UnaryOperation;
 import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -94,6 +93,7 @@ namespace Mila::Dnn
          * - Backend operation created when parent sets context.
          * - Use case: Components added to Network via addComponent<Softmax>(...).
          *
+         * @param name Component name identifier.
          * @param config Softmax configuration (axis and name).
          * @param device_id Optional device identifier. If provided, creates owned ExecutionContext
          *                  for standalone mode. If nullopt, expects shared context from parent.
@@ -107,16 +107,18 @@ namespace Mila::Dnn
          *       context with the base class, enabling getExecutionContext() and triggering
          *       the onExecutionContextSet() hook for operation creation.
          *
-         * @example
+         * @code{.cpp}
          * // Standalone mode (owns context)
          * SoftmaxConfig config;
          * config.withAxis(-1);
          * Softmax<DeviceType::Cpu, TensorDataType::FP32> softmax(config, Device::Cpu());
+         * @endcode
          *
-         * @example
+         * @code{.cpp}
          * // Shared mode (borrows parent's context)
          * Network<DeviceType::Cpu, TensorDataType::FP32> net(Device::Cpu(), "my_net");
          * net.addComponent<Softmax>("softmax", SoftmaxConfig().withAxis(-1));
+         * @endcode
          */
         explicit Softmax( const std::string& name, const SoftmaxConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), config_( config )
@@ -170,9 +172,9 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Softmax module must be built before calling backward." );
             }
 
-            if (!this->isTraining())
+            if (!this->isTrainingMode())
             {
-                throw std::runtime_error( "Softmax module must be in training mode to call backward. Call setTraining(true) first." );
+                throw std::runtime_error( "Softmax module must be built with RuntimeMode::Training to call backward." );
             }
 
             operation_->backward( input, output_grad, input_grad );
@@ -318,10 +320,9 @@ namespace Mila::Dnn
             return config_.getAxis();
         }
 
-        /**
-         * @brief Get the configuration.
-         *
-         * @return Reference to the SoftmaxConfig.
+        /*
+         * Retired in place. Get the configuration -- returns a reference to the
+         * SoftmaxConfig.
          */
         /*const SoftmaxConfig& getConfig() const noexcept
         {
@@ -358,9 +359,9 @@ namespace Mila::Dnn
          * validates the input shape and delegates to the backend operation's
          * build method to cache dimension computations.
          *
-         * @param input_shape Expected shape for input tensors.
+         * @param build_config Build-time context carrying the expected input shape.
          *
-         * @throws std::invalid_argument if input_shape is invalid or axis out of bounds.
+         * @throws std::invalid_argument if the input shape is invalid or axis out of bounds.
          * @throws std::runtime_error if backend build fails.
          */
         void onBuilding( const BuildContext& build_config ) override
@@ -378,11 +379,11 @@ namespace Mila::Dnn
          * @brief Hook invoked when training mode changes.
          *
          * Propagates training mode to the backend operation. Called by
-         * Component::setTraining() with the training mutex held.
+         * Component::setTrainingMode() with the training mutex held.
          *
-         * @param is_training New training mode state.
+         * @param training_mode New training mode state.
          *
-         * @note Do not call setTraining() from this hook (reentrancy prohibited).
+         * @note Do not call setTrainingMode() from this hook (reentrancy prohibited).
          */
         void onTrainingModeChanging( TrainingMode training_mode ) override
         {

@@ -30,7 +30,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
-import Dnn.TensorInitializers;
+// DEPRECATED: import Dnn.TensorInitializers;
 import Dnn.Component;
 import Dnn.ComponentType;
 import Dnn.CompositeComponent;
@@ -143,7 +143,6 @@ namespace Mila::Dnn
          * prefill vs. decode semantics beyond passing the context through.
          *
          * @param input Forward input tensor of shape [B, T, embedding_dim].
-         * @param ctx   Attention forward context. Defaults to Mode::Standard.
          * @return Reference to the block output tensor.
          */
         TensorType& forward( const TensorType& input )
@@ -154,28 +153,20 @@ namespace Mila::Dnn
             }
 
             auto& ln1_out = ln1_->forward( input );
-            this->getExecutionContext()->synchronize();
 
             auto& qkv_out = qkv_proj_->forward( ln1_out );
-            this->getExecutionContext()->synchronize();
 
             auto& attn_out = attn_->forward( qkv_out );
-            this->getExecutionContext()->synchronize();
 
             auto& out_proj = out_proj_->forward( attn_out );
-            this->getExecutionContext()->synchronize();
 
             auto& res1_out = res1_->forward( input, out_proj );
-            this->getExecutionContext()->synchronize();
 
             auto& ln2_out = ln2_->forward( res1_out );
-            this->getExecutionContext()->synchronize();
 
             auto& ffn_out = ffn_->forward( ln2_out );
-            this->getExecutionContext()->synchronize();
 
             auto& res2_out = res2_->forward( res1_out, ffn_out );
-            this->getExecutionContext()->synchronize();
 
             // Cache non-owning pointers for use by backward().
             last_ln1_out_ = &ln1_out;
@@ -187,10 +178,7 @@ namespace Mila::Dnn
             last_ffn_out_ = &ffn_out;
             last_res2_out_ = &res2_out;
 
-            this->getExecutionContext()->synchronize();
-
-            // FIXME:
-            // forward_executed_ = this->isTraining();
+            forward_executed_ = this->isTrainingMode();
 
             return res2_out;
         }
@@ -228,7 +216,6 @@ namespace Mila::Dnn
                 res1_->backward( input, *last_out_proj_out_, *d_res1_accum_ );
 
             auto& d_attn_from_out_proj = out_proj_->backward( *last_attn_out_, d_out_proj_from_res1 );
-            this->getExecutionContext()->synchronize();
 
             auto& d_qkv = attn_->backward( *last_qkv_out_, d_attn_from_out_proj );
             auto& d_ln1 = qkv_proj_->backward( *last_ln1_out_, d_qkv );
@@ -252,7 +239,7 @@ namespace Mila::Dnn
          * which is called via decode(). Attention internally selects the fast
          * KV cache path when available, or falls back to forward().
          *
-         * GptBlock is entirely unaware of which path Attention takes —
+         * GptBlock is entirely unaware of which path Attention takes --
          * the decode/fallback decision is Attention's private concern.
          *
          * Precondition: forward() must have been called at least once on this
@@ -460,7 +447,7 @@ namespace Mila::Dnn
             qkv_proj_ = this->template getComponentAs<LinearType>( this->getName() + ".fc_qkv_proj" );
             qkv_proj_->build( context );
 
-            // attn_ receives packed QKV — trailing dim is model_dim * 3
+            // attn_ receives packed QKV -- trailing dim is model_dim * 3
             shape_t qkv_shape = input_shape;
             qkv_shape.back() = static_cast<int64_t>(config_.getModelDim() * 3);
             auto qkv_context = BuildContext( qkv_shape, context.getRuntimeMode() );
@@ -590,7 +577,7 @@ namespace Mila::Dnn
             if ( input_shape.back() != static_cast<int64_t>(config_.getModelDim()) )
             {
                 throw std::invalid_argument( std::format(
-                    "GptBlock: embedding dim mismatch — expected {}, got {}",
+                    "GptBlock: embedding dim mismatch -- expected {}, got {}",
                     config_.getModelDim(), input_shape.back() ) );
             }
         }
@@ -606,7 +593,7 @@ namespace Mila::Dnn
             if ( trailing != static_cast<int64_t>(config_.getModelDim()) )
             {
                 throw std::invalid_argument( std::format(
-                    "GptBlock: embedding dim mismatch — expected {}, got {}",
+                    "GptBlock: embedding dim mismatch -- expected {}, got {}",
                     config_.getModelDim(), input_shape.back() ) );
             }
         }

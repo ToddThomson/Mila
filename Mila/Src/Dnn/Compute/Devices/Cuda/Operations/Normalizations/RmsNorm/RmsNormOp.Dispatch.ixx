@@ -37,10 +37,10 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
                 const float* weight, const float* bias,
                 float* rstd,
                 int outer_size, int inner_size, int norm_dim,
-                float epsilon,
+                float epsilon, float weight_offset,
                 cudaStream_t stream )
             {
-                cuda_rmsnorm_forward_fp32( Y, rstd, X, weight, bias, outer_size, inner_size, norm_dim, epsilon, stream );
+                cuda_rmsnorm_forward_fp32( Y, rstd, X, weight, bias, outer_size, inner_size, norm_dim, epsilon, weight_offset, stream );
             }
 
             static inline void backward(
@@ -64,10 +64,10 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
                 const nv_bfloat16* weight, const nv_bfloat16* bias,
                 nv_bfloat16* rstd,
                 int outer_size, int inner_size, int norm_dim,
-                float epsilon,
+                float epsilon, float weight_offset,
                 cudaStream_t stream )
             {
-                cuda_rmsnorm_forward_bf16( Y, rstd, X, weight, bias, outer_size, inner_size, norm_dim, epsilon, stream );
+                cuda_rmsnorm_forward_bf16( Y, rstd, X, weight, bias, outer_size, inner_size, norm_dim, epsilon, weight_offset, stream );
             }
 
             static inline void backward(

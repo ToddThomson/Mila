@@ -6,12 +6,19 @@
  * No positional information. Positional encoding is handled downstream
  * by a dedicated encoding component (RoPE, ALiBi, or Learned).
  *
- * @tparam TInput     Data type of token index input (INT32).
- * @tparam TPrecision Precision of embedding output (FP32 or FP16).
+ * TTableQuantization = PerChannelFp8<> stores the table as FP8_E4M3 with one
+ * float32 absmax scale per vocabulary row and dequantizes inline during the
+ * gather (D4 Design B). quantize() and setTableScales() are only callable on
+ * quantized instantiations; the quantized path is inference-only.
+ *
+ * @tparam TInput              Data type of token index input (INT32).
+ * @tparam TPrecision          Precision of embedding output (FP32 or BF16).
+ * @tparam TTableQuantization  Table quantization policy (NoWeightQuant or PerChannelFp8<>).
  */
 
 module;
 #include <cuda_fp16.h>
+#include <algorithm>
 #include <string>
 #include <stdexcept>
 #include <cstdint>
@@ -20,6 +27,7 @@ module;
 
 export module Compute.CudaTokenEmbeddingOp;
 import :Dispatch;
+import :Quantize;
 
 import Dnn.Components.TokenEmbeddingConfig;
 import Dnn.Tensor;
@@ -27,7 +35,8 @@ import Dnn.ITensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Compute.UnaryOperation;
+import Dnn.Quantization.Weight.Policies;
+import Compute.OperationBase;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
@@ -35,7 +44,7 @@ import Compute.OperationType;
 import Dnn.Component;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
-import Compute.OperationRegistrarHelpers;
+import Serialization.Tensor;
 
 // DEBUG:
 import Cuda.Debug;
@@ -43,19 +52,36 @@ import Cuda.Debug;
 namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
 {
     using namespace Mila::Dnn;
+    using namespace Mila::Dnn::Quant::Weight;
+    using namespace Mila::Dnn::Serialization;
 
-    export template<TensorDataType TInput, TensorDataType TPrecision = TInput>
+    export template<TensorDataType TInput, TensorDataType TPrecision = TInput,
+        WeightQuantPolicy TTableQuantization = NoWeightQuant>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaTokenEmbeddingOp
-        : public UnaryOperation<DeviceType::Cuda, TInput, TPrecision>
+    class CudaTokenEmbeddingOp : public Operation<DeviceType::Cuda, TPrecision>
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TPrecision>;
+        using OperationBaseType = Operation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
         using ConfigType = TokenEmbeddingConfig;
+
+        static constexpr bool kIsQuantized = TTableQuantization::kIsQuantized;
+
+        // Per-group scales sit on the gather (input) axis and do not transfer to a
+        // row lookup -- only per-vocab-row (per-channel) quantization is meaningful.
+        static_assert( !kIsQuantized || TTableQuantization::kPerChannel,
+            "CudaTokenEmbeddingOp: table quantization must be per-channel (per vocabulary row)" );
+
+        static_assert( !kIsQuantized || TPrecision == TensorDataType::BF16,
+            "CudaTokenEmbeddingOp: the FP8 table gather-dequant path is BF16-only" );
+
+        static constexpr TensorDataType kTableDtype = kIsQuantized
+            ? TTableQuantization::kStorageDtype : TPrecision;
+
+        using TableNativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<kTableDtype>::device_type;
 
         CudaTokenEmbeddingOp( IExecutionContext* context, const TokenEmbeddingConfig& config )
             : context_( validateExecutionContext_<DeviceType::Cuda>( context, "CudaTokenEmbeddingOp" ) ),
@@ -71,7 +97,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         /**
          * @brief Bind the wte parameter tensor (module retains ownership).
          *
-         * @param wte Token embedding table — CUDA tensor of shape [vocab_size, C].
+         * @param wte Token embedding table -- CUDA tensor of shape [vocab_size, C].
          *
          * @throws std::invalid_argument on null, non-CUDA, or shape-mismatched tensor.
          */
@@ -98,15 +124,73 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
                     "CudaTokenEmbeddingOp::setParameters - wte embedding_dim {} does not match config {}",
                     shape[ 1 ], config_.getEmbeddingDim() ) );
 
-            wte_ = static_cast<NativeType*>(wte->rawData());
+            wte_ = static_cast<TableNativeType*>(wte->rawData());
             vocab_size_ = static_cast<int>(shape[ 0 ]);
             embedding_dim_ = static_cast<int>(shape[ 1 ]);
         }
 
         /**
+         * @brief Bind the per-vocab-row FP32 table scale tensor (module retains ownership).
+         *
+         * Must be bound before build(). quantize() fills the allocation at load time.
+         *
+         * @param scales Device tensor of shape [vocab_size], dtype Float32.
+         */
+        void setTableScales( ITensor* scales ) requires kIsQuantized
+        {
+            if ( !scales )
+                throw std::invalid_argument( "CudaTokenEmbeddingOp::setTableScales - scales tensor is required" );
+
+            if ( scales->getDeviceType() != DeviceType::Cuda )
+                throw std::invalid_argument( "CudaTokenEmbeddingOp::setTableScales - scales must be a CUDA tensor" );
+
+            table_scales_ = static_cast<const float*>(scales->rawData());
+        }
+
+        // Staging cap for quantize-on-load. The shared context scratch is grow-only,
+        // so staging the full BF16 table (~2 GB on the 12B build) would permanently
+        // inflate steady-state VRAM past what the prefill dequant path already forces
+        // (~470 MB) -- more than the FP8 table saves. The quantize loops row chunks
+        // through a buffer of at most this size instead.
+        static constexpr size_t kQuantizeStagingLimitBytes = size_t{ 256 } * 1024 * 1024;
+
+        /**
+         * @brief Quantize a BF16 host table blob to FP8_E4M3 with per-vocab-row FP32 scales.
+         *
+         * Runs once at model load time. Delegates to Detail::quantize_table_fp8_per_row()
+         * (pre-compiled by NVCC in the :Quantize partition), which chunks the table over
+         * rows so the shared scratch never grows past kQuantizeStagingLimitBytes. All
+         * device work is issued on the execution context stream; the caller synchronizes
+         * after loading (the BF16 source blob is uploaded asynchronously and never
+         * retained on device).
+         *
+         * @param blob           Host BF16 table blob from the model archive.
+         * @param table_out      Device FP8_E4M3 tensor [vocab_size, embedding_dim].
+         * @param scales_out     Device Float32 tensor [vocab_size].
+         * @param expected_shape Expected table shape for validation.
+         */
+        void quantize(
+            const ITensorBlob& blob,
+            ITensor& table_out,
+            ITensor& scales_out,
+            const shape_t& expected_shape ) requires kIsQuantized
+        {
+            const int64_t vocab_size = static_cast<int64_t>( expected_shape[ 0 ] );
+            const int64_t embedding_dim = static_cast<int64_t>( expected_shape[ 1 ] );
+
+            const size_t src_bytes = static_cast<size_t>( vocab_size * embedding_dim ) * sizeof( uint16_t );
+            const size_t staging_bytes = std::min( src_bytes, kQuantizeStagingLimitBytes );
+
+            void* staging = context_->getDeviceScratchBuffer( staging_bytes );
+
+            Detail::quantize_table_fp8_per_row( blob, table_out, scales_out, expected_shape,
+                staging, staging_bytes, context_->getStream() );
+        }
+
+        /**
          * @brief Bind the wte gradient tensor for training (module retains ownership).
          *
-         * @param wte_grad Gradient buffer for wte — CUDA tensor of shape [vocab_size, C].
+         * @param wte_grad Gradient buffer for wte -- CUDA tensor of shape [vocab_size, C].
          *
          * @throws std::invalid_argument on null or non-CUDA tensor.
          */
@@ -140,6 +224,12 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
                 throw std::runtime_error( "CudaTokenEmbeddingOp::build requires wte bound via setParameters() before build()." );
             }
 
+            if constexpr ( kIsQuantized )
+            {
+                if ( !table_scales_ )
+                    throw std::runtime_error( "CudaTokenEmbeddingOp::build requires table scales bound via setTableScales() before build()." );
+            }
+
             const auto& input_shape = config.inputShape();
 
             validateInputShape( input_shape );
@@ -147,7 +237,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             batch_size_ = static_cast<int>(input_shape[ 0 ]);
             seq_length_ = static_cast<int>(input_shape[ 1 ]);
 
-            UnaryOperationBase::build( config );
+            OperationBaseType::build( config );
         }
 
         // ====================================================================
@@ -162,7 +252,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
          * @param input  Token indices [B, T] (INT32).
          * @param output Pre-allocated embeddings [B, T, C].
          */
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             const auto& shape = input.shape();
             int B = static_cast<int>(shape[ 0 ]);
@@ -173,8 +263,16 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             const int32_t* X = static_cast<const int32_t*>(input.rawData());
             NativeType* Y = static_cast<NativeType*>(output.rawData());
 
-            Detail::cuda_token_embedding_impl<NativeType>::forward(
-                Y, X, wte_, B, T, embedding_dim_, context_->getStream() );
+            if constexpr ( kIsQuantized )
+            {
+                Detail::cuda_token_embedding_fp8_impl::forward(
+                    Y, X, wte_, table_scales_, B, T, embedding_dim_, context_->getStream() );
+            }
+            else
+            {
+                Detail::cuda_token_embedding_impl<NativeType>::forward(
+                    Y, X, wte_, B, T, embedding_dim_, context_->getStream() );
+            }
 
             // DEBUG: synchronize and print output stats
             // context_->synchronize();
@@ -197,19 +295,27 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
         {
-            const auto& shape = input.shape();
-            int B = static_cast<int>(shape[ 0 ]);
-            int T = static_cast<int>(shape[ 1 ]);
+            if constexpr ( kIsQuantized )
+            {
+                throw std::logic_error(
+                    "CudaTokenEmbeddingOp::backward - the quantized table path is inference-only" );
+            }
+            else
+            {
+                const auto& shape = input.shape();
+                int B = static_cast<int>(shape[ 0 ]);
+                int T = static_cast<int>(shape[ 1 ]);
 
-            validateRuntimeShape( B, T );
+                validateRuntimeShape( B, T );
 
-            const int32_t* X = static_cast<const int32_t*>(input.rawData());
-            const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
+                const int32_t* X = static_cast<const int32_t*>(input.rawData());
+                const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
 
-            Detail::cuda_token_embedding_impl<NativeType>::backward(
-                wte_grad_, dY, X, B, T, embedding_dim_, context_->getStream() );
+                Detail::cuda_token_embedding_impl<NativeType>::backward(
+                    wte_grad_, dY, X, B, T, embedding_dim_, context_->getStream() );
+            }
         }
 
         // ====================================================================
@@ -220,7 +326,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
          * @brief Single-token decode pass (hot path).
          *
          * Computes output[b,:] = wte[X[b,0],:] for each batch element.
-         * No position argument — positional encoding is handled downstream.
+         * No position argument -- positional encoding is handled downstream.
          *
          * @param input  Single-token indices [B, 1] (INT32).
          * @param output Pre-allocated output buffer [B, C].
@@ -232,8 +338,16 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             const int32_t* X = static_cast<const int32_t*>(input.rawData());
             NativeType* Y = static_cast<NativeType*>(output.rawData());
 
-            Detail::cuda_token_embedding_impl<NativeType>::decode(
-                Y, X, wte_, B, embedding_dim_, context_->getStream() );
+            if constexpr ( kIsQuantized )
+            {
+                Detail::cuda_token_embedding_fp8_impl::decode(
+                    Y, X, wte_, table_scales_, B, embedding_dim_, context_->getStream() );
+            }
+            else
+            {
+                Detail::cuda_token_embedding_impl<NativeType>::decode(
+                    Y, X, wte_, B, embedding_dim_, context_->getStream() );
+            }
         }
 
         // ====================================================================
@@ -254,8 +368,11 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         TokenEmbeddingConfig  config_;
         CudaExecutionContext* context_;
 
-        NativeType* wte_{ nullptr };
+        TableNativeType* wte_{ nullptr };
         NativeType* wte_grad_{ nullptr };
+
+        // Per-vocab-row FP32 dequantization scales. Non-null only when kIsQuantized.
+        const float* table_scales_{ nullptr };
 
         int vocab_size_{ 0 };
         int embedding_dim_{ 0 };
@@ -277,18 +394,4 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         }
     };
 
-    export class CudaTokenEmbeddingOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            registerUnaryOpType<DeviceType::Cuda,
-                CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::FP32>,
-                TensorDataType::INT32, TensorDataType::FP32>( "TokenEmbeddingOp" );
-
-            registerUnaryOpType<DeviceType::Cuda,
-                CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::BF16>,
-                TensorDataType::INT32, TensorDataType::BF16>( "TokenEmbeddingOp" );
-        }
-    };
 }

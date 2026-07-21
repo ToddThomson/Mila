@@ -59,7 +59,7 @@ namespace Mila::Logging
      * setDefaultLogger() is a programming error and will throw std::runtime_error.
      * Register a NullSink in test harnesses that do not require log output.
      *
-     * @note This class is not copyable or movable — sinks own resources
+     * @note This class is not copyable or movable -- sinks own resources
      *       (file handles, mutexes) that must not be duplicated.
      */
     export class Logger
@@ -102,7 +102,7 @@ namespace Mila::Logging
             if ( !defaultLogger_ )
             {
                 throw std::runtime_error(
-                    "Mila: log call before initializeLogger() — "
+                    "Mila: log call before initializeLogger() -- "
                     "call Mila::initialize() first." );
             }
 
@@ -110,7 +110,7 @@ namespace Mila::Logging
         }
 
         // -------------------------------------------------------------------------
-        // Static facade — primary call-site API
+        // Static facade -- primary call-site API
         // -------------------------------------------------------------------------
 
         /**
@@ -180,7 +180,7 @@ namespace Mila::Logging
         }
 
         // -------------------------------------------------------------------------
-        // Virtual interface — implemented by concrete sinks
+        // Virtual interface -- implemented by concrete sinks
         // -------------------------------------------------------------------------
 
         /// @brief Emits a record at Trace level.

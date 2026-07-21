@@ -116,8 +116,9 @@ namespace Mila::Dnn::Compute
          * detailed error information if deallocation fails.
          *
          * @param ptr Pointer to device memory to deallocate
-         * @param bytes Size of memory block (unused, kept for interface compatibility)
-         * @param alignment Alignment used during allocation (unused, kept for interface compatibility)
+         *
+         * The size and alignment arguments are unused (kept for the memory-resource
+         * interface) and therefore intentionally unnamed.
          */
         void do_deallocate(void* ptr, std::size_t, std::size_t) override {
             if (!ptr) return;
@@ -133,11 +134,14 @@ namespace Mila::Dnn::Compute
             try {
                 cudaCheckStatus(status, std::source_location::current());
             }
-            catch (const CudaError& e) {
+            catch (const CudaError& e)
+            {
+                // REVIEW: For Milestone Alpha.6
                 std::ostringstream ss;
                 ss << e.what() << " (ptr: 0x" << std::hex << reinterpret_cast<std::uintptr_t>(ptr) << ")"
                     << " (device: " << device_id_ << ")";
                 std::cerr << ss.str() << std::endl;
+
                 throw;
             }
         }

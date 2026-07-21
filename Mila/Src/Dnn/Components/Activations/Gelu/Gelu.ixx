@@ -35,7 +35,6 @@ import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.IExecutionContext;
 import Compute.ExecutionContextFactory;
-import Compute.UnaryOperation;
 import Compute.OperationTraits;
 import Compute.CpuMemoryResource;
 import Serialization.ModelArchive;
@@ -126,15 +125,17 @@ namespace Mila::Dnn
          *       context with the base class, enabling getExecutionContext() and triggering
          *       the onExecutionContextSet() hook for operation creation.
          *
-         * @example
+         * @code{.cpp}
          * // Standalone mode (owns context)
          * GeluConfig config;
          * Gelu<DeviceType::Cpu, TensorDataType::FP32> gelu("gelu", config, Device::Cpu());
+         * @endcode
          *
-         * @example
+         * @code{.cpp}
          * // Shared mode (borrows parent's context)
          * Network<DeviceType::Cpu, TensorDataType::FP32> net(Device::Cpu(), "my_net");
          * net.addComponent<Gelu>("gelu", GeluConfig());
+         * @endcode
          */
         explicit Gelu( const std::string& name, const GeluConfig& config, std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), config_( config )
@@ -212,7 +213,7 @@ namespace Mila::Dnn
          *
          * @note GELU has no parameters, so no parameter gradients are computed.
          * @note The implementation may accumulate into the returned tensor (backend-dependent).
-         * @note Requires setTraining(true) for gradient computation in some backends.
+         * @note Requires isTrainingMode == true for gradient computation in some backends.
          */
         TensorType& backward( const TensorType& input, const TensorType& output_grad )
         {
@@ -221,11 +222,10 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Gelu::backward: component must be built before backward pass" );
             }
 
-            // REVIEW
-            /*if ( !this->isTraining() )
+            if ( !this->isTrainingMode() )
             {
-                throw std::runtime_error( "Gelu::backward: component must be in training mode to compute gradients" );
-            }*/
+                throw std::runtime_error( "Gelu::backward: component must be in training mode" );
+            }
 
             // Zero input gradient buffer before backward pass. No exeptions.
             // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed buffers
@@ -455,7 +455,7 @@ namespace Mila::Dnn
             oss << "--------------------" << std::endl;
             oss << "Gelu: " << this->getName() << std::endl;
             oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
-            // FIXME: oss << "Approximation Method: " << config_.toString( config_.getApproximationMethod() ) << std::endl;
+            oss << "Approximation Method: " << ApproximationMethodToString( config_.getApproximationMethod() ) << std::endl;
 
             return oss.str();
         }
@@ -495,9 +495,9 @@ namespace Mila::Dnn
          * - Expects operation to be initialized (created in onExecutionContextSet)
          * - Expects component to be unbuilt (guaranteed by Component::build)
          *
-         * @param input_shape Expected shape for input tensors.
+         * @param build_context Build-time context carrying the expected input shape.
          *
-         * @throws std::invalid_argument if input_shape is incompatible with the component configuration.
+         * @throws std::invalid_argument if the input shape is incompatible with the component configuration.
          * @throws std::runtime_error if backend allocation or build fails.
          * @throws std::runtime_error if operation is not initialized.
          */
@@ -524,15 +524,15 @@ namespace Mila::Dnn
          * @brief Hook invoked when training mode changes.
          *
          * Propagates training mode to the backend operation. Called by
-         * Component::setTraining() with the training mutex held.
+         * Component::setTrainingMode() with the training mutex held.
          *
          * State guards:
          * - Expects operation to be initialized (should be created in onExecutionContextSet)
          * - Can be called before or after build()
          *
-         * @param is_training New training mode state.
+         * @param training_mode New training mode state.
          *
-         * @note Do not call setTraining() from this hook (reentrancy prohibited).
+         * @note Do not call setTrainingMode() from this hook (reentrancy prohibited).
          * @note If operation is not initialized, silently returns (may occur during construction).
          */
         void onTrainingModeChanging( TrainingMode training_mode ) override

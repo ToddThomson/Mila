@@ -6,9 +6,16 @@ services:
     image: mila-dev:latest
     container_name: mila-dev
     volumes:
+      # Source + model weights. The compiled-in MODELS_DIR is /mila/Data/Models, so
+      # host weights under Data/Models are visible to Chat through this mount.
       - ..:/mila
-    tty: true
+      # Build tree on a container-local volume, OFF the bind mount: the C++23 module
+      # BMI I/O is slow across the host->container filesystem boundary. Survives
+      # `run --rm`, so incremental builds and ccache persist across container runs.
+      - mila-build:/build
+      - mila-ccache:/ccache
     working_dir: /mila
+    tty: true
     deploy:
       resources:
         reservations:
@@ -16,3 +23,7 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+
+volumes:
+  mila-build:
+  mila-ccache:

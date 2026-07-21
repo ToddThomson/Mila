@@ -32,7 +32,7 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorPartitioning;
-import Dnn.TensorInitializers;
+import Dnn.TensorOps;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
@@ -40,7 +40,6 @@ import Compute.DeviceTypeTraits;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
-import Compute.UnaryOperation;
 import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -256,6 +255,25 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
         }
 
+        /**
+         * @brief Install a shared output slot (activation pooling).
+         *
+         * Must be called before build(): onBuilding then skips output self-allocation
+         * after validating the slot's storage covers the build shape. forward()
+         * already always returns a shape-adjusted view, so a wider slot never leaks
+         * its geometry to callers. Mirrors Linear::installSharedWeight; self-allocation
+         * remains the default. The slot is owned and memory-accounted by the installer.
+         */
+        void installSharedOutput( std::shared_ptr<TensorType> output )
+        {
+            if ( this->isBuilt() )
+                throw std::logic_error(
+                    "RmsNorm '" + this->getName() + "': installSharedOutput must be called before build()" );
+
+            output_ = std::move( output );
+            output_installed_ = true;
+        }
+
         const ComponentType getType() const override
         {
             return ComponentType::RmsNorm;
@@ -275,7 +293,8 @@ namespace Mila::Dnn
                 stats.device_parameter_bytes += bias_->getStorageSize();
             }
 
-            if ( output_ != nullptr )
+            // An installed shared output slot is owned and counted by the installer.
+            if ( output_ != nullptr && !output_installed_ )
             {
                 stats.device_state_bytes += output_->getStorageSize();
             }
@@ -324,12 +343,36 @@ namespace Mila::Dnn
             validateInputShape( input_shape );
             allocateParameters( &input_shape );
 
+            if ( build_context.shouldInitializeParameters() )
+            {
+                fill( *weight_, 1.0f, this->getExecutionContext() );
+
+                if ( bias_ )
+                {
+                    zero( *bias_, this->getExecutionContext() );
+                }
+            }
+
             operation_->setParameters( weight_.get(), bias_.get() );
             operation_->build( build_context );
 
             auto device = this->getExecutionContext()->getDeviceId();
 
-            output_ = std::make_unique<TensorType>( device, input_shape, this->getName() + ".output" );
+            if ( output_installed_ )
+            {
+                int64_t needed = 1;
+                for ( auto d : input_shape )
+                    needed *= d;
+
+                if ( !output_ || output_->size() < needed )
+                    throw std::invalid_argument(
+                        "RmsNorm '" + this->getName() + "': installed shared output slot is smaller than the build shape requires" );
+            }
+            else
+            {
+                output_ = std::make_shared<TensorType>( device, input_shape, this->getName() + ".output" );
+            }
+
             output_view_.emplace( output_->view( input_shape ) );
 
             if ( build_context.isTrainingMode() )
@@ -354,12 +397,12 @@ namespace Mila::Dnn
 
                 if ( weight_grad_ )
                 {
-                    // FIXME: zeros( *weight_grad_ );
+                    zero( *weight_grad_, this->getExecutionContext() );
                 }
 
                 if ( bias_grad_ )
                 {
-                    // FIXME: zeros( *bias_grad_ );
+                    zero( *bias_grad_, this->getExecutionContext() );
                 }
             }
         }
@@ -379,7 +422,10 @@ namespace Mila::Dnn
         std::shared_ptr<TensorType> weight_grad_{ nullptr };
         std::shared_ptr<TensorType> bias_grad_{ nullptr };
 
-        std::unique_ptr<TensorType> output_{ nullptr };
+        // Self-allocated at build, or an installed shared slot (installSharedOutput)
+        // that the component views a prefix of.
+        std::shared_ptr<TensorType> output_{ nullptr };
+        bool output_installed_{ false };
         std::unique_ptr<TensorType> input_grad_{ nullptr };
         std::optional<TensorType> output_view_;
 
@@ -462,12 +508,10 @@ namespace Mila::Dnn
             auto device = this->getExecutionContext()->getDeviceId();
 
             weight_ = std::make_shared<TensorType>( device, shape_t{ channels }, this->getName() + ".weight" );
-            // FIXME: ones( *weight_ );
 
             if ( config_.hasBias() )
             {
                 bias_ = std::make_shared<TensorType>( device, shape_t{ channels }, this->getName() + ".bias" );
-                // FIXME: zero( *bias_ );
             }
         }
 
@@ -478,13 +522,13 @@ namespace Mila::Dnn
             if ( !weight_grad_ && weight_ )
             {
                 weight_grad_ = std::make_shared<TensorType>( device_id, weight_->shape(), this->getName() + ".weight.grad" );
-                // FIXME: zeros( *weight_grad_ );
+                zero( *weight_grad_, this->getExecutionContext() );
             }
 
             if ( config_.hasBias() && !bias_grad_ && bias_ )
             {
                 bias_grad_ = std::make_shared<TensorType>( device_id, bias_->shape(), this->getName() + ".bias.grad" );
-                // FIXME: zeros( *bias_grad_ );
+                zero( *bias_grad_, this->getExecutionContext() );
             }
         }
 

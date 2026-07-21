@@ -8,6 +8,17 @@ set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 # longer drags in CUDA sources.
 add_library( Mila STATIC )
 
+# CUDA architectures the Mila library target is compiled for. The default is a
+# portable fat binary spanning every supported arch, so a find_package consumer's
+# Mila.lib runs on any of them. This is a target property, so it overrides any global
+# CMAKE_CUDA_ARCHITECTURES -- which is why the library always built all five arches
+# regardless of a caller's -DCMAKE_CUDA_ARCHITECTURES. A local build that targets one
+# known GPU (the devcontainer/WSL convenience path, or any single-card dev build) can
+# pin a single arch for a much faster build via -DMILA_LIBRARY_CUDA_ARCHITECTURES=89.
+# Opt-in: the default is unchanged, so releases and packaged consumers stay portable.
+set(MILA_LIBRARY_CUDA_ARCHITECTURES "75;80;86;89;90" CACHE STRING
+    "CUDA architectures for the Mila library target (default: portable fat binary)")
+
 set_target_properties( Mila PROPERTIES
 	CXX_STANDARD 23
 	CXX_STANDARD_REQUIRED ON
@@ -23,7 +34,15 @@ set_target_properties( Mila PROPERTIES
     # unresolved __cudaRegisterLinkedBinary_*. Resolving device symbols here runs the
     # device link when Mila.lib is created, making the shipped archive self-contained.
     CUDA_RESOLVE_DEVICE_SYMBOLS ON
-    CUDA_ARCHITECTURES "75;80;86;89;90"
+    CUDA_ARCHITECTURES "${MILA_LIBRARY_CUDA_ARCHITECTURES}"
+
+    # The MilaPy binding is a SHARED object, and on Linux a shared object may contain only
+    # position-independent code. A non-PIC static Mila library (the default) makes the
+    # pybind11 module link fail: "relocation R_X86_64_PC32 against symbol ... can not be
+    # used when making a shared object; recompile with -fPIC". MSVC has no PIC/non-PIC
+    # distinction, so this never surfaces on Windows. PIC static code also links cleanly
+    # into the Chat/sample executables, so enable it unconditionally.
+    POSITION_INDEPENDENT_CODE ON
 )
 
 # C++23 is selected via the CXX_STANDARD properties above and forced per-compiler
@@ -80,8 +99,15 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     NAMES clang-scan-deps clang-scan-deps-21 clang-scan-deps-20 clang-scan-deps-19
     REQUIRED)
   set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${MILA_CLANG_SCAN_DEPS}")
-  set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")
-  set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -ccbin ${CMAKE_CXX_COMPILER}")
+  # nvcc's host compiler for the (module-free) .cu files. Only default it to the
+  # C++ compiler when the caller hasn't chosen one -- the Linux presets and CI set
+  # gcc-15 (nvcc 13's max supported host), and overriding that here produces a
+  # second, conflicting -ccbin ("incompatible redefinition for option
+  # 'compiler-bindir'" on every .cu). Setting CMAKE_CUDA_HOST_COMPILER is
+  # sufficient; CMake emits the -ccbin itself, so no manual flag append.
+  if(NOT CMAKE_CUDA_HOST_COMPILER)
+    set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")
+  endif()
 endif()
 
 # Emit device-side line info under RelWithDebInfo so Nsight Compute/Systems can
@@ -125,6 +151,7 @@ PUBLIC
         #----------------------------------------------------------------------
         "Src/Dnn/Core/Component.ixx"
         "Src/Dnn/Core/ComponentType.ixx"
+        "Src/Dnn/Core/ModelType.ixx"
         "Src/Dnn/Core/CompositeComponent.ixx"
         "Src/Dnn/Core/ComponentConfig.ixx"
         "Src/Dnn/Core/ComponentFactory.ixx"
@@ -148,7 +175,6 @@ PUBLIC
         "Src/Dnn/Tensors/Tensor.Types.ixx"
 
         "Src/Dnn/Tensors/TensorDataType.ixx"
-        "Src/Dnn/Tensors/Tensor.Initializers.ixx"
         "Src/Dnn/Tensors/Tensor.Serialization.ixx"
 
         "Src/Dnn/Tensors/TensorDataTypeMap.ixx"
@@ -173,8 +199,10 @@ PUBLIC
         "Src/Dnn/Components/Activations/ActivationType.ixx"
         "Src/Dnn/Components/Activations/Gelu/Gelu.ixx"
         "Src/Dnn/Components/Activations/Gelu/Gelu.Config.ixx"
-        "Src/Dnn/Components/Activations/Swiglu/Swiglu.ixx"
-        "Src/Dnn/Components/Activations/Swiglu/Swiglu.Config.ixx"
+        
+        # Unified elementwise activation (added alongside Gelu; folds it in later -- FfnAndMoE.md s5)
+        "Src/Dnn/Components/Activations/Activation/Activation.ixx"
+        "Src/Dnn/Components/Activations/Activation/Activation.Config.ixx"
         
         # Components - Connections
         "Src/Dnn/Components/Connections/ConnectionType.ixx"
@@ -209,12 +237,18 @@ PUBLIC
         "Src/Dnn/Components/Losses/SoftmaxCrossEntropy.ixx"
         "Src/Dnn/Components/Losses/CrossEntropyConfig.ixx"
         
-        #"Src/Dnn/Components/Regularization/Dropout.ixx"
-        #"Src/Dnn/Components/Regularization/DropoutConfig.ixx"
-        
-        "Src/Dnn/Components/FFN/MLP.ixx"
-        "Src/Dnn/Components/FFN/MLP.Config.ixx"
-        "Src/Dnn/Components/FFN/MLP.Dispatch.ixx"
+        # Dropout parked at Dev/Components/Regularization/ pending Alpha.8 re-authoring (see BACKLOG).
+
+        "Src/Dnn/Components/FFN/MLP/MLP.ixx"
+        "Src/Dnn/Components/FFN/MLP/MLP.Config.ixx"
+        # MLP.Dispatch.ixx RETIRED: the runtime activation dispatch (mlp_activation_impl)
+        # is gone now that MLP is pinned to a concrete Gelu child. Kept on disk for
+        # reference until the generalized Activation component lands (see FfnAndMoE.md).
+        #"Src/Dnn/Components/FFN/MLP/MLP.Dispatch.ixx"
+        "Src/Dnn/Components/FFN/Swiglu/Swiglu.ixx"
+        "Src/Dnn/Components/FFN/Swiglu/Swiglu.Config.ixx"
+        "Src/Dnn/Components/FFN/GatedMLP/GatedMLP.ixx"
+        "Src/Dnn/Components/FFN/GatedMLP/GatedMLP.Config.ixx"
         "Src/Dnn/Components/Transformers/Gpt/GptBlock.ixx"
         "Src/Dnn/Components/Transformers/Gpt/GptBlock.Config.ixx"
 
@@ -243,7 +277,7 @@ PUBLIC
         #----------------------------------------------------------------------
         # Dnn / Compute / Optimizers
         #----------------------------------------------------------------------
-        "Src/Dnn/Compute/Optimizers/OptimizerBase.ixx"
+        "Src/Dnn/Core/OptimizerBase.ixx"
 
         #---------------------------------------------------------------
         # Dnn / Compute / Operations
@@ -253,13 +287,6 @@ PUBLIC
         "Src/Dnn/Compute/Operations/OperationTraits.ixx"
         "Src/Dnn/Compute/Operations/OperationTraits.Template.ixx"
         
-        "Src/Dnn/Compute/Operations/UnaryOperation.ixx"
-        "Src/Dnn/Compute/Operations/BinaryOperation.ixx"
-        
-        "Src/Dnn/Compute/Operations/OperationRegistry.ixx"
-        "Src/Dnn/Compute/Operations/OperationRegistryHelpers.ixx"
-        "Src/Dnn/Compute/Operations/OperationsRegistrar.ixx"
-
         #---------------------------------------------------------------
         # Dnn / Compute / Devices (general)
         #---------------------------------------------------------------
@@ -284,7 +311,7 @@ PUBLIC
         "Src/Dnn/Serialization/ZipSerializer.ixx"
 
         #---------------------------------------------------------------
-        # Dnn / Visualization
+        # Dnn / Visualization (FUTURE: moved to Dev/Visualization; see BACKLOG)
         #---------------------------------------------------------------
         #"Src/Dnn/Visualization/Components/Block.Visualizer.ixx"
         #"Src/Dnn/Visualization/Core/ComponentVisualizer.ixx"
@@ -338,7 +365,6 @@ PUBLIC
         "Src/Dnn/Components/MilaComponents.ixx"
         "Src/Dnn/Core/Loss.ixx"
         "Src/Dnn/Serialization/SerializationMetadata.ixx"
-        "Src/Dnn/Compute/Operations/OperationRegistrarHelpers.ixx"
         
         "Src/Dnn/Tensors/Operations/TensorOps.Zero.ixx"
 
@@ -350,9 +376,8 @@ PUBLIC
         "Src/Dnn/Components/Attention/AttentionType.ixx"
         "Src/Dnn/Components/Normalization/NormType.ixx"
         "Src/Dnn/Components/Encodings/EncodingType.ixx"
-        "Src/Dnn/Core/ModelReader.ixx"
-        "Src/Dnn/Components/Transformers/Gpt/GptTransformer.ixx"
         
+        "Src/Dnn/Components/Transformers/Gpt/GptTransformer.ixx"
         
         "Src/Dnn/Components/Transformers/Gpt/Gpt.Config.ixx"
         "Src/Dnn/Components/Transformers/LlaMa/Llama.ixx"
@@ -360,24 +385,19 @@ PUBLIC
         
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Presets.ixx"
 
+        "Src/Dnn/Components/Transformers/Gemma/Gemma.Config.ixx"
+        "Src/Dnn/Components/Transformers/Gemma/IDecoderLayer.ixx"
+        "Src/Dnn/Components/Transformers/Gemma/Gemma.Block.ixx"
+        "Src/Dnn/Components/Transformers/Gemma/Gemma.ixx"
+        "Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx"
+
         "Src/Data/Tokenizers/Tokenizer.ixx"
-        # DEPRECATED: "Src/Dnn/Data/Gpt2Tokenizer.ixx"
-        # DEPRECATED: "Src/Dnn/Data/Llama3Tokenizer.ixx"
         "Src/Data/Tokenizers/TokenizerVocabulary.ixx"
         "Src/Data/Tokenizers/TokenizerType.ixx"
 
         "Src/Data/Core/FileHeader.ixx"        
         "Src/Data/Core/TokenizerTrainer.ixx"
         "Src/Data/Core/TrainerFactory.ixx"
-
-        # REVIEW: Unified Bpe tockenizer
-        #"Src/Data/Tokenizers/Bpe/Gpt2/BPETokenizer.ixx"
-        #"Src/Data/Tokenizers/Bpe/Gpt2/BpeTrainer.ixx"
-        #"Src/Data/Tokenizers/Bpe/Gpt2/BPEVocabulary.ixx"
-        #"Src/Data/Tokenizers/Bpe/Gpt2/BpeVocabularyConfig.ixx"
-        #"Src/Data/Tokenizers/Bpe/Gpt4/Gpt4Tokenizer.ixx"
-        #"Src/Data/Tokenizers/Bpe/Gpt4/Gpt4Vocabulary.ixx"
-        #"Src/Data/Tokenizers/Bpe/Gpt4/Gpt4Vocabulary.Config.ixx"
 
         "Src/Data/Tokenizers/Char/CharTokenizer.ixx"
         "Src/Data/Tokenizers/Char/CharVocabularyConfig.ixx"
@@ -391,6 +411,7 @@ PUBLIC
 
         "Src/Data/Tokenizers/Bpe/BpePreTokenizationMode.ixx"
 
+        "Src/Dnn/Components/Transformers/SamplingParams.ixx"
         "Src/Dnn/Components/Transformers/GenerateParams.ixx"
         "Src/Data/Tokenizers/SpecialTokens.ixx"
         "Src/Dnn/Serialization/PretrainedReader.ixx"
@@ -400,19 +421,19 @@ PUBLIC
         
         "Src/Dnn/Models/GptModel.ixx"
         "Src/Dnn/Models/LlamaModel.ixx"
+        "Src/Dnn/Models/GemmaModel.ixx"
 
         "Src/Dnn/Components/Transformers/LlaMa/Llama.Block.ixx"
         
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.ixx"
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
         
-        "Src/Dnn/Compute/Operations/PairedOperation.ixx"
         "Src/Dnn/Core/Component.MemoryStats.ixx"
         "Src/Dnn/Core/Model.RuntimeMode.ixx"
         "Src/Dnn/Core/Model.ixx"
         "Src/Dnn/Core/LanguageNetwork.ixx"
         "Src/Dnn/Core/LanguageModel.ixx"
-        "Src/Dnn/Core/Comonent.TrainingMode.ixx"
+        "Src/Dnn/Core/Component.TrainingMode.ixx"
         "Src/Dnn/Compute/Operations/IPositionalPairedOp.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Random.ixx"
         "Src/Dnn/Tensors/Operations/TensorOps.Structural.ixx"
@@ -425,6 +446,7 @@ PUBLIC
         #"Src/Dnn/Core/ModelQuantizationConfig.ixx"
         "Src/Dnn/Core/ModelConfig.ixx"
         "Src/Dnn/Models/LlamaModelConfig.ixx"
+        "Src/Dnn/Models/GemmaModelConfig.ixx"
         #"Src/Dnn/Compute/Operations/GqaOpTypeMap.ixx"
         #"Src/Dnn/Compute/Operations/GqaOpTypeMap.Template.ixx"
         "Src/Dnn/Compute/Operations/GqaState.ixx"
@@ -438,7 +460,10 @@ PUBLIC
         "Src/Dnn/Quantization/Quantization.ixx"
         "Src/Dnn/Core/LanguageModelConfig.ixx"
         
-)
+        "Src/Dnn/Core/SamplerBase.ixx"
+        "Src/Dnn/Samplers/SamplingConfig.ixx"
+        "Src/Dnn/Samplers/TokenSampler.ixx"
+ "Src/Dnn/Models/GptModelConfig.ixx" "Src/Dnn/Core/GenerateStatus.ixx")
 
 # Initialize install file set args with core modules; backend blocks append to this.
 set( MILA_INSTALL_FILE_SET_ARGS
@@ -462,17 +487,20 @@ if(MILA_HAS_CPU)
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Fill.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Math.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Transfer.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Random.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuOperations.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/OperationTraits.Cpu.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuEncoderOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuGeluOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuElementwiseActivationOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLayerNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuLinearOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuAttentionOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuResidualOp.ixx"
                 #"Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxCrossEntropyOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSoftmaxOp.ixx"
+                "Src/Dnn/Compute/Devices/Cpu/Operations/CpuSamplingOp.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Optimizers/CpuAdamWOptimizer.ixx"
                 "Src/Dnn/Compute/Devices/Cpu/Tensors/Operations/CpuTensorOps.Zero.ixx"
 
@@ -498,6 +526,7 @@ if(MILA_HAS_CUDA)
         PRIVATE
             "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/Kernels/TokenEmbedding.Fp8.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/Kernels/Lpe.Fp16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/Kernels/Rope.Fp32.cu"
@@ -515,6 +544,15 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Decode.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Prefill.Bf16.cu"
+            # Gqa.Flash.Bf16.cu (scalar Iteration 2) retired from the build -- profiled a
+            # non-fix (LSU-bound, GqaFlashAttention.md 5.2.1). Superseded by the WMMA path
+            # below; file kept in-tree for reference. Both define cuda_gqa_flash_prefill_bf16,
+            # so exactly one is compiled.
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Flash.Wmma.cu"
+            # Gqa.Flash.Fa2.cu owns cuda_gqa_flash_prefill_ring_bf16 (the HS=256 local
+            # sliding layers) as a row-split FA-2 kernel; Wmma.cu keeps only the HS=512
+            # unbounded global symbol. Exactly one TU defines each flash entry point.
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Flash.Fa2.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Attention/GQA/Kernels/Gqa.Train.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Fp8Prefill/CudaFp8Prefill.cu"
@@ -533,12 +571,15 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Bf16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Geglu/Kernels/Geglu.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Elementwise/Kernels/ElementwiseActivation.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.Fp16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/Kernels/RmsNorm.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/Kernels/RmsNorm.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.Fp16.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/Kernels/Sampling.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.Bf16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.Fp32.warp.cu"
@@ -548,6 +589,7 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/TensorOps.Fill.cu"
             "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Math.Elementwise.cu"
             "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Structural.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Random.cu"
             "Src/Dnn/Compute/Devices/Cuda/Optimizers/Kernels/CudaAdamW.cu"
     )
 
@@ -580,9 +622,15 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Geglu/Kernels/Geglu.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Elementwise/Kernels/ElementwiseActivation.cuh"
+                # Shared elementwise-activation functor library (consumed by the CPU op, the
+                # Activation component, and the CUDA kernel; shipped here for CUDA consumers).
+                "Src/Dnn/Components/Activations/Activation/Kernels/ElementwiseActivation.h"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/Kernels/LayerNorm.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/RmsNorm/Kernels/RmsNorm.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/Kernels/Softmax.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/Kernels/Sampling.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/Kernels/Residual.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/Kernels/SoftmaxCrossEntropy.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/Kernels/Transfer.Copy.h"
@@ -602,7 +650,6 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTypeTraits.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaError.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaHelpers.ixx"
-                # DEPRECATED Remove at Beta.1 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceResources.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaBadAlloc.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CublasLtError.ixx"
                 
@@ -616,8 +663,6 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/CudaManagedMemoryResource.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/CudaPinnedMemoryResource.ixx"
                 
-                # DEPRECATED - remove at Beta.1 "Src/Dnn/Compute/Devices/Cuda/CudaDeviceTraits.ixx"
-
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Specializations.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/CudaTensorDataType-Maps.ixx"
@@ -626,7 +671,6 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Fill.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Transfer.ixx"
                 
-                "Src/Dnn/Compute/Devices/Cuda/Operations/CudaOperations.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/OperationTraits.Cuda.ixx"
 
                 # CUDA Attention Ops
@@ -640,6 +684,7 @@ if(MILA_HAS_CUDA)
 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/CudaTokenEmbeddingOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/CudaTokenEmbeddingOp.Dispatch.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Embeddings/CudaTokenEmbeddingOp.Quantize.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/CudaLpeOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Lpe/CudaLpeOp.Dispatch.ixx"
@@ -649,15 +694,19 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.Cache.ixx"
 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx"
-                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CublasLtMatMulBias.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Geglu/CudaGegluOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Elementwise/CudaElementwiseActivationOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/LayerNormOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/LayerNorm/LayerNormOp.Dispatch.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Normalizations/Softmax/CudaSoftmaxOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Sampling/CudaSamplingOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Residual/CudaResidualOp.ixx"
                 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/CudaSoftmaxCrossEntropyOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Loss/CudaSoftmaxCrossEntropyOp.Dispatch.ixx"
+
                 "Src/Dnn/Compute/Devices/Cuda/Optimizers/CudaAdamWOptimizer.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Tensors/Operations/CudaTensorOps.Zero.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Helpers/CudaDebug.ixx"
@@ -965,9 +1014,16 @@ if(PROJECT_IS_TOP_LEVEL)
     add_subdirectory( Tools )
 endif()
 
+# The runtime's Python binding surface: a runtime-adjacent projection of Mila into
+# Python (module `Mila.Bindings`), consumer-blind -- consumed by the MIS server and by
+# the parity/converter tooling alike, so it is a peer of the runtime, not an adaptor.
 if(MILA_ENABLE_PYTHON_BINDINGS)
-    add_subdirectory( Inference/Bindings )
+    add_subdirectory( Bindings )
 endif()
+
+# First-class adaptors over the runtime. Chat is gated inside Adaptors/CMakeLists.txt
+# (by MILA_ENABLE_ADAPTORS+CUDA); MIS's Python server is not a CMake target.
+add_subdirectory( Adaptors )
 
 if(MILA_ENABLE_PROFILING)
     add_subdirectory(Profiling)
@@ -977,10 +1033,6 @@ if(MILA_ENABLE_TESTING)
     add_subdirectory(Tests)
 endif()
 
-if(MILA_ENABLE_BENCHMARKS)
-    add_subdirectory(Benchmarks)
-endif()
- 
 if(MILA_ENABLE_SAMPLES)
      message(STATUS "MILA_ENABLE_SAMPLES is ON - adding Samples subdirectory")
      add_subdirectory(Samples)

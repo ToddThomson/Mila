@@ -29,7 +29,6 @@ import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
-import Compute.UnaryOperation;
 import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
@@ -117,7 +116,7 @@ namespace Mila::Dnn
          * KV caching, the first forward() call initializes and populates the
          * cache (prefill with position_offset=0). When called again after
          * decode() steps, it automatically resets the cache and begins a new
-         * prefill session — no explicit session management required by callers.
+         * prefill session -- no explicit session management required by callers.
          *
          * @param input Concatenated QKV input [B, T, 3 * embedding_dim].
          * @return Reference to component-owned output tensor.
@@ -132,7 +131,7 @@ namespace Mila::Dnn
 
             if ( kv_cache_op_ && positional_op_ )
             {
-                // Called after decode steps — reset for new session
+                // Called after decode steps -- reset for new session
                 if ( decode_active_ )
                 {
                     kv_cache_op_->resetKvCache();
@@ -149,7 +148,7 @@ namespace Mila::Dnn
                     cache_initialized_ = true;
                 }
 
-                // Prefill — populates cache as side effect
+                // Prefill -- populates cache as side effect
                 positional_op_->prefill( input, *owned_output_ );
 
                 return resolveOutputView( input.shape() );
@@ -176,7 +175,7 @@ namespace Mila::Dnn
 
             if ( this->isInferenceMode() )
             {
-                throw std::runtime_error( "MultiHeadAttention must be in training mode to call backward. Call setTraining(true) first." );
+                throw std::runtime_error( "MultiHeadAttention must be in training mode to call backward." );
             }
 
             validateConcatenatedQKVShape( input.shape() );
@@ -223,7 +222,7 @@ namespace Mila::Dnn
                 return *owned_decode_output_;
             }
 
-            // Fallback — CpuMultiHeadAttentionOp or cache not yet initialized.
+            // Fallback -- CpuMultiHeadAttentionOp or cache not yet initialized.
             operation_->forward( input, *owned_output_ );
 
             return resolveOutputView( input.shape() );

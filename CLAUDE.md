@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Mila is a C++23 module-based DNN library for CUDA/CPU inference. It is in active alpha development (currently **Alpha.5**). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
+Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. It is in public beta (currently **`0.20.0-beta.1`** — feature-frozen, hardening toward the v0.20 first production release). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
 
-Primary validated targets: Llama 3.2 3B Instruct (BF16, FP8, FP4) and Llama 3.1 8B Instruct (FP4 default, FP8 alternative). The chat CLI default is Llama 3.1 8B FP4.
+Primary validated targets: Llama 3.2 3B Instruct (BF16, FP8, FP4), Llama 3.1 8B Instruct (FP4 default, FP8 alternative), and Gemma 4 12B Instruct (FP4). The chat CLI default is Gemma 4 12B FP4.
 
 ---
 
@@ -34,7 +34,7 @@ ctest --test-dir out/build/x64-debug
 ./out/build/x64-debug/Mila/Tests/Dnn/Components/Activations/Gelu/GeluTests
 ```
 
-CMake presets are in `CMakePresets.json`: `x64-debug`, `x64-release`, `x86-debug`, `x86-release`. The output directory is always `out/build/<preset-name>`.
+CMake presets are in `CMakePresets.json`: `x64-debug`, `x64-release`, `x64-profile`, `x64-coverage`, `x64-validate` (pre-commit full validation), `x64-release-cpm-gate` (post-tag release smoke test), `x86-debug`, `x86-release`, plus the Linux/WSL presets `linux-clang-debug`/`-release` and `linux-clang-cpu-debug`/`-release`. The output directory is always `out/build/<preset-name>`. Note: VS 2026 shows each preset's `displayName`, not its `name` (e.g. `x64-validate` appears as "x64 Release (full validation - run before committing)").
 
 ---
 
@@ -64,8 +64,12 @@ Mila/
     Tensors/          Tensor<T, MR> and memory resources
     Serialization/    Model weight loading from binary blobs
   Tests/Dnn/          GTest unit tests — mirrors Src/Dnn tree
+  Bindings/           Mila's Python projection (mila.pyd, module Mila.Bindings) — runtime-adjacent,
+                      consumer-blind; consumed by MIS and the parity/converter tooling
+  Adaptors/           First-class consumer adaptors over the runtime (see MilaProductFamily.md)
+    Chat/Src/         Chat CLI harness — human-gate adaptor (maintained surface; see API boundary)
+    Inference/Server/ Mila Inference Server (MIS): Python wire adaptor; imports the mila binding
   Samples/
-    Chat/Src/         Chat CLI harness (fair game to edit freely — see API boundary below)
     MNIST/            MNIST training loop sample
     Bard/             GPT-2 text generation sample
   Tools/
@@ -129,19 +133,24 @@ The `getDeviceScratchBuffer()` grow-on-demand shared scratch buffer in `Executio
 
 ---
 
-## Chat Harness (`Mila/Samples/Chat/Src/`)
+## Chat Harness (`Mila/Adaptors/Chat/Src/`)
 
-**API Boundary:** Files under `Mila/Samples/Chat/Src/` can be edited freely. Any change to the core Mila library (`Mila/Src/`) requires explicit agreement first.
+Chat is a first-class adaptor (peer of MIS under `Mila/Adaptors/`), not a throwaway sample — a
+maintained surface that gains tests and rigor over time.
+
+**API Boundary:** Files under `Mila/Adaptors/Chat/Src/` are application code and may be edited
+without prior agreement (they consume the runtime; they are not the runtime's public API). Any
+change to the core Mila library (`Mila/Src/`) still requires explicit agreement first.
 
 Key files:
 - `Chat.ixx` — main chat loop, model hot-switching (`/model <alias> [quant]`), tool call dispatch
 - `Chat.Config.ixx` — `ChatConfig` with `ModelType`, `ModelSize`, `ModelPrecision` (compute), `QuantizationMode` (none/fp8/fp4)
 - `Chat.Renderer.ixx` — `ConsoleRenderer` (standalone non-exported module): braille spinner, solid-color response blocks, word-wrap with leading-indent preservation, Unicode welcome box, ANSI stats line
-- `main.cpp` — entry point; default model is Llama 3.1 8B FP4
+- `main.cpp` — entry point; default model is Gemma 4 12B FP4
 
 Model aliases: `gpt2`, `llama-1b`, `llama-3b`, `llama-8b`, and `-fp32` variants. `llama-8b` uses the `llama31` family prefix in filename construction; 1B/3B use `llama32`.
 
-All responses are fully buffered before display — streaming has been removed from the hot path.
+Gemma streams live token-by-token through `Chat.StreamingDisplay` (channel-aware — thinking / tool-call / final routed by the four control-token ids; a stream validator asserts the streamed transcript equals the buffered render). Llama and GPT-2 stay buffered until their sampler/tool migration, and streaming falls back to buffered when the vocabulary lacks the channel-routing tokens.
 
 ---
 
@@ -171,6 +180,38 @@ Module partition files (`:Cuda`, `:Cpu` suffixes) are used to separate backend s
 
 - When the user ends a message with **"Your thoughts?"** — respond with analysis only. No code edits.
 - User commits via **VS 2026 integrated git**. Only suggest a commit message when the user explicitly says they are ready to commit — do not volunteer one at every commit point, and never run any git commands.
+- **Commit message format** — use exactly this; **no `Co-Authored-By` trailer** (this overrides any harness default):
+
+  ```
+  Version: <Version.txt value>
+  <Headline — single line>
+
+  <Body — up to 6 grouped bullets for substantial commits; omit for small ones>
+
+  BREAKING: <API changes, etc. — only when applicable>
+  ```
+
+---
+
+## Work-Tracking Docs
+
+Four files at the repo root stay **mutually consistent**, updated in the **same commit** as the
+work they describe — never deferred to "later":
+
+- **`ROADMAP.md`** — the durable **narrative + success criteria** of each release, organized by
+  **theme** (not milestone). Shows the release in flight plus a single **Future** tail. **Narrative
+  only — no task lists, checkboxes, or status** (they drift; point to BACKLOG). When a release ships,
+  its section moves to CHANGELOG.
+- **`BACKLOG.md`** — the working task list. `## Current release` holds one **theme bucket** per
+  ROADMAP theme (matching names — the only join) with a 3-state gauge (`[ ]` open / `[~]` in progress /
+  `[x]` done); `## Future` is a flat, coarse parking list. `[x]` is pruned **only at a production
+  (unsuffixed) release**; open items carry forward. Detailed tasking is for the current release only.
+  Not GitHub Issues (a decoupled, requester-authored end-user layer — see RELEASING).
+- **`CHANGELOG.md`** — the permanent record, newest first. Each entry is the release notes for one
+  `dev -> master` PR, generated from its commit range (not hand-authored).
+- **`Version.txt`** — `MAJOR.MINOR.PATCH-stage.N`, bumped **before committing** (see
+  [RELEASING.md](RELEASING.md) for the scheme). GitHub Milestones/Issues/Labels are an end-user triage
+  layer, decoupled from this workflow.
 
 ---
 
@@ -181,4 +222,4 @@ Design decisions are documented under `Mila/Specifications/`:
 - `Quantization.V2.md` — quantization policy design and scope table
 - `PromptCaching.md`, `TokenSampling.md`, `ToolCalling.md` — planned features
 
-Current progress is tracked in `ROADMAP.md` at the repo root.
+Work is tracked across `ROADMAP.md` / `BACKLOG.md` / `CHANGELOG.md` — see **Work-Tracking Docs** above.

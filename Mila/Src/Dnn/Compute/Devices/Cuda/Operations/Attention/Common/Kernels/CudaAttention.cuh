@@ -95,11 +95,29 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
      * @param max_len    Allocated cache length.
      * @param actual_len Number of valid cached tokens.
      * @param stream     CUDA stream.
+     * @param window     Sliding-window size; 0 (default) = global (attend all
+     *                   actual_len cached tokens). A positive value bounds
+     *                   attention to the most-recent @p window keys. The default
+     *                   makes this a no-op for callers that do not window (MHA).
      */
     void cuda_attention_softmax_decode_forward_fp32(
         float* att, float scale, const float* preatt,
         int B, int NH, int max_len, int actual_len,
-        cudaStream_t stream );
+        cudaStream_t stream, int window = 0 );
+
+    /**
+     * @brief Bounded sliding-window ring decode softmax (FP32).
+     *
+     * Variant of cuda_attention_softmax_decode_forward_fp32 for a KV cache stored
+     * as a ring of @p capacity rows. preatt/att column j is RING SLOT j, not an
+     * absolute position; the kernel reconstructs each slot's absolute position to
+     * apply the window mask. Used by CudaGqaOp under the SlidingWindowKvCache
+     * policy. See SlidingWindowKvCache.md D6.
+     */
+    void cuda_attention_softmax_decode_ring_forward_fp32(
+        float* att, float scale, const float* preatt,
+        int B, int NH, int capacity, int actual_len,
+        cudaStream_t stream, int window );
 
     /**
      * @brief Softmax backward pass (FP32).
@@ -143,7 +161,13 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
     void cuda_attention_softmax_decode_forward_bf16(
         __nv_bfloat16* att, float scale, const __nv_bfloat16* preatt,
         int B, int NH, int max_len, int actual_len,
-        cudaStream_t stream );
+        cudaStream_t stream, int window = 0 );
+
+    /// @copydoc cuda_attention_softmax_decode_ring_forward_fp32
+    void cuda_attention_softmax_decode_ring_forward_bf16(
+        __nv_bfloat16* att, float scale, const __nv_bfloat16* preatt,
+        int B, int NH, int capacity, int actual_len,
+        cudaStream_t stream, int window );
 
     /// @copydoc cuda_attention_softmax_backward_fp32
     void cuda_attention_softmax_backward_bf16(

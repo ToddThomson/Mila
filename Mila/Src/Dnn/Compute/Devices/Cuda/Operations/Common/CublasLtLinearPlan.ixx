@@ -59,14 +59,14 @@ namespace Mila::Dnn::Compute::Cuda
      * Layout convention (compile-time, driven by kIsQuantized):
      *
      *   Non-quantized (NT row-major):
-     *     A = activations [outer_size × in_features],  opA = N
-     *     B = weights     [out_features × in_features], opB = T
-     *     C = output      [outer_size × out_features]
+     *     A = activations [outer_size x in_features],  opA = N
+     *     B = weights     [out_features x in_features], opB = T
+     *     C = output      [outer_size x out_features]
      *
      *   Quantized (TN column-major, Ada SM 8.9+):
-     *     A = weights (FP8) [in_features × out_features], opA = T  → op(A) = W[out_features, in_features]
-     *     B = activations   [in_features × outer_size],   opB = N  → op(B) = X^T[in_features, outer_size]
-     *     C = output        [out_features × outer_size]             (col-major ≡ row-major Y[outer_size, out_features])
+     *     A = weights (FP8) [in_features x out_features], opA = T  -> op(A) = W[out_features, in_features]
+     *     B = activations   [in_features x outer_size],   opB = N  -> op(B) = X^T[in_features, outer_size]
+     *     C = output        [out_features x outer_size]             (col-major == row-major Y[outer_size, out_features])
      *     A_SCALE_POINTER = per-tensor weight scale
      *
      * Non-copyable; move-only.
@@ -170,16 +170,16 @@ namespace Mila::Dnn::Compute::Cuda
      * Layout is selected at compile time based on kIsQuantized:
      *
      *   Non-quantized (TComputePrecision == TParameterPrecision):
-     *     NT row-major — A = activations, B = weights, opA=N, opB=T
-     *     C[outer_size, out_features] = A[outer_size, in_features] × B^T[in_features, out_features]
+     *     NT row-major -- A = activations, B = weights, opA=N, opB=T
+     *     C[outer_size, out_features] = A[outer_size, in_features] x B^T[in_features, out_features]
      *
      *   Quantized (Ada SM 8.9+, TParameterPrecision = FP8_E4M3):
-     *     TN column-major — A = weights (FP8), B = activations (BF16), opA=T, opB=N
+     *     TN column-major -- A = weights (FP8), B = activations (BF16), opA=T, opB=N
      *     Exploits the row-major / column-major duality:
-     *       row-major W[N, K] ≡ col-major W^T[K, N]   (same bytes, lda = K)
-     *       row-major X[M, K] ≡ col-major X^T[K, M]   (same bytes, ldb = K)
+     *       row-major W[N, K] == col-major W^T[K, N]   (same bytes, lda = K)
+     *       row-major X[M, K] == col-major X^T[K, M]   (same bytes, ldb = K)
      *       op(A) = (W^T)^T = W[N, K],  op(B) = X^T[K, M]
-     *       D = W × X^T = Y^T[N, M] col-major ≡ row-major Y[M, N]  (ldc = N)
+     *       D = W x X^T = Y^T[N, M] col-major == row-major Y[M, N]  (ldc = N)
      *     A_SCALE_POINTER = per-tensor weight scale (weight_scales_[0]).
      *
      * @param outer_size    Token count (M = B * T for transformers).
@@ -245,10 +245,10 @@ namespace Mila::Dnn::Compute::Cuda
                 cublasLtCheckStatus( status );
             }
 
-            // Column-major layouts (default order — do not set CUBLASLT_ORDER_ROW).
-            // A = weight:      col-major [K × N], lda = K   (row-major W[N, K] same bytes)
-            // B = activation:  col-major [K × M], ldb = K   (row-major X[M, K] same bytes)
-            // C = output:      col-major [N × M], ldc = N   (row-major Y[M, N] same bytes)
+            // Column-major layouts (default order -- do not set CUBLASLT_ORDER_ROW).
+            // A = weight:      col-major [K x N], lda = K   (row-major W[N, K] same bytes)
+            // B = activation:  col-major [K x M], ldb = K   (row-major X[M, K] same bytes)
+            // C = output:      col-major [N x M], ldc = N   (row-major Y[M, N] same bytes)
             status = cublasLtMatrixLayoutCreate(
                 &plan.layoutA, data_type_weight,      in_features,  out_features, in_features );
             if ( status != CUBLAS_STATUS_SUCCESS )
@@ -332,9 +332,9 @@ namespace Mila::Dnn::Compute::Cuda
             }
 
             // Row-major layouts.
-            // A = activation:  [M × K], lda = K
-            // B = weight:      [N × K], ldb = K
-            // C = output:      [M × N], ldc = N
+            // A = activation:  [M x K], lda = K
+            // B = weight:      [N x K], ldb = K
+            // C = output:      [M x N], ldc = N
             status = cublasLtMatrixLayoutCreate(
                 &plan.layoutA, data_type_activation, outer_size,   in_features,  in_features );
             if ( status != CUBLAS_STATUS_SUCCESS )
@@ -489,6 +489,151 @@ namespace Mila::Dnn::Compute::Cuda
             alpha,
             A, plan.layoutA,
             B, plan.layoutB,
+            beta,
+            C, plan.layoutC,
+            C, plan.layoutC,
+            algo_ptr,
+            workspace, workspace_size,
+            stream );
+
+        if ( status != CUBLAS_STATUS_SUCCESS )
+        {
+            throw CublasLtError( status );
+        }
+    }
+
+    /**
+     * @brief Build a cuBLASLt FP8xFP8 GEMM plan for the W4A8-FP8 prefill path.
+     *
+     * Both operands are FP8_E4M3; the output is TComputePrecision (BF16). This is the
+     * true FP8 tensor-core path (~2x BF16 on Ada, measured), distinct from the FP8-weight
+     * x BF16-activation mixed layout in build_linear_plan (which stages to BF16). No fast
+     * accumulate -- the microbench shows regular FP32 accumulate already delivers the 2x,
+     * so accumulation precision is kept.
+     *
+     * TN column-major (identical operand roles to the quantized build_linear_plan branch):
+     *   A = weight (FP8)      col-major [K x N], lda = K    op(A) = W[N, K]
+     *   B = activation (FP8)  col-major [K x M], ldb = K    op(B) = X^T[K, M]
+     *   C = output            col-major [N x M], ldc = N    == row-major Y[M, N]
+     *   A_SCALE_POINTER = weight scale (per-tensor, static),  B_SCALE_POINTER = constant 1.0f
+     *
+     * Ada cuBLASLt accepts only per-tensor scale pointers, so the activation B_SCALE is a
+     * constant unit scalar; the true per-token activation scales are applied exactly by a
+     * post-GEMM epilogue in the caller (cuda_fp8_apply_per_token_scales). Both scale
+     * pointers are bound at build time -- they are stable device scalars, and they must be
+     * present in the descriptor before cublasLtMatmulAlgoGetHeuristic so FP8 algorithms
+     * are enumerated.
+     *
+     * @param outer_size        Token count M.
+     * @param in_features       Inner dimension K.
+     * @param out_features       Output channels N.
+     * @param activation_scale  Device float scalar for the FP8 activation operand (B_SCALE, 1.0f).
+     * @param weight_scale      Device float scalar for the FP8 weight operand (A_SCALE).
+     */
+    export template<TensorDataType TComputePrecision>
+        CublasLtLinearPlan<TComputePrecision, TensorDataType::FP8_E4M3> build_fp8_prefill_plan(
+            cublasLtHandle_t handle,
+            int outer_size,
+            int in_features,
+            int out_features,
+            const float* activation_scale,
+            const float* weight_scale )
+    {
+        constexpr cudaDataType_t data_type_output = cuda_data_type_v<TComputePrecision>;
+
+        CublasLtLinearPlan<TComputePrecision, TensorDataType::FP8_E4M3> plan;
+        plan.has_bias_epilogue = false;  // bias is added post-GEMM by cuda_add_bias
+
+        cublasLtCheckStatus( cublasLtMatmulDescCreate( &plan.matmul_desc, CUBLAS_COMPUTE_32F, CUDA_R_32F ) );
+
+        // TN column-major: A = weight (transposed), B = activation (no-transpose).
+        const cublasOperation_t opA = CUBLAS_OP_T;
+        const cublasOperation_t opB = CUBLAS_OP_N;
+        cublasLtCheckStatus( cublasLtMatmulDescSetAttribute(
+            plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSA, &opA, sizeof( opA ) ) );
+        cublasLtCheckStatus( cublasLtMatmulDescSetAttribute(
+            plan.matmul_desc, CUBLASLT_MATMUL_DESC_TRANSB, &opB, sizeof( opB ) ) );
+
+        // Scale pointers must be set before the heuristic call so FP8 algorithms enumerate.
+        cublasLtCheckStatus( cublasLtMatmulDescSetAttribute(
+            plan.matmul_desc, CUBLASLT_MATMUL_DESC_A_SCALE_POINTER, &weight_scale, sizeof( weight_scale ) ) );
+        cublasLtCheckStatus( cublasLtMatmulDescSetAttribute(
+            plan.matmul_desc, CUBLASLT_MATMUL_DESC_B_SCALE_POINTER, &activation_scale, sizeof( activation_scale ) ) );
+
+        // Column-major layouts (default order -- do not set CUBLASLT_ORDER_ROW).
+        cublasLtCheckStatus( cublasLtMatrixLayoutCreate(
+            &plan.layoutA, CUDA_R_8F_E4M3, in_features,  out_features, in_features ) );
+        cublasLtCheckStatus( cublasLtMatrixLayoutCreate(
+            &plan.layoutB, CUDA_R_8F_E4M3, in_features,  outer_size,   in_features ) );
+        cublasLtCheckStatus( cublasLtMatrixLayoutCreate(
+            &plan.layoutC, data_type_output, out_features, outer_size, out_features ) );
+
+        cublasLtCheckStatus( cublasLtMatmulPreferenceCreate( &plan.preference ) );
+
+        constexpr size_t kWorkspaceHint = 4ull * 1024 * 1024;
+        cublasLtCheckStatus( cublasLtMatmulPreferenceSetAttribute(
+            plan.preference,
+            CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
+            &kWorkspaceHint, sizeof( kWorkspaceHint ) ) );
+
+        cublasLtMatmulHeuristicResult_t heuristic_result{};
+        int returned_algo_count = 0;
+
+        cublasStatus_t status = cublasLtMatmulAlgoGetHeuristic(
+            handle, plan.matmul_desc,
+            plan.layoutA, plan.layoutB, plan.layoutC, plan.layoutC,
+            plan.preference, 1, &heuristic_result, &returned_algo_count );
+
+        if ( status == CUBLAS_STATUS_SUCCESS && returned_algo_count > 0 )
+        {
+            plan.algorithm = heuristic_result.algo;
+            plan.has_algorithm = true;
+        }
+        else
+        {
+            Logging::Logger::warning( "cuBLASLt FP8 prefill heuristic found no algorithm, will use default at execution" );
+            plan.has_algorithm = false;
+        }
+
+        return plan;
+    }
+
+    /**
+     * @brief Execute a previously-built FP8xFP8 prefill plan.
+     *
+     * Computes D = alpha * (A_scale * op(A)) * (B_scale * op(B)) + beta * C, with the
+     * scale pointers already bound in the descriptor by build_fp8_prefill_plan.
+     *
+     * @param weight_fp8      Device FP8_E4M3 weight staging buffer (matrix A).
+     * @param activation_fp8  Device FP8_E4M3 activation buffer (matrix B).
+     * @param C               Device output (TComputePrecision).
+     */
+    export template<TensorDataType TComputePrecision>
+        void execute_fp8_prefill_plan(
+            cublasLtHandle_t handle,
+            const CublasLtLinearPlan<TComputePrecision, TensorDataType::FP8_E4M3>& plan,
+            const float* alpha,
+            const void*  weight_fp8,
+            const void*  activation_fp8,
+            const float* beta,
+            typename CublasLtLinearPlan<TComputePrecision, TensorDataType::FP8_E4M3>::ActivationType* C,
+            cudaStream_t stream,
+            void*   workspace      = nullptr,
+            size_t  workspace_size = 0 )
+    {
+        if ( !plan.isValid() )
+        {
+            throw std::invalid_argument( "execute_fp8_prefill_plan - plan is not valid" );
+        }
+
+        const cublasLtMatmulAlgo_t* algo_ptr = plan.has_algorithm ? &plan.algorithm : nullptr;
+
+        cublasStatus_t status = cublasLtMatmul(
+            handle,
+            plan.matmul_desc,
+            alpha,
+            weight_fp8,     plan.layoutA,
+            activation_fp8, plan.layoutB,
             beta,
             C, plan.layoutC,
             C, plan.layoutC,

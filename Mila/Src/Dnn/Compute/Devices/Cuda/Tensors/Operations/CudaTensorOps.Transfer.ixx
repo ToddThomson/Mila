@@ -40,7 +40,7 @@ import Compute.CudaManagedMemoryResource;
 import Compute.DeviceType;
 import Serialization.Tensor;
 
-//import Cuda.Helpers;
+import Cuda.Helpers;
 import Cuda.Error;
 
 namespace Mila::Dnn::Compute::Cuda
@@ -173,7 +173,7 @@ namespace Mila::Dnn::Compute::Cuda
                     );
                 }
 
-                // FIXME: ICE Cuda::setCurrentDevice( device_id );
+                Cuda::setCurrentDevice( device_id );
 
                 stream = nullptr;  // Default stream
                 needs_sync = true;  // Must sync default stream before returning
@@ -447,7 +447,7 @@ namespace Mila::Dnn::Compute::Cuda
                 return;
             }
 
-            // FIXME: Cuda::setCurrentDevice( device_id );
+            Cuda::setCurrentDevice( device_id );
 
             using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
 
@@ -475,7 +475,7 @@ namespace Mila::Dnn::Compute::Cuda
                 return;
             }
 
-            // FIXME: Cuda::setCurrentDevice( device_id );
+            Cuda::setCurrentDevice( device_id );
 
             constexpr size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
             const size_t bytes = count * element_size;
@@ -502,7 +502,7 @@ namespace Mila::Dnn::Compute::Cuda
                 return;
             }
 
-            // FIXME: Cuda::setCurrentDevice( device_id );
+            Cuda::setCurrentDevice( device_id );
 
             constexpr size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
             const size_t bytes = count * element_size;
@@ -553,7 +553,7 @@ namespace Mila::Dnn::Compute::Cuda
                 return;
             }
 
-            // FIXME: Cuda::setCurrentDevice( device_id );
+            Cuda::setCurrentDevice( device_id );
 
             using SrcType = typename Cuda::TensorDataTypeMap<TSrcDataType>::device_type;
             using DstType = typename Cuda::TensorDataTypeMap<TDstDataType>::device_type;
@@ -582,7 +582,7 @@ namespace Mila::Dnn::Compute::Cuda
                 return;
             }
 
-            // FIXME: Cuda::setCurrentDevice( device_id );
+            Cuda::setCurrentDevice( device_id );
 
             if constexpr (TSrcDataType == TDstDataType)
             {
@@ -648,7 +648,7 @@ namespace Mila::Dnn::Compute::Cuda
                 return;
             }
 
-            // FIXME: Cuda::setCurrentDevice( device_id );
+            Cuda::setCurrentDevice( device_id );
 
             if constexpr (TSrcDataType == TDstDataType)
             {

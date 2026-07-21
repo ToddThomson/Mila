@@ -2,11 +2,11 @@
 
 # mila_read_version(<version_file> <out_numeric> <out_prerelease>)
 #
-# Reads a SemVer string (X.Y.Z or X.Y.Z-PRERELEASE, e.g. "0.13.39-alpha.5") from
+# Reads a SemVer string (X.Y.Z or X.Y.Z-PRERELEASE, e.g. "0.20.0-alpha.6.54") from
 # version_file and returns, via the named output variables:
 #   out_numeric    -- the numeric major.minor.patch triple, suitable for
 #                     project(VERSION ...).
-#   out_prerelease -- the optional prerelease label (e.g. "alpha.5"), empty if
+#   out_prerelease -- the optional prerelease label (e.g. "alpha.6.54"), empty if
 #                     absent. It cannot live in project(VERSION) -- CMake accepts
 #                     only numeric components -- so callers carry it separately.
 #

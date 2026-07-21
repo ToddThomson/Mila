@@ -7,10 +7,10 @@
  *
  * Two loading paths:
  *
- *  fromPretrained() — third-party weights (e.g. HuggingFace GPT-2) via
+ *  fromPretrained() -- third-party weights (e.g. HuggingFace GPT-2) via
  *                     PretrainedModelReader. Primary path for Mila chat.
  *
- *  fromCheckpoint() — Mila-native artifact produced by GptTransformer::save()
+ *  fromCheckpoint() -- Mila-native artifact produced by GptTransformer::save()
  *                     via ModelArchive. Round-trip path after training.
  */
 
@@ -23,6 +23,7 @@ module;
 #include <filesystem>
 #include <format>
 #include <random>
+#include <optional>
 #include <chrono>
 #include <algorithm>
 #include <numeric>
@@ -30,11 +31,14 @@ module;
 #include <cmath>
 #include <functional>
 #include <stop_token>
+#include <unordered_set>
 
 export module Dnn.Models.GptModel;
 
 import Dnn.LanguageModel;
 import Dnn.LanguageNetwork;
+import Dnn.GenerateParams;
+import Dnn.GenerateStatus;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -64,7 +68,7 @@ namespace Mila::Dnn
     /**
      * @brief GPT inference model.
      *
-     * Owns a loaded, built GptTransformer and exposes generateStreaming() for
+     * Owns a loaded, built GptTransformer and exposes generate() for
      * autoregressive text generation.
      *
      * Construction is only possible via fromPretrained() or fromCheckpoint().
@@ -90,7 +94,7 @@ namespace Mila::Dnn
         ~GptModel() = default;
 
         // ====================================================================
-        // Factory — the sole construction paths
+        // Factory -- the sole construction paths
         // ====================================================================
 
         /**
@@ -128,12 +132,13 @@ namespace Mila::Dnn
 
             BuildContext build_context(
                 shape_t{ 1, static_cast<int64_t>(context_length) },
-                RuntimeMode::Inference );
+                RuntimeMode::Inference,
+                false );
 
             network->build( build_context );
             network->loadParameters( reader, strict );
 
-            return std::unique_ptr<GptModel>( new GptModel( std::move( network ), config, RuntimeMode::Inference ) );
+            return std::unique_ptr<GptModel>( new GptModel( std::move( network ), config, context_length, RuntimeMode::Inference ) );
         }
 
         /**
@@ -197,52 +202,75 @@ namespace Mila::Dnn
         // LanguageModel overrides
         // ====================================================================
 
+        // REVIEW: onGenerating() is the core of the autoregressive generation loop for all LanguageModel subclasses.
+        // It is currently implemented in each subclass, but it could be refactored into a common implementation in the base class,
+        // with subclass-specific hooks for prefill and decode. This would reduce code duplication and make it easier to maintain.
+
         /**
          * @brief Prefill + KV-cache decode loop with per-token streaming.
          */
-        void onGenerating(
-            const std::vector<int32_t>& prompt_tokens,
+        GenerateStatus onGenerating(
+            std::span<const int32_t> prompt_tokens,
             const std::function<void(int32_t)>& on_token,
-            size_t max_new_tokens,
-            float temperature,
-            int top_k,
+            const GenerateParams& params,
             std::stop_token stop ) override
         {
-            std::vector<int32_t> prefill_tokens = prompt_tokens;
-            std::mt19937 rng( std::chrono::high_resolution_clock::now()
-                .time_since_epoch().count() );
+            // Stop set: GPT-2 <|endoftext|> by default, or the caller's per-call override.
+            std::unordered_set<int32_t> stop_ids;
+            if ( params.stop_tokens.empty() )
+                stop_ids.insert( eos_token_ );
+            else
+                for ( auto id : params.stop_tokens )
+                    stop_ids.insert( static_cast<int32_t>( id ) );
 
-            truncateIfNeeded( prefill_tokens );
-            int64_t seq_len = static_cast<int64_t>(prefill_tokens.size());
+            // Host sampler path (device-sampler migration deferred): time-seeded.
+            std::mt19937 rng( static_cast<std::mt19937::result_type>(
+                std::chrono::high_resolution_clock::now().time_since_epoch().count() ) );
 
-            auto prefill_input = makeTokenTensor( prefill_tokens );
+            if ( prompt_tokens.size() > static_cast<size_t>( context_length_ ) )
+            {
+                throw std::invalid_argument( std::format(
+                    "GptModel::onGenerating: prompt length {} exceeds deployment context length {}",
+                    prompt_tokens.size(), context_length_ ) );
+            }
+
+            const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
+
+            auto prefill_input = makeTokenTensor( prompt_tokens );
             auto& logits = this->getLanguageNetwork().prefill( prefill_input );
             this->getLanguageNetwork().synchronize();
 
-            int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
+            int32_t next_token = sampleFromLogits(
+                logits, 0, params.sampling.temperature, params.sampling.top_k, rng );
 
-            if ( next_token == eos_token_ )
-                return;
+            if ( stop_ids.contains( next_token ) )
+                return GenerateStatus::Success;
 
             on_token( next_token );
 
-            int position = static_cast<int>(seq_len);
+            int position = static_cast<int>( seq_len );
+            const int max_new = params.max_new_tokens.value_or( static_cast<int>( context_length_ ) );
 
-            for ( size_t step = 1; step < max_new_tokens; ++step )
+            for ( int step = 1; step < max_new; ++step )
             {
-                if ( stop.stop_requested() ) break;
+                if ( stop.stop_requested() )
+                    return GenerateStatus::ClientCancelled;
 
-                auto decode_input = makeTokenTensor( { next_token } );
+                auto decode_input = makeTokenTensor( std::vector{ next_token } );
                 auto& decode_logits = this->getLanguageNetwork().decode( decode_input, position );
                 this->getLanguageNetwork().synchronize();
 
-                next_token = sampleFromLogits( decode_logits, 0, temperature, top_k, rng );
+                next_token = sampleFromLogits(
+                    decode_logits, 0, params.sampling.temperature, params.sampling.top_k, rng );
 
-                if ( next_token == eos_token_ ) break;
+                if ( stop_ids.contains( next_token ) )
+                    return GenerateStatus::Success;
 
                 on_token( next_token );
                 ++position;
             }
+
+            return GenerateStatus::MaxNewTokensReached;
         }
 
         /**
@@ -270,7 +298,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Training loop — not yet implemented for GptModel.
+         * @brief Training loop -- not yet implemented for GptModel.
          *
          * @throws std::runtime_error always.
          */
@@ -285,8 +313,9 @@ namespace Mila::Dnn
         explicit GptModel(
             std::unique_ptr<GptTransformerType> network,
             const GptConfig& config,
+            int64_t context_length,
             RuntimeMode runtime_mode )
-            : ModelBase( std::move( network ), runtime_mode ), config_( config )
+            : ModelBase( std::move( network ), runtime_mode ), context_length_( context_length ), config_( config )
         {}
 
         explicit GptModel(
@@ -296,6 +325,7 @@ namespace Mila::Dnn
         {}
 
         GptConfig config_;
+        int64_t context_length_;
 
         // REVIEW: Should come from tokenizer metadata when tokenizer support added.
         static constexpr int32_t eos_token_ = 50256;  // GPT-2 <|endoftext|>
@@ -319,7 +349,7 @@ namespace Mila::Dnn
             }
         }
 
-        TokenIndexType makeTokenTensor( const std::vector<int32_t>& token_ids ) const
+        TokenIndexType makeTokenTensor( std::span<const int32_t> token_ids ) const
         {
             shape_t shape = { 1, static_cast<int64_t>(token_ids.size()) };
             TokenIndexType device_tensor( this->getDeviceId(), shape );

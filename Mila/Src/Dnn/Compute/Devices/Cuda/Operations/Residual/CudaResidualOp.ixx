@@ -27,15 +27,12 @@ import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
-import Compute.BinaryOperation;
-import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.OperationType;
 import Dnn.Component;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
-import Compute.OperationRegistrarHelpers;
 
 namespace Mila::Dnn::Compute::Cuda::Residual
 {
@@ -47,7 +44,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
      * @tparam TPrecision Computation precision
      */
     export template <TensorDataType TInputA, TensorDataType TInputB = TInputA, TensorDataType TPrecision = TInputA>
-    class CudaResidualOp : public BinaryOperation<DeviceType::Cuda, TInputA, TInputB, TPrecision>
+    class CudaResidualOp : public Operation<DeviceType::Cuda, TInputA>
     {
     public:
         using MR = CudaDeviceMemoryResource;
@@ -81,7 +78,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         void forward(
             const ITensor& input_A,
             const ITensor& input_B,
-            ITensor& output ) const override
+            ITensor& output ) const
         {
             const NativeType* A = static_cast<const NativeType*>(input_A.rawData());
             const NativeType* B = static_cast<const NativeType*>(input_B.rawData());
@@ -120,7 +117,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
             const ITensor& input_B, // REVIEW: Unused
             const ITensor& output_grad,
             ITensor& A_grad,
-            ITensor& B_grad ) const override
+            ITensor& B_grad ) const
         {
             const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
             NativeType* dA = static_cast<NativeType*>(A_grad.rawData());
@@ -179,25 +176,4 @@ namespace Mila::Dnn::Compute::Cuda::Residual
         float scale_{ 1.0f };
     };
 
-    export class CudaResidualOpRegistrar
-    {
-    public:
-
-        static void registerOperations()
-        {
-            const std::string opName = "ResidualOp";
-
-            // Register for FP32
-            registerBinaryOpType<DeviceType::Cuda,
-                CudaResidualOp<TensorDataType::FP32>,
-                TensorDataType::FP32, TensorDataType::FP32,
-                TensorDataType::FP32>(opName);
-
-            // Register for BF16
-            registerBinaryOpType<DeviceType::Cuda,
-                CudaResidualOp<TensorDataType::BF16>,
-                TensorDataType::BF16, TensorDataType::BF16,
-                TensorDataType::BF16>(opName);
-        }
-    };
 }

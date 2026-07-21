@@ -25,7 +25,7 @@ import Dnn.Tensor;
 import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
-import Dnn.TensorInitializers;
+import Dnn.TensorOps;
 import Compute.OptimizerBase;
 import Compute.DeviceType;
 import Compute.CudaDeviceMemoryResource;
@@ -66,7 +66,7 @@ namespace Mila::Dnn::Compute
     public:
         using MR = CudaDeviceMemoryResource;
         using TensorType = Tensor<TPrecision, MR>;
-        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::native_type;
+        using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
 
         /**
@@ -153,11 +153,11 @@ namespace Mila::Dnn::Compute
 
             auto m_state = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
             m_state->setName( param->getName() + ".m" );
-            // FIXME: zero( *m_state );
+            zero( *m_state );
 
             auto v_state = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
             v_state->setName( param->getName() + ".v" );
-            // FIXME: zero( *v_state );
+            zero( *v_state );
 
             m_states_.push_back( m_state );
             v_states_.push_back( v_state );
@@ -166,16 +166,18 @@ namespace Mila::Dnn::Compute
             m_data_.push_back( reinterpret_cast<float*>(m_state->rawData()) );
             v_data_.push_back( reinterpret_cast<float*>(v_state->rawData()) );
 
+            // REVIEW: This precision check and master parameter logic here is outdated.
+            // Full analysis is required before deciding on the final approach
+
             // For mixed precision, optionally create master parameters
             if constexpr (TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16)
             {
                 auto master_param = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
                 master_param->setName( param->getName() + ".master" );
 
-                // Initialize master param from current param values
-                // TODO: Implement copy with type conversion
+                // REVIEW: Initialize master param from current param values. Implement copy with type conversion
                 // For now, initialize to zero
-                // FIXME: zero( *master_param );
+                zero( *master_param );
 
                 master_params_.push_back( master_param );
                 master_param_data_.push_back( reinterpret_cast<float*>(master_param->rawData()) );
@@ -221,11 +223,6 @@ namespace Mila::Dnn::Compute
             {
                 size_t num_params = params_[i]->size();
 
-                // DEBUG: Print what we're about to update
-                if ( step_count_ == 1 ) {  // Only print on first step
-                    printf( "AdamW step(): group[%zu] has %zu parameters\n", i, num_params );
-                }
-
                 NativeType* param_ptr = param_data_[i];
                 NativeType* grad_ptr = grad_data_[i];
                 
@@ -267,13 +264,13 @@ namespace Mila::Dnn::Compute
             }
 
             // After the loop, print total:
-            if ( step_count_ == 1 ) {
+            if ( step_count_ == 1 )
+            {
                 size_t total = 0;
+
                 for ( size_t i = 0; i < params_.size(); ++i ) {
                     total += params_[ i ]->size();
                 }
-                printf( "AdamW step(): Total parameters across %zu groups = %zu\n",
-                    params_.size(), total );
             }
 
             // DEBUG:

@@ -18,7 +18,7 @@ namespace Mila::Dnn
     /**
      * @brief Satisfied by any callable accepting a single decoded token.
      *
-     * Used as the callback type in generateStreaming() and generateAsync().
+     * Used as the callback type in LanguageModel::generate().
      */
     export template<class T>
         concept TokenStreamer = requires(T && t, int32_t tok)

@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <filesystem>
+#include <memory>
 
 import Mila;
 
@@ -15,11 +16,19 @@ using namespace Mila::Dnn::Compute;
 using namespace Mila::Data;
 using namespace Bard;
 
+// MILA_DATASETS_DIR is injected by the Bard CMakeLists as the absolute source-tree
+// dataset path, so the sample finds its data regardless of working directory (the
+// executable runs from the build output dir, not the source root). Keep a relative
+// fallback for any build that does not define it.
+#ifndef MILA_DATASETS_DIR
+#define MILA_DATASETS_DIR "./Data/Datasets"
+#endif
+
 void printUsage()
 {
     std::cout << "Usage: bard [options]\n";
     std::cout << "Options:\n";
-    std::cout << "  --data-dir <path>        Root data directory containing dataset subfolders (default: ./Data/Shakespeare)\n";
+    std::cout << "  --data-dir <path>        Root data directory containing dataset subfolders (default: <datasets>/Shakespeare)\n";
     std::cout << "  --batch-size <int>       Batch size (default: 32)\n";
     std::cout << "  --seq-length <int>       Sequence length (default: 128)\n";
     std::cout << "  --epochs <int>           Number of epochs (default: 10)\n";
@@ -28,7 +37,6 @@ void printUsage()
     std::cout << "  --beta2 <float>          Adam beta2 parameter (default: 0.999)\n";
     std::cout << "  --weight-decay <float>   Weight decay (default: 0.01)\n";
     std::cout << "  --device <string>        Compute device (cpu or cuda, default: cuda)\n";
-    std::cout << "  --precision-policy <string> Precision policy (auto, performance, accuracy, disabled, default: auto)\n";
     std::cout << "  --embedding-dim <int>    Embedding dimension (default: 256)\n";
     std::cout << "  --num-heads <int>        Number of attention heads (default: 4)\n";
     std::cout << "  --num-layers <int>       Number of transformer layers (default: 4)\n";
@@ -115,32 +123,6 @@ bool parseCommandLine( int argc, char** argv, BardConfig& config )
             else
             {
                 std::cerr << "Unknown device type: " << device << ". Using default: cuda" << std::endl;
-            }
-            continue;
-        }
-
-        if ( arg == "--precision-policy" && i + 1 < argc )
-        {
-            std::string precision = argv[ ++i ];
-            if ( precision == "auto" )
-            {
-                config.precisionPolicy = ComputePrecision::Policy::Auto;
-            }
-            else if ( precision == "performance" )
-            {
-                config.precisionPolicy = ComputePrecision::Policy::Performance;
-            }
-            else if ( precision == "accuracy" )
-            {
-                config.precisionPolicy = ComputePrecision::Policy::Accuracy;
-            }
-            else if ( precision == "disabled" )
-            {
-                config.precisionPolicy = ComputePrecision::Policy::Native;
-            }
-            else
-            {
-                std::cerr << "Unknown precision policy: " << precision << ". Using default: auto" << std::endl;
             }
             continue;
         }
@@ -257,9 +239,15 @@ int main( int argc, char** argv )
         std::cout << "Bard Language Model sample using Mila" << std::endl;
         std::cout << "=====================================" << std::endl;
 
-        Mila::initialize();
+        // Route library diagnostics to the console (default initialize() installs a
+        // NullSink that silently discards warnings/errors -- including the cuBLASLt
+        // plan-build fallback warning we need to see when a Linear op cannot dispatch).
+        auto log_sink = std::make_shared<Mila::Logging::ConsoleSink>( Mila::Logging::LogLevel::Info );
+        Mila::initialize( 0, log_sink );
 
         BardConfig config;
+        config.data_dir = MILA_DATASETS_DIR "/Shakespeare";
+
         if ( !parseCommandLine( argc, argv, config ) )
         {
             return 1;

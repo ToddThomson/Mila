@@ -16,6 +16,7 @@ module;
 #include <filesystem>
 #include <format>
 #include <random>
+#include <optional>
 #include <chrono>
 #include <algorithm>
 #include <numeric>
@@ -29,6 +30,8 @@ export module Dnn.Models.LlamaModel;
 import Dnn.Models.LlamaModelConfig;
 import Dnn.LanguageModel;
 import Dnn.LanguageModelConfig;
+import Dnn.GenerateParams;
+import Dnn.GenerateStatus;
 import Dnn.LanguageNetwork;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
@@ -66,7 +69,7 @@ namespace Mila::Dnn
     /**
      * @brief LLaMA 3 compatible inference model.
      *
-     * Owns a loaded, built LlamaTransformer and exposes generateStreaming()
+     * Owns a loaded, built LlamaTransformer and exposes generate()
      * for autoregressive text generation. Supports the prefill + KV-cache
      * decode two-phase generation loop.
      *
@@ -106,9 +109,9 @@ namespace Mila::Dnn
          * embeddings and KV cache buffers cover the full range.
          *
          * The model_config carries all deployment decisions:
-         *   - context_length     — maximum sequence length to build for
-         *   - weight_quantization — compile-time dispatch to quantized or BF16 path
-         *   - kv_cache_compression — compile-time dispatch to KV cache policy
+         *   - context_length     -- maximum sequence length to build for
+         *   - weight_quantization -- compile-time dispatch to quantized or BF16 path
+         *   - kv_cache_compression -- compile-time dispatch to KV cache policy
          *
          * @param path          Path to the pretrained Llama model artifact.
          * @param model_config  Deployment configuration for this load.
@@ -138,7 +141,7 @@ namespace Mila::Dnn
                     "LlamaModel::fromPretrained: context_length must be greater than zero" );
             }
 
-            // Runtime → compile-time bridge: dispatch on ModelConfig quantization settings.
+            // Runtime -> compile-time bridge: dispatch on ModelConfig quantization settings.
             switch ( model_config.getWeightQuantization() )
             {
                 case WeightQuantization::FP4:
@@ -148,7 +151,7 @@ namespace Mila::Dnn
                     switch ( model_config.getKvCacheCompression() )
                     {
                         case KvCacheCompression::FP8:
-                            // FP8 KV cache with FP4 weights — not yet supported.
+                            // FP8 KV cache with FP4 weights -- not yet supported.
                         case KvCacheCompression::None:
                             if constexpr ( TPrecision == TensorDataType::BF16 )
                             {
@@ -166,7 +169,7 @@ namespace Mila::Dnn
                     switch ( model_config.getKvCacheCompression() )
                     {
                         case KvCacheCompression::FP8:
-                            // FP8 KV cache compression requires CudaGqaOp FP8 support — not yet implemented.
+                            // FP8 KV cache compression requires CudaGqaOp FP8 support -- not yet implemented.
                         case KvCacheCompression::None:
                             if constexpr ( TPrecision == TensorDataType::BF16 )
                             {
@@ -193,7 +196,7 @@ namespace Mila::Dnn
                     break;
             }
 
-            // Unreachable — all enum cases handled above.
+            // Unreachable -- all enum cases handled above.
             throw std::runtime_error( "LlamaModel::fromPretrained: unhandled quantization configuration" );
         }
 
@@ -257,70 +260,59 @@ namespace Mila::Dnn
          * @param prompt_tokens  Input token ids; truncated from the start if
          *                       they exceed the model's max sequence length.
          * @param on_token       Callback invoked once per generated token (not EOS).
-         * @param max_new_tokens Maximum number of tokens to generate beyond the prompt.
-         * @param temperature    Sampling temperature; <= 0 selects the argmax.
-         * @param top_k          Restrict sampling to the top-k logits; 0 disables.
+         * @param params         Per-call generation parameters (loop bound + sampling).
          * @param stop           Stop token for cooperative cancellation.
+         * @return               Why generation stopped.
          */
-        void onGenerating(
-            const std::vector<int32_t>& prompt_tokens,
+        GenerateStatus onGenerating(
+            std::span<const int32_t> prompt_tokens,
             const std::function<void( int32_t )>& on_token,
-            size_t max_new_tokens,
-            float temperature,
-            int top_k,
+            const GenerateParams& params,
             std::stop_token stop ) override
         {
-            const auto stop_ids = stopTokens();
+            // Stop set: model defaults, or the caller's per-call override.
+            std::unordered_set<int32_t> stop_ids;
+            if ( params.stop_tokens.empty() )
+                stop_ids = stopTokens();
+            else
+                for ( auto id : params.stop_tokens )
+                    stop_ids.insert( static_cast<int32_t>( id ) );
 
-            std::vector<int32_t> prefill_tokens = prompt_tokens;
-            std::mt19937 rng( std::chrono::high_resolution_clock::now()
-                .time_since_epoch().count() );
+            // Host sampler path (device-sampler migration deferred): time-seeded.
+            // Seedable/reproducible sampling arrives with the device-sampler migration
+            // (LanguageModel::seedSampler), not a per-call parameter.
+            std::mt19937 rng( static_cast<std::mt19937::result_type>(
+                std::chrono::high_resolution_clock::now().time_since_epoch().count() ) );
 
-            truncateIfNeeded( prefill_tokens );
-            int64_t seq_len = static_cast<int64_t>(prefill_tokens.size());
+            if ( prompt_tokens.size() > static_cast<size_t>( context_length_ ) )
+            {
+                throw std::invalid_argument( std::format(
+                    "LlamaModel::onGenerating: prompt length {} exceeds deployment context length {}",
+                    prompt_tokens.size(), context_length_ ) );
+            }
 
-            auto prefill_input = makeTokenTensor( prefill_tokens );
+            const int64_t seq_len = static_cast<int64_t>( prompt_tokens.size() );
 
-            // ---- Phase 1: Prefill — measure to first token ----
-            // synchronize() is called after prefill(), so the wall-clock measurement
-            // accurately captures GPU prefill time plus first token sampling overhead.
-
-            const auto prefill_start = std::chrono::high_resolution_clock::now();
+            auto prefill_input = makeTokenTensor( prompt_tokens );
 
             auto& logits = this->getLanguageNetwork().prefill( prefill_input );
             this->getLanguageNetwork().synchronize();
 
-            int32_t next_token = sampleFromLogits( logits, 0, temperature, top_k, rng );
-
-            const auto prefill_end = std::chrono::high_resolution_clock::now();
-
-            // Reset statistics for this generation run.
-            this->last_generation_statistics_.prompt_tokens    = prefill_tokens.size();
-            this->last_generation_statistics_.tokens_generated = 0;
-            this->last_generation_statistics_.prefill_time_ms  =
-                std::chrono::duration<float, std::milli>( prefill_end - prefill_start ).count();
-            this->last_generation_statistics_.decode_time_ms               = 0.0f;
-            this->last_generation_statistics_.decode_tokens_per_second     = 0.0f;
+            int32_t next_token = sampleFromLogits(
+                logits, 0, params.sampling.temperature, params.sampling.top_k, rng );
 
             if ( stop_ids.contains( next_token ) )
-                return;
+                return GenerateStatus::Success;
 
             on_token( next_token );
-            this->last_generation_statistics_.tokens_generated = 1;
 
-            int position = static_cast<int>(seq_len);
+            int position = static_cast<int>( seq_len );
+            const int max_new = params.max_new_tokens.value_or( static_cast<int>( context_length_ ) );
 
-            // ---- Phase 2: Autoregressive decode ----
-            // Each decode step calls synchronize(), so wall-clock time correctly
-            // reflects GPU decode latency per token.
-
-            const auto decode_start = std::chrono::high_resolution_clock::now();
-            std::size_t decode_token_count = 0;
-
-            for ( size_t step = 1; step < max_new_tokens; ++step )
+            for ( int step = 1; step < max_new; ++step )
             {
                 if ( stop.stop_requested() )
-                    break;
+                    return GenerateStatus::ClientCancelled;
 
                 decode_token_staging_.data()[ 0 ] = next_token;
                 copy( decode_token_staging_, decode_token_device_ );
@@ -328,29 +320,21 @@ namespace Mila::Dnn
                 auto& decode_logits = this->getLanguageNetwork().decode( decode_token_device_, position );
                 this->getLanguageNetwork().synchronize();
 
-                next_token = sampleFromLogits( decode_logits, 0, temperature, top_k, rng );
+                next_token = sampleFromLogits(
+                    decode_logits, 0, params.sampling.temperature, params.sampling.top_k, rng );
 
-                if ( stop_ids.contains( next_token ) ) break;
+                if ( stop_ids.contains( next_token ) )
+                    return GenerateStatus::Success;
 
                 on_token( next_token );
                 ++position;
-                ++decode_token_count;
             }
 
-            const auto decode_end = std::chrono::high_resolution_clock::now();
-            const float decode_ms =
-                std::chrono::duration<float, std::milli>( decode_end - decode_start ).count();
-
-            this->last_generation_statistics_.tokens_generated            = 1 + decode_token_count;
-            this->last_generation_statistics_.decode_time_ms              = decode_ms;
-            this->last_generation_statistics_.decode_tokens_per_second    =
-                (decode_ms > 0.0f && decode_token_count > 0)
-                ? static_cast<float>( decode_token_count ) / (decode_ms / 1000.0f)
-                : 0.0f;
+            return GenerateStatus::MaxNewTokensReached;
         }
 
         /**
-         * @brief Training loop — not yet implemented for LlamaModel.
+         * @brief Training loop -- not yet implemented for LlamaModel.
          *
          * @throws std::runtime_error always.
          */
@@ -381,9 +365,10 @@ namespace Mila::Dnn
         explicit LlamaModel(
             std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
             const LlamaConfig& config,
+            int64_t context_length,
             RuntimeMode runtime_mode )
             : ModelBase( std::move( network ), runtime_mode )
-            , config_( config )
+            , config_( config ), context_length_( context_length )
             , decode_token_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1 } )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
             , logits_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1, static_cast<int64_t>( config.getVocabSize() ) } )
@@ -403,8 +388,7 @@ namespace Mila::Dnn
             if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
             {
                 throw std::invalid_argument( std::format(
-                    "LlamaModel::fromPretrained: context_length {} exceeds "
-                    "trained max_seq_len {}",
+                    "LlamaModel::fromPretrained: context_length {} exceeds max_seq_len {}",
                     model_config.getContextLength(),
                     network_config.getMaxSequenceLength() ) );
             }
@@ -427,10 +411,12 @@ namespace Mila::Dnn
 
             return std::unique_ptr<LlamaModel<TDeviceType, TPrecision>>(
                 new LlamaModel<TDeviceType, TPrecision>(
-                    std::move( network ), network_config, RuntimeMode::Inference ) );
+                    std::move( network ), network_config,
+                    static_cast<int64_t>( context_length ), RuntimeMode::Inference ) );
         }
 
         LlamaConfig config_;
+        int64_t context_length_;
         Tensor<dtype_t::INT32, StagingMR> decode_token_staging_;
         TokenIndexType decode_token_device_;
         Tensor<TensorDataType::FP32, StagingMR> logits_staging_;
@@ -460,22 +446,7 @@ namespace Mila::Dnn
         // Generation helpers
         // ====================================================================
 
-        void truncateIfNeeded( std::vector<int32_t>& tokens ) const
-        {
-            int64_t seq_len = static_cast<int64_t>(tokens.size());
-
-            if ( seq_len > config_.getMaxSequenceLength() )
-            {
-                Logging::Logger::warning( std::format(
-                    "LlamaModel: sequence length {} exceeds max {}, truncating from start",
-                    seq_len, config_.getMaxSequenceLength() ) );
-
-                tokens.erase( tokens.begin(),
-                    tokens.begin() + (seq_len - config_.getMaxSequenceLength()) );
-            }
-        }
-
-        TokenIndexType makeTokenTensor( const std::vector<int32_t>& token_ids ) const
+        TokenIndexType makeTokenTensor( std::span<const int32_t> token_ids ) const
         {
             shape_t shape = { 1, static_cast<int64_t>(token_ids.size()) };
             TokenIndexType device_tensor( this->getDeviceId(), shape );

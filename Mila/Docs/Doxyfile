@@ -1,0 +1,71 @@
+# Mila API documentation - canonical, standalone Doxygen config.
+#
+# This is the single source of truth for the published docs. It is run directly
+# (doxygen Mila/Docs/Doxyfile) from the repository root, so the docs build needs
+# only Doxygen + Graphviz -- NOT a CMake configure, and NOT the CUDA toolkit. The
+# docs CI job (.github/workflows/docs.yml) and the local `docs` CMake target both
+# invoke this file; there is no generated-Doxyfile second source to drift against.
+#
+# Paths are relative to the repository root (the working directory doxygen is run
+# from). See ROADMAP.md "API Documentation" for the design (surface narrowing,
+# the WARN_* Oracle, and the WARN_AS_ERROR ratchet).
+
+PROJECT_NAME           = Mila
+PROJECT_BRIEF          = "Deep Neural Network Library"
+OUTPUT_DIRECTORY       = build/docs
+
+# --- Inputs: the public API is the README mainpage + the C++23 module units ---
+INPUT                  = README.md Mila/Src
+USE_MDFILE_AS_MAINPAGE = README.md
+RECURSIVE              = YES
+FILE_PATTERNS          = *.ixx
+# Doxygen does not map .ixx to C++ by default; without this the module units are
+# not parsed as C++ at all.
+EXTENSION_MAPPING      = ixx=C++
+
+# --- Narrow the published surface to the documented public import Mila; API ---
+# EXTRACT_ALL=NO is also required for the WARN_NO_PARAMDOC / WARN_IF_DOC_ERROR Oracle
+# to fire (EXTRACT_ALL=YES forces every symbol to count as documented).
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_PACKAGE        = NO
+EXTRACT_STATIC         = NO
+EXTRACT_LOCAL_METHODS  = NO
+# Drop the internal op/kernel/optimizer implementation subtrees and Detail:: helpers
+# that the Mila.ixx umbrella does not export.
+EXCLUDE_PATTERNS       = */Compute/Devices/*/Operations/* */Compute/Devices/*/Optimizers/* */Kernels/* */Compute/Devices/Cuda/Helpers/*
+EXCLUDE_SYMBOLS        = *::Detail *::detail
+
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+
+# --- Output: HTML only (LaTeX default YES pulls in epstopdf/TeX) ---
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+GENERATE_TREEVIEW      = YES
+SORT_BRIEF_DOCS        = YES
+SORT_MEMBERS_CTORS_1ST = YES
+
+# --- Graphs: OFF ---
+# Deliberately no Graphviz. With WARN_AS_ERROR on, dot's call/collaboration graphs are a
+# liability: on this template-heavy codebase a graph exceeding DOT_GRAPH_MAX_NODES emits a
+# truncation warning that would fail the docs build, and that surface cannot be validated
+# without dot installed. HAVE_DOT=NO removes the risk, drops the graphviz dependency from
+# CI, and makes the whole build locally reproducible. Re-enable (with a validated node cap)
+# once someone confirms graph behavior against the ratchet.
+HAVE_DOT               = NO
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+INCLUDE_GRAPH          = NO
+INCLUDED_BY_GRAPH      = NO
+
+# --- Oracle + ratchet ---
+# Gate on doc DRIFT (wrong @param names) and missing @param docs, not on documenting
+# every symbol (WARN_IF_UNDOCUMENTED default YES would flood the log). WARN_AS_ERROR
+# fails the docs build if ANY warning is emitted, so doc drift cannot silently return;
+# FAIL_ON_WARNINGS_PRINT prints all warnings first, then fails at the end.
+WARN_NO_PARAMDOC       = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_AS_ERROR          = FAIL_ON_WARNINGS_PRINT
+QUIET                  = YES

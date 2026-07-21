@@ -1,5 +1,5 @@
 /**
- * @file PreTokenizationMode.ixx
+ * @file BpePreTokenizationMode.ixx
  * @brief Pre-tokenization mode enumeration for GPT-4 style BPE tokenizers.
  *
  * Extends the GPT-2 BPE pre-tokenization modes with the GPT-4 / Llama 3.x
@@ -21,11 +21,12 @@ namespace Mila::Data
         None,           // No pre-tokenization (byte level only)
         Whitespace,     // Simple whitespace splitting
         Gpt2Regex,      // GPT-2 style regex pattern
-        Llama3Regex     // GPT-4 / TikToken pattern used by Llama 3.x
+        Llama3Regex,    // GPT-4 / TikToken pattern used by Llama 3.x
+        SentencePiece   // SentencePiece Metaspace: space -> U+2581, split at marks (Gemma)
     };
 
     // =========================================================================
-    // GPT-2 patterns (reproduced here for completeness — Gpt2Regex mode)
+    // GPT-2 patterns (reproduced here for completeness -- Gpt2Regex mode)
     // =========================================================================
 
     export constexpr const char* GPT2_PRETOKENIZATION_PATTERN =

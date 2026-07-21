@@ -142,7 +142,7 @@ namespace Mila::Dnn
             }
         }
 
-        SerializationMetadata toMetadata() const
+        SerializationMetadata toMetadata() const override
         {
             SerializationMetadata meta;
 
@@ -157,7 +157,7 @@ namespace Mila::Dnn
             return meta;
         }
 
-        void fromMetadata( const SerializationMetadata& meta )
+        void fromMetadata( const SerializationMetadata& meta ) override
         {
             if ( auto md = meta.tryGetInt( "model_dim" ) )
                 model_dim_ = static_cast<dim_t>(*md);

@@ -31,6 +31,7 @@ import Dnn.TensorDataType;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
 import Compute.DeviceId;
+import Compute.IExecutionContext;
 import Compute.OptimizerBase;
 import Serialization.ModelArchive;
 import Serialization.Mode;
@@ -139,8 +140,8 @@ namespace Mila::Dnn
 
         ~Network() override = default;
 
-        // Network.ixx — add alongside synchronize()
-        DeviceId getDeviceId() const noexcept
+        // Network.ixx -- add alongside synchronize()
+        DeviceId getDeviceId() const noexcept override
         {
             return this->getExecutionContext()->getDeviceId();
         }
@@ -153,6 +154,18 @@ namespace Mila::Dnn
         void synchronize() override
         {
             this->getExecutionContext()->synchronize();
+        }
+
+        /**
+         * @brief Public access to the network's shared execution context.
+         *
+         * Exposes the Component-level context so model-level orchestrator tools
+         * (e.g. TokenSampler) can be constructed on the network's context. Wraps the
+         * protected Component accessor.
+         */
+        IExecutionContext* getExecutionContext() const
+        {
+            return this->CompositeBase::getExecutionContext();
         }
 
         // ====================================================================
@@ -249,7 +262,7 @@ namespace Mila::Dnn
          * Archive structure produced:
          * - network/meta.json: Base metadata (name, version, num_components, timestamp)
          * - network/architecture.json: Component topology (names, paths, ordering)
-         * - components/<name>/...: Child component state (recursive)
+         * - `components/<name>/...`: Child component state (recursive)
          * - Concrete class writes additional files via save_() override
          *
          * @param archive Archive to write to
@@ -312,7 +325,7 @@ namespace Mila::Dnn
          * @param archive Archive to write to
          * @param mode Serialization mode (passed from save())
          */
-        virtual void save_(ModelArchive& archive, SerializationMode mode) const = 0;
+        virtual void save_(ModelArchive& archive, SerializationMode mode) const override = 0;
 
         /**
          * @brief Verify that imported model is compatible with network architecture

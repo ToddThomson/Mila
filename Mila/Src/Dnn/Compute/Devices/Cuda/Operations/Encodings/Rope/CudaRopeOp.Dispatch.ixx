@@ -1,5 +1,5 @@
 /**
- * @file Rope.Dispatch.ixx
+ * @file CudaRopeOp.Dispatch.ixx
  * @brief CUDA kernel dispatch helpers for the Rope (rotary positional embedding) operation.
  *
  * Internal to the Compute.CudaRopeOp module. Not visible to external importers.
@@ -44,11 +44,12 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
             int    max_seq_len,
             int    head_dim,
             float  base,
+            int    rotary_dim,
             cudaStream_t stream )
         {
             cuda_rope_build_cache_fp32(
                 cos_cache, sin_cache,
-                max_seq_len, head_dim, base, stream );
+                max_seq_len, head_dim, base, rotary_dim, stream );
         }
 
         /**
@@ -114,19 +115,20 @@ namespace Mila::Dnn::Compute::Cuda::Rope::Detail
     template <>
     struct cuda_rope_impl<__nv_bfloat16>
     {
-        // Cache is always FP32 — delegate directly to the FP32 launcher.
+        // Cache is always FP32 -- delegate directly to the FP32 launcher.
         static void build_cache(
             float* cos_cache,
             float* sin_cache,
             int   max_seq_len,
             int   head_dim,
             float base,
+            int   rotary_dim,
             cudaStream_t stream )
         {
             // REVIEW: Why is cache building going through the dispatcher. Call directly.
             cuda_rope_build_cache_fp32(
                 cos_cache, sin_cache,
-                max_seq_len, head_dim, base, stream );
+                max_seq_len, head_dim, base, rotary_dim, stream );
         }
 
         static void forward(

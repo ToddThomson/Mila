@@ -21,8 +21,8 @@ Pretrained model weights in Mila binary format. Produced by the converters in `M
 - `Llama/` - Llama 3.2 (1B, 3B) and Llama 3.1 (8B) weights and tokenizer
 
 **Planned:**
-- `Qwen3/` - Qwen 3 variants (Beta.1)
-- `Mistral/` - Ministral variants (Beta.2)
+- `Qwen3/` - Qwen 3 variants (Future — the presumptive next release)
+- `Mistral/` - Ministral variants (Future)
 
 ### `/Tools`
 Executables for data processing. Built automatically by the Mila project build.

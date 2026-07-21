@@ -1,5 +1,5 @@
 /**
- * @file ComponentMemoryStats.ixx
+ * @file Component.MemoryStats.ixx
  * @brief Memory allocation statistics for component inspection.
  *
  * Provides a breakdown of GPU and host memory allocated by a component
@@ -24,7 +24,7 @@ namespace Mila::Dnn
      *
      *   After construction        parameters only
      *   After build()             parameters + state
-     *   After setTraining(true)   parameters + state + gradients
+     *   After setTrainingMode()   parameters + state + gradients
      *
      * All sizes are in bytes. Device and host allocations are tracked
      * separately as they represent distinct, independently constrained

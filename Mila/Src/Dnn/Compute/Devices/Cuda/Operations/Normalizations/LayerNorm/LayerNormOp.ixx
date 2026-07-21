@@ -1,5 +1,5 @@
 /**
- * @file CudaLayerNormOp.ixx
+ * @file LayerNormOp.ixx
  * @brief CUDA implementation of Layer Normalization operation.
  */
 
@@ -19,7 +19,7 @@ module;
 export module Compute.CudaLayerNormOp;
 import :Dispatch;
 
-import Dnn.Components.LayerNorm;
+import Dnn.Components.LayerNormConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorTypes;
@@ -29,8 +29,6 @@ import Dnn.TensorHostTypeMap;
 import Dnn.TensorPartitioning;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.DeviceType;
 
 // DEBUG:
@@ -69,11 +67,11 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
      */
     export template<TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaLayerNormOp : public UnaryOperation<DeviceType::Cuda, TPrecision>
+    class CudaLayerNormOp : public Operation<DeviceType::Cuda, TPrecision>
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
+        using OperationBaseType = Operation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
@@ -258,7 +256,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             rstd_tensor_->setName( "rstd" );
             rstd_ = static_cast<NativeType*>(rstd_tensor_->rawData());
 
-            UnaryOperationBase::build( config );
+            OperationBaseType::build( config );
         }
 
         /**
@@ -270,7 +268,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
          * @param input Input tensor to normalize
          * @param output Normalized output tensor (same shape as input)
          */
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             const auto& input_shape = input.shape();
 
@@ -322,73 +320,6 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
             }
 
             context_->synchronize();
-
-        #ifndef NDEBUG
-            // Debug: validate LayerNorm output for NaN/Inf or large magnitudes.
-            //try
-            //{
-            //    // Ensure device work is visible to host
-            //    context_->synchronize();
-            //
-            //    Tensor<TensorDataType::FP32, CpuMemoryResource> host_out( Device::Cpu(), output.shape() );
-            //    host_out.setName( this->getName() + ".forward_output.host_copy" );
-            //
-            //    // perform ordered copy D2H using the component's execution context
-            //    copy( static_cast<const TensorType&>(output), host_out /* this->getExecutionContext() */);
-            //
-            //    const auto* ptr = host_out.data();
-            //    size_t n = host_out.size();
-            //
-            //    double sum_abs = 0.0;
-            //    double max_abs = 0.0;
-            //    size_t nan_ct = 0;
-            //    for ( size_t i = 0; i < n; ++i )
-            //    {
-            //        double v = static_cast<double>( ptr[ i ] );
-            //        if ( !std::isfinite( v ) ) ++nan_ct;
-            //        double av = std::abs( v );
-            //        sum_abs += av;
-            //        if ( av > max_abs ) max_abs = av;
-            //    }
-            //
-            //    double mean_abs = n ? (sum_abs / static_cast<double>(n)) : 0.0;
-            //
-            //    constexpr double kLnForwardLimit = 100.0; // debug threshold
-            //    if ( nan_ct != 0 || max_abs > kLnForwardLimit || !std::isfinite( mean_abs ) )
-            //    {
-            //        std::clog << this->getName() << " [DEBUG] LayerNorm forward anomaly: mean_abs="
-            //            << std::scientific << mean_abs << " max_abs=" << max_abs
-            //            << " nan_count=" << nan_ct << " total=" << n << std::defaultfloat << std::endl;
-            //
-            //        // print small sample (first channel slice b=0,t=0..min(16,channels))
-            //        size_t channels = host_out.shape().back();
-            //        size_t base = 0;
-            //        std::clog << this->getName() << " [DEBUG] sample first 16 elements: ";
-            //        for ( size_t i = 0; i < std::min<size_t>( channels, 16 ); ++i )
-            //        {
-            //            std::clog << std::scientific << static_cast<double>( ptr[ base + i ] ) << " ";
-            //        }
-            //        std::clog << std::defaultfloat << std::endl;
-            //
-            //        // Suggest calling the heavier diagnostic from caller (Transformer) or throw to abort here:
-            //        // throw std::runtime_error( "LayerNorm forward produced suspicious values - diagnostics logged" );
-            //    }
-            //}
-            //catch ( const std::exception& e )
-            //{
-            //    std::cerr << this->getName() << " [DEBUG] LayerNorm forward diagnostic failed: " << e.what() << std::endl;
-            //}
-        #endif
-
-            //context_->synchronize();
-            //{
-            //    using HostTensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
-            //
-            //    HostTensorType host_output( Device::Cpu(), output.shape() );
-            //    host_output.setName( this->getName() + ".dbg.output" );
-            //    copy( static_cast<const TensorType&>(output), host_output );
-            //    Logging::Logger::info( this->getName() + ": dbg.output:\n" + host_output.toString( true ) );
-            //}
         }
 
         /**
@@ -404,7 +335,7 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
         {
             const auto& input_shape = input.shape();
 
@@ -603,30 +534,4 @@ namespace Mila::Dnn::Compute::Cuda::LayerNorm
 
     };
 
-    export class CudaLayerNormOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            const std::string opName = "LayerNormOp";
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
-                {
-                    const auto& lnConfig = static_cast<const LayerNormConfig&>( config );
-                    return std::make_shared<CudaLayerNormOp<TensorDataType::FP32>>( context, lnConfig );
-                } );
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
-                {
-                    const auto& lnConfig = static_cast<const LayerNormConfig&>( config );
-                    return std::make_shared<CudaLayerNormOp<TensorDataType::FP16>>( context, lnConfig );
-                } );
-        }
-    };
 }

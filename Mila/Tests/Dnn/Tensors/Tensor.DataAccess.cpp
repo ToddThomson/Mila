@@ -1,24 +1,28 @@
+/**
+ * @file Tensor.DataAccess.cpp
+ * @brief CPU element-access tests for Tensor.ixx — item() and operator[].
+ *
+ * Area file of the Tensor value-type archetype (see Specifications/Testing.Tensors.md).
+ * Covers scalar item(), the multi-dimensional and variadic operator[] (read/write,
+ * row-major flattening, const access), the host-type mapping per data type, and the
+ * index/scalar negative paths. CPU memory resource only; pinned/managed host-visible
+ * device access and the device-tensor host-only SFINAE contract are in
+ * Tensor.DataAccess.Cuda.cpp.
+ */
+
 #include <gtest/gtest.h>
 #include <vector>
 #include <cstdint>
+#include <stdexcept>
 
 import Mila;
 
-namespace Dnn::Tensors::Tests
+namespace Mila::Tests::Dnn::Tensors
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    class TensorElementAccessTest : public testing::Test {
-    protected:
-        void SetUp() override {
-            has_cuda_device_ = DeviceRegistry::instance().hasDeviceType( DeviceType::Cuda );
-        }
-
-        TensorElementAccessTest() {}
-
-        bool has_cuda_device_;
-    };
+    class TensorElementAccessTest : public testing::Test {};
 
     // ====================================================================
     // Host-only element access tests (CPU memory resource)
@@ -320,38 +324,27 @@ namespace Dnn::Tensors::Tests
     }
 
     // ====================================================================
-    // Device-related element access tests (pinned / managed memory)
+    // Scalar access via item() and the scalar/non-scalar negative paths
     // ====================================================================
 
-#ifdef MILA_HAS_CUDA
-    TEST_F( TensorElementAccessTest, Device_PinnedMemoryAccess ) {
-        if ( !has_cuda_device_ ) {
-            GTEST_SKIP() << "CUDA device not available. Skipping pinned memory access test.";
-        }
+    TEST_F( TensorElementAccessTest, Item_ScalarReadWrite ) {
+        Tensor<TensorDataType::FP32, CpuMemoryResource> scalar( Device::Cpu(), shape_t{} );
+        ASSERT_TRUE( scalar.isScalar() );
 
-        shape_t shape = { 2, 3 };
-        auto pinned_tensor = Tensor<TensorDataType::FP32, Compute::CudaPinnedMemoryResource>( Device::Cuda( 0 ), shape );
+        scalar.item() = 3.14f;
+        EXPECT_FLOAT_EQ( scalar.item(), 3.14f );
 
-        pinned_tensor[ 0, 0 ] = 1.1f;
-        pinned_tensor[ 1, 2 ] = 2.2f;
-
-        EXPECT_FLOAT_EQ( (pinned_tensor[ 0, 0 ]), 1.1f );
-        EXPECT_FLOAT_EQ( (pinned_tensor[ 1, 2 ]), 2.2f );
+        const auto& const_scalar = scalar;
+        EXPECT_FLOAT_EQ( const_scalar.item(), 3.14f );
     }
 
-    TEST_F( TensorElementAccessTest, Device_ManagedMemoryAccess ) {
-        if ( !has_cuda_device_ ) {
-            GTEST_SKIP() << "CUDA device not available. Skipping managed memory access test.";
-        }
-
-        shape_t shape = { 2, 2 };
-        auto managed_tensor = Tensor<TensorDataType::FP32, Compute::CudaManagedMemoryResource>( Device::Cuda( 0 ), shape );
-
-        managed_tensor[ 0, 0 ] = 4.4f;
-        managed_tensor[ 1, 1 ] = 5.5f;
-
-        EXPECT_FLOAT_EQ( (managed_tensor[ 0, 0 ]), 4.4f );
-        EXPECT_FLOAT_EQ( (managed_tensor[ 1, 1 ]), 5.5f );
+    TEST_F( TensorElementAccessTest, Item_ThrowsWhenNotScalar ) {
+        Tensor<TensorDataType::FP32, CpuMemoryResource> tensor( Device::Cpu(), shape_t{ 2, 3 } );
+        EXPECT_THROW( tensor.item(), std::runtime_error );
     }
-#endif
+
+    TEST_F( TensorElementAccessTest, OperatorIndex_ThrowsOnScalar ) {
+        Tensor<TensorDataType::FP32, CpuMemoryResource> scalar( Device::Cpu(), shape_t{} );
+        EXPECT_THROW( (scalar[ {0} ]), std::runtime_error );
+    }
 }

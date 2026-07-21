@@ -5,15 +5,10 @@
 
 module;
 #include <cuda_runtime.h>
-//#include <vector>
 #include <memory>
-//#include <iostream>
-//#include <cuda_fp16.h>
 #include <stdexcept>
-//#include <type_traits>
 #include <string>
 #include <cuda_runtime_api.h>  // cudaStream_t
-//#include "Kernels/Gelu.cuh"
 
 export module Compute.CudaGeluOp;
 import :Dispatch;
@@ -25,8 +20,6 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
@@ -56,11 +49,10 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
      */
     export template<TensorDataType TPrecision>
         requires ValidFloatTensorDataType<TPrecision>
-    class CudaGeluOp : public UnaryOperation<DeviceType::Cuda, TPrecision>
+    class CudaGeluOp : public Operation<DeviceType::Cuda, TPrecision>
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
@@ -92,7 +84,7 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
         * @param output Output tensor to store the transformed values.
         * @param output_state Cache for intermediate results (not used in this operation).
         */
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             // REVIEW: This boilerplate code is fine for now but all ops should share a common helper for this.
 
@@ -107,12 +99,7 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
                 throw std::invalid_argument( "CudaGeluOp: output tensors must be greater or equal to the input size." );
             }
 
-            // TODO: Validate tensor data types match TPrecision
-
             cudaStream_t stream = context_->getStream();
-
-            // TODO: Use precision policy from config
-            // ComputePrecision::Policy policy = config_.getPrecisionPolicy();
 
             auto X = static_cast<const NativeType*>(input.rawData());
             auto Y = static_cast<NativeType*>(output.rawData());
@@ -138,7 +125,7 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
         void backward(
             const ITensor& input,
             const ITensor& output_gradient,
-            ITensor& input_gradient ) const override 
+            ITensor& input_gradient ) const
         {
 
             //ComputePrecision::Policy policy = this->getPrecisionPolicy();
@@ -182,48 +169,4 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
         Detail::cuda_gelu_impl<NativeType> impl_; ///< Implementation details for the GELU operation.
     };
 
-    /**
-     * @brief Class responsible for registering the CudaGeluOp operation.
-     *
-     * The CudaGeluOpRegistrar class registers the CudaGeluOp operation with the OperationRegistry.
-     * It associates the operation name "Cuda::GeluOp" with a factory function that creates instances of CudaGeluOp.
-     */
-    export class CudaGeluOpRegistrar {
-    public:
-        /**
-        * @brief Registers the CudaGeluOp operation with the OperationRegistry.
-        *
-        * This function registers the CudaGeluOp operation for the CUDA device type
-        * with the OperationRegistry. It associates the operation name "Cuda::GeluOp"
-        * with a factory function that creates instances of CudaGeluOp.
-        */
-        static void registerOperations()
-        {
-            const std::string opName = "GeluOp";
-
-            // Register FP32 version
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
-                opName,
-                []( IExecutionContext* context, const ComponentConfig& config ) 
-                    -> std::unique_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
-                {
-                    const auto& geluConfig = static_cast<const GeluConfig&>(config);
-
-                    return std::make_unique<CudaGeluOp<TensorDataType::FP32>>( context, geluConfig );
-                }
-            );
-
-            // Register FP16 version
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
-                opName,
-                []( IExecutionContext* context, const ComponentConfig& config )
-                    -> std::unique_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
-                {
-                    const auto& geluConfig = static_cast<const GeluConfig&>(config);
-
-                    return std::make_unique<CudaGeluOp<TensorDataType::FP16>>( context, geluConfig );
-                }
-            );
-        }
-    };
 }

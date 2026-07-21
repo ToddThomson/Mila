@@ -105,7 +105,12 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         const int t = rest / HS;
         const int hs = rest % HS;
 
-        const int kv_pos = start_pos + t;
+        // Ring-buffer write: T_max is the cache row count (capacity). For the
+        // unbounded cache T_max == context length and start_pos + t < T_max, so the
+        // modulo is the identity and this is byte-identical to a linear write. For
+        // the bounded sliding-window ring (SlidingWindowKvCache) T_max == capacity
+        // and the wrap evicts the oldest key. See SlidingWindowKvCache.md D6.
+        const int kv_pos = (start_pos + t) % T_max;
 
         const int out_idx =
             b * (NKV * T_max * HS)

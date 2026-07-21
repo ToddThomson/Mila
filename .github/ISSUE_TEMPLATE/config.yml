@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Contributing guide
+    url: https://github.com/ToddThomson/Mila/blob/dev/CONTRIBUTING.md
+    about: Build setup, coding standards, and the pull request process.
+  - name: Security disclosure
+    url: https://github.com/ToddThomson/Mila/blob/dev/SECURITY.md
+    about: Please report security concerns privately, not as a public issue.

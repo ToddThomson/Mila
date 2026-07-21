@@ -23,7 +23,7 @@ module;
 #include <algorithm>
 
 export module Dnn.Components.LayerNorm;
-export import :Config;
+export import Dnn.Components.LayerNormConfig;
 
 import Dnn.Component;
 import Dnn.ComponentType;
@@ -33,7 +33,6 @@ import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorPartitioning;
-import Dnn.TensorInitializers;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
@@ -41,8 +40,7 @@ import Compute.DeviceTypeTraits;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
 import Compute.ExecutionContextFactory;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
+import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Serialization.ModelArchive;
@@ -238,11 +236,8 @@ namespace Mila::Dnn
 
         std::vector<ITensor*> getGradients() const override
         {
-            if ( !this->build_context_.isTrainingMode() )
-            {
-                throw std::runtime_error( "LayerNorm: getGradients called when not in training mode" );
-            }
-
+            // Gradient buffers exist only when built for training; inference
+            // yields an empty vector (see Component::getGradients contract).
             std::vector<ITensor*> grads;
 
             if ( weight_grad_ )
@@ -399,24 +394,34 @@ namespace Mila::Dnn
 
             initializeParameters( input_shape );
 
+            if ( context.shouldInitializeParameters() )
+            {
+                fill( *weight_, 1.0f, this->getExecutionContext() );
+
+                if ( bias_ )
+                {
+                    zero( *bias_, this->getExecutionContext() );
+                }
+            }
+
             operation_->setParameters( weight_.get(), bias_.get() );
             operation_->build( context );
 
             auto device = this->getExecutionContext()->getDeviceId();
 
             /**
-             * Output buffer — allocated at the full input shape.
+             * Output buffer -- allocated at the full input shape.
              *
              * LayerNorm is a general component with no knowledge of sequence
              * dimensions or inference decode paths. The parent Network or
              * Transformer is responsible for passing the correct input shape
              * via BuildContext:
              *
-             *   Training   — full sequence shape e.g. [B, T, features]
-             *   Inference  — decode shape e.g. [1, 1, features] for decode path
+             *   Training   -- full sequence shape e.g. [B, T, features]
+             *   Inference  -- decode shape e.g. [1, 1, features] for decode path
              *                or prefill shape e.g. [1, T_chunk, features] for prefill
              *
-             * In all cases LayerNorm simply allocates at inputShape() — no
+             * In all cases LayerNorm simply allocates at inputShape() -- no
              * special casing for inference or sequence dimensions.
              */
             output_ = std::make_unique<TensorType>( device, input_shape, this->getName() + ".output" );
@@ -449,21 +454,23 @@ namespace Mila::Dnn
 
                 if ( weight_grad_ )
                 {
-                    // FIXME: zeros( *weight_grad_ );
+                    zero( *weight_grad_, this->getExecutionContext() );
                 }
 
                 if ( bias_grad_ )
                 {
-                    //FIXME: zeros( *bias_grad_ );
+                    zero( *bias_grad_, this->getExecutionContext() );
                 }
             }
         }
 
     private:
+        using OpType = typename Compute::OperationTraits<OperationType::LayerNormOp, TDeviceType, TPrecision>::type;
+
         LayerNormConfig config_;
-                
+
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
-        std::shared_ptr<UnaryOperation<TDeviceType, TPrecision>> operation_{ nullptr };
+        std::shared_ptr<OpType> operation_{ nullptr };
 
         std::shared_ptr<TensorType> weight_{ nullptr };
         std::shared_ptr<TensorType> bias_{ nullptr };
@@ -564,12 +571,10 @@ namespace Mila::Dnn
             auto device = this->getExecutionContext()->getDeviceId();
 
             weight_ = std::make_shared<TensorType>( device, shape_t{ normalized_features }, this->getName() + ".weight" );
-            // FIXME: ones( *weight_ );
 
             if ( config_.hasBias() )
             {
                 bias_ = std::make_shared<TensorType>( device, shape_t{ normalized_features }, this->getName() + ".bias" );
-                // FIXME: zero( *bias_ );
             }
         }
 
@@ -580,13 +585,13 @@ namespace Mila::Dnn
             if ( !weight_grad_ && weight_ )
             {
                 weight_grad_ = std::make_shared<TensorType>( device_id, weight_->shape(), this->getName() + ".weight_grad" );
-                // FIXME: zeros( *weight_grad_ );
+                zero( *weight_grad_, this->getExecutionContext() );
             }
 
             if ( config_.hasBias() && !bias_grad_ && bias_ )
             {
                 bias_grad_ = std::make_shared<TensorType>( device_id, bias_->shape(), this->getName() + ".bias_grad" );
-                // FIXME: zeros( *bias_grad_ );
+                zero( *bias_grad_, this->getExecutionContext() );
             }
         }
 
@@ -615,11 +620,7 @@ namespace Mila::Dnn
 
         void createOperation()
         {
-            operation_ = OperationRegistry::instance()
-                .createUnaryOperation<TDeviceType, TPrecision>(
-                    "LayerNormOp",
-                    this->getExecutionContext(),
-                    config_ );
+            operation_ = std::make_shared<OpType>( this->getExecutionContext(), config_ );
 
             if ( !operation_ )
             {

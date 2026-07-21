@@ -17,13 +17,22 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
      * preserve numerical stability across the exp/normalize pass.
      *
      * Each thread owns one query row (b, nh, t), iterates over key positions
-     * [0, abs_t], and zeros positions (abs_t, T_stride).
+     * [0, abs_t], and zeros positions (abs_t, attended_len).
+     *
+     * T_stride is the PHYSICAL row width (KV cache capacity) used for addressing;
+     * attended_len is the LOGICAL number of valid keys for this chunk
+     * (position_offset + chunk_len). The two are decoupled so a short prompt over a
+     * large allocated context only touches attended_len columns, not T_stride. The
+     * QK GEMM writes columns [0, attended_len) and the AV GEMM reads the same range,
+     * so columns [attended_len, T_stride) are never consumed and need no zeroing.
+     * See GqaAttentionExtent.md.
      *
      * @param att            Output attention weights [B, NH, chunk_stride, T_stride].
      * @param preatt         Input pre-attention logits [B, NH, chunk_stride, T_stride].
      * @param B              Batch size.
      * @param NH             Number of query heads.
-     * @param T_stride       Maximum sequence length (row width in memory).
+     * @param T_stride       Physical KV cache row width (row pitch in memory).
+     * @param attended_len   Number of valid keys for this chunk (<= T_stride).
      * @param chunk_stride   Allocated chunk capacity (row pitch for the query axis).
      * @param chunk_len      Number of active query tokens in this chunk (<= chunk_stride).
      * @param position_offset Absolute position of the first token in this chunk.
@@ -34,9 +43,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         int B,
         int NH,
         int T_stride,
+        int attended_len,
         int chunk_stride,
         int chunk_len,
-        int position_offset )
+        int position_offset,
+        int window )
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
         int total_rows = B * NH * chunk_len;
@@ -63,16 +74,20 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         __nv_bfloat16* att_row = att + row_offset;
 
         int abs_t = position_offset + t;
-        int max_t2 = min( abs_t, T_stride - 1 );
+        int max_t2 = min( abs_t, attended_len - 1 );
+
+        // Sliding-window lower bound. window <= 0 means global causal (window_start
+        // = 0), which reproduces the unbounded behavior exactly.
+        int window_start = ( window > 0 ) ? max( 0, abs_t - window + 1 ) : 0;
 
         // Step 1: find max for numerical stability, promoting to float
         float max_val = -CUDART_INF_F;
-        for ( int t2 = 0; t2 <= max_t2; ++t2 )
+        for ( int t2 = window_start; t2 <= max_t2; ++t2 )
             max_val = fmaxf( max_val, __bfloat162float( preatt_row[ t2 ] ) );
 
         // Step 2: exponentiate and accumulate sum
         float sum = 0.0f;
-        for ( int t2 = 0; t2 <= max_t2; ++t2 )
+        for ( int t2 = window_start; t2 <= max_t2; ++t2 )
         {
             float val = expf( __bfloat162float( preatt_row[ t2 ] ) - max_val );
             sum += val;
@@ -81,12 +96,89 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
         // Step 3: normalize
         float inv_sum = 1.0f / sum;
-        for ( int t2 = 0; t2 <= max_t2; ++t2 )
+        for ( int t2 = window_start; t2 <= max_t2; ++t2 )
             att_row[ t2 ] = __float2bfloat16( __bfloat162float( att_row[ t2 ] ) * inv_sum );
 
-        // Step 4: zero out future tokens
-        for ( int t2 = max_t2 + 1; t2 < T_stride; ++t2 )
+        // Step 4: zero out positions the AV GEMM will read but this row does not
+        // attend — below the window [0, window_start) and the causal future
+        // [max_t2+1, attended_len). Columns [attended_len, T_stride) are outside the
+        // AV GEMM's K extent, so they are never read and are left untouched.
+        for ( int t2 = 0; t2 < window_start; ++t2 )
             att_row[ t2 ] = __float2bfloat16( 0.0f );
+
+        for ( int t2 = max_t2 + 1; t2 < attended_len; ++t2 )
+            att_row[ t2 ] = __float2bfloat16( 0.0f );
+    }
+
+    // Bounded sliding-window ring prefill softmax (BF16). preatt/att rows have
+    // `capacity` columns, where column j is RING SLOT j holding the key at absolute
+    // position p_j = end - ((r - j + capacity) % capacity), end = position_offset +
+    // chunk_len - 1 (cache newest), r = end % capacity. A query at abs_t keeps slot j
+    // iff window_start <= p_j <= abs_t (window + causal; causal excludes same-chunk
+    // future keys already in the ring). One thread per row. See SlidingWindowKvCache.md D6.
+    __global__ void prefill_softmax_ring_bf16_kernel(
+        __nv_bfloat16* att,
+        const __nv_bfloat16* preatt,
+        int B,
+        int NH,
+        int capacity,
+        int chunk_len,
+        int position_offset,
+        int window )
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        int total_rows = B * NH * chunk_len;
+
+        if ( idx >= total_rows )
+            return;
+
+        int b_nh = idx / chunk_len;
+        int t = idx % chunk_len;
+
+        int row_offset = ( b_nh * chunk_len + t ) * capacity;
+
+        const __nv_bfloat16* preatt_row = preatt + row_offset;
+        __nv_bfloat16* att_row = att + row_offset;
+
+        const int abs_t = position_offset + t;
+        const int window_start = ( window > 0 ) ? max( 0, abs_t - window + 1 ) : 0;
+        const int end = position_offset + chunk_len - 1;
+        const int r = end % capacity;
+
+        float max_val = -CUDART_INF_F;
+        for ( int j = 0; j < capacity; ++j )
+        {
+            const int p = end - ( ( r - j + capacity ) % capacity );
+
+            if ( p >= window_start && p <= abs_t )
+                max_val = fmaxf( max_val, __bfloat162float( preatt_row[ j ] ) );
+        }
+
+        float sum = 0.0f;
+        for ( int j = 0; j < capacity; ++j )
+        {
+            const int p = end - ( ( r - j + capacity ) % capacity );
+
+            if ( p >= window_start && p <= abs_t )
+            {
+                float val = expf( __bfloat162float( preatt_row[ j ] ) - max_val );
+                sum += val;
+                att_row[ j ] = __float2bfloat16( val );
+            }
+            else
+            {
+                att_row[ j ] = __float2bfloat16( 0.0f );
+            }
+        }
+
+        float inv_sum = 1.0f / sum;
+        for ( int j = 0; j < capacity; ++j )
+        {
+            const int p = end - ( ( r - j + capacity ) % capacity );
+
+            if ( p >= window_start && p <= abs_t )
+                att_row[ j ] = __float2bfloat16( __bfloat162float( att_row[ j ] ) * inv_sum );
+        }
     }
 
     /**
@@ -138,8 +230,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
     void cuda_gqa_prefill_softmax_bf16(
         __nv_bfloat16* att, const __nv_bfloat16* preatt,
-        int B, int NH, int T_stride, int chunk_stride,
-        int chunk_len, int position_offset,
+        int B, int NH, int T_stride, int attended_len, int chunk_stride,
+        int chunk_len, int position_offset, int window,
         cudaStream_t stream )
     {
         const int total_rows = B * NH * chunk_len;
@@ -148,8 +240,25 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
         prefill_softmax_bf16_kernel <<< grid_size, block_size, 0, stream >>> (
             att, preatt,
-            B, NH, T_stride, chunk_stride,
-            chunk_len, position_offset);
+            B, NH, T_stride, attended_len, chunk_stride,
+            chunk_len, position_offset, window);
+
+        cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_gqa_prefill_softmax_ring_bf16(
+        __nv_bfloat16* att, const __nv_bfloat16* preatt,
+        int B, int NH, int capacity,
+        int chunk_len, int position_offset, int window,
+        cudaStream_t stream )
+    {
+        const int total_rows = B * NH * chunk_len;
+        const int block_size = 256;
+        const int grid_size = ceil_div( total_rows, block_size );
+
+        prefill_softmax_ring_bf16_kernel <<< grid_size, block_size, 0, stream >>> (
+            att, preatt,
+            B, NH, capacity, chunk_len, position_offset, window);
 
         cudaCheck( cudaGetLastError() );
     }

@@ -25,6 +25,8 @@ Data/**/*.exe
 *.user
 *.userosscache
 *.sln.docstates
+*.sqlite
+*.nsys-rep
 
 # Python Tools for Visual Studio
 .venv/
@@ -62,6 +64,9 @@ bld/
 [Oo]ut/
 [Ll]og/
 [Ll]ogs/
+
+# CMake/CTest test-discovery scratch emitted at the configure root
+cmake_test_discovery_*.json
 
 # Claude's Visual Studio cache/options directory
 .claude/

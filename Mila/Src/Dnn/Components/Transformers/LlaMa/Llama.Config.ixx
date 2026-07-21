@@ -94,8 +94,7 @@ namespace Mila::Dnn
          * @brief Sets the trained maximum sequence length for this model.
          *
          * @details This value is sourced from the pretrained model metadata
-         * ( `max_position_embeddings` in HuggingFace configs ) and represents
-         * the architectural ceiling on context length — the furthest position
+         * and represents the architectural ceiling on context length -- the furthest position
          * for which RoPE embeddings were trained.
          *
          * This is not a deployment parameter. The runtime context length is a
@@ -109,7 +108,6 @@ namespace Mila::Dnn
         template <typename Self>
         decltype(auto) withMaxSequenceLength( this Self&& self, dim_t max_seq_len )
         {
-            // REVIEW: RENAME: withTrainedMaxSequenceLength? to clarify this is not a deployment parameter.
             if ( max_seq_len <= 0 )
             {
                 throw std::invalid_argument( "LlamaConfig: max_seq_len must be > 0" );
@@ -236,7 +234,7 @@ namespace Mila::Dnn
 
         // Serialization helpers
 
-        SerializationMetadata toMetadata() const
+        SerializationMetadata toMetadata() const override
         {
             SerializationMetadata meta;
 
@@ -255,7 +253,7 @@ namespace Mila::Dnn
             return meta;
         }
 
-        void fromMetadata( const SerializationMetadata& meta )
+        void fromMetadata( const SerializationMetadata& meta ) override
         {
             if ( auto vs = meta.tryGetInt( "vocab_size" ) )
             {

@@ -139,7 +139,7 @@ namespace Mila::Dnn
          * @brief Get raw pointer to tensor data.
          *
          * Type-erased access for TensorOps implementations. For device-only memory,
-         * this pointer must not be dereferenced on the host — it is only valid for
+         * this pointer must not be dereferenced on the host -- it is only valid for
          * device operations (kernel launches, cudaMemcpy, etc.).
          *
          * @return Raw void pointer to tensor data, or nullptr if empty.

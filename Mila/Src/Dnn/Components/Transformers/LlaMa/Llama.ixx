@@ -15,7 +15,7 @@ module;
 #include <cstdint>
 #include <format>
 #include <optional>
-#include <filesystem>
+// #include <filesystem>
 #include <algorithm>
 
 export module Dnn.Components.LlamaTransformer;
@@ -31,6 +31,7 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.LanguageNetwork;
 import Dnn.Component;
 import Dnn.ComponentType;
+import Dnn.ModelType;
 import Dnn.Components.TokenEmbedding;
 import Dnn.Components.Linear;
 import Dnn.Components.RmsNorm;
@@ -96,7 +97,7 @@ namespace Mila::Dnn
     /**
      * @brief LLaMA-style transformer (decoder-only) for autoregressive token prediction.
      *
-     * Graph: TokenEmbedding → RoPE → LlamaBlock × N → RmsNorm → Linear (lm_head).
+     * Graph: TokenEmbedding -> RoPE -> LlamaBlock x N -> RmsNorm -> Linear (lm_head).
      * RoPE is applied to the full embedding stream after the token lookup; each
      * LlamaBlock receives rotary-encoded embeddings as input.
      *
@@ -141,46 +142,6 @@ namespace Mila::Dnn
 
         ~LlamaTransformer() override = default;
 
-        // REVIEW: DEPRECATED: Is this a deprecated path? 
-        // The LlamaModel::fromPretrained() method is the new standard way to load a pretrained LLaMA model,
-        // and it sources all architectural parameters from checkpoint metadata.
-        // This method is still public and callable, but it doesn't have the same level of deployment configuration
-        // control as the LlamaModel::fromPretrained() method (e.g. no precision policy or quantization settings).
-        /*static std::unique_ptr<LlamaTransformer<TDeviceType, TPrecision>> fromPretrained(
-            const std::filesystem::path& model_path,
-            std::size_t batch_size,
-            std::size_t seq_length,
-            DeviceId device_id = DeviceId{ TDeviceType, 0 } )
-        {
-            PretrainedModelReader reader( model_path );
-            const auto& metadata = reader.getPretrainedMetadata();
-
-            LlamaConfig config = createConfigFromMetadata( metadata );
-
-            auto llama = std::make_unique<LlamaTransformer<TDeviceType, TPrecision>>(
-                metadata.model_name,
-                config,
-                device_id );
-
-            if ( batch_size == 0 )
-                throw std::invalid_argument( "LlamaTransformer::fromPretrained: batch_size must be > 0" );
-
-            if ( seq_length == 0 )
-                throw std::invalid_argument( "LlamaTransformer::fromPretrained: seq_length must be > 0" );
-
-            std::size_t runtime_seq = std::min<std::size_t>(
-                seq_length, static_cast<std::size_t>(config.getMaxSequenceLength()) );
-
-            auto build_config =  BuildContext( 
-                shape_t{ static_cast<dim_t>(batch_size), static_cast<dim_t>(runtime_seq) },
-                RuntimeMode::Inference );
-
-            llama->build( build_config );
-
-            llama->loadParameters( reader );
-
-            return llama;
-        }*/
 
         TensorType& forward( const TokenIndexType& input ) override
         {
@@ -188,7 +149,6 @@ namespace Mila::Dnn
                 throw std::runtime_error( "LlamaTransformer must be built before calling forward()." );
 
             auto& embed_out = token_embedding_->forward( input );
-            //this->getExecutionContext()->synchronize();
 
             token_embed_out_ptr_ = &embed_out;
 
@@ -200,7 +160,6 @@ namespace Mila::Dnn
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
                 auto& block_out = transformer_blocks_[ i ]->forward( *block_input_ptrs_[ i ] );
-                //this->getExecutionContext()->synchronize();
 
                 block_output_ptrs_[ i ] = &block_out;
 
@@ -209,10 +168,8 @@ namespace Mila::Dnn
             }
 
             normalized_ptr_ = &final_rmsnorm_->forward( *block_output_ptrs_.back() );
-            //this->getExecutionContext()->synchronize();
 
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
-            //this->getExecutionContext()->synchronize();
 
             return *logits_ptr_;
         }
@@ -227,7 +184,7 @@ namespace Mila::Dnn
 
             TensorType* last_block_out = nullptr;
 
-            // Chunked prefill loop — input is sliced into prefill_chunk_size_ chunks and fed through the network sequentially to populate the KV cache.
+            // Chunked prefill loop -- input is sliced into prefill_chunk_size_ chunks and fed through the network sequentially to populate the KV cache.
             // The final chunk output is used to extract the last token representation for LM head inference.
             while ( offset < T_prompt )
             {
@@ -236,14 +193,13 @@ namespace Mila::Dnn
 
                 auto chunk_input = input.view( shape_t{ B, T_actual }, offset );
 
-                // Embed directly — output buffer lives in token_embedding_
+                // Embed directly -- output buffer lives in token_embedding_
                 TensorType* block_input = &token_embedding_->forward( chunk_input );
-                // DEBUG: this->getExecutionContext()->synchronize();
 
                 for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
                 {
                     auto& block_out = transformer_blocks_[ i ]->prefill( *block_input, static_cast<int>( offset ) );
-                    // DEBUG: this->getExecutionContext()->synchronize();
+
                     block_input = &block_out;
                 }
 
@@ -251,17 +207,15 @@ namespace Mila::Dnn
                 offset += T_actual;
             }
 
-            // Extract last position from final chunk output — [B, 1, model_dim]
+            // Extract last position from final chunk output -- [B, 1, model_dim]
             size_t last_pos_offset = static_cast<size_t>((T_last - 1) * config_.getModelDim());
             auto last_pos = last_block_out->view(
                 shape_t{ B, 1, config_.getModelDim() },
                 last_pos_offset );
             
             normalized_ptr_ = &final_rmsnorm_->forward( last_pos );
-            // DEBUG: this->getExecutionContext()->synchronize();
 
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
-            // DEBUG: this->getExecutionContext()->synchronize();
 
             return *logits_ptr_;
         }
@@ -269,7 +223,6 @@ namespace Mila::Dnn
         TensorType& decode( const TokenIndexType& input, int position ) override
         {
             auto& embed_out = token_embedding_->forward( input );
-            // DEBUG: this->getExecutionContext()->synchronize();
 
             token_embed_out_ptr_ = &embed_out;
 
@@ -281,7 +234,6 @@ namespace Mila::Dnn
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
                 auto& block_out = transformer_blocks_[ i ]->decode( *block_input_ptrs_[ i ], position );
-                // DEBUG: this->getExecutionContext()->synchronize();
 
                 block_output_ptrs_[ i ] = &block_out;
 
@@ -290,10 +242,8 @@ namespace Mila::Dnn
             }
 
             normalized_ptr_ = &final_rmsnorm_->forward( *block_output_ptrs_.back() );
-            // DEBUG: this->getExecutionContext()->synchronize();
 
             logits_ptr_ = &lm_head_->forward( *normalized_ptr_ );
-            // DEBUG: this->getExecutionContext()->synchronize();
 
             return *logits_ptr_;
         }
@@ -303,9 +253,10 @@ namespace Mila::Dnn
             if ( !this->isBuilt() )
                 throw std::runtime_error( "LlamaTransformer must be built before calling backward()." );
 
-            // FIXME: isTraining should be a member function or use isTraingMode?
-            // if ( !this->isTraining() )
-            //    throw std::runtime_error( "LlamaTransformer: backward requires training mode (setTraining(true))." );
+            if ( !this->isTrainingMode() )
+            {
+                throw std::runtime_error( "LlamaTransformer: backward requires training mode." );
+            }
 
             for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
             {
@@ -362,9 +313,11 @@ namespace Mila::Dnn
         // Accessors / Diagnostics
         // ====================================================================
 
-        const ComponentType getType() const override
+        // Structural kind comes from the Network base (ComponentType::Network);
+        // the architecture family is reported here.
+        ModelType getModelType() const
         {
-            return ComponentType::Llama;
+            return ModelType::Llama;
         }
 
         MemoryStats getMemoryStats() const override
@@ -425,24 +378,31 @@ namespace Mila::Dnn
         {
             const int device_index = this->getExecutionContext()->getDeviceId().index;
 
-            for ( const auto& full_name : reader.getTensorNames() )
+            auto consume = [&]( const std::string& full_name, const Serialization::ITensorBlob& blob )
             {
                 auto [component_path, param_name] = parseParameterPath( full_name );
 
                 ComponentPtr target = this->findComponent( component_path );
+                target->loadParameter( param_name, blob );
 
-#ifdef MILA_HAS_CUDA
+                // The reader reuses its pinned staging slot as soon as this returns, so the
+                // device read of blob must be complete. The quantize-on-load H2D is async on
+                // the op stream and does not self-synchronize; force completion here.
                 if constexpr ( TDeviceType == DeviceType::Cuda )
                 {
-                    auto blob = reader.readTensorBlob<CudaPinnedMemoryResource>( full_name, device_index );
-                    target->loadParameter( param_name, blob );
+                    this->getExecutionContext()->synchronize();
                 }
-                else
+            };
+
+#ifdef MILA_HAS_CUDA
+            if constexpr ( TDeviceType == DeviceType::Cuda )
+            {
+                reader.streamTensorBlobs<CudaPinnedMemoryResource>( consume, device_index );
+            }
+            else
 #endif
-                {
-                    auto blob = reader.readTensorBlob<CpuMemoryResource>( full_name );
-                    target->loadParameter( param_name, blob );
-                }
+            {
+                reader.streamTensorBlobs<CpuMemoryResource>( consume );
             }
 
             if constexpr ( TDeviceType == DeviceType::Cuda )
@@ -600,7 +560,7 @@ namespace Mila::Dnn
         int64_t batch_size_{ 0 };
         int64_t seq_length_{ 0 };
 
-        // Tuned prefill chunk size — single source of truth, set in onBuilding and
+        // Tuned prefill chunk size -- single source of truth, set in onBuilding and
         // threaded to child components via BuildContext::withPrefillSize().
         int64_t prefill_chunk_size_{ 0 };
 
@@ -612,8 +572,8 @@ namespace Mila::Dnn
         // Inference-only prefill buffer for autoregressive decoding.
         std::unique_ptr<TensorType> prefill_{ nullptr };
 
-        // Shared GQA transient workspace — inference only, owned here, shared across all blocks.
-        // ~26 MB total vs ~352 MB × 28 layers in the per-layer self-owned design.
+        // Shared GQA transient workspace -- inference only, owned here, shared across all blocks.
+        // ~26 MB total vs ~352 MB x 28 layers in the per-layer self-owned design.
         std::unique_ptr<TensorType> gqa_q_permute_{ nullptr };
         std::unique_ptr<TensorType> gqa_preatt_{ nullptr };
         std::unique_ptr<TensorType> gqa_att_{ nullptr };
@@ -622,7 +582,7 @@ namespace Mila::Dnn
         std::unique_ptr<TensorType> gqa_att_decode_{ nullptr };
         std::unique_ptr<TensorType> gqa_v_out_decode_{ nullptr };
 
-        // Activation pointers — valid between forward() and the next backward().
+        // Activation pointers -- valid between forward() and the next backward().
         TensorType* token_embed_out_ptr_{ nullptr };   // rope's input
         //TensorType* encoder_out_ptr_{ nullptr };       // rope's output / blocks' input
         std::vector<TensorType*> block_input_ptrs_;
@@ -630,7 +590,7 @@ namespace Mila::Dnn
         TensorType* normalized_ptr_{ nullptr };
         TensorType* logits_ptr_{ nullptr };
 
-        // Declared last so it is destroyed first — cudaStreamSynchronize() fires in
+        // Declared last so it is destroyed first -- cudaStreamSynchronize() fires in
         // releaseResources() before any tensor cudaFree() calls from members above.
         std::unique_ptr<IExecutionContext> exec_context_{ nullptr };
 
@@ -674,7 +634,7 @@ namespace Mila::Dnn
 
             this->addComponent( final_rmsnorm );
 
-            // Language model head — projects model_dim → vocab_size, no bias.
+            // Language model head -- projects model_dim -> vocab_size, no bias.
             auto lm_head_config = LinearConfig( config_.getModelDim(), config_.getVocabSize() )
                 .withBias( false );
 
@@ -740,7 +700,8 @@ namespace Mila::Dnn
                 .withNumKVHeads( static_cast<dim_t>(metadata.num_kv_heads) )
                 .withHiddenDimension( static_cast<dim_t>(metadata.hidden_dim) )
                 .withRoPETheta( metadata.rope_theta )
-                // FIXME: .withRoPEScalingFactor( metadata.rope_scaling )
+                // REVIEW: There is a scaling factor but the exact reason this was commented out is unclear.
+                // .withRoPEScalingFactor( metadata.rope_scaling )
                 .withBias( metadata.use_bias );
 
             return config;

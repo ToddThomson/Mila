@@ -15,7 +15,7 @@
 
 import Mila;
 
-namespace Dnn::Tensors::TensorOps::Tests
+namespace Mila::Tests::Dnn::Tensors::TensorOps
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;

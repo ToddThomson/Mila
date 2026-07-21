@@ -123,6 +123,8 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             }
         };
 
+        // REVIEW: We need to decide if we will support BF16 kernels for the MHA. This dispatch uses an outdated half specialization 
+
         template <>
         struct cuda_mha_kernels<half>
         {
@@ -168,8 +170,9 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 int B, int actual_T, int T, int NH, int HS,
                 cudaStream_t stream )
             {
-                // FIXME: Not yet supported. 
+                // REVIEW: Not yet supported. 
                 // cuda_unpermute_output_padded_fp32( vaccum, out, B, actual_T, T, NH, HS, stream );
+                throw std::runtime_error( "unpermute_output_padded is not implemented for FP16. This likely needs triage to determine if it's still needed." );
             }
 
             static inline void softmax_forward(

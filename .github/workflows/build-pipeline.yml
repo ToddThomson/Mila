@@ -2,8 +2,11 @@ name: Mila CI
 
 # Purpose: protect what MSVC-local development structurally cannot see --
 # cross-compiler portability (clang on Linux), clean-room dependency hygiene, and
-# packaging consumability. GPU correctness tests are NOT run here: hosted runners
-# have no GPU, so device tests would be theater. Those run locally on real hardware.
+# packaging consumability. Two surfaces: compile-and-gate COMPILES the whole tree
+# (lib + tests + samples) under clang with CUDA on -- the portability check; and
+# cpu-only-tests RUNS the CPU unit suite (MILA_ENABLE_CUDA=OFF) -- the anti-rot
+# ratchet. GPU correctness tests are NOT run: hosted runners have no GPU, so device
+# tests would be theater. Those run locally on real hardware.
 
 on:
   push:
@@ -79,7 +82,8 @@ jobs:
             -DCMAKE_CXX_COMPILER=clang++-21 \
             -DCMAKE_CUDA_COMPILER=${CUDA_PATH}/bin/nvcc \
             -DCUDAToolkit_ROOT=${CUDA_PATH} \
-            -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler -ccbin=gcc-15" \
+            -DCMAKE_CUDA_HOST_COMPILER=gcc-15 \
+            -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" \
             -DCMAKE_CUDA_ARCHITECTURES=86 \
             -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
             -DMILA_ENABLE_TESTING=ON \
@@ -89,7 +93,10 @@ jobs:
       # check. MSVC silently resolves includes/conformance that clang rejects. Runs on
       # every push/PR -- this is the fast feedback that matters on dev.
       - name: Build
-        run: cmake --build build -- -j $(nproc)
+        # -k 0: keep going after the first error so one run surfaces the full
+        # clang-portability error list (the gate fails one file at a time otherwise,
+        # and each round trip is ~25 min). -j caps parallelism at the runner width.
+        run: cmake --build build -- -k 0 -j $(nproc)
 
       # GPU-free by construction: the gates install Mila and build consumers against it
       # (find_package) and embed it as a subproject (FetchContent). No device used.
@@ -103,3 +110,70 @@ jobs:
       - name: Packaging gates
         if: github.ref == 'refs/heads/master' || github.base_ref == 'master'
         run: ctest --test-dir build -L packaging --output-on-failure
+
+  cpu-only-tests:
+    name: CPU-only suite (clang-21, MILA_ENABLE_CUDA=OFF)
+    # The only CI job that RUNS tests. The CPU-only build needs no GPU, so the CPU
+    # unit suite executes here on every push/PR -- the anti-rot ratchet that keeps
+    # the revived tests green (compile-and-gate above only COMPILES; device tests
+    # stay local). GPU- and data-dependent cases self-skip (GTEST_SKIP), so the
+    # absence of a GPU or model weights is green, not red.
+    #
+    # Plain ubuntu:26.04 (clang-21 + gcc-15 ship with it) -- NOT the CUDA image:
+    # MILA_ENABLE_CUDA=OFF leaves the CUDA language disabled (project() declares only
+    # CXX; enable_language(CUDA) is gated), so there is no nvcc, no multi-GB CUDA
+    # image pull, and no CUTLASS fetch. Mirrors the linux-clang-cpu-release preset.
+    runs-on: ubuntu-24.04
+    container: ubuntu:26.04
+    env:
+      CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache CPM sources
+        uses: actions/cache@v5
+        with:
+          path: .cpm-cache
+          key: cpm-cpu-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: cpm-cpu-
+
+      # clang-21 compiles the C++23 module units; no nvcc (CUDA off). git is for CPM's
+      # dependency clones (GTest), wget/ca-certificates for the CMake download.
+      - name: Install toolchain
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential git wget ca-certificates ninja-build clang-21
+
+      - name: Install CMake 4.2.3
+        run: |
+          wget -q https://github.com/Kitware/CMake/releases/download/v4.2.3/cmake-4.2.3-linux-x86_64.tar.gz
+          tar -xzf cmake-4.2.3-linux-x86_64.tar.gz
+          cp -r cmake-4.2.3-linux-x86_64/bin/* /usr/local/bin/
+          cp -r cmake-4.2.3-linux-x86_64/share/* /usr/local/share/
+
+      # Mirrors the linux-clang-cpu-release preset (CMakePresets.json). Kept as explicit
+      # flags rather than --preset so the job is self-contained and pins clang-21 (the
+      # preset uses the generic `clang` name, which is the dev's WSL default but not the
+      # runner's).
+      - name: Configure (CPU-only)
+        run: |
+          cmake -B build-cpu -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-21 \
+            -DCMAKE_CXX_COMPILER=clang++-21 \
+            -DMILA_ENABLE_CUDA=OFF \
+            -DMILA_ENABLE_TESTING=ON \
+            -DMILA_ENABLE_SAMPLES=OFF \
+            -DMILA_ENABLE_ADAPTORS=OFF \
+            -DMILA_ENABLE_PYTHON_BINDINGS=OFF \
+            -DMILA_ENABLE_PROFILING=OFF \
+            -DMILA_ENABLE_DOCS=OFF
+
+      # -k 0: one run surfaces the full clang error list (not one file per ~push).
+      - name: Build MilaTests
+        run: cmake --build build-cpu --target MilaTests -- -k 0 -j $(nproc)
+
+      # The ratchet: a CPU regression fails the build. Skips (GPU/data absent) pass.
+      - name: Run CPU test suite
+        run: ctest --test-dir build-cpu --output-on-failure

@@ -1,5 +1,5 @@
 /**
- * @file CudaAttentionOp.ixx
+ * @file CudaMhaOp.ixx
  * @brief CUDA implementation of Multi-Head Attention cuBLASLt optimization.
  */
 
@@ -30,8 +30,6 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.Device;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
@@ -85,12 +83,12 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
      */
     export template<TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaMultiHeadAttentionOp : public UnaryOperation<DeviceType::Cuda, TPrecision>, 
+    class CudaMultiHeadAttentionOp : public Operation<DeviceType::Cuda, TPrecision>,
         public IPackedKvInference
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
+        using OperationBaseType = Operation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
@@ -140,6 +138,18 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         void resetKvCache() override
         {
             cached_seq_len_ = 0;
+        }
+
+        // Interface parity with CudaGqaOp (PromptCaching.md 4.3): the full cache is
+        // purely positional, so any rewind within the current fill is valid.
+        bool rewindKvCache( int position ) override
+        {
+            if ( position < 0 || position > cached_seq_len_ )
+                return false;
+
+            cached_seq_len_ = position;
+
+            return true;
         }
 
         void prefill( const ITensor& input, ITensor& output ) override
@@ -198,7 +208,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             context_->synchronize();
             //{
-            //    // Dump v_out_ before unpermute — shape [B, NH, actual_T, HS]
+            //    // Dump v_out_ before unpermute -- shape [B, NH, actual_T, HS]
             //    shape_t v_out_shape = { B_, NH_, T_, HS_ };
             //    std::string v_out_dump = dump_tensor<NativeType>(
             //        v_out_, v_out_shape, this->getName() + ".dbg.v_out_", 16, stream );
@@ -438,10 +448,10 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
             buildCublasLtPlans();
 
-            UnaryOperationBase::build( config );
+            OperationBaseType::build( config );
         }
 
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             const NativeType* X = static_cast<const NativeType*>(input.rawData());
             NativeType* Y = static_cast<NativeType*>(output.rawData());
@@ -547,13 +557,13 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
         {
             assert( this->isBuilt() && "CudaAttentionOp must be built before calling backward()" );
 
-            if ( !this->isEvalMode() )
+            if ( this->isEvalMode() )
             {
-                throw std::runtime_error( "CudaAttentionOp::backward called in inference mode" );
+                throw std::runtime_error( "CudaAttentionOp::backward called in eval mode" );
             }
 
             const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
@@ -928,32 +938,4 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         }
     };
 
-    export class CudaMultiHeadAttentionOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            const std::string_view opName =  Compute::OperationNames::MultiHeadAttention;
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
-                {
-                    const auto& attentionConfig = static_cast<const MultiHeadAttentionConfig&>(config);
-                    return std::make_shared<CudaMultiHeadAttentionOp<TensorDataType::FP32>>( context, attentionConfig );
-                }
-            );
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP16, TensorDataType::FP16>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP16>>
-                {
-                    const auto& attentionConfig = static_cast<const MultiHeadAttentionConfig&>(config);
-                    return std::make_shared<CudaMultiHeadAttentionOp<TensorDataType::FP16>>( context, attentionConfig );
-                }
-            );
-        }
-    };
 }

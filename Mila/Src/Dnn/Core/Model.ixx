@@ -2,7 +2,7 @@
  * @file Model.ixx
  * @brief Abstract base class for all Mila models.
  *
- * Model defines the universal contract across all model families —
+ * Model defines the universal contract across all model families --
  * language models, image classifiers, regression models, and any
  * future model type.
  *
@@ -10,31 +10,31 @@
  *
  * Model sits at the top of the Mila DNN pipeline:
  *
- *   Component          — leaf node, shape-driven buffer allocation
- *   CompositeComponent — structural aggregation, cascades BuildConfig
- *   Network            — graph topology, forward/backward
- *   Model              — RuntimeMode, lifecycle, universal API boundary
- *       LanguageModel  — generate(), sampling, EOS, vocabulary
- *           GptModel   — GPT-specific factory and config
- *           LlamaModel — LLaMA-specific factory and config
- *       ImageClassifier— classify(), top-k predictions
+ *   Component          -- leaf node, shape-driven buffer allocation
+ *   CompositeComponent -- structural aggregation, cascades BuildConfig
+ *   Network            -- graph topology, forward/backward
+ *   Model              -- RuntimeMode, lifecycle, universal API boundary
+ *       LanguageModel  -- generate(), sampling, EOS, vocabulary
+ *           GptModel   -- GPT-specific factory and config
+ *           LlamaModel -- LLaMA-specific factory and config
+ *       ImageClassifier-- classify(), top-k predictions
  *
  * ## RuntimeMode
  *
- * A Model is constructed for either Inference or Training — immutable
+ * A Model is constructed for either Inference or Training -- immutable
  * after construction. The mode governs which public API methods are
  * valid:
  *
  * | Mode      | Valid                                  |
  * |-----------|----------------------------------------|
  * | Inference | model-family inference API             |
- * | Training  | train() → onTraining() hook            |
+ * | Training  | train() -> onTraining() hook            |
  *
  * ## Training
  *
  * train() enforces the RuntimeMode::Training precondition then
  * delegates entirely to the pure virtual onTraining() hook. The
- * derived class owns the training loop — data loading, optimizer,
+ * derived class owns the training loop -- data loading, optimizer,
  * loss, backward pass, checkpointing, and sampling are all derived
  * class concerns.
  *
@@ -125,7 +125,7 @@ namespace Mila::Dnn
          * @brief Run the training loop for this model.
          *
          * Enforces RuntimeMode::Training precondition then delegates
-         * entirely to onTraining(). The derived class owns the loop —
+         * entirely to onTraining(). The derived class owns the loop --
          * data loading, optimizer, loss, checkpointing, and sampling
          * are all derived class concerns.
          *
@@ -139,7 +139,7 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // Eval toggle — Training mode only
+        // Eval toggle -- Training mode only
         // ====================================================================
 
         /**
@@ -167,7 +167,7 @@ namespace Mila::Dnn
         /**
          * @brief True if this model is currently in eval sub-state.
          *
-         * For RuntimeMode::Inference models always returns true —
+         * For RuntimeMode::Inference models always returns true --
          * inference models never compute gradients.
          * For RuntimeMode::Training models reflects the last setEval() call.
          */
@@ -219,7 +219,7 @@ namespace Mila::Dnn
          * constructor is called.
          *
          * @param network      Fully built and loaded Network.
-         * @param runtime_mode Inference or Training — immutable after
+         * @param runtime_mode Inference or Training -- immutable after
          *                     construction.
          */
         explicit Model( std::unique_ptr<NetworkType> network, RuntimeMode runtime_mode )
@@ -227,13 +227,13 @@ namespace Mila::Dnn
         {}
 
         /**
-         * @brief Training loop hook — derived class owns the implementation.
+         * @brief Training loop hook -- derived class owns the implementation.
          *
          * Called by train() after precondition enforcement. The derived
          * class has total control over data loading, optimizer construction,
          * loss computation, backward pass, checkpointing, and sampling.
          *
-         * Pure virtual — a model declaring RuntimeMode::Training must
+         * Pure virtual -- a model declaring RuntimeMode::Training must
          * provide a training loop.
          */
         virtual void onTraining() = 0;

@@ -26,6 +26,7 @@ module;
 #include <cassert>
 #include <algorithm>
 #include <cmath>
+#include <variant>
 #include "Kernels/Linear.cuh"
 #include "Kernels/Fp8Prefill/CudaFp8Prefill.cuh"
 #include "Kernels/W8A16Gemm/CudaW8A16Gemm.cuh"
@@ -88,12 +89,15 @@ namespace Mila::Dnn::Compute::Cuda::Linear
      *
      * Forward dispatch on the quantized path:
      *   Single vector (outer_size == 1): fused matvec applies FP8 per-channel dequantization
-     *     inline — optimal for memory-bandwidth-bound single-vector compute.
+     *     inline -- optimal for memory-bandwidth-bound single-vector compute.
      *   Batch (outer_size > 1): two paths selected by kUseW8A16Gemm:
-     *     kUseW8A16Gemm=true  — fused W8A16 GEMM reads FP8 once, dequantizes per-channel
+     *     kUseW8A16Gemm=true  -- fused W8A16 GEMM reads FP8 once, dequantizes per-channel
      *       inline in shared memory, writes BF16 output directly (no staging buffer).
-     *     kUseW8A16Gemm=false — 2-phase: dequantize FP8 → BF16 staging buffer, then
+     *     kUseW8A16Gemm=false -- 2-phase: dequantize FP8 -> BF16 staging buffer, then
      *       standard BF16 cuBLASLt NT GEMM, then cuda_add_bias post-pass.
+     *   PerGroupFp4 batches mirror the same structure via kUseFusedFp4Gemm (fused
+     *   WMMA/tiled kernels vs the default 2-phase dequant-staging + cuBLASLt); FP4
+     *   decode (outer_size == 1) stays on the dedicated fused matvec.
      *
      * Backward is not supported on the quantized path (inference only).
      *
@@ -118,12 +122,61 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         static constexpr bool kIsPerGroupQuantized   = kIsQuantized && !TWeightQuant::kPerChannel;
 
         // Toggle between the fused W8A16 GEMM and the baseline 2-phase path for A/B testing.
-        //   true  — cuda_w8a16_gemm: reads FP8 once, dequantizes inline, no staging buffer.
-        //   false — cuda_fp8_dequantize_to_bf16 → cuBLASLt BF16 GEMM → cuda_add_bias (proven path).
+        //   true  -- cuda_w8a16_gemm: reads FP8 once, dequantizes inline, no staging buffer.
+        //   false -- cuda_fp8_dequantize_to_bf16 -> cuBLASLt BF16 GEMM -> cuda_add_bias (proven path).
         static constexpr bool kUseW8A16Gemm = false;
+
+        // Toggle between the fused FP4 GEMM kernels and the 2-phase dequant path for A/B testing.
+        //   true  -- cuda_fp4a16_gemm_wmma / cuda_fp4a16_gemm: reads packed FP4 once, dequantizes
+        //            inline per tile, no staging buffer. Stage 1 tiled rewrite (64x64/4-warp) was
+        //            CORRECT but ~5-7x prefill regression vs 2-phase -- Long-Scoreboard bound
+        //            (synchronous loads), ~6.8 TFLOP/s. Stage 2 (cp.async double-buffered software
+        //            pipeline) IMPLEMENTED 2026-07-12: correct + chunk-INDEPENDENT (~510-527 tok/s
+        //            flat vs 2-phase 574@48K/1032@24K), but still below cuBLASLt at every chunk
+        //            (1.13x slower @48K, 1.96x @24K) -- cp.async killed the Stage 1 latency stall,
+        //            the kernel is now compute-bound below cuBLASLt's BF16 GEMM. Needs the rest of
+        //            the ladder (swizzle/ldmatrix/bigger tiles) to cross it; stays FALSE until then.
+        //            See project_w4a16_prefill_gemm.
+        //   false -- cuda_fp4_dequantize_to_bf16 -> cuBLASLt BF16 GEMM -> cuda_add_bias, the same
+        //            2-phase structure as the proven FP8 baseline path (the "P0" prefill fix).
+        static constexpr bool kUseFusedFp4Gemm = false;
+
+        // Toggle the W4A8-FP8 prefill path for the FP4 weight policy. When true, batched
+        // (prefill) forwards upcast the FP4 weights transiently to FP8_E4M3, quantize the
+        // BF16 activations to FP8, and run a native FP8xFP8 cuBLASLt GEMM (~2x BF16 on Ada)
+        // instead of the 2-phase FP4->BF16 staging + BF16 GEMM. Weights STAY FP4 in VRAM;
+        // only the transient staging buffer is FP8 (half the bytes of the BF16 staging).
+        // Decode (outer_size == 1) is untouched -- it stays on the FP4 matvec.
+        // NUMERICS HISTORY: +98 shipped ON and generated incoherently; +99 reverted to OFF blaming
+        // the per-TENSOR activation scale. The actual root cause (found 2026-07-13): the static
+        // FP8 weight scale sB was computed at build() time from the FP4 group-scales buffer, which
+        // loadParameter()/quantize() only fills LATER -- an uninitialized-memory read. sB cancels
+        // in the GEMM (A_SCALE = sB, weights staged as W/sB), so benign junk generated correctly
+        // and zeroed pages saturated every weight -- run-to-run luck, which is why +98 validated
+        // coherent one day and produced garbage the next. sB is now computed in quantize() where
+        // the group scales are produced. Activation scales are per-TOKEN (row absmax), applied
+        // exactly by a post-GEMM epilogue because Ada cuBLASLt accepts only per-tensor scale
+        // pointers (see Fp8ActivationPrefill.md section 5.2). Gate for keeping this ON: Linear FP8
+        // oracle AND Gemma token-for-token parity vs the BF16 path AND a coherent chat -- a
+        // per-layer oracle alone is NOT sufficient.
+        static constexpr bool kUseFp8ActivationPrefill = true;
 
         static constexpr TensorDataType kWeightDtype = kIsQuantized
             ? TWeightQuant::kStorageDtype : TComputePrecision;
+
+        // True only for the FP4 E2M1 weight policy -- guards TWeightQuant::kIsFp4E2M1,
+        // which is not a member of NoWeightQuant / the FP8 per-channel policy.
+        static constexpr bool kIsFp4Weight = []
+        {
+            if constexpr ( kIsPerGroupQuantized )
+                return TWeightQuant::kIsFp4E2M1;
+            else
+                return false;
+        }();
+
+        // Compile-time predicate for the active W4A8-FP8 prefill path: FP4 weights AND the
+        // toggle on. Gates the FP8 plan cache member type and every FP8-specific branch.
+        static constexpr bool kUseFp8ActivationPrefillPath = kIsFp4Weight && kUseFp8ActivationPrefill;
 
         using WeightType = typename TensorDataTypeMap<kWeightDtype>::device_type;
 
@@ -213,7 +266,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         /**
          * @brief Bind the packed INT4 zero-point tensor for per-group asymmetric quantization.
          *
-         * Optional — only required for asymmetric INT4 quantization. Pass nullptr (or omit)
+         * Optional -- only required for asymmetric INT4 quantization. Pass nullptr (or omit)
          * for symmetric quantization (implicit zero = 8). The tensor layout must match
          * the kernel expectation: [out_features, in_features / (group_size * 2)], dtype UINT8,
          * with two packed INT4 zero values per byte.
@@ -266,7 +319,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             if constexpr ( kIsPerChannelQuantized )
             {
                 // FP8 per-channel: scale[o] = max(|W[o,:]|) / 448.0f
-                // per_tensor needs 4 extra bytes for the atomicMax scratch — allocate the
+                // per_tensor needs 4 extra bytes for the atomicMax scratch -- allocate the
                 // larger size so the same scratch buffer covers both variants.
                 void* staging = context_->getDeviceScratchBuffer( src_bytes + sizeof( unsigned int ) );
                 Detail::quantize_fp8_per_channel( blob, weight_out, scales_out, expected_shape,
@@ -280,6 +333,28 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     blob, weight_out, scales_out, expected_shape,
                     TWeightQuant::kQuantizationGroupSize,
                     staging, stream );
+
+                if constexpr ( kUseFp8ActivationPrefillPath )
+                {
+                    // The static FP8 weight scale sB is a function of the group scales,
+                    // so it is computed HERE, where those scales are produced -- NOT at
+                    // build() time. build() runs before loadParameter() in every flow, so
+                    // a build-time computation reads the pre-allocated but not-yet-filled
+                    // scales buffer: uninitialized memory. sB cancels algebraically in
+                    // the GEMM (A_SCALE = sB, weights staged as W/sB), which made that
+                    // bug LUCK-DEPENDENT -- benign junk generated correctly, zeroed pages
+                    // saturated every weight to +-448 and produced incoherent generation
+                    // (the +98/+99 incident). Same stream as the scale upload above, so
+                    // the reduction reads the freshly written values.
+                    ensureFp8ScaleScalarsAllocated();
+
+                    const int64_t num_scales = ( out_features * in_features )
+                        / TWeightQuant::kQuantizationGroupSize;
+                    cuda_compute_fp8_weight_scale(
+                        weight_fp8_scale_,
+                        static_cast<const float*>( scales_out.rawData() ),
+                        num_scales, stream );
+                }
             }
             else
             {
@@ -418,13 +493,13 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          *      FP8/non-quantized: fused matvec via cuda_matvec_impl.
          *      INT4: M=1 tiled W4A16 GEMM (no dedicated decode matvec yet).
          *   2. outer_size > 1, use_cublaslt_:
-         *      kIsPerChannelQuantized: fused W8A16 GEMM — reads FP8 weights once,
+         *      kIsPerChannelQuantized: fused W8A16 GEMM -- reads FP8 weights once,
          *        dequantizes per-channel inline in shared memory, bias added in-kernel.
-         *      kIsPerGroupQuantized:   fused W4A16 GEMM — inline per-group INT4 dequant.
+         *      kIsPerGroupQuantized:   fused W4A16 GEMM -- inline per-group INT4 dequant.
          *      !kIsQuantized:          NT row-major BF16 cuBLASLt GEMM; bias via epilogue.
          *   3. outer_size > 1, quantized, no cuBLASLt: per-row fallback loop (SM < 8.0
          *      SM < 8.0 or plan build failure).
-         *   4. outer_size > 1, !kIsQuantized, no cuBLASLt: error — non-quantized batch
+         *   4. outer_size > 1, !kIsQuantized, no cuBLASLt: error -- non-quantized batch
          *      compute always requires cuBLASLt.
          */
         void forward( const TensorType& input, TensorType& output ) const
@@ -490,9 +565,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     else
                     {
                         // 2-phase baseline path:
-                        //   Phase 1 — dequantize FP8 weights to the shared BF16 staging buffer.
-                        //   Phase 2 — standard BF16 cuBLASLt NT row-major GEMM using the staging buffer.
-                        //   Phase 3 — add bias post-GEMM (plan built with has_bias=false to avoid
+                        //   Phase 1 -- dequantize FP8 weights to the shared BF16 staging buffer.
+                        //   Phase 2 -- standard BF16 cuBLASLt NT row-major GEMM using the staging buffer.
+                        //   Phase 3 -- add bias post-GEMM (plan built with has_bias=false to avoid
                         //              the Ada multi-row epilogue INVALID_VALUE constraint).
                         //
                         // The staging buffer is fetched from the context on every forward call rather
@@ -540,7 +615,124 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 }
                 else if constexpr ( kIsPerGroupQuantized )
                 {
-                    if constexpr ( TWeightQuant::kIsFp4E2M1 )
+                    if constexpr ( kUseFp8ActivationPrefillPath )
+                    {
+                        // W4A8-FP8 prefill: transient FP4->FP8 weight upcast + dynamic per-token
+                        // BF16->FP8 activation quantize, then a native FP8xFP8 cuBLASLt GEMM
+                        // (~2x BF16 on Ada). Weights stay FP4 in VRAM; only this staging buffer
+                        // is FP8. The GEMM runs with a unit activation scale (Ada cuBLASLt
+                        // accepts only per-tensor scale pointers); the true per-token scales are
+                        // applied exactly by the post-GEMM epilogue below, which also folds the
+                        // bias. All three regions (FP8 weight, FP8 activation, per-token scales)
+                        // share one scratch allocation, each 16-byte aligned for cuBLASLt.
+                        // Fetched per-forward, never cached: the scratch buffer may be
+                        // reallocated on grow.
+                        const size_t weight_fp8_bytes = static_cast<size_t>( out_features_ )
+                            * static_cast<size_t>( cached_in_features_ );
+                        const size_t weight_fp8_bytes_aligned =
+                            ( weight_fp8_bytes + 15u ) & ~static_cast<size_t>( 15u );
+                        const size_t activation_fp8_bytes = static_cast<size_t>( outer_size )
+                            * static_cast<size_t>( cached_in_features_ );
+                        const size_t activation_fp8_bytes_aligned =
+                            ( activation_fp8_bytes + 15u ) & ~static_cast<size_t>( 15u );
+                        const size_t token_scale_bytes = static_cast<size_t>( outer_size )
+                            * sizeof( float );
+
+                        auto* scratch = static_cast<char*>( context_->getDeviceScratchBuffer(
+                            weight_fp8_bytes_aligned + activation_fp8_bytes_aligned + token_scale_bytes ) );
+                        auto* weight_fp8 = reinterpret_cast<__nv_fp8_e4m3*>( scratch );
+                        auto* activation_fp8 = reinterpret_cast<__nv_fp8_e4m3*>( scratch + weight_fp8_bytes_aligned );
+                        auto* activation_token_scales = reinterpret_cast<float*>(
+                            scratch + weight_fp8_bytes_aligned + activation_fp8_bytes_aligned );
+
+                        cuda_fp4_dequantize_to_fp8(
+                            weight_fp8,
+                            weight_,
+                            weight_scales_,
+                            weight_fp8_scale_,
+                            out_features_, cached_in_features_,
+                            weight_group_size_,
+                            stream );
+
+                        cuda_quantize_bf16_to_fp8_per_token(
+                            activation_fp8,
+                            activation_token_scales,
+                            input_ptr,
+                            outer_size, cached_in_features_,
+                            stream );
+
+                        const float alpha = 1.0f;
+                        const float beta  = 0.0f;
+
+                        execute_fp8_prefill_plan<TComputePrecision>(
+                            cached_cublaslt_handle_,
+                            fp8_forward_plan_cache_.get( outer_size ),
+                            &alpha,
+                            weight_fp8,
+                            activation_fp8,
+                            &beta,
+                            output_ptr,
+                            stream,
+                            context_->getCublasLtWorkspace(),
+                            context_->getCublasLtWorkspaceSize() );
+
+                        cuda_fp8_apply_per_token_scales(
+                            output_ptr,
+                            activation_token_scales,
+                            bias_,
+                            outer_size, out_features_,
+                            stream );
+                    }
+                    else if constexpr ( TWeightQuant::kIsFp4E2M1 && !kUseFusedFp4Gemm )
+                    {
+                        // 2-phase FP4 prefill path (mirrors the FP8 baseline above):
+                        //   Phase 1 -- expand packed FP4 weights into the shared BF16 staging buffer.
+                        //   Phase 2 -- standard BF16 cuBLASLt NT row-major GEMM using the staging buffer.
+                        //   Phase 3 -- add bias post-GEMM (plan built with has_bias=false).
+                        //
+                        // The fused WMMA kernel this replaces is compute-bound at ~2.5 TFLOPS on
+                        // prefill-shaped M while the staged cuBLASLt GEMM runs at tensor-core rates;
+                        // the staging traffic (write + read one BF16 weight matrix per forward) is
+                        // the cheaper side of that trade by ~3x at chunk 32. Fetched per-forward,
+                        // never cached: the scratch buffer may be reallocated on grow.
+                        const size_t staging_bytes = static_cast<size_t>( out_features_ )
+                            * static_cast<size_t>( cached_in_features_ )
+                            * sizeof( __nv_bfloat16 );
+
+                        auto* staging = static_cast<__nv_bfloat16*>(
+                            context_->getDeviceScratchBuffer( staging_bytes ) );
+
+                        cuda_fp4_dequantize_to_bf16(
+                            staging,
+                            weight_,
+                            weight_scales_,
+                            out_features_, cached_in_features_,
+                            weight_group_size_,
+                            stream );
+
+                        const float alpha = 1.0f;
+                        const float beta  = 0.0f;
+
+                        execute_linear_plan<TComputePrecision>(
+                            cached_cublaslt_handle_,
+                            forward_plan_cache_.get( outer_size ),
+                            &alpha,
+                            input_ptr,
+                            staging,
+                            &beta,
+                            output_ptr,
+                            nullptr,
+                            nullptr,
+                            stream,
+                            context_->getCublasLtWorkspace(),
+                            context_->getCublasLtWorkspaceSize() );
+
+                        if ( bias_ != nullptr )
+                        {
+                            cuda_add_bias( output_ptr, bias_, outer_size, out_features_, stream );
+                        }
+                    }
+                    else if constexpr ( TWeightQuant::kIsFp4E2M1 )
                     {
                         if ( use_wmma_fp4_gemm_ )
                         {
@@ -578,6 +770,9 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                     const float alpha = 1.0f;
                     const float beta  = 0.0f;
 
+                    // Bias intentionally omitted from the plan (built has_bias=false) and
+                    // added post-GEMM below -- see buildCublasLtPlans for why the FP32
+                    // bias epilogue is unsupported.
                     execute_linear_plan<TComputePrecision>(
                         cached_cublaslt_handle_,
                         forward_plan_cache_.get( outer_size ),
@@ -586,19 +781,24 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                         weight_,
                         &beta,
                         output_ptr,
-                        bias_,
+                        nullptr,
                         nullptr,
                         stream,
                         context_->getCublasLtWorkspace(),
                         context_->getCublasLtWorkspaceSize() );
+
+                    if ( bias_ != nullptr )
+                    {
+                        cuda_add_bias( output_ptr, bias_, outer_size, out_features_, stream );
+                    }
                 }
 
                 return;
             }
 
-            // No cuBLASLt plan — fallback paths.
+            // No cuBLASLt plan -- fallback paths.
             // FP8: per-row matvec loop using the existing FP8 decode matvec.
-            // INT4: per-row W4A16 GEMM (uses M=1 tiled GEMM — less optimal than a dedicated matvec).
+            // INT4: per-row W4A16 GEMM (uses M=1 tiled GEMM -- less optimal than a dedicated matvec).
             // Non-quantized: no fallback for batch compute.
             if constexpr ( kIsPerChannelQuantized )
             {
@@ -723,7 +923,12 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             }
         }
 
-        ~CudaLinearOp() = default;
+        ~CudaLinearOp()
+        {
+            // Persistent FP8 scale scalars owned by the op (W4A8-FP8 path only; nullptr otherwise).
+            if ( activation_fp8_unit_scale_ != nullptr ) cudaFree( activation_fp8_unit_scale_ );
+            if ( weight_fp8_scale_ != nullptr ) cudaFree( weight_fp8_scale_ );
+        }
 
         OperationType getOperationType() const override
         {
@@ -745,18 +950,18 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         LinearConfig config_;
         CudaExecutionContext* context_;
 
-        // Weight pointer typed to WeightType — differs from ComputeType on the FP8 path.
+        // Weight pointer typed to WeightType -- differs from ComputeType on the FP8 path.
         const WeightType* weight_{ nullptr };
 
-        // Per-channel FP32 scales [out_features] — non-null on kIsPerChannelQuantized path.
-        // Per-group  FP32 scales [out_features x in_features/group_size] — non-null on kIsPerGroupQuantized path.
+        // Per-channel FP32 scales [out_features] -- non-null on kIsPerChannelQuantized path.
+        // Per-group  FP32 scales [out_features x in_features/group_size] -- non-null on kIsPerGroupQuantized path.
         const float* weight_scales_{ nullptr };
 
-        // Packed INT4 zero points [out_features x in_features/(group_size*2)] — kIsPerGroupQuantized path only.
+        // Packed INT4 zero points [out_features x in_features/(group_size*2)] -- kIsPerGroupQuantized path only.
         // nullptr when symmetric quantization is used (implicit zero = 8).
         const uint8_t* weight_zero_points_{ nullptr };
 
-        // INT4 quantization group size along K — set from TWeightQuant::kQuantizationGroupSize at build.
+        // INT4 quantization group size along K -- set from TWeightQuant::kQuantizationGroupSize at build.
         int weight_group_size_{ 128 };
 
 
@@ -776,10 +981,26 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         bool use_cublaslt_{ false };
         bool use_wmma_fp4_gemm_{ false };
         
-        // cuBLASLt plan cache — forward path.
-        // kIsPerChannelQuantized + !kUseW8A16Gemm: BF16×BF16 NT plan fed by the FP8->BF16 staging buffer.
-        // Non-quantized: BF16×BF16 (or FP32×FP32) plan fed directly by the weight tensor.
+        // cuBLASLt plan cache -- forward path.
+        // kIsPerChannelQuantized + !kUseW8A16Gemm: BF16xBF16 NT plan fed by the FP8->BF16 staging buffer.
+        // Non-quantized: BF16xBF16 (or FP32xFP32) plan fed directly by the weight tensor.
         CublasLtPlanCache<CublasLtLinearPlan<TComputePrecision>> forward_plan_cache_;
+
+        // W4A8-FP8 prefill path only. Persistent device scalars baked into the FP8 plan's
+        // A_SCALE/B_SCALE, allocated by ensureFp8ScaleScalarsAllocated() and freed in the
+        // destructor. The weight scale VALUE is written by quantize() at loadParameter()
+        // time, where the FP4 group scales it derives from are produced (build() runs
+        // before the scales exist). The activation scale is a constant 1.0f: Ada cuBLASLt
+        // accepts only per-tensor scale pointers, so the true per-token activation scales
+        // live in scratch and are applied post-GEMM (exact factorization).
+        float* activation_fp8_unit_scale_{ nullptr };
+        float* weight_fp8_scale_{ nullptr };
+
+        // FP8xFP8 forward plan cache -- present only on the active W4A8-FP8 path (std::monostate
+        // otherwise, so no CublasLtLinearPlan<*, FP8_E4M3> is instantiated for other policies).
+        using Fp8LinearPlan = CublasLtLinearPlan<TComputePrecision, TensorDataType::FP8_E4M3>;
+        std::conditional_t<kUseFp8ActivationPrefillPath,
+            CublasLtPlanCache<Fp8LinearPlan>, std::monostate> fp8_forward_plan_cache_;
 
         CublasLtPlanCache<CublasLtMatMulPlan<ComputeType>> backward_input_plan_cache_;
         CublasLtMatMulPlan<ComputeType> backward_weight_plan_;
@@ -841,7 +1062,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             // The quantized dequant prefill path executes a standard BF16 cuBLASLt GEMM
             // (FP8 weights are expanded to BF16 before the GEMM), so it uses the same
-            // compute type as the non-quantized path.  The dead TN FP8×BF16 branch
+            // compute type as the non-quantized path.  The dead TN FP8xBF16 branch
             // that used CUBLAS_COMPUTE_32F has been removed; all active paths go here.
 
             // REVIEW: we need only support bf16 for CUDA
@@ -852,6 +1073,29 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 compute_type = CUBLAS_COMPUTE_32F_FAST_16BF;
             else
                 compute_type = CUBLAS_COMPUTE_32F;
+        }
+
+        /**
+         * @brief Allocate the two persistent FP8 scale scalars on first use (idempotent).
+         *
+         * Called from both quantize() (which writes the sB value into weight_fp8_scale_)
+         * and buildCublasLtPlans() (which bakes both pointers into the FP8 plan
+         * descriptor). Neither caller may assume the other ran first: build() precedes
+         * loadParameter() in the model flows, but the scalars must exist wherever the
+         * first of the two arrives. The unit activation scale is a constant, so its
+         * value is final at allocation.
+         */
+        void ensureFp8ScaleScalarsAllocated() requires kUseFp8ActivationPrefillPath
+        {
+            if ( weight_fp8_scale_ != nullptr )
+                return;
+
+            cudaMalloc( reinterpret_cast<void**>( &activation_fp8_unit_scale_ ), sizeof( float ) );
+            cudaMalloc( reinterpret_cast<void**>( &weight_fp8_scale_ ), sizeof( float ) );
+
+            const float unit_scale = 1.0f;
+            cudaMemcpy( activation_fp8_unit_scale_, &unit_scale, sizeof( float ),
+                cudaMemcpyHostToDevice );
         }
 
         void buildCublasLtPlans()
@@ -867,16 +1111,16 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 {
                     // W8A16 fused path: no staging buffer or cuBLASLt plan needed.
                     // cuda_w8a16_gemm reads FP8 weights once and dequantizes per-channel
-                    // inline in shared memory — SM >= 8.0 guaranteed by supportsCuBLASLt().
+                    // inline in shared memory -- SM >= 8.0 guaranteed by supportsCuBLASLt().
                     Logging::Logger::info( std::format(
-                        "CudaLinearOp: W8A16 fused GEMM ready — {} in -> {} out",
+                        "CudaLinearOp: W8A16 fused GEMM ready -- {} in -> {} out",
                         cached_in_features_, out_features_ ) );
                 }
                 else
                 {
                     // 2-phase baseline path:
-                    //   Allocate BF16 staging buffer — filled per-forward by cuda_fp8_dequantize_to_bf16
-                    //   then fed into a standard BF16×BF16 NT row-major cuBLASLt plan.
+                    //   Allocate BF16 staging buffer -- filled per-forward by cuda_fp8_dequantize_to_bf16
+                    //   then fed into a standard BF16xBF16 NT row-major cuBLASLt plan.
                     // has_bias=false: bias applied post-GEMM by cuda_add_bias (Ada epilogue constraint).
                     forward_plan_cache_ = CublasLtPlanCache<CublasLtLinearPlan<TComputePrecision>>(
                         cached_outer_size_,
@@ -893,7 +1137,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                         } );
 
                     Logging::Logger::info( std::format(
-                        "CudaLinearOp: FP8 dequant + BF16 cuBLASLt GEMM — {} in -> {} out",
+                        "CudaLinearOp: FP8 dequant + BF16 cuBLASLt GEMM -- {} in -> {} out",
                         cached_in_features_, out_features_ ) );
                 }
 
@@ -902,17 +1146,77 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
             if constexpr ( kIsPerGroupQuantized )
             {
-                // INT4 W4A16 batch path: cuda_w4a16_gemm reads packed INT4 weights and
-                // dequantizes per-group inline — no staging buffer or cuBLASLt plan needed.
-                // SM >= 8.0 is already guaranteed by supportsCuBLASLt() gating this path.
-                // FIXME: Comment out for now. Revisit
-                // Logging::Logger::info( std::format(
-                //    "CudaLinearOp: W4A16 fused GEMM ready — {} in -> {} out (group_size={})",
-                //    cached_in_features_, out_features_, weight_group_size_ ) );
+                if constexpr ( kUseFp8ActivationPrefillPath )
+                {
+                    // W4A8-FP8 prefill path. The persistent scale scalars must exist here so
+                    // their pointers can be baked into the FP8 plan descriptor below -- but
+                    // ONLY the pointers. The weight scale VALUE is written by quantize() at
+                    // loadParameter() time, where the FP4 group scales it derives from are
+                    // produced; computing it here read the pre-allocated, not-yet-filled
+                    // scales buffer (the +98/+99 incoherence root cause). The activation
+                    // B_SCALE is a constant 1.0f: the true per-token activation scales are
+                    // applied post-GEMM (Ada cuBLASLt accepts only per-tensor scale pointers).
+                    ensureFp8ScaleScalarsAllocated();
 
+                    fp8_forward_plan_cache_ = CublasLtPlanCache<Fp8LinearPlan>(
+                        cached_outer_size_,
+                        [&]( int bucket )
+                        {
+                            return build_fp8_prefill_plan<TComputePrecision>(
+                                cached_cublaslt_handle_,
+                                bucket,
+                                cached_in_features_,
+                                out_features_,
+                                activation_fp8_unit_scale_,
+                                weight_fp8_scale_ );
+                        } );
+
+                    Logging::Logger::info( std::format(
+                        "CudaLinearOp: FP4->FP8 upcast + FP8xFP8 cuBLASLt GEMM (W4A8) -- {} in -> {} out (group_size={})",
+                        cached_in_features_, out_features_, weight_group_size_ ) );
+
+                    return;
+                }
+
+                if constexpr ( TWeightQuant::kIsFp4E2M1 && !kUseFusedFp4Gemm )
+                {
+                    // 2-phase FP4 prefill path: packed FP4 weights are expanded into the
+                    // shared BF16 staging buffer per forward, then fed into a standard
+                    // BF16 cuBLASLt plan -- identical structure to the FP8 baseline above.
+                    // has_bias=false: bias applied post-GEMM by cuda_add_bias.
+                    forward_plan_cache_ = CublasLtPlanCache<CublasLtLinearPlan<TComputePrecision>>(
+                        cached_outer_size_,
+                        [&]( int bucket )
+                        {
+                            return build_linear_plan<TComputePrecision>(
+                                cached_cublaslt_handle_,
+                                bucket,
+                                cached_in_features_,
+                                out_features_,
+                                false,
+                                compute_type_,
+                                scale_type_ );
+                        } );
+
+                    Logging::Logger::info( std::format(
+                        "CudaLinearOp: FP4 dequant + BF16 cuBLASLt GEMM -- {} in -> {} out (group_size={})",
+                        cached_in_features_, out_features_, weight_group_size_ ) );
+
+                    return;
+                }
+
+                // Fused W4A16 / FP4 batch path: the fused kernels read packed weights and
+                // dequantize per-group inline -- no staging buffer or cuBLASLt plan needed.
+                // SM >= 8.0 is already guaranteed by supportsCuBLASLt() gating this path.
                 return;
             }
 
+            // has_bias=false: bias is added post-GEMM by cuda_add_bias. cuBLASLt's
+            // heuristic returns CUBLAS_STATUS_NOT_SUPPORTED for CUBLAS_COMPUTE_32F with
+            // CUBLASLT_EPILOGUE_BIAS (and the bias epilogue carries the Ada multi-row
+            // INVALID_VALUE constraint), so the non-quantized path mirrors the FP8 path
+            // and keeps bias out of the plan. GPT-2 (biased Linears) is the first model
+            // to exercise this; bias-free models (MNIST, Llama) never hit the epilogue.
             forward_plan_cache_ = CublasLtPlanCache<CublasLtLinearPlan<TComputePrecision>>(
                 cached_outer_size_,
                 [&]( int bucket )
@@ -922,7 +1226,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                         bucket,
                         cached_in_features_,
                         out_features_,
-                        config_.hasBias(),
+                        false,
                         compute_type_,
                         scale_type_ );
                 } );
@@ -950,40 +1254,6 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 compute_type_,
                 scale_type_ );
         }
-    };
-
-    export class CudaLinearOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            const std::string opName = "LinearOp";
-
-            /*OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
-                {
-                    const auto& linearConfig = static_cast<const LinearConfig&>(config);
-                    return std::make_shared<CudaLinearOp<TensorDataType::FP32>>( context, linearConfig );
-                }
-            );
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::BF16, TensorDataType::BF16>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::BF16>>
-                {
-                    const auto& linearConfig = static_cast<const LinearConfig&>(config);
-                    return std::make_shared<CudaLinearOp<TensorDataType::BF16>>( context, linearConfig );
-                }
-            );*/
-        }
-
-        static inline bool isRegistered = []() {
-            registerOperations();
-            return true;
-            }();
     };
 
 }

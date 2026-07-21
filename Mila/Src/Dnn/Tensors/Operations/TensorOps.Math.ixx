@@ -88,7 +88,7 @@ namespace Mila::Dnn
         IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        // FIXME: TensorOps<device>::add( a, b, result, exec_context );
+        TensorOps<device>::add( a, b, result, exec_context );
     }
 
     /**
@@ -112,7 +112,7 @@ namespace Mila::Dnn
         IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        // FIXME: TensorOps<device>::subtract( a, b, result, exec_context );
+        TensorOps<device>::subtract( a, b, result, exec_context );
     }
 
     /**
@@ -136,7 +136,30 @@ namespace Mila::Dnn
         IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        // FIXME: TensorOps<device>::multiply( a, b, result, exec_context );
+        TensorOps<device>::multiply( a, b, result, exec_context );
+    }
+
+    /**
+     * @brief Scale a tensor by a scalar: result[i] = input[i] * scalar (device-dispatched).
+     *
+     * Supports in-place (input and result may alias). Added for Gemma 4's per-layer
+     * `hidden_states *= layer_scalar`; default-safe for all backends.
+     *
+     * @param input  Input tensor
+     * @param scalar Scalar multiplier (converted to the tensor's native type)
+     * @param result Output tensor (must match input shape; may alias input)
+     * @param exec_context Optional execution context for stream control (borrowed, not owned)
+     */
+    export template<TensorDataType TDataType, typename TMemoryResource>
+        requires isValidTensor<TDataType, TMemoryResource>
+    void scale(
+        const Tensor<TDataType, TMemoryResource>& input,
+        float scalar,
+        Tensor<TDataType, TMemoryResource>& result,
+        IExecutionContext* exec_context = nullptr )
+    {
+        constexpr DeviceType device = TMemoryResource::device_type;
+        TensorOps<device>::scale( input, scalar, result, exec_context );
     }
 
     /**
@@ -160,7 +183,7 @@ namespace Mila::Dnn
         IExecutionContext* exec_context = nullptr )
     {
         constexpr DeviceType device = TMemoryResource::device_type;
-        // FIXME: TensorOps<device>::divide( a, b, result, exec_context );
+        TensorOps<device>::divide( a, b, result, exec_context );
     }
 
     /**

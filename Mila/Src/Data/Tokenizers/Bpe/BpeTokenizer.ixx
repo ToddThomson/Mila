@@ -1,6 +1,6 @@
 /**
  * @file BpeTokenizer.ixx
- * @brief Unified BPE tokenizer for GPT-2, Llama 3.x, and Mistral model families.
+ * @brief Unified BPE tokenizer for GPT-2, Llama 3.x, Mistral, and Gemma model families.
  *
  * Encode pipeline:
  *   1. Special token pre-pass: split input on registered special token strings
@@ -13,6 +13,9 @@
  *   4b. Max-munch path (Llama 3.x / TikToken): find the longest vocabulary match
  *       at each position in the encoded unit sequence. Used when no merge rules
  *       are present; the merge order is implicit in the token ID assignment.
+ *   4c. SentencePiece path (Gemma): Metaspace pre-tokenization (space -> U+2581),
+ *       UTF-8 character initial units with <0xNN> byte fallback, then the merge
+ *       rules by rank. Selected when the vocabulary uses PreTokenizationMode::SentencePiece.
  *   5. Map final tokens to IDs; fall back to 0 on a miss.
  *
  * Decode pipeline:
@@ -27,8 +30,6 @@ module;
 #include <memory>
 #include <optional>
 #include <filesystem>
-#include <chrono>
-#include <iostream>
 #include <regex>
 #include <limits>
 #include <stdexcept>
@@ -39,6 +40,7 @@ import Data.BpeVocabulary;
 import Data.BpePreTokenizationMode;
 import Data.Tokenizer;
 import Data.TokenizerVocabulary;
+import Logging.Logger;
 
 namespace Mila::Data
 {
@@ -71,6 +73,9 @@ namespace Mila::Data
         explicit BpeTokenizer( BpeVocabulary vocab )
             : vocab_( std::move( vocab ) )
         {
+            is_sentencepiece_ =
+                vocab_.getConfig().getPreTokenizationMode() == PreTokenizationMode::SentencePiece;
+
             initializePreTokenization();
         }
 
@@ -115,6 +120,21 @@ namespace Mila::Data
         }
 
         /**
+         * @brief Load a Gemma 4 tokenizer from the binary produced by convert_tokenizer.py.
+         *
+         * Gemma uses SentencePiece BPE: byte_level=false (raw UTF-8 pieces, U+2581
+         * for spaces) with a Metaspace pre-tokenization and byte fallback.
+         *
+         * @param path Path to the Gemma tokenizer binary.
+         * @return Shared tokenizer instance.
+         * @throws std::runtime_error on I/O or format errors.
+         */
+        static std::shared_ptr<BpeTokenizer> loadGemma( const std::filesystem::path& path )
+        {
+            return std::make_shared<BpeTokenizer>( BpeVocabulary::loadGemma( path ) );
+        }
+
+        /**
          * @brief Load a Mistral tokenizer.
          *
          * @note Not yet implemented. Provide a Mila binary produced by save() as a workaround.
@@ -144,8 +164,6 @@ namespace Mila::Data
          */
         std::vector<TokenId> encode( const std::string& text ) override
         {
-            const auto start_time = std::chrono::steady_clock::now();
-
             std::vector<TokenId> out;
             const auto& special_list = vocab_.getSpecialTokenList();
 
@@ -194,13 +212,6 @@ namespace Mila::Data
                     }
                 }
             }
-
-            const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - start_time).count();
-
-            // TODO: Use Mila logging here
-            //std::cout << "\nEncoding completed in " << ms << "ms"
-            //    << " (" << text.size() << " chars -> " << out.size() << " tokens)\n";
 
             return out;
         }
@@ -297,6 +308,7 @@ namespace Mila::Data
 
         BpeVocabulary              vocab_;
         std::optional<std::regex>  pre_tokenization_regex_;
+        bool                       is_sentencepiece_ = false;
 
         // ====================================================================
         // Initialization
@@ -313,6 +325,13 @@ namespace Mila::Data
          */
         void initializePreTokenization()
         {
+            // SentencePiece does not pre-tokenize with a regex; the Metaspace split
+            // is handled directly in preTokenize().
+            if ( is_sentencepiece_ )
+            {
+                return;
+            }
+
             const auto& pattern = vocab_.getConfig().getPreTokenizationPattern();
 
             if ( pattern.empty() )
@@ -345,9 +364,10 @@ namespace Mila::Data
                         "and no ASCII fallback is defined for this mode: " + pattern );
                 }
 
-                std::cerr << "Warning: Unicode regex not supported by std::regex; "
-                    "using ASCII fallback for pre-tokenization.\n"
-                    "Non-ASCII text may tokenize differently from the HuggingFace reference.\n";
+                Logging::Logger::warning(
+                    "Unicode regex not supported by std::regex; using ASCII fallback "
+                    "for pre-tokenization. Non-ASCII text may tokenize differently from "
+                    "the HuggingFace reference." );
 
                 pre_tokenization_regex_ = std::regex( fallback, std::regex::ECMAScript );
             }
@@ -358,8 +378,6 @@ namespace Mila::Data
         // ====================================================================
 
         /**
-         * @brief Encode a plain text segment (guaranteed to contain no special tokens).
-                 /**
          * @brief Encode a plain text segment (guaranteed to contain no special tokens).
          *
          * Dispatches to the BPE merge path when explicit merge rules are present,
@@ -377,7 +395,11 @@ namespace Mila::Data
 
             const std::vector<std::string> words = preTokenize( text );
 
-            if ( vocab_.getMergeRules().empty() )
+            if ( is_sentencepiece_ )
+            {
+                encodeSegmentSentencePiece( words, out );
+            }
+            else if ( vocab_.getMergeRules().empty() )
             {
                 encodeSegmentMaxMunch( words, out );
             }
@@ -466,8 +488,6 @@ namespace Mila::Data
          */
         void encodeSegmentBpe( const std::vector<std::string>& words, std::vector<TokenId>& out )
         {
-            size_t pass = 0;
-
             for ( const auto& word : words )
             {
                 std::vector<std::string> tokens;
@@ -490,46 +510,114 @@ namespace Mila::Data
                     }
                 }
 
-                while ( tokens.size() > 1 )
-                {
-                    int    best_idx = -1;
-                    size_t best_priority = std::numeric_limits<size_t>::max();
-
-                    for ( size_t i = 0; i < tokens.size() - 1; ++i )
-                    {
-                        auto priority = vocab_.getMergePriority( tokens[ i ], tokens[ i + 1 ] );
-
-                        if ( priority && *priority < best_priority )
-                        {
-                            best_priority = *priority;
-                            best_idx = static_cast<int>( i );
-                        }
-                    }
-
-                    if ( best_idx == -1 )
-                    {
-                        break;
-                    }
-
-                    tokens[ best_idx ] += tokens[ best_idx + 1 ];
-                    tokens.erase( tokens.begin() + best_idx + 1 );
-                }
+                applyMerges( tokens );
 
                 for ( const auto& token : tokens )
                 {
                     auto id = vocab_.tokenToId( token );
                     out.push_back( id ? *id : 0 );
                 }
+            }
+        }
 
-                ++pass;
+        /**
+         * @brief Greedily apply merge rules to a unit sequence, lowest priority first.
+         *
+         * Shared by the GPT-2 byte-level BPE path and the Gemma SentencePiece BPE
+         * path; only the construction of the initial unit sequence differs.
+         *
+         * @param tokens In/out unit sequence; merged in place until no rule applies.
+         */
+        void applyMerges( std::vector<std::string>& tokens )
+        {
+            while ( tokens.size() > 1 )
+            {
+                int    best_idx = -1;
+                size_t best_priority = std::numeric_limits<size_t>::max();
 
-                if ( pass % 100 == 0 )
+                for ( size_t i = 0; i < tokens.size() - 1; ++i )
                 {
-                    std::cout << "\r[BPE] Words: " << pass
-                        << " | Tokens: " << out.size()
-                        << "          " << std::flush;
+                    auto priority = vocab_.getMergePriority( tokens[ i ], tokens[ i + 1 ] );
+
+                    if ( priority && *priority < best_priority )
+                    {
+                        best_priority = *priority;
+                        best_idx = static_cast<int>( i );
+                    }
+                }
+
+                if ( best_idx == -1 )
+                {
+                    break;
+                }
+
+                tokens[ best_idx ] += tokens[ best_idx + 1 ];
+                tokens.erase( tokens.begin() + best_idx + 1 );
+            }
+        }
+
+        /**
+         * @brief SentencePiece BPE encode (Gemma).
+         *
+         * Initial units are UTF-8 *characters* (not bytes): a character that is a
+         * vocabulary piece is used directly; an unknown character decomposes to its
+         * SentencePiece byte-fallback pieces (<0xNN> per byte). The shared merge
+         * loop then builds up the final pieces by rank.
+         *
+         * @param words Pre-tokens from the Metaspace split (each is "<piece-run>").
+         * @param out   Accumulator for output token IDs.
+         */
+        void encodeSegmentSentencePiece( const std::vector<std::string>& words, std::vector<TokenId>& out )
+        {
+            for ( const auto& word : words )
+            {
+                std::vector<std::string> tokens;
+                tokens.reserve( word.size() );
+
+                size_t i = 0;
+
+                while ( i < word.size() )
+                {
+                    const size_t char_len = utf8CharLength( static_cast<unsigned char>( word[ i ] ) );
+                    const std::string ch = word.substr( i, char_len );
+
+                    if ( vocab_.containsToken( ch ) )
+                    {
+                        tokens.push_back( ch );
+                    }
+                    else
+                    {
+                        // Byte fallback: emit one <0xNN> piece per raw byte.
+                        for ( size_t b = 0; b < char_len && (i + b) < word.size(); ++b )
+                        {
+                            tokens.push_back( byteFallbackToken( static_cast<unsigned char>( word[ i + b ] ) ) );
+                        }
+                    }
+
+                    i += char_len;
+                }
+
+                applyMerges( tokens );
+
+                for ( const auto& token : tokens )
+                {
+                    auto id = vocab_.tokenToId( token );
+                    out.push_back( id ? *id : 0 );
                 }
             }
+        }
+
+        /**
+         * @brief SentencePiece byte-fallback piece for a raw byte, e.g. 0x0A -> "<0x0A>".
+         */
+        static std::string byteFallbackToken( unsigned char byte )
+        {
+            static const char* hex = "0123456789ABCDEF";
+            std::string token = "<0x";
+            token.push_back( hex[ (byte >> 4) & 0xF ] );
+            token.push_back( hex[ byte & 0xF ] );
+            token.push_back( '>' );
+            return token;
         }
         /**
          * @brief Split text into pre-tokens using the configured regex.
@@ -542,6 +630,11 @@ namespace Mila::Data
          */
         std::vector<std::string> preTokenize( const std::string& text )
         {
+            if ( is_sentencepiece_ )
+            {
+                return preTokenizeSentencePiece( text );
+            }
+
             if ( !pre_tokenization_regex_ )
             {
                 return { text };
@@ -560,6 +653,58 @@ namespace Mila::Data
         }
 
         /**
+         * @brief SentencePiece Metaspace pre-tokenization (Gemma).
+         *
+         * Replaces ASCII spaces with the metaspace mark U+2581 ('lower one eighth
+         * block'), then splits so each mark begins a new pre-token. No leading mark
+         * is prepended (Gemma's tokenizer does not add a prefix space -- confirmed by
+         * the HF round-trip: "The capital" -> ["The", "_capital"]).
+         *
+         * @param text Plain text segment (no special tokens).
+         * @return Pre-tokens, each a contiguous run beginning at a mark (or the lead).
+         */
+        std::vector<std::string> preTokenizeSentencePiece( const std::string& text ) const
+        {
+            static const std::string MARK = "\xE2\x96\x81";  // U+2581
+
+            std::string marked;
+            marked.reserve( text.size() );
+
+            for ( char c : text )
+            {
+                if ( c == ' ' )
+                {
+                    marked += MARK;
+                }
+                else
+                {
+                    marked.push_back( c );
+                }
+            }
+
+            std::vector<std::string> words;
+            size_t i = 0;
+
+            while ( i < marked.size() )
+            {
+                const size_t start = i;
+
+                // Consume the first character of this pre-token (possibly the mark).
+                i += utf8CharLength( static_cast<unsigned char>( marked[ i ] ) );
+
+                // Extend until the next mark boundary.
+                while ( i < marked.size() && marked.compare( i, MARK.size(), MARK ) != 0 )
+                {
+                    i += utf8CharLength( static_cast<unsigned char>( marked[ i ] ) );
+                }
+
+                words.push_back( marked.substr( start, i - start ) );
+            }
+
+            return words;
+        }
+
+        /**
          * @brief Reverse byte-encode a single token string and append to @p out.
          *
          * For byte-level vocabularies each UTF-8 character in the token string maps
@@ -571,6 +716,12 @@ namespace Mila::Data
          */
         void decodeToken( const std::string& token, std::string& out )
         {
+            if ( is_sentencepiece_ )
+            {
+                decodeTokenSentencePiece( token, out );
+                return;
+            }
+
             if ( !vocab_.isByteLevel() )
             {
                 out.append( token );
@@ -592,6 +743,54 @@ namespace Mila::Data
 
                 i += char_len;
             }
+        }
+
+        /**
+         * @brief Decode a SentencePiece piece: U+2581 -> space, <0xNN> -> raw byte.
+         *
+         * Other characters are appended verbatim. Multi-byte characters that were
+         * byte-fallback-encoded come back as consecutive <0xNN> pieces whose raw
+         * bytes reassemble into the original UTF-8 sequence.
+         */
+        void decodeTokenSentencePiece( const std::string& token, std::string& out )
+        {
+            // Byte-fallback piece "<0xNN>" -> the raw byte.
+            if ( token.size() == 6 && token.compare( 0, 3, "<0x" ) == 0 && token[ 5 ] == '>' )
+            {
+                const int hi = hexValue( token[ 3 ] );
+                const int lo = hexValue( token[ 4 ] );
+
+                if ( hi >= 0 && lo >= 0 )
+                {
+                    out.push_back( static_cast<char>( (hi << 4) | lo ) );
+                    return;
+                }
+            }
+
+            static const std::string MARK = "\xE2\x96\x81";  // U+2581
+            size_t i = 0;
+
+            while ( i < token.size() )
+            {
+                if ( token.compare( i, MARK.size(), MARK ) == 0 )
+                {
+                    out.push_back( ' ' );
+                    i += MARK.size();
+                }
+                else
+                {
+                    out.push_back( token[ i ] );
+                    ++i;
+                }
+            }
+        }
+
+        static int hexValue( char c )
+        {
+            if ( c >= '0' && c <= '9' ) return c - '0';
+            if ( c >= 'A' && c <= 'F' ) return c - 'A' + 10;
+            if ( c >= 'a' && c <= 'f' ) return c - 'a' + 10;
+            return -1;
         }
 
         static size_t utf8CharLength( unsigned char first_byte )

@@ -1,180 +1,306 @@
-// Unit tests covering Gpt network build/forward/toString and fromPretrained factory on CUDA.
-//
-// Mirrors the CPU tests but runs on a CUDA device when available. Tests are skipped
-// when no CUDA devices are present to keep CI/platform variations robust.
+/**
+ * @file GptTransformer.Cuda.cpp
+ * @brief Concrete-network tests for GptTransformer<DeviceType::Cuda, FP32>.
+ *
+ * The CUDA mirror of GptTransformer.Cpu.cpp. GptTransformer is the GPT-2
+ * decoder-only language network:
+ *   Lpe (token + positional embedding) -> N x GptBlock -> final LayerNorm -> lm_head
+ *
+ * Covers the GptTransformer DELTA over the LanguageNetwork base: construction/
+ * validation, the rank-2 [B, T] build contract, the RuntimeMode/TrainingMode axis,
+ * forward producing finite logits of shape [B, T, vocab], the component graph, and
+ * backward. Unlike the Llama CUDA path, the GPT-2 CUDA forward/backward kernels are
+ * exercised by the Bard training sample, so finiteness and training-mode backward
+ * are asserted here (not just the contract).
+ *
+ * CUDA device tests -- skipped when no CUDA device is present.
+ */
 
 #include <gtest/gtest.h>
-#include <filesystem>
+#include <cmath>
+#include <cstdint>
+#include <memory>
 #include <string>
+#include <stdexcept>
+#include <vector>
 
 import Mila;
 
-namespace Dnn::Components::Transformers::Tests
+namespace Mila::Tests::Dnn::Components::Transformers::Gpt
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    using GptType = GptTransformer<DeviceType::Cuda, TensorDataType::FP32>;
-    using GptConfig = Mila::Dnn::GptConfig;
-    namespace fs = std::filesystem;
-
-    // Helper: path to GPT-2 weights under TEST_DATA_DIR (set via CMake target_compile_definitions)
-    static fs::path gpt2_weights_path()
+    namespace
     {
-        fs::path dataDir = TEST_DATA_DIR;
-        return dataDir / "models" / "gpt2" / "gpt2_small_fp32.bin";
+        using GptCuda = Mila::Dnn::GptTransformer<DeviceType::Cuda, TensorDataType::FP32>;
+        using HostTokenTensor = Tensor<TensorDataType::INT32, CpuMemoryResource>;
+        using HostLogitsTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+        constexpr int64_t kEmbedding = 16;
+        constexpr int64_t kLayers = 2;
+        constexpr int64_t kHeads = 2;
+        constexpr int64_t kVocab = 32;
+        constexpr int64_t kMaxSeq = 16;
+        constexpr int64_t kHidden = 64;
+
+        GptConfig smallConfig()
+        {
+            GptConfig config( kEmbedding, kLayers );
+            config.withVocabSize( kVocab )
+                .withNumHeads( kHeads )
+                .withMaxSequenceLength( kMaxSeq )
+                .withHiddenSize( kHidden )
+                .withBias( true );
+
+            return config;
+        }
     }
 
-    // Helper to create a small, valid GptConfig for fast tests.
-    static GptConfig makeSmallConfig()
+    class GptTransformerCudaTests : public ::testing::Test
     {
-        GptConfig cfg( /*embedding_size=*/16, /*num_layers=*/2 );
-        cfg.withVocabSize( 97 )
-            .withNumHeads( 2 )
-            .withMaxSequenceLength( 64 )
-            .withHiddenSize( 64 )
-            .withBias( true );
+    protected:
+        void SetUp() override
+        {
+            if ( getDeviceCount( DeviceType::Cuda ) == 0 )
+            {
+                GTEST_SKIP() << "No CUDA device available";
+            }
+        }
 
-        return cfg;
+        std::unique_ptr<GptCuda> builtNet( int64_t batch, int64_t seq, RuntimeMode mode )
+        {
+            auto net = std::make_unique<GptCuda>( "gpt", smallConfig(), Device::Cuda( 0 ) );
+            net->build( BuildContext( shape_t{ batch, seq }, mode ) );
+
+            return net;
+        }
+
+        // Deterministic in-range token ids on the device.
+        GptCuda::TokenIndexType makeTokens( int64_t batch, int64_t seq )
+        {
+            HostTokenTensor host( Device::Cpu(), shape_t{ batch, seq } );
+            auto* data = host.data();
+
+            for ( size_t i = 0; i < host.size(); ++i )
+            {
+                data[ i ] = static_cast<int32_t>( i % static_cast<size_t>( kVocab ) );
+            }
+
+            GptCuda::TokenIndexType device_tokens( Device::Cuda( 0 ), shape_t{ batch, seq } );
+            copy( host, device_tokens );
+
+            return device_tokens;
+        }
+
+        static constexpr int64_t batch_ = 1;
+        static constexpr int64_t seq_ = 4;
+    };
+
+    // ====================================================================
+    // A. Construction & Validation
+    // ====================================================================
+
+    TEST_F( GptTransformerCudaTests, Construct_StandaloneSucceeds )
+    {
+        GptCuda net( "gpt", smallConfig(), Device::Cuda( 0 ) );
+
+        EXPECT_EQ( net.getName(), "gpt" );
+        EXPECT_EQ( net.getDeviceId().type, DeviceType::Cuda );
     }
 
-    TEST( GptCudaTests, BuildAllocatesParametersAndParameterCount )
+    TEST_F( GptTransformerCudaTests, Construct_DeviceTypeMismatchThrows )
     {
-        if ( getDeviceCount( DeviceType::Cuda ) == 0 )
-        {
-            GTEST_SKIP() << "No CUDA devices available - skipping CUDA GPT tests";
-        }
-
-        auto cfg = makeSmallConfig();
-
-        DeviceId cuda_id = Device::Cuda( 0 );
-
-        GptType net( "gpt_test_build_cuda", cfg, cuda_id );
-
-        // Build with a small shape (batch, seq)
-        auto build_config = BuildContext( { 1, 8 }, RuntimeMode::Inference );
-        EXPECT_NO_THROW( net.build( build_config ) );
-
-        // Parameter count should be positive after build
-        auto params = net.parameterCount();
-        EXPECT_GT( params, 0u );
+        EXPECT_THROW( GptCuda( "gpt", smallConfig(), Device::Cpu() ), std::invalid_argument );
     }
 
-    TEST( GptCudaTests, ForwardProducesLogitsWithExpectedShape )
+    TEST_F( GptTransformerCudaTests, Construct_InvalidConfigThrows )
     {
-        if ( getDeviceCount( DeviceType::Cuda ) == 0 )
-        {
-            GTEST_SKIP() << "No CUDA devices available - skipping CUDA GPT tests";
-        }
+        // embedding_size 0 fails GptConfig::validate(), invoked in the ctor.
+        GptConfig bad( 0, kLayers );
 
-        auto cfg = makeSmallConfig();
-
-        DeviceId cuda_id = Device::Cuda( 0 );
-
-        GptType net( "gpt_test_forward_cuda", cfg, cuda_id );
-
-        const int64_t batch = 2;
-        const int64_t seq = 5;
-
-        // Build network with runtime positional capacity
-        auto build_config = BuildContext( { batch, cfg.getMaxSequenceLength() }, RuntimeMode::Inference );
-        net.build( build_config );
-
-        // Create device inference input (batch, seq)
-        typename GptType::TokenIndexType input( cuda_id, shape_t{ batch, seq } );
-
-        // Fill input by preparing a host tensor and copying to device
-        DeviceId cpu_device = Device::Cpu();
-        Tensor<dtype_t::INT32, CpuMemoryResource> host_input( cpu_device, shape_t{ batch, seq } );
-
-        int32_t* data_ptr = host_input.data();
-        size_t total = static_cast<size_t>(batch * seq);
-        for ( size_t i = 0; i < total; ++i )
-        {
-            data_ptr[ i ] = static_cast<int32_t>( i % cfg.getVocabSize() );
-        }
-
-        // Copy host input to device input
-        copy( host_input, input );
-
-        // Run forward on the shorter slice (network permits seq <= built max)
-        EXPECT_NO_THROW( {
-            auto& logits = net.forward( input );
-
-        // Verify output shape: (batch, seq, vocab)
-        auto out_shape = logits.shape();
-        ASSERT_EQ( out_shape.size(), 3u );
-        EXPECT_EQ( out_shape[ 0 ], batch );
-        EXPECT_EQ( out_shape[ 1 ], seq );
-        EXPECT_EQ( out_shape[ 2 ], cfg.getVocabSize() );
-            } );
+        EXPECT_THROW( GptCuda( "gpt", bad, Device::Cuda( 0 ) ), std::invalid_argument );
     }
 
-    TEST( GptCudaTests, ToStringAndConfigToString )
+    // ====================================================================
+    // B. Build Lifecycle
+    // ====================================================================
+
+    TEST_F( GptTransformerCudaTests, Build_SetsIsBuilt )
     {
-        if ( getDeviceCount( DeviceType::Cuda ) == 0 )
-        {
-            GTEST_SKIP() << "No CUDA devices available - skipping CUDA GPT tests";
-        }
+        auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
 
-        auto cfg = makeSmallConfig();
-
-        DeviceId cuda_id = Device::Cuda( 0 );
-
-        GptType net( "gpt_test_tostring_cuda", cfg, cuda_id );
-
-        // toString should contain the network name and some config fields
-        std::string s = net.toString();
-        EXPECT_NE( s.find( "Gpt Network" ), std::string::npos );
-        EXPECT_NE( s.find( "Embedding Size/Dim" ), std::string::npos );
-
-        // Ensure config's toString returns a short human-readable summary
-        std::string cfg_str = cfg.toString();
-        EXPECT_NE( cfg_str.find( "embedding size" ), std::string::npos );
+        EXPECT_TRUE( net->isBuilt() );
     }
 
-    TEST( GptCudaTests, FromPretrained_FileNotFound_Throws )
+    TEST_F( GptTransformerCudaTests, Build_ThrowsOnNonRank2Input )
     {
-        if ( getDeviceCount( DeviceType::Cuda ) == 0 )
-        {
-            GTEST_SKIP() << "No CUDA devices available - skipping CUDA GPT tests";
-        }
+        GptCuda net( "gpt", smallConfig(), Device::Cuda( 0 ) );
 
-        // Ensure non-existent path triggers a runtime error from the factory.
-        std::filesystem::path missing = std::filesystem::temp_directory_path() / "mila_nonexistent_model.bin";
-
-        // Ensure file does not exist
-        if ( std::filesystem::exists( missing ) )
-            std::filesystem::remove( missing );
-
-        EXPECT_THROW( GptType::fromPretrained( missing, /*batch=*/1, /*seq=*/1, Device::Cuda( 0 ) ),
-            std::runtime_error );
+        // Rank-3 input violates the [B, T] token-index contract.
+        EXPECT_THROW( net.build( BuildContext( shape_t{ batch_, seq_, kEmbedding }, RuntimeMode::Inference ) ),
+            std::invalid_argument );
     }
 
-    TEST( GptCudaTests, FromPretrained_LoadsIfWeightsPresent )
+    TEST_F( GptTransformerCudaTests, Forward_ThrowsBeforeBuild )
     {
-        if ( getDeviceCount( DeviceType::Cuda ) == 0 )
+        GptCuda net( "gpt", smallConfig(), Device::Cuda( 0 ) );
+        auto input = makeTokens( batch_, seq_ );
+
+        EXPECT_THROW( net.forward( input ), std::runtime_error );
+    }
+
+    TEST_F( GptTransformerCudaTests, Backward_ThrowsBeforeBuild )
+    {
+        GptCuda net( "gpt", smallConfig(), Device::Cuda( 0 ) );
+        auto input = makeTokens( batch_, seq_ );
+        GptCuda::TensorType output_grad( Device::Cuda( 0 ), shape_t{ batch_, seq_, kVocab } );
+
+        EXPECT_THROW( net.backward( input, output_grad ), std::runtime_error );
+    }
+
+    // ====================================================================
+    // C. Execution Context / Device
+    // ====================================================================
+
+    TEST_F( GptTransformerCudaTests, Synchronize_Succeeds )
+    {
+        auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
+
+        EXPECT_NO_THROW( net->synchronize() );
+    }
+
+    // ====================================================================
+    // D. Runtime + Training Mode
+    // ====================================================================
+
+    TEST_F( GptTransformerCudaTests, BuiltForTraining_IsTrainingMode )
+    {
+        auto net = builtNet( batch_, seq_, RuntimeMode::Training );
+
+        EXPECT_TRUE( net->isTrainingMode() );
+        EXPECT_FALSE( net->isInferenceMode() );
+    }
+
+    TEST_F( GptTransformerCudaTests, BuiltForInference_IsInferenceMode )
+    {
+        auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
+
+        EXPECT_TRUE( net->isInferenceMode() );
+        EXPECT_FALSE( net->isTrainingMode() );
+    }
+
+    TEST_F( GptTransformerCudaTests, Backward_ThrowsWhenBuiltForInference )
+    {
+        auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
+
+        auto input = makeTokens( batch_, seq_ );
+        GptCuda::TensorType output_grad( Device::Cuda( 0 ), shape_t{ batch_, seq_, kVocab } );
+
+        net->forward( input );
+
+        EXPECT_THROW( net->backward( input, output_grad ), std::runtime_error );
+    }
+
+    // ====================================================================
+    // E. Forward (logits shape + finiteness)
+    // ====================================================================
+
+    TEST_F( GptTransformerCudaTests, Forward_ProducesLogitsShape )
+    {
+        auto net = builtNet( batch_, seq_, RuntimeMode::Training );
+
+        auto input = makeTokens( batch_, seq_ );
+        auto& logits = net->forward( input );
+
+        EXPECT_EQ( logits.shape(), ( shape_t{ batch_, seq_, kVocab } ) );
+    }
+
+    TEST_F( GptTransformerCudaTests, Forward_ProducesFiniteLogits )
+    {
+        auto net = builtNet( batch_, seq_, RuntimeMode::Training );
+
+        auto input = makeTokens( batch_, seq_ );
+        auto& logits = net->forward( input );
+
+        HostLogitsTensor host_logits( Device::Cpu(), shape_t{ batch_, seq_, kVocab } );
+        copy( logits, host_logits );
+        net->synchronize();
+
+        const auto* data = host_logits.data();
+        for ( size_t i = 0; i < host_logits.size(); ++i )
         {
-            GTEST_SKIP() << "No CUDA devices available - skipping CUDA GPT tests";
+            ASSERT_TRUE( std::isfinite( data[ i ] ) ) << "non-finite logit at index " << i;
+        }
+    }
+
+    // ====================================================================
+    // F. Backward (runs in training mode after forward)
+    // ====================================================================
+
+    TEST_F( GptTransformerCudaTests, Backward_RunsAfterForwardInTrainingMode )
+    {
+        auto net = builtNet( batch_, seq_, RuntimeMode::Training );
+
+        auto input = makeTokens( batch_, seq_ );
+
+        HostLogitsTensor host_grad( Device::Cpu(), shape_t{ batch_, seq_, kVocab } );
+        for ( size_t i = 0; i < host_grad.size(); ++i )
+        {
+            host_grad.data()[ i ] = 0.01f * static_cast<float>( i + 1 );
         }
 
-        // Check repository-local Data/Models/GPT2 for the converted weights as requested.
-        std::filesystem::path model_path = std::filesystem::path( "." ) / "Data" / "Models" / "GPT2" / "gpt2_small_fp32.bin";
+        GptCuda::TensorType output_grad( Device::Cuda( 0 ), shape_t{ batch_, seq_, kVocab } );
+        copy( host_grad, output_grad );
 
-        if ( !std::filesystem::exists( model_path ) )
-        {
-            GTEST_SKIP() << "GPT-2 converted weights not present at: " << model_path.string()
-                << " - skipping integration test.";
-        }
+        net->forward( input );
 
-        // If file exists, ensure factory returns a built Gpt instance without throwing.
-        auto gpt2 = GptType::fromPretrained( model_path, /*batch=*/1, /*seq=*/8, Device::Cuda( 0 ) );
+        EXPECT_NO_THROW( net->backward( input, output_grad ) );
+    }
 
-        // Basic sanity: parameters allocated
-        EXPECT_GT( gpt2->parameterCount(), 0u );
+    // ====================================================================
+    // G. Parameters & Components
+    // ====================================================================
 
-        // toString should include model name (metadata provided name may be empty)
-        std::string s = gpt2->toString();
-        EXPECT_NE( s.find( "Gpt Network" ), std::string::npos );
+    TEST_F( GptTransformerCudaTests, GetComponents_ReturnsLayersPlusThree )
+    {
+        auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
+
+        // encoder + kLayers blocks + final_layernorm + lm_head.
+        EXPECT_EQ( net->getComponents().size(), static_cast<size_t>( kLayers + 3 ) );
+    }
+
+    TEST_F( GptTransformerCudaTests, ParameterCount_Positive )
+    {
+        auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
+
+        EXPECT_GT( net->parameterCount(), 0u );
+    }
+
+    // ====================================================================
+    // I. Diagnostics
+    // ====================================================================
+
+    TEST_F( GptTransformerCudaTests, ToString_DescribesNetwork )
+    {
+        GptCuda net( "my_gpt", smallConfig(), Device::Cuda( 0 ) );
+
+        const std::string text = net.toString();
+
+        EXPECT_NE( text.find( "Gpt" ), std::string::npos );
+        EXPECT_NE( text.find( "my_gpt" ), std::string::npos );
+    }
+
+    // ====================================================================
+    // J. Type identity
+    // ====================================================================
+
+    TEST_F( GptTransformerCudaTests, GetType_IsGpt2 )
+    {
+        GptCuda net( "gpt", smallConfig(), Device::Cuda( 0 ) );
+
+        // Structural kind is Network; the GPT-2 architecture identity is ModelType.
+        EXPECT_EQ( net.getType(), ComponentType::Network );
+        EXPECT_EQ( net.getModelType(), ModelType::Gpt2 );
     }
 }

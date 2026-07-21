@@ -1,5 +1,5 @@
 /**
- * @file ArchiveMode.ixx
+ * @file OpenMode.ixx
  * @brief Archive open mode for model serializers.
  *
  * Indicates whether an archive is intended for reading or writing; used to

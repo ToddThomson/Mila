@@ -8,28 +8,28 @@
  *
  * Deployment concerns owned here:
  *
- *  1. ComputePrecision::Policy  — cuBLASLt algorithm selection heuristic applied
+ *  1. ComputePrecision::Policy  -- cuBLASLt algorithm selection heuristic applied
  *                                 uniformly to all compute components (Linear, GQA, MHA).
  *                                 Replaces the precision_ field previously on ComponentConfig.
  *
- *  2. QuantizationConfig        — weight storage dtype and scale allocation policy.
+ *  2. QuantizationConfig        -- weight storage dtype and scale allocation policy.
  *                                 Currently consumed by Linear only.
  *                                 Defaults to QuantizationConfig::none().
  *
- *  3. context_length            — maximum sequence length the model is built for.
+ *  3. context_length            -- maximum sequence length the model is built for.
  *                                 Universal across all sequence models.
  *
- *  4. strict                    — whether unrecognized parameter names throw on load.
+ *  4. strict                    -- whether unrecognized parameter names throw on load.
  *                                 Universal across all pretrained model loading.
  *
  * Construction is via fluent setters on the concrete subclass.
- * context_length is required and has no default — subclasses must enforce this.
+ * context_length is required and has no default -- subclasses must enforce this.
  *
  * ## Relationship to BuildContext
  *
  * ModelConfig is the public API surface for deployment configuration.
  * BuildContext is the internal carrier through the component tree.
- * fromPretrained() projects ModelConfig into BuildContext once — they
+ * fromPretrained() projects ModelConfig into BuildContext once -- they
  * are never the same object.
  */
 
@@ -48,10 +48,10 @@ namespace Mila::Dnn
      * @brief Abstract base configuration for all deployable Mila models.
      *
      * Subclasses add architecture-specific deployment concerns
-     * (e.g. LlamaModelConfig adds nothing beyond what ModelConfig already owns —
+     * (e.g. LlamaModelConfig adds nothing beyond what ModelConfig already owns --
      * all Llama architectural parameters come from checkpoint metadata).
      *
-     * Non-copyable by design — model configs are constructed once and passed
+     * Non-copyable by design -- model configs are constructed once and passed
      * by const reference into fromPretrained().
      */
     export class ModelConfig
@@ -67,16 +67,13 @@ namespace Mila::Dnn
         // Fluent setters
         // ====================================================================
 
-        /**
-         * @brief Set the weight quantization policy.
+        /*
+         * Set the weight quantization policy. (Retired in place; re-enable when the
+         * quantization-config setter returns.) Determines weight storage dtype and
+         * scale allocation for all quantizable components (currently Linear only).
+         * Param: quantization -- policy to apply. Returns the concrete config for chaining.
          *
-         * Determines weight storage dtype and scale allocation for all
-         * quantizable components (currently Linear only).
-         *
-         * @param quantization  Quantization policy to apply.
-         * @return              Reference to the concrete config for chaining.
-         */
-        /*template<typename Self>
+         * template<typename Self>
         Self& withQuantization( this Self& self, QuantizationConfig quantization )
         {
             self.quantization_ = quantization;
@@ -136,7 +133,7 @@ namespace Mila::Dnn
         /**
          * @brief Construct with required context_length.
          *
-         * Protected — construction is via concrete subclass only.
+         * Protected -- construction is via concrete subclass only.
          *
          * @param context_length  Maximum sequence length. Must be > 0.
          */
@@ -173,7 +170,7 @@ namespace Mila::Dnn
         }
 
         // ====================================================================
-        // Data members — accessible to subclasses
+        // Data members -- accessible to subclasses
         // ====================================================================
 
         dim_t context_length_{ 0 };

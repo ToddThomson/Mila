@@ -1,0 +1,5 @@
+# Mila accepts COMPUTE / HARDWARE sponsorship only — never money.
+# Only `custom:` is used (it points at SPONSORING.md). No cash providers
+# (github, patreon, ko_fi, open_collective, ...) are enabled, by design —
+# enabling `github:` would turn on GitHub Sponsors (cash), which is off the table.
+custom: ["https://github.com/ToddThomson/Mila/blob/master/SPONSORING.md"]

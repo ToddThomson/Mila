@@ -1,6 +1,6 @@
 /**
  * @file TensorOps.Transfer.ixx
- * @brief Tensor transfer utilities � copy/dispatch helpers for tensor data movement.
+ * @brief Tensor transfer utilities -- copy/dispatch helpers for tensor data movement.
  *
  * Provides an exported generic `copy()` template that validates shapes, handles
  * host/device accessibility, and dispatches to device-specific `TensorOps`
@@ -25,7 +25,6 @@ import Dnn.TensorOps.Base;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
-//import Compute.DeviceTraits;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
 
@@ -177,13 +176,6 @@ namespace Mila::Dnn
         {
             throw std::invalid_argument( "Blob and destination tensor shapes must match" );
         }
-
-        // FIXME: Validate total bytes
-        //size_t expected_bytes = computeTotalBytes( blob.metadata.dtype, blob.metadata.shape );
-        //if ( blob.data.size() != expected_bytes )
-        //{
-        //    throw std::invalid_argument( "Blob size mismatch" );
-        //}
 
         // Dispatch based on destination device
         constexpr DeviceType device = TDstMemoryResource::device_type;

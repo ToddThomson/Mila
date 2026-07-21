@@ -1,8 +1,8 @@
-# Mila — Copilot Instructions
+# Mila ï¿½ Copilot Instructions
 
 ## General Guidelines
 - Generate code only when explicitly requested (e.g., "implement", "update", "write code", "generate", "create code"). Otherwise provide analysis, design guidance, and minimal examples.
-- Mila is at the Alpha stage of development; please do not consider backward compatibility with previous versions when generating code.
+- Mila is at the beta stage of development (pre-1.0); please do not consider backward compatibility with previous versions when generating code.
 
 ## Code Style
 - Do not columnize/align code with extra spaces. Identifiers and types should use standard single-space formatting. Column alignment breaks when names change.
@@ -14,7 +14,7 @@
 - Exception: Single-statement functions don't need blank line.
 
 ## High-level constraints
-- Project is alpha: breaking changes and simplifications are acceptable.
+- Project is pre-1.0 (beta): breaking changes and simplifications are acceptable.
 - Backward compatibility is NOT required. Do not use Deprecated APIs.
 - Do not use Mila deprecated API.
 - Host code: C++23 using modules and module partitions. Tests: GTest. Build: CMake + Ninja.
@@ -25,7 +25,7 @@
   Such trivial, repetitive comments must not be produced by Copilot.
 - Use only ASCII characters (no Unicode checkmarks, emojis, or special symbols).
 - Don't add simple validation comments (e.g., "Good", "Correct", "OK", "Bad").
-- Comments should explain WHAT the code's intent or contract is, or WHY a non-obvious approach is required—not restate HOW the code performs obvious operations.
+- Comments should explain WHAT the code's intent or contract is, or WHY a non-obvious approach is requiredï¿½not restate HOW the code performs obvious operations.
   - Good: `// accumulate running mean across batch to avoid a second pass`.
   - Good: `// Use integer index to preserve pointer stability required by the SIMD kernel`.
 - Prefer documenting:
@@ -35,7 +35,7 @@
 - Keep comments technical and informative, not evaluative or apologetic.
 - Do not include reasoning or justification for design decisions in code comments (keep rationale in design documents or commit messages).
 - Avoid commenting trivial lines of code that are self-explanatory; prefer a brief block comment describing the overall purpose of the surrounding code instead.
-- Documentation comments (Doxygen) should describe behavior, usage, public contracts, and examples—not explain why changes were made.
+- Documentation comments (Doxygen) should describe behavior, usage, public contracts, and examplesï¿½not explain why changes were made.
 
 ## Doxygen / File Header Policy
 - File-level Doxygen comments must be concise summaries (one to three short sentences).
@@ -61,4 +61,4 @@
 - Always include testing suggestions and consider CPU/CUDA parity.
 - In explanatory text (not code), you may use formatting symbols for clarity, but generated code comments must follow the comment policy above.
 - Keep commit messages and explanatory responses separate from code documentation.
-- Unit tests are structured by project, namespace, and class—place tests under the Tests tree following the repository project layout and mirror the production namespace/class organization.
+- Unit tests are structured by project, namespace, and classï¿½place tests under the Tests tree following the repository project layout and mirror the production namespace/class organization.

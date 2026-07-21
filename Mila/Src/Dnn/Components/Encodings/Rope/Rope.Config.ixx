@@ -5,7 +5,7 @@
  * Provides construction, validation and serialization for RoPE configuration.
  *
  * Design principle (Mila-wide):
- *   - Constructor parameters are structurally required — no sensible default exists.
+ *   - Constructor parameters are structurally required -- no sensible default exists.
  *   - Fluent setters are reserved for optional behavioural parameters that have
  *     well-known defaults. There are no fluent overrides for constructor parameters.
  *
@@ -52,7 +52,7 @@ namespace Mila::Dnn
         {}
 
         // ====================================================================
-        // Optional fluent setters — behavioural parameters with sensible defaults.
+        // Optional fluent setters -- behavioural parameters with sensible defaults.
         // No fluent overrides exist for constructor parameters.
         // ====================================================================
 
@@ -73,7 +73,7 @@ namespace Mila::Dnn
         /**
          * @brief Set rotary sub-dimension per head (number of channels to rotate).
          *
-         * Default: 0 — the full head_dim is rotated.
+         * Default: 0 -- the full head_dim is rotated.
          */
         template <typename Self>
         decltype(auto) withRotaryDim( this Self&& self, size_t rotary_dim )

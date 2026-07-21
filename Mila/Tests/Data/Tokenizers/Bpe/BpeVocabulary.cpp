@@ -4,13 +4,12 @@
  */
 
 #include <gtest/gtest.h>
-
-import Mila;
-
 #include <filesystem>
 #include <fstream>
 #include <chrono>
 #include <random>
+
+import Mila;
 
 namespace Mila::Data::Tests
 {

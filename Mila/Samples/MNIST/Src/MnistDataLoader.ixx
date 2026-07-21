@@ -5,7 +5,7 @@ module;
 #include <algorithm>
 #include <string>
 #include <filesystem>
-#include <fstream>
+#include <cstdio>
 #include <type_traits>
 #include <cstdint>
 #include <stdexcept>
@@ -215,10 +215,18 @@ namespace Mila::Mnist
             return device_id;
         }
 
-        uint32_t readInt32( std::ifstream& stream )
+        // C stdio is used instead of std::ifstream to dodge an MSVC C++23-module
+        // bug (C2079: basic_istream<char>::sentry is reported undefined when
+        // istream::read is instantiated inside a module). fread does not touch
+        // the sentry template, so the IDX parsing compiles cleanly.
+        uint32_t readInt32( std::FILE* stream )
         {
             unsigned char buffer[4];
-            stream.read( reinterpret_cast<char*>(buffer), 4 );
+
+            if ( std::fread( buffer, 1, 4, stream ) != 4 )
+            {
+                throw std::runtime_error( "Unexpected end of file reading 32-bit integer" );
+            }
 
             return (static_cast<uint32_t>(buffer[0]) << 24) |
                 (static_cast<uint32_t>(buffer[1]) << 16) |
@@ -228,66 +236,84 @@ namespace Mila::Mnist
 
         void loadImages( const std::string& filename )
         {
-            std::ifstream file( filename, std::ios::binary );
+            std::FILE* file = std::fopen( filename.c_str(), "rb" );
             if (!file)
             {
                 throw std::runtime_error( "Cannot open file: " + filename );
             }
 
-            uint32_t magic = readInt32( file );
-            if (magic != 0x803)
+            try
             {
-                throw std::runtime_error( "Invalid MNIST image file format" );
+                uint32_t magic = readInt32( file );
+                if (magic != 0x803)
+                {
+                    throw std::runtime_error( "Invalid MNIST image file format" );
+                }
+
+                uint32_t num_images = readInt32( file );
+                uint32_t rows = readInt32( file );
+                uint32_t cols = readInt32( file );
+
+                if (rows != 28 || cols != 28)
+                {
+                    throw std::runtime_error( "Expected 28x28 images, got " +
+                        std::to_string( rows ) + "x" + std::to_string( cols ) );
+                }
+
+                num_samples_ = num_images;
+                images_.resize( static_cast<size_t>( num_images ) * rows * cols );
+
+                if (std::fread( images_.data(), 1, images_.size(), file ) != images_.size())
+                {
+                    throw std::runtime_error( "Error reading MNIST image file" );
+                }
+            }
+            catch (...)
+            {
+                std::fclose( file );
+                throw;
             }
 
-            uint32_t num_images = readInt32( file );
-            uint32_t rows = readInt32( file );
-            uint32_t cols = readInt32( file );
-
-            if (rows != 28 || cols != 28)
-            {
-                throw std::runtime_error( "Expected 28x28 images, got " +
-                    std::to_string( rows ) + "x" + std::to_string( cols ) );
-            }
-
-            num_samples_ = num_images;
-            images_.resize( num_images * rows * cols );
-            file.read( reinterpret_cast<char*>(images_.data()), images_.size() );
-
-            if (!file)
-            {
-                throw std::runtime_error( "Error reading MNIST image file" );
-            }
+            std::fclose( file );
         }
 
         void loadLabels( const std::string& filename )
         {
-            std::ifstream file( filename, std::ios::binary );
+            std::FILE* file = std::fopen( filename.c_str(), "rb" );
             if (!file)
             {
                 throw std::runtime_error( "Cannot open file: " + filename );
             }
 
-            uint32_t magic = readInt32( file );
-            if (magic != 0x801)
+            try
             {
-                throw std::runtime_error( "Invalid MNIST label file format" );
+                uint32_t magic = readInt32( file );
+                if (magic != 0x801)
+                {
+                    throw std::runtime_error( "Invalid MNIST label file format" );
+                }
+
+                uint32_t num_labels = readInt32( file );
+
+                if (num_labels != num_samples_)
+                {
+                    throw std::runtime_error( "Number of labels doesn't match number of images" );
+                }
+
+                labels_.resize( num_labels );
+
+                if (std::fread( labels_.data(), 1, labels_.size(), file ) != labels_.size())
+                {
+                    throw std::runtime_error( "Error reading MNIST label file" );
+                }
+            }
+            catch (...)
+            {
+                std::fclose( file );
+                throw;
             }
 
-            uint32_t num_labels = readInt32( file );
-
-            if (num_labels != num_samples_)
-            {
-                throw std::runtime_error( "Number of labels doesn't match number of images" );
-            }
-
-            labels_.resize( num_labels );
-            file.read( reinterpret_cast<char*>(labels_.data()), labels_.size() );
-
-            if (!file)
-            {
-                throw std::runtime_error( "Error reading MNIST label file" );
-            }
+            std::fclose( file );
         }
 
         void shuffleIndices()

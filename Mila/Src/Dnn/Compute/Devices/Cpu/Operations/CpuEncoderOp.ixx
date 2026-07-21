@@ -28,13 +28,10 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.TensorHostTypeMap;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.OperationType;
 import Dnn.Component;
-import Compute.OperationRegistrarHelpers;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CpuDevice;
@@ -77,11 +74,10 @@ namespace Mila::Dnn::Compute
      * - Token indices are discrete: no input gradient is produced. The `input_grad`
      *   parameter exists to satisfy the UnaryOperation interface but is unused.
      */
-    export class CpuEncoderOp : public UnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>
+    export class CpuEncoderOp : public Operation<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
         using MR = CpuMemoryResource;
-        using OperationBase = UnaryOperation<DeviceType::Cpu, TensorDataType::INT32, TensorDataType::FP32>;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
         using TensorType = Tensor<TensorDataType::FP32, MR>;
         using ConfigType = LpeConfig;
@@ -256,7 +252,7 @@ namespace Mila::Dnn::Compute
          * Behavior:
          * - Writes output in-place. Out-of-range token indices now throw.
          */
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             if ( !is_built_ )
             {
@@ -338,7 +334,7 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
         {
             if ( !is_built_ )
             {
@@ -456,19 +452,4 @@ namespace Mila::Dnn::Compute
         }
     };
 
-    /**
-     * @brief Registrar for CpuEncoderOp operation.
-     *
-     * Registers the operation with the OperationRegistry during static initialization.
-     */
-    export class CpuEncoderOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            const std::string_view op_name = OperationNames::Lpe;
-
-            registerUnaryOpType<DeviceType::Cpu, CpuEncoderOp, TensorDataType::INT32, TensorDataType::FP32>( op_name );
-        }
-    };
 }

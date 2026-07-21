@@ -54,6 +54,7 @@ namespace Mila::Data
          * trains the vocabulary, and saves it to disk.
          *
          * @param type TokenizerType discriminator (Char, Bpe, etc.).
+         * @param config Trainer configuration (vocabulary size, special tokens, etc.).
          * @param corpusFiles List of corpus file paths to train on.
          * @param outputPath Where to save the trained vocabulary.
          *

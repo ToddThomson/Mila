@@ -1,5 +1,5 @@
 /**
- * @file IKVMHA.ixx
+ * @file IPackedKvInference.ixx
  * @brief KV-cache inference interface for GPT-style packed-QKV MHA backends.
  */
 
@@ -16,15 +16,15 @@ namespace Mila::Dnn::Compute
      * @brief KV-cache inference interface for packed-QKV MHA backends.
      *
      * Implemented by GPT-style MHA backends (e.g. CudaMultiHeadAttentionOp).
-     * Uses fused QKV input throughout — Q, K, and V are concatenated along the
+     * Uses fused QKV input throughout -- Q, K, and V are concatenated along the
      * feature axis and split internally by the backend kernel.
      *
      * Position is implicit: GPT-style MHA always begins prefill at position 0.
      * Absolute positional encoding is handled upstream by Lpe, not inside attention.
      *
      * Two-phase inference protocol:
-     *   prefill — populate the KV cache from the full prompt sequence.
-     *   decode  — process one autoregressive token against the accumulated cache.
+     *   prefill -- populate the KV cache from the full prompt sequence.
+     *   decode  -- process one autoregressive token against the accumulated cache.
      */
     export struct IPackedKvInference : IKvCacheLifecycle
     {

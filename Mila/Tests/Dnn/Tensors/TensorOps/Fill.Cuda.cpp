@@ -1,3 +1,11 @@
+/**
+ * @file Fill.Cuda.cpp
+ * @brief CUDA tests for TensorOps fill() (Dnn.TensorOps:Fill).
+ *
+ * Device companion to Fill.Cpu.cpp. Exercises fill() on device memory resources.
+ * GPU-local: compiled only under MILA_ENABLE_CUDA.
+ */
+
 #include <gtest/gtest.h>
 #include <vector>
 #include <cstdint>
@@ -5,7 +13,7 @@
 
 import Mila;
 
-namespace Dnn::Tensors::TensorOps::Tests
+namespace Mila::Tests::Dnn::Tensors::TensorOps
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;

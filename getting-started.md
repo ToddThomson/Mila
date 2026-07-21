@@ -1,16 +1,17 @@
 # Getting Started with Mila
 
 This guide takes you from a fresh clone to building Mila, getting model weights ready, and
-running inference. If you want to contribute changes, Section 7 adds the fork-and-pull-request
-workflow on top.
+running inference. Section 7 shows how to consume Mila as a dependency in your own project;
+if you want to contribute changes, Section 8 adds the fork-and-pull-request workflow on top.
 
-**Who this is for.** Sections 1–6 apply to anyone building and running Mila. Contributors are
-a superset — they do everything a user does, then follow Section 7 for coding standards and
-the PR process. If you only want to read about what Mila is and does, start with the
-[README](README.md).
+**Who this is for.** Sections 1–6 apply to anyone building and running Mila. Section 7 is for
+building your own application against Mila. Contributors are a superset — they do everything a
+user does, then follow Section 8 for coding standards and the PR process. If you only want to
+read about what Mila is and does, start with the [README](README.md).
 
-Mila is a C++23 module-based DNN library for CUDA/CPU inference, currently in active
-alpha development. Breaking changes are expected — backward compatibility is not yet a goal.
+Mila is a C++23 module-based library for open LLMs (CUDA/CPU inference and training), currently in public beta
+(feature-frozen, hardening toward the v0.20 first production release). Pre-1.0, breaking
+changes are still expected — backward compatibility is not yet a goal.
 
 ---
 
@@ -66,7 +67,7 @@ cd mila
 ```
 
 That is all you need to build and run Mila. **If you intend to contribute**, use the
-fork-and-pull-request workflow in [Section 7](#7-contributing) instead — fork first, then
+fork-and-pull-request workflow in [Section 8](#8-contributing) instead — fork first, then
 clone your fork.
 
 ---
@@ -180,7 +181,9 @@ cmake -S . -B out/build/linux-release -G Ninja \
 ```
 
 For the CI-validated Clang path, swap in `-DCMAKE_C_COMPILER=clang-19
--DCMAKE_CXX_COMPILER=clang++-19` and append `-ccbin=gcc-14` to `CMAKE_CUDA_FLAGS`.
+-DCMAKE_CXX_COMPILER=clang++-19` and set `-DCMAKE_CUDA_HOST_COMPILER=gcc-14` (nvcc's
+host compiler for the `.cu` files -- do not put `-ccbin` in `CMAKE_CUDA_FLAGS`, that
+conflicts with the one CMake emits from `CMAKE_CUDA_HOST_COMPILER`).
 
 Notes:
 - Set `-DCMAKE_CUDA_ARCHITECTURES` to your GPU's arch (`89` = Ada). `native` fails on GPUs
@@ -346,7 +349,50 @@ forward + backward + AdamW loop.
 
 ---
 
-## 7. Contributing
+## 7. Consume Mila in your own project (FetchContent)
+
+To build your own application against Mila, pull it in with **FetchContent** — the supported way
+to depend on Mila. Mila compiles once, in your project's own toolchain (no install step, no
+prebuilt/recompiled ABI split); this is the same mechanism Mila uses for its own dependencies
+(googletest, CUTLASS, nlohmann).
+
+```cmake
+cmake_minimum_required(VERSION 4.0)
+project(MyApp LANGUAGES CXX CUDA)
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_SCAN_FOR_MODULES ON)   # your toolchain recompiles Mila's module units
+
+include(FetchContent)
+FetchContent_Declare(
+    Mila
+    GIT_REPOSITORY https://github.com/ToddThomson/Mila.git
+    GIT_TAG        v0.20.0           # pin to a published release tag
+)
+FetchContent_MakeAvailable(Mila)
+
+add_executable(my_app main.cpp)      # main.cpp does: import Mila;
+target_link_libraries(my_app PRIVATE Mila::Mila)
+
+# Clang consumers only (MSVC auto-configures module consumption):
+# target_compile_options(my_app PRIVATE -fno-implicit-modules -fno-implicit-module-maps)
+```
+
+`GIT_TAG`, `URL` (a release archive), and `SOURCE_DIR` (a local working tree) are interchangeable
+in `FetchContent_Declare`. Because C++23 module BMIs are not portable, your toolchain recompiles
+Mila's module units from source — inherent to consuming any module library, not specific to Mila.
+
+A complete, copy-paste starting point is in
+[`Mila/Samples/QuickStart`](Mila/Samples/QuickStart/README.md).
+
+> **`find_package(Mila)`?** Parked in favor of FetchContent: a module library is a source
+> distribution, so `find_package`'s prebuilt-binary benefit is void while its install layout is
+> pure maintenance surface. It remains on disk, opt-in only.
+
+---
+
+## 8. Contributing
 
 Everything above gets you building and running Mila. Contributing adds the
 fork-and-pull-request workflow on top.
@@ -417,9 +463,9 @@ coverage, and new encoding strategies under `Mila/Src/Dnn/Components/Encodings/`
 
 ---
 
-## 8. Where to go next
+## 9. Where to go next
 
-- [ROADMAP.md](ROADMAP.md) — current alpha status (Alpha.5) and the full task breakdown.
+- [ROADMAP.md](ROADMAP.md) — the release narrative and trajectory; [BACKLOG.md](BACKLOG.md) for the task breakdown.
 - [CLAUDE.md](CLAUDE.md) — architecture overview, type axes, dispatch, and code style.
 - `Mila/Specifications/` — design documents:
   [OperationDispatch.md](Mila/Specifications/OperationDispatch.md),

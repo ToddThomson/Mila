@@ -389,11 +389,7 @@ namespace Bard
         std::cout << "Model built successfully!" << std::endl;
         std::cout << model->toString() << std::endl;
 
-        // DEPRECATED: BuildConfig now sets TRAINING or INFERENCE mode, so this is redundant.
-        // Remove in favor of build config.
-        // model->setTraining( true );
-
-        auto optimizer = model->createOptimizer<AdamWOptimizer<TDeviceType, TDataType>>(
+        auto optimizer = model->template createOptimizer<AdamWOptimizer<TDeviceType, TDataType>>(
             AdamWConfig()
             .withLearningRate( config.learning_rate )
             .withBeta1( config.beta1 )

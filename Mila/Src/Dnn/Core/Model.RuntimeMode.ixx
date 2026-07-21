@@ -1,5 +1,5 @@
 /**
- * @file ComponentExecutionMode.ixx
+ * @file Model.RuntimeMode.ixx
  * @brief Build-time execution mode for component buffer allocation policy.
  */
 module;

@@ -34,8 +34,6 @@ import Compute.ExecutionContextTemplate;
 import Compute.OperationType;
 import Dnn.Component;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.CpuTensorDataTypeTraits;
@@ -64,11 +62,11 @@ namespace Mila::Dnn::Compute
      *  - dW += dY^T * X
      *  - db += sum(dY)
      */
-    export class CpuLinearOp : public UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>
+    export class CpuLinearOp : public Operation<DeviceType::Cpu, TensorDataType::FP32>
     {
     public:
         using MR = CpuMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>;
+        using OperationBaseType = Operation<DeviceType::Cpu, TensorDataType::FP32>;
         using TensorType = Tensor<TensorDataType::FP32, MR>;
         using CpuExecutionContext = ExecutionContext<DeviceType::Cpu>;
 
@@ -230,7 +228,7 @@ namespace Mila::Dnn::Compute
             // Cache OMP parallelization threshold
             enable_omp_ = (batch_size_ > 100);
 
-            UnaryOperationBase::build( config );
+            OperationBaseType::build( config );
         }
 
         // ====================================================================
@@ -247,16 +245,9 @@ namespace Mila::Dnn::Compute
          * Algorithm: Y = X * W^T + b
          * Zero redundant work - maximum performance.
          */
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             const float* X = static_cast<const float*>(input.rawData());
-
-            // DEBUG:
-            /*if ( const auto* in_t = dynamic_cast<const TensorType*>(&input) )
-            {
-                std::clog << this->getName() << ": ln input:\n" << in_t->toString( true ) << std::endl;
-            }*/
-            //----
 
             float* Y = static_cast<float*>(output.rawData());
 
@@ -290,7 +281,7 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
         {
             const float* X = static_cast<const float*>(input.rawData());
             const float* dY = static_cast<const float*>(output_grad.rawData());
@@ -465,25 +456,4 @@ namespace Mila::Dnn::Compute
         }
     };
 
-    export class CpuLinearOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cpu, TensorDataType::FP32, TensorDataType::FP32>(
-                "LinearOp",
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cpu, TensorDataType::FP32>>
-                {
-                    const auto& linearConfig = static_cast<const LinearConfig&>(config);
-                    return std::make_shared<CpuLinearOp>( context, linearConfig );
-                }
-            );
-        }
-
-        static inline bool isRegistered = []() {
-            registerOperations();
-            return true;
-            }();
-    };
 }

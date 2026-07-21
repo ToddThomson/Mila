@@ -41,14 +41,104 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
     void cuda_gqa_prefill_softmax_bf16(
         __nv_bfloat16* att, const __nv_bfloat16* preatt,
-        int B, int NH, int T_stride, int chunk_stride,
-        int chunk_len, int position_offset,
+        int B, int NH, int T_stride, int attended_len, int chunk_stride,
+        int chunk_len, int position_offset, int window,
+        cudaStream_t stream );
+
+    /**
+     * @brief Bounded sliding-window ring prefill softmax (BF16).
+     *
+     * Variant of cuda_gqa_prefill_softmax_bf16 for a KV cache stored as a ring of
+     * `capacity` rows. preatt/att column j is RING SLOT j; the kernel reconstructs
+     * each slot's absolute position (from end = position_offset + chunk_len - 1) to
+     * apply the window + causal mask. See SlidingWindowKvCache.md D6.
+     */
+    void cuda_gqa_prefill_softmax_ring_bf16(
+        __nv_bfloat16* att, const __nv_bfloat16* preatt,
+        int B, int NH, int capacity,
+        int chunk_len, int position_offset, int window,
         cudaStream_t stream );
 
     void cuda_gqa_prefill_unpermute_output_padded_bf16(
         const __nv_bfloat16* vaccum, __nv_bfloat16* out,
         int B, int actual_T, int padded_T,
         int NQH, int HS,
+        cudaStream_t stream );
+
+    /**
+     * @brief Fused FlashAttention prefill over the compact BF16 KV cache (Iteration 1).
+     *
+     * Streaming, causal, online-softmax attention that replaces the cuBLASLt
+     * QK -> prefill_softmax -> AV pipeline with a single kernel and zero transient
+     * attention workspace. Reads Q from the projection output [B, chunk_len, NH*HS]
+     * and K/V from the compact cache [B, NKV, cache_capacity, HS], writing the
+     * attention output directly to Y [B, chunk_len, NH*HS] -- no Q permute, no
+     * unpermute, no preatt/att/v_out materialization.
+     *
+     * Unbounded / global causal path (the caller routes kBounded == false here; the
+     * bounded ring routes to cuda_gqa_flash_prefill_ring_bf16 below). HS must be a
+     * multiple of 32 and <= 512 (Gemma 4 global_head_dim is 512, the head dim this path
+     * actually runs on; Llama 128 also qualifies). `scale` is the config-derived attention
+     * scale (1/sqrt(HS) for Llama, 1.0 for Gemma) -- never recomputed here. See
+     * GqaFlashAttention.md.
+     */
+    void cuda_gqa_flash_prefill_bf16(
+        const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
+        __nv_bfloat16* Y,
+        int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+        int position_offset, int window, float scale,
+        cudaStream_t stream );
+
+    /**
+     * @brief Fused FlashAttention prefill over the bounded sliding-window ring cache (BF16).
+     *
+     * Ring variant of cuda_gqa_flash_prefill_bf16 for the kBounded op: K/V physical row =
+     * absolute position % cache_capacity (capacity = window + prefill_chunk - 1), and the
+     * key-tile loop starts at the sliding band (~window keys per query tile, constant per
+     * block) instead of running causal-triangular from zero. Replaces the cuBLASLt QK ->
+     * prefill_softmax_ring -> AV pipeline on Gemma's local sliding layers. Requires
+     * window > 0. See GqaFlashAttention.md.
+     */
+    void cuda_gqa_flash_prefill_ring_bf16(
+        const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
+        __nv_bfloat16* Y,
+        int B, int chunk_len, int NH, int NKV, int HS, int cache_capacity,
+        int position_offset, int window, float scale,
+        cudaStream_t stream );
+
+    // ========================================================================
+    // GQA Decode — fused attention (BF16)
+    // ========================================================================
+
+    /// True when the fused decode kernel covers this geometry (head_size in
+    /// {128, 256, 512}, group_size 1..16); the caller falls back to the
+    /// cuBLASLt decode pipeline otherwise.
+    bool cuda_gqa_decode_attention_supported( int head_size, int group_size );
+
+    /// Device scratch bytes the fused decode kernel needs for its split-K
+    /// partials at the worst-case split count. Fetch via
+    /// ExecutionContext::getDeviceScratchBuffer at decode time.
+    size_t cuda_gqa_decode_attention_scratch_bytes( int B, int NH, int HS );
+
+    /**
+     * @brief Fused single-token decode attention over the compact BF16 KV cache.
+     *
+     * Replaces the cuBLASLt QK -> softmax_decode -> AV pipeline (and its
+     * T=1 identity Q-permute/unpermute copies) with one streaming
+     * online-softmax kernel that reads only the live attention band:
+     * absolute positions [max(0, actual_len - window), actual_len), physical
+     * cache row = position % cache_capacity (identity when unbounded). Serves
+     * both the unbounded and bounded-ring ops. Q is read from the projection
+     * output [B, 1, NH*HS]; Y is written as [B, 1, NH*HS]. Long bands are
+     * split-K parallelized across blocks with a fixup merge launch;
+     * split_scratch must hold cuda_gqa_decode_attention_scratch_bytes.
+     * `scale` is the config-derived attention scale, applied to the QK dots.
+     */
+    void cuda_gqa_decode_attention_bf16(
+        const __nv_bfloat16* Q, const __nv_bfloat16* K, const __nv_bfloat16* V,
+        __nv_bfloat16* Y, float* split_scratch,
+        int B, int NH, int NKV, int HS, int cache_capacity,
+        int actual_len, int window, float scale,
         cudaStream_t stream );
 
     // ========================================================================
@@ -326,8 +416,15 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
     void cuda_gqa_prefill_softmax_fp32(
         float* att, const float* preatt,
-        int B, int NH, int T_stride, int chunk_stride,
-        int chunk_len, int position_offset,
+        int B, int NH, int T_stride, int attended_len, int chunk_stride,
+        int chunk_len, int position_offset, int window,
+        cudaStream_t stream );
+
+    /// @copydoc cuda_gqa_prefill_softmax_ring_bf16
+    void cuda_gqa_prefill_softmax_ring_fp32(
+        float* att, const float* preatt,
+        int B, int NH, int capacity,
+        int chunk_len, int position_offset, int window,
         cudaStream_t stream );
 
     void cuda_gqa_prefill_softmax_fp16(

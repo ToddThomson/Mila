@@ -1,4 +1,7 @@
 torch>=2.0.0
+# GPT-2 / Llama convert on 4.43+. Gemma 4 (the `gemma4_unified` arch) needs a newer
+# transformers — validated on 5.12.1. If a Gemma load fails with an unknown/`gemma4`
+# model type, upgrade: pip install -U "transformers>=5.12.1".
 transformers>=4.43.0
 numpy>=1.24.0
 safetensors>=0.3.0

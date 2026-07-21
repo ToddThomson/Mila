@@ -1,5 +1,5 @@
 /**
- * @file GeluConfig.ixx
+ * @file Gelu.Config.ixx
  * @brief Configuration for the GELU activation module.
  *
  * Provides fluent setters and serialization/validation hooks for GELU-specific options.

@@ -5,13 +5,13 @@
  * LanguageModelConfig<TDerived> owns the deployment concerns that are universal
  * across all language model architectures:
  *
- *  1. context_length        — maximum sequence length the model is built for.
+ *  1. context_length        -- maximum sequence length the model is built for.
  *                             RoPE embeddings and KV cache buffers are sized to this.
  *
- *  2. WeightQuantization    — weight storage and matmul strategy for Linear components.
+ *  2. WeightQuantization    -- weight storage and matmul strategy for Linear components.
  *                             Defaults to WeightQuantization::None (BF16 weights).
  *
- *  3. KvCacheCompression    — KV cache storage and compression strategy for
+ *  3. KvCacheCompression    -- KV cache storage and compression strategy for
  *                             GroupedQueryAttention components.
  *                             Defaults to KvCacheCompression::None (no compression).
  *
@@ -37,7 +37,7 @@
  *
  * LanguageModelConfig is the public API surface for deployment configuration.
  * BuildContext is the internal carrier through the component tree.
- * fromPretrained() projects LanguageModelConfig into BuildContext once —
+ * fromPretrained() projects LanguageModelConfig into BuildContext once --
  * they are never the same object.
  *
  * ## Quantization Presets vs Fine-Grained Control
@@ -46,11 +46,11 @@
  * vocabulary. Fine-grained setters are available for atypical configurations:
  *
  * @code
- * // Preset — FP8 weights + FP8 KV cache
+ * // Preset -- FP8 weights + FP8 KV cache
  * LlamaModelConfig config = LlamaModelConfig( context_length )
  *     .withFP8Quantization();
  *
- * // Fine-grained — FP4 weights, no KV compression
+ * // Fine-grained -- FP4 weights, no KV compression
  * LlamaModelConfig config = LlamaModelConfig( context_length )
  *     .withWeightQuantization( WeightQuantization::FP4 )
  *     .withKvCacheCompression( KvCacheCompression::None );
@@ -75,21 +75,21 @@ namespace Mila::Dnn
      * @brief Weight storage and matmul strategy for Linear components.
      *
      * Maps to the TWeightQuant template parameter on Linear and CudaLinearOp
-     * via the fromPretrained() runtime→compile-time bridge. The mapping is:
+     * via the fromPretrained() runtime->compile-time bridge. The mapping is:
      *
-     *   None  → NoWeightQuant        (BF16 weights, standard cuBLASLt plan)
-     *   FP8   → PerChannelFp8<>      (FP8_E4M3 weights, per-channel float32 scales)
-     *   FP4   → PerGroupFp4<>        (future)
+     *   None  -> NoWeightQuant        (BF16 weights, standard cuBLASLt plan)
+     *   FP8   -> PerChannelFp8<>      (FP8_E4M3 weights, per-channel float32 scales)
+     *   FP4   -> PerGroupFp4<>        (future)
      *
      * This enum is Mila API vocabulary. Callers set it via fluent methods on
-     * the concrete model config — they do not interact with the policy structs
+     * the concrete model config -- they do not interact with the policy structs
      * directly.
      */
     export enum class WeightQuantization
     {
-        None,   ///< BF16 weights — default; no quantization overhead.
-        FP8,    ///< FP8_E4M3 per-channel weight quantization — Alpha.5 target.
-        FP4,    ///< Per-group FP4 weight quantization — future target.
+        None,   ///< BF16 weights -- default; no quantization overhead.
+        FP8,    ///< FP8_E4M3 per-channel weight quantization -- Alpha.5 target.
+        FP4,    ///< Per-group FP4 weight quantization -- future target.
     };
 
     // =========================================================================
@@ -100,19 +100,19 @@ namespace Mila::Dnn
      * @brief KV cache storage and compression strategy for GroupedQueryAttention.
      *
      * Maps to the TKvPolicy template parameter on GroupedQueryAttention and
-     * CudaGqaOp via the fromPretrained() runtime→compile-time bridge. The mapping is:
+     * CudaGqaOp via the fromPretrained() runtime->compile-time bridge. The mapping is:
      *
-     *   None  → NoKvCompression      (BF16 cache, no compression overhead)
-     *   FP8   → PerChannelKvFp8<>   (FP8_E4M3 cache, per-head per-token float32 scales)
+     *   None  -> NoKvCompression      (BF16 cache, no compression overhead)
+     *   FP8   -> PerChannelKvFp8<>   (FP8_E4M3 cache, per-head per-token float32 scales)
      *
      * New compression algorithms (SlidingWindow, LowRank, TurboQuant) add a
-     * value here and a corresponding policy struct in KvCache.QuantPolicy —
+     * value here and a corresponding policy struct in KvCache.QuantPolicy --
      * no other changes are required at this level.
      */
     export enum class KvCacheCompression
     {
-        None,   ///< No compression — default; BF16 KV cache.
-        FP8,    ///< FP8_E4M3 per-head per-token KV cache compression — Alpha.6 target.
+        None,   ///< No compression -- default; BF16 KV cache.
+        FP8,    ///< FP8_E4M3 per-head per-token KV cache compression -- Alpha.6 target.
     };
 
     // =========================================================================
@@ -211,7 +211,7 @@ namespace Mila::Dnn
         // =====================================================================
 
         /**
-         * @brief Full precision — BF16 weights, BF16 KV cache.
+         * @brief Full precision -- BF16 weights, BF16 KV cache.
          *
          * Resets both quantization axes to their defaults. Useful for
          * explicitly documenting intent or overriding a previously set preset.
@@ -225,7 +225,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief FP8 quantization — FP8 weights, FP8 KV cache.
+         * @brief FP8 quantization -- FP8 weights, FP8 KV cache.
          *
          * Maps to PerChannelFp8<> on Linear and PerChannelKvFp8<> on
          * GroupedQueryAttention. Good quality/compression tradeoff for
@@ -240,7 +240,7 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief FP4 quantization — FP4 weights, FP8 KV cache.
+         * @brief FP4 quantization -- FP4 weights, FP8 KV cache.
          *
          * Maps to PerGroupFp4<> on Linear (future) and PerChannelKvFp8<> on
          * GroupedQueryAttention. Aggressive compression; some quality loss
@@ -317,7 +317,7 @@ namespace Mila::Dnn
     protected:
 
         // =====================================================================
-        // Data members — accessible to derived configs
+        // Data members -- accessible to derived configs
         // =====================================================================
 
         dim_t              context_length_{ 0 };

@@ -15,14 +15,14 @@ namespace Mila::Dnn::Compute
      * @brief Capability interface for position-dependent paired operations.
      *
      * Implemented by operations that accept two input/output tensor pairs and
-     * whose mathematical output changes based on absolute token position —
+     * whose mathematical output changes based on absolute token position --
      * e.g. RoPE, which rotates both Q and K embeddings by position-dependent
      * angles.
      *
      * Parameter order follows the PairedOperation convention: all inputs first,
      * then all outputs, followed by the position argument.
      *
-     * Operations that are position-agnostic do not implement this interface —
+     * Operations that are position-agnostic do not implement this interface --
      * they use forward() for all modes.
      */
     export struct IPositionalPairedOp

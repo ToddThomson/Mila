@@ -86,14 +86,14 @@ namespace Mila::Logging
             }
         }
 
-        // FileSink owns a file handle — not copyable, not movable.
+        // FileSink owns a file handle -- not copyable, not movable.
         FileSink( const FileSink& ) = delete;
         FileSink& operator=( const FileSink& ) = delete;
         FileSink( FileSink&& ) = delete;
         FileSink& operator=( FileSink&& ) = delete;
 
         // -------------------------------------------------------------------------
-        // Logger interface — control
+        // Logger interface -- control
         // -------------------------------------------------------------------------
 
         /// @brief Sets the minimum level at which records are emitted.
@@ -118,7 +118,7 @@ namespace Mila::Logging
         }
 
         // -------------------------------------------------------------------------
-        // Logger interface — configuration
+        // Logger interface -- configuration
         // -------------------------------------------------------------------------
 
         /**
@@ -150,7 +150,7 @@ namespace Mila::Logging
         }
 
         // -------------------------------------------------------------------------
-        // Logger interface — emit methods
+        // Logger interface -- emit methods
         // -------------------------------------------------------------------------
 
         /// @brief Emits a record at Trace level.

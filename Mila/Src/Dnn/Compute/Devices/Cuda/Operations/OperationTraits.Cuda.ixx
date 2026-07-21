@@ -9,7 +9,7 @@
  *
  * Migration status:
  *   LinearOp                 complete
- *   GroupedQueryAttentionOp  complete (NoKvCompression; PerChannelKvFp8 pending CudaGqaOp support)
+ *   GroupedQueryAttentionOp  complete (NoKvCompression, SlidingWindowKvCache; PerChannelKvFp8 pending CudaGqaOp support)
  *   SamplingOp               pending
  *   policy-free ops          complete
  */
@@ -19,15 +19,19 @@ import Compute.OperationTraits.Template;
 import Compute.CudaLinearOp;
 import Compute.CudaGqaOp;
 import Compute.CudaGeluOp;
+import Compute.CudaElementwiseActivationOp;
 import Compute.CudaResidualOp;
 import Compute.CudaRmsNormOp;
+import Compute.CudaLayerNormOp;
 import Compute.CudaSoftmaxOp;
 import Compute.CudaSwigluOp;
+import Compute.CudaGegluOp;
 import Compute.CudaMultiHeadAttentionOp;
 import Compute.CudaRopeOp;
 import Compute.CudaLpeOp;
 import Compute.CudaTokenEmbeddingOp;
 import Compute.CudaSoftmaxCrossEntropyOp;
+import Compute.CudaSamplingOp;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 
@@ -37,9 +41,10 @@ namespace Mila::Dnn::Compute
     using namespace Mila::Dnn::Quant::KvCache;
     using namespace Mila::Dnn::Compute::Cuda::Linear;
     using namespace Mila::Dnn::Compute::Cuda::Gqa;
+    using namespace Mila::Dnn::Compute::Cuda::Sampling;
 
     // -------------------------------------------------------------------------
-    // LinearOp — CUDA specializations
+    // LinearOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     /// Unquantized FP32 path. Retained for validation and reference.
@@ -92,28 +97,44 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // GroupedQueryAttentionOp — CUDA specializations
+    // GroupedQueryAttentionOp -- CUDA specializations
     //
-    // TPolicy = NoKvCompression: uncompressed BF16/FP32 KV cache.
-    // TPolicy = PerChannelKvFp8<>: pending CudaGqaOp FP8 cache support.
+    // TPolicy = NoKvCompression:      uncompressed full-context BF16/FP32 KV cache.
+    // TPolicy = SlidingWindowKvCache: uncompressed bounded ring cache for sliding
+    //                                 layers (CudaGqaOp kBounded axis, SlidingWindowKvCache.md).
+    // TPolicy = PerChannelKvFp8<>:    pending CudaGqaOp FP8 cache support.
     // -------------------------------------------------------------------------
 
-    /// Unquantized FP32 path. No KV cache compression.
+    /// Unquantized FP32 path. Full-context KV cache.
     template<>
     struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::FP32, NoKvCompression>
     {
-        using type = CudaGqaOp<TensorDataType::FP32>;
+        using type = CudaGqaOp<TensorDataType::FP32, false>;
     };
 
-    /// Unquantized BF16 path. No KV cache compression. Standard inference precision.
+    /// Unquantized BF16 path. Full-context KV cache. Standard inference precision.
     template<>
-        struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::BF16, NoKvCompression>
+    struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::BF16, NoKvCompression>
     {
-        using type = CudaGqaOp<TensorDataType::BF16>;
+        using type = CudaGqaOp<TensorDataType::BF16, false>;
+    };
+
+    /// Bounded sliding-window ring cache, FP32. Sliding (local) layers only (window > 0).
+    template<>
+    struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::FP32, SlidingWindowKvCache>
+    {
+        using type = CudaGqaOp<TensorDataType::FP32, true>;
+    };
+
+    /// Bounded sliding-window ring cache, BF16. Sliding (local) layers only (window > 0).
+    template<>
+    struct OperationTraits<OperationType::GroupedQueryAttentionOp, DeviceType::Cuda, TensorDataType::BF16, SlidingWindowKvCache>
+    {
+        using type = CudaGqaOp<TensorDataType::BF16, true>;
     };
 
     // -------------------------------------------------------------------------
-    // GeluOp — CUDA specializations
+    // GeluOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     template<>
@@ -122,14 +143,35 @@ namespace Mila::Dnn::Compute
         using type = Cuda::Gelu::CudaGeluOp<TensorDataType::FP32>;
     };
 
+    // No BF16 row: cuda_gelu_impl is `float || half` only, so a BF16 row would advertise
+    // an op that hard-errors on instantiation. FP32-only is the honest advertisement; the
+    // BF16 FFN path uses GegluOp, not the standalone GeluOp. Re-add with a BF16 kernel, not
+    // a bare row, if a BF16 GeluOp is ever needed.
+
+    // -------------------------------------------------------------------------
+    // ElementwiseActivationOp -- CUDA specializations (FP32, BF16)
+    //
+    // Resolves the op *template*: the Activation component maps its compile-time
+    // ActivationType to a functor and instantiates op_for<Functor>. No fifth traits
+    // axis (see FfnAndMoE.md section 5.1).
+    // -------------------------------------------------------------------------
+
     template<>
-    struct OperationTraits<OperationType::GeluOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    struct OperationTraits<OperationType::ElementwiseActivationOp, DeviceType::Cuda, TensorDataType::FP32, void>
     {
-        using type = Cuda::Gelu::CudaGeluOp<TensorDataType::BF16>;
+        template<typename TFunctor>
+        using op_for = Cuda::Activation::CudaElementwiseActivationOp<TensorDataType::FP32, TFunctor>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::ElementwiseActivationOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        template<typename TFunctor>
+        using op_for = Cuda::Activation::CudaElementwiseActivationOp<TensorDataType::BF16, TFunctor>;
     };
 
     // -------------------------------------------------------------------------
-    // ResidualOp — CUDA specializations
+    // ResidualOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     template<>
@@ -145,7 +187,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // RmsNormOp — CUDA specializations
+    // RmsNormOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     template<>
@@ -161,7 +203,26 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // SoftmaxOp — CUDA specializations
+    // LayerNormOp -- CUDA specializations
+    //
+    // GPT-2 lineage. FP32 and FP16 kernels only (no BF16 LayerNorm kernel); the
+    // GPT-2 inference path runs at FP32.
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::LayerNormOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::LayerNorm::CudaLayerNormOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::LayerNormOp, DeviceType::Cuda, TensorDataType::FP16, void>
+    {
+        using type = Cuda::LayerNorm::CudaLayerNormOp<TensorDataType::FP16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // SoftmaxOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     template<>
@@ -170,14 +231,12 @@ namespace Mila::Dnn::Compute
         using type = Cuda::Softmax::CudaSoftmaxOp<TensorDataType::FP32>;
     };
 
-    template<>
-    struct OperationTraits<OperationType::SoftmaxOp, DeviceType::Cuda, TensorDataType::BF16, void>
-    {
-        using type = Cuda::Softmax::CudaSoftmaxOp<TensorDataType::BF16>;
-    };
+    // No BF16 row: cuda_softmax_forward is `float || half` only. The BF16 attention path
+    // runs softmax inside the fused GQA/decode kernels, not through the standalone SoftmaxOp.
+    // FP32-only is honest here; re-add with a BF16 kernel, not a bare row, if ever needed.
 
     // -------------------------------------------------------------------------
-    // SwigluOp — CUDA specializations
+    // SwigluOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     template<>
@@ -193,7 +252,23 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // MultiHeadAttentionOp — CUDA specializations
+    // GegluOp -- CUDA specializations (GELU-gated GLU; Gemma FFN, forward only)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::GegluOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::Geglu::CudaGegluOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::GegluOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::Geglu::CudaGegluOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // MultiHeadAttentionOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     template<>
@@ -202,14 +277,12 @@ namespace Mila::Dnn::Compute
         using type = Cuda::MultiHeadAttention::CudaMultiHeadAttentionOp<TensorDataType::FP32>;
     };
 
-    template<>
-    struct OperationTraits<OperationType::MultiHeadAttentionOp, DeviceType::Cuda, TensorDataType::BF16, void>
-    {
-        using type = Cuda::MultiHeadAttention::CudaMultiHeadAttentionOp<TensorDataType::BF16>;
-    };
+    // No BF16 row: CudaMhaOp dispatch is `float || half` only (the GPT-2 lineage runs MHA at
+    // FP32). Llama/Gemma use GQA, not MHA. FP32-only is honest; re-add with a BF16 kernel,
+    // not a bare row, if a BF16 MHA is ever needed. (Resolves the BF16 REVIEW in CudaMhaOp.Dispatch.ixx.)
 
     // -------------------------------------------------------------------------
-    // RopeOp — CUDA specializations
+    // RopeOp -- CUDA specializations
     // -------------------------------------------------------------------------
 
     template<>
@@ -225,7 +298,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // LpeOp — CUDA specializations
+    // LpeOp -- CUDA specializations
     // Index type is always INT32 (token position indices).
     // -------------------------------------------------------------------------
 
@@ -235,31 +308,40 @@ namespace Mila::Dnn::Compute
         using type = Cuda::Lpe::CudaLpeOp<TensorDataType::INT32, TensorDataType::FP32>;
     };
 
-    template<>
-    struct OperationTraits<OperationType::LpeOp, DeviceType::Cuda, TensorDataType::BF16, void>
-    {
-        using type = Cuda::Lpe::CudaLpeOp<TensorDataType::INT32, TensorDataType::BF16>;
-    };
+    // No BF16 row: CudaLpeOp dispatch is `float || half` only. Learned positional embeddings
+    // are a GPT-2-lineage feature and that path runs at FP32; Llama/Gemma use RoPE. FP32-only
+    // is honest; re-add with a BF16 kernel, not a bare row, if ever needed. (Resolves the BF16
+    // REVIEW in CudaLpeOp.Dispatch.ixx.)
 
     // -------------------------------------------------------------------------
-    // TokenEmbeddingOp — CUDA specializations
+    // TokenEmbeddingOp -- CUDA specializations
     // Index type is always INT32 (vocabulary token indices).
+    // TPolicy = table quantization policy (D4 Design B): NoWeightQuant keeps the
+    // full-precision table; PerChannelFp8<> stores FP8_E4M3 rows + FP32 row scales
+    // shared with a tied lm_head.
     // -------------------------------------------------------------------------
 
     template<>
-    struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Cuda, TensorDataType::FP32, NoWeightQuant>
     {
-        using type = Cuda::TokenEmbedding::CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::FP32>;
+        using type = Cuda::TokenEmbedding::CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::FP32, NoWeightQuant>;
     };
 
     template<>
-    struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Cuda, TensorDataType::BF16, NoWeightQuant>
     {
-        using type = Cuda::TokenEmbedding::CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::BF16>;
+        using type = Cuda::TokenEmbedding::CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::BF16, NoWeightQuant>;
+    };
+
+    /// FP8 per-vocab-row quantized table, BF16 gather-dequant output (D4 Design B).
+    template<>
+    struct OperationTraits<OperationType::TokenEmbeddingOp, DeviceType::Cuda, TensorDataType::BF16, PerChannelFp8<>>
+    {
+        using type = Cuda::TokenEmbedding::CudaTokenEmbeddingOp<TensorDataType::INT32, TensorDataType::BF16, PerChannelFp8<>>;
     };
 
     // -------------------------------------------------------------------------
-    // CrossEntropyOp — CUDA specializations
+    // CrossEntropyOp -- CUDA specializations
     // Logits precision matches compute precision; target type is always INT32.
     // -------------------------------------------------------------------------
 
@@ -273,6 +355,22 @@ namespace Mila::Dnn::Compute
     struct OperationTraits<OperationType::CrossEntropyOp, DeviceType::Cuda, TensorDataType::BF16, void>
     {
         using type = Cuda::SoftmaxCrossEntropy::CudaSoftmaxCrossEntropyOp<TensorDataType::BF16>;
+    };
+
+    // -------------------------------------------------------------------------
+    // SamplingOp -- CUDA specializations (logits precision; INT32 token output)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::SamplingOp, DeviceType::Cuda, TensorDataType::FP32, void>
+    {
+        using type = Cuda::Sampling::CudaSamplingOp<TensorDataType::FP32>;
+    };
+
+    template<>
+    struct OperationTraits<OperationType::SamplingOp, DeviceType::Cuda, TensorDataType::BF16, void>
+    {
+        using type = Cuda::Sampling::CudaSamplingOp<TensorDataType::BF16>;
     };
 
 }  // namespace Mila::Dnn::Compute

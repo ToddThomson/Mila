@@ -1,5 +1,5 @@
 /**
- * @file CudaRmsNormOp.ixx
+ * @file RmsNormOp.ixx
  * @brief CUDA implementation of RMS Normalization operation.
  */
 
@@ -30,8 +30,6 @@ import Dnn.TensorHostTypeMap;
 import Dnn.TensorPartitioning;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.DeviceType;
 
 // DEBUG:
@@ -66,11 +64,11 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
      */
     export template<TensorDataType TPrecision>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaRmsNormOp : public UnaryOperation<DeviceType::Cuda, TPrecision>
+    class CudaRmsNormOp : public Operation<DeviceType::Cuda, TPrecision>
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
+        using OperationBaseType = Operation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
@@ -260,16 +258,48 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
             rstd_tensor_ = std::make_shared<TensorType>( device, shape_t{ num_slices }, "rstd" );
             rstd_ = static_cast<NativeType*>(rstd_tensor_->rawData());
 
-            UnaryOperationBase::build( config );
+            OperationBaseType::build( config );
         }
 
         /**
          * @brief Execute forward pass (hot path).
          *
          * Computes RMS-normalized output and caches forward-pass statistics required for backward().
+         * Launch geometry is derived from the runtime input shape; build() fixes only the
+         * normalization axis and the maximum slice count.
          */
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
+            const auto& input_shape = input.shape();
+            const int64_t ndim = static_cast<int64_t>( input_shape.size() );
+
+            // Launch geometry follows the runtime tensor, not the build shape: components
+            // are built once at the widest (prefill chunk) shape but decode calls arrive
+            // with a single row. Mirrors CudaLayerNormOp::forward.
+            if ( norm_axis_ >= ndim || static_cast<int64_t>( input_shape[ norm_axis_ ] ) != norm_dim_ )
+            {
+                throw std::runtime_error( "CudaRmsNormOp::forward - input shape is incompatible with the built normalization axis" );
+            }
+
+            int64_t outer = 1;
+
+            for ( int64_t i = 0; i < norm_axis_; ++i )
+            {
+                outer *= static_cast<int64_t>( input_shape[ i ] );
+            }
+
+            int64_t inner = 1;
+
+            for ( int64_t i = norm_axis_ + 1; i < ndim; ++i )
+            {
+                inner *= static_cast<int64_t>( input_shape[ i ] );
+            }
+
+            if ( outer * inner > static_cast<int64_t>( rstd_tensor_->size() ) )
+            {
+                throw std::runtime_error( "CudaRmsNormOp::forward - runtime slice count exceeds the built maximum" );
+            }
+
             const NativeType* X = static_cast<const NativeType*>(input.rawData());
             NativeType* Y = static_cast<NativeType*>(output.rawData());
 
@@ -279,8 +309,8 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
                 Y, X,
                 weight_, bias_,
                 rstd_,
-                outer_size_, inner_size_, norm_dim_,
-                config_.getEpsilon(),
+                static_cast<int>( outer ), static_cast<int>( inner ), norm_dim_,
+                config_.getEpsilon(), config_.getUnitOffset(),
                 stream );
         }
 
@@ -293,7 +323,7 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
         {
             const NativeType* X = static_cast<const NativeType*>(input.rawData());
             const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
@@ -343,30 +373,4 @@ namespace Mila::Dnn::Compute::Cuda::RmsNorm
         int norm_dim_{ 0 };
     };
 
-    export class CudaRmsNormOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            const std::string opName = "RmsNormOp";
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
-                {
-                    const auto& rnConfig = static_cast<const RmsNormConfig&>(config);
-                    return std::make_shared<CudaRmsNormOp<TensorDataType::FP32>>( context, rnConfig );
-                } );
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::BF16, TensorDataType::BF16>(
-                opName,
-                []( IExecutionContext* context,
-                    const ComponentConfig& config ) -> std::shared_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::BF16>>
-                {
-                    const auto& rnConfig = static_cast<const RmsNormConfig&>(config);
-                    return std::make_shared<CudaRmsNormOp<TensorDataType::BF16>>( context, rnConfig );
-                } );
-        }
-    };
 }

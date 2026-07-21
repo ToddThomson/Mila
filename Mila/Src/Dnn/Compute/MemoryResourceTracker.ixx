@@ -88,24 +88,20 @@ namespace Mila::Dnn::Compute
             delete underlying_;
         }
 
-        /**
-         * @brief Copies memory between potentially different memory spaces, delegating to underlying resource.
-         *
-         * @param dst Destination pointer
-         * @param src Source pointer
-         * @param size_bytes Number of bytes to copy
+        /*
+         * Retired in place. Copy memory between potentially different memory spaces,
+         * delegating to the underlying resource. Params: dst -- destination pointer;
+         * src -- source pointer; size_bytes -- number of bytes to copy.
          */
         /*void memcpy(void* dst, const void* src, std::size_t size_bytes) override {
             underlying_->memcpy(dst, src, size_bytes);
             MemoryStats::memcpyOperationCount++;
         }*/
 
-        /**
-         * @brief Sets memory to a specific byte value, delegating to underlying resource.
-         *
-         * @param ptr Pointer to the memory block to fill
-         * @param value Byte value to set (0-255)
-         * @param size_bytes Number of bytes to set
+        /*
+         * Retired in place. Set memory to a specific byte value, delegating to the
+         * underlying resource. Params: ptr -- memory block to fill; value -- byte
+         * value (0-255); size_bytes -- number of bytes to set.
          */
         /*void memset(void* ptr, int value, std::size_t size_bytes) override {
             underlying_->memset(ptr, value, size_bytes);

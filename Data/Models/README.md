@@ -37,8 +37,8 @@ See `Mila/Tools/Converters/README.md` for full setup and usage instructions.
 
 ## Planned Models
 
-- `Qwen3/` — Qwen 3 variants (Beta.1)
-- `Mistral/` — Ministral 3B and 8B variants (Beta.2)
+- `Qwen3/` — Qwen 3 variants (Future — the presumptive next release)
+- `Mistral/` — Ministral 3B and 8B variants (Future)
 
 ## Model Organization
 

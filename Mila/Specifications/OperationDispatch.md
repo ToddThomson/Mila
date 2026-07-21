@@ -271,7 +271,9 @@ see §5 for the MSVC eager-instantiation constraint that prevents this.
 
 An unsupported `(OperationType, DeviceType, TPrecision, TPolicy)` combination
 produces a hard compile error at the `::type` access site — no runtime exception,
-no hash map lookup. The error message identifies the exact missing specialization.
+no hash map lookup. The *legibility* of that error is not automatic, however: two
+distinct failure modes produce very different diagnostics, and one is actively
+misleading. See §12.
 
 ---
 
@@ -342,5 +344,75 @@ When adding a new policy dimension to an existing op (e.g. FP4 weights for Linea
 
 ---
 
-*This document reflects design decisions made through May 2026.*
+## 12. Diagnostics — making unsupported combinations fail legibly
+
+Compile-time dispatch means the compiler error *is* the user interface for an
+unsupported combination. Today that interface is poor, and §7's hard error is
+legible in only one of two failure modes:
+
+1. **Missing specialization** — `OperationTraits<...>::type` on an unspecialized
+   primary yields an "incomplete type" / use-of-undefined-template error. It does
+   not name *which* axis is unsupported, only that a type is incomplete.
+
+2. **Present-but-broken specialization** — a specialization that exists but maps
+   to a concrete op whose own constraints fail. The diagnostic is a multi-level
+   constraint cascade deep inside the kernel and never names the real cause. This
+   is *worse* than a missing specialization: the dispatch table advertises a
+   capability the backend does not have.
+
+   **Motivating example:** `OperationTraits<GeluOp, Cuda, BF16>` maps to
+   `CudaGeluOp<BF16>`, but `cuda_gelu_impl` is constrained to `float || half` (an
+   FP16-era kernel never migrated to BF16). Instantiating `Gelu<Cuda, BF16>`
+   produces an opaque `C7602` constraint failure on MSVC. The row lied, and
+   nothing caught it until a test instantiated it.
+
+### Principle: fail high, fail in words, from one source of truth
+
+**A. Friendly primary-template assert.** The unspecialized `OperationTraits`
+primary should carry `static_assert( always_false<...>, "No operation registered
+for this OperationType / DeviceType / TensorDataType / Policy. See
+OperationDispatch.md." )` via the dependent-false idiom, converting failure mode 1
+from an incomplete-type puzzle into a sentence. A `static_assert` message prints
+verbatim, outside the template backtrace, so it is compiler-agnostic and
+side-steps MSVC's `C7602` opacity. Removing a bogus specialization (failure mode
+2) routes it back into this friendly path.
+
+**B. A single authoritative capability predicate.** The root cause of the BF16 lie
+is that "is `<Op, Device, Precision, Policy>` real?" is asserted in two places that
+can drift — the traits table and the kernel's `requires`-clause. Make it one: a
+pure boolean trait `OperationSupported<TOp, TDeviceType, TPrecision, TPolicy>`,
+specialized `true` only for combinations the backend actually implements. The
+kernel constraint, the traits specialization, and a component-level assert all
+reference it, so the table cannot advertise what the kernel rejects.
+
+This predicate is **safe to `static_assert` inside the component class body**,
+unlike the member-probing `LinearOpConcept` of §5. The §5 hazard is specific to
+concepts that name op *members* (`op.forward(...)`), which forces MSVC to eagerly
+instantiate those member bodies. A pure capability predicate over the
+`(Op, Device, Precision, Policy)` tuple touches no op member, so it does not
+trigger eager instantiation — it surfaces the error at `Gelu<Cuda, BF16>`, the
+line the user wrote, naming the component.
+
+**C. Name the kernel concepts.** Prefer a named concept
+(`concept CudaGeluNative = ...;`) over a raw `requires std::is_same_v<...> || ...`
+so the diagnostic at least names the failed concept. Marginal, but free as each op
+is touched.
+
+### Workflow
+
+When a specialization error is opaque, reproduce the offending translation unit
+under **Clang** (the WSL build). Clang's template diagnostics are markedly more
+legible than MSVC's `C7602` form.
+
+### Adoption
+
+This is `Src` work spanning the dispatch core and every op's constraint, so it is
+adopted incrementally — pair it with the FP16 removal, when each op's
+supported-precision set is made explicit anyway, rather than a big-bang refactor.
+The capability predicate (B) is the design target; the friendly primary assert (A)
+is the high-ROI first step. Tracked in BACKLOG.
+
+---
+
+*This document reflects design decisions made through June 2026.*
 *Update when new operations, weight formats, or backend devices are added.*

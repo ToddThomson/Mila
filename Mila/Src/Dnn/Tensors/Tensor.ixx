@@ -106,6 +106,9 @@ namespace Mila::Dnn
      */
     class UniqueIdGenerator {
     public:
+        
+        // REVIEW: Is a tensor's unique Id even necessary? Is it used anywhere? If not, remove it to simplify the design.
+
         /**
          * @brief Generates the next unique identifier atomically
          *
@@ -155,6 +158,7 @@ namespace Mila::Dnn
          *
          * @param device_id Device identifier (type + index)
          * @param shape Vector defining the size of each dimension in row-major order
+         * @param name Optional tensor name for diagnostics (default: empty)
          *
          * @throws std::invalid_argument If device id is invalid (checked by validateDeviceId)
          * @throws std::runtime_error If device type doesn't match memory resource
@@ -470,8 +474,13 @@ namespace Mila::Dnn
         /**
          * @brief Check if tensor is in a valid state (not moved-from)
          */
-        bool isValid() const noexcept {
-            return true; // FIXME: Do we need a moved from state? device_id_;
+        bool isValid() const noexcept
+        {
+            // REVIEW: Do we need a moved from state? device_id_;
+            // Why do would it always return true?
+            // Full analysis required to see who uses this?
+
+            return true;
         }
 
         // ====================================================================
@@ -576,6 +585,7 @@ namespace Mila::Dnn
          */
         std::string getUId() const override
         {
+            // REVIEW: The getUId() is only used in tests. Do we need it? If not, remove it to simplify the design.
             return uid_;
         }
 
@@ -730,17 +740,8 @@ namespace Mila::Dnn
          * Scalars allocate normally (size==1); truly empty tensors allocate nothing.
          */
         void allocateBuffer() {
-            if (size_ > 0) {
-
-                // DEBUG
-                //std::cout << "Tensor::allocateBuffer: "
-                //    << uid_ << (name_.empty() ? "" : "::" + name_)
-                //    << " device=" << device_id_.toString()
-                //    << " size=" << detail::formatBytes( size_ * elementSize() )
-                //    << " shape=" << shapeToString( shape_ )
-                //    << std::endl;
-                // END DEBUG
-
+            if (size_ > 0)
+            {
                 buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>( device_id_.index, size_);
             }
         }
@@ -803,14 +804,6 @@ namespace Mila::Dnn
         int64_t computeSize( const shape_t& shape ) const
         {
             return std::ranges::fold_left( shape, int64_t{ 1 }, std::multiplies{} );
-
-            // REVIEW: Improbably bug in the std::accumulate version with 1ull initial value causing overflow for large shapes.
-            // std::ranges::fold_left with int64_t initial value works correctly.
-            // 
-            // TODO: Remove the old version after testing and validation of the new implementation.
-            // 
-            // Product of empty sequence is 1 (multiplicative identity) for scalar construction
-            // return std::accumulate( shape.begin(), shape.end(), 1ull, std::multiplies<int64_t>() );
         }
 
         /**
@@ -935,11 +928,25 @@ namespace Mila::Dnn
                         oss << indent << "[" << std::endl;
 
                         std::string inner = outputBuffer( index + offset, depth + 1 );
-                        std::istringstream iss( inner );
-                        std::string line;
-                        while ( std::getline( iss, line ) ) {
-                            // Recursive output already includes the correct indentation for its depth.
-                            oss << line << std::endl;
+
+                        // Re-emit each line of the child block (its recursive output already carries
+                        // the correct indentation). A manual split on '\n' replaces std::getline +
+                        // std::istringstream: instantiating getline inside this module trips an MSVC
+                        // bug (C2079: basic_istream::sentry undefined) even with <sstream> in the
+                        // global module fragment.
+                        size_t line_start = 0;
+                        while ( line_start <= inner.size() ) {
+                            size_t newline = inner.find( '\n', line_start );
+
+                            if ( newline == std::string::npos ) {
+                                if ( line_start < inner.size() ) {
+                                    oss << inner.substr( line_start ) << std::endl;
+                                }
+                                break;
+                            }
+
+                            oss << inner.substr( line_start, newline - line_start ) << std::endl;
+                            line_start = newline + 1;
                         }
 
                         oss << indent << "]" << std::endl;

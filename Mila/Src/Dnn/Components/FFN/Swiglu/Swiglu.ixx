@@ -1,0 +1,404 @@
+/**
+ * @file Swiglu.ixx
+ * @brief SwiGLU activation component implementation.
+ *
+ * Device-templated SwiGLU component that delegates compute to a registered
+ * device-specific UnaryOperation backend (registered as "SwigluOp").
+ */
+
+module;
+#include <memory>
+#include <vector>
+#include <string>
+#include <sstream>
+#include <type_traits>
+#include <stdexcept>
+#include <format>
+#include <utility>
+#include <optional>
+
+export module Dnn.Components.Swiglu;
+export import Dnn.Components.SwigluConfig;
+
+import Dnn.Components.Gelu;
+import Dnn.ActivationType;
+import Dnn.Component;
+import Dnn.ComponentType;
+import Dnn.Tensor;
+import Dnn.ITensor;
+import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
+import Dnn.TensorTypes;
+import Compute.Device;
+import Compute.DeviceId;
+import Compute.DeviceType;
+import Compute.DeviceTypeTraits;
+import Compute.IExecutionContext;
+import Compute.ExecutionContextFactory;
+import Compute.OperationTraits;
+import Compute.CpuMemoryResource;
+import Serialization.ModelArchive;
+import Serialization.Tensor;
+import Serialization.Mode;
+import Serialization.Metadata;
+
+namespace Mila::Dnn
+{
+    using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Serialization;
+
+    /**
+     * @brief Gated-linear-unit (GLU-family) activation component.
+     *
+     * Splits the input along the feature axis into gate|value halves and computes
+     *   out = TGate(gate) * value
+     * The gate function is a compile-time parameter: TGate = Silu realizes SwiGLU
+     * (the existing optimized SwigluOp), TGate = Gelu realizes GeGLU (GegluOp, the
+     * Gemma FFN). The default keeps the historical SwiGLU behavior unchanged.
+     *
+     * Delegates work to the device operation selected by the gate (SwigluOp / GegluOp).
+     */
+    export template<DeviceType TDeviceType, TensorDataType TPrecision, ActivationType TGate = ActivationType::Silu>
+        requires PrecisionSupportedOnDevice<TPrecision, TDeviceType>
+    class Swiglu : public Component<TDeviceType, TPrecision>
+    {
+        static_assert( TGate == ActivationType::Silu || TGate == ActivationType::Gelu,
+            "Swiglu gate must be Silu (SwiGLU) or Gelu (GeGLU)." );
+
+    public:
+        using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
+        using TensorType = Tensor<TPrecision, MR>;
+        using ComponentBase = Component<TDeviceType, TPrecision>;
+
+        explicit Swiglu( const std::string& name, const SwigluConfig& config, std::optional<DeviceId> device_id = std::nullopt )
+            : ComponentBase( name ), config_( config )
+        {
+            config_.validate();
+
+            if ( device_id.has_value() )
+            {
+                if ( device_id->type != TDeviceType )
+                {
+                    throw std::invalid_argument( "Swiglu: device type mismatch" );
+                }
+
+                owned_exec_context_ = createExecutionContext( device_id.value() );
+                this->setExecutionContext( owned_exec_context_.get() );
+            }
+        }
+
+        ~Swiglu() override = default;
+
+        TensorType& forward( const TensorType& input )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "Swiglu::forward: component must be built before forward pass" );
+            }
+
+            const auto& input_shape = input.shape();
+
+            shape_t view_shape = input_shape;
+            view_shape.back() /= 2;
+
+            if ( output_view_->shape() != view_shape )
+            {
+                output_view_.emplace( output_->view( view_shape ) );
+            }
+
+            operation_->forward( input, *output_view_ );
+            
+            return *output_view_;
+        }
+
+        TensorType& backward( const TensorType& input, const TensorType& output_grad )
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error( "Swiglu::backward: component must be built before backward pass" );
+            }
+
+            if ( !this->isTrainingMode() )
+            {
+                throw std::runtime_error( "Swiglu::backward: component must be in training mode" );
+            }
+
+            zero( *input_grad_ );
+
+            operation_->backward( input, output_grad, *input_grad_ );
+
+            return *input_grad_;
+        }
+
+        void synchronize() override
+        {
+            this->getExecutionContext()->synchronize();
+        }
+
+        void save_( ModelArchive& archive, SerializationMode mode ) const override
+        {
+            (void)mode;
+
+            SerializationMetadata meta;
+            meta.set( "type", "Swiglu" )
+                .set( "version", int64_t( 1 ) )
+                .set( "name", this->getName() )
+                .set( "template_device", deviceTypeToString( TDeviceType ) )
+                .set( "template_precision", static_cast<int64_t>(TPrecision) );
+
+            archive.writeMetadata( "meta.json", meta );
+
+            archive.writeMetadata( "config.json", config_.toMetadata() );
+        }
+
+        static std::unique_ptr<Swiglu> fromArchive_(
+            ModelArchive& archive,
+            const std::string& component_name,
+            IExecutionContext* exec_context )
+        {
+            try
+            {
+                SerializationMetadata meta = archive.readMetadata( "meta.json" );
+                validateMetadata_( meta, component_name );
+
+                SerializationMetadata cfg = archive.readMetadata( "config.json" );
+                SwigluConfig config;
+                config.fromMetadata( cfg );
+                config.validate();
+
+                auto inst = std::make_unique<Swiglu>( component_name, config );
+                if ( exec_context )
+                {
+                    inst->setExecutionContext( exec_context );
+                }
+                return inst;
+            }
+            catch ( const std::exception& e )
+            {
+                throw std::runtime_error( std::format( "Swiglu::fromArchive: error for '{}': {}", component_name, e.what() ) );
+            }
+        }
+
+        size_t parameterCount() const override {
+            return 0;
+        }
+
+        std::vector<ITensor*> getParameters() const override {
+            return {};
+        }
+
+        std::vector<ITensor*> getGradients() const override {
+            return {};
+        }
+
+        // ====================================================================
+        // Identification and Description
+        // ====================================================================
+
+        /**
+         * @brief Install a shared output slot (activation pooling).
+         *
+         * Must be called before build(): onBuilding then skips output self-allocation
+         * after validating the slot's storage covers the build shape. forward()
+         * already always returns a shape-adjusted view, so a wider slot never leaks
+         * its geometry to callers. Mirrors Linear::installSharedWeight; self-allocation
+         * remains the default. The slot is owned and memory-accounted by the installer.
+         */
+        void installSharedOutput( std::shared_ptr<TensorType> output )
+        {
+            if ( this->isBuilt() )
+                throw std::logic_error(
+                    "Swiglu '" + this->getName() + "': installSharedOutput must be called before build()" );
+
+            output_ = std::move( output );
+            output_installed_ = true;
+        }
+
+        const ComponentType getType() const override
+        {
+            return ComponentType::Swiglu;
+        }
+
+        DeviceId getDeviceId() const override
+        {
+            return this->getExecutionContext()->getDeviceId();
+        }
+
+        /**
+         * @brief Return memory allocation breakdown.
+         */
+        MemoryStats getMemoryStats() const override
+        {
+            MemoryStats stats;
+
+            // An installed shared output slot is owned and counted by the installer.
+            if ( output_ != nullptr && !output_installed_ )
+            {
+                stats.device_state_bytes += output_->getStorageSize();
+            }
+            if ( input_grad_ != nullptr )
+            {
+                stats.device_gradient_bytes += input_grad_->getStorageSize();
+            }
+            
+            return stats;
+        }
+
+        std::string toString() const override
+        {
+            std::ostringstream oss;
+            oss << "--------------------" << std::endl;
+            oss << "Swiglu: " << this->getName() << std::endl;
+            oss << "Device: " << deviceTypeToString( this->getDeviceType() ) << std::endl;
+            
+            return oss.str();
+        }
+
+    protected:
+        
+        void onExecutionContextSet() override
+        {
+            createOperation();
+        }
+
+        void onBuilding( const BuildContext& build_context ) override
+        {
+            validateBuildContext( build_context );
+
+            const auto& input_shape = build_context.inputShape();
+
+            operation_->build( build_context );
+
+            // Output shape is same as input but with feature dim halved for gate/value split
+            shape_t output_shape = input_shape;
+            output_shape.back() /= 2;
+
+            DeviceId device_id = this->getExecutionContext()->getDeviceId();
+
+            if ( output_installed_ )
+            {
+                int64_t needed = 1;
+                for ( auto d : output_shape )
+                    needed *= d;
+
+                if ( !output_ || output_->size() < needed )
+                    throw std::invalid_argument(
+                        "Swiglu '" + this->getName() + "': installed shared output slot is smaller than the build shape requires" );
+            }
+            else
+            {
+                output_ = std::make_shared<TensorType>( device_id, output_shape );
+            }
+
+            output_view_.emplace( output_->view( output_shape ) );
+
+            if ( build_context.isTrainingMode() )
+            {
+                input_grad_ = std::make_unique<TensorType>( device_id, input_shape, this->getName() + ".input_grad" );
+                zero( *input_grad_ );
+            }
+        }
+
+        void onTrainingModeChanging( TrainingMode training_mode ) override
+        {
+            operation_->setTrainingMode( training_mode );
+        }
+
+    private:
+        // The gate selects the backend op: SiLU -> the existing optimized SwigluOp,
+        // GELU -> GegluOp. The optimized SiLU kernels are untouched by GeGLU.
+        static constexpr OperationType kGateOp =
+            (TGate == ActivationType::Silu) ? OperationType::SwigluOp : OperationType::GegluOp;
+        using OpType = typename OperationTraits<kGateOp, TDeviceType, TPrecision>::type;
+
+        SwigluConfig config_;
+        shape_t input_shape_;
+
+        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
+        std::shared_ptr<OpType> operation_{ nullptr };
+
+        // Self-allocated at build, or an installed shared slot (installSharedOutput)
+        // that the component views a prefix of.
+        std::shared_ptr<TensorType> output_{ nullptr };
+        bool output_installed_{ false };
+        std::optional<TensorType> output_view_;
+
+        std::unique_ptr<TensorType> input_grad_{ nullptr };
+
+        void validateBuildContext( const BuildContext& build_context ) const
+        {
+            const auto& input_shape = build_context.inputShape();
+
+            if ( input_shape.size() != 3 )
+            {
+                throw std::invalid_argument(
+                    std::format( "SwiGLU: expected rank-3 input [B, T, 2*hidden_dim], got rank {}", input_shape.size() ) );
+            }
+
+            if ( input_shape[ 0 ] <= 0 )
+            {
+                throw std::invalid_argument(
+                    std::format( "SwiGLU: batch dimension must be > 0, got {}", input_shape[ 0 ] ) );
+            }
+
+            if ( input_shape[ 1 ] <= 0 )
+            {
+                throw std::invalid_argument(
+                    std::format( "SwiGLU: sequence dimension must be > 0, got {}", input_shape[ 1 ] ) );
+            }
+
+            if ( input_shape[ 2 ] <= 0 )
+            {
+                throw std::invalid_argument(
+                    std::format( "SwiGLU: feature dimension must be > 0, got {}", input_shape[ 2 ] ) );
+            }
+
+            if ( input_shape[ 2 ] % 2 != 0 )
+            {
+                throw std::invalid_argument(
+                    std::format( "SwiGLU: feature dimension must be even for gate/value split, got {}", input_shape[ 2 ] ) );
+            }
+        }
+
+        static void validateMetadata_( const SerializationMetadata& meta, const std::string& component_name )
+        {
+            int64_t version = meta.tryGetInt( "version" ).value_or( 0 );
+            if ( version != 1 )
+            {
+                throw std::runtime_error( std::format( "Swiglu: unsupported version {} for '{}'", version, component_name ) );
+            }
+
+            std::string type = meta.tryGetString( "type" ).value_or( "" );
+            if ( type != "Swiglu" )
+            {
+                throw std::runtime_error( std::format( "Swiglu: type mismatch for '{}': expected 'Swiglu', got '{}'", component_name, type ) );
+            }
+
+            std::string file_device = meta.tryGetString( "template_device" ).value_or( "" );
+            int64_t file_precision = meta.tryGetInt( "template_precision" ).value_or( -1 );
+
+            std::string expected_device = deviceTypeToString( TDeviceType );
+            int64_t expected_precision = static_cast<int64_t>(TPrecision);
+
+            if ( file_device != expected_device )
+            {
+                throw std::runtime_error( std::format( "Swiglu: device mismatch for '{}': archive='{}', expected='{}'", component_name, file_device, expected_device ) );
+            }
+
+            if ( file_precision != expected_precision )
+            {
+                throw std::runtime_error( std::format( "Swiglu: precision mismatch for '{}': archive={}, expected={}", component_name, file_precision, expected_precision ) );
+            }
+        }
+
+        void createOperation()
+        {
+            operation_ = std::make_shared<OpType>( this->getExecutionContext(), config_ );
+
+            if ( !operation_ )
+            {
+                throw std::runtime_error( std::format( "Swiglu: Failed to create compute backend operation for component '{}'", this->getName() ) );
+            }
+        }
+    };
+}

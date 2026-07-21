@@ -14,6 +14,19 @@ module;
 
 export module Mila;
 
+// The export list below IS the public API spec: `import Mila;` is the single supported entry point,
+// and the public surface is exactly what this umbrella re-exports.
+//
+// WHY THIS LIST IS BROAD (investigated 2026-07-19 -- do not "narrow" it without a full rebuild):
+// under MSVC C++23 modules a type named in a public template's interface -- a member or a base, e.g.
+// TensorBuffer inside Tensor<>, or OperationTraits/OperationType/Operation inside every component --
+// must be VISIBLE in the consumer's TU at instantiation, not merely reachable. Dropping such a module
+// from this list breaks every consumer that instantiates the template, even though no consumer ever
+// names the type, so grepping for the symbol finds nothing. Modules exporting free functions have the
+// same property: unqualified calls (e.g. getDeviceCount) resolve only through this re-export.
+// Widening later is non-breaking; narrowing is breaking -- and how far it can narrow is bounded by
+// the above, not by taste.
+
 export import Mila.Version;
 
 // ====================================================================
@@ -30,21 +43,15 @@ export import Logging.FileSink;
 export import Logging.NullSink;
 
 // ====================================================================
-// Cuda 
-// REVIEW: TODO: Make internal. We don't want to expose CUDA details
-// in the main API.
+// Compute - Base ( PUBLIC -- required visible for component instantiation )
 // ====================================================================
-//export import Cuda.Error;
-//export import Cuda.Helpers;
-
-// ====================================================================
-// Compute - Base
-// ====================================================================
-// REVIEW: Should we make Operations internal only?
+// The old "make Operations internal only?" REVIEW is answered NO by the module rules: public
+// component templates name these at instantiation (e.g. Linear<>'s
+// `using OpType = OperationTraits<OperationType::LinearOp, ...>::type`, and every component derives
+// from Operation<>). Under MSVC modules those names must be VISIBLE, not merely reachable, in any
+// consumer TU that instantiates a component -- so they are public and must be re-exported.
 export import Compute.OperationBase;
 export import Compute.OperationType;
-export import Compute.UnaryOperation;
-export import Compute.BinaryOperation;
 
 // ====================================================================
 // Compute - Execution Context
@@ -74,6 +81,9 @@ export import Compute.OptimizerBase;
 // ====================================================================
 // Compute - Device Registry
 // ====================================================================
+// DeviceRegistryHelpers exports free functions (getDeviceCount / getBestDevice /
+// listDevicesByName / listDevicesByType) that the test suite uses pervasively as
+// CUDA-availability guards; unqualified calls resolve only if the module is re-exported here.
 import Compute.DeviceRegistrar; // Not part of the Mila public API
 export import Compute.DeviceRegistry;
 export import Compute.DeviceRegistryHelpers;
@@ -93,9 +103,9 @@ export import Compute.CudaPinnedMemoryResource;
 // ====================================================================
 // Compute - Operations Registry
 // ====================================================================
-import Compute.OperationsRegistrar;
-export import Compute.OperationRegistry;
-export import Compute.OperationRegistryHelpers;
+// DEPRECATED: the runtime OperationRegistry (and OperationsRegistrar/Helpers) has been retired
+// in favor of compile-time OperationTraits dispatch. The modules are kept on disk but removed
+// from the build; they are no longer re-exported from the public umbrella.
 
 // ====================================================================
 // Compute - CPU Operations ( internal )
@@ -132,6 +142,7 @@ export import Compute.OperationRegistryHelpers;
 // ====================================================================
 export import Dnn.Component;
 export import Dnn.ComponentType;
+export import Dnn.ModelType;
 export import Dnn.ComponentConfig;
 export import Dnn.CompositeComponent;
 
@@ -147,6 +158,9 @@ export import Dnn.NetworkFactory;
 export import Dnn.Model;
 export import Dnn.LanguageNetwork;
 export import Dnn.LanguageModel;
+export import Dnn.SamplingParams;
+export import Dnn.GenerateParams;
+export import Dnn.GenerateStatus;
 export import Dnn.RuntimeMode;
 
 // ====================================================================
@@ -154,7 +168,9 @@ export import Dnn.RuntimeMode;
 // ====================================================================
 export import Dnn.Tensor;
 export import Dnn.ITensor;
-export import Dnn.TensorBuffer; // TJT: Remove after testing
+// Dnn.TensorBuffer is PUBLIC: it is a member type of the Tensor<> template (Tensor::buffer_),
+// so consumers instantiating Tensor need it visible under MSVC modules.
+export import Dnn.TensorBuffer;
 export import Dnn.TensorTypes;
 export import Dnn.TensorDataType;
 export import Dnn.TensorDataTypeTraits;
@@ -165,11 +181,6 @@ export import Dnn.TensorHostTypeMap;
 // Dnn - Tensor Operations
 // ====================================================================
 export import Dnn.TensorOps;
-
-// ====================================================================
-// Dnn - Tensor Initializers
-// ====================================================================
-export import Dnn.TensorInitializers;
 
 // ====================================================================
 // Dnn - Components
@@ -183,25 +194,27 @@ export import Dnn.Components.Gqa;
 export import Dnn.Components.Lpe;
 export import Dnn.Components.Rope;
 export import Dnn.Components.Gelu;
+export import Dnn.Components.Activation;
 export import Dnn.Components.Swiglu;
 export import Dnn.Components.LayerNorm;
 export import Dnn.Components.RmsNorm;
+export import Dnn.Components.TokenEmbedding;
 
-// TODO: Alpha.5 OperationTraits supercedes individual operation OpTypeMaps 
-//export import Compute.GqaOpTypeMap;
-//export import Compute.LinearOpTypeMap;
+// Compute.OperationTraits is PUBLIC: component templates name it at instantiation (see the
+// Compute - Base note) -- consumers instantiating any component need it visible.
 export import Compute.OperationTraits;
 
 export import Dnn.Components.Linear;
 
 export import Dnn.Components.Residual;
 export import Dnn.Components.Softmax;
-//export import Dnn.Components.SoftmaxCrossEntropy;
+// BACKLOG: export import Dnn.Components.SoftmaxCrossEntropy;
 
 // ============================================================================
 // Dnn - Composite Components
 // ============================================================================
 export import Dnn.Components.MLP;
+export import Dnn.Components.GatedMLP;
 export import Dnn.Components.GptBlock;
 
 // ============================================================================
@@ -209,6 +222,11 @@ export import Dnn.Components.GptBlock;
 // ============================================================================
 export import Dnn.Components.GptTransformer;
 export import Dnn.Components.LlamaTransformer;
+export import Dnn.Components.GemmaConfig;
+export import Dnn.Components.IDecoderLayer;
+export import Dnn.Components.GemmaBlock;
+export import Dnn.Components.GemmaTransformer;
+export import Dnn.Components.GemmaProtocol;
 
 // ============================================================================
 // Models - Open Source Models
@@ -217,6 +235,9 @@ export import Dnn.Models.GptModel;
 
 export import Dnn.Models.LlamaModel;
 export import Dnn.Models.LlamaModelConfig;
+
+export import Dnn.Models.GemmaModel;
+export import Dnn.Models.GemmaModelConfig;
 
 // ============================================================================
 // Dnn - Optimizers
@@ -266,7 +287,6 @@ export import Data.BpePreTokenizationMode;
 // ============================================================================
 // Data - Datasets
 // ============================================================================
-export import Data.DataLoader;
 export import Data.TokenSequenceLoader;
 
 /**
@@ -283,7 +303,7 @@ namespace Mila
      * @brief Initializes the Mila framework.
      *
      * Must be called before using any other Mila functionality. If no sink is
-     * provided a NullSink is used, suppressing all log output — appropriate for
+     * provided a NullSink is used, suppressing all log output -- appropriate for
      * applications linking Mila as a static library that manage their own logging.
      * Pass an explicit sink to opt in to Mila log output.
      *
@@ -294,14 +314,14 @@ namespace Mila
      *                    to the caller; the application is responsible for handling it.
      *
      * @code
-     * // Silent — appropriate default for apps linking Mila as a library
+     * // Silent -- appropriate default for apps linking Mila as a library
      * Mila::initialize();
      *
-     * // Development / CLI tool — opt in to Info-level console output
+     * // Development / CLI tool -- opt in to Info-level console output
      * auto sink = std::make_shared<Mila::Logging::ConsoleSink>( Logging::LogLevel::Info );
      * Mila::initialize( 0, sink );
      *
-     * // FastAPI server — structured file logging at Warning+
+     * // FastAPI server -- structured file logging at Warning+
      * auto sink = std::make_shared<Mila::Logging::FileSink>( "mila.log", Logging::LogLevel::Warning );
      * Mila::initialize( 0, sink );
      * @endcode
@@ -334,7 +354,6 @@ namespace Mila
         }
 
         Dnn::Compute::DeviceRegistrar::instance();
-        Dnn::Compute::OperationsRegistrar::instance();
 
         Logging::Logger::info( "Mila framework initialized successfully." );
 

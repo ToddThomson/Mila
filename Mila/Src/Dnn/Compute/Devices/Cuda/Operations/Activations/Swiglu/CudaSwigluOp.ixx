@@ -25,8 +25,6 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
@@ -43,11 +41,10 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
 
     export template<TensorDataType TPrecision>
         requires ValidFloatTensorDataType<TPrecision>
-    class CudaSwigluOp : public UnaryOperation<DeviceType::Cuda, TPrecision>
+    class CudaSwigluOp : public Operation<DeviceType::Cuda, TPrecision>
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
@@ -58,7 +55,7 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
             config_.validate();
         }
 
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             if ( input.size() % 2 != 0 )
             {
@@ -83,7 +80,7 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
             impl_.forward( Y, X, N, half_width, stream );
         }
 
-        void backward( const ITensor& input, const ITensor& output_gradient, ITensor& input_gradient ) const override
+        void backward( const ITensor& input, const ITensor& output_gradient, ITensor& input_gradient ) const
         {
             if ( input.getDeviceType() != DeviceType::Cuda || output_gradient.getDeviceType() != DeviceType::Cuda || input_gradient.getDeviceType() != DeviceType::Cuda )
             {
@@ -138,31 +135,4 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
         Detail::cuda_swiglu_impl<NativeType> impl_;
     };
 
-    export class CudaSwigluOpRegistrar {
-    public:
-        static void registerOperations()
-        {
-            const std::string opName = "SwigluOp";
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::FP32, TensorDataType::FP32>(
-                opName,
-                []( IExecutionContext* context, const ComponentConfig& config )
-                -> std::unique_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::FP32>>
-                {
-                    const auto& swigluConfig = static_cast<const SwigluConfig&>(config);
-                    return std::make_unique<CudaSwigluOp<TensorDataType::FP32>>( context, swigluConfig );
-                }
-            );
-
-            OperationRegistry::instance().registerUnaryOperation<DeviceType::Cuda, TensorDataType::BF16, TensorDataType::BF16>(
-                opName,
-                []( IExecutionContext* context, const ComponentConfig& config )
-                -> std::unique_ptr<UnaryOperation<DeviceType::Cuda, TensorDataType::BF16>>
-                {
-                    const auto& swigluConfig = static_cast<const SwigluConfig&>(config);
-                    return std::make_unique<CudaSwigluOp<TensorDataType::BF16>>( context, swigluConfig );
-                }
-            );
-        }
-    };
 }

@@ -99,8 +99,9 @@ namespace Mila::Dnn::Compute
          * on the correct device.
          *
          * @param ptr Pointer to managed memory to deallocate
-         * @param bytes Size of memory block (unused, kept for interface compatibility)
-         * @param alignment Alignment used during allocation (unused, kept for interface compatibility)
+         * @param alignment Alignment used during allocation (unused; kept for interface compatibility).
+         *
+         * The size argument is unused and therefore intentionally unnamed.
          */
         void do_deallocate(void* ptr, std::size_t, std::size_t alignment = alignof(std::max_align_t)) override {
             if (ptr) {

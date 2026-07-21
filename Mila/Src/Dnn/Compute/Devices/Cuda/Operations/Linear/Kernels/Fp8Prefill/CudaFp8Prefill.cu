@@ -1,16 +1,7 @@
 /**
  * @file CudaFp8Prefill.cu
- * @brief FP8 prefill CUDA kernels: per-channel scale application and FP8→BF16 dequantization.
- *
- * Two kernels support the FP8 prefill GEMM paths in CudaLinearOp:
- *
- *  - cuda_fp8_apply_per_channel_scales: post-GEMM correction for the native FP8
- *    cuBLASLt path. cuBLASLt accepts only a per-tensor scale at execute time; we
- *    set that to 1.0f and apply the true per-channel scales here.
- *
- *  - cuda_fp8_dequantize_to_bf16: FP8-E4M3 weight matrix → BF16 conversion for
- *    the fallback path, producing a temporary BF16 copy that feeds the standard
- *    BF16 cuBLASLt GEMM plan.
+ * @brief FP8 prefill CUDA kernels: scale application, dequantization, and the
+ * per-token BF16 -> FP8 activation quantizer for the W4A8-FP8 prefill GEMM.
  */
 
 #include <cuda_runtime.h>
@@ -111,6 +102,133 @@ namespace Mila::Dnn::Compute::Cuda::Linear
     }
 
     // =========================================================================
+    // cuda_quantize_bf16_to_fp8_per_token
+    // =========================================================================
+
+    /**
+     * One block per token (row). Phase 1: shared-memory absmax reduction over the
+     * row. Phase 2 (same launch, after the reduction converges): every thread reads
+     * the row scale from shared memory and quantizes its strided slice. Epsilon
+     * guards an all-zero row from producing a zero scale (and a division by zero).
+     * The E4M3 constructor saturates, but inputs are already scaled into
+     * [-448, 448] so no clamping occurs in practice.
+     */
+    __global__ void fp8_activation_quantize_per_token_kernel(
+        const __nv_bfloat16* __restrict__ input,
+        __nv_fp8_e4m3* __restrict__ output,
+        float* __restrict__ scales,
+        int in_features )
+    {
+        __shared__ float shared_max[ 256 ];
+
+        const int64_t row_offset = static_cast<int64_t>( blockIdx.x ) * in_features;
+        const __nv_bfloat16* row_source = input + row_offset;
+        __nv_fp8_e4m3* row_dest = output + row_offset;
+
+        float local = 0.0f;
+
+        for ( int k = static_cast<int>( threadIdx.x ); k < in_features; k += static_cast<int>( blockDim.x ) )
+        {
+            local = fmaxf( local, fabsf( __bfloat162float( row_source[ k ] ) ) );
+        }
+
+        shared_max[ threadIdx.x ] = local;
+        __syncthreads();
+
+        for ( int offset = blockDim.x / 2; offset > 0; offset >>= 1 )
+        {
+            if ( threadIdx.x < offset )
+            {
+                shared_max[ threadIdx.x ] = fmaxf( shared_max[ threadIdx.x ], shared_max[ threadIdx.x + offset ] );
+            }
+
+            __syncthreads();
+        }
+
+        // The reduction loop ends on a __syncthreads(), so shared_max[0] is visible
+        // to every thread here.
+        const float scale = fmaxf( shared_max[ 0 ], 1e-12f ) / 448.0f;
+
+        if ( threadIdx.x == 0 )
+        {
+            scales[ blockIdx.x ] = scale;
+        }
+
+        const float inv_scale = 1.0f / scale;
+
+        for ( int k = static_cast<int>( threadIdx.x ); k < in_features; k += static_cast<int>( blockDim.x ) )
+        {
+            row_dest[ k ] = __nv_fp8_e4m3( __bfloat162float( row_source[ k ] ) * inv_scale );
+        }
+    }
+
+    void cuda_quantize_bf16_to_fp8_per_token(
+        __nv_fp8_e4m3* fp8_out,
+        float*         scales_out,
+        const __nv_bfloat16* input,
+        int            outer_size,
+        int            in_features,
+        cudaStream_t   stream )
+    {
+        constexpr int kBlockSize = 256;
+
+        fp8_activation_quantize_per_token_kernel<<<
+            static_cast<unsigned int>( outer_size ),
+            kBlockSize,
+            0,
+            stream>>>(
+                input, fp8_out, scales_out, in_features );
+    }
+
+    // =========================================================================
+    // cuda_fp8_apply_per_token_scales
+    // =========================================================================
+
+    /**
+     * One block per token (row); threads stride over out_features. The row scale is
+     * loaded once per block. Bias is folded in when present (nullptr otherwise).
+     */
+    __global__ void apply_per_token_scales_kernel(
+        __nv_bfloat16* __restrict__ output,
+        const float* __restrict__ scales,
+        const __nv_bfloat16* __restrict__ bias,
+        int out_features )
+    {
+        const float scale = scales[ blockIdx.x ];
+        __nv_bfloat16* row = output + static_cast<int64_t>( blockIdx.x ) * out_features;
+
+        for ( int out = static_cast<int>( threadIdx.x ); out < out_features; out += static_cast<int>( blockDim.x ) )
+        {
+            float value = __bfloat162float( row[ out ] ) * scale;
+
+            if ( bias != nullptr )
+            {
+                value += __bfloat162float( bias[ out ] );
+            }
+
+            row[ out ] = __float2bfloat16( value );
+        }
+    }
+
+    void cuda_fp8_apply_per_token_scales(
+        __nv_bfloat16* output,
+        const float* scales,
+        const __nv_bfloat16* bias,
+        int outer_size,
+        int out_features,
+        cudaStream_t stream )
+    {
+        constexpr int kBlockSize = 256;
+
+        apply_per_token_scales_kernel<<<
+            static_cast<unsigned int>( outer_size ),
+            kBlockSize,
+            0,
+            stream>>>(
+                output, scales, bias, out_features );
+    }
+
+    // =========================================================================
     // cuda_add_bias
     // =========================================================================
 
@@ -148,6 +266,40 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         const int grid_size = ( out_features + kBlockSize - 1 ) / kBlockSize;
 
         add_bias_kernel<<<grid_size, kBlockSize, 0, stream>>>(
+            output, bias, outer_size, out_features );
+    }
+
+    // FP32 counterpart for the non-quantized prefill path (see header note).
+    __global__ void add_bias_kernel_f32(
+        float* __restrict__ output,
+        const float* __restrict__ bias,
+        int outer_size,
+        int out_features )
+    {
+        const int out = static_cast<int>( blockIdx.x ) * blockDim.x + static_cast<int>( threadIdx.x );
+        if ( out >= out_features )
+            return;
+
+        const float bias_val = bias[ out ];
+
+        for ( int t = 0; t < outer_size; ++t )
+        {
+            const int index = t * out_features + out;
+            output[ index ] += bias_val;
+        }
+    }
+
+    void cuda_add_bias(
+        float* output,
+        const float* bias,
+        int outer_size,
+        int out_features,
+        cudaStream_t stream )
+    {
+        constexpr int kBlockSize = 256;
+        const int grid_size = ( out_features + kBlockSize - 1 ) / kBlockSize;
+
+        add_bias_kernel_f32<<<grid_size, kBlockSize, 0, stream>>>(
             output, bias, outer_size, out_features );
     }
 }

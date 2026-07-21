@@ -5,11 +5,17 @@
  * Provides direct access to pretrained model weights stored in Mila's
  * flat binary format. Used by fromPretrained() factory methods.
  *
- * TODO (Alpha.5 Phase 6): Replace the per-tensor fstream read loop with
- * CreateFileMapping/MapViewOfFile. The current approach issues one read per
- * tensor blob (224+ for Llama 3.1 8B), capping throughput at ~2 GB/s against
- * a PCIe 4.0 NVMe floor of ~7 GB/s (~8s load vs ~2s target). TensorBlob::data()
- * should return a pointer into the mapped view; the ITensorBlob interface is stable.
+ * The whole file is memory-mapped at construction (CreateFileMapping/MapViewOfFile
+ * on Windows, mmap on POSIX). streamTensorBlobs() consumes blobs in ascending file
+ * offset order, turning the former 224+ random per-tensor reads into a single
+ * sequential scan. On the CUDA path a background producer thread stages each blob
+ * into a pinned host buffer (double-buffered) so disk I/O overlaps the H2D copy; all
+ * CUDA work stays on the consuming thread. Staging reads each blob directly from the
+ * file handle (positioned ReadFile/pread), not by faulting through the mapped view --
+ * the map's 4 KB on-demand faults throttle a large model well below disk bandwidth
+ * once the file no longer fits resident alongside the model's own GPU staging. The
+ * mapping is kept for oversized blobs (consumed straight from the view) and the
+ * legacy random-access readTensorBlob<MR>() fallback.
  */
 
 module;
@@ -19,9 +25,30 @@ module;
 #include <unordered_map>
 #include <vector>
 #include <cstdint>
+#include <cstring>
 #include <stdexcept>
 #include <format>
 #include <algorithm>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <exception>
+#include <type_traits>
+
+#ifdef _WIN32
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
+#else
+#  include <sys/mman.h>
+#  include <sys/stat.h>
+#  include <fcntl.h>
+#  include <unistd.h>
+#endif
 
 export module Serialization.PretrainedReader;
 
@@ -36,6 +63,9 @@ import Dnn.TensorDataTypeTraits;
 import Dnn.TensorTypes;
 import Compute.Device;
 import Compute.CpuMemoryResource;
+#ifdef MILA_HAS_CUDA
+import Compute.CudaPinnedMemoryResource;
+#endif
 
 namespace Mila::Dnn::Serialization
 {
@@ -64,8 +94,10 @@ namespace Mila::Dnn::Serialization
         uint32_t num_layers;
         uint32_t num_heads;
         uint32_t num_kv_heads;
+        uint32_t head_dim;          // explicit per-head width (Gemma decouples it from embedding_dim/num_heads); 0 = derive
         uint32_t hidden_dim;
         bool use_bias;
+        bool tie_word_embeddings = false;
 
         std::string activation;
         std::string norm_type;
@@ -74,6 +106,19 @@ namespace Mila::Dnn::Serialization
 
         float rope_theta;
         float norm_epsilon;
+
+        // Gemma-specific geometry (0 / false for other architectures). The global
+        // (full-attention) layers diverge from the sliding layers; the chassis fields
+        // drive the 5:1 interleave, dual RoPE, and logit softcap. See GemmaConfig.
+        uint32_t global_head_dim;
+        uint32_t num_global_kv_heads;
+        bool     key_equals_value;
+        uint32_t window;
+        uint32_t sliding_window_pattern;
+        uint32_t global_rotary_dim;
+        float    rope_theta_local;
+        float    rope_theta_global;
+        float    final_logit_softcapping;
     };
 
     enum class DType : uint32_t {
@@ -147,6 +192,9 @@ namespace Mila::Dnn::Serialization
             readHeader();
             readMetadata();
             readTensorIndex();
+
+            mapFile();
+            buildOffsetOrder();
         }
 
         ~PretrainedModelReader()
@@ -165,6 +213,10 @@ namespace Mila::Dnn::Serialization
                 file_.close();
             }
 
+            unmapFile();
+
+            // sorted_by_offset_ holds pointers into tensor_index_ nodes; drop them first.
+            sorted_by_offset_.clear();
             filename_.clear();
             tensor_index_.clear();
 
@@ -291,10 +343,59 @@ namespace Mila::Dnn::Serialization
             return TensorBlob<MR>( tensor_meta, std::move( buffer ) );
         }
 
+        /**
+         * @brief Stream every tensor blob to a consumer in file-offset order.
+         *
+         * Replaces the per-tensor seek+read loop. Because the whole file is mapped
+         * once, consuming in ascending offset is a single sequential scan the OS can
+         * read ahead, rather than 224+ random reads in hash-map order.
+         *
+         * When TStagingMemoryResource is CudaPinnedMemoryResource a background producer
+         * thread stages each blob mmap -> pinned host buffer (double-buffered) while the
+         * calling thread runs the consumer (H2D + quantize). All CUDA calls stay on the
+         * calling thread; the producer does only host memcpy, matching the safe split in
+         * TokenSequenceLoader. Blobs larger than the staging buffer (e.g. the token
+         * embedding) bypass staging and are consumed directly from the mapped view.
+         *
+         * Contract: consume() MUST complete every device read of blob.data() before it
+         * returns, because the pinned slot is handed back to the producer for reuse the
+         * moment consume() returns. The non-quantized copyFromBlob path self-synchronizes
+         * on the default stream, but the FP8/FP4 quantize path issues an async H2D on the
+         * op stream and does NOT, so the model's consume callback must synchronize its
+         * execution context after loadParameter. The producer's next memcpy overlaps that
+         * synchronize, preserving the disk/H2D overlap.
+         *
+         * @tparam TStagingMemoryResource Staging resource. CudaPinnedMemoryResource selects
+         *         the threaded pinned path; CpuMemoryResource consumes mapped views directly
+         *         with no staging and no producer thread.
+         * @param consume Callable invoked as consume(const std::string& name, const ITensorBlob&).
+         * @param device_id Device index for the pinned staging buffers (CUDA path only).
+         */
+        template<typename TStagingMemoryResource = Compute::CpuMemoryResource, typename TConsumer>
+        void streamTensorBlobs( TConsumer&& consume, int device_id = 0 )
+        {
+#ifdef MILA_HAS_CUDA
+            if constexpr ( std::is_same_v<TStagingMemoryResource, Compute::CudaPinnedMemoryResource> )
+            {
+                streamTensorBlobsPinned( std::forward<TConsumer>( consume ), device_id );
+
+                return;
+            }
+#endif
+            (void)device_id;
+            streamTensorBlobsDirect( std::forward<TConsumer>( consume ) );
+        }
+
     private:
 
         static constexpr uint32_t MAGIC = 0x4D494C41;  // "MILA"
         static constexpr uint32_t VERSION = 1;
+
+        // Cap on each pinned staging buffer. Per-layer weights sit well under this;
+        // larger tensors (token embedding / lm_head) bypass staging and are consumed
+        // directly from the mapped view, bounding pinned memory to two of these.
+        static constexpr size_t STAGING_BUFFER_CAPACITY_BYTES =
+            static_cast<size_t>( 256 ) * 1024 * 1024;
 
         std::filesystem::path filepath_;
         std::ifstream file_;
@@ -303,6 +404,72 @@ namespace Mila::Dnn::Serialization
         PretrainedMetadata metadata_;
         std::unordered_map<std::string, TensorBlobMetadata> tensor_index_;
         uint32_t num_tensors_{ 0 };
+
+        // Tensor metadata sorted by ascending file offset (pointers into tensor_index_).
+        std::vector<const TensorBlobMetadata*> sorted_by_offset_;
+
+        // Whole-file memory mapping. Owned for the reader's lifetime; every blob view
+        // points into this region, so the mapping must outlive all handed-out views.
+#ifdef _WIN32
+        HANDLE file_handle_{ INVALID_HANDLE_VALUE };
+        HANDLE mapping_handle_{ nullptr };
+#else
+        int fd_{ -1 };
+#endif
+        const uint8_t* map_base_{ nullptr };
+        size_t map_size_{ 0 };
+
+        // Positioned read of nbytes at file offset into dst. The pinned-staging producer
+        // uses this instead of a memcpy through the mapped view: blobs are visited in
+        // ascending file order, so these are sequential reads that stream off disk into
+        // pinned memory at full bandwidth. It avoids the 4 KB on-demand page-fault path,
+        // which throttles a large mmap once the whole file no longer fits resident (the
+        // model's own GPU staging is multi-GB) -- the measured cause of a load running
+        // ~5x below disk bandwidth.
+        void readAt( uint64_t offset, void* dst, size_t nbytes ) const
+        {
+            auto* out = static_cast<uint8_t*>( dst );
+            size_t done = 0;
+
+            while ( done < nbytes )
+            {
+                const size_t remaining = nbytes - done;
+#ifdef _WIN32
+                // A synchronous handle honors OVERLAPPED.Offset as the read position and
+                // completes synchronously; only the single producer thread touches the
+                // handle, so there is no shared-file-pointer race.
+                const uint64_t position = offset + done;
+                OVERLAPPED overlapped{};
+                overlapped.Offset = static_cast<DWORD>( position & 0xFFFFFFFFull );
+                overlapped.OffsetHigh = static_cast<DWORD>( position >> 32 );
+
+                const DWORD to_read = static_cast<DWORD>(
+                    std::min<size_t>( remaining, 0x40000000ull ) );  // 1 GiB per call
+                DWORD got = 0;
+
+                if ( !ReadFile( file_handle_, out + done, to_read, &got, &overlapped ) || got == 0 )
+                {
+                    throw std::runtime_error( std::format(
+                        "PretrainedReader: read failed at offset {} ({}/{} bytes) for {}",
+                        offset, done, nbytes, filepath_.string() ) );
+                }
+
+                done += got;
+#else
+                const ssize_t got = ::pread(
+                    fd_, out + done, remaining, static_cast<off_t>( offset + done ) );
+
+                if ( got <= 0 )
+                {
+                    throw std::runtime_error( std::format(
+                        "PretrainedReader: read failed at offset {} ({}/{} bytes) for {}",
+                        offset, done, nbytes, filepath_.string() ) );
+                }
+
+                done += static_cast<size_t>( got );
+#endif
+            }
+        }
 
         const TensorBlobMetadata& getTensorBlobMetadata( const std::string& name ) const
         {
@@ -315,6 +482,304 @@ namespace Mila::Dnn::Serialization
 
             return it->second;
         }
+
+        void buildOffsetOrder()
+        {
+            sorted_by_offset_.clear();
+            sorted_by_offset_.reserve( tensor_index_.size() );
+
+            for ( const auto& [name, meta] : tensor_index_ )
+                sorted_by_offset_.push_back( &meta );
+
+            std::sort( sorted_by_offset_.begin(), sorted_by_offset_.end(),
+                []( const TensorBlobMetadata* a, const TensorBlobMetadata* b )
+                {
+                    return a->offset < b->offset;
+                } );
+        }
+
+        void mapFile()
+        {
+#ifdef _WIN32
+            file_handle_ = CreateFileW(
+                filepath_.wstring().c_str(),
+                GENERIC_READ,
+                FILE_SHARE_READ,
+                nullptr,
+                OPEN_EXISTING,
+                FILE_FLAG_SEQUENTIAL_SCAN,
+                nullptr );
+
+            if ( file_handle_ == INVALID_HANDLE_VALUE )
+            {
+                throw std::runtime_error( "Cannot memory-map model file: " + filepath_.string() );
+            }
+
+            LARGE_INTEGER file_size;
+
+            if ( !GetFileSizeEx( file_handle_, &file_size ) )
+            {
+                CloseHandle( file_handle_ );
+                file_handle_ = INVALID_HANDLE_VALUE;
+                throw std::runtime_error( "Cannot query model file size: " + filepath_.string() );
+            }
+
+            map_size_ = static_cast<size_t>( file_size.QuadPart );
+
+            mapping_handle_ = CreateFileMappingW( file_handle_, nullptr, PAGE_READONLY, 0, 0, nullptr );
+
+            if ( !mapping_handle_ )
+            {
+                CloseHandle( file_handle_ );
+                file_handle_ = INVALID_HANDLE_VALUE;
+                throw std::runtime_error( "CreateFileMapping failed for: " + filepath_.string() );
+            }
+
+            void* view = MapViewOfFile( mapping_handle_, FILE_MAP_READ, 0, 0, 0 );
+
+            if ( !view )
+            {
+                CloseHandle( mapping_handle_ );
+                mapping_handle_ = nullptr;
+                CloseHandle( file_handle_ );
+                file_handle_ = INVALID_HANDLE_VALUE;
+                throw std::runtime_error( "MapViewOfFile failed for: " + filepath_.string() );
+            }
+
+            map_base_ = static_cast<const uint8_t*>( view );
+
+            // No whole-file prefetch: the staged path (readAt) streams each blob straight
+            // off disk into pinned memory in file order, so priming the page cache with
+            // all 22 GB here only competes with the model's own multi-GB GPU staging for
+            // RAM and is evicted before it helps -- the measured cause of the fault-bound
+            // load. FILE_FLAG_SEQUENTIAL_SCAN (above) keeps the OS read-ahead bias for
+            // both those sequential reads and the oversized-blob mapped path.
+#else
+            fd_ = ::open( filepath_.c_str(), O_RDONLY );
+
+            if ( fd_ < 0 )
+            {
+                throw std::runtime_error( "Cannot memory-map model file: " + filepath_.string() );
+            }
+
+            struct stat file_stat;
+
+            if ( ::fstat( fd_, &file_stat ) != 0 )
+            {
+                ::close( fd_ );
+                fd_ = -1;
+                throw std::runtime_error( "Cannot stat model file: " + filepath_.string() );
+            }
+
+            map_size_ = static_cast<size_t>( file_stat.st_size );
+
+            void* view = ::mmap( nullptr, map_size_, PROT_READ, MAP_PRIVATE, fd_, 0 );
+
+            if ( view == MAP_FAILED )
+            {
+                ::close( fd_ );
+                fd_ = -1;
+                throw std::runtime_error( "mmap failed for: " + filepath_.string() );
+            }
+
+            map_base_ = static_cast<const uint8_t*>( view );
+
+            // MADV_SEQUENTIAL biases read-ahead for the oversized-blob mapped path; the
+            // staged reads use pread (see readAt), so there is no whole-file MADV_WILLNEED
+            // -- it would prime the page cache with the entire file only to be evicted
+            // under the model's own multi-GB GPU staging before it helped.
+            ::madvise( view, map_size_, MADV_SEQUENTIAL );
+#endif
+        }
+
+        void unmapFile() noexcept
+        {
+#ifdef _WIN32
+            if ( map_base_ )
+            {
+                UnmapViewOfFile( map_base_ );
+                map_base_ = nullptr;
+            }
+
+            if ( mapping_handle_ )
+            {
+                CloseHandle( mapping_handle_ );
+                mapping_handle_ = nullptr;
+            }
+
+            if ( file_handle_ != INVALID_HANDLE_VALUE )
+            {
+                CloseHandle( file_handle_ );
+                file_handle_ = INVALID_HANDLE_VALUE;
+            }
+#else
+            if ( map_base_ )
+            {
+                ::munmap( const_cast<uint8_t*>( map_base_ ), map_size_ );
+                map_base_ = nullptr;
+            }
+
+            if ( fd_ >= 0 )
+            {
+                ::close( fd_ );
+                fd_ = -1;
+            }
+#endif
+            map_size_ = 0;
+        }
+
+        template<typename TConsumer>
+        void streamTensorBlobsDirect( TConsumer&& consume )
+        {
+            for ( const TensorBlobMetadata* meta : sorted_by_offset_ )
+            {
+                TensorMetadata tensor_meta{
+                    .dtype = dtypeToTensorDataType( meta->dtype ),
+                    .shape = meta->shape,
+                    .total_bytes = meta->nbytes
+                };
+
+                TensorBlobView view( tensor_meta, map_base_ + meta->offset, static_cast<size_t>( meta->nbytes ) );
+
+                consume( meta->name, view );
+            }
+        }
+
+#ifdef MILA_HAS_CUDA
+        template<typename TConsumer>
+        void streamTensorBlobsPinned( TConsumer&& consume, int device_id )
+        {
+            const size_t count = sorted_by_offset_.size();
+
+            if ( count == 0 )
+            {
+                return;
+            }
+
+            const size_t staging_bytes = std::min<size_t>( STAGING_BUFFER_CAPACITY_BYTES, getMaxTensorSizeBytes() );
+
+            // TensorBuffer's constructor is explicit, so direct-initialize the two slots
+            // and index them through a pointer array.
+            TensorBuffer<dtype_t::UINT8, Compute::CudaPinnedMemoryResource> staging_a( device_id, staging_bytes );
+            TensorBuffer<dtype_t::UINT8, Compute::CudaPinnedMemoryResource> staging_b( device_id, staging_bytes );
+            TensorBuffer<dtype_t::UINT8, Compute::CudaPinnedMemoryResource>* staging[ 2 ] = { &staging_a, &staging_b };
+
+            const TensorBlobMetadata* slot_meta[ 2 ] = { nullptr, nullptr };
+            const void* slot_ptr[ 2 ] = { nullptr, nullptr };
+            bool slot_ready[ 2 ] = { false, false };
+            bool slot_free[ 2 ] = { true, true };
+
+            std::mutex mutex;
+            std::condition_variable cv_ready;
+            std::condition_variable cv_free;
+            std::exception_ptr producer_exception;
+            bool aborted = false;
+
+            std::thread producer( [&]
+            {
+                try
+                {
+                    for ( size_t k = 0; k < count; ++k )
+                    {
+                        const int slot = static_cast<int>( k & 1 );
+
+                        {
+                            std::unique_lock<std::mutex> lock( mutex );
+                            cv_free.wait( lock, [&] { return slot_free[ slot ] || aborted; } );
+
+                            if ( aborted )
+                            {
+                                return;
+                            }
+                        }
+
+                        const TensorBlobMetadata* meta = sorted_by_offset_[ k ];
+                        const uint8_t* src = map_base_ + meta->offset;
+                        const void* ptr;
+
+                        if ( static_cast<size_t>( meta->nbytes ) <= staging_bytes )
+                        {
+                            readAt( static_cast<uint64_t>( meta->offset ),
+                                staging[ slot ]->data(), static_cast<size_t>( meta->nbytes ) );
+                            ptr = staging[ slot ]->data();
+                        }
+                        else
+                        {
+                            // Oversized blob (e.g. token embedding): skip staging and let the
+                            // consumer copy straight from the mapped view (pageable H2D). Only
+                            // a couple of tensors hit this; it still uses the slot for ordering.
+                            ptr = src;
+                        }
+
+                        {
+                            std::lock_guard<std::mutex> lock( mutex );
+                            slot_meta[ slot ] = meta;
+                            slot_ptr[ slot ] = ptr;
+                            slot_ready[ slot ] = true;
+                            slot_free[ slot ] = false;
+                            cv_ready.notify_one();
+                        }
+                    }
+                }
+                catch ( ... )
+                {
+                    std::lock_guard<std::mutex> lock( mutex );
+                    producer_exception = std::current_exception();
+                    cv_ready.notify_all();
+                }
+            } );
+
+            try
+            {
+                for ( size_t k = 0; k < count; ++k )
+                {
+                    const int slot = static_cast<int>( k & 1 );
+
+                    std::unique_lock<std::mutex> lock( mutex );
+                    cv_ready.wait( lock, [&] { return slot_ready[ slot ] || producer_exception; } );
+
+                    if ( producer_exception )
+                    {
+                        std::rethrow_exception( producer_exception );
+                    }
+
+                    const TensorBlobMetadata* meta = slot_meta[ slot ];
+                    const void* ptr = slot_ptr[ slot ];
+                    slot_ready[ slot ] = false;
+                    lock.unlock();
+
+                    TensorMetadata tensor_meta{
+                        .dtype = dtypeToTensorDataType( meta->dtype ),
+                        .shape = meta->shape,
+                        .total_bytes = meta->nbytes
+                    };
+
+                    TensorBlobView view( tensor_meta, ptr, static_cast<size_t>( meta->nbytes ) );
+
+                    // consume() must complete its device read before returning (see the
+                    // contract on streamTensorBlobs); only then is the slot safe to overwrite.
+                    consume( meta->name, view );
+
+                    lock.lock();
+                    slot_free[ slot ] = true;
+                    cv_free.notify_one();
+                }
+            }
+            catch ( ... )
+            {
+                {
+                    std::lock_guard<std::mutex> lock( mutex );
+                    aborted = true;
+                    cv_free.notify_all();
+                }
+
+                producer.join();
+                throw;
+            }
+
+            producer.join();
+        }
+#endif
 
         void readHeader()
         {
@@ -436,14 +901,26 @@ namespace Mila::Dnn::Serialization
             metadata_.num_layers          = extract_int( "num_layers" );
             metadata_.num_heads           = extract_int( "num_heads" );
             metadata_.num_kv_heads        = extract_int( "num_kv_heads" );
+            metadata_.head_dim            = extract_int( "head_dim" );
             metadata_.hidden_dim          = extract_int( "hidden_dim" );
             metadata_.use_bias            = extract_bool( "use_bias" );
+            metadata_.tie_word_embeddings = extract_bool( "tie_word_embeddings" );
             metadata_.activation          = extract_string( "activation" );
             metadata_.norm_type           = extract_string( "norm_type" );
             metadata_.attention_type      = extract_string( "attention_type" );
             metadata_.positional_encoding = extract_string( "positional_encoding" );
             metadata_.rope_theta          = extract_float( "rope_theta" );
             metadata_.norm_epsilon        = extract_float( "norm_epsilon" );
+
+            metadata_.global_head_dim         = extract_int( "global_head_dim" );
+            metadata_.num_global_kv_heads     = extract_int( "num_global_kv_heads" );
+            metadata_.key_equals_value        = extract_bool( "key_equals_value" );
+            metadata_.window                  = extract_int( "window" );
+            metadata_.sliding_window_pattern  = extract_int( "sliding_window_pattern" );
+            metadata_.global_rotary_dim       = extract_int( "global_rotary_dim" );
+            metadata_.rope_theta_local        = extract_float( "rope_theta_local" );
+            metadata_.rope_theta_global       = extract_float( "rope_theta_global" );
+            metadata_.final_logit_softcapping = extract_float( "final_logit_softcapping" );
         }
 
         void readTensorIndex()

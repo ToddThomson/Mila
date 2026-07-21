@@ -1,14 +1,12 @@
 /**
  * @file main.cpp
- * @brief Mila QuickStart: the smallest program that consumes an installed Mila.
+ * @brief Mila QuickStart: the smallest program that consumes Mila as a dependency.
  *
- * Links an installed Mila via find_package and uses its public API. Building this
- * against an installed Mila also serves as the packaging gate: the consumer
- * toolchain recompiles Mila's installed module units -- including the CUDA
- * operation modules and the kernel headers they include -- which is precisely
- * where the install layout is exercised. A successful build proves the package
- * is consumable; Mila's own build cannot prove that, because it links the in-tree
- * target rather than the installed package.
+ * Pulls Mila in via FetchContent (see CMakeLists.txt) and uses its public API. The
+ * consumer toolchain recompiles Mila's C++23 module units from source -- including the
+ * CUDA operation modules and the kernel headers they include -- and links Mila::Mila.
+ * That whole-module recompile is inherent to consuming a module library (BMIs are not
+ * portable); FetchContent does it once, in this project's own toolchain.
  */
 
 #include <iostream>

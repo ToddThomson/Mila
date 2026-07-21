@@ -1,0 +1,1598 @@
+/**
+ * @file Chat.ixx
+ * @brief Mila chat application.
+ *
+ * Supports GptModel (FP32) and LlamaModel (FP32 or BF16) backends,
+ * selected at construction via ChatConfig. The active model is stored
+ * as a std::variant so each template instantiation retains its full
+ * static type through the generate path. Llama instruct models use
+ * structured ChatMessage history formatted via MessageFormatter.
+ * Tool calling is supported for Llama instruct models via ToolCallParser and for Gemma 4
+ * via its native <|tool_call>/<tool_response> protocol (see generateResponse() and
+ * GemmaChatProtocol.md), both against registered handler functions. The Gemma path is a
+ * probe grammar pending more empirical validation, not a hardened implementation.
+ */
+
+module;
+#include <iostream>
+#include <string>
+#include <string_view>
+#include <vector>
+#include <variant>
+#include <filesystem>
+#include <format>
+#include <memory>
+#include <stdexcept>
+#include <future>
+#include <stop_token>
+#include <algorithm>
+#include <atomic>
+#include <cctype>
+#include <cstdint>
+#include <charconv>
+#include <functional>
+#include <unordered_map>
+#include <chrono>
+#include <optional>
+
+export module Mila.Chat;
+
+export import Chat.Config;
+export import Chat.ModelCatalog;
+export import Chat.Message;
+export import Chat.MessageFormatter;
+export import Chat.SystemPrompt;
+export import Chat.ToolCallParser;
+import Chat.ChannelParser;
+import Chat.Json;
+import Chat.Renderer;
+import Chat.RichText;
+import Chat.StreamingDisplay;
+
+import Mila;
+
+namespace Mila::ChatApp
+{
+    using namespace Mila::Dnn;
+    using namespace Mila::Dnn::Compute;
+    using namespace Mila::Data;
+
+    using GptModelFP32Type   = GptModel<DeviceType::Cuda, TensorDataType::FP32>;
+    using LlamaModelFP32Type = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>;
+    using LlamaModelBF16Type = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>;
+    using GemmaModelBF16Type = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>;
+
+    using ModelVariant = std::variant<
+        std::unique_ptr<GptModelFP32Type>,
+        std::unique_ptr<LlamaModelFP32Type>,
+        std::unique_ptr<LlamaModelBF16Type>,
+        std::unique_ptr<GemmaModelBF16Type>
+    >;
+
+    export class Chat
+    {
+    public:
+
+        /**
+         * @brief Construct a Chat session from a fully-populated ChatConfig.
+         *
+         * Loads the system prompt only; the tokenizer and model are loaded by run()
+         * after the welcome banner so the multi-second weight load runs under the
+         * progress spinner. Throws on system prompt load failure.
+         *
+         * @param config Session configuration.
+         * @throws std::runtime_error on system prompt load failure.
+         */
+        explicit Chat( ChatConfig config )
+            : config_( std::move( config ) )
+        {
+            loadSystemPrompt();
+        }
+
+        /**
+         * @brief Register a handler for a named tool.
+         *
+         * The handler receives the tool's arguments as a JSON object string
+         * and returns a plain string result that is fed back to the model as
+         * a Tool-role message. The name must match a ToolDefinition::name
+         * loaded from the system prompt file; unregistered tool calls are
+         * logged and return an error string to the model rather than throwing.
+         *
+         * @param name    Tool name matching the ToolDefinition in the system prompt.
+         * @param handler Callable taking a JSON arguments string, returning a result string.
+         */
+        void registerTool( std::string name, std::function<std::string( const std::string& )> handler )
+        {
+            tool_handlers_.emplace( std::move( name ), std::move( handler ) );
+        }
+
+        void run()
+        {
+            printWelcome();
+            loadActiveModel();
+            clearHistory();
+
+            std::string user_input;
+
+            while ( true )
+            {
+                renderer_.printUserPrompt();
+                std::getline( std::cin, user_input );
+
+                if ( user_input.empty() )
+                    continue;
+
+                if ( user_input.starts_with( '/' ) )
+                {
+                    std::string_view cmd{ user_input };
+                    cmd.remove_prefix( 1 );
+
+                    if ( cmd == "exit" )
+                    {
+                        break;
+                    }
+                    if ( cmd == "clear" )
+                    {
+                        clearHistory();
+                        renderer_.printInfo( "Conversation history cleared." );
+                        continue;
+                    }
+                    if ( cmd == "help" )
+                    {
+                        printHelp();
+                        continue;
+                    }
+                    if ( cmd == "stats" )
+                    {
+                        showTurnStats();
+                        continue;
+                    }
+                    if ( cmd == "seed" || cmd.starts_with( "seed " ) )
+                    {
+                        if ( cmd == "seed" )
+                        {
+                            renderer_.printInfo( "Usage: /seed <n>  (reseed the sampler; identical seed + prompt + history => identical tokens)." );
+                            continue;
+                        }
+
+                        const std::string_view arg = cmd.substr( 5 );
+                        uint64_t seed = 0;
+                        const auto result = std::from_chars( arg.data(), arg.data() + arg.size(), seed );
+
+                        if ( result.ec != std::errc{} )
+                        {
+                            renderer_.printInfo( "Usage: /seed <n>  (n = non-negative integer)." );
+                            continue;
+                        }
+
+                        std::visit( [&]( auto& m ) { m->seedSampler( seed ); }, model_ );
+                        renderer_.printInfo( std::format( "Sampler reseeded ({}).", seed ) );
+                        continue;
+                    }
+                    if ( cmd == "verbose" || cmd.starts_with( "verbose " ) )
+                    {
+                        if ( cmd == "verbose" )
+                        {
+                            renderer_.printInfo( std::format(
+                                "Detail: {}. Set with /verbose <off|thoughts|all>.",
+                                detailLevelName( config_.detail ) ) );
+                            continue;
+                        }
+
+                        const auto level = parseDetailLevel( cmd.substr( 8 ) );
+
+                        if ( !level )
+                        {
+                            renderer_.printInfo( "Usage: /verbose <off|thoughts|all>." );
+                            continue;
+                        }
+
+                        setDetailLevel( *level );
+                        continue;
+                    }
+                    if ( cmd == "effort" || cmd.starts_with( "effort " ) )
+                    {
+                        if ( cmd == "effort" )
+                        {
+                            const ThinkingEffort& e = thinkingEffort( config_.thinking_effort );
+                            renderer_.printInfo( std::format(
+                                "Thinking effort: {} ({}, ~{} tokens). Set with /effort <1-5>.",
+                                config_.thinking_effort, e.name, e.budget ) );
+                            continue;
+                        }
+
+                        const std::string_view arg = cmd.substr( 7 );
+                        int level = 0;
+                        const auto result = std::from_chars( arg.data(), arg.data() + arg.size(), level );
+
+                        if ( result.ec != std::errc{} || level < 1 || level > 5 )
+                        {
+                            renderer_.printInfo( "Usage: /effort <1-5>  (1 = minimal, 3 = balanced, 5 = exhaustive)." );
+                            continue;
+                        }
+
+                        config_.thinking_effort = level;
+                        const ThinkingEffort& e = thinkingEffort( level );
+                        renderer_.printInfo( std::format(
+                            "Thinking effort set to {} ({}, ~{} tokens).", level, e.name, e.budget ) );
+                        continue;
+                    }
+
+                    if ( cmd == "model" || cmd.starts_with( "model " ) )
+                    {
+                        if ( cmd == "model" )
+                        {
+                            printModelInfo();
+                            continue;
+                        }
+
+                        const std::vector<std::string_view> args = splitWhitespace( cmd.substr( 6 ) );
+
+                        if ( args.empty() )
+                        {
+                            printModelInfo();
+                            continue;
+                        }
+
+                        const std::string_view alias = args.front();
+
+                        const ModelEntry* entry = findModel( alias );
+                        if ( entry == nullptr )
+                        {
+                            renderer_.printInfo( std::format(
+                                "Unknown model alias '{}'. Type /help for available aliases.", alias ) );
+                            continue;
+                        }
+
+                        // Remaining tokens are an optional quantization and an optional
+                        // "thinking" flag, order-independent. An omitted quantization
+                        // falls back to the alias default (FP4 for Gemma, whose BF16
+                        // weights do not fit the dev card).
+                        QuantizationMode quant = entry->default_quantization;
+                        bool thinking = false;
+                        bool bad_token = false;
+
+                        for ( size_t i = 1; i < args.size(); ++i )
+                        {
+                            if ( args[ i ] == "thinking" )
+                            {
+                                thinking = true;
+                                continue;
+                            }
+
+                            const auto parsed = parseQuantization( args[ i ] );
+                            if ( !parsed )
+                            {
+                                renderer_.printInfo( std::format(
+                                    "Unknown option '{}'. Use none, fp8, fp4, or thinking.", args[ i ] ) );
+                                bad_token = true;
+                                break;
+                            }
+                            quant = *parsed;
+                        }
+
+                        if ( bad_token )
+                            continue;
+
+                        config_.show_thinking = thinking;
+
+                        // Toggling only the thinking flag on the already-loaded model
+                        // must not trigger a multi-GB weight reload.
+                        if ( isCurrentModel( *entry, quant ) )
+                        {
+                            renderer_.printInfo( thinking
+                                ? "Thinking display enabled."
+                                : "Thinking display disabled." );
+                            continue;
+                        }
+
+                        switchModel( *entry, quant );
+                        continue;
+                    }
+
+                    renderer_.printInfo( std::format(
+                        "Unknown command: {}. Type /help for available commands.", user_input ) );
+                    continue;
+                }
+
+                history_.push_back( { MessageRole::User, user_input } );
+
+                std::string response;
+                response.reserve( 4096 );
+
+                generateResponse( response );
+
+                handleResponse( response );
+            }
+        }
+
+    private:
+
+        /**
+         * @brief Route a completed generation response through tool call handling.
+         *
+         * When ToolCallParser detects a <|python_tag|> block the response is treated
+         * as a tool call: the call is dispatched, the result is pushed as a Tool-role
+         * message, and generation runs again so the model sees the result and produces
+         * a final answer. Plain text responses are streamed and pushed as an Assistant turn.
+         *
+         * A tool call that names an unregistered handler pushes an error result back to
+         * the model rather than throwing, allowing the model to respond gracefully.
+         *
+         * @param response Raw text from the most recent generateResponse() call.
+         */
+        void handleResponse( const std::string& response )
+        {
+            // Gemma's tool round trip (stop at <tool_call|>, dispatch, splice
+            // <|tool_response>, resume) already ran inside generateResponse() -- the Llama
+            // ToolCallParser grammar below does not apply and would misparse the leftover
+            // <|tool_call>/<|tool_response> braces in the accumulated text.
+            if ( tool_handlers_.empty() || config_.model_type == ModelType::Gemma )
+            {
+                emitAssistantResponse( response );
+                return;
+            }
+
+            std::optional<ToolCall> tool_call;
+
+            try
+            {
+                tool_call = ToolCallParser::parse( response );
+            }
+            catch ( const std::runtime_error& e )
+            {
+                renderer_.printError( std::format( "[tool call parse error: {}]", e.what() ) );
+                emitAssistantResponse( response );
+                return;
+            }
+
+            if ( !tool_call.has_value() )
+            {
+                emitAssistantResponse( response );
+                return;
+            }
+
+            ChatMessage assistant_turn;
+            assistant_turn.role = MessageRole::Assistant;
+            assistant_turn.tool_calls.push_back( *tool_call );
+            history_.push_back( std::move( assistant_turn ) );
+
+            const std::string tool_result = dispatchTool( *tool_call );
+
+            emitToolCall( *tool_call, tool_result );
+
+            ChatMessage tool_turn;
+            tool_turn.role = MessageRole::Tool;
+            tool_turn.content = tool_result;
+            tool_turn.tool_call_id = tool_call->id;
+            history_.push_back( std::move( tool_turn ) );
+
+            std::string final_response;
+            final_response.reserve( 512 );
+
+            generateResponse( final_response );
+
+            emitAssistantResponse( final_response );
+        }
+
+        /**
+         * @brief Set the display-detail level and sync the live log level.
+         *
+         * Detail All raises the console log level to Info (showing load dumps and
+         * INFO logging); lower levels keep it quiet at Warning. Warns when reasoning
+         * is requested while thinking mode is off, since nothing would be shown.
+         */
+        void setDetailLevel( DetailLevel level )
+        {
+            config_.detail = level;
+
+            // "all" raises the live log level so INFO logging and load dumps appear.
+            Logging::Logger::defaultLogger().setLevel( level == DetailLevel::All
+                ? Logging::LogLevel::Info
+                : Logging::LogLevel::Warning );
+
+            std::string message = std::format( "Detail set to {}.", detailLevelName( level ) );
+
+            // The reasoning channel only exists when thinking mode is active.
+            if ( level >= DetailLevel::Thoughts && !config_.show_thinking )
+                message += " (Thinking mode is off — enable it with /model gemma-12b thinking to see reasoning.)";
+
+            renderer_.printInfo( message );
+        }
+
+        /**
+         * @brief Strip tokens, split channels, render (or validate), and store an
+         *        assistant turn.
+         *
+         * The Gemma reasoning channel is rendered only at detail level Thoughts or
+         * above, and the verbatim raw output at All; the final answer is always
+         * rendered and is the only text pushed to history so the reasoning never
+         * re-enters the next formatted prompt. For models that emit no reasoning
+         * channel the parse is a pass-through and the whole response is the answer.
+         *
+         * When the turn streamed live, the buffered pipeline is not re-rendered;
+         * instead its output is the oracle the streamed transcript is checked
+         * against (gate 1 of the streaming display).
+         */
+        void emitAssistantResponse( const std::string& raw )
+        {
+            if ( config_.detail == DetailLevel::All )
+                renderer_.printRaw( raw );
+
+            // Gemma tool exchanges (if any ran) leave <|tool_call>/<|tool_response> spans
+            // embedded mid-turn; strip them before channel-splitting so they don't leak into
+            // the displayed answer as raw call syntax.
+            const std::string without_tool_spans = stripToolExchangeSpans( raw );
+            const std::string clean = stripSpecialTokens( without_tool_spans );
+            const ParsedResponse parsed = ChannelParser::parse( clean );
+
+            if ( stream_display_ != nullptr && renderer_.streamHasOutput() )
+            {
+                validateStreamedDisplay( parsed );
+            }
+            else
+            {
+                if ( config_.detail >= DetailLevel::Thoughts && !parsed.thinking.empty() )
+                    renderer_.printThinking( parsed.thinking );
+
+                renderer_.printMilaResponse( parsed.answer );
+            }
+
+            stream_display_.reset();
+            history_.push_back( { MessageRole::Assistant, parsed.answer } );
+        }
+
+        /**
+         * @brief Gate 1 of the streaming display: the streamed transcript must
+         *        equal the buffered render of the same response.
+         *
+         * Line-exact comparison against the shared formatRich + wordWrap pipeline
+         * (built at the wrap width the stream captured); when the stream had
+         * forced visual breaks (tool trace lines interleaving the block) the
+         * comparison falls back to whitespace-normalized text. Any divergence is
+         * a bug in the incremental path and is reported loudly.
+         */
+        void validateStreamedDisplay( const ParsedResponse& parsed ) const
+        {
+            const int width = renderer_.streamWrapWidth();
+
+            validateStreamedChannel( "answer", renderer_.streamedAnswerLines(),
+                RichText::wordWrap( RichText::formatRich( parsed.answer ), width ) );
+
+            if ( config_.detail >= DetailLevel::Thoughts )
+                validateStreamedChannel( "thinking", renderer_.streamedThinkingLines(),
+                    RichText::wordWrap( RichText::formatRich( parsed.thinking ), width ) );
+        }
+
+        void validateStreamedChannel( std::string_view channel,
+            const std::vector<std::string>& streamed,
+            const std::vector<std::string>& oracle ) const
+        {
+            if ( !renderer_.streamForcedBreak() )
+            {
+                if ( streamed == oracle )
+                    return;
+
+                size_t line = 0;
+                const size_t common = std::min( streamed.size(), oracle.size() );
+
+                while ( line < common && streamed[ line ] == oracle[ line ] )
+                    ++line;
+
+                renderer_.printInfo( std::format(
+                    "[stream validator] {} display diverged from the buffered render "
+                    "(first difference at line {}; {} streamed / {} buffered lines).",
+                    channel, line + 1, streamed.size(), oracle.size() ) );
+                return;
+            }
+
+            if ( normalizeWhitespace( joinLines( streamed ) ) != normalizeWhitespace( joinLines( oracle ) ) )
+                renderer_.printInfo( std::format(
+                    "[stream validator] {} display diverged from the buffered render.",
+                    channel ) );
+        }
+
+        static std::string joinLines( const std::vector<std::string>& lines )
+        {
+            std::string joined;
+
+            for ( const auto& line : lines )
+            {
+                joined += line;
+                joined += '\n';
+            }
+
+            return joined;
+        }
+
+        /// Collapse whitespace runs to single spaces and trim the ends, so text
+        /// comparison survives the extra line breaks a forced suspend introduces.
+        static std::string normalizeWhitespace( std::string_view text )
+        {
+            std::string out;
+            out.reserve( text.size() );
+            bool in_whitespace = true;
+
+            for ( const char c : text )
+            {
+                if ( c == ' ' || c == '\t' || c == '\n' || c == '\r' )
+                {
+                    in_whitespace = true;
+                    continue;
+                }
+
+                if ( in_whitespace && !out.empty() )
+                    out += ' ';
+
+                in_whitespace = false;
+                out += c;
+            }
+
+            return out;
+        }
+
+        /**
+         * @brief Remove <|tool_call>...<tool_call|> and <|tool_response>...<tool_response|>
+         *        spans from a Gemma response before it is channel-split and displayed.
+         *
+         * These are protocol-internal (the harness already consumed and dispatched them in
+         * generateResponse()); showing the raw call/response syntax as answer prose is noise.
+         * An unterminated span (generation stopped mid-span) truncates to end-of-string.
+         */
+        static std::string stripToolExchangeSpans( const std::string& text )
+        {
+            static constexpr std::pair<std::string_view, std::string_view> kSpans[] = {
+                { "<|tool_call>", "<tool_call|>" },
+                { "<|tool_response>", "<tool_response|>" },
+            };
+
+            std::string result = text;
+
+            for ( const auto& [open, close] : kSpans )
+            {
+                std::string::size_type pos;
+
+                while ( (pos = result.find( open )) != std::string::npos )
+                {
+                    const auto close_pos = result.find( close, pos + open.size() );
+
+                    if ( close_pos == std::string::npos )
+                    {
+                        result.erase( pos );
+                        break;
+                    }
+
+                    result.erase( pos, close_pos + close.size() - pos );
+                }
+            }
+
+            return result;
+        }
+
+        /**
+         * @brief Remove Llama special tokens from a generated response before
+         *        storing it in the conversation history.
+         *
+         * The streaming decoder may include <|eot_id|> or <|eom_id|> at the tail
+         * of the generated text. Storing these verbatim causes them to be re-emitted
+         * literally into the next formatted prompt, corrupting the token boundary
+         * structure and confusing the model on subsequent turns.
+         */
+        static std::string stripSpecialTokens( const std::string& text )
+        {
+            static constexpr std::string_view kTokens[] = {
+                "<|eot_id|>", "<|eom_id|>", "<|python_tag|>",
+                "<|begin_of_text|>", "<|end_of_text|>",
+                // Gemma 4 instruct special tokens.
+                "<end_of_turn>", "<start_of_turn>", "<bos>", "<eos>", "<pad>",
+                // Gemma 4 control tokens. The <|channel>/<channel|> markers are
+                // deliberately omitted: ChannelParser consumes them before this runs.
+                "<|turn>", "<turn|>", "<|think|>",
+                "<|tool>", "<tool|>", "<|tool_call>", "<tool_call|>",
+                "<|tool_response>", "<tool_response|>",
+                "<|image|>", "<|audio|>"
+            };
+
+            std::string result = text;
+
+            for ( const auto token : kTokens )
+            {
+                std::string::size_type pos = 0;
+
+                while ( (pos = result.find( token, pos )) != std::string::npos )
+                    result.erase( pos, token.size() );
+            }
+
+            // Trim trailing whitespace left after token removal.
+            const auto last = result.find_last_not_of( " \t\n\r" );
+
+            if ( last != std::string::npos )
+                result.erase( last + 1 );
+            else
+                result.clear();
+
+            return result;
+        }
+
+        /**
+         * @brief Invoke the registered handler for a tool call and return its result.
+         *
+         * Returns an error string when no handler is registered for the call name so
+         * the model receives feedback rather than silently receiving an empty result.
+         *
+         * @param call Parsed tool call from ToolCallParser::parse().
+         * @return     Handler result string, or a formatted error on missing handler.
+         */
+        std::string dispatchTool( const ToolCall& call )
+        {
+            const auto it = tool_handlers_.find( call.name );
+
+            if ( it == tool_handlers_.end() )
+            {
+                const std::string error = std::format(
+                    "Error: no handler registered for tool '{}'", call.name );
+                std::cerr << "\n[" << error << "]\n";
+                return error;
+            }
+
+            try
+            {
+                return it->second( call.arguments );
+            }
+            catch ( const std::exception& e )
+            {
+                const std::string error = std::format(
+                    "Error: tool '{}' handler threw: {}", call.name, e.what() );
+                std::cerr << "\n[" << error << "]\n";
+                return error;
+            }
+        }
+
+        /**
+         * @brief Render a dispatched tool call as an inline agentic-trace line.
+         *
+         * The human-readable intent (from the tool's summary template) always shows; the
+         * raw result payload only at detail level All. Shared by the Gemma and Llama paths.
+         */
+        void emitToolCall( const ToolCall& call, const std::string& result )
+        {
+            // ANSI bold on/off around each substituted argument value so the dynamic parts
+            // stand out within the trace line; bold-off (not full reset) preserves the line
+            // color the renderer applies around the whole summary.
+            const std::string summary = formatToolSummary(
+                system_prompt_config_.tools, call.name, call.arguments, "\x1b[1m", "\x1b[22m" );
+
+            renderer_.printToolCall( summary, result, config_.detail == DetailLevel::All );
+        }
+
+        /**
+         * @brief Serialize tool definitions to a JSON array string for inclusion in
+         *        the system prompt so the model knows which tools are available.
+         *
+         * @param tools Tool definitions loaded from the system prompt file.
+         * @return      JSON array string describing all tools.
+         */
+        static std::string serializeTools( const std::vector<ToolDefinition>& tools )
+        {
+            nlohmann::json arr = nlohmann::json::array();
+
+            for ( const auto& tool : tools )
+            {
+                nlohmann::json props = nlohmann::json::object();
+
+                for ( const auto& [pname, prop] : tool.parameters.properties )
+                {
+                    props[ pname ] = {
+                        { "type", prop.type },
+                        { "description", prop.description }
+                    };
+                }
+
+                arr.push_back( {
+                    { "name", tool.name },
+                    { "description", tool.description },
+                    { "parameters", {
+                        { "type", tool.parameters.type },
+                        { "properties", props },
+                        { "required", tool.parameters.required }
+                    }}
+                    } );
+            }
+
+            return arr.dump( 2 );
+        }
+
+        void generateResponse( std::string& response )
+        {
+            std::vector<int32_t> input_tokens = buildInputTokens();
+
+            GenerateParams gen_params;
+            gen_params.max_new_tokens = config_.max_new_tokens;
+            gen_params.sampling.temperature = config_.temperature;
+            gen_params.sampling.top_k = config_.top_k;
+
+            // Gemma 4's <|tool_call>/<tool_call|> pair is a native protocol element, not a
+            // text convention (GemmaChatProtocol.md): the model expects the harness to stop
+            // generation right after <tool_call|>, execute the real tool, and splice a genuine
+            // <|tool_response>...<tool_response|> back in before it continues. Left alone, it
+            // free-runs past its own tool call and fabricates the rest (confirmed empirically --
+            // see the discovery session this loop was built to validate).
+            const bool watch_gemma_tool_call =
+                config_.model_type == ModelType::Gemma
+                && !tool_handlers_.empty()
+                && gemma_tool_call_close_token_.has_value();
+
+            constexpr int kMaxToolRounds = 4;
+
+            last_turn_rounds_.clear();
+
+            // Streaming display (Gemma-first): tokens render live while the buffered
+            // response string keeps accumulating as history and as the display's
+            // validation oracle (see emitAssistantResponse). One pipeline spans all
+            // tool rounds of the turn.
+            stream_display_.reset();
+
+            if ( config_.streaming_capable && gemma_stream_tokens_.has_value() )
+                stream_display_ = std::make_unique<StreamingResponseDisplay>(
+                    renderer_, *gemma_stream_tokens_, config_.detail );
+
+            for ( int round = 0; round < kMaxToolRounds; ++round )
+            {
+                // Live token count on the spinner line: ticking = generating, frozen = hung.
+                std::atomic<int> live_token_count{ 0 };
+
+                renderer_.startSpinner( {}, &live_token_count );
+                stop_src_ = std::stop_source{};
+                bool tool_call_stop = false;
+
+                // Per-round timing: each round has its own prefill (a full re-prefill on
+                // rounds after a tool call) so the numbers stay meaningful across the turn.
+                const auto round_start = std::chrono::high_resolution_clock::now();
+                auto first_token_time = round_start;
+                auto last_token_time = round_start;
+                int round_token_count = 0;
+
+                std::vector<float> token_gaps_ms;
+                token_gaps_ms.reserve( 4096 );
+
+                GenerateStatus round_status = GenerateStatus::Success;
+
+                std::visit(
+                    [&]( auto& m )
+                    {
+                        round_status = m->generate(
+                            input_tokens,
+                            [&]( int32_t tok )
+                            {
+                                const auto now = std::chrono::high_resolution_clock::now();
+                                if ( round_token_count == 0 )
+                                    first_token_time = now;
+                                else
+                                    token_gaps_ms.push_back(
+                                        std::chrono::duration<float, std::milli>( now - last_token_time ).count() );
+                                last_token_time = now;
+                                ++round_token_count;
+                                live_token_count.fetch_add( 1, std::memory_order_relaxed );
+
+                                const std::string piece = tokenizer_->decode(
+                                    std::vector<TokenId>{ static_cast<TokenId>(tok) } );
+                                response += piece;
+
+                                if ( stream_display_ )
+                                {
+                                    const auto action = stream_display_->onToken( tok, piece );
+
+                                    // The display suspended for the suppressed tool span:
+                                    // the spinner owns the line until the round ends.
+                                    if ( action == StreamingResponseDisplay::TokenAction::ToolCallOpened )
+                                        renderer_.startSpinner( "tool call", &live_token_count );
+                                    // Hidden reasoning (detail off): label the spinner so the
+                                    // user knows Mila is thinking. The first answer word stops it.
+                                    else if ( action == StreamingResponseDisplay::TokenAction::ThinkingStarted )
+                                        renderer_.startSpinner( "Thinking...", &live_token_count );
+                                }
+
+                                if ( watch_gemma_tool_call && tok == *gemma_tool_call_close_token_ )
+                                {
+                                    tool_call_stop = true;
+                                    stop_src_.request_stop();
+                                }
+                            },
+                            gen_params,
+                            stop_src_.get_token() );
+                    },
+                    model_ );
+
+                renderer_.stopSpinner();
+
+                // Round boundary: surrender any incomplete UTF-8 tail to the display.
+                if ( stream_display_ )
+                    stream_display_->onRoundEnd();
+
+                RoundStats round_stats;
+                round_stats.finish_status = round_status;
+                round_stats.tokens_generated = round_token_count;
+                round_stats.prefill_time_ms =
+                    std::chrono::duration<float, std::milli>( first_token_time - round_start ).count();
+                const int decode_tokens = round_token_count > 0 ? round_token_count - 1 : 0;
+                const float decode_ms =
+                    std::chrono::duration<float, std::milli>( last_token_time - first_token_time ).count();
+                round_stats.decode_tokens_per_second =
+                    ( decode_ms > 0.0f && decode_tokens > 0 )
+                    ? static_cast<float>( decode_tokens ) / ( decode_ms / 1000.0f )
+                    : 0.0f;
+
+                if ( !token_gaps_ms.empty() )
+                {
+                    std::vector<float> ordered( token_gaps_ms );
+                    const size_t mid = ordered.size() / 2;
+                    std::nth_element( ordered.begin(), ordered.begin() + mid, ordered.end() );
+                    round_stats.median_gap_ms = ordered[ mid ];
+
+                    const size_t p99_index = ( ordered.size() * 99 ) / 100;
+                    std::nth_element( ordered.begin(), ordered.begin() + p99_index, ordered.end() );
+                    round_stats.p99_gap_ms = ordered[ p99_index ];
+
+                    const auto max_it = std::max_element( token_gaps_ms.begin(), token_gaps_ms.end() );
+                    round_stats.max_gap_ms = *max_it;
+                    // +1: gap i sits between token i and token i+1 of the round.
+                    round_stats.max_gap_token_index =
+                        static_cast<int>( max_it - token_gaps_ms.begin() ) + 1;
+
+                    const float stall_floor =
+                        std::max( 2.5f * round_stats.median_gap_ms, 40.0f );
+
+                    for ( const float gap : token_gaps_ms )
+                    {
+                        if ( gap > stall_floor )
+                        {
+                            ++round_stats.stall_count;
+                            round_stats.stall_total_ms += gap;
+                        }
+                    }
+                }
+
+                // A capped round is indistinguishable from a hang while the buffered
+                // response builds (pegged GPU, silent spinner) -- say so explicitly.
+                if ( round_status == GenerateStatus::MaxNewTokensReached
+                    || round_status == GenerateStatus::ContextOverflow )
+                {
+                    if ( stream_display_ )
+                        stream_display_->suspendForTrace();
+
+                    renderer_.printInfo( round_status == GenerateStatus::MaxNewTokensReached
+                        ? std::format(
+                            "Response hit the {}-token cap without a stop token (finish: length).",
+                            config_.max_new_tokens )
+                        : "Response stopped at the context limit (finish: context_limit)." );
+                }
+
+                std::optional<ToolCall> call;
+
+                if ( tool_call_stop )
+                {
+                    if ( auto parsed = Mila::Dnn::Gemma::parseToolCall( response ) )
+                        call = ToolCall{ .name = std::move( parsed->name ),
+                            .arguments = std::move( parsed->arguments ) };
+                }
+
+                if ( !call.has_value() )
+                {
+                    // Either a normal finish or an unparseable stop -- surface the text as-is
+                    // rather than looping forever on a call we cannot dispatch.
+                    last_turn_rounds_.push_back( std::move( round_stats ) );
+                    break;
+                }
+
+                round_stats.ended_in_tool_call = true;
+                round_stats.tool_name = call->name;
+                last_turn_rounds_.push_back( std::move( round_stats ) );
+
+                const std::string tool_result = dispatchTool( *call );
+
+                // The trace lines print between streamed blocks; make sure the
+                // display's visual line is closed first.
+                if ( stream_display_ )
+                    stream_display_->suspendForTrace();
+
+                emitToolCall( *call, tool_result );
+
+                response += Mila::Dnn::Gemma::formatToolResponse( call->name, tool_result );
+
+                // Continue the SAME assistant turn: the model's protocol splices the tool
+                // response into the turn it already opened, not a fresh history entry (unlike
+                // Llama's ipython-role round trip). Re-prefill prompt + everything generated
+                // so far -- the harness has no incremental-KV-cache continuation entry point.
+                input_tokens = buildInputTokens();
+                const auto continuation = tokenizer_->encode( response );
+                input_tokens.insert( input_tokens.end(), continuation.begin(), continuation.end() );
+            }
+
+            if ( stream_display_ )
+                stream_display_->finish();
+        }
+
+        /**
+         * @brief Build the token sequence for the current generation step.
+         *
+         * Llama instruct models format the full structured history via
+         * MessageFormatter. GPT and Llama base models encode only the last
+         * user message content.
+         *
+         * @return Token ids ready to pass to generateAsync().
+         */
+        std::vector<int32_t> buildInputTokens() const
+        {
+            std::string prompt;
+
+            if ( config_.model_type == ModelType::Llama && config_.is_instruct )
+                prompt = MessageFormatter::format( history_ );
+            else if ( config_.model_type == ModelType::Gemma && config_.is_instruct )
+                prompt = formatGemmaPrompt( history_, config_.show_thinking, config_.thinking_effort );
+            else
+                prompt = history_.back().content;
+
+            auto token_ids = tokenizer_->encode( prompt );
+
+            return std::vector<int32_t>( token_ids.begin(), token_ids.end() );
+        }
+
+        /**
+         * @brief Render a conversation history into the Gemma instruct chat template.
+         *
+         * Gemma 4 wraps each turn as <|turn>{role}\n{content}<turn|>\n with roles
+         * "system", "user", and "model" (the assistant), and terminates with a
+         * <|turn>model\n primer to prime generation. The Gemma tokenizer encodes
+         * the control tokens as atomic specials, so they are emitted as literal
+         * text here. (The checkpoint uses <|turn>/<turn|>, not the Gemma 3-style
+         * <start_of_turn>/<end_of_turn>, which are absent from its vocabulary.)
+         *
+         * When enable_thinking is set, the <|think|> trigger leads a dedicated
+         * system turn per the Gemma 4 protocol; the model then emits a populated
+         * <|channel>thought...<channel|> reasoning section. The trigger must sit in
+         * the system turn — folding it into the user turn does not activate thinking.
+         */
+        /**
+         * @brief A point on the thinking-effort scale: a token budget plus the
+         *        instruction that communicates it to the model.
+         *
+         * Gemma 4's <|think|> is a boolean toggle with no native budget argument, so
+         * effort is steered through the system instruction. The budget is the
+         * user-facing scale value; the instruction is what the model actually reads.
+         */
+        struct ThinkingEffort
+        {
+            int              budget;
+            std::string_view name;
+            std::string_view instruction;
+        };
+
+        static constexpr ThinkingEffort kThinkingEfforts[ 5 ] = {
+            { 128,  "minimal",    "Think briefly before answering; keep your reasoning to a sentence or two." },
+            { 256,  "low",        "Think before answering, keeping your reasoning concise." },
+            { 512,  "balanced",   "Think step by step before answering." },
+            { 1024, "high",       "Think carefully and thoroughly before answering, and check your reasoning." },
+            { 2048, "exhaustive", "Think exhaustively before answering: explore alternatives and verify each step." },
+        };
+
+        /// Resolve a 1..5 effort level (clamped) to its scale entry.
+        static const ThinkingEffort& thinkingEffort( int level )
+        {
+            return kThinkingEfforts[ std::clamp( level, 1, 5 ) - 1 ];
+        }
+
+        static std::string formatGemmaPrompt( const std::vector<ChatMessage>& history, bool enable_thinking, int effort_level )
+        {
+            constexpr std::string_view kThinkToken = "<|think|>";
+
+            std::string prompt = "<bos>";
+
+            // Gemma collapses to a single system instruction; the last System turn wins.
+            std::string system_content;
+
+            for ( const auto& message : history )
+            {
+                if ( message.role == MessageRole::System )
+                    system_content = message.content;
+            }
+
+            // Emit a dedicated system turn when there is a system instruction or when
+            // thinking is enabled (the <|think|> trigger must lead the system turn).
+            if ( enable_thinking || !system_content.empty() )
+            {
+                prompt += "<|turn>system\n";
+
+                if ( enable_thinking )
+                {
+                    const ThinkingEffort& effort = thinkingEffort( effort_level );
+                    prompt += kThinkToken;
+                    prompt += effort.instruction;
+                    prompt += std::format( " Limit your internal reasoning to about {} tokens.", effort.budget );
+
+                    if ( !system_content.empty() )
+                        prompt += "\n\n";
+                }
+
+                prompt += system_content;
+                prompt += "<turn|>\n";
+            }
+
+            for ( const auto& message : history )
+            {
+                if ( message.role == MessageRole::System )
+                    continue;
+
+                const bool is_model = (message.role == MessageRole::Assistant);
+                prompt += is_model ? "<|turn>model\n" : "<|turn>user\n";
+                prompt += message.content;
+                prompt += "<turn|>\n";
+            }
+
+            prompt += "<|turn>model\n";
+
+            // The 12B/26B/31B Gemma 4 sizes prime an empty <|channel>thought<channel|> onto
+            // the prompt itself when thinking is off -- this suppresses "ghost" thought
+            // channels the model may otherwise emit even when deactivated (vendor
+            // prompt-formatting doc; the smaller E2B/E4B sizes do not need this, and are
+            // not offered by this harness today). When thinking is ON, the model generates
+            // this section itself -- priming it here would pre-empt real reasoning.
+            if ( !enable_thinking )
+                prompt += "<|channel>thought\n<channel|>";
+
+            return prompt;
+        }
+
+        static std::vector<std::string_view> splitWhitespace( std::string_view text )
+        {
+            std::vector<std::string_view> tokens;
+
+            size_t i = 0;
+
+            while ( i < text.size() )
+            {
+                while ( i < text.size() && text[ i ] == ' ' )
+                    ++i;
+
+                if ( i >= text.size() )
+                    break;
+
+                const size_t start = i;
+
+                while ( i < text.size() && text[ i ] != ' ' )
+                    ++i;
+
+                tokens.push_back( text.substr( start, i - start ) );
+            }
+
+            return tokens;
+        }
+
+        /**
+         * @brief True when the requested model entry and quantization match the model
+         *        already resident in memory, so a switch would be a no-op reload.
+         */
+        bool isCurrentModel( const ModelEntry& entry, QuantizationMode quant ) const
+        {
+            const bool loaded = !std::visit( []( const auto& m ) { return m == nullptr; }, model_ );
+
+            return loaded
+                && config_.model_type        == entry.family
+                && config_.model_size        == entry.size
+                && config_.precision         == entry.precision
+                && config_.quantization_mode == quant;
+        }
+
+        void switchModel( const ModelEntry& entry, QuantizationMode quant )
+        {
+            const ModelType prev_type = config_.model_type;
+
+            config_.model_type        = entry.family;
+            config_.model_size        = entry.size;
+            config_.precision         = entry.precision;
+            config_.is_instruct       = entry.is_instruct;
+            config_.streaming_capable = entry.streaming_capable;
+            config_.quantization_mode = quant;
+            config_.model_path        = config_.models_dir / entry.weights_file;
+            config_.tokenizer_path    = config_.models_dir / entry.tokenizer_file;
+
+            // Preserve context_length across same-architecture switches; reset to the
+            // new model's default on an architecture change.
+            if ( prev_type != config_.model_type )
+                config_.context_length = entry.default_context;
+
+            // Destroy the current model before allocating the replacement.
+            // This returns VRAM to the CUDA pool before the new model is loaded,
+            // avoiding a transient old+new peak that overflows the VRAM budget
+            // and forces WDDM to spill into shared system memory.
+            std::visit( []( auto& m ) { m.reset(); }, model_ );
+
+            loadActiveModel();
+            clearHistory();
+
+            renderer_.printInfo( "Model switched. Conversation history cleared." );
+        }
+
+        /**
+         * @brief Load the active tokenizer and model, under the progress spinner.
+         *
+         * At detail level All the spinner is skipped so the INFO logging and the
+         * model / memory dumps remain readable; otherwise the multi-second weight
+         * load runs under the same braille spinner used for turns.
+         */
+        void loadActiveModel()
+        {
+            if ( config_.detail == DetailLevel::All )
+            {
+                initializeTokenizer();
+                loadModel();
+                return;
+            }
+
+            renderer_.startSpinner( std::format( "Loading {} ({})",
+                modelAlias(), quantizationName( config_.quantization_mode ) ) );
+
+            initializeTokenizer();
+            loadModel();
+
+            renderer_.stopSpinner();
+        }
+
+        void printModelInfo() const
+        {
+            const ThinkingEffort& effort = thinkingEffort( config_.thinking_effort );
+
+            std::cout << std::format(
+                "  Model:        {}\n"
+                "  Precision:    {}\n"
+                "  Quantization: {}\n"
+                "  Instruct:     {}\n"
+                "  Thinking:     {}\n"
+                "  Effort:       {} ({}, ~{} tokens)\n"
+                "  Detail:       {}\n",
+                modelAlias(),
+                (config_.precision == ModelPrecision::BF16) ? "bf16" : "fp32",
+                quantizationName( config_.quantization_mode ),
+                config_.is_instruct ? "yes" : "no",
+                config_.show_thinking ? "on" : "off",
+                config_.thinking_effort, effort.name, effort.budget,
+                detailLevelName( config_.detail ) );
+        }
+
+        void initializeTokenizer()
+        {
+            try
+            {
+                Logging::Logger::info( std::format( "Loading tokenizer from: {}", config_.tokenizer_path.string() ) );
+
+                switch ( config_.model_type )
+                {
+                    case ModelType::Gpt:
+                        tokenizer_ = BpeTokenizer::loadGpt2( config_.tokenizer_path );
+                        break;
+
+                    case ModelType::Llama:
+                        tokenizer_ = BpeTokenizer::loadLlama32( config_.tokenizer_path );
+                        break;
+
+                    case ModelType::Gemma:
+                        tokenizer_ = BpeTokenizer::loadGemma( config_.tokenizer_path );
+                        break;
+                }
+
+                Logging::Logger::info( std::format( "Tokenizer loaded. Vocab size: {}", tokenizer_->getVocabSize() ) );
+
+                // Cache the Gemma control-token ids: <tool_call|> lets generateResponse()
+                // detect the tool-call boundary by raw token id rather than text scanning,
+                // and the full set drives the streaming display's channel router. Only
+                // genuine single-token vocab entries (per GemmaChatProtocol.md) are trusted;
+                // a multi-token encode means the checkpoint lacks the registered special
+                // token. Streaming requires all four routing ids or it stays buffered.
+                gemma_stream_tokens_.reset();
+
+                if ( config_.model_type == ModelType::Gemma )
+                {
+                    gemma_tool_call_close_token_ = probeSingleTokenId( "<tool_call|>" );
+
+                    const auto channel_open = probeSingleTokenId( "<|channel>" );
+                    const auto channel_close = probeSingleTokenId( "<channel|>" );
+                    const auto tool_call_open = probeSingleTokenId( "<|tool_call>" );
+
+                    if ( channel_open && channel_close && tool_call_open && gemma_tool_call_close_token_ )
+                    {
+                        GemmaStreamTokens tokens;
+                        tokens.channel_open = *channel_open;
+                        tokens.channel_close = *channel_close;
+                        tokens.tool_call_open = *tool_call_open;
+                        tokens.tool_call_close = *gemma_tool_call_close_token_;
+
+                        // Control tokens with no display form: the buffered pipeline strips
+                        // their text post-hoc (stripSpecialTokens); the router drops them live.
+                        static constexpr std::string_view kSuppressedControlTokens[] = {
+                            "<|turn>", "<turn|>", "<|think|>", "<|tool>", "<tool|>",
+                            "<|tool_response>", "<tool_response|>",
+                            "<end_of_turn>", "<start_of_turn>", "<bos>", "<eos>", "<pad>",
+                            "<|image|>", "<|audio|>"
+                        };
+
+                        for ( const auto control : kSuppressedControlTokens )
+                        {
+                            if ( const auto id = probeSingleTokenId( control ) )
+                                tokens.suppressed.push_back( *id );
+                        }
+
+                        gemma_stream_tokens_ = std::move( tokens );
+                    }
+                    else if ( config_.streaming_capable )
+                    {
+                        Logging::Logger::warning(
+                            "Streaming display disabled: Gemma control tokens not in the vocabulary." );
+                    }
+                }
+                else
+                {
+                    gemma_tool_call_close_token_ = std::nullopt;
+                }
+            }
+            catch ( const std::exception& e )
+            {
+                Logging::Logger::error( std::format( "Failed to load tokenizer: {}", e.what() ) );
+
+                throw;
+            }
+        }
+
+        /**
+         * @brief Resolve text to its vocabulary id when it encodes as a single
+         *        (special) token; nullopt when the checkpoint lacks the
+         *        registered special.
+         */
+        std::optional<int32_t> probeSingleTokenId( std::string_view text ) const
+        {
+            const auto ids = tokenizer_->encode( std::string( text ) );
+
+            return (ids.size() == 1)
+                ? std::optional<int32_t>( static_cast<int32_t>( ids[ 0 ] ) )
+                : std::nullopt;
+        }
+
+        void loadModel()
+        {
+            const DeviceId device{ DeviceType::Cuda, 0 };
+
+            switch ( config_.model_type )
+            {
+                case ModelType::Gpt:
+                {
+                    auto gpt = GptModelFP32Type::fromPretrained(
+                        config_.model_path,
+                        config_.context_length,
+                        device,
+                        /*strict=*/true );
+                    if ( config_.detail == DetailLevel::All )
+                    {
+                        std::cout << gpt->toString();
+                        std::cout << gpt->getMemoryStats().toString() << "\n";
+                    }
+                    model_ = std::move( gpt );
+                    break;
+                }
+
+                case ModelType::Llama:
+                {
+                    LlamaModelConfig llama_config = LlamaModelConfig( config_.context_length );
+
+                    if ( config_.quantization_mode == QuantizationMode::FP8 )
+                        llama_config.withFP8Quantization();
+                    else if ( config_.quantization_mode == QuantizationMode::FP4 )
+                        llama_config.withFP4Quantization();
+
+                    if ( config_.precision == ModelPrecision::BF16 )
+                    {
+                        auto llama_bf16 = LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
+                            config_.model_path, llama_config, device );
+                        if ( config_.detail == DetailLevel::All )
+                        {
+                            std::cout << llama_bf16->toString();
+                            std::cout << llama_bf16->getMemoryStats().toString() << "\n";
+                        }
+                        model_ = std::move( llama_bf16 );
+                    }
+                    else
+                        model_ = LlamaModel<DeviceType::Cuda, TensorDataType::FP32>::fromPretrained(
+                            config_.model_path, llama_config, device );
+
+                    break;
+                }
+
+                case ModelType::Gemma:
+                {
+                    GemmaModelConfig gemma_config = GemmaModelConfig( config_.context_length );
+
+                    if ( config_.quantization_mode == QuantizationMode::FP8 )
+                        gemma_config.withFP8Quantization();
+                    else if ( config_.quantization_mode == QuantizationMode::FP4 )
+                        gemma_config.withFP4Quantization();
+
+                    auto gemma = GemmaModelBF16Type::fromPretrained(
+                        config_.model_path, gemma_config, device );
+                    if ( config_.detail == DetailLevel::All )
+                    {
+                        std::cout << gemma->toString();
+                        std::cout << gemma->getMemoryStats().toString() << "\n";
+                    }
+                    model_ = std::move( gemma );
+                    break;
+                }
+            }
+        }
+
+        /**
+         * @brief Load the system prompt and tool definitions from file.
+         *
+         * No-op when system_prompt_path is not set in config. On success,
+         * system_prompt_config_ is populated and available to run().
+         * File existence is validated by main() before construction so a
+         * missing file here is a logic error.
+         */
+        void loadSystemPrompt()
+        {
+            if ( !config_.system_prompt_path.has_value() )
+                return;
+
+            try
+            {
+                system_prompt_config_ = SystemPromptLoader::load(
+                    *config_.system_prompt_path );
+            }
+            catch ( const std::exception& e )
+            {
+                std::cerr << "Error loading system prompt: " << e.what() << "\n";
+                throw;
+            }
+        }
+
+        /**
+         * @brief Show the per-round timing breakdown for the most recent turn on demand.
+         *
+         * A turn is one or more rounds; a tool call ends a round and starts another with its
+         * own re-prefill. Each round is reported separately (prefill / decode throughput /
+         * tokens, plus the tool it invoked) because a single lumped figure across rounds mixes
+         * decode with re-prefill and is meaningless. A totals line closes multi-round turns.
+         */
+        void showTurnStats() const
+        {
+            if ( last_turn_rounds_.empty() )
+            {
+                renderer_.printInfo( "No generation yet." );
+                return;
+            }
+
+            std::vector<std::string> lines;
+            const bool multi_round = last_turn_rounds_.size() > 1;
+
+            lines.push_back( std::format( "  Last turn: {} round{}",
+                last_turn_rounds_.size(), multi_round ? "s" : "" ) );
+
+            int total_tokens = 0;
+            float total_prefill_ms = 0.0f;
+
+            for ( size_t i = 0; i < last_turn_rounds_.size(); ++i )
+            {
+                const RoundStats& round = last_turn_rounds_[ i ];
+                total_tokens += round.tokens_generated;
+                total_prefill_ms += round.prefill_time_ms;
+
+                std::string line = std::format(
+                    "  Round {}  prefill {:.0f} ms  \xe2\x94\x82  ",
+                    i + 1, round.prefill_time_ms );
+
+                if ( round.decode_tokens_per_second > 0.0f )
+                    line += std::format( "{:.1f} tok/s  \xe2\x94\x82  {} tokens",
+                        round.decode_tokens_per_second, round.tokens_generated );
+                else
+                    line += std::format( "{} token{}",
+                        round.tokens_generated, round.tokens_generated == 1 ? "" : "s" );
+
+                if ( round.ended_in_tool_call )
+                    line += std::format( "  \xe2\x94\x82  \xe2\x86\x92 {}", round.tool_name );
+                else if ( round.finish_status != GenerateStatus::Success )
+                    line += std::format( "  \xe2\x94\x82  ended: {}", to_string( round.finish_status ) );
+
+                lines.push_back( std::move( line ) );
+
+                // Inter-token gap census (see RoundStats): outlier gaps localize a
+                // mid-response stall inside generate(); uniform gaps exonerate the loop.
+                if ( round.tokens_generated > 1 )
+                {
+                    std::string gap_line = std::format(
+                        "           gaps med {:.1f} ms  \xe2\x94\x82  p99 {:.1f} ms  \xe2\x94\x82  max {:.1f} ms @ token {}",
+                        round.median_gap_ms, round.p99_gap_ms,
+                        round.max_gap_ms, round.max_gap_token_index );
+
+                    if ( round.stall_count > 0 )
+                        gap_line += std::format( "  \xe2\x94\x82  {} stall{} ({:.0f} ms)",
+                            round.stall_count, round.stall_count == 1 ? "" : "s",
+                            round.stall_total_ms );
+
+                    lines.push_back( std::move( gap_line ) );
+                }
+            }
+
+            if ( multi_round )
+                lines.push_back( std::format(
+                    "  Total     {} tokens  \xe2\x94\x82  {:.0f} ms prefill",
+                    total_tokens, total_prefill_ms ) );
+
+            renderer_.printStatsDetail( lines );
+        }
+
+        static constexpr const char* kVersion = "v0.20";
+
+        std::string modelAlias() const
+        {
+            // Reverse the catalog: family + size + precision uniquely identify an alias.
+            for ( const auto& entry : kModelCatalog )
+            {
+                if ( entry.family == config_.model_type
+                    && entry.size == config_.model_size
+                    && entry.precision == config_.precision )
+                    return std::string( entry.alias );
+            }
+
+            return "unknown";
+        }
+
+        void printWelcome() const
+        {
+            const std::string thinking_display = config_.show_thinking
+                ? std::string( thinkingEffort( config_.thinking_effort ).name )
+                : "off";
+
+            renderer_.printWelcomeBox( std::format( "Mila Chat {}", kVersion ) );
+            renderer_.printInfo( std::format( "  Model: {}  ·  Thinking: {}",
+                modelAlias(), thinking_display ) );
+            std::cout << "  Type /help for commands, /exit to quit.\n\n";
+        }
+
+        void printHelp() const
+        {
+            std::cout << R"(
+Available commands:
+  /help                              Show this help message
+  /clear                             Clear conversation history
+  /model                             Show current model and quantization
+  /model <alias> [quant] [thinking]  Switch model (clears history)
+  /effort [1-5]                      Show or set the thinking token-budget level
+  /verbose [off|thoughts|all]        Show or set display detail (reasoning, raw + logs)
+  /stats                             Show per-round timing for the last turn
+  /seed <n>                          Reseed the sampler for reproducible generation
+  /exit                              Exit the application
+
+Model aliases:  )";
+
+            bool first = true;
+            for ( const auto& entry : kModelCatalog )
+            {
+                std::cout << (first ? "" : ", ") << entry.alias;
+
+                if ( entry.alias == kDefaultModelAlias )
+                    std::cout << " (default)";
+
+                first = false;
+            }
+
+            std::cout << R"(
+Quantization:   none, fp8, fp4  (each model has its own default)
+Thinking:       add 'thinking' to make Gemma reason (its <|think|> mode); toggling it
+                does not reload weights. Effort (length) is set with /effort 1-5.
+Detail:         tool calls always show as an agentic trace. /verbose thoughts adds the
+                reasoning channel, all adds raw output + logging. The model reasons even
+                when detail is off.
+
+Examples:
+  /model gemma-12b fp4 thinking
+  /verbose thoughts
+  /effort 5
+)" << "\n";
+        }
+
+        void clearHistory()
+        {
+            history_.clear();
+
+            if ( system_prompt_config_.system_prompt.empty() )
+                return;
+
+            std::string system_content = system_prompt_config_.system_prompt;
+
+            // Only advertise tools that have a registered handler.
+            // Describing unhandled tools primes the model to emit tool calls
+            // it will never get a result for.
+            std::vector<ToolDefinition> active_tools;
+            for ( const auto& tool : system_prompt_config_.tools )
+            {
+                if ( tool_handlers_.contains( tool.name ) )
+                    active_tools.push_back( tool );
+            }
+
+            if ( !active_tools.empty() )
+            {
+                if ( config_.model_type == ModelType::Llama )
+                {
+                    // Instruction text precedes the tool list per the Llama 3.2 zero-shot
+                    // tool-calling format the model was fine-tuned on.
+                    system_content +=
+                        "\n\nIf you decide to invoke any of the function(s), you MUST put it in the "
+                        "format of [func_name1(params_name1=params_value1, params_name2=params_value2...), "
+                        "func_name2(params)]\n"
+                        "You SHOULD NOT include any other text in the response.\n\n"
+                        "Here is a list of functions in JSON format that you can invoke:\n";
+                }
+                else
+                {
+                    // No invented call-syntax instructions: Gemma 4 has its own trained
+                    // <|tool_call>/<tool_call|> protocol (GemmaChatProtocol.md). This is a
+                    // plain description, deliberately left unopinionated about call syntax,
+                    // so /verbose all can capture the model's native format via printRaw.
+                    system_content += "\n\nYou have access to the following tools:\n";
+                }
+
+                system_content += serializeTools( active_tools );
+            }
+
+            history_.push_back( { MessageRole::System, std::move( system_content ) } );
+        }
+
+        ChatConfig config_;
+        ModelVariant model_;
+        SystemPromptConfig system_prompt_config_;
+        std::shared_ptr<BpeTokenizer> tokenizer_{ nullptr };
+        std::vector<ChatMessage> history_;
+        std::stop_source stop_src_;
+        std::unordered_map<std::string, std::function<std::string( const std::string& )>> tool_handlers_;
+        ConsoleRenderer renderer_;
+
+        // Gemma 4 tool-call protocol probe state (see generateResponse()).
+        std::optional<int32_t> gemma_tool_call_close_token_;
+
+        // Streaming display state: control-token ids resolved at tokenizer load
+        // (absent when the vocabulary lacks them — streaming falls back to the
+        // buffered path), and the per-turn pipeline created by generateResponse()
+        // and consumed by emitAssistantResponse().
+        std::optional<GemmaStreamTokens> gemma_stream_tokens_;
+        std::unique_ptr<StreamingResponseDisplay> stream_display_;
+
+        // Per-round timing for the most recent turn, measured from the token callback
+        // cadence (the library owns no stopwatch). A turn is one or more rounds: each tool
+        // call splits generation into a new round with its own prefill (a full re-prefill of
+        // prompt + accumulated turn text -- the harness has no incremental-KV continuation).
+        // Lumping these into one prefill/decode number is meaningless, which is why the
+        // per-turn stats line was dropped in favor of the on-demand /stats breakdown.
+        struct RoundStats
+        {
+            float prefill_time_ms = 0.0f;          // round start -> first token of round
+            float decode_tokens_per_second = 0.0f; // steady-state decode throughput this round
+            int tokens_generated = 0;
+            bool ended_in_tool_call = false;
+            std::string tool_name;                 // populated when ended_in_tool_call
+
+            // Inter-token gap census for GPU-utilization-dip triage: the callback cadence
+            // is the per-token wall time, so a mid-response stall inside generate() shows
+            // up as an outlier gap here. Uniform gaps + a dipping utilization graph means
+            // the GPU is being time-sliced by another process, not idled by the loop.
+            float median_gap_ms = 0.0f;
+            float p99_gap_ms = 0.0f;
+            float max_gap_ms = 0.0f;
+            int max_gap_token_index = 0;           // token that ended the largest gap
+            int stall_count = 0;                   // gaps > max(2.5 x median, 40 ms)
+            float stall_total_ms = 0.0f;           // wall time inside those stall gaps
+
+            // Why the round's generate() returned -- distinguishes a natural stop from
+            // hitting the token cap or the context bound (a capped round looks like a
+            // hang in the buffered UI: pegged GPU, no output, until the cap is reached).
+            GenerateStatus finish_status = GenerateStatus::Success;
+        };
+
+        std::vector<RoundStats> last_turn_rounds_;
+    };
+}

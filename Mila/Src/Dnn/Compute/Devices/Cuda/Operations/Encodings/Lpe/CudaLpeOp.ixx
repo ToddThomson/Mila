@@ -11,7 +11,7 @@ module;
 #include <string>
 #include <stdexcept>
 #include <cstdint>
-//#include <format>
+#include <format>
 
 export module Compute.CudaLpeOp;
 import :Dispatch;
@@ -24,14 +24,13 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.Component;
 import Compute.IPositionalDecode;
-import Compute.UnaryOperation;
+import Compute.OperationBase;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
 import Compute.ExecutionContext;
 import Compute.OperationType;
 import Compute.CudaDeviceMemoryResource;
 import Compute.CudaTensorDataType;
-import Compute.OperationRegistrarHelpers;
 
 namespace Mila::Dnn::Compute::Cuda::Lpe
 {
@@ -58,12 +57,11 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
      */
     export template<TensorDataType TInput, TensorDataType TPrecision = TInput>
         requires PrecisionSupportedOnDevice<TPrecision, DeviceType::Cuda>
-    class CudaLpeOp : public UnaryOperation<DeviceType::Cuda, TInput, TPrecision>,
-                      public IPositionalDecode
+    class CudaLpeOp : public Operation<DeviceType::Cuda, TPrecision>, public IPositionalDecode
     {
     public:
         using MR = CudaDeviceMemoryResource;
-        using UnaryOperationBase = UnaryOperation<DeviceType::Cuda, TInput, TPrecision>;
+        using OperationBaseType = Operation<DeviceType::Cuda, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
         using NativeType = typename Mila::Dnn::Compute::Cuda::TensorDataTypeMap<TPrecision>::device_type;
         using CudaExecutionContext = ExecutionContext<DeviceType::Cuda>;
@@ -85,8 +83,8 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
          * Caches native device pointers and validates tensor shapes against the
          * configuration. Must be called before build().
          *
-         * @param wte Token embedding table — CUDA tensor of shape [vocab_size, C].
-         * @param wpe Positional embedding table — CUDA tensor of shape [max_seq_len, C].
+         * @param wte Token embedding table -- CUDA tensor of shape [vocab_size, C].
+         * @param wpe Positional embedding table -- CUDA tensor of shape [max_seq_len, C].
          *
          * @throws std::invalid_argument on null, non-CUDA, or shape-mismatched tensors.
          */
@@ -119,8 +117,8 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
         /**
          * @brief Bind wte and wpe gradient tensors for training (module retains ownership).
          *
-         * @param wte_grad Gradient buffer for wte — CUDA tensor of shape [vocab_size, C].
-         * @param wpe_grad Gradient buffer for wpe — CUDA tensor of shape [max_seq_len, C].
+         * @param wte_grad Gradient buffer for wte -- CUDA tensor of shape [vocab_size, C].
+         * @param wpe_grad Gradient buffer for wpe -- CUDA tensor of shape [max_seq_len, C].
          *
          * @throws std::invalid_argument on null or non-CUDA tensors.
          */
@@ -172,7 +170,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
             if ( embedding_dim_ != config_.getEmbeddingDim() )
                 throw std::invalid_argument( "CudaLpeOp::build - parameter embedding dimension does not match configuration" );
 
-            UnaryOperationBase::build( config );
+            OperationBaseType::build( config );
         }
 
         // ====================================================================
@@ -189,7 +187,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
          *
          * @throws std::runtime_error if the input shape exceeds the built maximum.
          */
-        void forward( const ITensor& input, ITensor& output ) const override
+        void forward( const ITensor& input, ITensor& output ) const
         {
             const auto& input_shape = input.shape();
             int B = static_cast<int>( input_shape[ 0 ] );
@@ -226,7 +224,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const override
+            ITensor& input_grad ) const
         {
             const auto& input_shape = input.shape();
             int B = static_cast<int>( input_shape[ 0 ] );
@@ -234,11 +232,10 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
 
             if ( B > batch_size_ || T > seq_length_ )
             {
-                throw std::runtime_error( "CudaLpeOp: input shape [{}, {}] exceeds built max [{}, {}]" );
-                    //FIXME: Possible ICE:
-                    // std::format(
-                    //    "CudaLpeOp: input shape [{}, {}] exceeds built max [{}, {}]",
-                    //    B, T, batch_size_, seq_length_ ) );
+                throw std::runtime_error(
+                     std::format(
+                        "CudaLpeOp: input shape [{}, {}] exceeds built max [{}, {}]",
+                        B, T, batch_size_, seq_length_ ) );
             }
 
             const int32_t* X  = static_cast<const int32_t*>( input.rawData() );
@@ -300,11 +297,9 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
             if ( position < 0 || position >= wpe_max_seq_len_ )
             {
 
-                throw std::invalid_argument( "CudaLpeOp::decode: position {} out of range [0, {})" );
-                    //FIXME: Possible ICE
-                    // std::format(
-                    //"CudaLpeOp::decode: position {} out of range [0, {})",
-                    //position, wpe_max_seq_len_ ) );
+                throw std::invalid_argument(
+                    std::format( "CudaLpeOp::decode: position {} out of range [0, {})",
+                    position, wpe_max_seq_len_ ) );
             }
 
             int B = static_cast<int>( input.shape()[ 0 ] );
@@ -358,20 +353,4 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
         }
     };
 
-    export class CudaLpeOpRegistrar
-    {
-    public:
-        static void registerOperations()
-        {
-            //const std::string opName = "LpeOp";
-
-            registerUnaryOpType<DeviceType::Cuda,
-                CudaLpeOp<TensorDataType::INT32, TensorDataType::FP32>,
-                TensorDataType::INT32, TensorDataType::FP32>( "LpeOp" );
-
-            registerUnaryOpType<DeviceType::Cuda,
-                CudaLpeOp<TensorDataType::INT32, TensorDataType::FP16>,
-                TensorDataType::INT32, TensorDataType::FP16>( "LpeOp");
-        }
-    };
 }

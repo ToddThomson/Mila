@@ -1,5 +1,5 @@
 /**
- * @file TokenEmbedding.Dispatch.ixx
+ * @file CudaTokenEmbeddingOp.Dispatch.ixx
  * @brief CUDA kernel dispatch helpers for the TokenEmbedding operation.
  *
  * Internal to the Compute.CudaTokenEmbeddingOp module.
@@ -73,6 +73,30 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding::Detail
             int B, int C, cudaStream_t stream )
         {
             cuda_token_embedding_decode_bf16( Y, X, wte, B, C, stream );
+        }
+    };
+
+    // ========================================================================
+    // BF16 output, FP8_E4M3 table (D4 Design B)
+    //
+    // The table pointer travels as void* -- the FP8 element type stays inside
+    // the NVCC-compiled kernel TU. Inference-only: no backward.
+    // ========================================================================
+
+    struct cuda_token_embedding_fp8_impl
+    {
+        static void forward(
+            __nv_bfloat16* Y, const int* X, const void* wte_fp8, const float* scales,
+            int B, int T, int C, cudaStream_t stream )
+        {
+            cuda_token_embedding_forward_bf16_qfp8( Y, X, wte_fp8, scales, B, T, C, stream );
+        }
+
+        static void decode(
+            __nv_bfloat16* Y, const int* X, const void* wte_fp8, const float* scales,
+            int B, int C, cudaStream_t stream )
+        {
+            cuda_token_embedding_decode_bf16_qfp8( Y, X, wte_fp8, scales, B, C, stream );
         }
     };
 }

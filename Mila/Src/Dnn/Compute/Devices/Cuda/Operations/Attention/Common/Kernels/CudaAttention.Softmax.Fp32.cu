@@ -119,7 +119,7 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
 
     __global__ void softmax_decode_forward_fp32_kernel(
         float* att, float scale, const float* preatt,
-        int B_NH, int max_len, int actual_len )
+        int B_NH, int max_len, int actual_len, int window )
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -128,16 +128,21 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
             const float* preatt_row = preatt + idx * max_len;
             float* att_row = att + idx * max_len;
 
+            // Sliding-window lower bound. window <= 0 means global (window_start = 0),
+            // which reproduces the unbounded decode behavior exactly. The query is the
+            // final cached position (actual_len - 1).
+            int window_start = ( window > 0 ) ? max( 0, actual_len - window ) : 0;
+
             float max_val = -INFINITY;
 
-            for ( int t2 = 0; t2 < actual_len; ++t2 )
+            for ( int t2 = window_start; t2 < actual_len; ++t2 )
             {
                 max_val = fmaxf( max_val, preatt_row[ t2 ] );
             }
 
             float sum = 0.0f;
 
-            for ( int t2 = 0; t2 < actual_len; ++t2 )
+            for ( int t2 = window_start; t2 < actual_len; ++t2 )
             {
                 float val = expf( (preatt_row[ t2 ] - max_val) * scale );
                 sum += val;
@@ -146,14 +151,81 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
 
             float inv_sum = 1.0f / sum;
 
-            for ( int t2 = 0; t2 < actual_len; ++t2 )
+            for ( int t2 = window_start; t2 < actual_len; ++t2 )
             {
                 att_row[ t2 ] *= inv_sum;
+            }
+
+            for ( int t2 = 0; t2 < window_start; ++t2 )
+            {
+                att_row[ t2 ] = 0.0f;
             }
 
             for ( int t2 = actual_len; t2 < max_len; ++t2 )
             {
                 att_row[ t2 ] = 0.0f;
+            }
+        }
+    }
+
+    // Bounded sliding-window ring decode softmax. preatt/att rows have `capacity`
+    // columns, where column j is RING SLOT j (not an absolute position). Slot j
+    // holds the key at absolute position
+    //   p_j = end - ((r - j + capacity) % capacity),   end = actual_len - 1, r = end % capacity,
+    // in (end - capacity, end]; it is in-window (and resident) iff p_j >= window_start.
+    // One thread owns a full row, so ring (rotated) slot order is irrelevant.
+    // See SlidingWindowKvCache.md D6.
+    __global__ void softmax_decode_ring_forward_fp32_kernel(
+        float* att, const float* preatt,
+        int B_NH, int capacity, int actual_len, int window )
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+        if ( idx < B_NH )
+        {
+            const float* preatt_row = preatt + idx * capacity;
+            float* att_row = att + idx * capacity;
+
+            const int end = actual_len - 1;
+            const int window_start = ( window > 0 ) ? max( 0, actual_len - window ) : 0;
+            const int r = end % capacity;
+
+            float max_val = -INFINITY;
+
+            for ( int j = 0; j < capacity; ++j )
+            {
+                const int p = end - ( ( r - j + capacity ) % capacity );
+
+                if ( p >= window_start )
+                    max_val = fmaxf( max_val, preatt_row[ j ] );
+            }
+
+            float sum = 0.0f;
+
+            for ( int j = 0; j < capacity; ++j )
+            {
+                const int p = end - ( ( r - j + capacity ) % capacity );
+
+                if ( p >= window_start )
+                {
+                    float val = expf( preatt_row[ j ] - max_val );
+                    sum += val;
+                    att_row[ j ] = val;
+                }
+                else
+                {
+                    att_row[ j ] = 0.0f;
+                }
+            }
+
+            float inv_sum = 1.0f / sum;
+
+            for ( int j = 0; j < capacity; ++j )
+            {
+                const int p = end - ( ( r - j + capacity ) % capacity );
+
+                if ( p >= window_start )
+                    att_row[ j ] *= inv_sum;
             }
         }
     }
@@ -231,14 +303,32 @@ namespace Mila::Dnn::Compute::Cuda::Attention::Common
     void cuda_attention_softmax_decode_forward_fp32(
         float* att, float scale, const float* preatt,
         int B, int NH, int max_len, int actual_len,
-        cudaStream_t stream )
+        cudaStream_t stream, int window )
     {
         const int block_size = 256;
         const int B_NH = B * NH;
         const int num_blocks = ceil_div( B_NH, block_size );
 
         softmax_decode_forward_fp32_kernel << <num_blocks, block_size, 0, stream >> > (
-            att, scale, preatt, B_NH, max_len, actual_len);
+            att, scale, preatt, B_NH, max_len, actual_len, window);
+
+        cudaCheck( cudaGetLastError() );
+    }
+
+    void cuda_attention_softmax_decode_ring_forward_fp32(
+        float* att, float scale, const float* preatt,
+        int B, int NH, int capacity, int actual_len,
+        cudaStream_t stream, int window )
+    {
+        // scale unused: decode folds 1/sqrt(head_size) into the QK GEMM alpha.
+        (void) scale;
+
+        const int block_size = 256;
+        const int B_NH = B * NH;
+        const int num_blocks = ceil_div( B_NH, block_size );
+
+        softmax_decode_ring_forward_fp32_kernel << <num_blocks, block_size, 0, stream >> > (
+            att, preatt, B_NH, capacity, actual_len, window);
 
         cudaCheck( cudaGetLastError() );
     }

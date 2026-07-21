@@ -23,8 +23,8 @@ export import Dnn.Components.Lpe;
 export import Dnn.Components.Rope;
 export import Dnn.Components.Linear;
 
-//Losses
-// FIXME: export import Dnn.Components.SoftmaxCrossEntropy;
+// Losses
+// FUTURE: export import Dnn.Components.SoftmaxCrossEntropy;
 
 // Normalization
 export import Dnn.Components.LayerNorm;

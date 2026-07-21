@@ -3,16 +3,16 @@
  * @brief Configuration for RMS Normalization component.
  *
  * Design principle (Mila-wide):
- *   - Constructor parameters are structurally required — no sensible default exists.
+ *   - Constructor parameters are structurally required -- no sensible default exists.
  *   - Fluent setters are reserved for optional behavioural parameters that have
  *     well-known defaults. There are no fluent overrides for constructor parameters.
  *
  * RmsNormConfig supports two mutually exclusive normalization modes selected
  * by constructor overload:
- *   - Shape mode:  RmsNormConfig( shape_t )   — normalize over a trailing shape.
- *   - Axis mode:   RmsNormConfig( int64_t )   — normalize over a single axis.
+ *   - Shape mode:  RmsNormConfig( shape_t )   -- normalize over a trailing shape.
+ *   - Axis mode:   RmsNormConfig( int64_t )   -- normalize over a single axis.
  *
- * The overloads are unambiguous — shape_t and int64_t cannot collide.
+ * The overloads are unambiguous -- shape_t and int64_t cannot collide.
  *
  * Typical usage:
  * @code
@@ -52,9 +52,9 @@ namespace Mila::Dnn
         /**
          * @brief Construct in shape mode.
          *
-         * Normalizes over the trailing dimensions described by @p shape.
+         * Normalizes over the trailing dimensions described by @p normalized_shape.
          *
-         * @param shape  Trailing dimensions to normalize over (e.g. shape_t{ model_dim }).
+         * @param normalized_shape  Trailing dimensions to normalize over (e.g. shape_t{ model_dim }).
          */
         explicit RmsNormConfig( shape_t normalized_shape )
             : normalized_shape_( std::move( normalized_shape ) )
@@ -72,7 +72,7 @@ namespace Mila::Dnn
         {}
 
         // ====================================================================
-        // Optional fluent setters — behavioural parameters with sensible defaults.
+        // Optional fluent setters -- behavioural parameters with sensible defaults.
         // No fluent overrides exist for constructor parameters.
         // ====================================================================
 
@@ -99,6 +99,22 @@ namespace Mila::Dnn
         decltype(auto) withEpsilon( this Self&& self, float epsilon )
         {
             self.epsilon_ = epsilon;
+            return std::forward<Self>( self );
+        }
+
+        /**
+         * @brief Set the unit offset added to the loaded weight before scaling.
+         *
+         * The normalized activation is scaled by (weight + unit_offset). Default 0.0
+         * reproduces standard RMSNorm (x_norm * weight) -- used by Llama 3 / GPT-2.
+         * Gemma sets 1.0: its RMSNorm is x_norm * (1 + weight), with weights stored
+         * raw (zero-centered, weight-decay-friendly). The offset is applied at the
+         * kernel so the stored/loaded weights remain identical to the source checkpoint.
+         */
+        template <typename Self>
+        decltype(auto) withUnitOffset( this Self&& self, float unit_offset )
+        {
+            self.unit_offset_ = unit_offset;
             return std::forward<Self>( self );
         }
 
@@ -129,6 +145,11 @@ namespace Mila::Dnn
         float getEpsilon() const noexcept
         {
             return epsilon_;
+        }
+
+        float getUnitOffset() const noexcept
+        {
+            return unit_offset_;
         }
 
         // ====================================================================
@@ -174,7 +195,8 @@ namespace Mila::Dnn
             SerializationMetadata meta;
 
             meta.set( "has_bias", has_bias_ )
-                .set( "epsilon", epsilon_ );
+                .set( "epsilon", epsilon_ )
+                .set( "unit_offset", unit_offset_ );
 
             if ( !normalized_shape_.empty() )
             {
@@ -224,6 +246,11 @@ namespace Mila::Dnn
             {
                 epsilon_ = *v;
             }
+
+            if ( auto v = meta.tryGetFloat( "unit_offset" ) )
+            {
+                unit_offset_ = *v;
+            }
         }
 
         std::string toString() const override
@@ -251,6 +278,7 @@ namespace Mila::Dnn
 
             oss << ", has_bias=" << (has_bias_ ? "true" : "false");
             oss << ", epsilon=" << epsilon_;
+            oss << ", unit_offset=" << unit_offset_;
             oss << " )";
 
             return oss.str();
@@ -262,5 +290,6 @@ namespace Mila::Dnn
         std::optional<dim_t> axis_{ std::nullopt };
         bool                 has_bias_{ true };
         float                epsilon_{ 1e-5f };
+        float                unit_offset_{ 0.0f };
     };
 }

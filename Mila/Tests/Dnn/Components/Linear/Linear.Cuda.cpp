@@ -1,1186 +1,797 @@
+/**
+ * @file Linear.Cuda.cpp
+ * @brief Concrete-component tests for Linear<DeviceType::Cuda, {FP32, BF16}>.
+ *
+ * The CUDA companion to Linear.Cpu.cpp (see Specifications/Testing.md). Unlike
+ * Gelu (single CUDA precision), the CUDA LinearOp supports BOTH FP32 and BF16 in
+ * the unquantized path, so this is the reference instance of the precision-sweep
+ * mechanism the methodology describes: a TYPED_TEST runs the same bodies over
+ * each supported precision via ::testing::Types, with the only per-precision
+ * variation -- tolerance and the read-as-float accessor -- isolated in a small
+ * traits tag. The supported-precision list (LinearPrecisions) is the single point
+ * of change: add a CUDA precision to the OperationTraits and to that list, and the
+ * suite re-runs for it.
+ *
+ * Compiled only under MILA_ENABLE_CUDA (the Tests/CMakeLists.txt CUDA block), so
+ * no #ifdef. CUDA may still be absent at runtime; SetUp() skips if no device.
+ *
+ * Dimensions are realistic (not toy): the batch GEMM path goes through cuBLASLt,
+ * whose heuristic finds no algorithm for tiny dimensions, so the forward/backward
+ * tests use feature sizes a real layer would. The decode path (outer_size == 1)
+ * uses the matvec kernel and needs no cuBLASLt -- it is covered separately as the
+ * prefill->decode build-context regime.
+ *
+ * Numeric strategy: deterministic weights/bias/input are uploaded with element
+ * conversion to the device precision, then read back to float so the host
+ * reference sees exactly the (precision-rounded) values the kernel consumed. Only
+ * the GEMM accumulation precision then differs, which the per-precision tolerance
+ * accommodates. Base-contract behavior is covered once in Core/Component.cpp.
+ */
+
 #include <gtest/gtest.h>
-#include <memory>
-#include <vector>
-#include <string>
+#include <algorithm>
+#include <bit>
 #include <cmath>
-#include <stdexcept>
+#include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
 
 import Mila;
+// Instantiating Linear<Cuda, P> forces CudaLinearOp's member bodies, which call
+// concrete ExecutionContext<Cuda> methods (getCublasLtHandle, etc.). The Mila
+// umbrella does not complete that type for a consumer TU, so import it directly.
+import Compute.ExecutionContext;
+// Same reason: the weight-quant policy structs (PerChannelFp8 / PerGroupFp4) and the
+// serialization blob types (TensorMetadata / TensorBlobView) are not re-exported through
+// the Mila umbrella, so import their modules directly (clang requires it; MSVC did not).
+import Dnn.Quantization.Weight.Policies;
+import Serialization.Tensor;
 
-namespace Components_Layers_Linear_Tests
+namespace Mila::Tests::Dnn::Components::Linear
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
 
-    template<TensorDataType TPrecision>
-    using CudaTensor = Tensor<TPrecision, CudaDeviceMemoryResource>;
-
-    template<TensorDataType TPrecision>
-    using CpuTensor = Tensor<TPrecision, CpuMemoryResource>;
-
-    // Test harness to expose Linear's protected parameter/gradient accessors.
-    template<DeviceType TDeviceType, TensorDataType TPrecision>
-    struct LinearTestHarness : public Mila::Dnn::Linear<TDeviceType, TPrecision>
+    namespace
     {
-        using Base = Mila::Dnn::Linear<TDeviceType, TPrecision>;
-        using TensorType = typename Base::TensorType;
+        // Realistic feature sizes — cuBLASLt has no algorithm for toy GEMM dims.
+        constexpr int64_t kInFeatures = 64;
+        constexpr int64_t kOutFeatures = 32;
 
-        LinearTestHarness( const std::string& name, const LinearConfig& cfg, std::optional<DeviceId> device_id = std::nullopt )
-            : Base( name, cfg, device_id )
-        {}
-
-        std::vector<TensorType*> getTypedParametersPublic() const
+        // Deterministic, bounded parameter values (kept small so BF16 rounding of a
+        // 64-wide dot product stays well within the per-precision tolerance).
+        float weightValue( int64_t out_index, int64_t in_index )
         {
-            std::vector<TensorType*> out;
-            auto params = Base::getParameters();
-            out.reserve( params.size() );
+            const int64_t h = ( out_index * 13 + in_index * 7 ) % 17;
 
-            for ( auto p : params )
+            return 0.1f * ( static_cast<float>( h ) - 8.0f ) / 17.0f;
+        }
+
+        float biasValue( int64_t out_index )
+        {
+            return 0.1f * ( static_cast<float>( out_index % 5 ) - 2.0f ) / 5.0f;
+        }
+
+        // Host reference: Y = X * W^T + B. W is [out, in], X is [batch, in].
+        void referenceForward(
+            const float* X, const float* W, const float* B,
+            int64_t batch, int64_t in_features, int64_t out_features,
+            std::vector<float>& Y )
+        {
+            Y.assign( static_cast<size_t>( batch * out_features ), 0.0f );
+
+            for ( int64_t b = 0; b < batch; ++b )
             {
-                out.push_back( static_cast<TensorType*>( p ) );
-            }
-
-            return out;
-        }
-
-        std::vector<TensorType*> getTypedGradientsPublic() const
-        {
-            std::vector<TensorType*> out;
-            auto grads = Base::getGradients();
-            out.reserve( grads.size() );
-
-            for ( auto g : grads )
-            {
-                out.push_back( static_cast<TensorType*>( g ) );
-            }
-
-            return out;
-        }
-
-        std::vector<Mila::Dnn::ITensor*> getParametersPublic() const
-        {
-            return Base::getParameters();
-        }
-
-        std::vector<Mila::Dnn::ITensor*> getGradientsPublic() const
-        {
-            return Base::getGradients();
-        }
-    };
-
-    // ====================================================================
-    // Test shapes
-    // ====================================================================
-    struct LinearTestShape
-    {
-        int64_t batch;
-        int64_t seq;
-        int64_t in_features;
-        int64_t out_features;
-        std::string name;
-
-        shape_t inputShape() const { return { batch, seq, in_features }; }
-        shape_t outputShape() const { return { batch, seq, out_features }; }
-
-        static LinearTestShape Small() { return { 2, 3, 16, 32, "Small" }; }
-        static LinearTestShape Medium() { return { 8, 16, 128, 256, "Medium" }; }
-        static LinearTestShape Large() { return { 16, 32, 512, 768, "Large" }; }
-        static LinearTestShape Minimal() { return { 1, 1, 1, 1, "Minimal" }; }
-
-        static std::vector<LinearTestShape> StandardShapes()
-        {
-            return { Small(), Medium(), Large() };
-        }
-    };
-
-    // ====================================================================
-    // Precision traits for naming/tolerances
-    // ====================================================================
-    template<TensorDataType TPrecision>
-    struct PrecisionTraits
-    {
-        static constexpr TensorDataType value = TPrecision;
-        static constexpr const char* name = "Unknown";
-        static constexpr float tolerance = 1e-4f;
-    };
-
-    template<>
-    struct PrecisionTraits<TensorDataType::FP32>
-    {
-        static constexpr TensorDataType value = TensorDataType::FP32;
-        static constexpr const char* name = "FP32";
-        static constexpr float tolerance = 1e-4f;
-    };
-
-    template<>
-    struct PrecisionTraits<TensorDataType::FP16>
-    {
-        static constexpr TensorDataType value = TensorDataType::FP16;
-        static constexpr const char* name = "FP16";
-        static constexpr float tolerance = 1e-2f;
-    };
-
-    // ====================================================================
-    // Fixture
-    // ====================================================================
-    template<TensorDataType TPrecision>
-    struct LinearTestFixture
-    {
-        LinearTestFixture()
-            : shape( LinearTestShape::Small() ),
-              config( static_cast<dim_t>(shape.inputShape().back()), static_cast<dim_t>(shape.outputShape().back()) ),
-              component( nullptr ),
-              has_bias( true )
-        {}
-
-        static LinearTestFixture Create( const LinearTestShape& s, bool with_bias = true )
-        {
-            LinearTestFixture f;
-            f.shape = s;
-            f.has_bias = with_bias;
-
-            f.config = LinearConfig( static_cast<dim_t>(s.in_features), static_cast<dim_t>(s.out_features) );
-            f.config.withBias( with_bias );
-
-            std::string name = "linear_cuda_" + s.name + "_" + PrecisionTraits<TPrecision>::name;
-
-            f.component = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>( name, f.config, Device::Cuda( 0 ) );
-
-            return f;
-        }
-
-        const shape_t& input_shape() const
-        {
-            static thread_local shape_t s;
-            s = shape.inputShape();
-            return s;
-        }
-
-        const shape_t& output_shape() const
-        {
-            static thread_local shape_t s;
-            s = shape.outputShape();
-            return s;
-        }
-
-        LinearTestShape shape;
-        LinearConfig config;
-        std::shared_ptr<Linear<DeviceType::Cuda, TPrecision>> component;
-        bool has_bias;
-    };
-
-    // ====================================================================
-    // Typed test suite
-    // ====================================================================
-    template<typename T>
-    class LinearCudaTests : public testing::Test
-    {
-    protected:
-        void SetUp() override
-        {
-            int device_count = getDeviceCount( DeviceType::Cuda );
-            cuda_available_ = ( device_count > 0 );
-        }
-
-        bool cuda_available_{ false };
-    };
-
-    template<TensorDataType TPrecision>
-    struct PrecisionType { static constexpr TensorDataType value = TPrecision; };
-
-    using PrecisionTypes = ::testing::Types<
-        PrecisionType<TensorDataType::FP32>/*,
-        TODO: enable FP16 once kernels are validated
-        PrecisionType<TensorDataType::FP16> */
-    >;
-
-    TYPED_TEST_SUITE( LinearCudaTests, PrecisionTypes );
-
-    // ====================================================================
-    // Construction / lifecycle tests
-    // ====================================================================
-
-    TYPED_TEST( LinearCudaTests, Constructor_WithDeviceId_CreatesComponent )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        LinearConfig cfg( 16, 32 );
-        cfg.withBias( true );
-
-        std::shared_ptr<Linear<DeviceType::Cuda, TPrecision>> comp;
-        ASSERT_NO_THROW(
-            ( comp = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>( "lin_ctor", cfg, Device::Cuda( 0 ) ) ) );
-        ASSERT_NE( comp, nullptr );
-
-        EXPECT_EQ( comp->getDeviceType(), DeviceType::Cuda );
-    }   
-
-    TYPED_TEST( LinearCudaTests, Constructor_WithoutDeviceId_AllowsSharedMode )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        LinearConfig cfg( 8, 8 );
-        cfg.withBias( true );
-
-        ASSERT_NO_THROW( ( (void)std::make_shared<Linear<DeviceType::Cuda, TPrecision>>( "lin_shared", cfg ) ) );
-    }
-
-    TYPED_TEST( LinearCudaTests, BuildAndIsBuilt )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        auto fixture = LinearTestFixture<TPrecision>::Create( LinearTestShape::Small() );
-        EXPECT_FALSE( fixture.component->isBuilt() );
-        EXPECT_NO_THROW( fixture.component->build( fixture.input_shape() ) );
-        EXPECT_TRUE( fixture.component->isBuilt() );
-    }
-
-    TYPED_TEST( LinearCudaTests, ParameterCountAndConfigChecks )
-    {
-        if ( !this->cuda_available_ )
-            GTEST_SKIP() << "CUDA not available";
-
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        auto fixture = LinearTestFixture<TPrecision>::Create( LinearTestShape::Small(), true );
-        fixture.component->build( fixture.input_shape() );
-
-        EXPECT_EQ( fixture.component->parameterCount(), static_cast<size_t>( fixture.shape.in_features * fixture.shape.out_features + ( fixture.has_bias ? fixture.shape.out_features : 0 ) ) );
-
-        const auto& cfg = fixture.component->getConfig();
-        EXPECT_EQ( cfg.getInputFeatures(), static_cast<dim_t>( fixture.shape.in_features ) );
-        EXPECT_EQ( cfg.getOutputFeatures(), static_cast<dim_t>( fixture.shape.out_features ) );
-    }
-
-    // ====================================================================
-    // Forward / Backward API tests
-    // ====================================================================
-
-    TYPED_TEST( LinearCudaTests, Forward_BeforeBuild_Throws )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        auto fixture = LinearTestFixture<TPrecision>::Create( LinearTestShape::Small() );
-
-        CudaTensor<TPrecision> in( Device::Cuda( 0 ), fixture.input_shape() );
-
-        EXPECT_THROW( fixture.component->forward( in ), std::runtime_error );
-    }
-
-    TYPED_TEST( LinearCudaTests, Backward_BeforeBuildOrNotTraining_Throws )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        auto fixture = LinearTestFixture<TPrecision>::Create( LinearTestShape::Small() );
-
-        CudaTensor<TPrecision> in( Device::Cuda( 0 ), fixture.input_shape() );
-        CudaTensor<TPrecision> outg( Device::Cuda( 0 ), fixture.output_shape() );
-
-        EXPECT_THROW( fixture.component->backward( in, outg ), std::runtime_error );
-
-        // Build but do not enable training => should still throw
-        fixture.component->build( fixture.input_shape() );
-        EXPECT_THROW( fixture.component->backward( in, outg ), std::runtime_error );
-    }
-
-    TYPED_TEST( LinearCudaTests, GetGradients_WhenNotTraining_Throws )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        auto s = LinearTestShape::Small();
-        LinearConfig cfg( s.in_features, s.out_features );
-
-        auto harness = std::make_shared<
-            LinearTestHarness<DeviceType::Cuda, TPrecision>
-        >( "linear_grads_throw", cfg, Device::Cuda( 0 ) );
-
-        harness->build( s.inputShape() );
-
-        // Training is disabled by default: getGradients must throw.
-        EXPECT_THROW( harness->getGradientsPublic(), std::runtime_error );
-
-        // Enabling training enables gradient access.
-        harness->setTraining( true );
-        EXPECT_NO_THROW( harness->getGradientsPublic() );
-    }
-
-    TYPED_TEST( LinearCudaTests, Forward_WithVariousShapes_ProducesValidOutput )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        auto shapes = LinearTestShape::StandardShapes();
-
-        for ( const auto& s : shapes )
-        {
-            auto fixture = LinearTestFixture<TPrecision>::Create( s );
-            fixture.component->build( fixture.input_shape() );
-
-            CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), fixture.input_shape() );
-            random( host_in, -1.0f, 1.0f );
-
-            CudaTensor<TPrecision> device_in( Device::Cuda( 0 ), fixture.input_shape() );
-
-            copy( host_in, device_in );
-
-            CudaTensor<TPrecision>* out_ptr = nullptr;
-            ASSERT_NO_THROW( out_ptr = &fixture.component->forward( device_in ) );
-            ASSERT_NE( out_ptr, nullptr );
-
-            EXPECT_EQ( out_ptr->shape(), fixture.output_shape() );
-
-            auto host_out = toHost<TensorDataType::FP32>( *out_ptr );
-            EXPECT_EQ( host_out.size(), out_ptr->size() );
-        }
-    }
-
-    TYPED_TEST( LinearCudaTests, Backward_AfterForward_InTraining_ProducesNonZeroInputGrad )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        auto fixture = LinearTestFixture<TPrecision>::Create( LinearTestShape::Small(), true );
-        fixture.component->build( fixture.input_shape() );
-        fixture.component->setTraining( true );
-
-        CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), fixture.input_shape() );
-        CpuTensor<TensorDataType::FP32> host_outg( Device::Cpu(), fixture.output_shape() );
-
-        random( host_in, -1.0f, 1.0f );
-        random( host_outg, -0.1f, 0.1f );
-
-        CudaTensor<TPrecision> device_in( Device::Cuda( 0 ), fixture.input_shape() );
-        CudaTensor<TPrecision> device_outg( Device::Cuda( 0 ), fixture.output_shape() );
-
-        copy( host_in, device_in );
-        copy( host_outg, device_outg );
-
-        CudaTensor<TPrecision>* device_out_ptr = nullptr;
-        ASSERT_NO_THROW( device_out_ptr = &fixture.component->forward( device_in ) );
-        ASSERT_NE( device_out_ptr, nullptr );
-
-        CudaTensor<TPrecision>* device_ing_ptr = nullptr;
-        EXPECT_NO_THROW( device_ing_ptr = &fixture.component->backward( device_in, device_outg ) );
-        ASSERT_NE( device_ing_ptr, nullptr );
-
-        auto host_ing = toHost<TensorDataType::FP32>( *device_ing_ptr );
-        bool has_nonzero = false;
-
-        for ( size_t i = 0; i < host_ing.size(); ++i )
-        {
-            if ( std::abs( host_ing.data()[ i ] ) > 1e-6f )
-            {
-                has_nonzero = true;
-                break;
+                for ( int64_t o = 0; o < out_features; ++o )
+                {
+                    double acc = B ? static_cast<double>( B[ o ] ) : 0.0;
+
+                    for ( int64_t i = 0; i < in_features; ++i )
+                    {
+                        acc += static_cast<double>( X[ b * in_features + i ] ) *
+                            static_cast<double>( W[ o * in_features + i ] );
+                    }
+
+                    Y[ b * out_features + o ] = static_cast<float>( acc );
+                }
             }
         }
 
-        EXPECT_TRUE( has_nonzero );
-    }
+        // -- Per-precision traits tags -------------------------------------
+        // value: the device precision. atol/rtol: the comparison budget. name:
+        // the TYPED_TEST instance suffix (LinearCudaTests/Bf16 rather than /1).
 
-    // ====================================================================
-    // Decode (inference) tests
-    //
-    // decode() dispatches to CudaLinearOp::decode() via IDecode, which uses
-    // cuda_matvec_impl -- a single-vector (M=1) kernel optimized for
-    // auto-regressive token generation. Tests must build and run with an
-    // outer batch size of 1 to match the matvec semantics.
-    // On CPU, decode() falls back to operation_->forward().
-    // ====================================================================
-
-    TYPED_TEST( LinearCudaTests, Decode_BeforeBuild_Throws )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        LinearConfig cfg( 16, 32 );
-        auto comp = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>( "lin_decode_throw", cfg, Device::Cuda( 0 ) );
-
-        CudaTensor<TPrecision> in( Device::Cuda( 0 ), shape_t{ 1, 1, 16 } );
-
-        EXPECT_THROW( comp->decode( in ), std::runtime_error );
-    }
-
-    TYPED_TEST( LinearCudaTests, Decode_SingleToken_ProducesValidOutput )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        // Feature dimension pairs representative of real model sizes.
-        const std::vector<std::pair<int64_t, int64_t>> feature_pairs = {
-            { 16, 32 }, { 128, 256 }, { 512, 768 }
+        struct Fp32Precision
+        {
+            static constexpr TensorDataType value = TensorDataType::FP32;
+            static constexpr float forward_atol = 1e-3f;
+            static constexpr float forward_rtol = 1e-4f;
+            static constexpr float backward_atol = 1e-2f;
+            static constexpr float backward_rtol = 1e-3f;
+            static constexpr const char* name = "Fp32";
         };
 
-        for ( auto [in_feat, out_feat] : feature_pairs )
+        struct Bf16Precision
         {
-            const shape_t single_token_shape = { 1, 1, in_feat };
+            static constexpr TensorDataType value = TensorDataType::BF16;
+            static constexpr float forward_atol = 5e-2f;
+            static constexpr float forward_rtol = 5e-2f;
+            static constexpr float backward_atol = 1.5e-1f;
+            static constexpr float backward_rtol = 1e-1f;
+            static constexpr const char* name = "Bf16";
+        };
 
-            LinearConfig cfg( static_cast<dim_t>(in_feat), static_cast<dim_t>(out_feat) );
-            cfg.withBias( true );
+        using LinearPrecisions = ::testing::Types<Fp32Precision, Bf16Precision>;
 
-            auto comp = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>(
-                "lin_decode_valid", cfg, Device::Cuda( 0 ) );
-
-            comp->build( single_token_shape );
-
-            CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), single_token_shape );
-            random( host_in, -1.0f, 1.0f );
-
-            CudaTensor<TPrecision> device_in( Device::Cuda( 0 ), single_token_shape );
-            copy( host_in, device_in );
-
-            CudaTensor<TPrecision>* out_ptr = nullptr;
-            ASSERT_NO_THROW( out_ptr = &comp->decode( device_in ) );
-            ASSERT_NE( out_ptr, nullptr );
-
-            const shape_t expected_output_shape = { 1, 1, out_feat };
-            EXPECT_EQ( out_ptr->shape(), expected_output_shape );
-
-            comp->synchronize();
-
-            auto host_out = toHost<TensorDataType::FP32>( *out_ptr );
-
-            for ( size_t i = 0; i < host_out.size(); ++i )
+        class PrecisionNames
+        {
+        public:
+            template<typename TPrecisionTag>
+            static std::string GetName( int )
             {
-                EXPECT_TRUE( std::isfinite( host_out.data()[ i ] ) )
-                    << "Non-finite decode output at element " << i
-                    << " for in_feat=" << in_feat << " out_feat=" << out_feat;
+                return TPrecisionTag::name;
+            }
+        };
+    }
+
+    template<typename TPrecisionTag>
+    class LinearCudaTests : public ::testing::Test
+    {
+    protected:
+        static constexpr TensorDataType P = TPrecisionTag::value;
+
+        using LinearType = Mila::Dnn::Linear<DeviceType::Cuda, P>;
+        using DeviceTensor = Tensor<P, CudaDeviceMemoryResource>;
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+        static_assert( LinearType::getDeviceType() == DeviceType::Cuda );
+        static_assert( LinearType::getPrecision() == P );
+
+        void SetUp() override
+        {
+            try
+            {
+                cuda_context_ = createExecutionContext( Device::Cuda( 0 ) );
+            }
+            catch ( const std::exception& )
+            {
+                cuda_context_ = nullptr;
+            }
+
+            if ( !cuda_context_ )
+            {
+                GTEST_SKIP() << "CUDA device not available";
             }
         }
-    }
 
-    TYPED_TEST( LinearCudaTests, Decode_DoesNotRequireTrainingMode )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        const shape_t single_token_shape = { 1, 1, 16 };
-
-        LinearConfig cfg( 16, 32 );
-        auto comp = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>(
-            "lin_decode_no_train", cfg, Device::Cuda( 0 ) );
-
-        comp->build( single_token_shape );
-
-        // Training mode must remain disabled throughout.
-        ASSERT_FALSE( comp->isTraining() );
-
-        CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), single_token_shape );
-        random( host_in, -1.0f, 1.0f );
-
-        CudaTensor<TPrecision> device_in( Device::Cuda( 0 ), single_token_shape );
-        copy( host_in, device_in );
-
-        EXPECT_NO_THROW( (void)comp->decode( device_in ) );
-    }
-
-    TYPED_TEST( LinearCudaTests, Decode_EquivalentToForward_FP32 )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        if constexpr ( TPrecision != TensorDataType::FP32 )
+        std::unique_ptr<LinearType> builtLinear(
+            const shape_t& shape, bool has_bias, RuntimeMode mode )
         {
-            GTEST_SKIP() << "Decode equivalence runs only for FP32";
+            LinearConfig config( kInFeatures, kOutFeatures );
+            config.withBias( has_bias );
+
+            auto linear = std::make_unique<LinearType>( "linear", config, Device::Cuda( 0 ) );
+            linear->build( BuildContext( shape, mode, false ) );
+
+            return linear;
         }
 
-        try
+        // Upload deterministic known weights/bias (FP32 host -> device precision).
+        void setKnownParameters( LinearType& linear, bool has_bias )
         {
-            // Build with M=1 (single token) so cuda_matvec_impl and the cuBLASLt
-            // matmul in forward() operate on identical inputs and produce outputs
-            // that are directly comparable.
-            const int64_t in_features = 16;
-            const int64_t out_features = 32;
-            const shape_t single_token_shape = { 1, 1, in_features };
+            auto params = linear.getParameters();
 
-            LinearConfig cfg( in_features, out_features );
-            cfg.withBias( true );
-
-            auto comp = std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>(
-                "lin_decode_equiv", cfg, Device::Cuda( 0 ) );
-
-            comp->build( single_token_shape );
-
-            Mila::Core::RandomGenerator::getInstance().setSeed( 5050 );
-
-            CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), single_token_shape );
-            random( host_in, -1.0f, 1.0f );
-
-            CudaTensor<TensorDataType::FP32> device_in( Device::Cuda( 0 ), single_token_shape );
-            copy( host_in, device_in );
-
-            // forward() uses cuBLASLt matmul with M=1.
-            CudaTensor<TensorDataType::FP32>* fwd_out = nullptr;
-            ASSERT_NO_THROW( fwd_out = &comp->forward( device_in ) );
-            ASSERT_NE( fwd_out, nullptr );
-
-            comp->synchronize();
-            CpuTensor<TensorDataType::FP32> host_fwd = toHost<TensorDataType::FP32>( *fwd_out );
-
-            // decode() uses cuda_matvec_impl with the same M=1 input.
-            CudaTensor<TensorDataType::FP32>* dec_out = nullptr;
-            ASSERT_NO_THROW( dec_out = &comp->decode( device_in ) );
-            ASSERT_NE( dec_out, nullptr );
-
-            comp->synchronize();
-            CpuTensor<TensorDataType::FP32> host_dec = toHost<TensorDataType::FP32>( *dec_out );
-
-            ASSERT_EQ( host_fwd.size(), host_dec.size() );
-
-            for ( size_t i = 0; i < host_fwd.size(); ++i )
+            HostFp32 host_weight( Device::Cpu(), shape_t{ kOutFeatures, kInFeatures } );
+            for ( int64_t o = 0; o < kOutFeatures; ++o )
             {
-                EXPECT_NEAR( host_fwd.data()[ i ], host_dec.data()[ i ], 1e-3f )
-                    << "decode/forward mismatch at element " << i;
+                for ( int64_t i = 0; i < kInFeatures; ++i )
+                {
+                    host_weight.data()[ o * kInFeatures + i ] = weightValue( o, i );
+                }
             }
-        }
-        catch ( const std::exception& )
-        {
-            GTEST_SKIP() << "Linear decode not available";
-        }
-    }
+            copy( host_weight, *static_cast<DeviceTensor*>( params[ 0 ] ), cuda_context_.get() );
 
-    TYPED_TEST( LinearCudaTests, Decode_MultiTokenInput_Throws )
-    {
-        if ( !this->cuda_available_ )
-            GTEST_SKIP() << "CUDA not available";
-        
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        const int64_t in_features = 16;
-        const int64_t out_features = 32;
-
-        LinearConfig cfg( in_features, out_features );
-        auto comp = std::make_shared<Linear<DeviceType::Cuda, TPrecision>>(
-            "lin_decode_multi", cfg, Device::Cuda( 0 ) );
-
-        // Build with a multi-token max shape.
-        comp->build( shape_t{ 4, 8, in_features } );
-
-        // Any shape with outer size > 1 must be rejected.
-        CudaTensor<TPrecision> multi_token( Device::Cuda( 0 ), shape_t{ 2, 1, in_features } );
-        EXPECT_THROW( comp->decode( multi_token ), std::invalid_argument );
-
-        CudaTensor<TPrecision> single_token( Device::Cuda( 0 ), shape_t{ 1, 1, in_features } );
-        EXPECT_NO_THROW( (void)comp->decode( single_token ) );
-    }
-
-    TYPED_TEST( LinearCudaTests, Decode_CPU_CUDA_Equivalence_FP32 )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        if constexpr ( TPrecision != TensorDataType::FP32 )
-        {
-            GTEST_SKIP() << "Decode CPU/CUDA equivalence runs only for FP32";
-        }
-
-        try
-        {
-            auto s = LinearTestShape::Small();
-
-            // Single-token shape required by cuda_matvec_impl decode path.
-            const shape_t single_token_shape = { 1, 1, s.in_features };
-
-            Mila::Core::RandomGenerator::getInstance().setSeed( 5555 );
-
-            auto cpu_lin = std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
-                "linear_cpu_decode_equiv", LinearConfig( s.in_features, s.out_features ), Device::Cpu()
-            );
-
-            auto cuda_lin = std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>(
-                "linear_cuda_decode_equiv", LinearConfig( s.in_features, s.out_features ), Device::Cuda( 0 )
-            );
-
-            cpu_lin->build( single_token_shape );
-            cuda_lin->build( single_token_shape );
-
-            Mila::Core::RandomGenerator::getInstance().setSeed( 6060 );
-
-            CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), single_token_shape );
-            random( host_in, -1.0f, 1.0f );
-
-            CpuTensor<TensorDataType::FP32>* cpu_out_ptr = nullptr;
-            ASSERT_NO_THROW( cpu_out_ptr = &cpu_lin->decode( host_in ) );
-            ASSERT_NE( cpu_out_ptr, nullptr );
-
-            CudaTensor<TensorDataType::FP32> device_in( Device::Cuda( 0 ), single_token_shape );
-            copy( host_in, device_in );
-
-            CudaTensor<TensorDataType::FP32>* cuda_out_ptr = nullptr;
-            ASSERT_NO_THROW( cuda_out_ptr = &cuda_lin->decode( device_in ) );
-            ASSERT_NE( cuda_out_ptr, nullptr );
-
-            cuda_lin->synchronize();
-
-            CpuTensor<TensorDataType::FP32> host_cuda_out = toHost<TensorDataType::FP32>( *cuda_out_ptr );
-
-            ASSERT_EQ( cpu_out_ptr->size(), host_cuda_out.size() );
-
-            const float tol = 1e-3f;
-            auto* cpu_data = cpu_out_ptr->data();
-            auto* cuda_data = host_cuda_out.data();
-
-            for ( size_t i = 0; i < cpu_out_ptr->size(); ++i )
+            if ( has_bias )
             {
-                EXPECT_NEAR( cpu_data[ i ], cuda_data[ i ], tol )
-                    << "Decode CPU/CUDA mismatch at element " << i;
+                HostFp32 host_bias( Device::Cpu(), shape_t{ kOutFeatures } );
+                for ( int64_t o = 0; o < kOutFeatures; ++o )
+                {
+                    host_bias.data()[ o ] = biasValue( o );
+                }
+                copy( host_bias, *static_cast<DeviceTensor*>( params[ 1 ] ), cuda_context_.get() );
             }
+
+            cuda_context_->synchronize();
         }
-        catch ( const std::exception& )
+
+        HostFp32 spreadHost( const shape_t& shape )
         {
-            GTEST_SKIP() << "Linear CPU/CUDA decode equivalence not available";
+            HostFp32 host( Device::Cpu(), shape );
+
+            for ( size_t i = 0; i < host.size(); ++i )
+            {
+                host.data()[ i ] = static_cast<float>( i ) / host.size() * 2.0f - 1.0f;
+            }
+
+            return host;
         }
-    }
+
+        DeviceTensor toDevice( const HostFp32& host )
+        {
+            DeviceTensor device( Device::Cuda( 0 ), host.shape() );
+            copy( host, device, cuda_context_.get() );
+            cuda_context_->synchronize();
+
+            return device;
+        }
+
+        HostFp32 toFloat( const DeviceTensor& device )
+        {
+            auto host = toHost<TensorDataType::FP32>( device, cuda_context_.get() );
+            cuda_context_->synchronize();
+
+            return host;
+        }
+
+        std::unique_ptr<IExecutionContext> cuda_context_;
+    };
+
+    TYPED_TEST_SUITE( LinearCudaTests, LinearPrecisions, PrecisionNames );
+
     // ====================================================================
-    // CPU <-> CUDA equivalence tests (FP32 only)
+    // A. Construction
     // ====================================================================
 
-    TYPED_TEST( LinearCudaTests, Forward_CPU_CUDA_Equivalence_FP32 )
+    TYPED_TEST( LinearCudaTests, Construct_StandaloneSucceeds )
     {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
+        LinearConfig config( kInFeatures, kOutFeatures );
+        typename TestFixture::LinearType linear( "linear", config, Device::Cuda( 0 ) );
 
-        if constexpr ( TPrecision != TensorDataType::FP32 )
-        {
-            GTEST_SKIP() << "Forward equivalence runs only for FP32";
-        }
-
-        try
-        {
-            auto s = LinearTestShape::Small();
-
-            Mila::Core::RandomGenerator::getInstance().setSeed( 1234 );
-
-            auto cpu_comp = std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
-                "linear_cpu_equiv", LinearConfig( s.in_features, s.out_features ), Device::Cpu()
-            );
-
-            auto cuda_comp = std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>(
-                "linear_cuda_equiv", LinearConfig( s.in_features, s.out_features ), Device::Cuda( 0 )
-            );
-
-            cpu_comp->build( s.inputShape() );
-            cuda_comp->build( s.inputShape() );
-
-            Mila::Core::RandomGenerator::getInstance().setSeed( 4321 );
-
-            CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), s.inputShape() );
-            random( host_in, -1.0f, 1.0f );
-
-            CpuTensor<TensorDataType::FP32>* cpu_out_ptr = nullptr;
-            ASSERT_NO_THROW( cpu_out_ptr = &cpu_comp->forward( host_in ) );
-            ASSERT_NE( cpu_out_ptr, nullptr );
-
-            CudaTensor<TensorDataType::FP32> device_in( Device::Cuda( 0 ), s.inputShape() );
-            copy( host_in, device_in );
-
-            CudaTensor<TensorDataType::FP32>* cuda_out_ptr = nullptr;
-            ASSERT_NO_THROW( cuda_out_ptr = &cuda_comp->forward( device_in ) );
-            ASSERT_NE( cuda_out_ptr, nullptr );
-
-            cuda_comp->synchronize();
-
-            CpuTensor<TensorDataType::FP32> host_out_cuda = toHost<TensorDataType::FP32>( *cuda_out_ptr );
-
-            auto* cdata = cpu_out_ptr->data();
-            auto* gdata = host_out_cuda.data();
-            size_t total = cpu_out_ptr->size();
-
-            for ( size_t i = 0; i < total; ++i )
-            {
-                EXPECT_NEAR( cdata[ i ], gdata[ i ], 1e-2f ) << "Forward mismatch at index " << i;
-            }
-        }
-        catch ( const std::exception& )
-        {
-            GTEST_SKIP() << "Linear CPU/CUDA forward equivalence not available";
-        }
+        EXPECT_EQ( linear.getDeviceId().type, DeviceType::Cuda );
+        EXPECT_TRUE( linear.hasBias() );
     }
 
-    TYPED_TEST( LinearCudaTests, Backward_CPU_CUDA_Equivalence_FP32 )
+    // ====================================================================
+    // E. Forward (numeric vs reference) — prefill (batch GEMM via cuBLASLt)
+    // ====================================================================
+
+    TYPED_TEST( LinearCudaTests, Forward_MatchesReference )
     {
-        if ( !this->cuda_available_ ) 
-            GTEST_SKIP() << "CUDA not available";
-        
-        constexpr TensorDataType TPrecision = TypeParam::value;
+        // Re-enabled 2026-06-17: the non-quantized cuBLASLt batch GEMM
+        // CUBLAS_STATUS_NOT_SUPPORTED was root-caused to the bias epilogue (not the
+        // NT row-major layout) and fixed 2026-06-16 by adding bias post-GEMM. The
+        // decode (matvec) oracle is covered by Forward_DecodeMatchesReference.
+        const shape_t shape{ 2, 4, kInFeatures };
 
-        if constexpr ( TPrecision != TensorDataType::FP32 )
+        auto linear = this->builtLinear( shape, true, RuntimeMode::Inference );
+        this->setKnownParameters( *linear, true );
+
+        auto host_in = this->spreadHost( shape );
+        auto device_in = this->toDevice( host_in );
+
+        auto& device_out = linear->forward( device_in );
+        linear->synchronize();
+
+        auto out = this->toFloat( device_out );
+
+        // Read back the precision-rounded values the kernel actually consumed.
+        auto params = linear->getParameters();
+        auto weight = this->toFloat( *static_cast<typename TestFixture::DeviceTensor*>( params[ 0 ] ) );
+        auto bias = this->toFloat( *static_cast<typename TestFixture::DeviceTensor*>( params[ 1 ] ) );
+        auto in = this->toFloat( device_in );
+
+        const int64_t batch = 2 * 4;
+        std::vector<float> expected;
+        referenceForward( in.data(), weight.data(), bias.data(), batch, kInFeatures, kOutFeatures, expected );
+
+        ASSERT_EQ( out.size(), expected.size() );
+
+        for ( size_t i = 0; i < out.size(); ++i )
         {
-            GTEST_SKIP() << "Backward equivalence runs only for FP32";
-        }
+            const float tolerance = TypeParam::forward_atol + TypeParam::forward_rtol * std::fabs( expected[ i ] );
 
-        try
-        {
-            auto s = LinearTestShape::Small();
-
-            Mila::Core::RandomGenerator::getInstance().setSeed( 4321 );
-
-            auto cpu_fc = std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
-                "linear_cpu_bwd", LinearConfig( s.in_features, s.out_features ), Device::Cpu()
-            );
-
-            auto cuda_fc = std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>(
-                "linear_cuda_bwd", LinearConfig( s.in_features, s.out_features ), Device::Cuda( 0 )
-            );
-
-            cpu_fc->build( s.inputShape() );
-            cuda_fc->build( s.inputShape() );
-
-            cpu_fc->setTraining( true );
-            cuda_fc->setTraining( true );
-
-            Mila::Core::RandomGenerator::getInstance().setSeed( 9876 );
-
-            CpuTensor<TensorDataType::FP32> host_input( Device::Cpu(), s.inputShape() );
-            random( host_input, -1.0f, 1.0f );
-
-            CpuTensor<TensorDataType::FP32>* cpu_out_ptr = nullptr;
-            ASSERT_NO_THROW( cpu_out_ptr = &cpu_fc->forward( host_input ) );
-            ASSERT_NE( cpu_out_ptr, nullptr );
-
-            CudaTensor<TensorDataType::FP32> device_input( Device::Cuda( 0 ), s.inputShape() );
-            copy( host_input, device_input );
-
-            CudaTensor<TensorDataType::FP32>* cuda_out_ptr = nullptr;
-            ASSERT_NO_THROW( cuda_out_ptr = &cuda_fc->forward( device_input ) );
-            ASSERT_NE( cuda_out_ptr, nullptr );
-
-            cuda_fc->synchronize();
-
-            CpuTensor<TensorDataType::FP32> host_output_grad( Device::Cpu(), s.outputShape() );
-
-            for ( size_t i = 0; i < host_output_grad.size(); ++i )
-            {
-                host_output_grad.data()[ i ] = (i % 2 == 0) ? 0.1f : -0.1f;
-            }
-
-            cpu_fc->zeroGradients();
-            cuda_fc->zeroGradients();
-
-            CpuTensor<TensorDataType::FP32>* host_input_grad_ptr = nullptr;
-            ASSERT_NO_THROW( host_input_grad_ptr = &cpu_fc->backward( host_input, host_output_grad ) );
-            ASSERT_NE( host_input_grad_ptr, nullptr );
-
-            CudaTensor<TensorDataType::FP32> device_output_grad( Device::Cuda( 0 ), s.outputShape() );
-            copy( host_output_grad, device_output_grad );
-
-            CudaTensor<TensorDataType::FP32>* device_input_grad_ptr = nullptr;
-            ASSERT_NO_THROW( device_input_grad_ptr = &cuda_fc->backward( device_input, device_output_grad ) );
-            ASSERT_NE( device_input_grad_ptr, nullptr );
-
-            cuda_fc->synchronize();
-
-            CpuTensor<TensorDataType::FP32> host_input_grad_cuda = toHost<TensorDataType::FP32>( *device_input_grad_ptr );
-
-            auto* cpu_data = host_input_grad_ptr->data();
-            auto* cuda_data = host_input_grad_cuda.data();
-            size_t total = host_input_grad_ptr->size();
-
-            for ( size_t i = 0; i < total; ++i )
-            {
-                EXPECT_NEAR( cpu_data[ i ], cuda_data[ i ], 1e-2f ) << "Backward mismatch at index " << i;
-            }
-        }
-        catch ( const std::exception& )
-        {
-            GTEST_SKIP() << "Linear CPU/CUDA backward equivalence not available";
+            EXPECT_NEAR( out.data()[ i ], expected[ i ], tolerance )
+                << "forward mismatch at index " << i;
         }
     }
 
     // ====================================================================
-    // Deterministic / sanity tests
+    // E/D. Forward decode regime — build prefill shape, forward outer_size == 1
+    //      (matvec path, no cuBLASLt). The build-context prefill->decode axis.
     // ====================================================================
 
-    TYPED_TEST( LinearCudaTests, Forward_OnesInput_ProducesFiniteOutput )
+    TYPED_TEST( LinearCudaTests, Forward_DecodeMatchesReference )
     {
-        if ( !this->cuda_available_ ) 
-            GTEST_SKIP() << "CUDA not available";
-        
-        constexpr TensorDataType TPrecision = TypeParam::value;
+        // Built for a multi-token prefill shape...
+        const shape_t prefill_shape{ 1, 4, kInFeatures };
+        auto linear = this->builtLinear( prefill_shape, true, RuntimeMode::Inference );
+        this->setKnownParameters( *linear, true );
 
-        if constexpr ( TPrecision != TensorDataType::FP32 )
+        // ...then driven with a single-token decode shape.
+        const shape_t decode_shape{ 1, 1, kInFeatures };
+        auto host_in = this->spreadHost( decode_shape );
+        auto device_in = this->toDevice( host_in );
+
+        auto& device_out = linear->forward( device_in );
+        linear->synchronize();
+
+        auto out = this->toFloat( device_out );
+
+        ASSERT_EQ( out.shape(), ( shape_t{ 1, 1, kOutFeatures } ) );
+
+        auto params = linear->getParameters();
+        auto weight = this->toFloat( *static_cast<typename TestFixture::DeviceTensor*>( params[ 0 ] ) );
+        auto bias = this->toFloat( *static_cast<typename TestFixture::DeviceTensor*>( params[ 1 ] ) );
+        auto in = this->toFloat( device_in );
+
+        std::vector<float> expected;
+        referenceForward( in.data(), weight.data(), bias.data(), 1, kInFeatures, kOutFeatures, expected );
+
+        ASSERT_EQ( out.size(), expected.size() );
+
+        for ( size_t i = 0; i < out.size(); ++i )
         {
-            GTEST_SKIP() << "Deterministic test runs for FP32 only";
-        }
+            const float tolerance = TypeParam::forward_atol + TypeParam::forward_rtol * std::fabs( expected[ i ] );
 
-        try
-        {
-            auto s = LinearTestShape::Minimal();
-            auto fixture = LinearTestFixture<TensorDataType::FP32>::Create( s );
-
-            fixture.component->build( fixture.input_shape() );
-
-            CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), fixture.input_shape() );
-            ones( host_in );
-
-            CudaTensor<TensorDataType::FP32> device_in( Device::Cuda( 0 ), fixture.input_shape() );
-
-            copy( host_in, device_in );
-
-            CudaTensor<TensorDataType::FP32>* out_ptr = nullptr;
-            ASSERT_NO_THROW( out_ptr = &fixture.component->forward( device_in ) );
-            ASSERT_NE( out_ptr, nullptr );
-
-            fixture.component->synchronize();
-
-            auto host_out = toHost<TensorDataType::FP32>( *out_ptr );
-
-            for ( size_t i = 0; i < host_out.size(); ++i )
-            {
-                EXPECT_TRUE( std::isfinite( host_out.data()[ i ] ) );
-            }
-        }
-        catch ( const std::exception& )
-        {
-            GTEST_SKIP() << "Linear backend not available";
-        }
-    }
-
-    TYPED_TEST( LinearCudaTests, ProtectedParameterAndGradientAccess_ViaHarness )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        auto s = LinearTestShape::Small();
-        LinearConfig cfg( s.in_features, s.out_features );
-        cfg.withBias( false );
-
-        auto harness = std::make_shared<
-            LinearTestHarness<DeviceType::Cuda, TPrecision>
-        >( "linear_harness", cfg, Device::Cuda( 0 ) );
-
-        ASSERT_NO_THROW( harness->build( s.inputShape() ) );
-
-        harness->setTraining( true );
-
-        std::vector<ITensor*> params;
-        ASSERT_NO_THROW( params = harness->getParametersPublic() );
-        EXPECT_EQ( params.size(), cfg.hasBias() ? 2u : 1u );
-
-        std::vector<Mila::Dnn::ITensor*> grads;
-        ASSERT_NO_THROW( grads = harness->getGradientsPublic() );
-        EXPECT_EQ( grads.size(), cfg.hasBias() ? 2u : 1u );
-    }
-
-    TYPED_TEST( LinearCudaTests, ParametersUnchanged_AfterForward )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        if constexpr ( TPrecision != TensorDataType::FP32 )
-        {
-            GTEST_SKIP() << "Parameters comparison test runs for FP32 only";
-        }
-
-        try
-        {
-            auto s = LinearTestShape::Small();
-            LinearConfig cfg( s.in_features, s.out_features );
-            cfg.withBias( true );
-
-            auto harness = std::make_shared<
-                LinearTestHarness<DeviceType::Cuda, TPrecision>
-            >( "linear_params_check", cfg, Device::Cuda( 0 ) );
-
-            harness->build( s.inputShape() );
-
-            auto params = harness->getTypedParametersPublic();
-            ASSERT_FALSE( params.empty() );
-
-            std::vector<CpuTensor<TPrecision>> before;
-            before.reserve( params.size() );
-
-            for ( auto p : params )
-            {
-                before.push_back( toHost<TPrecision>( *p ) );
-            }
-
-            Mila::Core::RandomGenerator::getInstance().setSeed( 2025 );
-
-            CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), s.inputShape() );
-            random( host_in, -1.0f, 1.0f );
-
-            CudaTensor<TPrecision> device_in( Device::Cuda( 0 ), s.inputShape() );
-            copy( host_in, device_in );
-
-            CudaTensor<TPrecision>* out_ptr = nullptr;
-            ASSERT_NO_THROW( out_ptr = &harness->forward( device_in ) );
-            ASSERT_NE( out_ptr, nullptr );
-
-            harness->synchronize();
-
-            for ( size_t idx = 0; idx < params.size(); ++idx )
-            {
-                auto after = toHost<TPrecision>( *params[ idx ] );
-
-                ASSERT_EQ( before[ idx ].size(), after.size() );
-
-                for ( size_t i = 0; i < after.size(); ++i )
-                {
-                    EXPECT_NEAR( before[ idx ].data()[ i ], after.data()[ i ], 1e-6f )
-                        << "Parameter changed after forward at param " << idx << " element " << i;
-                }
-            }
-        }
-        catch ( const std::exception& )
-        {
-            GTEST_SKIP() << "Linear backend not available for parameter check";
-        }
-    }
-
-    TYPED_TEST( LinearCudaTests, GradientsCorrectness_AfterBackward )
-    {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
-
-        if constexpr ( TPrecision != TensorDataType::FP32 )
-        {
-            GTEST_SKIP() << "Gradient correctness test runs for FP32 only";
-        }
-
-        try
-        {
-            auto s = LinearTestShape::Small();
-            LinearConfig cfg( s.in_features, s.out_features );
-            cfg.withBias( true );
-
-            auto harness = std::make_shared<
-                LinearTestHarness<DeviceType::Cuda, TPrecision>
-            >( "linear_grad_check", cfg, Device::Cuda( 0 ) );
-
-            harness->build( s.inputShape() );
-            harness->setTraining( true );
-
-            Mila::Core::RandomGenerator::getInstance().setSeed( 4242 );
-
-            CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), s.inputShape() );
-            random( host_in, -1.0f, 1.0f );
-
-            CpuTensor<TensorDataType::FP32> host_outg( Device::Cpu(), s.outputShape() );
-
-            for ( size_t i = 0; i < host_outg.size(); ++i )
-            {
-                host_outg.data()[ i ] = (i % 2 == 0) ? 0.07f : -0.07f;
-            }
-
-            CudaTensor<TPrecision> device_in( Device::Cuda( 0 ), s.inputShape() );
-            CudaTensor<TPrecision> device_outg( Device::Cuda( 0 ), s.outputShape() );
-
-            copy( host_in, device_in );
-            copy( host_outg, device_outg );
-
-            harness->zeroGradients();
-
-            ASSERT_NO_THROW( (void)harness->forward( device_in ) );
-            ASSERT_NO_THROW( (void)harness->backward( device_in, device_outg ) );
-
-            harness->synchronize();
-
-            auto grads = harness->getTypedGradientsPublic();
-            ASSERT_FALSE( grads.empty() );
-
-            bool any_nonzero = false;
-
-            for ( auto g : grads )
-            {
-                auto host_grad = toHost<TPrecision>( *g );
-
-                double accum_abs = 0.0;
-
-                for ( size_t i = 0; i < host_grad.size(); ++i )
-                {
-                    accum_abs += std::abs( host_grad.data()[ i ] );
-                }
-
-                if ( accum_abs > 1e-6 )
-                {
-                    any_nonzero = true;
-                }
-            }
-
-            EXPECT_TRUE( any_nonzero ) << "Expected at least one non-zero parameter gradient after backward";
-
-            harness->zeroGradients();
-            harness->synchronize();
-
-            for ( auto g : grads )
-            {
-                auto host_grad = toHost<TPrecision>( *g );
-
-                for ( size_t i = 0; i < host_grad.size(); ++i )
-                {
-                    EXPECT_NEAR( host_grad.data()[ i ], 0.0f, 1e-6f )
-                        << "Gradient not zeroed at element " << i;
-                }
-            }
-        }
-        catch ( const std::exception& )
-        {
-            GTEST_SKIP() << "Linear backend not available for gradient check";
+            EXPECT_NEAR( out.data()[ i ], expected[ i ], tolerance )
+                << "decode mismatch at index " << i;
         }
     }
 
     // ====================================================================
-    // CPU <-> CUDA parameter/gradient equality tests (FP32 only)
+    // F. Backward (numeric vs analytic gradient)
     // ====================================================================
 
-    TYPED_TEST( LinearCudaTests, Parameters_CPU_CUDA_Equivalence_FP32 )
+    TYPED_TEST( LinearCudaTests, Backward_MatchesReferenceGradients )
     {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
+        // Re-enabled 2026-06-17: backward shares the non-quantized cuBLASLt plans with
+        // the batch forward; the CUBLAS_STATUS_NOT_SUPPORTED was the bias epilogue,
+        // fixed 2026-06-16 (backward plans carry no bias epilogue, so once forward
+        // builds, use_cublaslt_ stays true). CPU backward numerics: Linear.Cpu.cpp.
+        const shape_t input_shape{ 2, 4, kInFeatures };
+        const shape_t output_shape{ 2, 4, kOutFeatures };
 
-        if constexpr ( TPrecision != TensorDataType::FP32 )
+        auto linear = this->builtLinear( input_shape, true, RuntimeMode::Training );
+        this->setKnownParameters( *linear, true );
+
+        auto host_in = this->spreadHost( input_shape );
+        auto device_in = this->toDevice( host_in );
+
+        typename TestFixture::HostFp32 host_grad( Device::Cpu(), output_shape );
+        for ( size_t i = 0; i < host_grad.size(); ++i )
         {
-            GTEST_SKIP() << "Parameters equivalence runs only for FP32";
+            host_grad.data()[ i ] = 0.01f * static_cast<float>( ( i % 13 ) + 1 );
         }
+        auto device_grad = this->toDevice( host_grad );
 
-        try
+        linear->forward( device_in );
+        auto& device_in_grad = linear->backward( device_in, device_grad );
+        linear->synchronize();
+
+        auto input_grad = this->toFloat( device_in_grad );
+
+        // Read back precision-rounded inputs the kernels actually consumed.
+        auto params = linear->getParameters();
+        auto weight = this->toFloat( *static_cast<typename TestFixture::DeviceTensor*>( params[ 0 ] ) );
+        auto in = this->toFloat( device_in );
+        auto grad = this->toFloat( device_grad );
+
+        const int64_t batch = 2 * 4;
+
+        // dX[b,i] = sum_o dY[b,o] * W[o,i]
+        std::vector<float> expected_dx( static_cast<size_t>( batch * kInFeatures ), 0.0f );
+        for ( int64_t b = 0; b < batch; ++b )
         {
-            auto s = LinearTestShape::Small();
-
-            Mila::Core::RandomGenerator::getInstance().setSeed( 2026 );
-
-            auto cpu_lin = std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
-                "linear_cpu_params", LinearConfig( s.in_features, s.out_features ), Device::Cpu()
-            );
-
-            auto cuda_lin = std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>(
-                "linear_cuda_params", LinearConfig( s.in_features, s.out_features ), Device::Cuda( 0 )
-            );
-
-            cpu_lin->build( s.inputShape() );
-            cuda_lin->build( s.inputShape() );
-
-            auto cpu_params = cpu_lin->getParameters();
-            auto cuda_params = cuda_lin->getParameters();
-
-            ASSERT_EQ( cpu_params.size(), cuda_params.size() );
-
-            const float tol = 1e-6f;
-
-            for ( size_t i = 0; i < cpu_params.size(); ++i )
+            for ( int64_t i = 0; i < kInFeatures; ++i )
             {
-                auto cpu_t = static_cast<CpuTensor<TensorDataType::FP32>*>( cpu_params[ i ] );
-                auto cuda_t = static_cast<CudaTensor<TensorDataType::FP32>*>( cuda_params[ i ] );
-
-                ASSERT_NE( cpu_t, nullptr );
-                ASSERT_NE( cuda_t, nullptr );
-
-                auto host_cuda = toHost<TensorDataType::FP32>( *cuda_t );
-                auto host_cpu = toHost<TensorDataType::FP32>( *cpu_t );
-
-                ASSERT_EQ( host_cpu.size(), host_cuda.size() );
-
-                for ( size_t e = 0; e < host_cpu.size(); ++e )
+                double acc = 0.0;
+                for ( int64_t o = 0; o < kOutFeatures; ++o )
                 {
-                    EXPECT_NEAR( host_cpu.data()[ e ], host_cuda.data()[ e ], tol )
-                        << "Parameter mismatch at param " << i << " element " << e;
+                    acc += static_cast<double>( grad.data()[ b * kOutFeatures + o ] ) *
+                        static_cast<double>( weight.data()[ o * kInFeatures + i ] );
                 }
+                expected_dx[ b * kInFeatures + i ] = static_cast<float>( acc );
             }
         }
-        catch ( const std::exception& )
+
+        ASSERT_EQ( input_grad.size(), expected_dx.size() );
+
+        for ( size_t i = 0; i < input_grad.size(); ++i )
         {
-            GTEST_SKIP() << "Linear CPU/CUDA parameter equivalence not available";
+            const float tolerance = TypeParam::backward_atol + TypeParam::backward_rtol * std::fabs( expected_dx[ i ] );
+
+            EXPECT_NEAR( input_grad.data()[ i ], expected_dx[ i ], tolerance )
+                << "input-gradient mismatch at index " << i;
+        }
+
+        // dW[o,i] = sum_b dY[b,o] * X[b,i] ; dB[o] = sum_b dY[b,o]
+        auto grads = linear->getGradients();
+        ASSERT_EQ( grads.size(), 2u );
+        auto weight_grad = this->toFloat( *static_cast<typename TestFixture::DeviceTensor*>( grads[ 0 ] ) );
+        auto bias_grad = this->toFloat( *static_cast<typename TestFixture::DeviceTensor*>( grads[ 1 ] ) );
+
+        for ( int64_t o = 0; o < kOutFeatures; ++o )
+        {
+            double db = 0.0;
+            for ( int64_t b = 0; b < batch; ++b )
+            {
+                db += static_cast<double>( grad.data()[ b * kOutFeatures + o ] );
+            }
+            const float bias_tol = TypeParam::backward_atol + TypeParam::backward_rtol * std::fabs( static_cast<float>( db ) );
+            EXPECT_NEAR( bias_grad.data()[ o ], static_cast<float>( db ), bias_tol )
+                << "bias-gradient mismatch at o=" << o;
+
+            for ( int64_t i = 0; i < kInFeatures; ++i )
+            {
+                double dw = 0.0;
+                for ( int64_t b = 0; b < batch; ++b )
+                {
+                    dw += static_cast<double>( grad.data()[ b * kOutFeatures + o ] ) *
+                        static_cast<double>( in.data()[ b * kInFeatures + i ] );
+                }
+                const float weight_tol = TypeParam::backward_atol + TypeParam::backward_rtol * std::fabs( static_cast<float>( dw ) );
+                EXPECT_NEAR( weight_grad.data()[ o * kInFeatures + i ], static_cast<float>( dw ), weight_tol )
+                    << "weight-gradient mismatch at o=" << o << " i=" << i;
+            }
         }
     }
 
-    TYPED_TEST( LinearCudaTests, Gradients_CPU_CUDA_Equivalence_FP32 )
+    // ====================================================================
+    // G. Parameters & Gradients
+    // ====================================================================
+
+    TYPED_TEST( LinearCudaTests, Parameters_CountReflectsBias )
     {
-        if ( !this->cuda_available_ ) GTEST_SKIP() << "CUDA not available";
-        constexpr TensorDataType TPrecision = TypeParam::value;
+        auto with_bias = this->builtLinear( shape_t{ 2, kInFeatures }, true, RuntimeMode::Inference );
+        EXPECT_EQ( with_bias->getParameters().size(), 2u );
 
-        if constexpr ( TPrecision != TensorDataType::FP32 )
+        auto without_bias = this->builtLinear( shape_t{ 2, kInFeatures }, false, RuntimeMode::Inference );
+        EXPECT_EQ( without_bias->getParameters().size(), 1u );
+    }
+
+    TYPED_TEST( LinearCudaTests, Gradients_PresentOnlyForTrainingBuild )
+    {
+        auto inference = this->builtLinear( shape_t{ 2, kInFeatures }, true, RuntimeMode::Inference );
+        EXPECT_TRUE( inference->getGradients().empty() );
+
+        auto training = this->builtLinear( shape_t{ 2, kInFeatures }, true, RuntimeMode::Training );
+        EXPECT_EQ( training->getGradients().size(), 2u );
+    }
+
+    // ====================================================================
+    // H. Shared weight installation (weight tying — WeightTying.md)
+    // ====================================================================
+
+    // installSharedWeight replaces the owned weight with a caller-owned tensor (the
+    // tied lm_head sharing the token embedding table). Assert the component exposes the
+    // shared tensor as its parameter (pointer identity), reports its bytes (so the
+    // owning transformer's tie-aware getMemoryStats can subtract them once), and that
+    // forward actually consumes the installed weight.
+    TYPED_TEST( LinearCudaTests, InstallSharedWeight_SetsParameterAndMatchesDirectLoad )
+    {
+        const shape_t shape{ 2, 4, kInFeatures };
+
+        // No bias — the lm_head that motivates this path is unbiased.
+        auto linear = this->builtLinear( shape, false, RuntimeMode::Inference );
+
+        auto shared = std::make_shared<typename TestFixture::DeviceTensor>(
+            Device::Cuda( 0 ), shape_t{ kOutFeatures, kInFeatures }, "shared.weight" );
+
+        typename TestFixture::HostFp32 host_weight( Device::Cpu(), shape_t{ kOutFeatures, kInFeatures } );
+        for ( int64_t o = 0; o < kOutFeatures; ++o )
         {
-            GTEST_SKIP() << "Gradients equivalence runs only for FP32";
-        }
-
-        try
-        {
-            auto s = LinearTestShape::Small();
-
-            Mila::Core::RandomGenerator::getInstance().setSeed( 3030 );
-
-            auto cpu_lin = std::make_shared<Linear<DeviceType::Cpu, TensorDataType::FP32>>(
-                "linear_cpu_grads", LinearConfig( s.in_features, s.out_features ), Device::Cpu()
-            );
-
-            auto cuda_lin = std::make_shared<Linear<DeviceType::Cuda, TensorDataType::FP32>>(
-                "linear_cuda_grads", LinearConfig( s.in_features, s.out_features ), Device::Cuda( 0 )
-            );
-
-            cpu_lin->build( s.inputShape() );
-            cuda_lin->build( s.inputShape() );
-
-            cpu_lin->setTraining( true );
-            cuda_lin->setTraining( true );
-
-            Mila::Core::RandomGenerator::getInstance().setSeed( 4040 );
-
-            CpuTensor<TensorDataType::FP32> host_in( Device::Cpu(), s.inputShape() );
-            random( host_in, -1.0f, 1.0f );
-
-            CpuTensor<TensorDataType::FP32> host_outg( Device::Cpu(), s.outputShape() );
-
-            for ( size_t i = 0; i < host_outg.size(); ++i )
+            for ( int64_t i = 0; i < kInFeatures; ++i )
             {
-                host_outg.data()[ i ] = (i % 2 == 0) ? 0.05f : -0.05f;
-            }
-
-            CudaTensor<TensorDataType::FP32> device_in( Device::Cuda( 0 ), s.inputShape() );
-            CudaTensor<TensorDataType::FP32> device_outg( Device::Cuda( 0 ), s.outputShape() );
-
-            copy( host_in, device_in );
-            copy( host_outg, device_outg );
-
-            cpu_lin->zeroGradients();
-            cuda_lin->zeroGradients();
-
-            ASSERT_NO_THROW( (void)cpu_lin->forward( host_in ) );
-            ASSERT_NO_THROW( (void)cpu_lin->backward( host_in, host_outg ) );
-
-            ASSERT_NO_THROW( (void)cuda_lin->forward( device_in ) );
-            ASSERT_NO_THROW( (void)cuda_lin->backward( device_in, device_outg ) );
-
-            cuda_lin->synchronize();
-
-            auto cpu_grads = cpu_lin->getGradients();
-            auto cuda_grads = cuda_lin->getGradients();
-
-            ASSERT_EQ( cpu_grads.size(), cuda_grads.size() );
-
-            const float tol = 1e-5f;
-
-            for ( size_t i = 0; i < cpu_grads.size(); ++i )
-            {
-                auto cpu_g = static_cast<CpuTensor<TensorDataType::FP32>*>( cpu_grads[ i ] );
-                auto cuda_g = static_cast<CudaTensor<TensorDataType::FP32>*>( cuda_grads[ i ] );
-
-                ASSERT_NE( cpu_g, nullptr );
-                ASSERT_NE( cuda_g, nullptr );
-
-                auto host_cpu_g = toHost<TensorDataType::FP32>( *cpu_g );
-                auto host_cuda_g = toHost<TensorDataType::FP32>( *cuda_g );
-
-                ASSERT_EQ( host_cpu_g.size(), host_cuda_g.size() );
-
-                for ( size_t e = 0; e < host_cpu_g.size(); ++e )
-                {
-                    EXPECT_NEAR( host_cpu_g.data()[ e ], host_cuda_g.data()[ e ], tol )
-                        << "Gradient mismatch at grad " << i << " element " << e;
-                }
+                host_weight.data()[ o * kInFeatures + i ] = weightValue( o, i );
             }
         }
-        catch ( const std::exception& )
+        copy( host_weight, *shared, this->cuda_context_.get() );
+        this->cuda_context_->synchronize();
+
+        linear->installSharedWeight( shared );
+
+        auto params = linear->getParameters();
+        ASSERT_EQ( params.size(), 1u );
+        EXPECT_EQ( static_cast<typename TestFixture::DeviceTensor*>( params[ 0 ] ), shared.get() );
+        EXPECT_EQ( linear->getMemoryStats().device_parameter_bytes, shared->getStorageSize() );
+
+        auto host_in = this->spreadHost( shape );
+        auto device_in = this->toDevice( host_in );
+
+        auto& device_out = linear->forward( device_in );
+        linear->synchronize();
+
+        auto out = this->toFloat( device_out );
+
+        // Read back the precision-rounded weight the kernel actually consumed.
+        auto weight = this->toFloat( *shared );
+        auto in = this->toFloat( device_in );
+
+        std::vector<float> expected;
+        referenceForward( in.data(), weight.data(), nullptr, 2 * 4, kInFeatures, kOutFeatures, expected );
+
+        ASSERT_EQ( out.size(), expected.size() );
+
+        for ( size_t i = 0; i < out.size(); ++i )
         {
-            GTEST_SKIP() << "Linear CPU/CUDA gradients equivalence not available";
+            const float tolerance = TypeParam::forward_atol + TypeParam::forward_rtol * std::fabs( expected[ i ] );
+
+            EXPECT_NEAR( out.data()[ i ], expected[ i ], tolerance )
+                << "shared-weight forward mismatch at index " << i;
         }
     }
 
+    // Tying contract on quantized instantiations (D4 Design B): per-channel FP8
+    // accepts the (weight, scales) overload -- the per-output-channel scale axis IS
+    // the vocab row a tied embedding gathers -- while per-group policies stay
+    // excluded (input-axis scales do not transfer to a row gather), and a quantized
+    // weight without scales is always rejected. Deferred construction (no device)
+    // keeps the throw tests GPU-independent: the throw precedes any op or context
+    // use, and the arguments are never dereferenced.
+    TEST( LinearCudaQuantizedTests, InstallSharedWeight_PerGroupPath_Throws )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerGroupFp4<128>>;
+
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( false );
+        QuantizedLinear linear( "linear_quantized", config );
+
+        EXPECT_THROW( linear.installSharedWeight( nullptr ), std::logic_error );
+        EXPECT_THROW( linear.installSharedWeight( nullptr, nullptr ), std::logic_error );
+    }
+
+    TEST( LinearCudaQuantizedTests, InstallSharedWeight_PerChannelWithoutScales_Throws )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerChannelFp8<>>;
+
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( false );
+        QuantizedLinear linear( "linear_quantized", config );
+
+        EXPECT_THROW( linear.installSharedWeight( nullptr ), std::logic_error );
+    }
+
+    // The real D4 wiring end to end: a quantized TokenEmbedding donor produces the
+    // FP8 table + per-vocab-row scales via quantize-on-load; a per-channel FP8
+    // lm_head that adopts both handles must compute exactly what a head that
+    // quantized the same BF16 blob through its own loadParameter computes -- the
+    // two paths run the same quantization kernel on the same data, so the outputs
+    // are identical, not merely close.
+    TEST( LinearCudaQuantizedTests, InstallSharedWeight_PerChannelFp8_MatchesDirectQuantizedLoad )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerChannelFp8<>>;
+        using QuantizedEmbedding = Mila::Dnn::TokenEmbedding<
+            DeviceType::Cuda, TensorDataType::INT32, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerChannelFp8<>>;
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+        using DeviceBf16 = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+
+        std::unique_ptr<IExecutionContext> context;
+        try
+        {
+            context = createExecutionContext( Device::Cuda( 0 ) );
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "CUDA device not available";
+        }
+
+        // BF16 weight blob shared by all three consumers.
+        std::vector<uint16_t> weight_bits( static_cast<size_t>( kOutFeatures * kInFeatures ) );
+        for ( int64_t o = 0; o < kOutFeatures; ++o )
+        {
+            for ( int64_t i = 0; i < kInFeatures; ++i )
+            {
+                const uint32_t bits = std::bit_cast<uint32_t>( weightValue( o, i ) );
+                const uint32_t rounding = 0x7FFF + ( ( bits >> 16 ) & 1 );
+                weight_bits[ o * kInFeatures + i ] = static_cast<uint16_t>( ( bits + rounding ) >> 16 );
+            }
+        }
+
+        const size_t blob_bytes = weight_bits.size() * sizeof( uint16_t );
+
+        // Decode-shaped build (outer_size == 1): the FP8 matvec path the tied
+        // lm_head actually runs.
+        const shape_t input_shape{ 1, kInFeatures };
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( false );
+
+        // Head A: direct quantize-on-load through its own loadParameter.
+        QuantizedLinear direct( "lm_head_direct", config, Device::Cuda( 0 ) );
+        direct.build( BuildContext( input_shape, RuntimeMode::Inference, false ) );
+
+        Serialization::TensorMetadata weight_meta{
+            TensorDataType::BF16, shape_t{ kOutFeatures, kInFeatures }, blob_bytes };
+        Serialization::TensorBlobView weight_blob( weight_meta, weight_bits.data(), blob_bytes );
+        direct.loadParameter( "weight", weight_blob );
+        context->synchronize();
+
+        // Donor: quantized TokenEmbedding over the same table ([vocab=out, d=in]).
+        auto embedding_config = TokenEmbeddingConfig()
+            .withVocabSize( static_cast<size_t>( kOutFeatures ) )
+            .withEmbeddingDim( static_cast<size_t>( kInFeatures ) );
+        QuantizedEmbedding embedding( "token_embedding_fp8", embedding_config, Device::Cuda( 0 ) );
+        embedding.build( BuildContext( shape_t{ 1, 2 }, RuntimeMode::Inference, false ) );
+
+        Serialization::TensorBlobView wte_blob( weight_meta, weight_bits.data(), blob_bytes );
+        embedding.loadParameter( "wte", wte_blob );
+        context->synchronize();
+
+        // Head B: adopts the donor's FP8 table and row scales.
+        QuantizedLinear tied( "lm_head_tied", config, Device::Cuda( 0 ) );
+        tied.build( BuildContext( input_shape, RuntimeMode::Inference, false ) );
+        tied.installSharedWeight( embedding.getWeightTensorShared(), embedding.getWeightScalesTensorShared() );
+
+        // Pointer identity: the tied head exposes the shared table as its parameter.
+        auto tied_params = tied.getParameters();
+        ASSERT_EQ( tied_params.size(), 1u );
+        EXPECT_EQ( tied_params[ 0 ], static_cast<ITensor*>( embedding.getWeightTensorShared().get() ) );
+
+        // Same input through both heads.
+        HostFp32 host_input( Device::Cpu(), input_shape );
+        for ( int64_t i = 0; i < kInFeatures; ++i )
+        {
+            host_input.data()[ i ] = 0.5f * weightValue( i % kOutFeatures, i );
+        }
+
+        DeviceBf16 device_input( Device::Cuda( 0 ), input_shape );
+        copy( host_input, device_input, context.get() );
+        context->synchronize();
+
+        auto& direct_out = direct.forward( device_input );
+        direct.synchronize();
+        auto direct_host = toHost<TensorDataType::FP32>( direct_out, context.get() );
+        context->synchronize();
+
+        auto& tied_out = tied.forward( device_input );
+        tied.synchronize();
+        auto tied_host = toHost<TensorDataType::FP32>( tied_out, context.get() );
+        context->synchronize();
+
+        ASSERT_EQ( direct_host.size(), tied_host.size() );
+
+        for ( size_t i = 0; i < direct_host.size(); ++i )
+        {
+            EXPECT_EQ( tied_host.data()[ i ], direct_host.data()[ i ] )
+                << "tied FP8 head diverged from direct quantized load at index " << i;
+        }
+    }
+
+    // W4A8-FP8 prefill numerics oracle (Fp8ActivationPrefill.md section 6): the
+    // batched prefill forward must match the decode matvec -- an independent, proven
+    // FP4 path over the SAME loaded weights -- row for row. Input rows span fifteen
+    // decades of magnitude: under this fixture per-TENSOR activation scaling fails
+    // (the +98 incoherence -- one outlier row crushes every other row's FP8
+    // resolution) while per-TOKEN scaling passes. The comparison budget is per-row,
+    // proportional to the row's reference absmax, because FP8 activation error is
+    // relative to each token's own scale. The test stays valid with
+    // kUseFp8ActivationPrefill=false (BF16 staging GEMM vs matvec, passes with
+    // margin), so it does not depend on the toggle state.
+    TEST( LinearCudaQuantizedTests, Forward_Fp4PrefillMatchesDecodeAcrossTokenMagnitudes )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerGroupFp4<128>>;
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+        using DeviceBf16 = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+
+        // Realistic layer-ish dims: in_features spans four FP4 groups of 128, and
+        // both GEMM dims are large enough for the cuBLASLt FP8 heuristic.
+        constexpr int64_t kFp8Rows = 16;
+        constexpr int64_t kFp8InFeatures = 512;
+        constexpr int64_t kFp8OutFeatures = 256;
+
+        std::unique_ptr<IExecutionContext> context;
+        try
+        {
+            context = createExecutionContext( Device::Cuda( 0 ) );
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "CUDA device not available";
+        }
+
+        // BF16 weight blob, quantized to FP4 by loadParameter.
+        std::vector<uint16_t> weight_bits( static_cast<size_t>( kFp8OutFeatures * kFp8InFeatures ) );
+        for ( int64_t o = 0; o < kFp8OutFeatures; ++o )
+        {
+            for ( int64_t i = 0; i < kFp8InFeatures; ++i )
+            {
+                const uint32_t bits = std::bit_cast<uint32_t>( weightValue( o, i ) );
+                const uint32_t rounding = 0x7FFF + ( ( bits >> 16 ) & 1 );
+                weight_bits[ o * kFp8InFeatures + i ] = static_cast<uint16_t>( ( bits + rounding ) >> 16 );
+            }
+        }
+
+        const size_t blob_bytes = weight_bits.size() * sizeof( uint16_t );
+
+        LinearConfig config( kFp8InFeatures, kFp8OutFeatures );
+        config.withBias( false );
+
+        QuantizedLinear linear( "linear_fp4_prefill", config, Device::Cuda( 0 ) );
+        linear.build( BuildContext( shape_t{ kFp8Rows, kFp8InFeatures }, RuntimeMode::Inference, false ) );
+
+        Serialization::TensorMetadata weight_meta{
+            TensorDataType::BF16, shape_t{ kFp8OutFeatures, kFp8InFeatures }, blob_bytes };
+        Serialization::TensorBlobView weight_blob( weight_meta, weight_bits.data(), blob_bytes );
+        linear.loadParameter( "weight", weight_blob );
+        context->synchronize();
+
+        // Row m carries magnitude 10^(m-8): 1e-8 .. 1e+7 across the batch.
+        HostFp32 host_input( Device::Cpu(), shape_t{ kFp8Rows, kFp8InFeatures } );
+        for ( int64_t m = 0; m < kFp8Rows; ++m )
+        {
+            const float row_scale = std::pow( 10.0f, static_cast<float>( m ) - 8.0f );
+
+            for ( int64_t k = 0; k < kFp8InFeatures; ++k )
+            {
+                const float spread = static_cast<float>( ( m * 31 + k * 17 ) % 257 ) / 128.0f - 1.0f;
+                host_input.data()[ m * kFp8InFeatures + k ] = row_scale * spread;
+            }
+        }
+
+        DeviceBf16 device_input( Device::Cuda( 0 ), shape_t{ kFp8Rows, kFp8InFeatures } );
+        copy( host_input, device_input, context.get() );
+        context->synchronize();
+
+        // Prefill leg: batched forward (the W4A8-FP8 GEMM when the toggle is on).
+        auto& prefill_out = linear.forward( device_input );
+        linear.synchronize();
+        auto prefill_host = toHost<TensorDataType::FP32>( prefill_out, context.get() );
+        context->synchronize();
+
+        // The op reuses its output tensor across forwards -- keep a copy before the
+        // decode legs overwrite it.
+        std::vector<float> prefill(
+            prefill_host.data(), prefill_host.data() + kFp8Rows * kFp8OutFeatures );
+
+        // Decode legs: one matvec forward per row, same op instance, same weights.
+        for ( int64_t m = 0; m < kFp8Rows; ++m )
+        {
+            HostFp32 host_row( Device::Cpu(), shape_t{ 1, kFp8InFeatures } );
+            for ( int64_t k = 0; k < kFp8InFeatures; ++k )
+            {
+                host_row.data()[ k ] = host_input.data()[ m * kFp8InFeatures + k ];
+            }
+
+            DeviceBf16 device_row( Device::Cuda( 0 ), shape_t{ 1, kFp8InFeatures } );
+            copy( host_row, device_row, context.get() );
+            context->synchronize();
+
+            auto& decode_out = linear.forward( device_row );
+            linear.synchronize();
+            auto decode_host = toHost<TensorDataType::FP32>( decode_out, context.get() );
+            context->synchronize();
+
+            float row_absmax = 0.0f;
+            for ( int64_t n = 0; n < kFp8OutFeatures; ++n )
+            {
+                row_absmax = std::max( row_absmax, std::fabs( decode_host.data()[ n ] ) );
+            }
+
+            const float tolerance = 5e-2f * row_absmax;
+
+            for ( int64_t n = 0; n < kFp8OutFeatures; ++n )
+            {
+                EXPECT_NEAR( prefill[ m * kFp8OutFeatures + n ], decode_host.data()[ n ], tolerance )
+                    << "prefill/decode mismatch at row " << m << " (magnitude 1e"
+                    << ( m - 8 ) << "), column " << n;
+            }
+        }
+    }
+
+    // ====================================================================
+    // J. Type identity
+    // ====================================================================
+
+    TYPED_TEST( LinearCudaTests, GetType_IsLinear )
+    {
+        LinearConfig config( kInFeatures, kOutFeatures );
+        typename TestFixture::LinearType linear( "linear", config, Device::Cuda( 0 ) );
+
+        EXPECT_EQ( linear.getType(), ComponentType::Linear );
+    }
 }

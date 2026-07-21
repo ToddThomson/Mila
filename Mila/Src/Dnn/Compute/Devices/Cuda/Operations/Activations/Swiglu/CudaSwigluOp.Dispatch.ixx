@@ -17,8 +17,6 @@ import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.ComponentConfig;
 import Compute.OperationBase;
-import Compute.UnaryOperation;
-import Compute.OperationRegistry;
 import Compute.DeviceType;
 import Compute.ExecutionContext;
 import Compute.IExecutionContext;
@@ -34,8 +32,7 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
     namespace Detail
     {
         template <typename TNative>
-            requires std::is_same_v<TNative, float>
-                  || std::is_same_v<TNative, __nv_bfloat16>
+            requires std::is_same_v<TNative, float> || std::is_same_v<TNative, __nv_bfloat16>
         struct cuda_swiglu_impl;
 
         template <>
@@ -68,7 +65,7 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
                 cuda_swiglu_forward_bf16( Y, X, N, half_width, stream );
             }
 
-            // dX and dY are FP32 — see Swiglu.Bf16.cu for mixed-precision backward contract.
+            // dX and dY are FP32 -- see Swiglu.Bf16.cu for mixed-precision backward contract.
             inline void backward( float* dX, const __nv_bfloat16* X, const float* dY, int N, int half_width, cudaStream_t stream ) const
             {
                 cuda_swiglu_backward_bf16( dX, X, dY, N, half_width, stream );

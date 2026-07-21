@@ -11,6 +11,7 @@
  * Migration status:
  *   LinearOp              complete (NoWeightQuant; quantized policies are CUDA-only)
  *   GeluOp                complete
+ *   LayerNormOp           complete
  *   ResidualOp            complete
  *   SoftmaxOp             complete
  *   MultiHeadAttentionOp  complete
@@ -23,10 +24,13 @@ export module Compute.OperationTraits:Cpu;
 import Compute.OperationTraits.Template;
 import Compute.CpuLinearOp;
 import Compute.CpuGeluOp;
+import Compute.CpuElementwiseActivationOp;
+import Compute.CpuLayerNormOp;
 import Compute.CpuResidualOp;
 import Compute.CpuSoftmaxOp;
 import Compute.CpuAttention;
 import Compute.CpuEncoderOp;
+import Compute.CpuSamplingOp;
 import Dnn.Quantization.Weight.Policies;
 
 namespace Mila::Dnn::Compute
@@ -34,7 +38,7 @@ namespace Mila::Dnn::Compute
     using namespace Mila::Dnn::Quant::Weight;
 
     // -------------------------------------------------------------------------
-    // LinearOp — CPU specialization (FP32, unquantized only)
+    // LinearOp -- CPU specialization (FP32, unquantized only)
     //
     // FP32 is the sole CPU-supported precision and CpuLinearOp is concrete
     // (non-templated). Quantized weight policies (PerChannelFp8/PerGroupFp4) are
@@ -48,7 +52,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // GeluOp — CPU specialization (FP32 only)
+    // GeluOp -- CPU specialization (FP32 only)
     // -------------------------------------------------------------------------
 
     template<>
@@ -58,7 +62,22 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // ResidualOp — CPU specialization (FP32 only)
+    // ElementwiseActivationOp -- CPU specialization (FP32 only)
+    //
+    // Unlike concrete CPU ops, this resolves the op *template*: the Activation
+    // component maps its compile-time ActivationType to a functor and instantiates
+    // op_for<Functor>. No fifth traits axis (see FfnAndMoE.md section 5.1).
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::ElementwiseActivationOp, DeviceType::Cpu, TensorDataType::FP32, void>
+    {
+        template<typename TFunctor>
+        using op_for = CpuElementwiseActivationOp<TFunctor>;
+    };
+
+    // -------------------------------------------------------------------------
+    // ResidualOp -- CPU specialization (FP32 only)
     // -------------------------------------------------------------------------
 
     template<>
@@ -68,7 +87,17 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // SoftmaxOp — CPU specialization (FP32 only)
+    // LayerNormOp -- CPU specialization (FP32 only)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::LayerNormOp, DeviceType::Cpu, TensorDataType::FP32, void>
+    {
+        using type = CpuLayerNormOp;
+    };
+
+    // -------------------------------------------------------------------------
+    // SoftmaxOp -- CPU specialization (FP32 only)
     // -------------------------------------------------------------------------
 
     template<>
@@ -78,7 +107,7 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // MultiHeadAttentionOp — CPU specialization (FP32 only)
+    // MultiHeadAttentionOp -- CPU specialization (FP32 only)
     // -------------------------------------------------------------------------
 
     template<>
@@ -88,13 +117,23 @@ namespace Mila::Dnn::Compute
     };
 
     // -------------------------------------------------------------------------
-    // LpeOp — CPU specialization (INT32 → FP32 only)
+    // LpeOp -- CPU specialization (INT32 -> FP32 only)
     // -------------------------------------------------------------------------
 
     template<>
     struct OperationTraits<OperationType::LpeOp, DeviceType::Cpu, TensorDataType::FP32, void>
     {
         using type = CpuEncoderOp;
+    };
+
+    // -------------------------------------------------------------------------
+    // SamplingOp -- CPU specialization (FP32 only)
+    // -------------------------------------------------------------------------
+
+    template<>
+    struct OperationTraits<OperationType::SamplingOp, DeviceType::Cpu, TensorDataType::FP32, void>
+    {
+        using type = CpuSamplingOp;
     };
 
 }  // namespace Mila::Dnn::Compute

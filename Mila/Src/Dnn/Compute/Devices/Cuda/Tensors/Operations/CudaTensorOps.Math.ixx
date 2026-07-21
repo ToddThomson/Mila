@@ -313,6 +313,72 @@ namespace Mila::Dnn::Compute::Cuda
         }
 
         /**
+         * @brief Scale a tensor by a scalar: result[i] = input[i] * scalar.
+         *
+         * Supports in-place (input and result may alias). Used by Gemma 4's per-layer
+         * `hidden_states *= layer_scalar`. The scalar is converted to the tensor's native
+         * type (e.g. float -> bf16) before the device multiply.
+         */
+        template<TensorDataType TDataType, typename TMemoryResource>
+            requires isValidTensor<TDataType, TMemoryResource>
+        static void scale(
+            const Tensor<TDataType, TMemoryResource>& input,
+            float scalar,
+            Tensor<TDataType, TMemoryResource>& result,
+            IExecutionContext* exec_context = nullptr )
+        {
+            if ( input.shape() != result.shape() )
+            {
+                throw std::invalid_argument( "scale: input and result must have the same shape" );
+            }
+
+            if ( input.size() == 0 )
+            {
+                return;
+            }
+
+            cudaStream_t stream;
+            bool needs_sync = false;
+            int device_idx = -1;
+
+            if ( exec_context )
+            {
+                auto* cuda_context = cast_context_<DeviceType::Cuda>( exec_context );
+                stream = cuda_context->getStream();
+                device_idx = cuda_context->getDeviceId().index;
+            }
+            else
+            {
+                auto device_id = input.getDeviceId();
+                if ( device_id != DeviceType::Cuda )
+                {
+                    throw std::runtime_error(
+                        "Tensor does not have valid CUDA device for math operations"
+                    );
+                }
+
+                stream = nullptr;
+                device_idx = device_id.index;
+                needs_sync = true;
+            }
+
+            const void* in_data = static_cast<const ITensor&>(input).rawData();
+            void* result_data = static_cast<ITensor&>(result).rawData();
+
+            if ( !in_data || !result_data )
+            {
+                throw std::runtime_error( "Invalid tensor data pointers for scale operation" );
+            }
+
+            scaleImpl<TDataType>( in_data, result_data, scalar, input.size(), stream, device_idx );
+
+            if ( needs_sync )
+            {
+                cudaStreamSynchronize( stream );
+            }
+        }
+
+        /**
          * @brief Element-wise division of two tensors
          *
          * Computes result[i] = a[i] / b[i] for all elements using CUDA kernels.
@@ -551,6 +617,36 @@ namespace Mila::Dnn::Compute::Cuda
         }
 
         template<TensorDataType TDataType>
+        static void scaleImpl(
+            const void* in_data,
+            void* result_data,
+            float scalar,
+            size_t count,
+            cudaStream_t stream,
+            int device_id )
+        {
+            if (!in_data || !result_data || count == 0)
+            {
+                return;
+            }
+
+            Cuda::setCurrentDevice( device_id );
+
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
+            const auto* typed_in = static_cast<const NativeType*>(in_data);
+            auto* typed_result = static_cast<NativeType*>(result_data);
+
+            // Pass the float scalar straight to the kernel; the float->native conversion happens
+            // device-side (host MSVC has no float->bf16). Arithmetic is done in float.
+            Kernels::launch_scalar_multiply_float_kernel<NativeType>(
+                typed_in, typed_result, scalar, count, stream
+            );
+
+            cudaError_t status = cudaGetLastError();
+            cudaCheckStatus( status, std::source_location::current() );
+        }
+
+        template<TensorDataType TDataType>
         static void divideImpl(
             const void* a_data,
             const void* b_data,
@@ -586,7 +682,7 @@ namespace Mila::Dnn::Compute::Cuda
             cudaStream_t stream,
             int device_id )
         {
-			// TODO: Implement sum reduction kernel.
+			// FUTURE: Implement sum reduction kernel.
             throw std::runtime_error( "CUDA sum reduction kernels are not implemented yet" );
 
             if (!tensor_data || count == 0)

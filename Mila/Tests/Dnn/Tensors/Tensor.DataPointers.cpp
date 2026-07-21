@@ -1,13 +1,26 @@
+/**
+ * @file Tensor.DataPointers.cpp
+ * @brief CPU data-pointer tests for Tensor.ixx — data() type-safe access.
+ *
+ * Area file of the Tensor value-type archetype (see Specifications/Testing.Tensors.md).
+ * Covers the host-type-mapped data() pointer (non-const/const), its row-major layout,
+ * null-on-empty / valid-on-scalar contract, interop with C-style and standard
+ * algorithms, and consistency with operator[] / item(). CPU memory resource only:
+ * data() requires is_host_accessible, so a device-tensor counterpart is a non-call
+ * contract verified in Tensor.DataAccess.Cuda.cpp.
+ */
+
 #include <gtest/gtest.h>
 #include <vector>
 #include <cstdint>
 #include <memory>
 #include <cstring>
+#include <algorithm>
 #include <type_traits>
 
 import Mila;
 
-namespace Dnn::Tensors::Tests
+namespace Mila::Tests::Dnn::Tensors
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;

@@ -9,7 +9,6 @@
 module;
 #include <string>
 #include <string_view>
-#include <algorithm>
 #include <cctype>
 
 export module Dnn.ComponentType;
@@ -34,6 +33,7 @@ namespace Mila::Dnn
         // Leaf components
         Linear,
         Gelu,
+        Activation,
         Swiglu,
         LayerNorm,
         RmsNorm,
@@ -45,20 +45,15 @@ namespace Mila::Dnn
         TokenEmbedding,
         Lpe,
         Rope,
-        SoftmaxCrossEntropy,    ///< WIP: Fused softmax + cross-entropy loss — targeted for Llama training
+        SoftmaxCrossEntropy,    ///< WIP: Fused softmax + cross-entropy loss -- targeted for Llama training
 
         // Composite components
         Mlp,
+        GatedMlp,
         Transformer,
 
         // Top-level networks
         Network,
-
-        // REVIEW: Do we need Gpt2, Llama, etc.
-        Gpt2,       ///< GPT-2 style transformer network
-        Llama,      ///< LLaMA style transformer network
-        Mistral,    ///< Mistral style transformer network
-        Bert,       ///< BERT style transformer network
 
         // Reserve range for custom components (1000+)
         CustomComponentStart = 1000,
@@ -84,6 +79,8 @@ namespace Mila::Dnn
                 return "Linear";
             case ComponentType::Gelu:
                 return "Gelu";
+            case ComponentType::Activation:
+                return "Activation";
             case ComponentType::Swiglu:
                 return "Swiglu";
             case ComponentType::LayerNorm:
@@ -98,6 +95,8 @@ namespace Mila::Dnn
                 return "Residual";
             case ComponentType::Mlp:
                 return "MLP";
+            case ComponentType::GatedMlp:
+                return "GatedMLP";
             case ComponentType::Transformer:
                 return "Transformer";
             case ComponentType::TokenEmbedding :
@@ -134,6 +133,8 @@ namespace Mila::Dnn
             return ComponentType::Linear;
         if ( low == "gelu" )
             return ComponentType::Gelu;
+        if ( low == "activation" )
+            return ComponentType::Activation;
         if ( low == "swiglu" )
             return ComponentType::Swiglu;
         if ( low == "layernorm" )
@@ -148,6 +149,8 @@ namespace Mila::Dnn
             return ComponentType::Residual;
         if ( low == "mlp" )
             return ComponentType::Mlp;
+        if ( low == "gatedmlp" )
+            return ComponentType::GatedMlp;
         if ( low == "transformer" )
             return ComponentType::Transformer;
         if ( low == "tokenembedding" )
@@ -180,6 +183,8 @@ namespace Mila::Dnn
                 return "fc";
             case ComponentType::Gelu:
                 return "gelu";
+            case ComponentType::Activation:
+                return "act";
             case ComponentType::Swiglu:
                 return "sglu";
             case ComponentType::LayerNorm:
@@ -196,6 +201,8 @@ namespace Mila::Dnn
                 return "res";
             case ComponentType::Mlp:
                 return "mlp";
+            case ComponentType::GatedMlp:
+                return "gmlp";
             case ComponentType::Transformer:
                 return "tf";
             case ComponentType::TokenEmbedding:
@@ -228,6 +235,8 @@ namespace Mila::Dnn
             return ComponentType::Linear;
         if ( s == "gelu" )
             return ComponentType::Gelu;
+        if ( s == "act" )
+            return ComponentType::Activation;
         if ( s == "swig" )
             return ComponentType::Swiglu;
         if ( s == "ln" )
@@ -242,6 +251,8 @@ namespace Mila::Dnn
             return ComponentType::Residual;
         if ( s == "mlp" )
             return ComponentType::Mlp;
+        if ( s == "gmlp" )
+            return ComponentType::GatedMlp;
         if ( s == "tf" )
             return ComponentType::Transformer;
         if ( s == "lpe" )

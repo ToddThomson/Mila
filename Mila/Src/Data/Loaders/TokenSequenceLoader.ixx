@@ -1,7 +1,7 @@
 module;
 #include <vector>
 #include <filesystem>
-#include <fstream>
+#include <cstdio>
 #include <queue>
 #include <iostream>
 #include <thread>
@@ -546,12 +546,19 @@ namespace Mila::Data
         {
             try
             {
-                std::ifstream file( tokens_file_path_, std::ios::binary );
+                // C stdio instead of std::ifstream to dodge an MSVC C++23-module bug
+                // (C2079: basic_istream<char>::sentry reported undefined when istream
+                // seekg/read is instantiated inside a module). fread/fseek do not touch
+                // the sentry template, so the loader compiles cleanly. Same workaround as
+                // MnistDataLoader.
+                std::FILE* file = std::fopen( tokens_file_path_.string().c_str(), "rb" );
 
-                if ( !file.is_open() )
+                if ( !file )
                 {
                     throw std::runtime_error( "Failed to open tokens file in producer thread" );
                 }
+
+                std::unique_ptr<std::FILE, decltype(&std::fclose)> file_guard( file, &std::fclose );
 
                 auto window_buffer = std::make_unique<TokenId[]>( window_size_tokens_ );
 
@@ -650,29 +657,53 @@ namespace Mila::Data
         }
 
         /**
-         * @brief Loads a window from the token file.
+         * @brief Seeks a C stdio stream to a token index from the start of the file.
          *
-         * @param file Input file stream
-         * @param buffer Destination buffer (must have space for window_size_tokens_)
-         * @param window_idx Which window to load
+         * std::fseek's offset is `long`, which is 32-bit on Win64. Stepping from the
+         * file start in <2 GiB chunks positions correctly past the 2 GiB mark on large
+         * token corpora without the platform-specific _fseeki64/fseeko split (which a
+         * C++23 module unit cannot express without a preprocessor branch).
          */
-        void loadWindowFromFile( std::ifstream& file, TokenId* buffer, size_t window_idx )
+        static void seekToToken( std::FILE* file, size_t token_index )
         {
-            const size_t start_token = (window_idx * sequences_per_window_ * (seq_length_ + 1)) % num_tokens_;
-            size_t tokens_to_read = std::min( window_size_tokens_, num_tokens_ - start_token );
-
-            // Seek and read first part
-            file.clear();
-            file.seekg( start_token * sizeof( TokenId ) );
-
-            if ( !file.good() )
+            if ( std::fseek( file, 0, SEEK_SET ) != 0 )
             {
                 throw std::runtime_error( "Failed to seek to window position" );
             }
 
-            file.read( reinterpret_cast<char*>(buffer), tokens_to_read * sizeof( TokenId ) );
+            size_t remaining_bytes = token_index * sizeof( TokenId );
+            constexpr long chunk_bytes = 1L << 30; // 1 GiB
 
-            if ( file.gcount() != static_cast<std::streamsize>(tokens_to_read * sizeof( TokenId )) )
+            while ( remaining_bytes > 0 )
+            {
+                const long step = (remaining_bytes > static_cast<size_t>( chunk_bytes ))
+                    ? chunk_bytes
+                    : static_cast<long>( remaining_bytes );
+
+                if ( std::fseek( file, step, SEEK_CUR ) != 0 )
+                {
+                    throw std::runtime_error( "Failed to seek to window position" );
+                }
+
+                remaining_bytes -= static_cast<size_t>( step );
+            }
+        }
+
+        /**
+         * @brief Loads a window from the token file.
+         *
+         * @param file Input file handle
+         * @param buffer Destination buffer (must have space for window_size_tokens_)
+         * @param window_idx Which window to load
+         */
+        void loadWindowFromFile( std::FILE* file, TokenId* buffer, size_t window_idx )
+        {
+            const size_t start_token = (window_idx * sequences_per_window_ * (seq_length_ + 1)) % num_tokens_;
+            size_t tokens_to_read = std::min( window_size_tokens_, num_tokens_ - start_token );
+
+            seekToToken( file, start_token );
+
+            if ( std::fread( buffer, sizeof( TokenId ), tokens_to_read, file ) != tokens_to_read )
             {
                 throw std::runtime_error( "Failed to read window from file" );
             }
@@ -682,15 +713,9 @@ namespace Mila::Data
             {
                 const size_t remaining = window_size_tokens_ - tokens_to_read;
 
-                file.clear();
-                file.seekg( 0 );
+                seekToToken( file, 0 );
 
-                file.read(
-                    reinterpret_cast<char*>( buffer + tokens_to_read ),
-                    remaining * sizeof( TokenId )
-                );
-
-                if ( file.gcount() != static_cast<std::streamsize>(remaining * sizeof( TokenId )) )
+                if ( std::fread( buffer + tokens_to_read, sizeof( TokenId ), remaining, file ) != remaining )
                 {
                     throw std::runtime_error( "Failed to read wrapped portion of window" );
                 }

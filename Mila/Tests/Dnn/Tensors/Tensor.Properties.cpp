@@ -1,406 +1,77 @@
+/**
+ * @file Tensor.Properties.cpp
+ * @brief Introspection tests for Tensor.ixx — shape/strides/size/rank/empty/id.
+ *
+ * Area file of the Tensor value-type archetype (see Specifications/Testing.Tensors.md).
+ * These accessors are dtype- and device-independent, so they are exercised once on
+ * a CPU FP32 tensor. Covers shape, strides, size, rank, empty vs scalar, isScalar,
+ * isValid, and getDeviceId.
+ */
+
 #include <gtest/gtest.h>
-#include <vector>
 
 import Mila;
 
-namespace Dnn::Tensors::Tests
+namespace Mila::Tests::Dnn::Tensors
 {
     using namespace Mila::Dnn;
-	using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Compute;
 
-    class TensorPropertiesTest : public testing::Test {
-    protected:
-        TensorPropertiesTest() {}
-    };
+    class TensorPropertiesTests : public testing::Test {};
 
-    // ====================================================================
-    // Shape Property Tests
-    // ====================================================================
+    TEST_F( TensorPropertiesTests, Shape_MatchesConstructionForEachRank ) {
+        HostTensor<TensorDataType::FP32> t1( Device::Cpu(), shape_t{ 10 } );
+        HostTensor<TensorDataType::FP32> t2( Device::Cpu(), shape_t{ 2, 3 } );
+        HostTensor<TensorDataType::FP32> t3( Device::Cpu(), shape_t{ 4, 5, 6 } );
 
-    TEST( TensorPropertiesTest, Shape_BasicProperties ) {
-        shape_t shape2D = { 2, 3 };
-        HostTensor<TensorDataType::FP32> tensor2D( Device::Cpu(), shape2D );
-        EXPECT_EQ( tensor2D.shape(), shape2D );
+        EXPECT_EQ( t1.shape(), (shape_t{ 10 }) );
+        EXPECT_EQ( t2.shape(), (shape_t{ 2, 3 }) );
+        EXPECT_EQ( t3.shape(), (shape_t{ 4, 5, 6 }) );
 
-        shape_t shape3D = { 4, 5, 6 };
-        HostTensor<TensorDataType::FP32> tensor3D( Device::Cpu(), shape3D );
-        EXPECT_EQ( tensor3D.shape(), shape3D );
-
-        shape_t shape1D = { 10 };
-        HostTensor<TensorDataType::FP32> tensor1D( Device::Cpu(), shape1D );
-        EXPECT_EQ( tensor1D.shape(), shape1D );
+        EXPECT_EQ( t1.rank(), 1 );
+        EXPECT_EQ( t2.rank(), 2 );
+        EXPECT_EQ( t3.rank(), 3 );
     }
 
-    TEST( TensorPropertiesTest, Shape_EmptyTensor ) {
-        // Empty shape {} represents a scalar (rank 0)
-        HostTensor<TensorDataType::FP32> empty_tensor( Device::Cpu(), shape_t{} );
-        
-        EXPECT_EQ( empty_tensor.shape().size(), 0 );
-        EXPECT_TRUE( empty_tensor.shape().empty() );
+    TEST_F( TensorPropertiesTests, Strides_AreRowMajor ) {
+        HostTensor<TensorDataType::FP32> t( Device::Cpu(), shape_t{ 2, 3, 4 } );
+
+        // Row-major strides for {2,3,4} are {12, 4, 1}.
+        ASSERT_EQ( t.strides().size(), 3u );
+        EXPECT_EQ( t.strides()[ 0 ], 12 );
+        EXPECT_EQ( t.strides()[ 1 ], 4 );
+        EXPECT_EQ( t.strides()[ 2 ], 1 );
     }
 
-    TEST( TensorPropertiesTest, Shape_ScalarTensor ) {
-        shape_t scalar_shape = {};
-        HostTensor<TensorDataType::FP32> scalar_tensor( Device::Cpu(), scalar_shape );
-        
-        EXPECT_EQ( scalar_tensor.shape(), scalar_shape );
-        EXPECT_TRUE( scalar_tensor.shape().empty() );
+    TEST_F( TensorPropertiesTests, Size_IsProductOfShape ) {
+        HostTensor<TensorDataType::FP32> t( Device::Cpu(), shape_t{ 4, 5, 6 } );
+        EXPECT_EQ( t.size(), 120u );
     }
 
-    TEST( TensorPropertiesTest, Shape_LargeDimensional ) {
-        shape_t large_shape = { 2, 3, 4, 5, 6, 7 };
-        HostTensor<TensorDataType::FP32> large_tensor( Device::Cpu(), large_shape );
-        EXPECT_EQ( large_tensor.shape(), large_shape );
-        EXPECT_EQ( large_tensor.shape().size(), 6 );
+    TEST_F( TensorPropertiesTests, Empty_ScalarIsNotEmpty ) {
+        HostTensor<TensorDataType::FP32> scalar( Device::Cpu(), shape_t{} );
+        EXPECT_FALSE( scalar.empty() );   // size == 1
+        EXPECT_TRUE( scalar.isScalar() );
+
+        HostTensor<TensorDataType::FP32> zero( Device::Cpu(), shape_t{ 0 } );
+        EXPECT_TRUE( zero.empty() );       // a zero in the shape is empty
+        EXPECT_FALSE( zero.isScalar() );
+
+        HostTensor<TensorDataType::FP32> normal( Device::Cpu(), shape_t{ 2, 2 } );
+        EXPECT_FALSE( normal.empty() );
+        EXPECT_FALSE( normal.isScalar() );
     }
 
-    // ====================================================================
-    // Stride Property Tests
-    // ====================================================================
-
-    TEST( TensorPropertiesTest, Strides_2D ) {
-        shape_t shape = { 2, 3 };
-        HostTensor<TensorDataType::FP32> tensor( Device::Cpu(), shape );
-        stride_t expected_strides = { 3, 1 };
-        
-        EXPECT_EQ( tensor.strides(), expected_strides );
+    TEST_F( TensorPropertiesTests, IsValid_TrueForConstructedTensor ) {
+        // isValid() currently reports the constructed contract (see Tensor.ixx FIXME
+        // on a future moved-from state); assert today's behavior so a later change
+        // has a green oracle.
+        HostTensor<TensorDataType::FP32> t( Device::Cpu(), shape_t{ 2, 2 } );
+        EXPECT_TRUE( t.isValid() );
     }
 
-    TEST( TensorPropertiesTest, Strides_3D ) {
-        shape_t shape = { 2, 3, 4 };
-        HostTensor<TensorDataType::FP32> tensor( Device::Cpu(), shape );
-        shape_t expected_strides = { 12, 4, 1 };
-        EXPECT_EQ( tensor.strides(), expected_strides );
-    }
-
-    TEST( TensorPropertiesTest, Strides_4D ) {
-        shape_t shape = { 2, 3, 4, 5 };
-        HostTensor<TensorDataType::FP32> tensor( Device::Cpu(), shape );
-        shape_t expected_strides = { 60, 20, 5, 1 };
-        EXPECT_EQ( tensor.strides(), expected_strides );
-    }
-
-    TEST( TensorPropertiesTest, Strides_1D ) {
-        shape_t shape = { 10 };
-        HostTensor<TensorDataType::FP32> tensor( Device::Cpu(), shape );
-        shape_t expected_strides = { 1 };
-        EXPECT_EQ( tensor.strides(), expected_strides );
-    }
-
-    TEST( TensorPropertiesTest, Strides_EmptyTensor ) {
-        // Scalar: empty shape => empty strides
-        HostTensor<TensorDataType::FP32> empty_tensor( Device::Cpu(), shape_t{} );
-        EXPECT_TRUE( empty_tensor.strides().empty() );
-    }
-
-    TEST( TensorPropertiesTest, Strides_LargeShape ) {
-        shape_t shape = { 10, 20, 30, 40 };
-        HostTensor<TensorDataType::FP32> tensor( Device::Cpu(), shape );
-        shape_t expected_strides = { 24000, 1200, 40, 1 };
-        EXPECT_EQ( tensor.strides(), expected_strides );
-    }
-
-    // ====================================================================
-    // Size Property Tests
-    // ====================================================================
-
-    TEST( TensorPropertiesTest, Size_BasicCalculations ) {
-        shape_t shape2D = { 2, 3 };
-        HostTensor<TensorDataType::FP32> tensor2D( Device::Cpu(), shape2D );
-        EXPECT_EQ( tensor2D.size(), 6 );
-
-        shape_t shape3D = { 2, 3, 4 };
-        HostTensor<TensorDataType::FP32> tensor3D( Device::Cpu(), shape3D );
-        EXPECT_EQ( tensor3D.size(), 24 );
-
-        shape_t shape1D = { 10 };
-        HostTensor<TensorDataType::FP32> tensor1D( Device::Cpu(), shape1D );
-        EXPECT_EQ( tensor1D.size(), 10 );
-    }
-
-    TEST( TensorPropertiesTest, Size_EmptyTensor ) {
-        // Use shape {0} to represent a zero-sized tensor
-        HostTensor<TensorDataType::FP32> empty_tensor( Device::Cpu(), shape_t{0} );
-        EXPECT_EQ( empty_tensor.size(), 0 );
-    }
-
-    TEST( TensorPropertiesTest, Size_ScalarTensor ) {
-        shape_t scalar_shape = {};
-        HostTensor<TensorDataType::FP32> scalar_tensor( Device::Cpu(), scalar_shape );
-        // Scalar has one logical element
-        EXPECT_EQ( scalar_tensor.size(), 1 );
-    }
-
-    TEST( TensorPropertiesTest, Size_LargeTensor ) {
-        shape_t large_shape = { 100, 200 };
-        HostTensor<TensorDataType::FP32> large_tensor( Device::Cpu(), large_shape );
-        EXPECT_EQ( large_tensor.size(), 20000 );
-    }
-
-    TEST( TensorPropertiesTest, Size_DifferentMemoryTypes ) {
-        shape_t shape = { 3, 4 };
-
-        HostTensor<TensorDataType::FP32> host_tensor( Device::Cpu(), shape );
-        Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda(0), shape );
-        Tensor<TensorDataType::FP32, Compute::CudaPinnedMemoryResource> pinned_tensor( Device::Cuda(0), shape );
-        Tensor<TensorDataType::FP32, Compute::CudaManagedMemoryResource> managed_tensor( Device::Cuda(0), shape );
-
-        EXPECT_EQ( host_tensor.size(), 12 );
-        EXPECT_EQ( cuda_tensor.size(), 12 );
-        EXPECT_EQ( pinned_tensor.size(), 12 );
-        EXPECT_EQ( managed_tensor.size(), 12 );
-    }
-
-    // ====================================================================
-    // Rank Property Tests
-    // ====================================================================
-
-    TEST( TensorPropertiesTest, Rank_VariousDimensions ) {
-        HostTensor<TensorDataType::FP32> tensor0D( Device::Cpu(), shape_t{} );
-        EXPECT_EQ( tensor0D.rank(), 0 );
-
-        shape_t shape1D = { 5 };
-        HostTensor<TensorDataType::FP32> tensor1D( Device::Cpu(), shape1D );
-        EXPECT_EQ( tensor1D.rank(), 1 );
-
-        shape_t shape2D = { 3, 4 };
-        HostTensor<TensorDataType::FP32> tensor2D( Device::Cpu(), shape2D );
-        EXPECT_EQ( tensor2D.rank(), 2 );
-
-        shape_t shape3D = { 2, 3, 4 };
-        HostTensor<TensorDataType::FP32> tensor3D( Device::Cpu(), shape3D );
-        EXPECT_EQ( tensor3D.rank(), 3 );
-
-        shape_t shape4D = { 2, 3, 4, 5 };
-        HostTensor<TensorDataType::FP32> tensor4D( Device::Cpu(), shape4D );
-        EXPECT_EQ( tensor4D.rank(), 4 );
-    }
-
-    TEST( TensorPropertiesTest, Rank_HighDimensional ) {
-        shape_t high_dim_shape = { 1, 2, 3, 4, 5, 6, 7, 8 };
-        HostTensor<TensorDataType::FP32> high_dim_tensor( Device::Cpu(), high_dim_shape );
-        EXPECT_EQ( high_dim_tensor.rank(), 8 );
-    }
-
-    TEST( TensorPropertiesTest, Rank_DifferentDataTypes ) {
-        shape_t shape = { 2, 3, 4 };
-
-        HostTensor<TensorDataType::FP32> float_tensor( Device::Cpu(), shape );
-        HostTensor<TensorDataType::INT32> int_tensor( Device::Cpu(), shape );
-        HostTensor<TensorDataType::UINT16> uint16_tensor( Device::Cpu(), shape );
-        HostTensor<TensorDataType::INT16> int16_tensor( Device::Cpu(), shape );
-
-        EXPECT_EQ( float_tensor.rank(), 3 );
-        EXPECT_EQ( int_tensor.rank(), 3 );
-        EXPECT_EQ( uint16_tensor.rank(), 3 );
-        EXPECT_EQ( int16_tensor.rank(), 3 );
-    }
-
-    // ====================================================================
-    // Empty Property Tests
-    // ====================================================================
-
-    TEST( TensorPropertiesTest, Empty_DefaultConstructor ) {
-        // Empty shape {} represents scalar (rank 0)
-        HostTensor<TensorDataType::FP32> scalar_tensor( Device::Cpu(), shape_t{} );
-        EXPECT_FALSE( scalar_tensor.empty() );
-        EXPECT_EQ( scalar_tensor.size(), 1 );
-        EXPECT_EQ( scalar_tensor.rank(), 0 );
-    }
-
-    TEST( TensorPropertiesTest, Empty_ZeroSizeShape ) {
-        shape_t zero_shape = { 0 };
-        HostTensor<TensorDataType::FP32> zero_tensor( Device::Cpu(), zero_shape );
-        EXPECT_TRUE( zero_tensor.empty() );
-    }
-
-    TEST( TensorPropertiesTest, Empty_NonEmptyTensors ) {
-        shape_t shape1D = { 1 };
-        HostTensor<TensorDataType::FP32> tensor1D( Device::Cpu(), shape1D );
-        EXPECT_FALSE( tensor1D.empty() );
-
-        shape_t shape2D = { 2, 3 };
-        HostTensor<TensorDataType::FP32> tensor2D( Device::Cpu(), shape2D );
-        EXPECT_FALSE( tensor2D.empty() );
-
-        shape_t shape3D = { 1, 1, 1 };
-        HostTensor<TensorDataType::FP32> tensor3D( Device::Cpu(), shape3D );
-        EXPECT_FALSE( tensor3D.empty() );
-    }
-
-    TEST( TensorPropertiesTest, Empty_DifferentMemoryTypes ) {
-        HostTensor<TensorDataType::FP32> host_empty( Device::Cpu(), shape_t{0} );
-        Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_empty( Device::Cuda(0), shape_t{0} );
-        Tensor<TensorDataType::FP32, Compute::CudaPinnedMemoryResource> pinned_empty( Device::Cuda(0), shape_t{0} );
-        Tensor<TensorDataType::FP32, Compute::CudaManagedMemoryResource> managed_empty( Device::Cuda(0), shape_t{0} );
-
-        EXPECT_TRUE( host_empty.empty() );
-        EXPECT_TRUE( cuda_empty.empty() );
-        EXPECT_TRUE( pinned_empty.empty() );
-        EXPECT_TRUE( managed_empty.empty() );
-    }
-
-    // ====================================================================
-    // Property Consistency Tests
-    // ====================================================================
-
-    TEST( TensorPropertiesTest, PropertyConsistency_SizeRankShape ) {
-        shape_t shape = { 2, 3, 4 };
-        HostTensor<TensorDataType::FP32> tensor( Device::Cpu(), shape );
-
-        EXPECT_EQ( tensor.shape(), shape );
-        EXPECT_EQ( tensor.rank(), shape.size() );
-        EXPECT_EQ( tensor.size(), 2 * 3 * 4 );
-        EXPECT_FALSE( tensor.empty() );
-    }
-
-    TEST( TensorPropertiesTest, PropertyConsistency_AfterOperations ) {
-        shape_t shape = { 3, 4 };
-        HostTensor<TensorDataType::FP32> tensor( Device::Cpu(), shape );
-
-        // Use available API: setName and constructing a same-shape tensor to validate shape preservation
-        tensor.setName( "test_tensor" );
-        HostTensor<TensorDataType::FP32> cloned( Device::Cpu(), shape );
-        EXPECT_EQ( cloned.shape(), shape );
-        EXPECT_EQ( cloned.rank(), 2 );
-        EXPECT_EQ( cloned.size(), 12 );
-        EXPECT_FALSE( cloned.empty() );
-    }
-
-    TEST( TensorPropertiesTest, PropertyConsistency_AfterTransfer ) {
-        shape_t shape = { 2, 3 };
-        HostTensor<TensorDataType::FP32> host_tensor( Device::Cpu(), shape );
-
-        // Try to create a device tensor by name and copy host -> device -> host.
-        try
-        {
-            Tensor<TensorDataType::FP32, Compute::CudaDeviceMemoryResource> cuda_tensor( Device::Cuda(0), shape );
-            EXPECT_NO_THROW( copy( host_tensor, cuda_tensor ) );
-
-            auto back_to_host = toHost<TensorDataType::FP32>( cuda_tensor );
-            EXPECT_EQ( back_to_host.shape(), shape );
-            EXPECT_EQ( back_to_host.rank(), 2 );
-            EXPECT_EQ( back_to_host.size(), 6 );
-            EXPECT_FALSE( back_to_host.empty() );
-        }
-        catch (const std::exception& e)
-        {
-            GTEST_SKIP() << "CUDA device not available for transfer test: " << e.what();
-        }
-    }
-
-    // ====================================================================
-    // Edge Cases and Special Scenarios
-    // ====================================================================
-
-    TEST( TensorPropertiesTest, EdgeCases_SingleElementTensor ) {
-        shape_t single_shape = { 1 };
-        HostTensor<TensorDataType::FP32> single_tensor( Device::Cpu(), single_shape );
-
-        EXPECT_EQ( single_tensor.shape(), single_shape );
-        EXPECT_EQ( single_tensor.rank(), 1 );
-        EXPECT_EQ( single_tensor.size(), 1 );
-        EXPECT_FALSE( single_tensor.empty() );
-        EXPECT_EQ( single_tensor.strides(), shape_t{1} );
-    }
-
-    TEST( TensorPropertiesTest, EdgeCases_MultiDimensionalSingleElement ) {
-        shape_t multi_single_shape = { 1, 1, 1, 1 };
-        HostTensor<TensorDataType::FP32> multi_single_tensor( Device::Cpu(), multi_single_shape );
-
-        EXPECT_EQ( multi_single_tensor.shape(), multi_single_shape );
-        EXPECT_EQ( multi_single_tensor.rank(), 4 );
-        EXPECT_EQ( multi_single_tensor.size(), 1 );
-        EXPECT_FALSE( multi_single_tensor.empty() );
-        EXPECT_EQ( multi_single_tensor.strides(), shape_t( { 1, 1, 1, 1 } ));
-    }
-
-    TEST( TensorPropertiesTest, EdgeCases_LargeUniformShape ) {
-        shape_t uniform_shape = { 10, 10, 10, 10 };
-        HostTensor<TensorDataType::FP32> uniform_tensor( Device::Cpu(), uniform_shape );
-
-        EXPECT_EQ( uniform_tensor.shape(), uniform_shape );
-        EXPECT_EQ( uniform_tensor.rank(), 4 );
-        EXPECT_EQ( uniform_tensor.size(), 10000 );
-        EXPECT_FALSE( uniform_tensor.empty() );
-        EXPECT_EQ( uniform_tensor.strides(), shape_t( { 1000, 100, 10, 1 } ) );
-    }
-
-    TEST( TensorPropertiesTest, EdgeCases_AsymmetricShape ) {
-        shape_t asymmetric_shape = { 1, 100, 1, 50 };
-        HostTensor<TensorDataType::FP32> asymmetric_tensor( Device::Cpu(), asymmetric_shape );
-
-        EXPECT_EQ( asymmetric_tensor.shape(), asymmetric_shape );
-        EXPECT_EQ( asymmetric_tensor.rank(), 4 );
-        EXPECT_EQ( asymmetric_tensor.size(), 5000 );
-        EXPECT_FALSE( asymmetric_tensor.empty() );
-        EXPECT_EQ( asymmetric_tensor.strides(), stride_t( { 5000, 50, 50, 1 } ) );
-    }
-
-    // ====================================================================
-    // Property Validation with Different Data Types
-    // ====================================================================
-
-    TEST( TensorPropertiesTest, DataTypes_PropertyConsistency ) {
-        shape_t shape = { 3, 4 };
-
-        HostTensor<TensorDataType::FP32> float_tensor( Device::Cpu(), shape );
-        HostTensor<TensorDataType::INT32> int_tensor( Device::Cpu(), shape );
-        HostTensor<TensorDataType::UINT16> uint16_tensor( Device::Cpu(), shape );
-        HostTensor<TensorDataType::INT16> int16_tensor( Device::Cpu(), shape );
-        HostTensor<TensorDataType::UINT32> uint32_tensor( Device::Cpu(), shape );
-
-        EXPECT_EQ( float_tensor.shape(), shape );
-        EXPECT_EQ( int_tensor.shape(), shape );
-        EXPECT_EQ( uint16_tensor.shape(), shape );
-        EXPECT_EQ( int16_tensor.shape(), shape );
-        EXPECT_EQ( uint32_tensor.shape(), shape );
-
-        EXPECT_EQ( float_tensor.size(), 12 );
-        EXPECT_EQ( int_tensor.size(), 12 );
-        EXPECT_EQ( uint16_tensor.size(), 12 );
-        EXPECT_EQ( int16_tensor.size(), 12 );
-        EXPECT_EQ( uint32_tensor.size(), 12 );
-
-        EXPECT_EQ( float_tensor.rank(), 2 );
-        EXPECT_EQ( int_tensor.rank(), 2 );
-        EXPECT_EQ( uint16_tensor.rank(), 2 );
-        EXPECT_EQ( int16_tensor.rank(), 2 );
-        EXPECT_EQ( uint32_tensor.rank(), 2 );
-
-        stride_t expected_strides = { 4, 1 };
-        EXPECT_EQ( float_tensor.strides(), expected_strides );
-        EXPECT_EQ( int_tensor.strides(), expected_strides );
-        EXPECT_EQ( uint16_tensor.strides(), expected_strides );
-        EXPECT_EQ( int16_tensor.strides(), expected_strides );
-        EXPECT_EQ( uint32_tensor.strides(), expected_strides );
-    }
-
-    // ====================================================================
-    // Performance and Stress Tests
-    // ====================================================================
-
-    TEST( TensorPropertiesTest, Performance_LargeTensorProperties ) {
-        shape_t large_shape = { 1000, 1000 };
-        HostTensor<TensorDataType::FP32> large_tensor( Device::Cpu(), large_shape );
-
-        EXPECT_EQ( large_tensor.shape(), large_shape );
-        EXPECT_EQ( large_tensor.rank(), 2 );
-        EXPECT_EQ( large_tensor.size(), 1000000 );
-        EXPECT_FALSE( large_tensor.empty() );
-        EXPECT_EQ( large_tensor.strides(), stride_t( { 1000, 1 } ) );
-    }
-
-    TEST( TensorPropertiesTest, Performance_HighDimensionalTensor ) {
-        shape_t high_dim_shape = { 2, 2, 2, 2, 2, 2, 2, 2, 2, 2 };
-        HostTensor<TensorDataType::FP32> high_dim_tensor( Device::Cpu(), high_dim_shape );
-
-        EXPECT_EQ( high_dim_tensor.shape(), high_dim_shape );
-        EXPECT_EQ( high_dim_tensor.rank(), 10 );
-        EXPECT_EQ( high_dim_tensor.size(), 1024 );
-        EXPECT_FALSE( high_dim_tensor.empty() );
-
-        shape_t expected_strides = { 512, 256, 128, 64, 32, 16, 8, 4, 2, 1 };
-        EXPECT_EQ( high_dim_tensor.strides(), expected_strides );
+    TEST_F( TensorPropertiesTests, DeviceId_ReportsCpu ) {
+        HostTensor<TensorDataType::FP32> t( Device::Cpu(), shape_t{ 2, 2 } );
+        EXPECT_EQ( t.getDeviceId().type, DeviceType::Cpu );
     }
 }

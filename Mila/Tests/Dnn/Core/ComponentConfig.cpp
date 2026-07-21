@@ -1,214 +1,144 @@
+/**
+ * @file ComponentConfig.cpp
+ * @brief Base-contract tests for the ComponentConfig interface.
+ *
+ * ComponentConfig is a pure interface: toMetadata / fromMetadata / validate /
+ * toString. There is no concrete base behavior (precision policy moved to
+ * BuildContext/ModelConfig and is no longer a config concern), so its "100%"
+ * is a pattern-conformance test: a derived mock round-trips its metadata,
+ * validates, summarizes, and destructs polymorphically through a base pointer.
+ *
+ * The mock carries its own field to exercise the metadata round-trip mechanism
+ * independently of any removed base concept.
+ */
+
 #include <gtest/gtest.h>
 #include <memory>
 #include <string>
 #include <stdexcept>
-#include <sstream>
 
 import Mila;
 
-namespace Dnn::Components::Tests
+namespace Mila::Tests::Dnn::Core
 {
     using namespace Mila::Dnn;
-    using namespace Mila::Dnn::Compute;
     using Mila::Dnn::Serialization::SerializationMetadata;
 
-    class TestComponentConfig : public ComponentConfig {
-    public:
-        // Test-only derived class; no additional behavior required.
-        TestComponentConfig() = default;
-
-        SerializationMetadata toMetadata() const override
+    namespace
+    {
+        // A concrete ComponentConfig with a single self-owned field, used to
+        // exercise the interface contract. Internal linkage avoids collisions
+        // with other test translation units.
+        class MockConfig : public ComponentConfig
         {
-            SerializationMetadata meta;
-            meta.set( "precision", static_cast<int64_t>( getPrecisionPolicy() ) );
+        public:
+            int value_ = 0;
+            bool valid_ = true;
 
-            return meta;
-        }
-
-        void fromMetadata( const SerializationMetadata& meta ) override
-        {
-            if ( auto p = meta.tryGetInt( "precision" ) )
+            SerializationMetadata toMetadata() const override
             {
-                precision_ = static_cast<decltype( precision_ )>( *p );
+                SerializationMetadata meta;
+                meta.set( "value", static_cast<int64_t>( value_ ) );
+
+                return meta;
             }
-        }
 
-        void validate() const override
-        {
-            // No additional validation for test config
-        }
+            void fromMetadata( const SerializationMetadata& meta ) override
+            {
+                if ( auto v = meta.tryGetInt( "value" ) )
+                {
+                    value_ = static_cast<int>( *v );
+                }
+            }
 
-        std::string toString() const override
-        {
-            std::ostringstream oss;
-            oss << "TestComponentConfig( precision_policy=" << static_cast<int>( getPrecisionPolicy() )
-                << ")";
+            void validate() const override
+            {
+                if ( !valid_ )
+                {
+                    throw std::invalid_argument( "MockConfig: invalid" );
+                }
+            }
 
-            return oss.str();
-        }
+            std::string toString() const override
+            {
+                return "MockConfig{value=" + std::to_string( value_ ) + "}";
+            }
+        };
+    }
+
+    class ComponentConfigTests : public ::testing::Test
+    {
     };
 
-    class ComponentConfigTests : public ::testing::Test {
-    protected:
-        void SetUp() override {
-            cpu_device_name_ = "CPU";
-            cuda_device_name_ = "CUDA:0";
-        }
+    // ====================================================================
+    // A. Validation
+    // ====================================================================
 
-        void TearDown() override {}
-
-        std::string cpu_device_name_;
-        std::string cuda_device_name_;
-    };
-
-    TEST_F( ComponentConfigTests, DefaultConstructor_ShouldSetDefaultValues ) {
-        TestComponentConfig config;
-
-        EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Auto );
-    }
-
-    TEST_F( ComponentConfigTests, WithPrecision_ShouldSetComputePrecision ) {
-        TestComponentConfig config;
-
-        config.withPrecisionPolicy( ComputePrecision::Policy::Native );
-        EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Native );
-
-        config.withPrecisionPolicy( ComputePrecision::Policy::Auto );
-        EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Auto );
-
-        config.withPrecisionPolicy( ComputePrecision::Policy::Performance );
-        EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Performance );
-
-        config.withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
-        EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
-    }
-
-    TEST_F( ComponentConfigTests, MethodChaining_ShouldReturnCorrectValues ) {
-        TestComponentConfig config;
-
-        // Chain precision setters to verify fluent interface returns same object
-        auto& ref1 = config.withPrecisionPolicy( ComputePrecision::Policy::Performance );
-        auto& ref2 = ref1.withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
-
-        EXPECT_EQ( &ref1, &config );
-        EXPECT_EQ( &ref2, &config );
-
-        EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
-    }
-
-    TEST_F( ComponentConfigTests, Validate_WithValidConfig_ShouldNotThrow ) {
-        TestComponentConfig config;
+    TEST_F( ComponentConfigTests, Validate_PassesWhenValid )
+    {
+        MockConfig config;
 
         EXPECT_NO_THROW( config.validate() );
     }
 
-    // Derived test configuration to exercise extension and custom validation
-    class DerivedModuleConfig : public ComponentConfig {
-    public:
-
-        DerivedModuleConfig() = default;
-
-        DerivedModuleConfig& withCustomOption( int value ) {
-            custom_option_ = value;
-            return *this;
-        }
-
-        DerivedModuleConfig& withDeviceName( const std::string& device_name ) {
-            device_name_ = device_name;
-            return *this;
-        }
-
-        const std::string& getDeviceName() const {
-            return device_name_;
-        }
-        int getCustomOption() const {
-            return custom_option_;
-        }
-
-        SerializationMetadata toMetadata() const override
-        {
-            SerializationMetadata meta;
-            meta.set( "precision", static_cast<int64_t>( getPrecisionPolicy() ) )
-                .set( "custom_option", static_cast<int64_t>( custom_option_ ) )
-                .set( "device_name", device_name_ );
-
-            return meta;
-        }
-
-        void fromMetadata( const SerializationMetadata& meta ) override
-        {
-            if ( auto p = meta.tryGetInt( "precision" ) )
-            {
-                precision_ = static_cast<decltype( precision_ )>( *p );
-            }
-
-            if ( auto co = meta.tryGetInt( "custom_option" ) )
-            {
-                custom_option_ = static_cast<int>( *co );
-            }
-
-            if ( auto dn = meta.tryGetString( "device_name" ) )
-            {
-                device_name_ = *dn;
-            }
-        }
-
-        void validate() const override {
-            // Enforce custom rules only (base has no-op/abstract)
-            if ( custom_option_ < 0 )
-            {
-                throw std::invalid_argument( "Custom option must be non-negative" );
-            }
-        }
-
-        std::string toString() const override {
-            std::ostringstream oss;
-            oss << "DerivedModuleConfig( precision_policy=" << static_cast<int>( getPrecisionPolicy() )
-                << ", device_name=" << device_name_
-                << ", custom_option=" << custom_option_
-                << ")";
-
-            return oss.str();
-        }
-
-    private:
-        int custom_option_ = 0;
-        std::string device_name_;
-    };
-
-    TEST_F( ComponentConfigTests, DeducedThis_ShouldAllowMethodChaining ) {
-        TestComponentConfig config;
-
-        auto& ref1 = config.withPrecisionPolicy( ComputePrecision::Policy::Performance );
-        auto& ref2 = ref1.withPrecisionPolicy( ComputePrecision::Policy::Accuracy );
-
-        EXPECT_EQ( &ref1, &config );
-        EXPECT_EQ( &ref2, &config );
-
-        EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Accuracy );
-    }
-
-    TEST_F( ComponentConfigTests, DerivedConfig_ShouldInheritAndExtendBaseConfig ) {
-        DerivedModuleConfig config;
-
-        config
-            .withDeviceName( cuda_device_name_ )
-            .withCustomOption( 42 )
-            .withPrecisionPolicy( ComputePrecision::Policy::Native );
-
-        EXPECT_EQ( config.getDeviceName(), cuda_device_name_ );
-        EXPECT_EQ( config.getPrecisionPolicy(), ComputePrecision::Policy::Native );
-        EXPECT_EQ( config.getCustomOption(), 42 );
-    }
-
-    TEST_F( ComponentConfigTests, DerivedConfig_Validate_ShouldEnforceCustomRules ) {
-        DerivedModuleConfig config;
-        config.withDeviceName( cuda_device_name_ )
-            .withCustomOption( -1 );
+    TEST_F( ComponentConfigTests, Validate_ThrowsWhenInvalid )
+    {
+        MockConfig config;
+        config.valid_ = false;
 
         EXPECT_THROW( config.validate(), std::invalid_argument );
+    }
 
-        config.withCustomOption( 1 );
-        EXPECT_NO_THROW( config.validate() );
+    // ====================================================================
+    // H. Serialization round-trip
+    // ====================================================================
+
+    TEST_F( ComponentConfigTests, Metadata_RoundTripPreservesValue )
+    {
+        MockConfig source;
+        source.value_ = 42;
+
+        SerializationMetadata meta = source.toMetadata();
+
+        MockConfig loaded;
+        loaded.fromMetadata( meta );
+
+        EXPECT_EQ( loaded.value_, 42 );
+    }
+
+    TEST_F( ComponentConfigTests, FromMetadata_IgnoresMissingKeys )
+    {
+        MockConfig config;
+        config.value_ = 7;
+
+        // Empty metadata must leave existing values untouched (the documented
+        // forward/backward-compatibility contract).
+        SerializationMetadata empty;
+        config.fromMetadata( empty );
+
+        EXPECT_EQ( config.value_, 7 );
+    }
+
+    // ====================================================================
+    // I. Diagnostics
+    // ====================================================================
+
+    TEST_F( ComponentConfigTests, ToString_NonEmpty )
+    {
+        MockConfig config;
+
+        EXPECT_FALSE( config.toString().empty() );
+    }
+
+    // ====================================================================
+    // Polymorphic contract
+    // ====================================================================
+
+    TEST_F( ComponentConfigTests, DestroysPolymorphicallyThroughBasePointer )
+    {
+        std::unique_ptr<ComponentConfig> config = std::make_unique<MockConfig>();
+
+        EXPECT_NO_THROW( config->validate() );
+        EXPECT_NO_THROW( config.reset() );
     }
 }

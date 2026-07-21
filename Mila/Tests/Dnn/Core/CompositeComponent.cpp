@@ -1,190 +1,194 @@
+/**
+ * @file CompositeComponent.cpp
+ * @brief Base-contract tests for CompositeComponent<TDeviceType, TPrecision>.
+ *
+ * Companion to Component.cpp: where that file proves the leaf base contract,
+ * this proves the CONTAINER contract that every composite (Network, MLP,
+ * GptBlock, and the MNIST MnistClassifier) inherits exactly once -- child
+ * management, execution-context propagation to children, parameter/gradient
+ * aggregation, build propagation, and training-mode propagation. Concrete
+ * composites (e.g. the MLP in Modeling/Network.Cpu.cpp) inherit this guarantee
+ * and assert only their own forward/backward delta.
+ *
+ * CompositeComponent is abstract, so the mock IS the surface: TestComposite
+ * implements the minimal pure-virtual remainder (getType / getMemoryStats /
+ * onBuilding) and exposes the protected setExecutionContext / getComponentAs
+ * forwarders so the container paths can be driven without a Network. MockChild
+ * is a leaf carrying a configurable number of parameter/gradient tensors so the
+ * aggregation paths return non-empty.
+ *
+ * CPU device, so this rides the MILA_ENABLE_CUDA=OFF CI gate.
+ */
+
 #include <gtest/gtest.h>
 #include <memory>
 #include <string>
 #include <vector>
 #include <stdexcept>
-#include <optional>
 
 import Mila;
 
-namespace Dnn::Core::Tests
+namespace Mila::Tests::Dnn::Core
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
     using namespace Mila::Dnn::Serialization;
 
-    /**
-     * @brief Minimal concrete child component for testing.
-     *
-     * Updated to support both standalone and shared context modes following
-     * the new Component architecture pattern. Component now requires a name
-     * at construction time (component-owns-name).
-     */
-    class TestChildComponent : public Component<DeviceType::Cpu, TensorDataType::FP32>
+    namespace
     {
-    public:
-        using ComponentBase = Component<DeviceType::Cpu, TensorDataType::FP32>;
-
-        /**
-         * @brief Constructor for shared mode (context provided by parent).
-         *
-         * @param name Component name (required by new Component ctor)
-         * @param param_count Mock parameter count for testing aggregation
-         * @param device_id Optional device for standalone mode
-         */
-        explicit TestChildComponent( 
-            const std::string& name,
-            size_t param_count = 0,
-            std::optional<DeviceId> device_id = std::nullopt )
-            : ComponentBase( name ), param_count_( param_count )
+        // ================================================================
+        // Mock leaf child: carries num_params parameter tensors (always) plus
+        // matching gradient tensors (only when built for training) so the
+        // composite's aggregation paths have something to collect.
+        // ================================================================
+        class MockChild : public Component<DeviceType::Cpu, TensorDataType::FP32>
         {
-            if ( device_id.has_value() )
+        public:
+            using Base = Component<DeviceType::Cpu, TensorDataType::FP32>;
+            using TensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+            explicit MockChild( const std::string& name, size_t num_params = 0 )
+                : Base( name ), num_params_( num_params )
             {
-                if ( device_id->type != DeviceType::Cpu )
+                for ( size_t i = 0; i < num_params; ++i )
                 {
-                    throw std::invalid_argument( "TestChildComponent: device type mismatch" );
-                }
-
-                owned_exec_context_ = createExecutionContext( device_id.value() );
-                setExecutionContext( owned_exec_context_.get() );
-            }
-        }
-
-        void synchronize() override
-        {}
-
-        size_t parameterCount() const override
-        {
-
-            return param_count_;
-        }
-
-        std::vector<ITensor*> getParameters() const override
-        {
-
-            return {};
-        }
-
-        std::vector<ITensor*> getGradients() const override
-        {
-
-            return {};
-        }
-
-        void save_( ModelArchive& /*archive*/, SerializationMode /*mode*/ ) const override
-        {}
-
-        MemoryStats getMemoryStats() const override
-        {
-            return {};
-        }
-
-        std::string toString() const override
-        {
-
-            return std::string( "TestChild:" ) + this->getName();
-        }
-
-        const ComponentType getType() const override
-        {
-            return ComponentType::MockComponent;
-        }
-
-        DeviceId getDeviceId() const override
-        {
-
-            return this->getExecutionContext()->getDeviceId();
-        }
-
-    protected:
-
-        void onBuilding( const BuildConfig& config ) override
-        {}
-    private:
-
-        size_t param_count_;
-        std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
-    };
-
-    /**
-     * @brief Testable composite that implements onBuilding to propagate build to children.
-     *
-     * Updated to use the new addComponent(component) API with component-owns-name pattern.
-     * Provides public wrapper for setExecutionContext() to enable test fixtures to set context.
-     */
-    class TestableComposite : public CompositeComponent<DeviceType::Cpu, TensorDataType::FP32>
-    {
-    public:
-        using Base = CompositeComponent<DeviceType::Cpu, TensorDataType::FP32>;
-
-        explicit TestableComposite( const std::string& name = "testable" )
-            : Base( name )
-        {}
-
-        /**
-         * @brief Public wrapper to set execution context (for testing only).
-         *
-         * Exposes the protected setExecutionContext() method for test fixtures.
-         * In production code, context is set by parent or via standalone mode.
-         *
-         * @param context Non-owning pointer to shared execution context
-         *
-         * @throws std::invalid_argument if context is null or device type mismatches
-         */
-        void setTestExecutionContext( IExecutionContext* context )
-        {
-            this->setExecutionContext( context );
-        }
-
-        bool hasExecutionContext() const noexcept
-        {
-            return this->hasExecutionContext();
-        }
-
-        /**
-         * @brief Helper to add a child component with explicit name and parameter count.
-         *
-         * Creates a TestChildComponent in shared mode (name-owned-by-component) and registers it.
-         * This mimics the pattern used in real composites like MLP.
-         */
-        void addTestChild( const std::string& name, size_t param_count = 0 )
-        {
-            auto component = std::make_shared<TestChildComponent>( name, param_count, std::nullopt );
-            this->addComponent( component );
-        }
-
-        const ComponentType getType() const override
-        {
-            return ComponentType::MockComponent;
-        }
-
-        MemoryStats getMemoryStats() const override
-        {
-            MemoryStats stats;
-
-            for ( const auto& child : this->getComponents() )
-            {
-                stats += child->getMemoryStats();
-            }
-
-            return stats;
-        }
-
-    protected:
-
-        void onBuilding( const BuildConfig& build_config ) override
-        {
-            for ( const auto& component : this->getComponents() )
-            {
-                // REVIEW: This guard is likely not needed since build() 
-                // should only be called once per component lifecycle
-                if ( !component->isBuilt() )
-                {
-                    component->build( build_config );
+                    parameters_.push_back( std::make_shared<TensorType>( Device::Cpu(), shape_t{ 1 } ) );
                 }
             }
-        }
-    };
+
+            void exposeSetExecutionContext( IExecutionContext* context )
+            {
+                this->setExecutionContext( context );
+            }
+
+            void synchronize() override
+            {}
+
+            size_t parameterCount() const override
+            {
+                return parameters_.size();
+            }
+
+            std::vector<ITensor*> getParameters() const override
+            {
+                std::vector<ITensor*> out;
+                for ( const auto& p : parameters_ )
+                {
+                    out.push_back( p.get() );
+                }
+
+                return out;
+            }
+
+            std::vector<ITensor*> getGradients() const override
+            {
+                std::vector<ITensor*> out;
+                for ( const auto& g : gradients_ )
+                {
+                    out.push_back( g.get() );
+                }
+
+                return out;
+            }
+
+            void save_( ModelArchive&, SerializationMode ) const override
+            {}
+
+            MemoryStats getMemoryStats() const override
+            {
+                return {};
+            }
+
+            const ComponentType getType() const override
+            {
+                return ComponentType::MockComponent;
+            }
+
+            DeviceId getDeviceId() const override
+            {
+                return this->getExecutionContext()->getDeviceId();
+            }
+
+            std::string toString() const override
+            {
+                return std::string( "MockChild:" ) + this->getName();
+            }
+
+        protected:
+            void onBuilding( const BuildContext& context ) override
+            {
+                // Mirror the real leaves (e.g. Linear): gradient buffers are allocated
+                // only when built for training, so getGradients() is empty after an
+                // inference build.
+                if ( context.isTrainingMode() )
+                {
+                    for ( size_t i = 0; i < num_params_; ++i )
+                    {
+                        gradients_.push_back( std::make_shared<TensorType>( Device::Cpu(), shape_t{ 1 } ) );
+                    }
+                }
+            }
+
+        private:
+            size_t num_params_;
+            std::vector<std::shared_ptr<TensorType>> parameters_;
+            std::vector<std::shared_ptr<TensorType>> gradients_;
+        };
+
+        // ================================================================
+        // Concrete composite under test. Builds children with the composite's
+        // own BuildContext (mock children ignore the shape).
+        // ================================================================
+        template<DeviceType TDeviceType, TensorDataType TPrecision = TensorDataType::FP32>
+        class TestComposite : public CompositeComponent<TDeviceType, TPrecision>
+        {
+        public:
+            using Base = CompositeComponent<TDeviceType, TPrecision>;
+
+            explicit TestComposite( const std::string& name )
+                : Base( name )
+            {}
+
+            void exposeSetExecutionContext( IExecutionContext* context )
+            {
+                this->setExecutionContext( context );
+            }
+
+            template<typename TComponent>
+            std::shared_ptr<TComponent> exposeGetComponentAs( const std::string& name ) const
+            {
+                return this->template getComponentAs<TComponent>( name );
+            }
+
+            int onBuilding_calls = 0;
+
+            MemoryStats getMemoryStats() const override
+            {
+                return {};
+            }
+
+            const ComponentType getType() const override
+            {
+                return ComponentType::MockComponent;
+            }
+
+        protected:
+            void onBuilding( const BuildContext& context ) override
+            {
+                ++onBuilding_calls;
+
+                for ( const auto& child : this->getComponents() )
+                {
+                    if ( !child->isBuilt() )
+                    {
+                        child->build( context );
+                    }
+                }
+            }
+        };
+
+        using Composite = TestComposite<DeviceType::Cpu>;
+    }
 
     class CompositeComponentTests : public ::testing::Test
     {
@@ -192,386 +196,341 @@ namespace Dnn::Core::Tests
         void SetUp() override
         {
             exec_context_ = createExecutionContext( Device::Cpu() );
-            comp_ = std::make_unique<TestableComposite>();
-
-            comp_->setTestExecutionContext( exec_context_.get() );
         }
 
-        void TearDown() override
+        // A composite already wired to the CPU context, ready for addComponent/build.
+        std::unique_ptr<Composite> contextual( const std::string& name = "composite" )
         {
-            comp_.reset();
-            exec_context_.reset();
+            auto composite = std::make_unique<Composite>( name );
+            composite->exposeSetExecutionContext( exec_context_.get() );
+
+            return composite;
         }
 
-        std::unique_ptr<IExecutionContext> exec_context_{ nullptr };
-        std::unique_ptr<TestableComposite> comp_;
+        static BuildContext build( RuntimeMode mode )
+        {
+            return BuildContext( shape_t{ 2, 3 }, mode );
+        }
+
+        std::unique_ptr<IExecutionContext> exec_context_;
     };
 
     // ====================================================================
-    // Chainable addComponent() Tests
+    // Child registration
     // ====================================================================
 
-    TEST_F( CompositeComponentTests, AddComponent_Chainable )
+    TEST_F( CompositeComponentTests, AddComponent_RegistersAndIsChainable )
     {
-        comp_->addTestChild( "child_a", 3 );
-        comp_->addTestChild( "child_b", 5 );
+        auto composite = contextual();
 
-        EXPECT_TRUE( comp_->hasComponent( "child_a" ) );
-        EXPECT_TRUE( comp_->hasComponent( "child_b" ) );
-        EXPECT_EQ( comp_->childCount(), 2u );
+        composite->addComponent( std::make_shared<MockChild>( "a" ) )
+            .addComponent( std::make_shared<MockChild>( "b" ) );
+
+        EXPECT_EQ( composite->childCount(), 2u );
+        EXPECT_TRUE( composite->hasComponent( "a" ) );
+        EXPECT_TRUE( composite->hasComponent( "b" ) );
+        EXPECT_TRUE( composite->hasChildren() );
     }
 
-    TEST_F( CompositeComponentTests, AddComponent_MultipleChained )
+    TEST_F( CompositeComponentTests, AddComponent_ThrowsOnNull )
     {
-        comp_->addTestChild( "comp1", 1 );
-        comp_->addTestChild( "comp2", 2 );
-        comp_->addTestChild( "comp3", 3 );
-        comp_->addTestChild( "comp4", 4 );
+        auto composite = contextual();
 
-        EXPECT_EQ( comp_->childCount(), 4u );
-        EXPECT_TRUE( comp_->hasComponent( "comp1" ) );
-        EXPECT_TRUE( comp_->hasComponent( "comp2" ) );
-        EXPECT_TRUE( comp_->hasComponent( "comp3" ) );
-        EXPECT_TRUE( comp_->hasComponent( "comp4" ) );
+        EXPECT_THROW( composite->addComponent( nullptr ), std::invalid_argument );
     }
 
-    TEST_F( CompositeComponentTests, AddComponent_ComponentOwnsName )
+    TEST_F( CompositeComponentTests, AddComponent_ThrowsOnDuplicateName )
     {
-        auto child = std::make_shared<TestChildComponent>( "named_child", 5, std::nullopt );
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "dup" ) );
 
-        comp_->addComponent( child );
-
-        EXPECT_TRUE( comp_->hasComponent( "named_child" ) );
-        EXPECT_EQ( comp_->getComponent( "named_child" )->getName(), "named_child" );
+        EXPECT_THROW( composite->addComponent( std::make_shared<MockChild>( "dup" ) ), std::invalid_argument );
     }
 
-    // ====================================================================
-    // Component Management Tests
-    // ====================================================================
-
-    TEST_F( CompositeComponentTests, AddGetHasRemoveComponentsBasic )
+    TEST_F( CompositeComponentTests, AddComponent_ThrowsWhenChildHasOwnContext )
     {
-        comp_->addTestChild( "child_a", 3 );
-        comp_->addTestChild( "child_b", 5 );
+        auto composite = contextual();
 
-        EXPECT_TRUE( comp_->hasComponent( "child_a" ) );
-        EXPECT_TRUE( comp_->hasComponent( "child_b" ) );
-        EXPECT_EQ( comp_->childCount(), 2u );
+        auto child = std::make_shared<MockChild>( "standalone" );
+        child->exposeSetExecutionContext( exec_context_.get() );
 
-        auto got = comp_->getComponent( "child_a" );
-        EXPECT_NE( got, nullptr );
-        EXPECT_EQ( got->parameterCount(), 3u );
-
-        EXPECT_FALSE( comp_->removeComponent( "no_such" ) );
-
-        EXPECT_TRUE( comp_->removeComponent( "child_a" ) );
-        EXPECT_FALSE( comp_->hasComponent( "child_a" ) );
-        EXPECT_EQ( comp_->childCount(), 1u );
-
-        EXPECT_NO_THROW( comp_->clearComponents() );
-        EXPECT_EQ( comp_->childCount(), 0u );
+        EXPECT_THROW( composite->addComponent( child ), std::invalid_argument );
     }
 
-    TEST_F( CompositeComponentTests, DuplicateNameRejected )
+    TEST_F( CompositeComponentTests, AddComponent_ThrowsAfterBuild )
     {
-        comp_->addTestChild( "dup", 1 );
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "a" ) );
+        composite->build( build( RuntimeMode::Inference ) );
 
-        auto duplicate = std::make_shared<TestChildComponent>( "dup", 2, std::nullopt );
-
-        EXPECT_THROW(
-            comp_->addComponent( duplicate ),
-            std::invalid_argument
-        );
-    }
-
-    TEST_F( CompositeComponentTests, AddComponent_NullComponent_Throws )
-    {
-        EXPECT_THROW(
-            comp_->addComponent( nullptr ),
-            std::invalid_argument
-        );
-    }
-
-    TEST_F( CompositeComponentTests, GetComponent_ExistingName )
-    {
-        comp_->addTestChild( "findme", 3 );
-
-        auto retrieved = comp_->getComponent( "findme" );
-
-        EXPECT_NE( retrieved, nullptr );
-        EXPECT_EQ( retrieved->parameterCount(), 3u );
-    }
-
-    TEST_F( CompositeComponentTests, GetComponent_NonExistentName_Throws )
-    {
-        EXPECT_THROW(
-            comp_->getComponent( "nonexistent" ),
-            std::out_of_range
-        );
-    }
-
-    TEST_F( CompositeComponentTests, ClearComponents_RemovesAll )
-    {
-        comp_->addTestChild( "comp1", 0 );
-        comp_->addTestChild( "comp2", 0 );
-        comp_->addTestChild( "comp3", 0 );
-
-        EXPECT_EQ( comp_->childCount(), 3u );
-
-        comp_->clearComponents();
-
-        EXPECT_EQ( comp_->childCount(), 0u );
-        EXPECT_FALSE( comp_->hasComponent( "comp1" ) );
-        EXPECT_FALSE( comp_->hasComponent( "comp2" ) );
-        EXPECT_FALSE( comp_->hasComponent( "comp3" ) );
+        EXPECT_THROW( composite->addComponent( std::make_shared<MockChild>( "late" ) ), std::runtime_error );
     }
 
     // ====================================================================
-    // Build Lifecycle Tests
+    // Context propagation to children
     // ====================================================================
 
-    TEST_F( CompositeComponentTests, Build_PropagatestoChildren )
+    TEST_F( CompositeComponentTests, AddComponent_PropagatesContextWhenCompositeAlreadyHasOne )
     {
-        comp_->addTestChild( "build1", 5 );
-        comp_->addTestChild( "build2", 7 );
+        auto composite = contextual();
 
-        auto child1 = comp_->getComponent( "build1" );
-        auto child2 = comp_->getComponent( "build2" );
-
-        EXPECT_FALSE( comp_->isBuilt() );
-        EXPECT_FALSE( child1->isBuilt() );
-        EXPECT_FALSE( child2->isBuilt() );
-
-        comp_->build( { 2, 3 }, RuntimeMode::Training );
-
-        EXPECT_TRUE( comp_->isBuilt() );
-        EXPECT_TRUE( child1->isBuilt() );
-        EXPECT_TRUE( child2->isBuilt() );
-    }
-
-    TEST_F( CompositeComponentTests, BuildAndParameterAggregation )
-    {
-        comp_->addTestChild( "a", 10 );
-        comp_->addTestChild( "b", 20 );
-
-        EXPECT_THROW( comp_->parameterCount(), std::runtime_error );
-        //EXPECT_THROW( comp_->getParameters(), std::runtime_error );
-
-        comp_->build( { 1 }, RuntimeMode::Training );
-
-        EXPECT_EQ( comp_->parameterCount(), 30u );
-
-        //EXPECT_NO_THROW( comp_->getParameters() );
-    }
-
-    TEST_F( CompositeComponentTests, ParameterCount_BeforeBuild_Throws )
-    {
-        comp_->addTestChild( "unbuild", 5 );
-
-        EXPECT_THROW(
-            comp_->parameterCount(),
-            std::runtime_error
-        );
-    }
-
-    /*TEST_F( CompositeComponentTests, GetParameters_BeforeBuild_Throws )
-    {
-        comp_->addTestChild( "unbuild", 0 );
-
-        EXPECT_THROW(
-            comp_->getParameters(),
-            std::runtime_error
-        );
-    }*/
-
-    // ====================================================================
-    // Training Mode Tests
-    // ====================================================================
-
-    TEST_F( CompositeComponentTests, TrainingModePropagation )
-    {
-        comp_->addTestChild( "train_a", 0 );
-        comp_->addTestChild( "train_b", 0 );
-
-        auto child_a = comp_->getComponent( "train_a" );
-        auto child_b = comp_->getComponent( "train_b" );
-
-        EXPECT_FALSE( comp_->isTraining() );
-        EXPECT_FALSE( child_a->isTraining() );
-        EXPECT_FALSE( child_b->isTraining() );
-
-        // Build before enabling training to satisfy Component lifecycle contract.
-        comp_->build( { 1 }, RuntimeMode::Training );
-
-        comp_->setTraining( true );
-
-        EXPECT_TRUE( comp_->isTraining() );
-        EXPECT_TRUE( child_a->isTraining() );
-        EXPECT_TRUE( child_b->isTraining() );
-
-        comp_->setTraining( false );
-
-        EXPECT_FALSE( comp_->isTraining() );
-        EXPECT_FALSE( child_a->isTraining() );
-        EXPECT_FALSE( child_b->isTraining() );
-    }
-
-    // ====================================================================
-    // Mutation After Build Tests
-    // ====================================================================
-
-    TEST_F( CompositeComponentTests, MutationAfterBuildIsRejected )
-    {
-        comp_->addTestChild( "a", 1 );
-
-        comp_->build( { 1 }, RuntimeMode::Training );
-
-        EXPECT_THROW(
-            comp_->addTestChild( "new", 1 ),
-            std::runtime_error
-        );
-        EXPECT_THROW( comp_->removeComponent( "a" ), std::runtime_error );
-        EXPECT_THROW( comp_->clearComponents(), std::runtime_error );
-    }
-
-    TEST_F( CompositeComponentTests, ClearComponents_AfterBuild_Throws )
-    {
-        comp_->addTestChild( "locked", 0 );
-
-        comp_->build( { 1 }, RuntimeMode::Training );
-
-        EXPECT_THROW(
-            comp_->clearComponents(),
-            std::runtime_error
-        );
-    }
-
-    TEST_F( CompositeComponentTests, RemoveComponent_AfterBuild_Throws )
-    {
-        comp_->addTestChild( "locked", 0 );
-
-        comp_->build( { 1 }, RuntimeMode::Training );
-
-        EXPECT_THROW(
-            comp_->removeComponent( "locked" ),
-            std::runtime_error
-        );
-    }
-
-    // ====================================================================
-    // ExecutionContext Sharing Tests
-    // ====================================================================
-
-    TEST_F( CompositeComponentTests, ExecutionContextSharedAcrossChildren )
-    {
-        comp_->addTestChild( "ctx_a", 0 );
-        comp_->addTestChild( "ctx_b", 0 );
-
-        auto child_a = comp_->getComponent( "ctx_a" );
-        auto child_b = comp_->getComponent( "ctx_b" );
-
-        EXPECT_EQ( child_a->getDeviceId().type, DeviceType::Cpu );
-        EXPECT_EQ( child_b->getDeviceId().type, DeviceType::Cpu );
-        EXPECT_EQ( child_a->getDeviceId().type, comp_->getDeviceId().type );
-        EXPECT_EQ( child_b->getDeviceId().type, comp_->getDeviceId().type );
-    }
-
-    TEST_F( CompositeComponentTests, ExecutionContextPropagatedOnAdd )
-    {
-        auto composite = std::make_unique<TestableComposite>();
-        auto child = std::make_shared<TestChildComponent>( "late_add", 0, std::nullopt );
-
+        auto child = std::make_shared<MockChild>( "c" );
         composite->addComponent( child );
 
-        composite->setTestExecutionContext( exec_context_.get() );
+        // Composite already had context, so the child receives it on add.
+        EXPECT_EQ( child->getDeviceId().type, DeviceType::Cpu );
+    }
+
+    TEST_F( CompositeComponentTests, SetExecutionContext_PropagatesToPreexistingChildren )
+    {
+        // Add children BEFORE the context exists, then attach: onExecutionContextSet
+        // must propagate to all pre-registered children.
+        auto composite = std::make_unique<Composite>( "deferred" );
+
+        auto child = std::make_shared<MockChild>( "c" );
+        composite->addComponent( child );
+
+        composite->exposeSetExecutionContext( exec_context_.get() );
 
         EXPECT_EQ( child->getDeviceId().type, DeviceType::Cpu );
     }
 
-    TEST_F( CompositeComponentTests, ExecutionContextPropagatedViaHook )
+    // ====================================================================
+    // Lookup, removal, ordering
+    // ====================================================================
+
+    TEST_F( CompositeComponentTests, GetComponent_ReturnsChild )
     {
-        auto composite = std::make_unique<TestableComposite>();
+        auto composite = contextual();
+        auto child = std::make_shared<MockChild>( "find_me", 3 );
+        composite->addComponent( child );
 
-        composite->addTestChild( "child1", 0 );
-        composite->addTestChild( "child2", 0 );
+        EXPECT_EQ( composite->getComponent( "find_me" ), child );
+    }
 
-        auto child1 = composite->getComponent( "child1" );
-        auto child2 = composite->getComponent( "child2" );
+    TEST_F( CompositeComponentTests, GetComponent_ThrowsOnUnknownName )
+    {
+        auto composite = contextual();
 
-        //EXPECT_FALSE( child1->hasExecutionContext() );
-        //EXPECT_FALSE( child2->hasExecutionContext() );
+        EXPECT_THROW( composite->getComponent( "missing" ), std::out_of_range );
+    }
 
-        composite->setTestExecutionContext( exec_context_.get() );
+    TEST_F( CompositeComponentTests, TryFindComponent_ReturnsChildOrNull )
+    {
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "child1" ) );
 
-        //EXPECT_TRUE( child1->hasExecutionContext() );
-        //EXPECT_TRUE( child2->hasExecutionContext() );
-        EXPECT_EQ( child1->getDeviceId().type, DeviceType::Cpu );
-        EXPECT_EQ( child2->getDeviceId().type, DeviceType::Cpu );
+        EXPECT_NE( composite->tryFindComponent( "child1" ), nullptr );
+        EXPECT_EQ( composite->tryFindComponent( "nope" ), nullptr );
+    }
+
+    TEST_F( CompositeComponentTests, GetComponents_PreservesInsertionOrder )
+    {
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "first", 1 ) );
+        composite->addComponent( std::make_shared<MockChild>( "second", 2 ) );
+        composite->addComponent( std::make_shared<MockChild>( "third", 3 ) );
+
+        const auto& children = composite->getComponents();
+
+        ASSERT_EQ( children.size(), 3u );
+        EXPECT_EQ( children[ 0 ]->getName(), "first" );
+        EXPECT_EQ( children[ 1 ]->getName(), "second" );
+        EXPECT_EQ( children[ 2 ]->getName(), "third" );
+    }
+
+    TEST_F( CompositeComponentTests, RemoveComponent_RemovesExistingReturnsTrue )
+    {
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "victim" ) );
+
+        EXPECT_TRUE( composite->removeComponent( "victim" ) );
+        EXPECT_FALSE( composite->hasComponent( "victim" ) );
+        EXPECT_EQ( composite->childCount(), 0u );
+    }
+
+    TEST_F( CompositeComponentTests, RemoveComponent_ReturnsFalseWhenMissing )
+    {
+        auto composite = contextual();
+
+        EXPECT_FALSE( composite->removeComponent( "never" ) );
+    }
+
+    TEST_F( CompositeComponentTests, RemoveComponent_ThrowsAfterBuild )
+    {
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "locked" ) );
+        composite->build( build( RuntimeMode::Inference ) );
+
+        EXPECT_THROW( composite->removeComponent( "locked" ), std::runtime_error );
+    }
+
+    TEST_F( CompositeComponentTests, ClearComponents_RemovesAll )
+    {
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "a" ) );
+        composite->addComponent( std::make_shared<MockChild>( "b" ) );
+
+        composite->clearComponents();
+
+        EXPECT_EQ( composite->childCount(), 0u );
+        EXPECT_FALSE( composite->hasChildren() );
+    }
+
+    TEST_F( CompositeComponentTests, ClearComponents_ThrowsAfterBuild )
+    {
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "a" ) );
+        composite->build( build( RuntimeMode::Inference ) );
+
+        EXPECT_THROW( composite->clearComponents(), std::runtime_error );
     }
 
     // ====================================================================
-    // Synchronization Tests
+    // getComponentAs (typed retrieval used by concrete composites)
     // ====================================================================
 
-    TEST_F( CompositeComponentTests, SynchronizePropagates )
+    TEST_F( CompositeComponentTests, GetComponentAs_ReturnsTypedChild )
     {
-        comp_->addTestChild( "sync_a", 0 );
-        comp_->addTestChild( "sync_b", 0 );
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "typed", 2 ) );
 
-        EXPECT_NO_THROW( comp_->synchronize() );
+        auto child = composite->exposeGetComponentAs<MockChild>( "typed" );
+
+        ASSERT_NE( child, nullptr );
+        EXPECT_EQ( child->parameterCount(), 2u );
+    }
+
+    TEST_F( CompositeComponentTests, GetComponentAs_ThrowsOnTypeMismatch )
+    {
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "leaf" ) );
+
+        // A MockChild is not a Composite; the dynamic cast must fail.
+        EXPECT_THROW( composite->exposeGetComponentAs<Composite>( "leaf" ), std::runtime_error );
     }
 
     // ====================================================================
-    // ToString Tests
+    // Build propagation
     // ====================================================================
 
-    TEST_F( CompositeComponentTests, ToStringContainsChildren )
+    TEST_F( CompositeComponentTests, Build_InvokesOnBuildingAndPropagatesToChildren )
     {
-        comp_->addTestChild( "aa", 0 );
-        comp_->addTestChild( "bb", 0 );
+        auto composite = contextual();
+        auto a = std::make_shared<MockChild>( "a" );
+        auto b = std::make_shared<MockChild>( "b" );
+        composite->addComponent( a );
+        composite->addComponent( b );
 
-        std::string s = comp_->toString();
-        EXPECT_NE( s.find( "aa" ), std::string::npos );
-        EXPECT_NE( s.find( "bb" ), std::string::npos );
+        EXPECT_FALSE( composite->isBuilt() );
+
+        composite->build( build( RuntimeMode::Inference ) );
+
+        EXPECT_TRUE( composite->isBuilt() );
+        EXPECT_EQ( composite->onBuilding_calls, 1 );
+        EXPECT_TRUE( a->isBuilt() );
+        EXPECT_TRUE( b->isBuilt() );
     }
 
     // ====================================================================
-    // Edge Case Tests
+    // Parameter / gradient aggregation
     // ====================================================================
 
-    TEST_F( CompositeComponentTests, EmptyCompositeHasNoChildren )
+    TEST_F( CompositeComponentTests, ParameterCount_ThrowsBeforeBuild )
     {
-        EXPECT_EQ( comp_->childCount(), 0u );
-        EXPECT_FALSE( comp_->hasChildren() );
-        EXPECT_TRUE( comp_->getComponents().empty() );
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "a", 5 ) );
+
+        EXPECT_THROW( composite->parameterCount(), std::runtime_error );
     }
 
-    TEST_F( CompositeComponentTests, GetComponents_ReturnsInsertionOrder )
+    TEST_F( CompositeComponentTests, ParameterCount_AggregatesChildren )
     {
-        comp_->addTestChild( "first", 1 );
-        comp_->addTestChild( "second", 2 );
-        comp_->addTestChild( "third", 3 );
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "a", 2 ) );
+        composite->addComponent( std::make_shared<MockChild>( "b", 3 ) );
+        composite->build( build( RuntimeMode::Inference ) );
 
-        const auto& components = comp_->getComponents();
+        EXPECT_EQ( composite->parameterCount(), 5u );
+    }
 
-        ASSERT_EQ( components.size(), 3u );
-        EXPECT_EQ( components[ 0 ]->parameterCount(), 1u );
-        EXPECT_EQ( components[ 1 ]->parameterCount(), 2u );
-        EXPECT_EQ( components[ 2 ]->parameterCount(), 3u );
+    TEST_F( CompositeComponentTests, GetParameters_ThrowsBeforeBuild )
+    {
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "a", 2 ) );
+
+        EXPECT_THROW( composite->getParameters(), std::runtime_error );
+    }
+
+    TEST_F( CompositeComponentTests, GetParameters_AggregatesAcrossChildren )
+    {
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "a", 2 ) );
+        composite->addComponent( std::make_shared<MockChild>( "b", 3 ) );
+        composite->build( build( RuntimeMode::Training ) );
+
+        EXPECT_EQ( composite->getParameters().size(), 5u );
+    }
+
+    TEST_F( CompositeComponentTests, GetGradients_ThrowsBeforeBuild )
+    {
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "a", 2 ) );
+
+        EXPECT_THROW( composite->getGradients(), std::runtime_error );
+    }
+
+    TEST_F( CompositeComponentTests, GetGradients_EmptyWhenBuiltForInference )
+    {
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "a", 2 ) );
+        composite->build( build( RuntimeMode::Inference ) );
+
+        EXPECT_TRUE( composite->getGradients().empty() );
+    }
+
+    TEST_F( CompositeComponentTests, GetGradients_AggregatesWhenBuiltForTraining )
+    {
+        auto composite = contextual();
+        composite->addComponent( std::make_shared<MockChild>( "a", 2 ) );
+        composite->addComponent( std::make_shared<MockChild>( "b", 3 ) );
+        composite->build( build( RuntimeMode::Training ) );
+
+        EXPECT_EQ( composite->getGradients().size(), 5u );
     }
 
     // ====================================================================
-    // Constructor Validation Tests
+    // Training-mode propagation
     // ====================================================================
 
-    TEST_F( CompositeComponentTests, Constructor_DeviceTypeMismatch_ThrowsInvalidArgument )
+    TEST_F( CompositeComponentTests, SetTrainingMode_PropagatesToChildren )
     {
-        auto cuda_context = createExecutionContext( Device::Cuda( 0 ) );
-        auto composite = std::make_unique<TestableComposite>();
+        auto composite = contextual();
+        auto a = std::make_shared<MockChild>( "a" );
+        auto b = std::make_shared<MockChild>( "b" );
+        composite->addComponent( a );
+        composite->addComponent( b );
+        composite->build( build( RuntimeMode::Training ) );
 
-        EXPECT_THROW(
-            composite->setTestExecutionContext( cuda_context.get() ),
-            std::invalid_argument
-        );
+        composite->setTrainingMode( TrainingMode::Eval );
+
+        EXPECT_EQ( composite->getTrainingMode(), TrainingMode::Eval );
+        EXPECT_EQ( a->getTrainingMode(), TrainingMode::Eval );
+        EXPECT_EQ( b->getTrainingMode(), TrainingMode::Eval );
+    }
+
+    // ====================================================================
+    // Diagnostics
+    // ====================================================================
+
+    TEST_F( CompositeComponentTests, ToString_NamesChildren )
+    {
+        auto composite = contextual( "root" );
+        composite->addComponent( std::make_shared<MockChild>( "alpha" ) );
+
+        const std::string text = composite->toString();
+
+        EXPECT_NE( text.find( "root" ), std::string::npos );
+        EXPECT_NE( text.find( "alpha" ), std::string::npos );
     }
 }

@@ -8,16 +8,13 @@
  */
 
 module;
-//#include <cuda_runtime.h>
-//#include <cublasLt.h>
 #ifdef USE_CUDNN
 #include <cudnn.h>
 #endif
 #include <cassert>
-//#include <memory>
 #include <string>
 #include <stdexcept>
-//#include <format>
+#include <format>
 
 export module Compute.ExecutionContext;
 
@@ -104,20 +101,16 @@ namespace Mila::Dnn::Compute
         const std::string& op_name )
     {
         if ( !context ) {
-            throw std::invalid_argument( "{} requires a non-null execution context" );
-            // FIXME
-            //    std::format( "{} requires a non-null execution context", op_name )
-            //);
+            throw std::invalid_argument( std::format( "{} requires a non-null execution context", op_name ) );
         }
 
         if ( context->getDeviceId().type != TDeviceType ) {
-            throw std::invalid_argument( "{} requires {} execution context, got {}" );
-            // FIXME: 
-            //    std::format( "{} requires {} execution context, got {}",
-            //        op_name,
-            //        deviceTypeToString( TDeviceType ),
-            //        deviceTypeToString( context->getDeviceId().type ) )
-            //);
+            throw std::invalid_argument(
+                std::format( "{} requires {} execution context, got {}",
+                    op_name,
+                    deviceTypeToString( TDeviceType ),
+                    deviceTypeToString( context->getDeviceId().type ) )
+            );
         }
 
         return static_cast<ExecutionContext<TDeviceType>*>(context);

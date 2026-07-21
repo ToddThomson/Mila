@@ -1,18 +1,19 @@
 # Bard - Shakespeare Transformer Language Model
 
-A transformer-based language model implementation using the Mila deep learning framework.
+A transformer-based language model implementation built on Mila.
 
-## Working Status
-We are currently working towards the beta relase of the Mila framework. This sample is in active development and may change frequently.
+## Status
 
-Please see the Mnist sample for a stable reference implementation.
+Revived to the current Mila API as part of v0.20 **Training Revival** — Bard builds green and trains
+end-to-end (FP32 on CUDA). See Current Status below for what runs today. The MNIST sample is the
+simpler MLP reference if you want to start there.
 
 ## Overview
 
 Bard implements a GPT-style decoder-only transformer for character-level next-token prediction:
 
 ```
-Token Embedding -> Positional Encoding -> N � Transformer Blocks -> LayerNorm -> LM Head
+Token Embedding -> Positional Encoding -> N x Transformer Blocks -> LayerNorm -> LM Head
 ```
 
 ## Features
@@ -104,11 +105,11 @@ Options:
 - **Embedding Dimension**: 256 (configurable)
 - **Attention Heads**: 4 (configurable)
 - **Transformer Layers**: 4 (configurable)
-- **MLP Hidden Dimension**: 1024 (4� embedding_dim)
+- **MLP Hidden Dimension**: 1024 (4x embedding_dim)
 
 ### Data Pipeline
 - **CharPreprocessor**: Builds vocabulary and tokenizes text (one-time)
-- **CharVocabulary**: Character ? index mappings
+- **CharVocabulary**: Character -> index mappings
 - **CharDataLoader**: Efficient sliding-window sequence loading
 
 ## Expected Results
@@ -121,21 +122,15 @@ With Tiny Shakespeare (~1MB, 40K lines):
 
 ## Current Status
 
-?? **Alpha Implementation** - Core components implemented:
+Revived and validated (VS2026 / CUDA): Bard builds green, trains FP32 GPT-2 on TinyShakespeare to
+coherent Shakespeare-structured text (perplexity < 3 by ~epoch 17), and generates from the trained
+model. The full training spine — `GptTransformer` (attention, MLP, positional encoding), the AdamW
+optimizer, gradient flow, and train-from-scratch initialization — runs end-to-end; reviving the
+sample surfaced and fixed three latent CUDA training-backward bugs.
 
-? **Complete**:
-- CharTransformer skeleton
-- CharVocabulary (save/load)
-- CharPreprocessor (text ? tokens)
-- CharDataLoader (preprocessed file loading)
-- Training loop structure
-- Loss computation (sequence cross-entropy)
-
-?? **TODO**:
-- Transformer implementation (attention + MLP)
-- Positional encoding
-- Text generation utilities
-- Model checkpointing
+Remaining: the primitive / component test coverage that proves the training path at the component
+level (v0.20 Training Revival — the sample is the bug-discovery tool, not the test target). Checkpoint
+save/restore is a Future item.
 
 ## Troubleshooting
 
@@ -149,7 +144,7 @@ Error: Vocabulary file not found
 **Solution**: Reduce `--batch-size` or `--seq-length`.
 
 ### Poor Training Results
-**Solution**: 
+**Solution**:
 - Increase `--num-layers` and `--embedding-dim`
 - Train for more `--epochs`
 - Use larger dataset

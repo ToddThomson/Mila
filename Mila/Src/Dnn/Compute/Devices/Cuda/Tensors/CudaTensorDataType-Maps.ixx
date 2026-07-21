@@ -117,7 +117,7 @@ namespace Mila::Dnn::Compute::Cuda
     /**
      * @brief Maps `TensorDataType::FP4_E3M0` to `std::uint8_t`
      *
-     * Same packing convention as FP4_E2M1 — two nibbles per byte, uint8_t physical pointer.
+     * Same packing convention as FP4_E2M1 -- two nibbles per byte, uint8_t physical pointer.
      */
     template<>
     struct TensorDataTypeMap<TensorDataType::FP4_E3M0> {

@@ -18,12 +18,12 @@ namespace Mila::Dnn::Compute
      * Extends IKVCacheLifecycle with the two-phase inference compute contract
      * used by modern transformer architectures (GQA, MQA, and derived models):
      *
-     *   prefill — populate the KV cache from a (possibly chunked) prompt sequence.
+     *   prefill -- populate the KV cache from a (possibly chunked) prompt sequence.
      *             Q, K, V are passed separately to support upstream in-place RoPE
      *             rotation before cache insertion. An explicit position_offset
      *             supports chunked prefill over sequences longer than a single pass.
      *
-     *   decode  — process a single autoregressive token against the accumulated
+     *   decode  -- process a single autoregressive token against the accumulated
      *             KV cache. Input is packed QKV [B, 1, (n_heads + 2*n_kv_heads)*head_dim].
      *
      */

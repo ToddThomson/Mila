@@ -1,35 +1,45 @@
-# find_package(Mila) packaging gate.
+# find_package(Mila) packaging gate -- PARKED (find_package parked in favor of FetchContent).
 #
-# This is an orchestration test, not a link-and-run test: it does not link Mila. It
-# installs the built Mila into a throwaway prefix and builds Samples/QuickStart
-# against it via find_package(Mila). That is the only way to exercise the install
-# tree -- the in-tree build and the unit tests link the Mila target directly and so
-# cannot catch packaging regressions (a missing installed header still resolves
-# file-relative in the source tree, leaving their builds green).
+# A C++23 module library is a source distribution: module BMIs are not portable, so a
+# consumer recompiles Mila's module graph either way. That voids find_package's
+# prebuilt-binary benefit while carrying the whole install-layout apparatus (FILE_SETs,
+# kernel-header mirroring, the MilaTargets export) plus toolchain/ABI coupling between the
+# prebuilt .a and the consumer's recompiled modules. FetchContent compiles Mila ONCE, in the
+# consumer's own toolchain -- no BMI/ABI issue, no install machinery -- so it is the supported
+# consumption path (see packaging_fetchcontent_consumer below, now the primary packaging gate).
+#
+# This gate + its fixture (Samples/QuickStart, drive_consumer.cmake) are retained on disk but
+# OFF by default so the install-layout path can still be exercised on demand without gating a
+# release. To run it: -DMILA_ENABLE_FIND_PACKAGE_GATE=ON AND -DMILA_INSTALL=ON (the install/
+# export rules are parked OFF by default too -- see Mila/CMakeLists.txt).
+option(MILA_ENABLE_FIND_PACKAGE_GATE "Run the PARKED find_package(Mila) install-consumption gate (opt-in; also needs MILA_INSTALL=ON). FetchContent is the supported path." OFF)
 
-add_test(
-    NAME packaging_find_package_consumer
-    COMMAND ${CMAKE_COMMAND}
-        -D "MILA_BINARY_DIR=${CMAKE_BINARY_DIR}"
-        -D "QUICKSTART_SOURCE_DIR=${CMAKE_SOURCE_DIR}/Mila/Samples/QuickStart"
-        -D "WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/work"
-        -D "GENERATOR=${CMAKE_GENERATOR}"
-        -D "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-        -D "CUDA_COMPILER=${CMAKE_CUDA_COMPILER}"
-        -D "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
-        -P "${CMAKE_CURRENT_SOURCE_DIR}/drive_consumer.cmake"
-)
+if(MILA_ENABLE_FIND_PACKAGE_GATE)
+    add_test(
+        NAME packaging_find_package_consumer
+        COMMAND ${CMAKE_COMMAND}
+            -D "MILA_BINARY_DIR=${CMAKE_BINARY_DIR}"
+            -D "QUICKSTART_SOURCE_DIR=${CMAKE_SOURCE_DIR}/Mila/Samples/QuickStart"
+            -D "WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/work"
+            -D "GENERATOR=${CMAKE_GENERATOR}"
+            -D "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+            -D "CUDA_COMPILER=${CMAKE_CUDA_COMPILER}"
+            -D "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/drive_consumer.cmake"
+    )
 
-# Generous timeout: the consumer recompiles Mila's module graph from source.
-set_tests_properties(packaging_find_package_consumer PROPERTIES
-    TIMEOUT 900
-    LABELS "packaging"
-)
+    # Generous timeout: the consumer recompiles Mila's module graph from source.
+    set_tests_properties(packaging_find_package_consumer PROPERTIES
+        TIMEOUT 900
+        LABELS "packaging"
+    )
+endif()
 
-# FetchContent / subproject gate: embeds the Mila source tree via
-# add_subdirectory and links the in-tree target. Proves nothing in Mila's CMake
-# assumes top-level (the find_package gate above cannot catch that -- it consumes
-# an install, never add_subdirectory).
+# FetchContent / subproject gate -- the PRIMARY (supported) packaging gate. Embeds the
+# Mila source tree via add_subdirectory and links the in-tree Mila::Mila target, proving
+# nothing in Mila's CMake assumes top-level (CMAKE_SOURCE_DIR vs PROJECT_SOURCE_DIR,
+# PROJECT_IS_TOP_LEVEL option gating, install-rule leakage). This is exactly how a
+# downstream consumer embeds Mila via FetchContent_Declare(Mila GIT_REPOSITORY/URL ...).
 add_test(
     NAME packaging_fetchcontent_consumer
     COMMAND ${CMAKE_COMMAND}
