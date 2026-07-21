@@ -10,6 +10,34 @@ Versions are the `Version.txt` stamp at the time the work landed.
 
 ---
 
+## Beta.1 — First public beta (Production Hardening)
+
+`v0.20.0-beta.1` is the first tagged release of the v0.20 line, and the first time the whole
+`0.20.0-alpha.6` development reaches `master` since `v0.13.46-alpha.5`. The feature set is frozen;
+this stage is validation, packaging, documentation, and recovery hardening, from which the `beta.X`
+and `rc.X` tags are cut. The alpha.6 work that earned the label is detailed in the sections below.
+
+### What earned beta
+
+Three engineering gates, all closed and green on `dev`:
+
+- **Consolidation closed** (+112..+113) — poisoned BF16 dispatch rows dropped, the
+  `OperationSupported` predicate landed, the feature freeze declared, and the four consolidation
+  buckets closed.
+- **CPU-only test ratchet in CI** (+114..+116) — the `cpu-only-tests` job runs the suite (not just a
+  compile) on every push/PR to `dev` and `master`; confirmed green on GitHub Actions.
+- **External consumer build** (+115..+116) — FetchContent established as the supported consumption
+  path for a C++23 module library; `find_package` parked and `MILA_INSTALL` off by default.
+
+### Stage flip (0.20.0-beta.1)
+
+`Version.txt` -> `0.20.0-beta.1`; current-maturity relabeled from late alpha to public beta across the
+README, getting-started, SECURITY, RELEASING, CLAUDE.md, and the issue templates. The README Gemma 4
+flagship performance was backfilled from measured results — prefill within 1.14x of llama.cpp at long
+context, and 49 tok/s FP4 decode at 32K context on a 12 GB RTX 4070 (a 1.03x gap to llama.cpp) — its
+Build section corrected to present Linux/clang as a first-class platform alongside Windows/MSVC, and
+compute-only sponsorship activated (`.github/FUNDING.yml` -> `SPONSORING.md`).
+
 ## Alpha.6 — Consolidation (feature freeze + debt burndown)
 
 The bridge from "the features work" to a tree honest enough to call beta. Release narrative
