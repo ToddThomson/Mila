@@ -9,7 +9,7 @@ building your own application against Mila. Contributors are a superset — they
 user does, then follow Section 8 for coding standards and the PR process. If you only want to
 read about what Mila is and does, start with the [README](README.md).
 
-Mila is a C++23 module-based library for open LLMs (CUDA/CPU inference and training), currently in late alpha
+Mila is a C++23 module-based library for open LLMs (CUDA/CPU inference and training), currently in public beta
 (feature-frozen, hardening toward the v0.20 first production release). Pre-1.0, breaking
 changes are still expected — backward compatibility is not yet a goal.
 
@@ -465,7 +465,7 @@ coverage, and new encoding strategies under `Mila/Src/Dnn/Components/Encodings/`
 
 ## 9. Where to go next
 
-- [ROADMAP.md](ROADMAP.md) — current alpha status (Alpha.5) and the full task breakdown.
+- [ROADMAP.md](ROADMAP.md) — the release narrative and trajectory; [BACKLOG.md](BACKLOG.md) for the task breakdown.
 - [CLAUDE.md](CLAUDE.md) — architecture overview, type axes, dispatch, and code style.
 - `Mila/Specifications/` — design documents:
   [OperationDispatch.md](Mila/Specifications/OperationDispatch.md),

@@ -50,8 +50,8 @@ sort *below* what is already released).
 
 | Stage | Meaning | Example |
 |---|---|---|
-| `alpha.X` | features still landing; unstable | `0.20.0-alpha.6+119` (now) |
-| `beta.X` | feature-frozen; hardening only | `0.20.0-beta.1` |
+| `alpha.X` | features still landing; unstable | `0.20.0-alpha.6+119` |
+| `beta.X` | feature-frozen; hardening only | `0.20.0-beta.1` (now) |
 | `rc.X` | release candidate | `0.20.0-rc.1+N` |
 | _(none)_ | production-tagged | `0.20.0` |
 

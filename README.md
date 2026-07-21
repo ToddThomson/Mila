@@ -8,7 +8,7 @@ Mila is built for researchers, engineers, and developers who find high-level fra
 and write kernels that do precisely what they intend. No autograd engine. No runtime
 dispatch magic. Just C++23, CUDA, and full control.
 
-> *Currently in late alpha (`0.20.0-alpha.6`) — feature-frozen and hardening toward the v0.20 first
+> *Currently in public beta (`0.20.0-beta.1`) — feature-frozen and hardening toward the v0.20 first
 > production release. Pre-1.0: the API is not yet stable.*
 > *Active development lands on the [`dev`](https://github.com/ToddThomson/Mila/tree/dev) branch; `master` tracks tagged releases.*
 > *See the [Roadmap](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for current status and trajectory.*
@@ -101,11 +101,9 @@ GeGLU, RMSNorm, and final logit softcap — validated **token-for-token against 
   a bounded-KV sliding-window ring cache holds persistent KV growth to the global layers, so long
   chats stay inside the budget.
 - **Tensor-core flash-attention prefill** — a warp-tiled flash-attention kernel on the sliding local
-  layers. Prefill lands within _(figure pending a profile run)_ of llama.cpp at long context.
-  <!-- BACKFILL: prefill-vs-llama.cpp %, from beta.1 profile run -->
+  layers. Prefill lands within 1.14x of llama.cpp at long context.
 - **On-device sampling** — logits never leave the GPU; only the sampled token is read back, at
-  _(tok/s pending a profile run)_ FP4 decode on a 12 GB card.
-  <!-- BACKFILL: FP4 decode tok/s, from beta.1 profile run -->
+  49 tok/s FP4 decode at 32K context on a 12 GB card — within 1.03x of llama.cpp.
 - **Native tool calling** — Gemma's trained tool grammar, reconciled byte-for-byte to Google's
   canonical chat template, driven end-to-end through MIS by foreign harnesses (Codex CLI, Claude Code)
   across plain-chat, single-tool, and tool-result-resume flows.
@@ -131,19 +129,19 @@ place to read one token's journey end to end.
 
 ---
 
-## Current Status — Alpha.6 (feature-frozen, hardening)
+## Current Status — Beta.1 (feature-frozen, hardening)
 
-Mila is in late alpha, hardening toward a public, craft-complete first release (v0.20). The alpha
+Mila is in public beta, hardening toward a craft-complete first release (v0.20). The alpha
 phase built and validated the core architecture against known-good reference implementations; the
 feature set is now **frozen**, and the remaining work is validation, packaging, documentation, and
 recovering the full GPT-2 / training foundation — so the first release ships everything Mila has
 built, inference and training, as one coherent, tested, documented package.
 
-**Hardening toward beta.1 (Production Hardening)**
+**Hardening through beta (Production Hardening)**
 Feature-frozen: validation, packaging, and documentation only. The v0.20 workstreams still in flight
 are test-suite revival, training revival (the MNIST and Bard GPT-2 samples re-aligned to the current
 API — Llama 3.1/3.2 training is not part of this release), API documentation, and production
-hardening itself, from which the `beta.X` and `rc.X` tags will be cut. See
+hardening itself, from which the `beta.X` and `rc.X` tags are cut. See
 [RELEASING.md](https://github.com/ToddThomson/Mila/blob/dev/RELEASING.md) for how stages and tags
 relate.
 
@@ -249,10 +247,10 @@ API. See [getting-started.md §7](getting-started.md) and the sample's
 
 | Requirement | Version |
 |---|---|
-| Visual Studio | 2026 18.6.2 or newer |
-| Git | 2.x or newer (validated on 2.54.0) |
-| CUDA Toolkit | 13.0 or newer |
+| C++ compiler | MSVC (Visual Studio 2026 18.6.2+) on Windows, or Clang 19+ / GCC 16 on Linux |
+| CUDA Toolkit | 13.0+ on Windows; 13.3+ on Linux (Ubuntu 26.04 / glibc 2.43) |
 | CMake | 4.0 or newer |
+| Git | 2.x or newer (validated on 2.54.0) |
 | GTest | 1.17.0 |
 | Doxygen + Graphviz | latest (optional — docs only) |
 | C++ Standard | C++23 |
@@ -261,10 +259,12 @@ Ninja is the recommended generator — significantly faster than MSBuild for
 incremental C++23 module builds.
 
 Mila is CI-tested on CUDA 13.0 and developed on 13.3; newer 13.x releases are expected
-to work but are not exhaustively validated.
+to work but are not exhaustively validated. On Linux (Ubuntu 26.04 / glibc 2.43), CUDA 13.3
+is required — 13.0 fails to build there.
 
-Use Visual Studio 2026 18.6.2 or newer — earlier 2026 builds have a regression that breaks
-the C++23 module build.
+On Windows, use Visual Studio 2026 18.6.2 or newer — earlier 2026 builds have a regression
+that breaks the C++23 module build. On Linux, the C++23 modules build with Clang 19+ or GCC 16;
+on Ubuntu 26.04 install the `gcc-16` package (GCC 15.2 and earlier cannot compile the modules).
 
 Git must be installed and on `PATH`: the first CMake configure fetches dependencies via CPM
 (`git clone`), so it is needed beyond the initial repository clone. GitHub Desktop is an
@@ -291,6 +291,21 @@ library-only build.
 
 Open the repository folder — Visual Studio detects CMakeLists.txt automatically.
 Select the Ninja generator and Release configuration. Build with F7.
+
+### Linux (native / WSL)
+
+On Linux — including WSL 2 — build with Clang against the bundled CMake presets. Requires
+Clang 19+ (or GCC 16) and CUDA 13.3+:
+
+```bash
+cmake --preset linux-clang-release
+cmake --build out/build/linux-clang-release
+ctest --test-dir out/build/linux-clang-release
+```
+
+`linux-clang-debug` is the Debug equivalent. The `linux-clang-cpu-debug`/`-release` presets
+build the CPU-only configuration (`MILA_ENABLE_CUDA=OFF`) — the same path the CI test ratchet
+exercises, requiring no CUDA toolkit.
 
 ### Docker
 
@@ -329,7 +344,7 @@ Updated automatically on every push to master.
 
 ## Contributing
 
-Mila is in late alpha (feature-frozen, hardening toward v0.20) and welcomes contributors who share its philosophy.
+Mila is in public beta (feature-frozen, hardening toward v0.20) and welcomes contributors who share its philosophy.
 Good starting points are CPU reference ops, test coverage, and new encoding strategies
 under /Components/Encodings/. Mila is GPU-first by design: the CUDA backend is the
 validated inference path, and CPU op coverage beyond the GPT-2 lineage is intentionally

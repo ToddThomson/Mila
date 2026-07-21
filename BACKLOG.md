@@ -43,6 +43,20 @@ good-first-issue.
   delta, GPU companions (`Network.Cuda`/`AdamW.Cuda`), then the Bard GPT-2 stack tail.
 - [ ] Retire the redundant op-layer mirror tests — out of the CMake build; files kept on disk pending
   an explicit delete.
+- [ ] **Known-red CUDA tests (5) — beta-phase cleanup.** Surfaced by `x64-validate` ctest at the
+  beta.1 cut (1417/1418 pass); all CUDA-path, so invisible to the CPU-only CI ratchet. Accepted
+  non-blocking for beta.1; triage in the beta ladder (inference-path first):
+  - `LinearCudaQuantizedTests.Forward_Fp4PrefillMatchesDecodeAcrossTokenMagnitudes` — FP4 prefill-vs-
+    decode parity across token magnitudes; **inference / flagship FP4 path — triage first** (Gemma FP4
+    validated token-for-token vs HF end-to-end, so likely a strict cross-path tolerance, not a live break).
+  - `BpeTokenizerGemma.Encode_StartOfTurn_IsSingleAtomicToken` — `<start_of_turn>` should encode as one
+    atomic token; Gemma tokenizer contract (chat path is HF-validated, so suspect a strict-encode assertion).
+  - `RopeCudaTests.Backward_InverseRotationRecoversInput<Fp32>` — RoPE backward inverse-rotation recovery;
+    backward/training path (inference uses forward only).
+  - `LinearCudaTests.Backward_MatchesReferenceGradients<Bf16>` — BF16 Linear backward gradient match;
+    likely backward-path tolerance/precision.
+  - `DeviceRegistryTest.ThreadSafeDeviceOperations` — device-registry concurrency; confirm reproducible
+    (suspect flaky) before chasing a real thread-safety gap.
 - [x] Gradient-check archetype (finite-difference numeric backward) — shared `Common/GradientCheck.h`
   fanned out across the training spine; MHA backward exonerated. Validated VS2026 2026-07-02.
 - [x] Verify the full suite green in one pass (CPU-only `MILA_ENABLE_CUDA=OFF` + the CUDA build).
@@ -107,9 +121,8 @@ good-first-issue.
 - [ ] Add the Samples build to CI (only tests build today).
 - [ ] Guided reading path — one token's journey (embed -> attend -> sample -> decode) through the real
   source, readable by a strong C++ dev unaided.
-- [ ] Backfill the README **Gemma 4 flagship** perf numbers from a profile run — prefill-vs-llama.cpp
-  and FP4 decode tok/s. Placeholders "(pending a profile run)" + `<!-- BACKFILL -->` markers are in
-  place; grep them. Beta.1-readiness (must be exact before the label).
+- [x] Backfill the README **Gemma 4 flagship** perf numbers — prefill 1.14x behind llama.cpp, FP4
+  decode 49 tok/s @32K (1.03x gap), from the published Discussion #17 measurements (RTX 4070, 12 GB).
 - [ ] Published Docker runtime image — slim multi-stage GPU runtime, release-tagged, weights never baked in.
 - [ ] Module import hygiene — Phase 0 exact-dup dedup, Phase 1 candidate report, Phase 2
   compiler-verified removal (Clang/GCC, not MSVC); plus domain-qualify generic single-segment module
@@ -157,9 +170,18 @@ to the current release.
   `OperationTraits`, and the unspecced **Chat** feature milestone.
 - **Ministral** — SWA transformer; reuses the Llama foundation, Qwen 3 tool-calling, and the Gemma 4
   SWA mask + bounded-KV ring.
-- **Architecture / MoE** — generalize `GatedMLP`'s gate (GeGLU/ReGLU) + the CPU `SwigluOp`; grouped
-  `MoeOp` + `Router` + `MixtureOfExperts`; `LlamaBlock` delegating to `GatedMLP`. See
-  `Specifications/FfnAndMoE.md`.
+- **Architecture / MoE** — the presumptive post-v0.20 tentpole. Generalize `GatedMLP`'s gate
+  (GeGLU/ReGLU) + the CPU `SwigluOp`; grouped `MoeOp` + `Router` + `MixtureOfExperts`; `LlamaBlock`
+  delegating to `GatedMLP`. See `Specifications/FfnAndMoE.md`. Not a must for any single model, but the
+  highest-leverage single investment: the niche Mila crests (best open model on a 16GB home card) has
+  moved to sparse, and one router chassis unlocks three crests — the in-house Gemma 26B-A4B (control
+  the reference, prove the machinery here first), **Qwen3-30B-A3B** (pure MoE, standard formats — the
+  clean second test), and **gpt-oss-20b** (the first external crest; stacks the most distinct craft —
+  MXFP4-native ingest, harmony channels mapping onto the Gemma channel streaming, attention sinks in
+  the flash path). Chassis fit is ~70% there today (heterogeneous layers, sliding+full attention, GQA,
+  RoPE axis, FP4, channel streaming); genuinely new is MoE dispatch + MXFP4-native weight ingest
+  (`PerGroupMxFp4<32>`, E8M0 scales — checkpoint ships in fp4, so a load path that ingests nibbles
+  directly, not the BF16->quantize-at-load assumption).
 - **Training (advanced)** — Llama fine-tuning, loss-function GPU migration, gradient checkpointing,
   checkpoint save/restore, GQA training (the dormant expanded-layout substrate).
 - **Performance** — Gemma 4 competitiveness levers (fused W4A16 prefill GEMM, flash-attention global

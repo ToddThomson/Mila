@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Mila is pre-1.0 (currently in late alpha), and breaking changes are expected between releases.
+Mila is pre-1.0 (currently in public beta), and breaking changes are expected between releases.
 Security fixes are applied only to the latest tagged release and the `dev` trunk. There is
 no back-porting to older pre-release tags.
 
@@ -10,7 +10,7 @@ no back-porting to older pre-release tags.
 |---|---|
 | Latest tagged release | Yes |
 | `dev` (trunk) | Yes |
-| Older alpha tags | No |
+| Older pre-release tags | No |
 
 ## Reporting a vulnerability
 
@@ -22,7 +22,7 @@ report.
   ("Report a vulnerability") at https://github.com/ToddThomson/Mila/security/advisories/new
 - Alternatively: email **todd.thomson@me.com** with details and reproduction steps.
 
-As a solo, volunteer-maintained alpha project there is no formal response-time guarantee.
+As a solo, volunteer-maintained pre-1.0 project there is no formal response-time guarantee.
 You can expect a good-faith acknowledgement and, where a fix is warranted, coordination on a
 disclosure timeline before any public write-up.
 
