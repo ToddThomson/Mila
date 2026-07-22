@@ -179,4 +179,17 @@ own version, date, and tag, when it is scheduled.
   and deterministic gradient accumulation.
 - **Native low-precision compute (Blackwell+)** — microscaling data-path support, finer per-arch gating
   (sm_120, CUTLASS 4.x), and the "compute precision as a first-class axis" design question.
+- **Compute backends beyond CUDA** — ROCm (AMD) and Metal (Apple silicon) device backends. Both are
+  reserved in `DeviceType` and neither is implemented; Mila is CUDA and CPU today. Because the device
+  type is a compile-time template parameter and dispatch resolves through an explicit `OperationTraits`
+  table, a backend should be a new partition of specializations rather than conditional compilation
+  threaded through the components — that is the design claim, and a port is the first honest test of
+  whether it holds across a second GPU vendor. Gated on hardware access (see SPONSORING.md).
+  Success bar: an existing validated model path reproduces its token-for-token reference result on the
+  new backend, with the component sources unchanged.
+- **Platform portability** — `aarch64` as a build and correctness target (Mila is x86-64 Windows and
+  Linux today), broadening the Linux compiler matrix, and a third compute-capability gate alongside
+  sm_89 and sm_120. Grace-Blackwell-class hardware also puts a coherent unified-memory model in front
+  of memory resources and the weight loader, both of which assume discrete device VRAM with explicit
+  host-to-device staging — a design question, not only a port.
 - **Model loading** — the load-time FP4 sidecar cache and concurrent read I/O.

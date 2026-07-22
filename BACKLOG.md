@@ -21,8 +21,19 @@ good-first-issue.
 - [ ] Tool calling validated on Llama 3.2 3B and 3.1 8B Instruct.
 - [ ] Triage `Llama.Block.ixx:132` view-aliasing — the Q/K/V splits of `qkv_out` may not be
   contiguous; confirm live-vs-benign and fix if live before claiming Llama HF validation.
+- [ ] RoPE scaling disabled on the Llama load path — `Llama.ixx:703` has
+  `.withRoPEScalingFactor( metadata.rope_scaling )` commented out with the reason recorded as unclear.
+  Llama 3.1 8B's extended context depends on it; resolve before writing the 8B parity test, not after.
+- [ ] `GptModel.ixx:330` hardcodes `eos_token_ = 50256` — should come from tokenizer metadata.
 - [ ] GQA standalone-`forward()` stub — component-level Gemma/Llama attention has no independent
   correctness oracle. Precondition for retiring the legacy GQA path. See `Specifications/GqaMemory.md`.
+  `GroupedQueryAttention.ixx:177` is the dead branch this task decides retire-vs-wire on: it returns an
+  un-computed `output_view_` and is unreached in the validated path (Llama/Gemma drive
+  `prefill()`/`decode()` directly).
+- [ ] GQA `forward()` fallback is stale — `GroupedQueryAttention.ixx:299` records the non-KV-cache
+  fallback as needing a correctness review, with the shape derivation commented out beneath it.
+- [ ] `CudaMhaOp.ixx:433` initializes `active_max_seq_len_ = T_` with the reason unrecorded — confirm
+  against the two-phase KV-cache contract (prefill full sequence, decode `outer_size == 1`).
 - [ ] **[contributor]** Llama 3.2 1B/3B weight tying — the aliasing plumbing shipped; add
   `tie_word_embeddings_` + post-load aliasing + `getMemoryStats` correction to `LlamaTransformer`.
   See `Specifications/WeightTying.md` §6.
@@ -32,10 +43,17 @@ good-first-issue.
 - [~] Re-green the authored component / tensor / tokenizer suites to the current API — concrete
   component-class set re-enabled and build-green; only `SoftmaxCrossEntropy` (loss) parked for the
   loss-on-device work. 3 backward-numeric cases `GTEST_SKIP`'d pending filed bugs (CUDA Softmax
-  backward stub, BF16 Swiglu backward dtype, GptBlock composed gradient).
+  backward stub, BF16 Swiglu backward dtype, GptBlock composed gradient). The Softmax stub is not
+  missing code — `CudaSoftmaxOp.ixx:73` deliberately throws `"needs review"` with the real
+  `cuda_softmax_backward<float>` call commented out; the FP16 twin at `:103` is the same.
 - [~] Core `Tensor.ixx` coverage to the value-type archetype — remaining: `TensorOps.Transfer`
   device-split, `Structural`(`split`) backfill, and the wider `Tensors/` tree (`TensorBuffer`,
   `TensorDataType*` maps, `Partitioning`, `Serialization`). See `Specifications/Testing.Tensors.md`.
+  Eight `REVIEW:` markers name the specific contracts to pin: Copy as a no-op on empty tensors and on
+  scalars (`TensorOps.Transfer.ixx:92`); context/device compatibility and the device-ID logic on the
+  CUDA transfer path (`CudaTensorOps.Transfer.ixx:132,140,276`); sub-byte/packed FP4 sizing
+  (`Tensor.ixx:267`, `TensorBuffer.ixx:78`); the size helper duplicated from `TensorBuffer`
+  (`Tensor.ixx:83`); and the moved-from state (`Tensor.ixx:479`).
 - [ ] Backfill inference-drought coverage — load-time quantization (`PerChannelFp8`/`PerGroupFp4`,
   decode matvec kernels), `OperationTraits` dispatch, the Llama path. The `CudaLinearOp` quantization
   white-box is the sole legitimate op-layer test (unreachable through the public component).
@@ -43,14 +61,21 @@ good-first-issue.
   delta, GPU companions (`Network.Cuda`/`AdamW.Cuda`), then the Bard GPT-2 stack tail.
 - [ ] Retire the redundant op-layer mirror tests — out of the CMake build; files kept on disk pending
   an explicit delete.
+- [ ] Backward-path kernels disabled or unverified behind `REVIEW:` markers — `CudaSoftmaxOp.ixx:73`
+  and `:103` throw `"needs review"` with the real calls commented out; `Gelu.Fp32.cu:65` records that
+  the shipped backward is not the numerically stable `sech^2` form. Gradient-check these before the
+  suite can claim backward coverage.
+- [ ] `CudaResidualOp.ixx:116-117` — `input_A` / `input_B` are marked unused in the backward
+  signature; either the contract is wrong or the parameters are dead.
 - [ ] **Known-red CUDA tests (5) — beta-phase cleanup.** Surfaced by `x64-validate` ctest at the
   beta.1 cut (1417/1418 pass); all CUDA-path, so invisible to the CPU-only CI ratchet. Accepted
   non-blocking for beta.1; triage in the beta ladder (inference-path first):
   - `LinearCudaQuantizedTests.Forward_Fp4PrefillMatchesDecodeAcrossTokenMagnitudes` — FP4 prefill-vs-
     decode parity across token magnitudes; **inference / flagship FP4 path — triage first** (Gemma FP4
     validated token-for-token vs HF end-to-end, so likely a strict cross-path tolerance, not a live break).
-  - `BpeTokenizerGemma.Encode_StartOfTurn_IsSingleAtomicToken` — `<start_of_turn>` should encode as one
-    atomic token; Gemma tokenizer contract (chat path is HF-validated, so suspect a strict-encode assertion).
+  - `BpeTokenizerGemma.Encode_StartOfTurn_IsSingleAtomicToken` — **ROOT CAUSE FOUND** (marker at
+    `Tests/Data/Tokenizers/Bpe/BpeTokenizer.Gemma.cpp:163`): the test is wrong, not the code. The Gemma 4
+    tokenizer binary has no `<start_of_turn>` token — it uses `<|turn>` / `<turn|>`. Fix the assertion.
   - `RopeCudaTests.Backward_InverseRotationRecoversInput<Fp32>` — RoPE backward inverse-rotation recovery;
     backward/training path (inference uses forward only).
   - `LinearCudaTests.Backward_MatchesReferenceGradients<Bf16>` — BF16 Linear backward gradient match;
@@ -69,23 +94,33 @@ good-first-issue.
 - [x] Revive the Bard (GPT-2) sample + validate — trains to coherent Shakespeare; fixed 3 latent CUDA
   training-backward bugs.
 - [~] Data-loader contract tests — `TokenSequenceLoader` done; remaining: the `MnistDataLoader`
-  contract test (normalization, one-hot targets, shuffle-on-reset, IDX magic-number).
+  contract test (normalization, one-hot targets, shuffle-on-reset, IDX magic-number). Pin the TokenId
+  signedness contract while there — `TokenSequenceLoader.ixx:44` records ids as semantically unsigned
+  but stored `int32_t` to suit the CUDA encoder kernels.
 - [~] Re-enable the AdamW path — `AdamW.Cpu.cpp` active with a convergence case; remaining:
   `AdamW.Cuda.cpp` companion + strip-vs-gate the `CudaAdamW.cu` / `CudaAdamWOptimizer.ixx:270` debug
   `printf`s in the same pass.
+- [ ] Mixed-precision AdamW master parameters are zeroed, not copied — `CudaAdamWOptimizer.ixx:178`
+  calls `zero( *master_param )` with the marker "For now, initialize to zero", so a mixed-precision run
+  starts from zeroed masters instead of the current parameter values. Pair with the outdated
+  precision-check / master-parameter logic flagged at `:169`.
 - [~] **[net-new]** Training-loop integration test (sample-independent) — MNIST spine covered by
   `Network.Cpu.cpp`; remaining: a GPT-2-stack analogue for the Bard spine.
 - [ ] **[net-new]** Optimizer step-convergence test — minimizes a known convex objective in N steps
   (proves update direction + bias-correction, not just that `step()` runs).
 - [ ] **[net-new]** TrainingMode / RuntimeMode behavior coverage — assert build/runtime-mode
-  transitions allocate/skip gradient buffers correctly (regression guard for the lifecycle fix).
+  transitions allocate/skip gradient buffers correctly (regression guard for the lifecycle fix). Three
+  `REVIEW:` markers are the invariant to assert, each guarding a state the author believes unreachable:
+  `TokenEmbedding.ixx:221` and `Lpe.ixx:187` ("if built and in training mode these buffers should
+  always be initialized -- if not, it's a bug"), and `Lpe.ixx:495` ("must already be built").
 - [ ] Fix the CUDA `fill_normal` / `fill_uniform` FP32-only gap (corrupts BF16 train-from-scratch
   init) — pair with a BF16 init-at-precision `TYPED_TEST` that turns the silent corruption red.
 - [ ] **[decoupled]** Revive the loss + backward path (CrossEntropy / SoftmaxCrossEntropy) — both
   samples compute loss host-side, so off the critical path to a converging sample.
 - [ ] **[net-new, training-only]** Revive the `Dropout` component from `Dev/Components/Regularization/`.
 - [ ] ProgressReporter — an injected per-operation progress facility for long-lived ops (BPE vocab
-  training, `PretrainedReader` load, load-time quantization).
+  training, `PretrainedReader` load, load-time quantization). `BpeVocabulary.ixx:624` is the concrete
+  call site: an inline every-100-merges elapsed-time print asking to become an async progress callback.
 - [ ] Validation — training path proven by the primitive suite (gradient-checks, optimizer
   step-convergence, loader contracts, init-at-precision, the integration test), CI-gated; the samples
   run as demos.
@@ -109,8 +144,9 @@ good-first-issue.
 - [x] Freeze the narrowest defensible export surface — RESOLVED: the umbrella is as narrow as C++23
   modules allow (a type in a public template's interface must be visible, not merely reachable, at
   instantiation). A `Mila.ixx` header contract records the rule.
-- [~] Contributor onboarding — `CONTRIBUTING.md` + `getting-started.md` DONE; remaining (GitHub-side):
-  `good first issue` labels and the `dev -> master` default-branch flip.
+- [x] Contributor onboarding — `CONTRIBUTING.md`, `getting-started.md`, `CODE_OF_CONDUCT.md`, and the
+  rest of the GitHub Community Standards checklist in place; two `good first issue` issues opened. (The
+  `dev -> master` default-branch flip was a stale note — `master` is and always was the default branch.)
 - [~] Linux/clang first-class platform — WSL green, CI compiles under clang-21, container builds +
   runs Gemma 4 FP4. GCC 16 second oracle + broadened compiler matrix -> Future.
 - [~] Reproducible container build — validated (clang-21 + gcc-15 host, CUDA 13.3); remaining: build
@@ -127,8 +163,21 @@ good-first-issue.
 - [ ] Module import hygiene — Phase 0 exact-dup dedup, Phase 1 candidate report, Phase 2
   compiler-verified removal (Clang/GCC, not MSVC); plus domain-qualify generic single-segment module
   names (`Core`/`Utils`/`Components`/`Profiling` -> `Dnn.*`).
-- [ ] Marker-debt triage — the ~94 remaining `REVIEW:` markers (56 files); the correctness "bucket D"
-  items each need eyes-on.
+- [x] Marker-debt classify pass — all 89 `REVIEW:` markers (48 files) assigned to a class 2026-07-21
+  and recorded in the task that owns each: Models 6, Test Suite Revival 14, Training Revival 7,
+  Production Hardening 30, and 32 to the new **API Coherence** entry under Future. The markers
+  themselves stay in source until their owning task resolves them.
+- [ ] Delete the 16 `REVIEW:` markers whose disposition is already recorded — no analysis left, only
+  removal: the 12 in `CudaGqa.Dispatch.ixx` answered by that file's own banner at `:36` ("retire in
+  place as dormant training substrate"), plus `CudaOps.h:30` (declarations no longer needed),
+  `Linear.cuh:83` (commented-out FP16 reductions), `Component.ixx:299` (commented-out accessor judged
+  to add no value), and `CudaDeviceMemoryResource.ixx:139` (scoped to milestone Alpha.6, two stages
+  stale).
+- [ ] Canonicalize `dim_t` for tensor-axis dimensions — configs store `int`/`size_t` while `Tensor`
+  shapes are `dim_t` (`int64_t`), so `static_cast` band-aids leak through `Rope.Config.ixx:269`,
+  `Linear.ixx:851`, `TokenEmbedding.ixx:519`, `GroupedQueryAttention.ixx:563`, `GemmaModel.ixx:395` —
+  and out to the public `decode()` signature, per the test-side marker at `Gemma.Cuda.cpp:337`. The
+  library-wide rule the markers agree on: if a field describes the size of a tensor axis, it is `dim_t`.
 - [ ] Broaden CI compiler coverage toward the supported matrix (adds MSVC + GCC 16 to clang-21).
 - [ ] Stage model weights off the Windows bind mount for the container (native disk speed).
 - [ ] **[contributor]** Llama-lineage CPU ops (`RmsNormOp`, `SwigluOp`, `RopeOp`, `TokenEmbeddingOp`,
@@ -136,7 +185,9 @@ good-first-issue.
   (full CPU parity is not a gate).
 - [ ] **[deferred, measure first]** Remove FP16 (superseded by BF16) — woven through live code
   (`CudaDataTypeMap<half>`, `CudaLinearOp` half branches, `*_fp16` GQA/MHA/LPE stubs); trace
-  live-vs-dead before removal.
+  live-vs-dead before removal. The trace is largely written: 8 `REVIEW:` markers already scope it —
+  `CudaMhaOp.Dispatch.ixx:126,173`, `CudaLpeOp.Dispatch.ixx:18,105,152,173`, `CudaSoftmaxOp.ixx:79`,
+  `CudaLinearOp.ixx:1068` (the last reading "we need only support bf16 for CUDA").
 
 ### Product Family — Adaptor Validation
 
@@ -170,6 +221,28 @@ to the current release.
   `OperationTraits`, and the unspecced **Chat** feature milestone.
 - **Ministral** — SWA transformer; reuses the Llama foundation, Qwen 3 tool-calling, and the Gemma 4
   SWA mask + bounded-KV ring.
+- **API Coherence** — the pre-1.0 consistency pass, and the precursor to any API-stability promise
+  (RELEASING makes 1.0.0 a separate deliberate decision). 32 `REVIEW:` markers scope it, in four
+  groups. *Construction:* factory design for tokenizers (`Tokenizer.ixx:45`), the half-baked
+  `ComponentFactory` (`:30`), `GptTransformer::fromPretrained` vs `GptModel::fromPretrained`
+  (`:123`, `:135`), ambiguous `LayerNormConfig` constructors (`:77`), `setParameters()` wanting
+  weight+bias where only weight exists (`TokenEmbedding.ixx:421`, `Softmax.ixx:372`). *Naming:*
+  `MemoryStats` `device_*`/`host_*` reading as the wrong axis (`:35`), `GptConfig::toString` bypassing
+  getters (`:206`), `Rope.Config.ixx:120` max-sequence-length semantics. *Vitality — does this surface
+  earn its keep:* `Tensor::getUId` (`:110`, `:588` — used only in tests), `CpuDevice.ixx:75`,
+  `CompositeComponent.ixx:663` (no-op hook), `Network.ixx:335`, `Component.ixx:552`,
+  `CudaMhaOp.ixx:758`, `Component.MemoryStats.ixx:122`. *Visibility:* `GroupedQueryAttention.ixx:73`
+  and `MultiHeadAttention.ixx:66` agree that `initializeKVCache()` / `resetKVCache()` should become
+  private behind a `friend class TransformerBase<>` once that common base exists — so this group is
+  gated on the `TransformerBase<>` decision, not independent of it. *Placement / boilerplate:* where
+  validation belongs (`Lpe.ixx:143`, `CudaGeluOp.ixx:89` wanting a shared helper, `CudaDevice.ixx:253`
+  and `CudaHelpers.ixx:46` on redundant defensive checks), context casting repeated per-op
+  (`CudaGeluOp.ixx:140`), allocation flags (`CudaPinnedMemoryResource.ixx:94`), dispatcher
+  pass-through (`CudaRopeOp.Dispatch.ixx:128`), module grouping
+  (`TensorOps.ixx:9`, `Tensor.Partitioning.ixx:12`), and two performance notes (`GemmaModel.ixx:512`
+  double-copy on the token-id path, `LayerNorm.Fp32.cu:11` templating on training mode). Sibling of the
+  `ComponentType` vitality question below; `GptModel.ixx:205` (hoist `onGenerating()` into the base)
+  belongs with the Generation API tail above.
 - **Architecture / MoE** — the presumptive post-v0.20 tentpole. Generalize `GatedMLP`'s gate
   (GeGLU/ReGLU) + the CPU `SwigluOp`; grouped `MoeOp` + `Router` + `MixtureOfExperts`; `LlamaBlock`
   delegating to `GatedMLP`. See `Specifications/FfnAndMoE.md`. Not a must for any single model, but the
@@ -189,6 +262,19 @@ to the current release.
   accumulation. See `Specifications/GqaMemory.md`, `W4A16` design notes.
 - **Native low-precision compute (Blackwell+)** — microscaling data path, finer per-arch gating
   (sm_120, CUTLASS 4.x), "compute precision as a first-class axis".
+- **Compute backends beyond CUDA** — ROCm and Metal. `DeviceType::Rocm` / `::Metal` are reserved with
+  `// FUTURE:` comments (`Mila/Src/Dnn/Compute/DeviceType.ixx:23`) and nothing else exists; `Device.ixx`
+  docstrings already reference them. Per backend: memory resource, execution context, device layer, an
+  `OperationTraits` partition, and the kernels. The component sources should not change — that is the
+  claim under test. Hardware-gated (SPONSORING.md); publicly advertised there and in Discussion #7, so
+  keep this entry honest about "reserved, not implemented".
+- **Platform portability — aarch64 + coherent memory** — Mila has never been built on ARM (x86-64
+  Windows/Linux only), so an aarch64 build is an unknown-size portability sweep of the same class as the
+  Clang/GCC cross-compiler fixes. Carries three sub-threads: (a) a third arch gate beyond sm_89/sm_120;
+  (b) container/published-image validation on an ARM Linux reference platform; (c) the coherent
+  unified-memory question — memory resources and the mmap + pinned double-buffer loader assume discrete
+  VRAM with explicit H2D staging, and a single-pool device has nothing to copy into. Scope (c) before
+  assuming it is small: nobody has audited how deep the discrete-VRAM assumption runs.
 - **Model loading** — load-time FP4 sidecar cache; concurrent / async read I/O for real queue depth.
 - **Ungated GPT-2 zero-auth quick-start** — first-run HTTPS weights fetch (a runtime addition the
   freeze excludes). Freeze-compatible descope: host the pre-converted blob + a one-line download.
