@@ -336,9 +336,12 @@ available inside the container automatically.
 
 ## Documentation
 
-API reference: https://toddthomson.github.io/Mila
+Site: https://toddthomson.github.io/Mila — including the
+[blog](https://toddthomson.github.io/Mila/blog/) on the CUDA kernels and architecture work.
 
-Updated automatically on every push to master.
+API reference: https://toddthomson.github.io/Mila/api/
+
+Both are rebuilt automatically on every push to master.
 
 ---
 

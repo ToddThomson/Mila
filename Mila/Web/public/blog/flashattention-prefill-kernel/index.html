@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/Mila/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=Mila/livereload" data-no-instant defer></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Writing a FlashAttention Prefill Kernel for Gemma 4: Head Dim 512, Tensor Cores and an FP8 GEMM · Mila</title>
+<meta name="description" content="Hand-writing a tensor-core flash-attention prefill kernel for Gemma 4&#39;s 512-wide heads, plus an FP8 activation GEMM. Ten sessions from 1.95x behind llama.cpp to 1.14x.">
+<link rel="canonical" href="http://localhost:1313/Mila/blog/flashattention-prefill-kernel/">
+
+
+<meta property="og:type" content="article">
+<meta property="og:title" content="Writing a FlashAttention Prefill Kernel for Gemma 4: Head Dim 512, Tensor Cores and an FP8 GEMM">
+<meta property="og:description" content="Hand-writing a tensor-core flash-attention prefill kernel for Gemma 4&#39;s 512-wide heads, plus an FP8 activation GEMM. Ten sessions from 1.95x behind llama.cpp to 1.14x.">
+<meta property="og:url" content="http://localhost:1313/Mila/blog/flashattention-prefill-kernel/">
+<meta property="og:site_name" content="Mila"><meta property="article:published_time" content="2026-07-15">
+<meta name="twitter:card" content="summary">
+
+<link rel="icon" href="/Mila/achilles.png">
+
+<style>
+:root {
+  --fg: #17171a; --bg: #fff; --muted: #5d5d66; --rule: #e4e4e8; --faint: #fafafb;
+   
+  --accent: #0a40c2; --accent-soft: #dce4f9; --code-bg: #f6f6f8;
+  --k: #cf222e; --c: #57606a; --s: #0a3069; --n: #0550ae; --f: #6639ba;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e8e8ec; --bg: #121215; --muted: #9b9ba6; --rule: #2b2b33; --faint: #17171b;
+     
+    --accent: #7ea3ff; --accent-soft: #1a2340; --code-bg: #1a1a1f;
+    --k: #ff7b72; --c: #8b949e; --s: #a5d6ff; --n: #79c0ff; --f: #d2a8ff;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 17px/1.7 system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-synthesis: none;
+}
+.wrap { max-width: 47rem; margin: 0 auto; padding: 0 1.5rem; }
+
+ 
+.band { padding: 4rem 0; border-bottom: 1px solid var(--rule); }
+.band.alt { background: var(--faint); }
+.band:last-child { border-bottom: none; }
+.band h2 { margin-top: 0; border-bottom: none; padding-bottom: 0; font-size: 1.5rem; }
+.band .sub { max-width: 38rem; }
+main > .wrap { padding-top: 3rem; padding-bottom: 2rem; }
+
+header { padding: 1.75rem 0 1.1rem; border-bottom: 1px solid var(--rule); text-align: center; }
+header .name { display: flex; align-items: center; justify-content: center; gap: .7rem; flex-wrap: wrap; }
+header .name a { display: inline-flex; align-items: center; gap: .55rem; color: var(--fg);
+  text-decoration: none; font-weight: 700; font-size: 1.2rem; letter-spacing: -.02em; }
+ 
+header .name img { width: 26px; height: 26px; display: block; }
+header .tag { color: var(--muted); font-size: .82rem; }
+nav { margin-top: .7rem; font-size: .93rem; display: flex; justify-content: center; gap: 1.3rem; flex-wrap: wrap; }
+nav a { color: var(--muted); text-decoration: none; }
+nav a:hover { color: var(--accent); }
+
+ 
+.navbtn { display: none; }
+@media (max-width: 44rem) {
+  .navbtn { display: inline-flex; align-items: center; gap: .45rem; cursor: pointer;
+    margin-top: .9rem; padding: .4rem .8rem; border: 1px solid var(--rule); border-radius: 7px;
+    font-size: .9rem; color: var(--fg); user-select: none; }
+  .navbtn:hover { border-color: var(--accent); }
+  nav { display: none; flex-direction: column; gap: .9rem; margin-top: 1.1rem;
+    padding-bottom: .4rem; }
+  #navtoggle:checked ~ nav { display: flex; }
+  nav a { font-size: 1rem; }
+}
+
+a { color: var(--accent); text-underline-offset: 2px; }
+h1 { font-size: 2.1rem; line-height: 1.2; letter-spacing: -.03em; margin: 0 0 .8rem; }
+h2 { font-size: 1.28rem; letter-spacing: -.01em; margin: 3rem 0 .9rem; padding-bottom: .35rem; border-bottom: 1px solid var(--rule); }
+h3 { font-size: 1.06rem; margin: 2rem 0 .5rem; }
+p { margin: 0 0 1.15rem; }
+.lede { font-size: 1.16rem; line-height: 1.55; letter-spacing: -.01em; }
+.lede strong { font-weight: 650; }
+.meta { color: var(--muted); font-size: .9rem; margin: -.2rem 0 2.4rem; }
+.meta a { color: var(--muted); }
+
+ 
+.hero { padding: 4.5rem 0 3.5rem; text-align: center; }
+.hero h1 { font-size: clamp(2.3rem, 6.5vw, 3.4rem); line-height: 1.06; margin-bottom: 1.1rem; }
+.hero .lede { max-width: 36rem; color: var(--muted); margin: 0 auto 2rem; }
+.hero .cta { justify-content: center; }
+ 
+.hero .feats { text-align: left; }
+
+ 
+.wrap.wide { max-width: 62rem; }
+
+ 
+.feats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 3rem; }
+@media (max-width: 52rem) { .feats { grid-template-columns: 1fr; } }
+.feat { display: block; padding: 1.2rem 1.3rem; border: 1px solid var(--rule); border-radius: 9px;
+  background: var(--faint); text-decoration: none; color: var(--fg);
+  transition: border-color .15s, transform .15s; }
+.feat:hover { border-color: var(--accent); transform: translateY(-2px); }
+.feat b { display: block; font-size: 1.15rem; letter-spacing: -.015em; margin-bottom: .25rem; }
+.feat p { margin: 0; color: var(--muted); font-size: .93rem; line-height: 1.55; }
+.feat p strong { color: var(--fg); font-weight: 600; }
+.band.alt .feat { background: var(--bg); }
+
+ 
+.chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .8rem; margin: 1.8rem 0 0; }
+.chip { display: block; border: 1px solid var(--rule); border-radius: 8px; padding: .9rem 1rem;
+  background: var(--bg); text-decoration: none; color: var(--fg);
+  transition: border-color .15s, transform .15s; }
+.chip:hover { border-color: var(--accent); transform: translateY(-2px); }
+.chip .n { font-weight: 650; font-size: .97rem; letter-spacing: -.01em; display: block; }
+.chip .p { display: inline-block; margin-top: .45rem; font-size: .75rem; font-weight: 600;
+  letter-spacing: .03em; color: var(--accent); background: var(--accent-soft);
+  padding: .16rem .5rem; border-radius: 4px; }
+.band.alt .chip { background: var(--bg); }
+.note { color: var(--muted); font-size: .9rem; margin-top: 1.6rem; }
+ 
+.byline { font-size: 1.1rem; margin: 0 0 .3rem; letter-spacing: -.01em; }
+.byline + .byline { color: var(--muted); font-size: 1rem; margin-bottom: 1.8rem; }
+.cta { display: flex; gap: .7rem; flex-wrap: wrap; }
+.btn { display: inline-block; padding: .6rem 1.15rem; border-radius: 7px; font-size: .94rem;
+  font-weight: 550; text-decoration: none; border: 1px solid var(--rule); color: var(--fg);
+  transition: border-color .15s, background .15s; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { filter: brightness(1.08); }
+
+.sub { color: var(--muted); margin: -.35rem 0 1.5rem; }
+p.tail { color: var(--muted); font-size: .95rem; margin-top: 2.5rem; }
+p.tail p { margin: 0; }
+
+ 
+.boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; margin: 2.5rem 0 1rem; }
+.box { display: flex; flex-direction: column; gap: .45rem; padding: 1.4rem 1.45rem 1.25rem;
+  border: 1px solid var(--rule); border-radius: 10px; background: var(--faint);
+  text-decoration: none; color: var(--fg); transition: border-color .15s, transform .15s; }
+.box:hover { border-color: var(--accent); transform: translateY(-2px); }
+.box-kicker { font-size: .73rem; font-weight: 650; text-transform: uppercase; letter-spacing: .07em; color: var(--accent); }
+.box-title { font-size: 1.2rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; }
+.box-desc { font-size: .9rem; line-height: 1.55; color: var(--muted); flex: 1; margin-top: .15rem; }
+.box-more { font-size: .87rem; font-weight: 550; color: var(--accent); margin-top: .5rem; }
+
+ 
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(15.5rem, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.card { display: flex; flex-direction: column; gap: .4rem; padding: 1.15rem 1.25rem 1rem;
+  border: 1px solid var(--rule); border-radius: 9px; background: var(--faint);
+  text-decoration: none; color: var(--fg); transition: border-color .15s, transform .15s; }
+.card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.card-date { font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.card-title { font-size: 1.01rem; font-weight: 650; line-height: 1.35; letter-spacing: -.01em; }
+.card-desc { font-size: .89rem; line-height: 1.5; color: var(--muted); flex: 1; }
+.card-more { font-size: .86rem; font-weight: 550; color: var(--accent); margin-top: .3rem; }
+
+ 
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1px;
+  background: var(--rule); border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; margin: 2rem 0; }
+.stat { background: var(--faint); padding: .85rem 1rem; }
+.stat b { display: block; font-size: 1.32rem; letter-spacing: -.02em; color: var(--accent); font-weight: 700; }
+.stat span { display: block; color: var(--muted); font-size: .8rem; line-height: 1.35; margin-top: .15rem; }
+
+code { background: var(--code-bg); padding: .12em .36em; border-radius: 3px; font-size: .88em; }
+pre { background: var(--code-bg); border: 1px solid var(--rule); padding: .95rem 1.1rem; border-radius: 7px;
+  overflow-x: auto; font-size: .855rem; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: inherit; }
+.chroma .k, .chroma .kd, .chroma .kn, .chroma .kt, .chroma .kr, .chroma .cp { color: var(--k); }
+.chroma .c, .chroma .c1, .chroma .cm, .chroma .cs { color: var(--c); font-style: italic; }
+.chroma .s, .chroma .s1, .chroma .s2, .chroma .sc { color: var(--s); }
+.chroma .m, .chroma .mi, .chroma .mf, .chroma .mh, .chroma .o { color: var(--n); }
+.chroma .nf, .chroma .nb, .chroma .nd { color: var(--f); }
+.chroma .nc, .chroma .nn { color: var(--fg); }
+
+table { border-collapse: collapse; width: 100%; font-size: .91rem; margin: 1.4rem 0; }
+th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 650; font-size: .84rem; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+tbody tr:last-child td { border-bottom: none; }
+.scroll { overflow-x: auto; margin: 1.4rem 0; }
+.scroll table { margin: 0; }
+
+blockquote { margin: 1.4rem 0; padding: .1rem 0 .1rem 1.1rem; border-left: 3px solid var(--accent-soft); color: var(--muted); }
+hr { border: none; border-top: 1px solid var(--rule); margin: 2.5rem 0; }
+img { max-width: 100%; height: auto; }
+ul, ol { padding-left: 1.3rem; }
+li { margin-bottom: .35rem; }
+
+ul.posts { list-style: none; padding: 0; margin: 1.2rem 0 0; }
+ul.posts li { margin-bottom: 1.5rem; }
+ul.posts .t { font-size: 1.04rem; font-weight: 650; letter-spacing: -.01em; }
+ul.posts .t a { text-decoration: none; }
+ul.posts .t a:hover { text-decoration: underline; }
+ul.posts .d { color: var(--muted); font-size: .89rem; line-height: 1.5; margin-top: .15rem; }
+
+ 
+.backlink { display: inline-block; margin-bottom: 1.6rem; font-size: .9rem; color: var(--muted);
+  text-decoration: none; }
+.backlink:hover { color: var(--accent); }
+.postnav { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 3.5rem;
+  padding-top: 1.8rem; border-top: 1px solid var(--rule); }
+@media (max-width: 40rem) { .postnav { grid-template-columns: 1fr; } }
+.pn a { display: block; padding: .95rem 1.1rem; border: 1px solid var(--rule); border-radius: 9px;
+  background: var(--faint); text-decoration: none; color: var(--fg);
+  transition: border-color .15s, transform .15s; height: 100%; }
+.pn a:hover { border-color: var(--accent); transform: translateY(-2px); }
+.pn-next { text-align: right; }
+.pn-dir { display: block; font-size: .78rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--accent); font-weight: 650; margin-bottom: .25rem; }
+.pn-title { display: block; font-size: .95rem; font-weight: 600; line-height: 1.4;
+  letter-spacing: -.01em; }
+
+footer { border-top: 1px solid var(--rule); margin-top: 5rem; padding: 1.4rem 0 4rem;
+  color: var(--muted); font-size: .88rem; }
+footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="name">
+      
+      <a href="/Mila/"><img src="/Mila/achilles.png" alt="Achilles Software" width="26" height="26">Mila</a>
+      <span class="tag">C++23 · CUDA · open LLMs</span>
+    </div>
+    <input type="checkbox" id="navtoggle" hidden>
+    <label class="navbtn" for="navtoggle" aria-label="Toggle menu"><span aria-hidden="true">☰</span> Menu</label>
+    <nav><a href="/Mila/start/">Get started</a><a href="/Mila/blog/">Blog</a><a href="/Mila/api/">Documentation</a><a href="/Mila/sponsor/">Sponsor</a><a href="/Mila/#contact">Contact</a><a href="https://github.com/ToddThomson/Mila">GitHub</a></nav>
+  </div>
+</header>
+<main>
+
+<div class="wrap">
+
+
+<a class="backlink" href="/Mila/blog/">← All posts</a>
+
+<article>
+  <h1>Writing a FlashAttention Prefill Kernel for Gemma 4: Head Dim 512, Tensor Cores and an FP8 GEMM</h1>
+  <p class="meta">
+    15 July 2026
+     · <a href="https://github.com/ToddThomson/Mila/discussions/16">Discuss on GitHub</a>
+  </p>
+  <p>Adding FlashAttention to Mila&rsquo;s GQA started as a <strong>memory</strong> project. It was the last big lever in optimizing memory utilization across the Gemma 4 pipeline — with weight tying, FP8 KV, and bounded sliding-window KV already in place, the attention path was the last thing still materializing large intermediates. A classical attention writes a <code>[chunk × attended_len]</code> score matrix to global memory, and its workspace has to be sized to the <em>full</em> context width; at 64K that&rsquo;s ~1 GB per buffer of pure throwaway. FlashAttention&rsquo;s online softmax removes it entirely, and that reclaim — <strong>~1-2 GB at long context</strong> — is what took Gemma 4 12B from a VRAM cliff at 32K to <strong>running 64K on a 12 GB RTX 4070</strong>. Speed was the second prize, and it&rsquo;s the one that turned into a ten-session campaign.</p>
+<p>Ten sessions ago, Mila&rsquo;s Gemma 4 12B prefill on an RTX 4070 was ~1.95x slower than llama.cpp at 48K context. As of <code>0.20.0-alpha.6+104</code> it&rsquo;s <strong>1.14x</strong> — near parity on the same hardware, same model, same context. This is the log of how we got there: a hand-written FlashAttention kernel, an FP8 GEMM, and a trail of dead ends that taught us more than the wins did.</p>
+<p>No CUTLASS. No CuTe. Just CUDA C++, raw <code>mma.sync</code> PTX, and <code>ncu</code>. Mila is a craft project — the point was to <em>understand</em> every cycle, not to link a library that already does.</p>
+<h2 id="the-starting-point">The starting point</h2>
+<p>Gemma 4 12B, FP4 weights, 48K context (22,496 prompt tokens), RTX 4070 (Ada, sm_89):</p>
+<table>
+	<thead>
+			<tr>
+					<th></th>
+					<th>wall @48K</th>
+					<th>tok/s</th>
+					<th>vs llama.cpp</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>llama.cpp (reference)</td>
+					<td>10,903 ms</td>
+					<td>2,063</td>
+					<td>1.00x</td>
+			</tr>
+			<tr>
+					<td>Mila, start of campaign</td>
+					<td>~21,300 ms</td>
+					<td>~1,056</td>
+					<td><strong>1.95x</strong></td>
+			</tr>
+	</tbody>
+</table>
+<p>Profiling the baseline told us <em>where</em> the time went, and it wasn&rsquo;t where we assumed. At 8K the linear/FFN GEMMs dominated (68%), but at 32K the <strong>softmax score-matrix materialization</strong> became the single biggest kernel — a clean O(S²) that grew 15x for a 4x context bump. That&rsquo;s the long-context cliff, and it&rsquo;s exactly what FlashAttention&rsquo;s online softmax removes: it never writes the <code>[chunk × attended_len]</code> score matrix to global memory at all.</p>
+<h2 id="how-the-memory-actually-got-reclaimed">How the memory actually got reclaimed</h2>
+<p>The mechanism is worth spelling out, because the reclaim wasn&rsquo;t automatic. Gemma 4 interleaves 8 global layers with 40 window-bounded sliding layers, but the attention score workspace was a <em>single shared buffer</em> sized to the widest consumer — the global layer at full context width. Once the global layers moved onto flash and stopped touching that buffer, it could be resized down to what only the sliding layers need, which is window-bounded and tiny by comparison.</p>
+<p>Before: ~300 MiB free at 32K — a VRAM cliff. After: 64K context fits, with the score buffer down from a full-context ~1 GB to the sliding-window need. The savings scale with context, which is exactly the regime that was breaking, so flash is as much a <em>fit</em> enabler as a speed one.</p>
+<p>One insight unlocked the whole effort: <strong>attention has no weights.</strong> Q/K/V are activations, and Mila&rsquo;s KV cache is BF16. FP4 is weight-only (linears/FFN). So flash attention is BF16×BF16 tensor-core work — <em>identical</em> to what llama.cpp runs over its FP16 KV cache. There was no structural barrier to matching it; our gap was pure unfinished optimization.</p>
+<h2 id="the-kernel-iteration-by-iteration">The kernel, iteration by iteration</h2>
+<p>Every step was gated on a parity oracle (flash-on vs cuBLASLt, atol 3e-2) and <code>ncu</code>. Per-instance kernel time, 8K global-layer attention:</p>
+<table>
+	<thead>
+			<tr>
+					<th>Stage</th>
+					<th>What changed</th>
+					<th>ms/inst</th>
+					<th>Verdict</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Iter 1</td>
+					<td>Naive scalar, warp-per-row, no shared mem</td>
+					<td>127</td>
+					<td><strong>74% regression</strong></td>
+			</tr>
+			<tr>
+					<td>Iter 2</td>
+					<td>Shared-memory K/V tiling (the &ldquo;real&rdquo; flash algo)</td>
+					<td>103</td>
+					<td>Non-fix — falsified our own premise</td>
+			</tr>
+			<tr>
+					<td>2a</td>
+					<td>WMMA tensor cores, HS-split across warps</td>
+					<td>47.5</td>
+					<td>Real step, still 3.5x off</td>
+			</tr>
+			<tr>
+					<td>2b</td>
+					<td>Register-resident output via raw <code>mma.sync</code> PTX</td>
+					<td>26.9</td>
+					<td>Half the gap gone</td>
+			</tr>
+			<tr>
+					<td>2c</td>
+					<td><code>cp.async</code> double-buffered software pipeline</td>
+					<td>22.8</td>
+					<td><strong>The win — beats cuBLASLt at 32K</strong></td>
+			</tr>
+			<tr>
+					<td>2d</td>
+					<td>QK→<code>mma.sync</code>, distributed softmax, <code>ldmatrix.x4</code></td>
+					<td>19.1</td>
+					<td>Fastest global kernel</td>
+			</tr>
+	</tbody>
+</table>
+<p>The two &ldquo;failures&rdquo; at the top were the most valuable measurements in the project.</p>
+<p><strong>Iter 1</strong> was the naive thing everyone writes first: one warp per query row, stream all of K/V from global memory. Profiling before committing caught a 74% regression — a ~100x memory trap. Good; that&rsquo;s what the profiler is for.</p>
+<p><strong>Iter 2</strong> is the one that mattered. We added proper shared-memory K/V tiling — the textbook flash algorithm — and it cut global K/V traffic ~16x. It bought <strong>1.2x.</strong> That one fact falsified our entire mental model. <code>ncu</code> corrected us: the kernel was never DRAM-bound (L2 hit 99.7%). The scalar warp-per-row formulation issues <strong>one shared-memory load per FMA</strong> — a 1-FLOP-per-2-byte ratio that saturates the load/store unit&rsquo;s <em>instruction issue rate</em>, not bandwidth. Tiling moved the loads from L2 to shared without cutting their <em>count</em>. The entire scalar family was structurally dead, and no amount of tiling, occupancy, or spill-fixing could escape the ceiling. The only way out was tensor cores.</p>
+<h2 id="head-dim-512-breaks-the-textbook">Head dim 512 breaks the textbook</h2>
+<p>Standard FlashAttention-2 splits the query rows across warps and keeps the output tile <code>O[Br × HS]</code> in registers. At Gemma&rsquo;s global head dim of <strong>512</strong>, that accumulator is 256 floats per thread — it won&rsquo;t fit; it spills unrecoverably. So we did something bespoke: <strong>split the head dimension across warps</strong> instead of the rows. Warp <em>w</em> owns output columns <code>[w·64, (w+1)·64)</code>, the QK becomes a split-K contraction with a tiny shared-memory reduction, and PV writes disjoint column slices with no cross-warp sync.</p>
+<p>That forced us down to raw <code>mma.sync.aligned.m16n8k16.f32.bf16.bf16.f32</code> PTX, because the online-softmax <strong>per-row rescale on a tensor-core accumulator</strong> cannot be expressed through the <code>wmma</code> convenience API — it hides the fragment→(row,col) thread mapping. The <code>mma.sync</code> layout is documented, so each thread knows which two rows its accumulators hold and applies the right <code>alpha</code> before each accumulate. This is the CUTLASS/FA-2 way, hand-written.</p>
+<h2 id="the-bug-that-passed-every-test">The bug that passed every test</h2>
+<p>Two lessons from this project are burned in permanently.</p>
+<p><strong>The single-warp softmax was the critical path all along.</strong> When we converted QK to <code>mma.sync</code> in Stage 2d, the first attempt <em>regressed 57%</em>. The cause: we&rsquo;d fused an 8-warp reduction into a 16-lane softmax section that ran on half of one warp while 7.5 warps idled. Every earlier flat experiment — padding, more warps, fewer barriers — had been flat because they were all attacking secondary costs. The serial softmax was the real ceiling. Distributing it across warps (each owns 2 rows, lane-groups sum partials in parallel, <code>__shfl_xor</code> for row max/sum) was the actual fix: 22.8 → 20.6 ms.</p>
+<p><strong>A green oracle is not a correct kernel.</strong> When we added <code>ldmatrix.x4</code>, the parity oracle passed, chat was coherent — and <code>ProfileModel</code> crashed with <code>cudaErrorIllegalAddress</code> at scale. <code>compute-sanitizer</code> found it: the <code>ldmatrix</code> PTX was missing the <code>.shared</code> qualifier, so a shared-memory offset was being dereferenced as a <em>generic</em> address. At small smem offsets that bogus address happened to alias the correct data, so the oracle stayed green over undefined behavior. The fix was <code>cvta.to.shared.u64</code> <strong>and</strong> <code>.shared</code> on the instruction — the canonical CUTLASS pattern, for exactly this reason. New rule: <strong>every PTX-level change now gates on <code>compute-sanitizer memcheck</code>, not just parity.</strong></p>
+<h2 id="the-strategic-pivot-flash-wasnt-the-whole-gap">The strategic pivot: flash wasn&rsquo;t the whole gap</h2>
+<p>Here&rsquo;s the honest part. Partway through, a hard <code>ncu</code> session forced a reckoning: even a <em>perfect</em> flash kernel does the same tensor-core QK/AV compute as cuBLASLt — it only removes the score materialization. That&rsquo;s a real prize at long context, but it was never going to be the whole 4-5x. The rest of the gap lived in the <strong>quantized matmul</strong>: our FP4 weights were dequantized to BF16 and run through a cuBLASLt BF16 GEMM, while llama.cpp runs integer/FP8 tensor cores directly.</p>
+<p>So we built the other lever: <strong>W4A8-FP8 prefill</strong> — native FP8×FP8 tensor cores on the linear GEMMs. It was the single biggest jump of the campaign (1,372 → 1,763 tok/s), and it came with its own hard-won lesson. The first cut passed the per-layer oracle at 5e-2 tolerance and generated <em>garbage</em> over 48 layers. The oracle measured one layer; the error compounded across all of them. Root cause was a stale, uninitialized scale factor (<code>sB</code>) read before the quantizer had filled it — invisible to a numerics oracle, deterministic under <code>compute-sanitizer --tool initcheck</code>. <strong>Validate the generation, not just the oracle.</strong></p>
+<h2 id="where-it-landed">Where it landed</h2>
+<p>The full campaign scoreboard @48K:</p>
+<table>
+	<thead>
+			<tr>
+					<th>Version</th>
+					<th>Lever</th>
+					<th>tok/s</th>
+					<th>vs llama.cpp</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>start</td>
+					<td>—</td>
+					<td>~1,056</td>
+					<td>1.95x</td>
+			</tr>
+			<tr>
+					<td>+100</td>
+					<td>Stage 2d: distributed-softmax mma + ldmatrix</td>
+					<td>1,205</td>
+					<td>1.71x</td>
+			</tr>
+			<tr>
+					<td>+101</td>
+					<td>Bounded-ring flash on the 40 local sliding layers</td>
+					<td>1,372</td>
+					<td>1.50x</td>
+			</tr>
+			<tr>
+					<td>+103</td>
+					<td>W4A8-FP8 prefill GEMM (FP8 tensor cores)</td>
+					<td>1,763</td>
+					<td>1.17x</td>
+			</tr>
+			<tr>
+					<td>+104</td>
+					<td>Row-split FA-2 kernel for the local layers</td>
+					<td>1,817</td>
+					<td><strong>1.14x</strong></td>
+			</tr>
+	</tbody>
+</table>
+<p>Two flash kernels ship: an <strong>HS-split</strong> kernel for the 8 global layers (head dim 512, at its Ada floor — the accumulator and the K/V double-buffer slam <em>both</em> occupancy doors at once, a direct consequence of the head dim, not a tuning gap), and a <strong>row-split FA-2</strong> kernel for the 40 local sliding layers (head dim 256, which <em>does</em> fit a register-resident output and gets 2 blocks/SM). Same idea, two geometries, because the hardware constraint is different at each head dim.</p>
+<h2 id="external-validation">External validation</h2>
+<p>Midway through, we found an excellent blog post by Thien Tran <a href="https://gau-nernst.github.io/fa-5090/">Writing Speed-Of-Light FlashAttention for 5090 using C++</a> — a hand-rolled flash kernel, no CUTLASS, one hardware generation ahead of us. Same trajectory, same <code>mma.sync.m16n8k16</code> choice, and their final hand-written kernel hits 94% of peak and <em>beats</em> the official FlashAttention library. It was a good gut-check that the approach — understand the metal, write the PTX yourself — actually reaches the frontier.</p>
+<h2 id="what-wed-tell-the-next-person">What we&rsquo;d tell the next person</h2>
+<ul>
+<li><strong>Profile before you commit.</strong> Two of our biggest &ldquo;insights&rdquo; were regressions the profiler caught. A naive kernel is not a valid baseline.</li>
+<li><strong>The profiler will falsify your mental model.</strong> We were sure we were memory-bound. We were instruction-issue-bound, then latency-bound, then occupancy-bound — a different regime at every stage, and only <code>ncu</code> could tell us which.</li>
+<li><strong>A passing oracle can hide UB and can hide compounding error.</strong> Add <code>compute-sanitizer</code> (<code>memcheck</code> for PTX, <code>initcheck</code> for uninitialized reads) and validate real generation, not just a per-layer tolerance.</li>
+<li><strong>Know what your lever can and can&rsquo;t buy.</strong> Flash removes score materialization; it was never the whole gap. The quantized GEMM was the other half. Measuring that early saved us from over-investing in one kernel.</li>
+<li><strong>The textbook assumes head dim ≤ 128.</strong> At 512 you write a different kernel. The 128-dim playbook does not transfer verbatim.</li>
+</ul>
+<p>This was never about beating llama.cpp — Mila is a mastery project, not a production runtime. But getting from 1.95x to 1.14x by hand, and understanding <em>exactly</em> why every cycle went where it did, was the whole point.</p>
+
+</article>
+
+
+
+<nav class="postnav">
+  <div class="pn pn-prev">
+    
+    <a href="/Mila/blog/bringing-up-gemma-4/"><span class="pn-dir">← Previous</span><span class="pn-title">Bringing Up Gemma 4 in C&#43;&#43;: Sliding-Window Attention, Dual RoPE and Token-for-Token Parity</span></a>
+    
+  </div>
+  <div class="pn pn-next">
+    
+    <a href="/Mila/blog/flash-decoding-mqa-cuda/"><span class="pn-dir">Next →</span><span class="pn-title">Flash-Decoding for MQA in CUDA: One KV Head, Split-K, and an FP4 Matvec at 90% of DRAM Peak</span></a>
+    
+  </div>
+</nav>
+
+
+</div>
+
+</main>
+<footer>
+  <div class="wrap">
+    <p>Mila is a C++23 library for open LLMs — inference and training, at the metal.
+    Source on <a href="https://github.com/ToddThomson/Mila">GitHub</a>, MIT licensed. Currently in public beta.</p>
+  </div>
+</footer>
+</body>
+</html>

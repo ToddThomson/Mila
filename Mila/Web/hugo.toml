@@ -1,0 +1,90 @@
+baseURL = 'https://toddthomson.github.io/Mila/'
+locale = 'en-us'
+title = 'Mila'
+
+# Mila does not tag or categorise posts, and Hugo would otherwise emit empty /categories/
+# and /tags/ pages and list them in the sitemap -- thin pages that dilute the site.
+disableKinds = ['taxonomy', 'term']
+
+# Builds with the Hugo STANDARD edition -- no Sass, no image processing, no cloud deploy.
+# The site's CSS is inline in layouts/_default/baseof.html. Keep it that way, or the CI pin
+# (and the local install) has to move to the extended edition.
+#
+# The API reference is Doxygen output copied into /api/ by the docs workflow -- it is not
+# Hugo content, so it stays out of the sitemap automatically. It is marked noindex by a
+# post-processing step in that workflow (a robots.txt cannot do the job: Mila is a project
+# site at a subpath, and crawlers only honour robots.txt at the domain root, which belongs
+# to a user site that does not exist).
+enableRobotsTXT = false
+
+# Writeups are migrated from GitHub Discussions and contain tables and fenced code.
+[markup]
+  [markup.goldmark.renderer]
+    unsafe = true
+  [markup.highlight]
+    noClasses = true
+    style = 'github-dark'
+  [markup.tableOfContents]
+    startLevel = 2
+    endLevel = 3
+
+[params]
+  description = 'A C++23 library for open LLMs at the metal - inference and training, built from explicit neural-network components you can read and understand.'
+  repo = 'https://github.com/ToddThomson/Mila'
+  email = 'todd.thomson@me.com'
+
+# The landing page's three claims. One-word lead, one line. Any number here is measured --
+# the perf figures come from Discussion #17 (RTX 4070 12 GB vs llama.cpp under LM Studio at
+# Q4_K_M, 48K context). Update them only from a real measurement.
+# Static claims -- no links. They sit above the destination boxes, whose job is to be the
+# way deeper; making these clickable competed with that and exited the site.
+[[params.features]]
+  lead = 'Fast'
+  text = '**1,817 tok/s** prefill and **49.1 tok/s** decode at a 32K context, on an RTX 4070 12GB.'
+[[params.features]]
+  lead = 'Explicit'
+  text = 'No autograd engine, no hidden execution engine. Call `forward()` and you know exactly which kernel runs.'
+[[params.features]]
+  lead = 'Validated'
+  text = 'Gemma 4, Llama 3.x and GPT-2 each reproduce a HuggingFace reference **token-for-token**.'
+
+# The validated surface, short form. The README table is the long form.
+[[params.models]]
+  name = 'Gemma 4 12B Instruct'
+  precision = 'FP4'
+  note = 'Flagship, chat default. Sliding-window local/global attention, dual RoPE, GeGLU.'
+[[params.models]]
+  name = 'Llama 3.1 8B Instruct'
+  precision = 'FP4 / FP8'
+  note = '~6 GB at FP4, the small-footprint workhorse.'
+[[params.models]]
+  name = 'Llama 3.2 3B Instruct'
+  precision = 'BF16 / FP8 / FP4'
+  note = 'Instruction following and tool calling validated.'
+[[params.models]]
+  name = 'Llama 3.2 1B'
+  precision = 'FP32'
+  note = 'The smallest full-lineage reference.'
+[[params.models]]
+  name = 'GPT-2'
+  precision = 'FP32 / BF16'
+  note = 'Where Mila started, and its training reference.'
+
+[[params.nav]]
+  name = 'Get started'
+  url = 'start/'
+[[params.nav]]
+  name = 'Blog'
+  url = 'blog/'
+[[params.nav]]
+  name = 'Documentation'
+  url = 'api/'
+[[params.nav]]
+  name = 'Sponsor'
+  url = 'sponsor/'
+[[params.nav]]
+  name = 'Contact'
+  url = '#contact'
+[[params.nav]]
+  name = 'GitHub'
+  url = 'https://github.com/ToddThomson/Mila'

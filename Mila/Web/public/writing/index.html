@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/Mila/livereload.js?mindelay=10&amp;v=2&amp;port=1314&amp;path=Mila/livereload" data-no-instant defer></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Writing · Mila</title>
+<meta name="description" content="Kernel and architecture writeups from building Mila - CUDA flash attention and flash decoding, FP4 and FP8 quantization, and getting Gemma 4 12B onto a 12 GB GPU.">
+<link rel="canonical" href="http://localhost:1314/Mila/writing/">
+
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Writing">
+<meta property="og:description" content="Kernel and architecture writeups from building Mila - CUDA flash attention and flash decoding, FP4 and FP8 quantization, and getting Gemma 4 12B onto a 12 GB GPU.">
+<meta property="og:url" content="http://localhost:1314/Mila/writing/">
+<meta property="og:site_name" content="Mila">
+<meta name="twitter:card" content="summary">
+
+<link rel="icon" href="/Mila/achilles.png">
+<link rel="alternate" type="application/rss+xml" title="Mila" href="http://localhost:1314/Mila/writing/index.xml">
+<style>
+:root {
+  --fg: #17171a; --bg: #fff; --muted: #5d5d66; --rule: #e4e4e8; --faint: #fafafb;
+   
+  --accent: #0a40c2; --accent-soft: #dce4f9; --code-bg: #f6f6f8;
+  --k: #cf222e; --c: #57606a; --s: #0a3069; --n: #0550ae; --f: #6639ba;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e8e8ec; --bg: #121215; --muted: #9b9ba6; --rule: #2b2b33; --faint: #17171b;
+     
+    --accent: #7ea3ff; --accent-soft: #1a2340; --code-bg: #1a1a1f;
+    --k: #ff7b72; --c: #8b949e; --s: #a5d6ff; --n: #79c0ff; --f: #d2a8ff;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; padding: 0 1.5rem; background: var(--bg); color: var(--fg);
+  font: 17px/1.7 system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-synthesis: none;
+}
+.wrap { max-width: 47rem; margin: 0 auto; }
+
+header { padding: 1.75rem 0 1.1rem; margin-bottom: 3rem; border-bottom: 1px solid var(--rule); }
+header .name { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
+header .name a { display: inline-flex; align-items: center; gap: .55rem; color: var(--fg);
+  text-decoration: none; font-weight: 700; font-size: 1.2rem; letter-spacing: -.02em; }
+ 
+header .name img { width: 26px; height: 26px; display: block; }
+header .tag { color: var(--muted); font-size: .82rem; }
+nav { margin-top: .7rem; font-size: .93rem; display: flex; gap: 1.3rem; flex-wrap: wrap; }
+nav a { color: var(--muted); text-decoration: none; }
+nav a:hover { color: var(--accent); }
+
+a { color: var(--accent); text-underline-offset: 2px; }
+h1 { font-size: 2.1rem; line-height: 1.2; letter-spacing: -.03em; margin: 0 0 .8rem; }
+h2 { font-size: 1.28rem; letter-spacing: -.01em; margin: 3rem 0 .9rem; padding-bottom: .35rem; border-bottom: 1px solid var(--rule); }
+h3 { font-size: 1.06rem; margin: 2rem 0 .5rem; }
+p { margin: 0 0 1.15rem; }
+.lede { font-size: 1.16rem; line-height: 1.55; letter-spacing: -.01em; }
+.lede strong { font-weight: 650; }
+.meta { color: var(--muted); font-size: .9rem; margin: -.2rem 0 2.4rem; }
+.meta a { color: var(--muted); }
+
+ 
+.hero { padding: .5rem 0 2.5rem; }
+.hero h1 { font-size: clamp(2.2rem, 6vw, 3.1rem); line-height: 1.08; margin-bottom: 1rem; }
+.hero .lede { max-width: 34rem; color: var(--muted); margin-bottom: 1.9rem; }
+.cta { display: flex; gap: .7rem; flex-wrap: wrap; }
+.btn { display: inline-block; padding: .6rem 1.15rem; border-radius: 7px; font-size: .94rem;
+  font-weight: 550; text-decoration: none; border: 1px solid var(--rule); color: var(--fg);
+  transition: border-color .15s, background .15s; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { filter: brightness(1.08); }
+
+.sub { color: var(--muted); margin: -.35rem 0 1.5rem; }
+p.tail { color: var(--muted); font-size: .95rem; margin-top: 2.5rem; }
+p.tail p { margin: 0; }
+
+ 
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(15.5rem, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.card { display: flex; flex-direction: column; gap: .4rem; padding: 1.15rem 1.25rem 1rem;
+  border: 1px solid var(--rule); border-radius: 9px; background: var(--faint);
+  text-decoration: none; color: var(--fg); transition: border-color .15s, transform .15s; }
+.card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.card-date { font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.card-title { font-size: 1.01rem; font-weight: 650; line-height: 1.35; letter-spacing: -.01em; }
+.card-desc { font-size: .89rem; line-height: 1.5; color: var(--muted); flex: 1; }
+.card-more { font-size: .86rem; font-weight: 550; color: var(--accent); margin-top: .3rem; }
+
+ 
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1px;
+  background: var(--rule); border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; margin: 2rem 0; }
+.stat { background: var(--faint); padding: .85rem 1rem; }
+.stat b { display: block; font-size: 1.32rem; letter-spacing: -.02em; color: var(--accent); font-weight: 700; }
+.stat span { display: block; color: var(--muted); font-size: .8rem; line-height: 1.35; margin-top: .15rem; }
+
+code { background: var(--code-bg); padding: .12em .36em; border-radius: 3px; font-size: .88em; }
+pre { background: var(--code-bg); border: 1px solid var(--rule); padding: .95rem 1.1rem; border-radius: 7px;
+  overflow-x: auto; font-size: .855rem; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: inherit; }
+.chroma .k, .chroma .kd, .chroma .kn, .chroma .kt, .chroma .kr, .chroma .cp { color: var(--k); }
+.chroma .c, .chroma .c1, .chroma .cm, .chroma .cs { color: var(--c); font-style: italic; }
+.chroma .s, .chroma .s1, .chroma .s2, .chroma .sc { color: var(--s); }
+.chroma .m, .chroma .mi, .chroma .mf, .chroma .mh, .chroma .o { color: var(--n); }
+.chroma .nf, .chroma .nb, .chroma .nd { color: var(--f); }
+.chroma .nc, .chroma .nn { color: var(--fg); }
+
+table { border-collapse: collapse; width: 100%; font-size: .91rem; margin: 1.4rem 0; }
+th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 650; font-size: .84rem; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+tbody tr:last-child td { border-bottom: none; }
+.scroll { overflow-x: auto; margin: 1.4rem 0; }
+.scroll table { margin: 0; }
+
+blockquote { margin: 1.4rem 0; padding: .1rem 0 .1rem 1.1rem; border-left: 3px solid var(--accent-soft); color: var(--muted); }
+hr { border: none; border-top: 1px solid var(--rule); margin: 2.5rem 0; }
+img { max-width: 100%; height: auto; }
+ul, ol { padding-left: 1.3rem; }
+li { margin-bottom: .35rem; }
+
+ul.posts { list-style: none; padding: 0; margin: 1.2rem 0 0; }
+ul.posts li { margin-bottom: 1.5rem; }
+ul.posts .t { font-size: 1.04rem; font-weight: 650; letter-spacing: -.01em; }
+ul.posts .t a { text-decoration: none; }
+ul.posts .t a:hover { text-decoration: underline; }
+ul.posts .d { color: var(--muted); font-size: .89rem; line-height: 1.5; margin-top: .15rem; }
+
+footer { border-top: 1px solid var(--rule); margin-top: 5rem; padding: 1.4rem 0 4rem;
+  color: var(--muted); font-size: .88rem; }
+footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="name">
+    <a href="/"><img src="/Mila/achilles.png" alt="Achilles Software" width="26" height="26">Mila</a>
+    <span class="tag">C++23 · CUDA · open LLMs</span>
+  </div>
+  <nav><a href="/writing/">Writing</a><a href="/api/">API reference</a><a href="https://github.com/ToddThomson/Mila">GitHub</a></nav>
+</header>
+<main class="content">
+
+<h1>Writing</h1>
+<div class="lede"><p>Writeups from building Mila: what the kernels do, why they were slow, and what the profiler said.</p>
+</div>
+<ul class="posts">
+  
+  <li>
+    <div class="t"><a href="/Mila/writing/gemma-4-docker-openai-api/">Running Gemma 4 12B in Docker Behind an OpenAI-Compatible API</a></div>
+    <div class="d">18 July 2026 — One container and one command puts Gemma 4 12B behind an OpenAI/Anthropic-compatible endpoint, so Codex CLI and Claude Code can drive a local C&#43;&#43; inference runtime.</div>
+  </li>
+  
+  <li>
+    <div class="t"><a href="/Mila/writing/flash-decoding-mqa-cuda/">Flash-Decoding for MQA in CUDA: One KV Head, Split-K, and an FP4 Matvec at 90% of DRAM Peak</a></div>
+    <div class="d">16 July 2026 — Hand-writing a fused flash-decoding kernel for Gemma 4&#39;s single-KV-head global layers, plus an FP4 matvec taken from 63% to 90% of DRAM peak. 38.65 to 49.09 tok/s on an RTX 4070.</div>
+  </li>
+  
+  <li>
+    <div class="t"><a href="/Mila/writing/flashattention-prefill-kernel/">Writing a FlashAttention Prefill Kernel for Gemma 4: Head Dim 512, Tensor Cores and an FP8 GEMM</a></div>
+    <div class="d">15 July 2026 — Hand-writing a tensor-core flash-attention prefill kernel for Gemma 4&#39;s 512-wide heads, plus an FP8 activation GEMM. Ten sessions from 1.95x behind llama.cpp to 1.14x.</div>
+  </li>
+  
+  <li>
+    <div class="t"><a href="/Mila/writing/bringing-up-gemma-4/">Bringing Up Gemma 4 in C&#43;&#43;: Sliding-Window Attention, Dual RoPE and Token-for-Token Parity</a></div>
+    <div class="d">23 June 2026 — Porting a C&#43;&#43; inference runtime from Llama 3 to Gemma 4: per-layer local/global sliding-window attention, dual RoPE, GeGLU, logit softcap, and the RMSNorm bug that cost token parity.</div>
+  </li>
+  
+</ul>
+
+</main>
+<footer>
+  <p>Mila is a C++23 library for open LLMs — inference and training, at the metal.
+  Source on <a href="https://github.com/ToddThomson/Mila">GitHub</a>, MIT licensed. Currently in public beta.</p>
+</footer>
+</div>
+</body>
+</html>

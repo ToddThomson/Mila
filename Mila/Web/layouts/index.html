@@ -1,0 +1,115 @@
+{{ define "main" }}
+
+<section class="band hero">
+  <div class="wrap wide">
+    <h1>Open LLMs, at the metal</h1>
+    <p class="lede">A C++23 library for open LLMs — inference and training, built from explicit
+    neural-network components you can read and understand. Run Gemma 4 12B and Llama 3.x locally
+    on a 12 GB consumer GPU.</p>
+    <div class="cta">
+      <a class="btn primary" href="{{ "start/" | relURL }}">Get started</a>
+      <a class="btn" href="{{ "blog/" | relURL }}">Read the blog</a>
+    </div>
+    <div class="feats">
+      {{ range .Site.Params.features }}
+      <div class="feat">
+        <b>{{ .lead }}</b>
+        <p>{{ .text | markdownify }}</p>
+      </div>
+      {{ end }}
+    </div>
+  </div>
+</section>
+
+<section class="band alt">
+  <div class="wrap wide">
+    {{ $blogCount := len (where .Site.RegularPages "Section" "blog") }}
+    <div class="boxes">
+      <a class="box" href="{{ "start/" | relURL }}">
+        <span class="box-kicker">Get started</span>
+        <span class="box-title">Build and run it</span>
+        <span class="box-desc">Toolchain, a clone-to-<code>ctest</code> build, model weights, and a
+        first local inference run.</span>
+        <span class="box-more">Start here →</span>
+      </a>
+      <a class="box" href="{{ "blog/" | relURL }}">
+        <span class="box-kicker">Blog</span>
+        <span class="box-title">Building Mila</span>
+        <span class="box-desc">Hand-written CUDA, profiled and rewritten — flash attention, FP4
+        kernels, and the bugs that passed every test.</span>
+        <span class="box-more">{{ $blogCount }} post{{ if ne $blogCount 1 }}s{{ end }} →</span>
+      </a>
+      <a class="box" href="{{ "api/" | relURL }}">
+        <span class="box-kicker">Documentation</span>
+        <span class="box-title">API reference</span>
+        <span class="box-desc">Generated reference for every component, operation and tensor type.</span>
+        <span class="box-more">Browse →</span>
+      </a>
+      <a class="box" href="{{ .Site.Params.repo }}">
+        <span class="box-kicker">Source</span>
+        <span class="box-title">GitHub</span>
+        <span class="box-desc">MIT licensed, public beta. Build it, read it, push back on the
+        design.</span>
+        <span class="box-more">ToddThomson/Mila →</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap wide">
+    <h2>Open models</h2>
+    <p class="sub">Each one raised from the metal and held to parity — a short, curated set rather
+    than a model zoo.</p>
+    <div class="chips">
+      {{ range .Site.Params.models }}
+      <a class="chip" href="{{ .url | default "https://github.com/ToddThomson/Mila#validated-capabilities" }}">
+        <span class="n">{{ .name }}</span><span class="p">{{ .precision }}</span>
+      </a>
+      {{ end }}
+    </div>
+  </div>
+</section>
+
+<section class="band alt">
+  <div class="wrap wide">
+    <h2>Sponsoring</h2>
+    <p class="byline">Compute and hardware only — never money.</p>
+    <p class="byline">Evaluation loans welcome. The asks are specific.</p>
+    <div class="cta">
+      <a class="btn primary" href="{{ "sponsor/" | relURL }}">Hardware asks</a>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="contact">
+  <div class="wrap wide">
+    <h2>Contact</h2>
+    <p class="sub">One developer. Design argument is welcome and often changes things.</p>
+    <div class="boxes">
+      <a class="box" href="{{ .Site.Params.repo }}/discussions">
+        <span class="box-kicker">Discussions</span>
+        <span class="box-title">Ask anything</span>
+        <span class="box-desc">Questions, ideas, and pushback on the design. The main venue, and
+        where the writeups get discussed.</span>
+        <span class="box-more">Open discussions →</span>
+      </a>
+      <a class="box" href="{{ .Site.Params.repo }}/issues">
+        <span class="box-kicker">Issues</span>
+        <span class="box-title">Report a bug</span>
+        <span class="box-desc">Build failures, wrong output, and feature requests. Two issues are
+        tagged <code>good first issue</code>.</span>
+        <span class="box-more">Open issues →</span>
+      </a>
+      <a class="box" href="mailto:{{ .Site.Params.email }}">
+        <span class="box-kicker">Email</span>
+        <span class="box-title">Get in touch</span>
+        <span class="box-desc">Sponsorship, collaboration, or anything that does not belong in
+        public.</span>
+        <span class="box-more">{{ .Site.Params.email }} →</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+{{ end }}

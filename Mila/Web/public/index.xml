@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+	<channel>
+		<title>Mila</title>
+		<link>http://localhost:1313/Mila/</link>
+		<description>Recent content on Mila</description>
+		<generator>Hugo</generator>
+		<language>en-us</language>
+		
+		
+		
+		
+			<lastBuildDate>Sat, 18 Jul 2026 00:00:00 +0000</lastBuildDate>
+		
+			<atom:link href="http://localhost:1313/Mila/index.xml" rel="self" type="application/rss+xml" />
+			<item>
+				<title>Running Gemma 4 12B in Docker Behind an OpenAI-Compatible API</title>
+				<link>http://localhost:1313/Mila/blog/gemma-4-docker-openai-api/</link>
+				<pubDate>Sat, 18 Jul 2026 00:00:00 +0000</pubDate>
+				<guid>http://localhost:1313/Mila/blog/gemma-4-docker-openai-api/</guid>
+				<description>&lt;p&gt;This week Mila added a feature I think is really cool! Mila now &lt;strong&gt;builds and runs the same way&lt;/strong&gt; on three surfaces — Windows/MSVC (where I develop), Clang on WSL/Linux, and a single Docker container — and from that container you can &lt;strong&gt;drive Mila as the &amp;ldquo;brain&amp;rdquo; behind any OpenAI- or Anthropic-compatible harness&lt;/strong&gt;.&lt;/p&gt;&#xA;&lt;h2 id=&#34;one-container-one-command-a-gemma-4-12b-model-as-a-brain&#34;&gt;One container, one command, a Gemma 4 12B model as a brain&lt;/h2&gt;&#xA;&lt;p&gt;The dev container is a completely known build environment — clone, one step, a running Mila. Beyond the interactive Chat CLI, it now stands up the &lt;strong&gt;Mila Inference Server (MIS)&lt;/strong&gt;: a small FastAPI wire adaptor that serves the runtime over an OpenAI / Anthropic / Mila-native HTTP API.&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>Flash-Decoding for MQA in CUDA: One KV Head, Split-K, and an FP4 Matvec at 90% of DRAM Peak</title>
+				<link>http://localhost:1313/Mila/blog/flash-decoding-mqa-cuda/</link>
+				<pubDate>Thu, 16 Jul 2026 00:00:00 +0000</pubDate>
+				<guid>http://localhost:1313/Mila/blog/flash-decoding-mqa-cuda/</guid>
+				<description>&lt;p&gt;&lt;em&gt;Part 1 — &lt;a href=&#34;https://github.com/ToddThomson/Mila/discussions/16&#34;&gt;Hand-Writing Gemma 4 FlashAttention + an FP8 GEMM Bonus&lt;/a&gt; —&#xA;took ten sessions to drag prefill from 1.95x behind llama.cpp to 1.14x. This part took &lt;strong&gt;one&#xA;session&lt;/strong&gt; to drag decode from 1.30x behind to &lt;strong&gt;1.03x&lt;/strong&gt;: Gemma 4 12B FP4 on the same RTX 4070,&#xA;38.65 → 49.09 tok/s at a 32K context, against llama.cpp&amp;rsquo;s measured 50.3–50.7.&lt;/em&gt;&lt;/p&gt;&#xA;&lt;p&gt;&lt;em&gt;It didn&amp;rsquo;t take one session because decode is easier. It took one session because Part 1 paid&#xA;the tuition — the parity-oracle ladder, the compute-sanitizer discipline, the online-softmax&#xA;kernel DNA, and above all the reflex of profiling before believing — and this campaign got to&#xA;spend the education.&lt;/em&gt;&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>Writing a FlashAttention Prefill Kernel for Gemma 4: Head Dim 512, Tensor Cores and an FP8 GEMM</title>
+				<link>http://localhost:1313/Mila/blog/flashattention-prefill-kernel/</link>
+				<pubDate>Wed, 15 Jul 2026 00:00:00 +0000</pubDate>
+				<guid>http://localhost:1313/Mila/blog/flashattention-prefill-kernel/</guid>
+				<description>&lt;p&gt;Adding FlashAttention to Mila&amp;rsquo;s GQA started as a &lt;strong&gt;memory&lt;/strong&gt; project. It was the last big lever in optimizing memory utilization across the Gemma 4 pipeline — with weight tying, FP8 KV, and bounded sliding-window KV already in place, the attention path was the last thing still materializing large intermediates. A classical attention writes a &lt;code&gt;[chunk × attended_len]&lt;/code&gt; score matrix to global memory, and its workspace has to be sized to the &lt;em&gt;full&lt;/em&gt; context width; at 64K that&amp;rsquo;s ~1 GB per buffer of pure throwaway. FlashAttention&amp;rsquo;s online softmax removes it entirely, and that reclaim — &lt;strong&gt;~1-2 GB at long context&lt;/strong&gt; — is what took Gemma 4 12B from a VRAM cliff at 32K to &lt;strong&gt;running 64K on a 12 GB RTX 4070&lt;/strong&gt;. Speed was the second prize, and it&amp;rsquo;s the one that turned into a ten-session campaign.&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>Bringing Up Gemma 4 in C&#43;&#43;: Sliding-Window Attention, Dual RoPE and Token-for-Token Parity</title>
+				<link>http://localhost:1313/Mila/blog/bringing-up-gemma-4/</link>
+				<pubDate>Tue, 23 Jun 2026 00:00:00 +0000</pubDate>
+				<guid>http://localhost:1313/Mila/blog/bringing-up-gemma-4/</guid>
+				<description>&lt;h2 id=&#34;where-we-left-off&#34;&gt;Where We Left Off&lt;/h2&gt;&#xA;&lt;p&gt;Alpha.2 ended with Mila producing token-for-token matches against HuggingFace for Llama 3.2 1B, and the alphas pushed that to Llama 3.1 8B with FP8 and FP4 weight quantization. The framework had a working Grouped-Query Attention op, a two-phase prefill/decode KV cache, and a clean &lt;code&gt;OperationTraits&lt;/code&gt; dispatch path. The Llama family was, by then, a &lt;em&gt;homogeneous&lt;/em&gt; machine: every layer looked like every other layer.&lt;/p&gt;&#xA;&lt;p&gt;Gemma 4 broke that assumption on contact.&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>Closing a Local Agentic Loop: Mila Inference Server and Codex CLI</title>
+				<link>http://localhost:1313/Mila/blog/local-agentic-loop/</link>
+				<pubDate>Fri, 15 May 2026 00:00:00 +0000</pubDate>
+				<guid>http://localhost:1313/Mila/blog/local-agentic-loop/</guid>
+				<description>&lt;p&gt;&lt;strong&gt;Date:&lt;/strong&gt; 2026-05-15&#xA;&lt;strong&gt;Status:&lt;/strong&gt; Proven / Experimental&#xA;&lt;strong&gt;Component:&lt;/strong&gt; &lt;code&gt;Mila/Inference/Server&lt;/code&gt;&lt;/p&gt;&#xA;&lt;h2 id=&#34;overview&#34;&gt;Overview&lt;/h2&gt;&#xA;&lt;p&gt;This document describes the design and implementation of a protocol translation layer that&#xA;enables &lt;a href=&#34;https://github.com/openai/codex&#34;&gt;Codex CLI&lt;/a&gt; to drive an agentic coding loop against a locally-hosted Llama 3.2 3B Instruct model served by the Mila Inference Server (MIS).&lt;/p&gt;&#xA;&lt;p&gt;The result is a fully local, self-hosted agentic coding assistant: no OpenAI API key, no cloud dependency, no model modification required.&lt;/p&gt;&#xA;&lt;h2 id=&#34;architecture&#34;&gt;Architecture&lt;/h2&gt;&#xA;&lt;pre tabindex=&#34;0&#34;&gt;&lt;code&gt;Codex CLI  &amp;lt;--&amp;gt;  MIS /v1/responses  &amp;lt;--&amp;gt;  Llama 3.2 3B Instruct&#xA; (OpenAI         (protocol bridge)         (local GPU)&#xA; Responses API)&#xA;&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;Three parties interact; none required modification:&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>Driving a Local C&#43;&#43; Inference Server from Claude Code and Codex CLI</title>
+				<link>http://localhost:1313/Mila/blog/mis-with-claude-code-and-codex/</link>
+				<pubDate>Thu, 14 May 2026 00:00:00 +0000</pubDate>
+				<guid>http://localhost:1313/Mila/blog/mis-with-claude-code-and-codex/</guid>
+				<description>&lt;p&gt;&lt;em&gt;Mila Discussions — Inference Server Series&lt;/em&gt;&lt;/p&gt;&#xA;&lt;hr&gt;&#xA;&lt;h2 id=&#34;introduction&#34;&gt;Introduction&lt;/h2&gt;&#xA;&lt;p&gt;One of the goals of the Mila Inference Server (MIS) is to make a locally-running Llama model feel, from the outside, indistinguishable from a cloud API. If MIS does its job correctly, you should be able to point Claude Code or Codex CLI at &lt;code&gt;http://localhost:8000&lt;/code&gt; and have them work as if they were talking to Anthropic or OpenAI&amp;rsquo;s servers — except your data never leaves your machine and your GPU is doing the work.&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>The Eight-Headed Bug That Hid Behind a System Prompt</title>
+				<link>http://localhost:1313/Mila/blog/eight-headed-bug-system-prompt/</link>
+				<pubDate>Fri, 24 Apr 2026 00:00:00 +0000</pubDate>
+				<guid>http://localhost:1313/Mila/blog/eight-headed-bug-system-prompt/</guid>
+				<description>&lt;p&gt;When I added system prompt support to Mila&amp;rsquo;s chat CLI, something unexpected happened. Prompts that had previously produced perfect responses started generating fluent, coherent, and completely context-oblivious text. Ask for a story about rabbits living on the moon eating green carrots — get a charming tale about Hungarian meadow rabbits instead. The model wasn&amp;rsquo;t broken. It was just ignoring everything I said.&lt;/p&gt;&#xA;&lt;p&gt;This is the story of how a single innocent constant — &lt;code&gt;kPrefillChunkSize&lt;/code&gt; — quietly corrupted eight different stages of the GQA prefill pipeline, and why it took a system prompt to wake the beast.&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>From GPT-2 to Llama 3.2 in C&#43;&#43;: RMSNorm, SwiGLU, Grouped Query Attention and RoPE</title>
+				<link>http://localhost:1313/Mila/blog/gpt2-to-llama-32/</link>
+				<pubDate>Sat, 04 Apr 2026 00:00:00 +0000</pubDate>
+				<guid>http://localhost:1313/Mila/blog/gpt2-to-llama-32/</guid>
+				<description>&lt;p&gt;&lt;em&gt;A show-and-tell of what it actually takes to build a modern transformer from scratch in C++23 and CUDA.&lt;/em&gt;&lt;/p&gt;&#xA;&lt;hr&gt;&#xA;&lt;h2 id=&#34;where-we-left-off&#34;&gt;Where We Left Off&lt;/h2&gt;&#xA;&lt;p&gt;Alpha.1 ended cleanly. GPT-2 inference validated token-for-token against HuggingFace using greedy decoding. The full stack — BPE tokenizer, embeddings, multi-head attention, MLP, KV cache, two-phase prefill/decode — all confirmed correct. The methodology was established: if Mila&amp;rsquo;s greedy output matches HuggingFace&amp;rsquo;s greedy output exactly, the implementation is correct.&lt;/p&gt;&#xA;&lt;p&gt;Alpha.2 began with a deceptively simple goal: do the same thing for Llama 3.2 1B.&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>The Lobotomized Attention Head Bug: One Head Does All the Work, the Others Stare Into the Void</title>
+				<link>http://localhost:1313/Mila/blog/lobotomized-attention-head-bug/</link>
+				<pubDate>Thu, 26 Feb 2026 00:00:00 +0000</pubDate>
+				<guid>http://localhost:1313/Mila/blog/lobotomized-attention-head-bug/</guid>
+				<description>&lt;p&gt;🧠 The Lobotomized Attention Head Bug — A Transformer Debugging Rite of Passage&lt;/p&gt;&#xA;&lt;p&gt;I just finished building the fast prefill → decode inference path in my Mila DNN library.&#xA;Everything seemed fine — the model produced coherent text, KV caching worked, and decode mode looked solid.&lt;/p&gt;&#xA;&lt;p&gt;But… my transformer’s residuals were way off compared to 🤗 HF GPT-2, and the hidden states just felt wrong.&#xA;Not exploding, not NaN’ing — just wrong.&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>Getting started</title>
+				<link>http://localhost:1313/Mila/start/</link>
+				<pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+				<guid>http://localhost:1313/Mila/start/</guid>
+				<description>&lt;p&gt;Mila is a source distribution. C++23 modules cannot ship as prebuilt binaries — the consumer compiles&#xA;the module graph in its own toolchain — so getting started means building it.&lt;/p&gt;&#xA;&lt;h2 id=&#34;1-check-the-toolchain&#34;&gt;1. Check the toolchain&lt;/h2&gt;&#xA;&lt;table&gt;&#xA;&#x9;&lt;thead&gt;&#xA;&#x9;&#x9;&#x9;&lt;tr&gt;&#xA;&#x9;&#x9;&#x9;&#x9;&#x9;&lt;th&gt;&lt;/th&gt;&#xA;&#x9;&#x9;&#x9;&#x9;&#x9;&lt;th&gt;&lt;/th&gt;&#xA;&#x9;&#x9;&#x9;&lt;/tr&gt;&#xA;&#x9;&lt;/thead&gt;&#xA;&#x9;&lt;tbody&gt;&#xA;&#x9;&#x9;&#x9;&lt;tr&gt;&#xA;&#x9;&#x9;&#x9;&#x9;&#x9;&lt;td&gt;&lt;strong&gt;C++ compiler&lt;/strong&gt;&lt;/td&gt;&#xA;&#x9;&#x9;&#x9;&#x9;&#x9;&lt;td&gt;Visual Studio 2026 18.6.2+ on Windows, or Clang 19+ / GCC 16 on Linux&lt;/td&gt;&#xA;&#x9;&#x9;&#x9;&lt;/tr&gt;&#xA;&#x9;&#x9;&#x9;&lt;tr&gt;&#xA;&#x9;&#x9;&#x9;&#x9;&#x9;&lt;td&gt;&lt;strong&gt;CUDA Toolkit&lt;/strong&gt;&lt;/td&gt;&#xA;&#x9;&#x9;&#x9;&#x9;&#x9;&lt;td&gt;13.0+ on Windows, 13.3+ on Linux&lt;/td&gt;&#xA;&#x9;&#x9;&#x9;&lt;/tr&gt;&#xA;&#x9;&#x9;&#x9;&lt;tr&gt;&#xA;&#x9;&#x9;&#x9;&#x9;&#x9;&lt;td&gt;&lt;strong&gt;CMake&lt;/strong&gt;&lt;/td&gt;&#xA;&#x9;&#x9;&#x9;&#x9;&#x9;&lt;td&gt;4.0 or newer&lt;/td&gt;&#xA;&#x9;&#x9;&#x9;&lt;/tr&gt;&#xA;&#x9;&#x9;&#x9;&lt;tr&gt;&#xA;&#x9;&#x9;&#x9;&#x9;&#x9;&lt;td&gt;&lt;strong&gt;Generator&lt;/strong&gt;&lt;/td&gt;&#xA;&#x9;&#x9;&#x9;&#x9;&#x9;&lt;td&gt;Ninja — significantly faster for incremental module builds&lt;/td&gt;&#xA;&#x9;&#x9;&#x9;&lt;/tr&gt;&#xA;&#x9;&#x9;&#x9;&lt;tr&gt;&#xA;&#x9;&#x9;&#x9;&#x9;&#x9;&lt;td&gt;&lt;strong&gt;Git&lt;/strong&gt;&lt;/td&gt;&#xA;&#x9;&#x9;&#x9;&#x9;&#x9;&lt;td&gt;2.x — dependencies are fetched at configure time&lt;/td&gt;&#xA;&#x9;&#x9;&#x9;&lt;/tr&gt;&#xA;&#x9;&lt;/tbody&gt;&#xA;&lt;/table&gt;&#xA;&lt;p&gt;Earlier Visual Studio 2026 builds have a C++23 module regression; 18.6.2 fixed it. GCC 15.2 and&#xA;earlier cannot compile the modules at all.&lt;/p&gt;</description>
+			</item>
+			<item>
+				<title>Sponsoring Mila</title>
+				<link>http://localhost:1313/Mila/sponsor/</link>
+				<pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+				<guid>http://localhost:1313/Mila/sponsor/</guid>
+				<description>&lt;p&gt;Mila accepts &lt;strong&gt;compute and hardware sponsorship only&lt;/strong&gt;.&lt;/p&gt;&#xA;&lt;p&gt;Mila is an independent, from-scratch C++23 library for open LLMs — inference and training — built&#xA;from explicit components rather than on top of an existing framework. That independence is the offer,&#xA;and it is an exchange rather than philanthropy: Mila is neither vLLM nor llama.cpp but a separate&#xA;implementation of the same math, so on Mila&amp;rsquo;s path a vendor can tell a &lt;em&gt;hardware&lt;/em&gt; bug from a&#xA;&lt;em&gt;framework&lt;/em&gt; bug. Evaluation loans are welcome — hardware does not have to be a gift.&lt;/p&gt;</description>
+			</item>
+	</channel>
+</rss>

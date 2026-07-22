@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><script src="/Mila/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=Mila/livereload" data-no-instant defer></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting started · Mila</title>
+<meta name="description" content="Build Mila from source, convert model weights, and run local LLM inference in C&#43;&#43; on a CUDA GPU - clone, cmake, ctest, and a first Gemma 4 or GPT-2 run.">
+<link rel="canonical" href="http://localhost:1313/Mila/start/">
+
+
+<meta property="og:type" content="article">
+<meta property="og:title" content="Getting started">
+<meta property="og:description" content="Build Mila from source, convert model weights, and run local LLM inference in C&#43;&#43; on a CUDA GPU - clone, cmake, ctest, and a first Gemma 4 or GPT-2 run.">
+<meta property="og:url" content="http://localhost:1313/Mila/start/">
+<meta property="og:site_name" content="Mila"><meta property="article:published_time" content="0001-01-01">
+<meta name="twitter:card" content="summary">
+
+<link rel="icon" href="/Mila/achilles.png">
+
+<style>
+:root {
+  --fg: #17171a; --bg: #fff; --muted: #5d5d66; --rule: #e4e4e8; --faint: #fafafb;
+   
+  --accent: #0a40c2; --accent-soft: #dce4f9; --code-bg: #f6f6f8;
+  --k: #cf222e; --c: #57606a; --s: #0a3069; --n: #0550ae; --f: #6639ba;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e8e8ec; --bg: #121215; --muted: #9b9ba6; --rule: #2b2b33; --faint: #17171b;
+     
+    --accent: #7ea3ff; --accent-soft: #1a2340; --code-bg: #1a1a1f;
+    --k: #ff7b72; --c: #8b949e; --s: #a5d6ff; --n: #79c0ff; --f: #d2a8ff;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 17px/1.7 system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-synthesis: none;
+}
+.wrap { max-width: 47rem; margin: 0 auto; padding: 0 1.5rem; }
+
+ 
+.band { padding: 4rem 0; border-bottom: 1px solid var(--rule); }
+.band.alt { background: var(--faint); }
+.band:last-child { border-bottom: none; }
+.band h2 { margin-top: 0; border-bottom: none; padding-bottom: 0; font-size: 1.5rem; }
+.band .sub { max-width: 38rem; }
+main > .wrap { padding-top: 3rem; padding-bottom: 2rem; }
+
+header { padding: 1.75rem 0 1.1rem; border-bottom: 1px solid var(--rule); text-align: center; }
+header .name { display: flex; align-items: center; justify-content: center; gap: .7rem; flex-wrap: wrap; }
+header .name a { display: inline-flex; align-items: center; gap: .55rem; color: var(--fg);
+  text-decoration: none; font-weight: 700; font-size: 1.2rem; letter-spacing: -.02em; }
+ 
+header .name img { width: 26px; height: 26px; display: block; }
+header .tag { color: var(--muted); font-size: .82rem; }
+nav { margin-top: .7rem; font-size: .93rem; display: flex; justify-content: center; gap: 1.3rem; flex-wrap: wrap; }
+nav a { color: var(--muted); text-decoration: none; }
+nav a:hover { color: var(--accent); }
+
+ 
+.navbtn { display: none; }
+@media (max-width: 44rem) {
+  .navbtn { display: inline-flex; align-items: center; gap: .45rem; cursor: pointer;
+    margin-top: .9rem; padding: .4rem .8rem; border: 1px solid var(--rule); border-radius: 7px;
+    font-size: .9rem; color: var(--fg); user-select: none; }
+  .navbtn:hover { border-color: var(--accent); }
+  nav { display: none; flex-direction: column; gap: .9rem; margin-top: 1.1rem;
+    padding-bottom: .4rem; }
+  #navtoggle:checked ~ nav { display: flex; }
+  nav a { font-size: 1rem; }
+}
+
+a { color: var(--accent); text-underline-offset: 2px; }
+h1 { font-size: 2.1rem; line-height: 1.2; letter-spacing: -.03em; margin: 0 0 .8rem; }
+h2 { font-size: 1.28rem; letter-spacing: -.01em; margin: 3rem 0 .9rem; padding-bottom: .35rem; border-bottom: 1px solid var(--rule); }
+h3 { font-size: 1.06rem; margin: 2rem 0 .5rem; }
+p { margin: 0 0 1.15rem; }
+.lede { font-size: 1.16rem; line-height: 1.55; letter-spacing: -.01em; }
+.lede strong { font-weight: 650; }
+.meta { color: var(--muted); font-size: .9rem; margin: -.2rem 0 2.4rem; }
+.meta a { color: var(--muted); }
+
+ 
+.hero { padding: 4.5rem 0 3.5rem; text-align: center; }
+.hero h1 { font-size: clamp(2.3rem, 6.5vw, 3.4rem); line-height: 1.06; margin-bottom: 1.1rem; }
+.hero .lede { max-width: 36rem; color: var(--muted); margin: 0 auto 2rem; }
+.hero .cta { justify-content: center; }
+ 
+.hero .feats { text-align: left; }
+
+ 
+.wrap.wide { max-width: 62rem; }
+
+ 
+.feats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 3rem; }
+@media (max-width: 52rem) { .feats { grid-template-columns: 1fr; } }
+.feat { display: block; padding: 1.2rem 1.3rem; border: 1px solid var(--rule); border-radius: 9px;
+  background: var(--faint); text-decoration: none; color: var(--fg);
+  transition: border-color .15s, transform .15s; }
+.feat:hover { border-color: var(--accent); transform: translateY(-2px); }
+.feat b { display: block; font-size: 1.15rem; letter-spacing: -.015em; margin-bottom: .25rem; }
+.feat p { margin: 0; color: var(--muted); font-size: .93rem; line-height: 1.55; }
+.feat p strong { color: var(--fg); font-weight: 600; }
+.band.alt .feat { background: var(--bg); }
+
+ 
+.chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .8rem; margin: 1.8rem 0 0; }
+.chip { display: block; border: 1px solid var(--rule); border-radius: 8px; padding: .9rem 1rem;
+  background: var(--bg); text-decoration: none; color: var(--fg);
+  transition: border-color .15s, transform .15s; }
+.chip:hover { border-color: var(--accent); transform: translateY(-2px); }
+.chip .n { font-weight: 650; font-size: .97rem; letter-spacing: -.01em; display: block; }
+.chip .p { display: inline-block; margin-top: .45rem; font-size: .75rem; font-weight: 600;
+  letter-spacing: .03em; color: var(--accent); background: var(--accent-soft);
+  padding: .16rem .5rem; border-radius: 4px; }
+.band.alt .chip { background: var(--bg); }
+.note { color: var(--muted); font-size: .9rem; margin-top: 1.6rem; }
+ 
+.byline { font-size: 1.1rem; margin: 0 0 .3rem; letter-spacing: -.01em; }
+.byline + .byline { color: var(--muted); font-size: 1rem; margin-bottom: 1.8rem; }
+.cta { display: flex; gap: .7rem; flex-wrap: wrap; }
+.btn { display: inline-block; padding: .6rem 1.15rem; border-radius: 7px; font-size: .94rem;
+  font-weight: 550; text-decoration: none; border: 1px solid var(--rule); color: var(--fg);
+  transition: border-color .15s, background .15s; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { filter: brightness(1.08); }
+
+.sub { color: var(--muted); margin: -.35rem 0 1.5rem; }
+p.tail { color: var(--muted); font-size: .95rem; margin-top: 2.5rem; }
+p.tail p { margin: 0; }
+
+ 
+.boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; margin: 2.5rem 0 1rem; }
+.box { display: flex; flex-direction: column; gap: .45rem; padding: 1.4rem 1.45rem 1.25rem;
+  border: 1px solid var(--rule); border-radius: 10px; background: var(--faint);
+  text-decoration: none; color: var(--fg); transition: border-color .15s, transform .15s; }
+.box:hover { border-color: var(--accent); transform: translateY(-2px); }
+.box-kicker { font-size: .73rem; font-weight: 650; text-transform: uppercase; letter-spacing: .07em; color: var(--accent); }
+.box-title { font-size: 1.2rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; }
+.box-desc { font-size: .9rem; line-height: 1.55; color: var(--muted); flex: 1; margin-top: .15rem; }
+.box-more { font-size: .87rem; font-weight: 550; color: var(--accent); margin-top: .5rem; }
+
+ 
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(15.5rem, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.card { display: flex; flex-direction: column; gap: .4rem; padding: 1.15rem 1.25rem 1rem;
+  border: 1px solid var(--rule); border-radius: 9px; background: var(--faint);
+  text-decoration: none; color: var(--fg); transition: border-color .15s, transform .15s; }
+.card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.card-date { font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.card-title { font-size: 1.01rem; font-weight: 650; line-height: 1.35; letter-spacing: -.01em; }
+.card-desc { font-size: .89rem; line-height: 1.5; color: var(--muted); flex: 1; }
+.card-more { font-size: .86rem; font-weight: 550; color: var(--accent); margin-top: .3rem; }
+
+ 
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1px;
+  background: var(--rule); border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; margin: 2rem 0; }
+.stat { background: var(--faint); padding: .85rem 1rem; }
+.stat b { display: block; font-size: 1.32rem; letter-spacing: -.02em; color: var(--accent); font-weight: 700; }
+.stat span { display: block; color: var(--muted); font-size: .8rem; line-height: 1.35; margin-top: .15rem; }
+
+code { background: var(--code-bg); padding: .12em .36em; border-radius: 3px; font-size: .88em; }
+pre { background: var(--code-bg); border: 1px solid var(--rule); padding: .95rem 1.1rem; border-radius: 7px;
+  overflow-x: auto; font-size: .855rem; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: inherit; }
+.chroma .k, .chroma .kd, .chroma .kn, .chroma .kt, .chroma .kr, .chroma .cp { color: var(--k); }
+.chroma .c, .chroma .c1, .chroma .cm, .chroma .cs { color: var(--c); font-style: italic; }
+.chroma .s, .chroma .s1, .chroma .s2, .chroma .sc { color: var(--s); }
+.chroma .m, .chroma .mi, .chroma .mf, .chroma .mh, .chroma .o { color: var(--n); }
+.chroma .nf, .chroma .nb, .chroma .nd { color: var(--f); }
+.chroma .nc, .chroma .nn { color: var(--fg); }
+
+table { border-collapse: collapse; width: 100%; font-size: .91rem; margin: 1.4rem 0; }
+th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 650; font-size: .84rem; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+tbody tr:last-child td { border-bottom: none; }
+.scroll { overflow-x: auto; margin: 1.4rem 0; }
+.scroll table { margin: 0; }
+
+blockquote { margin: 1.4rem 0; padding: .1rem 0 .1rem 1.1rem; border-left: 3px solid var(--accent-soft); color: var(--muted); }
+hr { border: none; border-top: 1px solid var(--rule); margin: 2.5rem 0; }
+img { max-width: 100%; height: auto; }
+ul, ol { padding-left: 1.3rem; }
+li { margin-bottom: .35rem; }
+
+ul.posts { list-style: none; padding: 0; margin: 1.2rem 0 0; }
+ul.posts li { margin-bottom: 1.5rem; }
+ul.posts .t { font-size: 1.04rem; font-weight: 650; letter-spacing: -.01em; }
+ul.posts .t a { text-decoration: none; }
+ul.posts .t a:hover { text-decoration: underline; }
+ul.posts .d { color: var(--muted); font-size: .89rem; line-height: 1.5; margin-top: .15rem; }
+
+ 
+.backlink { display: inline-block; margin-bottom: 1.6rem; font-size: .9rem; color: var(--muted);
+  text-decoration: none; }
+.backlink:hover { color: var(--accent); }
+.postnav { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 3.5rem;
+  padding-top: 1.8rem; border-top: 1px solid var(--rule); }
+@media (max-width: 40rem) { .postnav { grid-template-columns: 1fr; } }
+.pn a { display: block; padding: .95rem 1.1rem; border: 1px solid var(--rule); border-radius: 9px;
+  background: var(--faint); text-decoration: none; color: var(--fg);
+  transition: border-color .15s, transform .15s; height: 100%; }
+.pn a:hover { border-color: var(--accent); transform: translateY(-2px); }
+.pn-next { text-align: right; }
+.pn-dir { display: block; font-size: .78rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--accent); font-weight: 650; margin-bottom: .25rem; }
+.pn-title { display: block; font-size: .95rem; font-weight: 600; line-height: 1.4;
+  letter-spacing: -.01em; }
+
+footer { border-top: 1px solid var(--rule); margin-top: 5rem; padding: 1.4rem 0 4rem;
+  color: var(--muted); font-size: .88rem; }
+footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="name">
+      
+      <a href="/Mila/"><img src="/Mila/achilles.png" alt="Achilles Software" width="26" height="26">Mila</a>
+      <span class="tag">C++23 · CUDA · open LLMs</span>
+    </div>
+    <input type="checkbox" id="navtoggle" hidden>
+    <label class="navbtn" for="navtoggle" aria-label="Toggle menu"><span aria-hidden="true">☰</span> Menu</label>
+    <nav><a href="/Mila/start/">Get started</a><a href="/Mila/blog/">Blog</a><a href="/Mila/api/">Documentation</a><a href="/Mila/sponsor/">Sponsor</a><a href="/Mila/#contact">Contact</a><a href="https://github.com/ToddThomson/Mila">GitHub</a></nav>
+  </div>
+</header>
+<main>
+
+<div class="wrap">
+
+
+<a class="backlink" href="/Mila/">← Home</a>
+
+<article>
+  <h1>Getting started</h1>
+  <p>Mila is a source distribution. C++23 modules cannot ship as prebuilt binaries — the consumer compiles
+the module graph in its own toolchain — so getting started means building it.</p>
+<h2 id="1-check-the-toolchain">1. Check the toolchain</h2>
+<table>
+	<thead>
+			<tr>
+					<th></th>
+					<th></th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td><strong>C++ compiler</strong></td>
+					<td>Visual Studio 2026 18.6.2+ on Windows, or Clang 19+ / GCC 16 on Linux</td>
+			</tr>
+			<tr>
+					<td><strong>CUDA Toolkit</strong></td>
+					<td>13.0+ on Windows, 13.3+ on Linux</td>
+			</tr>
+			<tr>
+					<td><strong>CMake</strong></td>
+					<td>4.0 or newer</td>
+			</tr>
+			<tr>
+					<td><strong>Generator</strong></td>
+					<td>Ninja — significantly faster for incremental module builds</td>
+			</tr>
+			<tr>
+					<td><strong>Git</strong></td>
+					<td>2.x — dependencies are fetched at configure time</td>
+			</tr>
+	</tbody>
+</table>
+<p>Earlier Visual Studio 2026 builds have a C++23 module regression; 18.6.2 fixed it. GCC 15.2 and
+earlier cannot compile the modules at all.</p>
+<h2 id="2-build-and-test">2. Build and test</h2>
+<div class="highlight"><pre tabindex="0" style="color:#e6edf3;background-color:#0d1117;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>git clone https://github.com/toddthomson/mila.git
+</span></span><span style="display:flex;"><span>cd mila
+</span></span><span style="display:flex;"><span>cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE<span style="color:#ff7b72;font-weight:bold">=</span>Release -DMILA_ENABLE_TESTING<span style="color:#ff7b72;font-weight:bold">=</span>ON
+</span></span><span style="display:flex;"><span>cmake --build build
+</span></span><span style="display:flex;"><span>ctest --test-dir build
+</span></span></code></pre></div><p>Tests are opt-in — drop <code>-DMILA_ENABLE_TESTING=ON</code> for a library-only build. On Windows you can
+instead open the folder in Visual Studio, which detects <code>CMakeLists.txt</code> and the bundled presets
+automatically.</p>
+<p>There is also a dev container mirroring the CI toolchain, if you would rather not install CUDA and a
+compiler locally.</p>
+<h2 id="3-get-model-weights">3. Get model weights</h2>
+<p>Weights are not included. A converter turns HuggingFace checkpoints into Mila&rsquo;s binary format, and
+always writes BF16 — quantization to FP8 or FP4 happens at load time, so there is no separate
+quantized checkpoint to manage.</p>
+<p><strong>GPT-2 is the easiest first target</strong>: it is ungated, small, and needs no HuggingFace account. Llama
+and Gemma are gated and require auth.</p>
+<h2 id="4-run-something">4. Run something</h2>
+<p>The Chat CLI is the quickest way to see it work — an instruction-following harness with model
+hot-switching and tool calling, defaulting to Gemma 4 12B at FP4.</p>
+<h2 id="5-or-consume-it-from-your-own-project">5. Or consume it from your own project</h2>
+<p>CMake <code>FetchContent</code> is the supported path. Your project compiles Mila&rsquo;s modules in your toolchain,
+then links against them like any other target.</p>
+<hr>
+<p><strong>The full guide</strong> — every step above with exact commands, converter setup, the gated-model auth
+flow, <code>FetchContent</code> details, and how to open a first pull request — is
+<a href="https://github.com/ToddThomson/Mila/blob/master/getting-started.md">getting-started.md</a> in the
+repository. It is the authoritative version; this page is the short road in.</p>
+
+</article>
+
+</div>
+
+</main>
+<footer>
+  <div class="wrap">
+    <p>Mila is a C++23 library for open LLMs — inference and training, at the metal.
+    Source on <a href="https://github.com/ToddThomson/Mila">GitHub</a>, MIT licensed. Currently in public beta.</p>
+  </div>
+</footer>
+</body>
+</html>

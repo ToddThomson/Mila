@@ -19,8 +19,15 @@ on:
   push:
     branches: [master]
   # Manual re-publish (e.g. refresh the site without a code change, or re-run after a
-  # transient deploy failure).
+  # transient deploy failure). Dispatch can target any branch, so a workflow change can be
+  # exercised from `dev` before it reaches master -- but the deploy is LIVE, so use
+  # publish=false first to build and inspect the artifact without replacing the site.
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish to Pages (uncheck to build and inspect the artifact only)'
+        type: boolean
+        default: true
 
 # Pages deployment needs write to Pages and an OIDC token to prove the deploy
 # originates from this workflow; the build only reads the repo.
@@ -60,15 +67,70 @@ jobs:
           mkdir -p build/docs   # Doxygen does not create nested OUTPUT_DIRECTORY parents
           doxygen Mila/Docs/Doxyfile
 
-      # HTML lands in build/docs/html (OUTPUT_DIRECTORY=build/docs in the Doxyfile).
+      # Hugo builds the authored site (landing page + writeups). Pinned like Doxygen above:
+      # the site must not change shape because a runner picked up a new release.
+      #
+      # Standard edition, deliberately. The extended edition only adds WebP encoding, Sass
+      # transpilation, and cloud-bucket deployment -- the site uses none of them (its CSS is
+      # written inline in layouts/_default/baseof.html), and extended would pull a Dart Sass
+      # prerequisite for nothing.
+      - name: Install Hugo 0.164.0
+        run: |
+          wget -q https://github.com/gohugoio/hugo/releases/download/v0.164.0/hugo_0.164.0_linux-amd64.tar.gz
+          tar -xzf hugo_0.164.0_linux-amd64.tar.gz hugo
+          sudo mv hugo /usr/local/bin/
+          hugo version
+
+      # --destination is resolved relative to --source, hence the ../../ climb back to the
+      # repo root. --minify strips whitespace; --gc drops stale cache entries.
+      - name: Build site
+        run: hugo --source Mila/Web --destination ../../build/site --minify --gc
+
+      # The API reference is folded in as a subtree. The Doxyfile is untouched -- its output
+      # is relocated here, which keeps this reversible.
+      - name: Fold in the API reference
+        run: |
+          mkdir -p build/site/api
+          cp -r build/docs/html/* build/site/api/
+
+      # Doxygen output is thin, near-duplicate generated HTML: indexing it dilutes the site
+      # and competes with the pages that should rank. A robots.txt cannot do this job -- Mila
+      # is a project site at /Mila/, and crawlers only honour robots.txt at the domain root,
+      # which belongs to a user site that does not exist. So mark the pages themselves.
+      - name: Mark the API reference noindex
+        run: |
+          find build/site/api -name '*.html' -exec \
+            sed -i 's|<head>|<head><meta name="robots" content="noindex,follow">|I' {} +
+
+      # Fail loudly rather than publishing a broken site: the deploy below replaces the live
+      # site wholesale, and there is no staging environment to catch this later.
+      - name: Verify the assembled site
+        run: |
+          set -e
+          for f in build/site/index.html build/site/blog/index.html \
+                   build/site/api/index.html build/site/sitemap.xml; do
+            test -s "$f" || { echo "MISSING OR EMPTY: $f"; exit 1; }
+          done
+          grep -q 'noindex' build/site/api/index.html \
+            || { echo "api/index.html was not marked noindex"; exit 1; }
+          grep -q '/Mila/blog/' build/site/sitemap.xml \
+            || { echo "sitemap does not list the blog section"; exit 1; }
+          ! grep -q '/Mila/api/' build/site/sitemap.xml \
+            || { echo "sitemap must not list the API reference"; exit 1; }
+          echo "--- assembled tree ---"
+          find build/site -maxdepth 2 -not -path '*/api/*' | sort
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: build/docs/html
+          path: build/site
 
   deploy:
     name: Deploy to GitHub Pages
     needs: build
+    # A push to master always publishes. A manual dispatch only publishes when asked, so the
+    # build can be exercised and its artifact inspected without replacing the live site.
+    if: github.event_name == 'push' || inputs.publish
     runs-on: ubuntu-24.04
     environment:
       name: github-pages

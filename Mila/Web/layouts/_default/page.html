@@ -1,0 +1,14 @@
+{{/* Standalone pages -- getting started, sponsor. No date line, unlike a blog post. */}}
+{{ define "main" }}
+<div class="wrap">
+
+{{/* Works however the reader arrived -- a direct hit from search has no history to go back to. */}}
+<a class="backlink" href="{{ .Site.Home.RelPermalink }}">← Home</a>
+
+<article>
+  <h1>{{ .Title }}</h1>
+  {{ .Content }}
+</article>
+
+</div>
+{{ end }}

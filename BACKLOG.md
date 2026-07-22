@@ -282,3 +282,26 @@ to the current release.
 - **Python sample** — surface the `mila` binding as a standalone Python sample for the
   Python-majority audience. The binding already exists, so this is sample/doc work (no runtime
   feature) — a candidate beta.2 sprint rather than a hard v0.20 gate.
+- **Discoverability (internal — not a README theme)** — **DECIDED 2026-07-22: build a site on the
+  free `toddthomson.github.io/Mila` Pages URL; no custom domain.** The Pages URL already exists and
+  serves Doxygen, so the site is assembled beside it — landing page and writeups at the root, Doxygen
+  demoted to `/api/`, one workflow and one artifact (Pages Source is "GitHub Actions", so the artifact
+  *is* the whole site). A custom domain (`toddt.me`) is **deferred, not rejected** — the objection is
+  administrative load, not cost, and adding one later is a settings field plus DNS with a 301 from the
+  old URL, so nothing built now is wasted. Also in scope, independent of the site: retitle the Show-and-tell writeups so
+  the technical subject leads (and fix the stray leading `#` rendering literally in #15 and #17), and
+  rework the README's *second* paragraph to carry searchable vocabulary — the lead sentence stays
+  exactly as it is, since the GitHub About line now matches it verbatim. Everything below is retained
+  as rationale. Mila is effectively unfindable by search.
+  A GitHub repo ranks on Google almost entirely through its README, and the current opening is brand
+  copy ("at the metal", "explicit neural-network components") rather than anything a person types.
+  The lead sentence stays as it is; the work is to make the *second* paragraph carry the vocabulary
+  people actually search — running Gemma 4 locally, FP4 quantization on CUDA, LLM inference inside a
+  12 GB card, a C++ alternative to llama.cpp — and to give section headings query-shaped names
+  (`## Model Families` indexes against nothing). Secondary: the Discussion write-ups are the
+  best-ranking assets here and their titles bury the technical subject (#15 and #17 also render a
+  stray leading `#`); and `toddthomson.github.io/Mila` is an indexable domain currently serving only
+  Doxygen. Ceiling is modest and worth stating up front — "Mila" is a contested term, so long-tail
+  technical queries are winnable and the brand word is not, and the backlink side runs into the
+  no-social-media position. Marketing/positioning work: it never becomes a ROADMAP theme or a
+  README-visible class.

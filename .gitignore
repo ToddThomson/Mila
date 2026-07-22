@@ -404,3 +404,6 @@ MigrationBackup/
 FodyWeavers.xsd
 /Data/DataSets/Mnist
 /.claude/settings.local.json
+
+# Internal working notes (marketing, positioning) -- never published
+/.internal/
