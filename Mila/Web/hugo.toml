@@ -1,4 +1,4 @@
-baseURL = 'https://toddthomson.github.io/Mila/'
+baseURL = 'https://mila.toddt.me/'
 locale = 'en-us'
 title = 'Mila'
 
@@ -12,9 +12,8 @@ disableKinds = ['taxonomy', 'term']
 #
 # The API reference is Doxygen output copied into /api/ by the docs workflow -- it is not
 # Hugo content, so it stays out of the sitemap automatically. It is marked noindex by a
-# post-processing step in that workflow (a robots.txt cannot do the job: Mila is a project
-# site at a subpath, and crawlers only honour robots.txt at the domain root, which belongs
-# to a user site that does not exist).
+# post-processing step in that workflow, which is stronger than a robots.txt rule: robots.txt
+# only asks crawlers not to fetch, and a URL linked from elsewhere can still be indexed.
 enableRobotsTXT = false
 
 # Writeups are migrated from GitHub Discussions and contain tables and fenced code.

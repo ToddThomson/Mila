@@ -94,9 +94,11 @@ jobs:
           cp -r build/docs/html/* build/site/api/
 
       # Doxygen output is thin, near-duplicate generated HTML: indexing it dilutes the site
-      # and competes with the pages that should rank. A robots.txt cannot do this job -- Mila
-      # is a project site at /Mila/, and crawlers only honour robots.txt at the domain root,
-      # which belongs to a user site that does not exist. So mark the pages themselves.
+      # and competes with the pages that should rank. Marking the pages themselves is kept
+      # deliberately over a robots.txt -- robots.txt only asks crawlers not to *fetch*, which
+      # does not stop a linked URL being indexed, whereas noindex is honoured after the fetch.
+      # (Before the move to mila.toddt.me a robots.txt was not even an option: the site lived
+      # at a subpath of a domain we did not control.)
       - name: Mark the API reference noindex
         run: |
           find build/site/api -name '*.html' -exec \
@@ -113,9 +115,9 @@ jobs:
           done
           grep -q 'noindex' build/site/api/index.html \
             || { echo "api/index.html was not marked noindex"; exit 1; }
-          grep -q '/Mila/blog/' build/site/sitemap.xml \
+          grep -q 'mila.toddt.me/blog/' build/site/sitemap.xml \
             || { echo "sitemap does not list the blog section"; exit 1; }
-          ! grep -q '/Mila/api/' build/site/sitemap.xml \
+          ! grep -q 'mila.toddt.me/api/' build/site/sitemap.xml \
             || { echo "sitemap must not list the API reference"; exit 1; }
           echo "--- assembled tree ---"
           find build/site -maxdepth 2 -not -path '*/api/*' | sort

@@ -294,13 +294,16 @@ to the current release.
 - **Python sample** — surface the `mila` binding as a standalone Python sample for the
   Python-majority audience. The binding already exists, so this is sample/doc work (no runtime
   feature) — a candidate beta.2 sprint rather than a hard v0.20 gate.
-- **Discoverability (internal — not a README theme)** — **DECIDED 2026-07-22: build a site on the
-  free `toddthomson.github.io/Mila` Pages URL; no custom domain.** The Pages URL already exists and
-  serves Doxygen, so the site is assembled beside it — landing page and writeups at the root, Doxygen
+- **Discoverability (internal — not a README theme)** — site LIVE 2026-07-23 at **`mila.toddt.me`**
+  (Cloudflare registrar + DNS, GitHub-issued cert, HTTPS enforced; the old
+  `toddthomson.github.io/Mila` URL 301s to it). Landing page and writeups at the root, Doxygen
   demoted to `/api/`, one workflow and one artifact (Pages Source is "GitHub Actions", so the artifact
-  *is* the whole site). A custom domain (`toddt.me`) is **deferred, not rejected** — the objection is
-  administrative load, not cost, and adding one later is a settings field plus DNS with a 301 from the
-  old URL, so nothing built now is wasted. Also in scope, independent of the site: retitle the Show-and-tell writeups so
+  *is* the whole site). The custom domain was taken immediately rather than deferred: a move resets
+  accrued search signal, and the site was one day old with none — the cheapest moment it will ever be.
+  Measured before the move: `Mila DNN` ranks #1 (the repo's `Src/Dnn/` tree and `Dnn.Components.*`
+  module names are a large structural corpus), `Mila LLM` is unranked past page 4 (prose-only, and
+  reframed only on 2026-07-20). Expect a trough: the `/api/` pages that carried the DNN corpus are now
+  `noindex`. Also in scope, independent of the site: retitle the Show-and-tell writeups so
   the technical subject leads (and fix the stray leading `#` rendering literally in #15 and #17), and
   rework the README's *second* paragraph to carry searchable vocabulary — the lead sentence stays
   exactly as it is, since the GitHub About line now matches it verbatim. Everything below is retained
@@ -312,8 +315,8 @@ to the current release.
   12 GB card, a C++ alternative to llama.cpp — and to give section headings query-shaped names
   (`## Model Families` indexes against nothing). Secondary: the Discussion write-ups are the
   best-ranking assets here and their titles bury the technical subject (#15 and #17 also render a
-  stray leading `#`); and `toddthomson.github.io/Mila` is an indexable domain currently serving only
-  Doxygen. Ceiling is modest and worth stating up front — "Mila" is a contested term, so long-tail
+  stray leading `#`). Ceiling is modest and worth stating up front — "Mila" is a contested term
+  (Mila, the Quebec AI Institute, owns it outright), so long-tail
   technical queries are winnable and the brand word is not, and the backlink side runs into the
   no-social-media position. Marketing/positioning work: it never becomes a ROADMAP theme or a
   README-visible class.

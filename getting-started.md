@@ -471,7 +471,7 @@ coverage, and new encoding strategies under `Mila/Src/Dnn/Components/Encodings/`
   [OperationDispatch.md](Mila/Specifications/OperationDispatch.md),
   [Quantization.V2.md](Mila/Specifications/Quantization.V2.md), and the planned-feature
   specs (PromptCaching, TokenSampling, ToolCalling).
-- API reference: https://toddthomson.github.io/Mila (regenerated on every push to master).
+- API reference: https://mila.toddt.me/api/ (regenerated on every push to master).
 
 ---
 

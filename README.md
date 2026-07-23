@@ -336,10 +336,10 @@ available inside the container automatically.
 
 ## Documentation
 
-Site: https://toddthomson.github.io/Mila — including the
-[blog](https://toddthomson.github.io/Mila/blog/) on the CUDA kernels and architecture work.
+Site: https://mila.toddt.me — including the
+[blog](https://mila.toddt.me/blog/) on the CUDA kernels and architecture work.
 
-API reference: https://toddthomson.github.io/Mila/api/
+API reference: https://mila.toddt.me/api/
 
 Both are rebuilt automatically on every push to master.
 
