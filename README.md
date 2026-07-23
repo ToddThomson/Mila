@@ -192,8 +192,8 @@ tokenizers, and tooling beneath them.
 ## Adaptors
 
 The runtime plus a small family of adaptors, each closing the generation loop for a
-different consumer. See [Mila/Adaptors/README.md](Mila/Adaptors/README.md) and the full
-positioning in [MilaProductFamily.md](Mila/Specifications/MilaProductFamily.md).
+different consumer. See [Mila/Adaptors/README.md](https://github.com/ToddThomson/Mila/blob/dev/Mila/Adaptors/README.md) and the full
+positioning in [MilaProductFamily.md](https://github.com/ToddThomson/Mila/blob/dev/Mila/Specifications/MilaProductFamily.md).
 
 ### Chat — a human at a prompt
 
@@ -236,8 +236,8 @@ current API as part of v0.20 Training Revival.
 
 Located under `Mila/Samples/QuickStart`. A standalone downstream project showing how to depend on Mila
 with `FetchContent` (the supported consumption path for a C++23 module library) and call its public
-API. See [getting-started.md §7](getting-started.md) and the sample's
-[README](Mila/Samples/QuickStart/README.md).
+API. See [getting-started.md §7](https://github.com/ToddThomson/Mila/blob/dev/getting-started.md) and the sample's
+[README](https://github.com/ToddThomson/Mila/blob/dev/Mila/Samples/QuickStart/README.md).
 
 ---
 
@@ -367,7 +367,7 @@ See CONTRIBUTING.md for coding standards and the pull request process.
 
 ## Attributions
 
-For research and open-source acknowledgements, see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
+For research and open-source acknowledgements, see [ATTRIBUTIONS.md](https://github.com/ToddThomson/Mila/blob/dev/ATTRIBUTIONS.md).
 
 ---
 

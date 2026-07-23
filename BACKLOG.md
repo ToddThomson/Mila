@@ -135,7 +135,19 @@ good-first-issue.
 - [x] Docs-site CI decoupled — canonical `Mila/Docs/Doxyfile`, `docs.yml` runs Doxygen 1.17 directly.
 - [ ] Tier 3 — semantic staleness (retired-world prose); **folded into Test Suite Revival** — fix a
   file's prose while it is open for re-greening.
-- [ ] Confirm the docs-CI run green on GitHub Actions (Pages publish + pinned-Doxygen download).
+- [~] Confirm the docs-CI run green on GitHub Actions (Pages publish + pinned-Doxygen download).
+  Blocker cleared: five relative markdown links added to `README.md` in `5503b59b` failed the
+  `WARN_AS_ERROR` ratchet — Doxygen rewrites `[text](target)` into `\ref target` for any non-`http`
+  target, and none of those `.md` files are in the Doxyfile `INPUT`. The beta.1 publish
+  (run 29861454158) died there, so the live site is the 2026-06-09 Doxygen output and
+  `/Mila/blog/` + `/Mila/api/` — both advertised in `README.md:339-342` — are 404.
+- [ ] Docs publish has no gate before the release PR: `docs.yml` runs only on push to `master`, and
+  `master` is release-only by invariant, so a README doc-drift break cannot surface until a release
+  is being cut. Add the Doxygen step to `build-pipeline.yml` (no CUDA, no CMake) so it fails on the
+  `dev` commit that causes it.
+- [ ] `Mila/Web/public/` and `.hugo_build.lock` are Hugo's generated output, committed to git (24
+  files, including stale `public/writing/` paths from the rename to `blog`). CI builds to
+  `build/site` and never reads them. Gitignore and untrack.
 
 ### Production Hardening
 
