@@ -197,4 +197,4 @@ The framework is working. The model is talking. On to Beta.
 
 ---
 
-*Mila is open source under the MIT licence. Contributions welcome — see [[CONTRIBUTING.md](https://github.com/ToddThomson/Mila/blob/master/CONTRIBUTING.md)](CONTRIBUTING.md).*
+*Mila is open source under the MIT licence. Contributions welcome — see [CONTRIBUTING.md](https://github.com/ToddThomson/Mila/blob/master/CONTRIBUTING.md).*
