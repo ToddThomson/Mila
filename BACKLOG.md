@@ -141,11 +141,14 @@ good-first-issue.
   target, and none of those `.md` files are in the Doxyfile `INPUT`. The beta.1 publish
   (run 29861454158) died there, so the live site is the 2026-06-09 Doxygen output and
   `/Mila/blog/` + `/Mila/api/` — both advertised in `README.md:339-342` — are 404.
-- [ ] Docs publish has no gate before the release PR: `docs.yml` runs only on push to `master`, and
-  `master` is release-only by invariant, so a README doc-drift break cannot surface until a release
-  is being cut. Add the Doxygen step to `build-pipeline.yml` (no CUDA, no CMake) so it fails on the
-  `dev` commit that causes it.
-- [ ] `Web/public/` and `.hugo_build.lock` are Hugo's generated output, committed to git (24
+- [~] Docs publish gate. RESOLVED (2026-07-24) that the site could only publish at a release:
+  `docs.yml` now publishes from `dev` (path-filtered to `Web/**`, `Mila/Docs/Doxyfile`, the
+  workflow) behind a structural + JSON-LD validation gate, and `web.yml` validates site changes on
+  pull requests. STILL OPEN: a Doxygen doc-drift break from a `Src/**` or `README.md` change is not
+  caught on the `dev` commit that causes it -- those paths deliberately do not trigger `docs.yml`
+  (no auto-republish on every source commit). Add a non-deploying Doxygen check to
+  `build-pipeline.yml` (no CUDA, no CMake) so it fails on the `dev` commit that causes it.
+- [x] `Web/public/` and `.hugo_build.lock` are Hugo's generated output, committed to git (24
   files, including stale `public/writing/` paths from the rename to `blog`). CI builds to
   `build/site` and never reads them. Gitignore and untrack.
 

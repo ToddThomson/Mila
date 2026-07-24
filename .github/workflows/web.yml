@@ -91,7 +91,7 @@ jobs:
       # The built site, downloadable from the run's Summary page for inspection. This is a plain
       # build artifact, NOT a Pages artifact -- it cannot be deployed from here.
       - name: Upload built site
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: mila-web-site
           path: build/site
