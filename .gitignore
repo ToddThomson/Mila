@@ -407,3 +407,10 @@ FodyWeavers.xsd
 
 # Internal working notes (marketing, positioning) -- never published
 /.internal/
+
+# Hugo (the /Web site) generated output. The site is built fresh by CI (web.yml builds and
+# validates it; docs.yml assembles and deploys it), so committing generated HTML only creates
+# drift. Authored content lives in Web/content, Web/layouts and Web/static.
+/Web/public/
+/Web/resources/_gen/
+/Web/.hugo_build.lock

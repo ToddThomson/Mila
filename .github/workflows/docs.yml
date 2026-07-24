@@ -81,10 +81,10 @@ jobs:
           sudo mv hugo /usr/local/bin/
           hugo version
 
-      # --destination is resolved relative to --source, hence the ../../ climb back to the
+      # --destination is resolved relative to --source, hence the ../ climb back to the
       # repo root. --minify strips whitespace; --gc drops stale cache entries.
       - name: Build site
-        run: hugo --source Mila/Web --destination ../../build/site --minify --gc
+        run: hugo --source Web --destination ../build/site --minify --gc
 
       # The API reference is folded in as a subtree. The Doxyfile is untouched -- its output
       # is relocated here, which keeps this reversible.

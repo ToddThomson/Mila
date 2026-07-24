@@ -1,33 +1,75 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><script src="/Mila/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=Mila/livereload" data-no-instant defer></script>
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Getting started · Mila</title>
-<meta name="description" content="Build Mila from source, convert model weights, and run local LLM inference in C&#43;&#43; on a CUDA GPU - clone, cmake, ctest, and a first Gemma 4 or GPT-2 run.">
-<link rel="canonical" href="http://localhost:1313/Mila/start/">
+{{- $title := cond .IsHome (printf "%s - a C++23 library for open LLMs at the metal" .Site.Title) (printf "%s · %s" .Title .Site.Title) }}
+{{- $desc := or .Description .Site.Params.description }}
+<title>{{ $title }}</title>
+<meta name="description" content="{{ $desc }}">
+<link rel="canonical" href="{{ .Permalink }}">
 
-
-<meta property="og:type" content="article">
-<meta property="og:title" content="Getting started">
-<meta property="og:description" content="Build Mila from source, convert model weights, and run local LLM inference in C&#43;&#43; on a CUDA GPU - clone, cmake, ctest, and a first Gemma 4 or GPT-2 run.">
-<meta property="og:url" content="http://localhost:1313/Mila/start/">
-<meta property="og:site_name" content="Mila"><meta property="article:published_time" content="0001-01-01">
+{{/* Link previews: without these a shared URL renders as bare text in forums and chat. */}}
+<meta property="og:type" content="{{ cond .IsPage "article" "website" }}">
+<meta property="og:title" content="{{ cond .IsHome .Site.Title .Title }}">
+<meta property="og:description" content="{{ $desc }}">
+<meta property="og:url" content="{{ .Permalink }}">
+<meta property="og:site_name" content="{{ .Site.Title }}">
+{{- if .IsPage }}<meta property="article:published_time" content="{{ .Date.Format "2006-01-02" }}">{{ end }}
 <meta name="twitter:card" content="summary">
 
-<link rel="icon" href="/Mila/achilles.png">
+{{/* Structured data. Asserts authorship and dates that a crawler otherwise has to infer from
+     prose -- the one on-page signal a single-author technical site can state outright. The
+     writeups are TechArticle rather than BlogPosting: they are procedural engineering accounts,
+     which is the type search engines map to developer intent.
 
+     safeJS is required: Go's html/template treats a <script type="application/ld+json"> body as a
+     JSON data island and re-marshals whatever it emits. Without safeJS the jsonify string is
+     encoded a second time into a quoted JSON string, which crawlers reject as
+     "Invalid top level element string". safeJS marks the JSON as template.JS so it passes through
+     verbatim. */}}
+{{- if and .IsPage (eq .Section "blog") }}
+<script type="application/ld+json">{{ dict
+  "@context" "https://schema.org"
+  "@type" "TechArticle"
+  "headline" .Title
+  "description" $desc
+  "url" .Permalink
+  "mainEntityOfPage" .Permalink
+  "datePublished" (.Date.Format "2006-01-02")
+  "dateModified" (.Lastmod.Format "2006-01-02")
+  "author" (dict "@type" "Person" "name" "Todd Thomson" "url" "https://github.com/ToddThomson")
+  "isPartOf" (dict "@type" "Blog" "name" "Building Mila" "url" (printf "%sblog/" .Site.BaseURL))
+  | jsonify | safeJS }}</script>
+{{- else if .IsHome }}
+<script type="application/ld+json">{{ dict
+  "@context" "https://schema.org"
+  "@type" "SoftwareSourceCode"
+  "name" .Site.Title
+  "description" .Site.Params.description
+  "url" .Site.BaseURL
+  "codeRepository" .Site.Params.repo
+  "programmingLanguage" (slice "C++" "CUDA")
+  "runtimePlatform" "CUDA"
+  "license" "https://opensource.org/licenses/MIT"
+  "author" (dict "@type" "Person" "name" "Todd Thomson" "url" "https://github.com/ToddThomson")
+  | jsonify | safeJS }}</script>
+{{- end }}
+
+<link rel="icon" href="{{ "achilles.png" | relURL }}">
+{{ with .OutputFormats.Get "rss" }}<link rel="alternate" type="application/rss+xml" title="{{ $.Site.Title }}" href="{{ .Permalink }}">{{ end }}
 <style>
 :root {
   --fg: #17171a; --bg: #fff; --muted: #5d5d66; --rule: #e4e4e8; --faint: #fafafb;
-   
+  /* Accent is sampled from the Achilles Software mark (#0a40c2) so the logo and the site
+     are one palette rather than two. */
   --accent: #0a40c2; --accent-soft: #dce4f9; --code-bg: #f6f6f8;
   --k: #cf222e; --c: #57606a; --s: #0a3069; --n: #0550ae; --f: #6639ba;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --fg: #e8e8ec; --bg: #121215; --muted: #9b9ba6; --rule: #2b2b33; --faint: #17171b;
-     
+    /* Lifted from the mark's #0a40c2, which is far too dark to read on a dark ground. */
     --accent: #7ea3ff; --accent-soft: #1a2340; --code-bg: #1a1a1f;
     --k: #ff7b72; --c: #8b949e; --s: #a5d6ff; --n: #79c0ff; --f: #d2a8ff;
   }
@@ -41,7 +83,8 @@ body {
 }
 .wrap { max-width: 47rem; margin: 0 auto; padding: 0 1.5rem; }
 
- 
+/* Full-bleed bands. The landing page is a stack of these so each section reads as its own
+   block; every other page is a single .wrap inside main. */
 .band { padding: 4rem 0; border-bottom: 1px solid var(--rule); }
 .band.alt { background: var(--faint); }
 .band:last-child { border-bottom: none; }
@@ -53,14 +96,15 @@ header { padding: 1.75rem 0 1.1rem; border-bottom: 1px solid var(--rule); text-a
 header .name { display: flex; align-items: center; justify-content: center; gap: .7rem; flex-wrap: wrap; }
 header .name a { display: inline-flex; align-items: center; gap: .55rem; color: var(--fg);
   text-decoration: none; font-weight: 700; font-size: 1.2rem; letter-spacing: -.02em; }
- 
+/* 64px source rendered at 26px -- enough for high-DPI. A larger mark needs a larger source. */
 header .name img { width: 26px; height: 26px; display: block; }
 header .tag { color: var(--muted); font-size: .82rem; }
 nav { margin-top: .7rem; font-size: .93rem; display: flex; justify-content: center; gap: 1.3rem; flex-wrap: wrap; }
 nav a { color: var(--muted); text-decoration: none; }
 nav a:hover { color: var(--accent); }
 
- 
+/* Collapsing menu. CSS-only via a hidden checkbox -- no script, and it keeps working if
+   one ever fails to load. The toggle is hidden entirely at desktop width. */
 .navbtn { display: none; }
 @media (max-width: 44rem) {
   .navbtn { display: inline-flex; align-items: center; gap: .45rem; cursor: pointer;
@@ -83,30 +127,29 @@ p { margin: 0 0 1.15rem; }
 .meta { color: var(--muted); font-size: .9rem; margin: -.2rem 0 2.4rem; }
 .meta a { color: var(--muted); }
 
- 
+/* Hero -- headline, one line, two buttons. Everything else dives down from here. */
 .hero { padding: 4.5rem 0 3.5rem; text-align: center; }
 .hero h1 { font-size: clamp(2.3rem, 6.5vw, 3.4rem); line-height: 1.06; margin-bottom: 1.1rem; }
 .hero .lede { max-width: 36rem; color: var(--muted); margin: 0 auto 2rem; }
 .hero .cta { justify-content: center; }
- 
+/* The claim boxes below the hero keep their own left-aligned text. */
 .hero .feats { text-align: left; }
 
- 
+/* Wider measure for the landing bands that carry two columns. */
 .wrap.wide { max-width: 62rem; }
 
- 
+/* The three claims, side by side -- scanned in one pass, not read. Static by design: the
+   destination boxes below are the way deeper, and clickable claims competed with them. */
 .feats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 3rem; }
 @media (max-width: 52rem) { .feats { grid-template-columns: 1fr; } }
 .feat { display: block; padding: 1.2rem 1.3rem; border: 1px solid var(--rule); border-radius: 9px;
-  background: var(--faint); text-decoration: none; color: var(--fg);
-  transition: border-color .15s, transform .15s; }
-.feat:hover { border-color: var(--accent); transform: translateY(-2px); }
+  background: var(--faint); color: var(--fg); }
 .feat b { display: block; font-size: 1.15rem; letter-spacing: -.015em; margin-bottom: .25rem; }
 .feat p { margin: 0; color: var(--muted); font-size: .93rem; line-height: 1.55; }
 .feat p strong { color: var(--fg); font-weight: 600; }
 .band.alt .feat { background: var(--bg); }
 
- 
+/* Model chips -- the validated surface as a grid rather than a table of prose. */
 .chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .8rem; margin: 1.8rem 0 0; }
 .chip { display: block; border: 1px solid var(--rule); border-radius: 8px; padding: .9rem 1rem;
   background: var(--bg); text-decoration: none; color: var(--fg);
@@ -118,7 +161,7 @@ p { margin: 0 0 1.15rem; }
   padding: .16rem .5rem; border-radius: 4px; }
 .band.alt .chip { background: var(--bg); }
 .note { color: var(--muted); font-size: .9rem; margin-top: 1.6rem; }
- 
+/* Bylines -- a statement per line, not a paragraph. */
 .byline { font-size: 1.1rem; margin: 0 0 .3rem; letter-spacing: -.01em; }
 .byline + .byline { color: var(--muted); font-size: 1rem; margin-bottom: 1.8rem; }
 .cta { display: flex; gap: .7rem; flex-wrap: wrap; }
@@ -133,7 +176,8 @@ p { margin: 0 0 1.15rem; }
 p.tail { color: var(--muted); font-size: .95rem; margin-top: 2.5rem; }
 p.tail p { margin: 0; }
 
- 
+/* Top-level destination boxes on the landing page. Larger than post cards, and the only
+   navigation the front page needs -- the blog's own grid is one click down. */
 .boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; margin: 2.5rem 0 1rem; }
 .box { display: flex; flex-direction: column; gap: .45rem; padding: 1.4rem 1.45rem 1.25rem;
   border: 1px solid var(--rule); border-radius: 10px; background: var(--faint);
@@ -144,7 +188,7 @@ p.tail p { margin: 0; }
 .box-desc { font-size: .9rem; line-height: 1.55; color: var(--muted); flex: 1; margin-top: .15rem; }
 .box-more { font-size: .87rem; font-weight: 550; color: var(--accent); margin-top: .5rem; }
 
- 
+/* Card grid -- the writeups, promoted. */
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(15.5rem, 1fr)); gap: 1rem; margin: 1.5rem 0; }
 .card { display: flex; flex-direction: column; gap: .4rem; padding: 1.15rem 1.25rem 1rem;
   border: 1px solid var(--rule); border-radius: 9px; background: var(--faint);
@@ -155,7 +199,7 @@ p.tail p { margin: 0; }
 .card-desc { font-size: .89rem; line-height: 1.5; color: var(--muted); flex: 1; }
 .card-more { font-size: .86rem; font-weight: 550; color: var(--accent); margin-top: .3rem; }
 
- 
+/* Stat row -- the measured numbers, stated once, near the top. */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1px;
   background: var(--rule); border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; margin: 2rem 0; }
 .stat { background: var(--faint); padding: .85rem 1rem; }
@@ -193,7 +237,8 @@ ul.posts .t a { text-decoration: none; }
 ul.posts .t a:hover { text-decoration: underline; }
 ul.posts .d { color: var(--muted); font-size: .89rem; line-height: 1.5; margin-top: .15rem; }
 
- 
+/* Post navigation. A reader who arrived from search has no history to go back to, and a
+   reader who finished one post needs somewhere to go next. */
 .backlink { display: inline-block; margin-bottom: 1.6rem; font-size: .9rem; color: var(--muted);
   text-decoration: none; }
 .backlink:hover { color: var(--accent); }
@@ -219,97 +264,23 @@ footer a { color: var(--muted); }
 <header>
   <div class="wrap">
     <div class="name">
-      
-      <a href="/Mila/"><img src="/Mila/achilles.png" alt="Achilles Software" width="26" height="26">Mila</a>
+      {{/* .Site.Home.RelPermalink, not "/" | relURL -- relURL does not prepend the base path
+           to a leading-slash string, so "/" would resolve to the account root, not /Mila/. */}}
+      <a href="{{ .Site.Home.RelPermalink }}"><img src="{{ "achilles.png" | relURL }}" alt="" width="26" height="26">Mila</a>
       <span class="tag">C++23 · CUDA · open LLMs</span>
     </div>
     <input type="checkbox" id="navtoggle" hidden>
     <label class="navbtn" for="navtoggle" aria-label="Toggle menu"><span aria-hidden="true">☰</span> Menu</label>
-    <nav><a href="/Mila/start/">Get started</a><a href="/Mila/blog/">Blog</a><a href="/Mila/api/">Documentation</a><a href="/Mila/sponsor/">Sponsor</a><a href="/Mila/#contact">Contact</a><a href="https://github.com/ToddThomson/Mila">GitHub</a></nav>
+    <nav>{{ range .Site.Params.nav }}<a href="{{ .url | relURL }}">{{ .name }}</a>{{ end }}</nav>
   </div>
 </header>
 <main>
-
-<div class="wrap">
-
-
-<a class="backlink" href="/Mila/">← Home</a>
-
-<article>
-  <h1>Getting started</h1>
-  <p>Mila is a source distribution. C++23 modules cannot ship as prebuilt binaries — the consumer compiles
-the module graph in its own toolchain — so getting started means building it.</p>
-<h2 id="1-check-the-toolchain">1. Check the toolchain</h2>
-<table>
-	<thead>
-			<tr>
-					<th></th>
-					<th></th>
-			</tr>
-	</thead>
-	<tbody>
-			<tr>
-					<td><strong>C++ compiler</strong></td>
-					<td>Visual Studio 2026 18.6.2+ on Windows, or Clang 19+ / GCC 16 on Linux</td>
-			</tr>
-			<tr>
-					<td><strong>CUDA Toolkit</strong></td>
-					<td>13.0+ on Windows, 13.3+ on Linux</td>
-			</tr>
-			<tr>
-					<td><strong>CMake</strong></td>
-					<td>4.0 or newer</td>
-			</tr>
-			<tr>
-					<td><strong>Generator</strong></td>
-					<td>Ninja — significantly faster for incremental module builds</td>
-			</tr>
-			<tr>
-					<td><strong>Git</strong></td>
-					<td>2.x — dependencies are fetched at configure time</td>
-			</tr>
-	</tbody>
-</table>
-<p>Earlier Visual Studio 2026 builds have a C++23 module regression; 18.6.2 fixed it. GCC 15.2 and
-earlier cannot compile the modules at all.</p>
-<h2 id="2-build-and-test">2. Build and test</h2>
-<div class="highlight"><pre tabindex="0" style="color:#e6edf3;background-color:#0d1117;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>git clone https://github.com/toddthomson/mila.git
-</span></span><span style="display:flex;"><span>cd mila
-</span></span><span style="display:flex;"><span>cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE<span style="color:#ff7b72;font-weight:bold">=</span>Release -DMILA_ENABLE_TESTING<span style="color:#ff7b72;font-weight:bold">=</span>ON
-</span></span><span style="display:flex;"><span>cmake --build build
-</span></span><span style="display:flex;"><span>ctest --test-dir build
-</span></span></code></pre></div><p>Tests are opt-in — drop <code>-DMILA_ENABLE_TESTING=ON</code> for a library-only build. On Windows you can
-instead open the folder in Visual Studio, which detects <code>CMakeLists.txt</code> and the bundled presets
-automatically.</p>
-<p>There is also a dev container mirroring the CI toolchain, if you would rather not install CUDA and a
-compiler locally.</p>
-<h2 id="3-get-model-weights">3. Get model weights</h2>
-<p>Weights are not included. A converter turns HuggingFace checkpoints into Mila&rsquo;s binary format, and
-always writes BF16 — quantization to FP8 or FP4 happens at load time, so there is no separate
-quantized checkpoint to manage.</p>
-<p><strong>GPT-2 is the easiest first target</strong>: it is ungated, small, and needs no HuggingFace account. Llama
-and Gemma are gated and require auth.</p>
-<h2 id="4-run-something">4. Run something</h2>
-<p>The Chat CLI is the quickest way to see it work — an instruction-following harness with model
-hot-switching and tool calling, defaulting to Gemma 4 12B at FP4.</p>
-<h2 id="5-or-consume-it-from-your-own-project">5. Or consume it from your own project</h2>
-<p>CMake <code>FetchContent</code> is the supported path. Your project compiles Mila&rsquo;s modules in your toolchain,
-then links against them like any other target.</p>
-<hr>
-<p><strong>The full guide</strong> — every step above with exact commands, converter setup, the gated-model auth
-flow, <code>FetchContent</code> details, and how to open a first pull request — is
-<a href="https://github.com/ToddThomson/Mila/blob/master/getting-started.md">getting-started.md</a> in the
-repository. It is the authoritative version; this page is the short road in.</p>
-
-</article>
-
-</div>
-
+{{ block "main" . }}{{ end }}
 </main>
 <footer>
   <div class="wrap">
     <p>Mila is a C++23 library for open LLMs — inference and training, at the metal.
-    Source on <a href="https://github.com/ToddThomson/Mila">GitHub</a>, MIT licensed. Currently in public beta.</p>
+    Source on <a href="{{ .Site.Params.repo }}">GitHub</a>, MIT licensed. Currently in public beta.</p>
   </div>
 </footer>
 </body>

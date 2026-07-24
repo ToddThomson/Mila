@@ -145,7 +145,7 @@ good-first-issue.
   `master` is release-only by invariant, so a README doc-drift break cannot surface until a release
   is being cut. Add the Doxygen step to `build-pipeline.yml` (no CUDA, no CMake) so it fails on the
   `dev` commit that causes it.
-- [ ] `Mila/Web/public/` and `.hugo_build.lock` are Hugo's generated output, committed to git (24
+- [ ] `Web/public/` and `.hugo_build.lock` are Hugo's generated output, committed to git (24
   files, including stale `public/writing/` paths from the rename to `blog`). CI builds to
   `build/site` and never reads them. Gitignore and untrack.
 
@@ -324,7 +324,7 @@ to the current release.
   member-index pages, which are pure navigation.
   (d) **Brand mark + share card.** DECIDED 2026-07-23: the mark is the Achilles mark **with the dot
   removed** (Achilles Software is retired; the mark is free). No redesign. Blocked on retrieving the
-  original **vector** source — everything in-repo is 64x64 raster (`Mila/Web/static/achilles.png`,
+  original **vector** source — everything in-repo is 64x64 raster (`Web/static/achilles.png`,
   `icon.png`), which cannot make the 1200x630 `og:image` card and is soft on high-DPI. A dot-removed
   64x64 raster exists as a stopgap only; do **not** ship a trace. When the vector lands: rename to a
   Mila-owned filename, update the `<link rel=icon>` and header `<img>` in `baseof.html`, reword the CSS
