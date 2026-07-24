@@ -313,7 +313,11 @@ to the current release.
   (b) **Duplicate content splits the writeups.** Every post carries a `discussion:` link and the same
   text lives on `github.com/.../discussions/N` — older, indexed, and on a far stronger domain. Google
   picks one; it will not pick us. Fix is editorial: trim each Discussion to a teaser plus a link to the
-  canonical post on the site. Consolidates signal onto the domain we now own.
+  canonical post on the site. Consolidates signal onto the domain we now own. Tooling landed
+  (2026-07-24): a companion-thread template, `Tools/Blog/new_post_discussion.py` (opens the Discussion
+  and writes its URL back into the post front matter), and a `Web/archetypes/blog.md` scaffold. In
+  progress: #6 trimmed to a banner; #5 (CharLM) was an outlier — reworked into a new origin post
+  (`/blog/charlm/`) rather than trimmed, its effusive AI-chat transcript to be shed from the thread.
   (c) **Revisit the `/api/` `noindex` once the authored pages have traction** — a sequencing call, not
   a permanent one. The original justification (a `robots.txt` cannot reach a subpath of a domain we do
   not control) died with the move to `mila.toddt.me`; the reason that survives is ratio. The build is
@@ -333,6 +337,10 @@ to the current release.
   Mila-owned filename, update the `<link rel=icon>` and header `<img>` in `baseof.html`, reword the CSS
   comment crediting the accent colour to "the Achilles Software mark", then add `og:image` and flip
   `twitter:card` to `summary_large_image`.
+  Also found (2026-07-24): the Discussion->Hugo migration flattened structure in at least one post --
+  emoji section-markers became plain lines and single-newline staccato collapsed into run-on
+  paragraphs (GitHub hard-wraps single newlines; Hugo does not). Fixed in
+  `lobotomized-attention-head-bug`; sweep the other eight for the same before promoting the site.
   Also in scope, independent of the site: retitle the Show-and-tell writeups so
   the technical subject leads (and fix the stray leading `#` rendering literally in #15 and #17), and
   rework the README's *second* paragraph to carry searchable vocabulary — the lead sentence stays
