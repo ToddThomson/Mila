@@ -28,7 +28,9 @@ enableRobotsTXT = false
     endLevel = 3
 
 [params]
-  description = 'A C++23 library for open LLMs at the metal - inference and training, built from explicit neural-network components you can read and understand.'
+  # No VRAM figure here. "12 GB" describes the development machine, not a capability bound, and
+  # stating it reads as a ceiling. Keep this in step with the hero lede in layouts/index.html.
+  description = 'A C++23 and CUDA reference implementation of LLM inference - Gemma 4, Llama 3.x and GPT-2 built from explicit components you can read and understand, validated token-for-token against HuggingFace, on consumer hardware.'
   repo = 'https://github.com/ToddThomson/Mila'
   email = 'todd.thomson@me.com'
 
@@ -37,15 +39,24 @@ enableRobotsTXT = false
 # Q4_K_M, 48K context). Update them only from a real measurement.
 # Static claims -- no links. They sit above the destination boxes, whose job is to be the
 # way deeper; making these clickable competed with that and exited the site.
-[[params.features]]
-  lead = 'Fast'
-  text = '**1,817 tok/s** prefill and **49.1 tok/s** decode at a 32K context, on an RTX 4070 12GB.'
+#
+# ORDER IS THE ARGUMENT. Differentiator, then credibility, then the surprise. Speed comes last
+# and is stated as a RATIO that concedes the gap: on a reference implementation the number's job
+# is to prove explicitness is free, not to enter a throughput race Mila is not running
+# (MilaProductFamily.md: "judged by craft ... not by throughput leaderboards").
+#
+# Three claims, and the code demonstration below the row is a fourth statement in its own right.
+# There is deliberately NO "Typed"/"Compile-time" card: it asserted exactly what the snippet
+# demonstrates, and a claim standing next to its own evidence is redundant -- the evidence wins.
 [[params.features]]
   lead = 'Explicit'
-  text = 'No autograd engine, no hidden execution engine. Call `forward()` and you know exactly which kernel runs.'
+  text = 'No execution engine. Your application owns `main()` and the loop; Mila makes the model an ordinary C++ object inside them.'
 [[params.features]]
   lead = 'Validated'
-  text = 'Gemma 4, Llama 3.x and GPT-2 each reproduce a HuggingFace reference **token-for-token**.'
+  text = 'Gemma 4, Llama 3.x and GPT-2 each reproduce a HuggingFace reference **token-for-token**, at their target precisions.'
+[[params.features]]
+  lead = 'Fast'
+  text = 'Within **1.03x** of llama.cpp on decode and **1.14x** on prefill at long context, measured on a consumer RTX 4070.'
 
 # The validated surface, short form. The README table is the long form.
 [[params.models]]
@@ -69,21 +80,27 @@ enableRobotsTXT = false
   precision = 'FP32 / BF16'
   note = 'Where Mila started, and its training reference.'
 
+# Nav mirrors the hero's intent order: understand -> read -> build, then reference material.
+# "Documentation" is the NARRATIVE section (what Mila is, how it works, the reading path); the
+# generated Doxygen is "API reference". Pointing "Documentation" at a generated class index is a
+# mislabel -- it is not what a developer scanning that word expects to find.
+# Contact dropped: it was only an anchor to the foot of the home page, and Discussions, Issues and
+# GitHub already cover reaching a person.
 [[params.nav]]
-  name = 'Get started'
-  url = 'start/'
+  name = 'Documentation'
+  url = 'docs/'
 [[params.nav]]
   name = 'Blog'
   url = 'blog/'
 [[params.nav]]
-  name = 'Documentation'
+  name = 'Get started'
+  url = 'start/'
+[[params.nav]]
+  name = 'API reference'
   url = 'api/'
-[[params.nav]]
-  name = 'Sponsor'
-  url = 'sponsor/'
-[[params.nav]]
-  name = 'Contact'
-  url = '#contact'
+# Sponsor is deliberately NOT in the nav -- it is a narrow ask aimed at a very small population who
+# will arrive already interested, not by scanning a menu. It keeps a home-page band and a footer
+# link, which is site-wide reachability at near-zero attention cost.
 [[params.nav]]
   name = 'GitHub'
   url = 'https://github.com/ToddThomson/Mila'

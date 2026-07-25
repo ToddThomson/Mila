@@ -170,6 +170,19 @@ good-first-issue.
   landed (declaration-only primary + `OperationSupported<...>` predicate); optional named kernel
   concepts + `OperationDispatch.md` §12 reconcile remain.
 - [ ] Add the Samples build to CI (only tests build today).
+- [ ] **`IExecutionContext` is exported but unreachable in practice.** `Mila.ixx` re-exports
+  `Compute.IExecutionContext` and `Compute.ExecutionContextFactory` as public API, but no model
+  factory accepts one — `GemmaModel/LlamaModel/GptModel::fromPretrained` take a `DeviceId`
+  (`GemmaModel.ixx:119`) — and `Component` holds a *non-owning* pointer documented as "owned by the
+  parent" (`Component.ixx:47`), so ownership parents up the component tree. Chat, the reference
+  adaptor, never names either symbol. Decide: either a consumer genuinely can own a context (a
+  `fromPretrained` overload taking `IExecutionContext*`, letting an application share one stream
+  across models) or the two symbols should not be in the public umbrella. Surfaced 2026-07-25 while
+  fact-checking a website claim that the application owns the execution context — it does not.
+- [ ] `Mila/Samples/QuickStart/main.cpp:23` prints "framework initialized via find_package(Mila)" --
+  wrong twice over, in the one sample whose job is to demonstrate consumption. Mila is a library, not
+  a framework (MilaProductFamily.md), and `find_package` is PARKED with FetchContent as the supported
+  path (this bucket, above). One-line copy fix.
 - [ ] Guided reading path — one token's journey (embed -> attend -> sample -> decode) through the real
   source, readable by a strong C++ dev unaided.
 - [x] Backfill the README **Gemma 4 flagship** perf numbers — prefill 1.14x behind llama.cpp, FP4
@@ -329,14 +342,26 @@ to the current release.
   are repositioning to LLM. Current marking is `noindex,follow`, so crawl paths stay open. When GSC
   shows the authored pages indexing, open **class and struct pages only** — never the `dir_` or
   member-index pages, which are pure navigation.
-  (d) **Brand mark + share card.** DECIDED 2026-07-23: the mark is the Achilles mark **with the dot
-  removed** (Achilles Software is retired; the mark is free). No redesign. Blocked on retrieving the
-  original **vector** source — everything in-repo is 64x64 raster (`Web/static/achilles.png`,
-  `icon.png`), which cannot make the 1200x630 `og:image` card and is soft on high-DPI. A dot-removed
-  64x64 raster exists as a stopgap only; do **not** ship a trace. When the vector lands: rename to a
-  Mila-owned filename, update the `<link rel=icon>` and header `<img>` in `baseof.html`, reword the CSS
-  comment crediting the accent colour to "the Achilles Software mark", then add `og:image` and flip
-  `twitter:card` to `summary_large_image`.
+  (d) **Brand mark + share card — REDESIGN, v0.20.0 gate.** SUPERSEDES the 2026-07-23 decision
+  ("the Achilles mark with the dot removed, no redesign"), reversed 2026-07-25 on two grounds: the
+  original **vector source was never found** — the old business assets were purged, and everything
+  in-repo is 64x64 raster (`Web/static/achilles.png`, `icon.png`), too soft for high-DPI and unable to
+  make a 1200x630 `og:image` — and a mark that reads as a retired company's initial **A** undercuts a
+  site whose whole ask is trust in the code. Design direction: keep the **"AI crest"** feel the current
+  A suggests; the mark must read as Mila, not as a letter borrowed from elsewhere. Deliver as
+  **vector**; do **not** ship a raster trace of the old mark. On landing: Mila-owned filename, update
+  `<link rel=icon>` and the header `<img>` in `baseof.html`, restate the CSS comment that currently
+  credits the accent colour to "the Achilles Software mark" (`--accent` `#0a40c2` is sampled from it —
+  decide whether the palette follows the new mark), then add `og:image` and flip `twitter:card` to
+  `summary_large_image`.
+  Also found (2026-07-25): **fenced code blocks ignore the reader's theme.** `Web/hugo.toml` sets
+  `markup.highlight.noClasses = true`, so Hugo emits per-token inline styles plus a hardcoded
+  `background-color:#0d1117` -- every highlighted block renders dark on the light theme. The
+  consequence is that the `.chroma .k/.c/.s/...` rules in `baseof.html` (which *are* theme-aware, via
+  the `--k`/`--c`/`--s` custom properties) are dead code and have never applied. Flipping `noClasses`
+  to `false` activates the CSS already written and makes code theme-correct sitewide; it changes the
+  appearance of every post, so it is a taste call, not a drive-by. The landing-page snippet added
+  2026-07-25 sidesteps this with an unlanguaged fence (no chroma, inherits `--code-bg`).
   Also found (2026-07-24): the Discussion->Hugo migration flattened structure in at least one post --
   emoji section-markers became plain lines and single-newline staccato collapsed into run-on
   paragraphs (GitHub hard-wraps single newlines; Hugo does not). Fixed in

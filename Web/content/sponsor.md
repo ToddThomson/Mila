@@ -1,6 +1,6 @@
 ---
 title: "Sponsoring Mila"
-description: "Mila accepts compute and hardware sponsorship only - never money. An independent C++23 LLM runtime that can tell a hardware bug from a framework bug."
+description: "Mila accepts compute and hardware sponsorship only. An independent C++23 LLM runtime that can tell a hardware bug from a framework bug - evaluation loans welcome."
 layout: "page"
 ---
 

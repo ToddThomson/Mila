@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-{{- $title := cond .IsHome (printf "%s - a C++23 library for open LLMs at the metal" .Site.Title) (printf "%s · %s" .Title .Site.Title) }}
+{{/* The home title carries the category words a search has to match -- "Mila" alone collides with
+     the Montreal AI institute, so the qualifier is load-bearing, not decoration. */}}
+{{- $title := cond .IsHome (printf "%s - a C++23 reference implementation of LLM inference" .Site.Title) (printf "%s · %s" .Title .Site.Title) }}
 {{- $desc := or .Description .Site.Params.description }}
 <title>{{ $title }}</title>
 <meta name="description" content="{{ $desc }}">
@@ -11,7 +13,10 @@
 
 {{/* Link previews: without these a shared URL renders as bare text in forums and chat. */}}
 <meta property="og:type" content="{{ cond .IsPage "article" "website" }}">
-<meta property="og:title" content="{{ cond .IsHome .Site.Title .Title }}">
+{{/* $title, not .Site.Title: on the home page the latter is the bare word "Mila", which is the one
+     string that must never ship unqualified -- it collides with the Montreal AI institute, and a
+     share card is exactly where that costs the most. */}}
+<meta property="og:title" content="{{ cond .IsHome $title .Title }}">
 <meta property="og:description" content="{{ $desc }}">
 <meta property="og:url" content="{{ .Permalink }}">
 <meta property="og:site_name" content="{{ .Site.Title }}">
@@ -85,7 +90,7 @@ body {
 
 /* Full-bleed bands. The landing page is a stack of these so each section reads as its own
    block; every other page is a single .wrap inside main. */
-.band { padding: 4rem 0; border-bottom: 1px solid var(--rule); }
+.band { padding: 3rem 0; border-bottom: 1px solid var(--rule); }
 .band.alt { background: var(--faint); }
 .band:last-child { border-bottom: none; }
 .band h2 { margin-top: 0; border-bottom: none; padding-bottom: 0; font-size: 1.5rem; }
@@ -128,7 +133,7 @@ p { margin: 0 0 1.15rem; }
 .meta a { color: var(--muted); }
 
 /* Hero -- headline, one line, two buttons. Everything else dives down from here. */
-.hero { padding: 4.5rem 0 3.5rem; text-align: center; }
+.hero { padding: 3.5rem 0 2.75rem; text-align: center; }
 .hero h1 { font-size: clamp(2.3rem, 6.5vw, 3.4rem); line-height: 1.06; margin-bottom: 1.1rem; }
 .hero .lede { max-width: 36rem; color: var(--muted); margin: 0 auto 2rem; }
 .hero .cta { justify-content: center; }
@@ -149,6 +154,20 @@ p { margin: 0 0 1.15rem; }
 .feat p strong { color: var(--fg); font-weight: 600; }
 .band.alt .feat { background: var(--bg); }
 
+/* The code demonstration under the claim row. The landing page carries no prose, so this is where
+   the "Compile-time" claim is proved -- a type a C++ reader recognises rather than reads. Left
+   aligned inside the centred hero, like .feats. */
+/* The fourth claim. Same furniture as .feat, but full width so the declaration fits on one line
+   -- at a third of the row it would need breaking across four lines to fit. */
+.demo { margin-top: 1rem; text-align: left; padding: 1.2rem 1.3rem; border: 1px solid var(--rule);
+  border-radius: 9px; background: var(--faint); }
+.demo b { display: block; font-size: 1.15rem; letter-spacing: -.015em; margin-bottom: .25rem; }
+.demo > p { margin: 0 0 .9rem; color: var(--muted); font-size: .93rem; line-height: 1.55; }
+.demo pre { margin: 0; }
+/* --c is the palette's comment colour, theme-aware in both schemes. */
+.demo .cmt { color: var(--c); font-style: italic; }
+.band.alt .demo { background: var(--bg); }
+
 /* Model chips -- the validated surface as a grid rather than a table of prose. */
 .chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .8rem; margin: 1.8rem 0 0; }
 .chip { display: block; border: 1px solid var(--rule); border-radius: 8px; padding: .9rem 1rem;
@@ -159,6 +178,9 @@ p { margin: 0 0 1.15rem; }
 .chip .p { display: inline-block; margin-top: .45rem; font-size: .75rem; font-weight: 600;
   letter-spacing: .03em; color: var(--accent); background: var(--accent-soft);
   padding: .16rem .5rem; border-radius: 4px; }
+/* The architecture note. On a reference implementation the mechanism IS the interesting part,
+   so the chip states it rather than leaving the name to stand alone. */
+.chip .d { display: block; margin-top: .55rem; color: var(--muted); font-size: .84rem; line-height: 1.45; }
 .band.alt .chip { background: var(--bg); }
 .note { color: var(--muted); font-size: .9rem; margin-top: 1.6rem; }
 /* Bylines -- a statement per line, not a paragraph. */
@@ -179,6 +201,10 @@ p.tail p { margin: 0; }
 /* Top-level destination boxes on the landing page. Larger than post cards, and the only
    navigation the front page needs -- the blog's own grid is one click down. */
 .boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; margin: 2.5rem 0 1rem; }
+/* A band that opens straight onto boxes has no h2 to absorb that 2.5rem, so it stacked on the
+   band's own padding and sat 40px lower than every other section. Scoped to the headless case --
+   in the Contact band the boxes follow a heading and the margin is doing real work. */
+.wrap > .boxes:first-child { margin-top: 0; }
 .box { display: flex; flex-direction: column; gap: .45rem; padding: 1.4rem 1.45rem 1.25rem;
   border: 1px solid var(--rule); border-radius: 10px; background: var(--faint);
   text-decoration: none; color: var(--fg); transition: border-color .15s, transform .15s; }
@@ -267,7 +293,9 @@ footer a { color: var(--muted); }
       {{/* .Site.Home.RelPermalink, not "/" | relURL -- relURL does not prepend the base path
            to a leading-slash string, so "/" would resolve to the account root, not /Mila/. */}}
       <a href="{{ .Site.Home.RelPermalink }}"><img src="{{ "achilles.png" | relURL }}" alt="" width="26" height="26">Mila</a>
-      <span class="tag">C++23 · CUDA · open LLMs</span>
+      {{/* What before how. "local" is the constraint the whole architecture serves, and it implies
+           open weights -- the closed frontier models cannot run here at all. */}}
+      <span class="tag">local LLMs · C++23 · CUDA</span>
     </div>
     <input type="checkbox" id="navtoggle" hidden>
     <label class="navbtn" for="navtoggle" aria-label="Toggle menu"><span aria-hidden="true">☰</span> Menu</label>
@@ -279,8 +307,11 @@ footer a { color: var(--muted); }
 </main>
 <footer>
   <div class="wrap">
-    <p>Mila is a C++23 library for open LLMs — inference and training, at the metal.
-    Source on <a href="{{ .Site.Params.repo }}">GitHub</a>, MIT licensed. Currently in public beta.</p>
+    {{/* Sponsoring lives here rather than in the nav -- reachable from every page, costing no
+         attention on pages where nobody is looking for it. */}}
+    <p>Mila is a C++23 and CUDA reference implementation of LLM inference and training — built to be
+    read. Source on <a href="{{ .Site.Params.repo }}">GitHub</a>, MIT licensed. Currently in public
+    beta. Hardware and compute <a href="{{ "sponsor/" | relURL }}">sponsorship</a> welcome.</p>
   </div>
 </footer>
 </body>

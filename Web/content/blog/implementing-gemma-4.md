@@ -1,8 +1,12 @@
 ---
-title: "Bringing Up Gemma 4 in C++: Sliding-Window Attention, Dual RoPE and Token-for-Token Parity"
+title: "Implementing Gemma 4 in C++: Sliding-Window Attention, Dual RoPE and Token-for-Token Parity"
 date: 2026-06-23
 description: "Porting a C++ inference runtime from Llama 3 to Gemma 4: per-layer local/global sliding-window attention, dual RoPE, GeGLU, logit softcap, and the RMSNorm bug that cost token parity."
 discussion: "https://github.com/ToddThomson/Mila/discussions/15"
+# Renamed from bringing-up-gemma-4 (2026-07-25): "bringing up" reads as vomiting, not board
+# bring-up. Nothing is known to link here yet, but the alias costs one redirect stub and covers
+# any link already sitting in Discussion #15.
+aliases: ["/blog/bringing-up-gemma-4/"]
 ---
 
 ## Where We Left Off
