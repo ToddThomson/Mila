@@ -98,11 +98,11 @@ namespace Mila::Tests::Dnn::Tensors
 
     TEST_F( TensorShapeTransformTests, View_ThrowsWhenOffsetExceedsBuffer ) {
         HostTensor<TensorDataType::FP32> parent( Device::Cpu(), shape_t{ 6 } );
-        EXPECT_THROW( parent.view( shape_t{ 6 }, 1 ), std::invalid_argument );
+        EXPECT_THROW( (void)parent.view( shape_t{ 6 }, 1 ), std::invalid_argument );
     }
 
     TEST_F( TensorShapeTransformTests, View_ThrowsWhenNoBuffer ) {
         HostTensor<TensorDataType::FP32> empty( Device::Cpu(), shape_t{ 0 } );
-        EXPECT_THROW( empty.view( shape_t{ 1 } ), std::runtime_error );
+        EXPECT_THROW( (void)empty.view( shape_t{ 1 } ), std::runtime_error );
     }
 }

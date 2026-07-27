@@ -88,8 +88,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             }
 
             static void permute_qkv(
-                float* Q, float* K, float* V, const float* X,
-                int B, int T, int NH, int NKV, int HS, cudaStream_t s )
+                float* /*Q*/, float* /*K*/, float* /*V*/, const float* /*X*/,
+                int /*B*/, int /*T*/, int /*NH*/, int /*NKV*/, int /*HS*/, cudaStream_t /*s*/ )
             {
                 // REVIEW: legacy path for correctness validation. This kernel is no longer called.
                 // Remove once permute_q_compact is validated ( which it has )
@@ -98,8 +98,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             }
 
             static void permute_kv(
-                float* Q, float* K, float* V, const float* X,
-                int B, int T, int NH, int NKV, int HS, cudaStream_t s )
+                float* /*Q*/, float* /*K*/, float* /*V*/, const float* /*X*/,
+                int /*B*/, int /*T*/, int /*NH*/, int /*NKV*/, int /*HS*/, cudaStream_t /*s*/ )
             {
                 // REVIEW: legacy path for correctness validation. This kernel is no longer called.
                 // cuda_gqa_permute_kv_fp32( Q, K, V, X, B, T, NH, NKV, HS, s );
@@ -305,17 +305,17 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             // ----------------------------------------------------------------
 
             static void permute_qkv(
-                nv_bfloat16* Q, nv_bfloat16* K, nv_bfloat16* V, 
-                const nv_bfloat16* X,
-                int B, int T, int NH, int NKV, int HS, cudaStream_t s )
+                nv_bfloat16* /*Q*/, nv_bfloat16* /*K*/, nv_bfloat16* /*V*/, 
+                const nv_bfloat16* /*X*/,
+                int /*B*/, int /*T*/, int /*NH*/, int /*NKV*/, int /*HS*/, cudaStream_t /*s*/ )
             {
                 // REVIEW: Cleanup analysis required
                 // cuda_gqa_permute_qkv_fp16( Q, K, V, X, B, T, NH, NKV, HS, s );
             }
 
             static void permute_qkv_padded(
-                nv_bfloat16* Q, nv_bfloat16* K, nv_bfloat16* V, const nv_bfloat16* X,
-                int B, int input_T, int output_T, int NH, int NKV, int HS, cudaStream_t s )
+                nv_bfloat16* /*Q*/, nv_bfloat16* /*K*/, nv_bfloat16* /*V*/, const nv_bfloat16* /*X*/,
+                int /*B*/, int /*input_T*/, int /*output_T*/, int /*NH*/, int /*NKV*/, int /*HS*/, cudaStream_t /*s*/ )
             {
                 // REVIEW: Cleanup analysis required
                 //cuda_gqa_permute_qkv_padded_fp16( Q, K, V, X, B, input_T, output_T, NH, NKV, HS, s );
@@ -329,28 +329,28 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             }
 
             static void prefill_permute_qkv(
-                nv_bfloat16* Q, nv_bfloat16* K, nv_bfloat16* V, 
-                const nv_bfloat16* X,
-                int B, int chunk_len, int T, int NH, int NKV, int HS, int position_offset,
-                cudaStream_t stream )
+                nv_bfloat16* /*Q*/, nv_bfloat16* /*K*/, nv_bfloat16* /*V*/, 
+                const nv_bfloat16* /*X*/,
+                int /*B*/, int /*chunk_len*/, int /*T*/, int /*NH*/, int /*NKV*/, int /*HS*/, int /*position_offset*/,
+                cudaStream_t /*stream*/ )
             {
                 // REVIEW: Cleanup analysis required
                 // cuda_gqa_prefill_permute_qkv_fp16( Q, K, V, X, B, chunk_len, T, NH, NKV, HS, position_offset, stream );
             }
 
             static void expand_kv(
-                nv_bfloat16* k_exp, nv_bfloat16* v_exp,
-                const nv_bfloat16* k_compact, const nv_bfloat16* v_compact,
-                int B, int T, int NH, int NKV, int HS, cudaStream_t stream )
+                nv_bfloat16* /*k_exp*/, nv_bfloat16* /*v_exp*/,
+                const nv_bfloat16* /*k_compact*/, const nv_bfloat16* /*v_compact*/,
+                int /*B*/, int /*T*/, int /*NH*/, int /*NKV*/, int /*HS*/, cudaStream_t /*stream*/ )
             {
                 // REVIEW: Cleanup analysis required
                 // cuda_gqa_expand_kv_fp16( k_exp, v_exp, k_compact, v_compact, B, T, NH, NKV, HS, stream );
             }
 
             static void reduce_kv_grad(
-                nv_bfloat16* dk_compact, nv_bfloat16* dv_compact,
-                const nv_bfloat16* dk_exp, const nv_bfloat16* dv_exp,
-                int B, int T, int NH, int NKV, int HS, cudaStream_t s )
+                nv_bfloat16* /*dk_compact*/, nv_bfloat16* /*dv_compact*/,
+                const nv_bfloat16* /*dk_exp*/, const nv_bfloat16* /*dv_exp*/,
+                int /*B*/, int /*T*/, int /*NH*/, int /*NKV*/, int /*HS*/, cudaStream_t s )
             {
                 // REVIEW: This kernel has likely been deprecated with the optimized permute_q_compact path.
                 // Needs triage to understand if this is still needed for correctness or if it can be removed.
@@ -359,9 +359,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             }
 
             static void permute_backward(
-                nv_bfloat16* dX,
-                const nv_bfloat16* dQ, const nv_bfloat16* dK, const nv_bfloat16* dV,
-                int B, int T, int NH, int NKV, int HS, cudaStream_t s )
+                nv_bfloat16* /*dX*/,
+                const nv_bfloat16* /*dQ*/, const nv_bfloat16* /*dK*/, const nv_bfloat16* /*dV*/,
+                int /*B*/, int /*T*/, int /*NH*/, int /*NKV*/, int /*HS*/, cudaStream_t s )
             {
                 // REVIEW: This kernel has likely been deprecated with the optimized permute_q_compact path.
                 // cuda_gqa_permute_backward_fp16( dX, dQ, dK, dV, B, T, NH, NKV, HS, s );
@@ -505,8 +505,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             }
 
             static void unpermute_output_padded(
-                const nv_bfloat16* vaccum, nv_bfloat16* out,
-                int B, int actual_T, int padded_T, int NH, int HS, cudaStream_t s )
+                const nv_bfloat16* /*vaccum*/, nv_bfloat16* /*out*/,
+                int /*B*/, int /*actual_T*/, int /*padded_T*/, int /*NH*/, int /*HS*/, cudaStream_t s )
             {
                 // REVIEW:
                 // Attention::Common::cuda_attention_unpermute_output_padded_bf16( vaccum, out, B, actual_T, padded_T, NH, HS, s );
@@ -514,8 +514,8 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             }
 
             static void unpermute_backward(
-                nv_bfloat16* dvaccum, const nv_bfloat16* dout,
-                int B, int T, int NH, int HS, cudaStream_t s )
+                nv_bfloat16* /*dvaccum*/, const nv_bfloat16* /*dout*/,
+                int /*B*/, int /*T*/, int /*NH*/, int /*HS*/, cudaStream_t s )
             {
                 // REVIEW: 
                 // Attention::Common::cuda_attention_unpermute_backward_fp16( dvaccum, dout, B, T, NH, HS, s );

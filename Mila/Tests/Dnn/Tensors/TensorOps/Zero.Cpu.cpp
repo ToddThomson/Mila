@@ -24,13 +24,13 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
         Tensor<TensorDataType::FP32, CpuMemoryResource> t( Device::Cpu(), shape_t{ 2, 3 } );
 
         auto* data_ptr = t.data();
-        for ( size_t i = 0; i < t.size(); ++i ) {
+        for ( dim_t i = 0; i < t.size(); ++i ) {
             data_ptr[ i ] = 5.0f;
         }
 
         zero( t );
 
-        for ( size_t i = 0; i < t.size(); ++i ) {
+        for ( dim_t i = 0; i < t.size(); ++i ) {
             EXPECT_FLOAT_EQ( data_ptr[ i ], 0.0f );
         }
     }
@@ -39,13 +39,13 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
         Tensor<TensorDataType::INT32, CpuMemoryResource> t( Device::Cpu(), shape_t{ 4 } );
 
         auto* data_ptr = t.data();
-        for ( size_t i = 0; i < t.size(); ++i ) {
+        for ( dim_t i = 0; i < t.size(); ++i ) {
             data_ptr[ i ] = 7;
         }
 
         zero( t );
 
-        for ( size_t i = 0; i < t.size(); ++i ) {
+        for ( dim_t i = 0; i < t.size(); ++i ) {
             EXPECT_EQ( data_ptr[ i ], 0 );
         }
     }

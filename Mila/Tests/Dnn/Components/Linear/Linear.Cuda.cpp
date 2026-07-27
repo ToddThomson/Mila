@@ -210,7 +210,7 @@ namespace Mila::Tests::Dnn::Components::Linear
         {
             HostFp32 host( Device::Cpu(), shape );
 
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = static_cast<float>( i ) / host.size() * 2.0f - 1.0f;
             }
@@ -288,7 +288,7 @@ namespace Mila::Tests::Dnn::Components::Linear
 
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float tolerance = TypeParam::forward_atol + TypeParam::forward_rtol * std::fabs( expected[ i ] );
 
@@ -331,7 +331,7 @@ namespace Mila::Tests::Dnn::Components::Linear
 
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float tolerance = TypeParam::forward_atol + TypeParam::forward_rtol * std::fabs( expected[ i ] );
 
@@ -360,7 +360,7 @@ namespace Mila::Tests::Dnn::Components::Linear
         auto device_in = this->toDevice( host_in );
 
         typename TestFixture::HostFp32 host_grad( Device::Cpu(), output_shape );
-        for ( size_t i = 0; i < host_grad.size(); ++i )
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
         {
             host_grad.data()[ i ] = 0.01f * static_cast<float>( ( i % 13 ) + 1 );
         }
@@ -398,7 +398,7 @@ namespace Mila::Tests::Dnn::Components::Linear
 
         ASSERT_EQ( input_grad.size(), expected_dx.size() );
 
-        for ( size_t i = 0; i < input_grad.size(); ++i )
+        for ( dim_t i = 0; i < input_grad.size(); ++i )
         {
             const float tolerance = TypeParam::backward_atol + TypeParam::backward_rtol * std::fabs( expected_dx[ i ] );
 
@@ -514,7 +514,7 @@ namespace Mila::Tests::Dnn::Components::Linear
 
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float tolerance = TypeParam::forward_atol + TypeParam::forward_rtol * std::fabs( expected[ i ] );
 
@@ -654,7 +654,7 @@ namespace Mila::Tests::Dnn::Components::Linear
 
         ASSERT_EQ( direct_host.size(), tied_host.size() );
 
-        for ( size_t i = 0; i < direct_host.size(); ++i )
+        for ( dim_t i = 0; i < direct_host.size(); ++i )
         {
             EXPECT_EQ( tied_host.data()[ i ], direct_host.data()[ i ] )
                 << "tied FP8 head diverged from direct quantized load at index " << i;

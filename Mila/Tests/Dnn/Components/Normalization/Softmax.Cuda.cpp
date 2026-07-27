@@ -128,7 +128,7 @@ namespace Mila::Tests::Dnn::Components::Normalization
         HostFp32 spreadHost( const shape_t& shape )
         {
             HostFp32 host( Device::Cpu(), shape );
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = static_cast<float>( i ) / host.size() * 4.0f - 2.0f;
             }
@@ -193,7 +193,7 @@ namespace Mila::Tests::Dnn::Components::Normalization
 
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float tolerance = TypeParam::atol + TypeParam::rtol * std::fabs( expected[ i ] );
             EXPECT_NEAR( out.data()[ i ], expected[ i ], tolerance ) << "forward mismatch at index " << i;

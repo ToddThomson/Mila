@@ -113,7 +113,7 @@ namespace Mila::Tests::Dnn::Optimizers
         static bool hasNaNorInf( const TensorFp32& tensor )
         {
             const float* data = tensor.data();
-            for ( size_t i = 0; i < tensor.size(); ++i )
+            for ( dim_t i = 0; i < tensor.size(); ++i )
             {
                 if ( std::isnan( data[ i ] ) || std::isinf( data[ i ] ) )
                 {
@@ -127,7 +127,7 @@ namespace Mila::Tests::Dnn::Optimizers
         static bool allClose( const TensorFp32& tensor, float expected, float tolerance = 1e-5f )
         {
             const float* data = tensor.data();
-            for ( size_t i = 0; i < tensor.size(); ++i )
+            for ( dim_t i = 0; i < tensor.size(); ++i )
             {
                 if ( std::abs( data[ i ] - expected ) > tolerance )
                 {

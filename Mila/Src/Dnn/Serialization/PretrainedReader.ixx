@@ -378,12 +378,13 @@ namespace Mila::Dnn::Serialization
             if constexpr ( std::is_same_v<TStagingMemoryResource, Compute::CudaPinnedMemoryResource> )
             {
                 streamTensorBlobsPinned( std::forward<TConsumer>( consume ), device_id );
-
-                return;
             }
+            else
 #endif
-            (void)device_id;
-            streamTensorBlobsDirect( std::forward<TConsumer>( consume ) );
+            {
+                (void)device_id;
+                streamTensorBlobsDirect( std::forward<TConsumer>( consume ) );
+            }
         }
 
     private:

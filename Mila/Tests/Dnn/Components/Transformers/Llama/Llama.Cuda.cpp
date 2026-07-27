@@ -88,7 +88,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
             TokenTensor host( Device::Cpu(), shape_t{ batch, seq } );
             auto* data = host.data();
 
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 data[ i ] = static_cast<int32_t>( i % static_cast<size_t>( kVocab ) );
             }

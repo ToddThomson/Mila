@@ -129,7 +129,7 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
         HostTensor spreadHost( const shape_t& shape )
         {
             HostTensor host( Device::Cpu(), shape );
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = static_cast<float>( i ) / host.size() * 4.0f - 2.0f;
             }
@@ -192,7 +192,7 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
 
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             EXPECT_NEAR( out.data()[ i ], expected[ i ], 1e-3f ) << "forward mismatch at index " << i;
         }

@@ -98,7 +98,7 @@ namespace Mila::Tests::Dnn::Components::Encodings::Lpe
         TensorIndex tokens( const shape_t& shape )
         {
             TensorIndex t( Device::Cpu(), shape );
-            for ( size_t i = 0; i < t.size(); ++i )
+            for ( dim_t i = 0; i < t.size(); ++i )
             {
                 // Deliberate repeats across batch so wte gradient accumulation is exercised.
                 t.data()[ i ] = static_cast<int32_t>( i % 3 );
@@ -219,7 +219,7 @@ namespace Mila::Tests::Dnn::Components::Encodings::Lpe
         auto input = tokens( token_shape );
 
         TensorFp32 output_grad( Device::Cpu(), shape_t{ B, T, kEmbed } );
-        for ( size_t i = 0; i < output_grad.size(); ++i )
+        for ( dim_t i = 0; i < output_grad.size(); ++i )
         {
             output_grad.data()[ i ] = 0.01f * static_cast<float>( i % 7 ) + 0.1f;
         }

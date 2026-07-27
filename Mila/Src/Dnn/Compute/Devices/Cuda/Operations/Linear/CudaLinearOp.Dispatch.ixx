@@ -71,7 +71,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 float* y,
                 const float* x,
                 const float* weight,
-                const float* scales, // Unused for FP32 path, present for API consistency with quantized decode
+                const float* /*scales*/, // Unused for FP32 path, present for API consistency with quantized decode
                 const float* bias,
                 int C,
                 int OC,
@@ -91,7 +91,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                 nv_bfloat16* y,
                 const nv_bfloat16* x,
                 const nv_bfloat16* weight,
-                const float* scales, // Unused for FP32 path, present for API consistency with quantized decode
+                const float* /*scales*/, // Unused for FP32 path, present for API consistency with quantized decode
                 const nv_bfloat16* bias,
                 int C,
                 int OC,

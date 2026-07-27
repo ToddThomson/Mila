@@ -367,40 +367,44 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         void setGradients( ITensor* weight_grad, ITensor* bias_grad ) override
         {
+            // The remainder sits in the else branch so it is discarded rather than
+            // merely unreachable in the quantized instantiation.
             if constexpr ( kIsQuantized )
             {
                 throw std::logic_error( "CudaLinearOp: gradient computation is not supported on quantized paths" );
             }
-
-            if ( !weight_grad )
-            {
-                throw std::invalid_argument( "CudaLinearOp::setGradients - weight gradient is required" );
-            }
-
-            if ( weight_grad->getDeviceType() != DeviceType::Cuda )
-            {
-                throw std::invalid_argument( "CudaLinearOp::setGradients - weight gradient must be a CUDA tensor" );
-            }
-
-            weight_grad_ = static_cast<ComputeType*>(weight_grad->rawData());
-
-            if ( config_.hasBias() )
-            {
-                if ( !bias_grad )
-                {
-                    throw std::invalid_argument( "CudaLinearOp::setGradients - bias gradient expected but null" );
-                }
-
-                if ( bias_grad->getDeviceType() != DeviceType::Cuda )
-                {
-                    throw std::invalid_argument( "CudaLinearOp::setGradients - bias gradient must be a CUDA tensor" );
-                }
-
-                bias_grad_ = static_cast<ComputeType*>(bias_grad->rawData());
-            }
             else
             {
-                bias_grad_ = nullptr;
+                if ( !weight_grad )
+                {
+                    throw std::invalid_argument( "CudaLinearOp::setGradients - weight gradient is required" );
+                }
+
+                if ( weight_grad->getDeviceType() != DeviceType::Cuda )
+                {
+                    throw std::invalid_argument( "CudaLinearOp::setGradients - weight gradient must be a CUDA tensor" );
+                }
+
+                weight_grad_ = static_cast<ComputeType*>(weight_grad->rawData());
+
+                if ( config_.hasBias() )
+                {
+                    if ( !bias_grad )
+                    {
+                        throw std::invalid_argument( "CudaLinearOp::setGradients - bias gradient expected but null" );
+                    }
+
+                    if ( bias_grad->getDeviceType() != DeviceType::Cuda )
+                    {
+                        throw std::invalid_argument( "CudaLinearOp::setGradients - bias gradient must be a CUDA tensor" );
+                    }
+
+                    bias_grad_ = static_cast<ComputeType*>(bias_grad->rawData());
+                }
+                else
+                {
+                    bias_grad_ = nullptr;
+                }
             }
         }
 

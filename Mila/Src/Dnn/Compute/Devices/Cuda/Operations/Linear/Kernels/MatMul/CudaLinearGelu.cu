@@ -36,7 +36,6 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         cublasLtHandle_t ltHandle,
         cudaStream_t stream )
     {
-        cublasOperation_t opTranspose = CUBLAS_OP_T;
         cublasOperation_t opNonTranspose = CUBLAS_OP_N;
 
         // Create matmul descriptor

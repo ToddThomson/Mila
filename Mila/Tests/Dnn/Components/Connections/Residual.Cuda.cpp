@@ -97,7 +97,7 @@ namespace Mila::Tests::Dnn::Components::Connections
         HostFp32 rampHost( const shape_t& shape, float start, float step )
         {
             HostFp32 host( Device::Cpu(), shape );
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = start + step * static_cast<float>( i );
             }
@@ -161,7 +161,7 @@ namespace Mila::Tests::Dnn::Components::Connections
 
         ASSERT_EQ( out.size(), a.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float expected = a.data()[ i ] + b.data()[ i ];
             const float tolerance = TypeParam::atol + TypeParam::rtol * std::fabs( expected );
@@ -194,7 +194,7 @@ namespace Mila::Tests::Dnn::Components::Connections
 
         ASSERT_EQ( da.size(), grad.size() );
 
-        for ( size_t i = 0; i < grad.size(); ++i )
+        for ( dim_t i = 0; i < grad.size(); ++i )
         {
             const float tolerance = TypeParam::atol + TypeParam::rtol * std::fabs( grad.data()[ i ] );
             EXPECT_NEAR( da.data()[ i ], grad.data()[ i ], tolerance ) << "da mismatch at " << i;

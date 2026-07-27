@@ -169,7 +169,7 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
         // Since pinned memory is host-accessible, we can verify the data
         {
             auto data = pinned_t.data();
-            for (size_t i = 0; i < pinned_t.size(); ++i)
+            for (dim_t i = 0; i < pinned_t.size(); ++i)
             {
                 EXPECT_EQ( data[i], int32_t{ 999 } );
             }
@@ -179,7 +179,7 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
         ASSERT_NO_THROW( fill( pinned_t, int32_t{ -123 } ) );
         {
             auto data = pinned_t.data();
-            for (size_t i = 0; i < pinned_t.size(); ++i)
+            for (dim_t i = 0; i < pinned_t.size(); ++i)
             {
                 EXPECT_EQ( data[i], int32_t{ -123 } );
             }
@@ -229,7 +229,7 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
         // Since managed memory is host-accessible, verify the values
         {
             auto data = t.data();
-            for (size_t i = 0; i < t.size(); ++i)
+            for (dim_t i = 0; i < t.size(); ++i)
             {
                 EXPECT_FLOAT_EQ( data[i], values[i] );
             }
@@ -250,7 +250,7 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
         // Verify pinned memory result (host-accessible)
         {
             auto data = pinned_t.data();
-            for (size_t i = 0; i < pinned_t.size(); ++i)
+            for (dim_t i = 0; i < pinned_t.size(); ++i)
             {
                 EXPECT_FLOAT_EQ( data[i], 3.0f );
             }
@@ -259,7 +259,7 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
         // Verify managed memory result (also host-accessible)
         {
             auto data = managed_t.data();
-            for (size_t i = 0; i < managed_t.size(); ++i)
+            for (dim_t i = 0; i < managed_t.size(); ++i)
             {
                 EXPECT_FLOAT_EQ( data[i], 2.0f );
             }

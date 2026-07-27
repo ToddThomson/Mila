@@ -70,7 +70,7 @@ namespace Dnn::Optimizers::Tests
             Tensor<TensorDataType::FP32, CpuMemoryResource> host_tensor( Device::Cpu(), shape );
             auto host_data = host_tensor.data();
 
-            for (size_t i = 0; i < host_tensor.size(); ++i)
+            for (dim_t i = 0; i < host_tensor.size(); ++i)
             {
                 host_data[i] = init_value;
             }
@@ -96,7 +96,7 @@ namespace Dnn::Optimizers::Tests
             Tensor<TensorDataType::FP32, CpuMemoryResource> host_tensor( Device::Cpu(), shape );
             auto host_data = host_tensor.data();
 
-            for (size_t i = 0; i < host_tensor.size(); ++i)
+            for (dim_t i = 0; i < host_tensor.size(); ++i)
             {
                 host_data[i] = grad_value;
             }
@@ -129,7 +129,7 @@ namespace Dnn::Optimizers::Tests
             auto host_tensor = copyToHost( device_tensor );
             const float* data = host_tensor.data();
 
-            for (size_t i = 0; i < host_tensor.size(); ++i)
+            for (dim_t i = 0; i < host_tensor.size(); ++i)
             {
                 if (std::isnan( data[i] ) || std::isinf( data[i] ))
                 {
@@ -151,7 +151,7 @@ namespace Dnn::Optimizers::Tests
             auto host_tensor = copyToHost( device_tensor );
             const float* data = host_tensor.data();
 
-            for (size_t i = 0; i < host_tensor.size(); ++i)
+            for (dim_t i = 0; i < host_tensor.size(); ++i)
             {
                 if (std::abs( data[i] - expected ) > tolerance)
                 {
@@ -467,7 +467,7 @@ namespace Dnn::Optimizers::Tests
         const float* updated = updated_host.data();
 
         bool params_changed = false;
-        for (size_t i = 0; i < updated_host.size(); ++i)
+        for (dim_t i = 0; i < updated_host.size(); ++i)
         {
             if (std::abs( updated[i] - initial_values[i] ) > 1e-6f)
             {
@@ -478,7 +478,7 @@ namespace Dnn::Optimizers::Tests
         EXPECT_TRUE( params_changed ) << "Parameters should be updated after step()";
 
         // Parameters should have decreased (gradient descent with positive gradients)
-        for (size_t i = 0; i < updated_host.size(); ++i)
+        for (dim_t i = 0; i < updated_host.size(); ++i)
         {
             EXPECT_LT( updated[i], initial_values[i] )
                 << "Parameters should decrease with positive gradients";
@@ -512,7 +512,7 @@ namespace Dnn::Optimizers::Tests
         auto updated_host = copyToHost( *param );
         const float* updated = updated_host.data();
 
-        for (size_t i = 0; i < updated_host.size(); ++i)
+        for (dim_t i = 0; i < updated_host.size(); ++i)
         {
             EXPECT_LT( updated[i], 1.0f ) << "Parameters should decrease after multiple iterations";
         }
@@ -547,7 +547,7 @@ namespace Dnn::Optimizers::Tests
             const float* data = host_tensor.data();
 
             bool changed = false;
-            for (size_t j = 0; j < host_tensor.size(); ++j)
+            for (dim_t j = 0; j < host_tensor.size(); ++j)
             {
                 if (std::abs( data[j] - 1.0f ) > 1e-6f)
                 {
@@ -617,7 +617,7 @@ namespace Dnn::Optimizers::Tests
         auto host_tensor = copyToHost( *param );
         const float* data = host_tensor.data();
 
-        for (size_t i = 0; i < host_tensor.size(); ++i)
+        for (dim_t i = 0; i < host_tensor.size(); ++i)
         {
             EXPECT_LT( data[i], 1.0f ) << "Weight decay should reduce parameters even with zero gradient";
         }
@@ -948,7 +948,7 @@ namespace Dnn::Optimizers::Tests
         auto result2 = copyToHost( *param2 );
 
         // Results should be identical (deterministic with same seed)
-        for (size_t i = 0; i < result1.size(); ++i)
+        for (dim_t i = 0; i < result1.size(); ++i)
         {
             EXPECT_FLOAT_EQ( result1.data()[i], result2.data()[i] )
                 << "Results should be deterministic at index " << i;
@@ -981,11 +981,11 @@ namespace Dnn::Optimizers::Tests
             auto grad1_host = copyToHost( *grad1 );
             auto grad2_host = copyToHost( *grad2 );
 
-            for (size_t i = 0; i < grad1_host.size(); ++i)
+            for (dim_t i = 0; i < grad1_host.size(); ++i)
             {
                 grad1_host.data()[i] = 0.1f * grad_scale;
             }
-            for (size_t i = 0; i < grad2_host.size(); ++i)
+            for (dim_t i = 0; i < grad2_host.size(); ++i)
             {
                 grad2_host.data()[i] = 0.05f * grad_scale;
             }

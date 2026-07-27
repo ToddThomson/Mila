@@ -218,13 +218,23 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Linear::backward: must be in training mode" );
             }
 
-            // Zero before backward: backend ops use accumulation semantics (+=) and
-            // require pre-zeroed buffers to prevent gradient buildup across calls.
-            zero( *input_grad_ );
+            // Fail at the component boundary rather than deep in the backend: the
+            // quantized operation throws unconditionally, which also left everything
+            // below unreachable in that instantiation.
+            if constexpr ( kIsQuantized )
+            {
+                throw std::logic_error( "Linear::backward: not supported on quantized weight paths" );
+            }
+            else
+            {
+                // Zero before backward: backend ops use accumulation semantics (+=) and
+                // require pre-zeroed buffers to prevent gradient buildup across calls.
+                zero( *input_grad_ );
 
-            operation_->backward( input, output_grad, *input_grad_ );
+                operation_->backward( input, output_grad, *input_grad_ );
 
-            return *input_grad_;
+                return *input_grad_;
+            }
         }
 
         void zeroGradients() override

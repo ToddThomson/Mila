@@ -166,7 +166,7 @@ namespace Mila::Tests::Dnn::Components::Normalization::RmsNorm
         {
             HostFp32 host( Device::Cpu(), shape );
 
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = static_cast<float>( i ) / host.size() * 4.0f - 2.0f;
             }
@@ -261,7 +261,7 @@ namespace Mila::Tests::Dnn::Components::Normalization::RmsNorm
 
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float tolerance = TypeParam::forward_atol + TypeParam::forward_rtol * std::fabs( expected[ i ] );
 

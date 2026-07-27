@@ -470,7 +470,6 @@ namespace Mila::Dnn
             {
                 const int64_t B = input_shape[ 0 ];
                 const int64_t NH = config_.getNumHeads();
-                const int64_t NKV = config_.getNumKVHeads();
                 const int64_t HS = config_.getModelDim() / NH;
                 const int64_t T_ctx = input_shape[ 1 ];
                 auto device = this->getExecutionContext()->getDeviceId();

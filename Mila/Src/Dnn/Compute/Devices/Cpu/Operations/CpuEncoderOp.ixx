@@ -334,7 +334,7 @@ namespace Mila::Dnn::Compute
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const
+            ITensor& /*input_grad*/ ) const
         {
             if ( !is_built_ )
             {
@@ -349,7 +349,6 @@ namespace Mila::Dnn::Compute
             // Input is INT32 token indices
             const int32_t* X = static_cast<const int32_t*>(input.rawData());
             const float* dY = static_cast<const float*>(output_grad.rawData());
-            float* dX = static_cast<float*>(input_grad.rawData());
 
             const int64_t B = batch_size_;
             const int64_t T = seq_length_;

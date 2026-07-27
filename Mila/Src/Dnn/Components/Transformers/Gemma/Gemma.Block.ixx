@@ -289,7 +289,6 @@ namespace Mila::Dnn
                 throw std::runtime_error( "GemmaBlock::decode: must be built before decode()." );
 
             const int64_t B = input.shape()[ 0 ];
-            const dim_t model_dim = config_.getModelDim();
             const dim_t NH = config_.getNumHeads();
             const dim_t NKV = numKVHeads();
             const dim_t HD = headDim();

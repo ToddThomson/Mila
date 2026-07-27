@@ -57,10 +57,11 @@ namespace Mila::Dnn::Serialization
          */
         ~ZipSerializer()
         {
-            // Best-effort cleanup on destruction
+            // Best-effort cleanup on destruction -- a close failure here has nowhere
+            // to go, so the result is deliberately discarded.
             try
             {
-                close();
+                (void)close();
             }
             catch (...)
             {
@@ -87,7 +88,9 @@ namespace Mila::Dnn::Serialization
         {
             if (this != &other)
             {
-                close();
+                // noexcept: a close failure on the moved-into archive cannot be
+                // reported, so the result is deliberately discarded.
+                (void)close();
                 zip_ = other.zip_;
                 filename_ = std::move( other.filename_ );
                 state_ = other.state_;
@@ -111,8 +114,15 @@ namespace Mila::Dnn::Serialization
          */
         [[nodiscard]] bool open( const std::string& filename, OpenMode mode ) override
         {
-            // Ensure any prior archive is closed
-            close();
+            // A failed close of a prior archive means that file was never finalized;
+            // silently reopening would discard the error along with the data.
+            if ( !close() )
+            {
+                Logging::Logger::info( std::format(
+                    "ZipSerializer: failed to close prior archive '{}' before opening '{}'", filename_, filename ) );
+
+                return false;
+            }
 
             if (mode == OpenMode::Write)
             {

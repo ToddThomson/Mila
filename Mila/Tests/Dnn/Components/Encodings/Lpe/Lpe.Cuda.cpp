@@ -158,7 +158,7 @@ namespace Mila::Tests::Dnn::Components::Encodings::Lpe
         HostIndex rampTokens( const shape_t& token_shape )
         {
             HostIndex host( Device::Cpu(), token_shape );
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = tokenAt( static_cast<int64_t>( i ) );
             }

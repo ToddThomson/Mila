@@ -154,6 +154,29 @@ good-first-issue.
 
 ### Production Hardening
 
+- [x] **`/W4` warning sweep, 252 -> 72 — and it surfaced a real defect.** `ModelArchive::close()`
+  discarded `ZipSerializer::close()`'s `[[nodiscard]] bool` and wrapped it in a `try`/`catch` that
+  could never fire (close reports failure by return, not by throwing), so a failed archive finalize
+  — short write, I/O error on flush — set `closed_ = true` and reported success. **A truncated
+  checkpoint was being reported as saved.** Fixed, along with the same swallow in `addMetadata()`
+  and `ZipSerializer::open()` reopening over an archive that failed to close. Also cleared: 30 of 31
+  C4702 (all one idiom — `if constexpr (cond) { throw; }` with the body trailing it rather than in
+  an `else`, so the tail was unreachable instead of discarded), 4 C4189 dead locals, 7 C4834, 134
+  C4100 in the `*.Dispatch.ixx` files, and ~160 C4018 test-loop counters left by the `dim_t` work.
+  **C4100 turned out to be a stub census, not a style problem: 132 of 134 dispatch parameters were
+  unreferenced because the function is an unimplemented or throw-only stub.** Unnamed parameters
+  state that at the signature; the two genuine cases are `CudaLinearOp`'s `scales`, present for API
+  parity with the quantized specializations.
+- [ ] Finish the C4100 sweep in the op layer (~44 remaining, `Cuda*Op.ixx` / `Cpu*Op.ixx`). **Do it
+  from the build's own file+line list, one site at a time — not with a regex.** A pattern matching
+  `<tokens> <name> ( ... ) {` also matches `if ( status != cudaSuccess ) {`, so it comments out
+  tokens inside conditions and mangles default arguments (`= nullptr` -> `= /*nullptr*/`); that
+  attempt corrupted 112 sites across 43 files and was reverted. Leave `input_A`/`input_B` in
+  `CudaResidualOp` named — their contract is an open question tracked above, not cosmetic debt.
+- [ ] `GroupedQueryAttention.ixx:216` C4702 left deliberately: the `return` is unreachable because GQA
+  backward is an unimplemented stub. The warning is honest reporting of a known-aspirational path and
+  should clear itself when the GQA training path is built, not be suppressed.
+
 - [x] External consumer builds against Mila via **FetchContent** (gate met); `find_package` PARKED
   (retired in place, `MILA_INSTALL` OFF by default).
 - [x] Freeze the narrowest defensible export surface — RESOLVED: the umbrella is as narrow as C++23

@@ -235,7 +235,7 @@ namespace Mila::Tests::Dnn::Components::FFN
         {
             auto* data = t.data();
 
-            for ( size_t i = 0; i < t.size(); ++i )
+            for ( dim_t i = 0; i < t.size(); ++i )
             {
                 data[ i ] = static_cast<float>( i ) / t.size() * 2.0f - 1.0f;
             }
@@ -460,7 +460,7 @@ namespace Mila::Tests::Dnn::Components::FFN
 
         constexpr float tolerance = 1e-4f;
 
-        for ( size_t i = 0; i < output.size(); ++i )
+        for ( dim_t i = 0; i < output.size(); ++i )
         {
             EXPECT_NEAR( output.data()[ i ], expected[ i ], tolerance )
                 << "forward mismatch at index " << i;
@@ -492,7 +492,7 @@ namespace Mila::Tests::Dnn::Components::FFN
 
         constexpr float tolerance = 1e-4f;
 
-        for ( size_t i = 0; i < output.size(); ++i )
+        for ( dim_t i = 0; i < output.size(); ++i )
         {
             EXPECT_NEAR( output.data()[ i ], expected[ i ], tolerance )
                 << "no-bias forward mismatch at index " << i;
@@ -524,7 +524,7 @@ namespace Mila::Tests::Dnn::Components::FFN
         }
 
         TensorFp32 output_grad( Device::Cpu(), shape );
-        for ( size_t i = 0; i < output_grad.size(); ++i )
+        for ( dim_t i = 0; i < output_grad.size(); ++i )
         {
             output_grad.data()[ i ] = g[ i ];
         }
@@ -594,7 +594,7 @@ namespace Mila::Tests::Dnn::Components::FFN
         TensorFp32 input( Device::Cpu(), shape );
         TensorFp32 output_grad( Device::Cpu(), shape );
         fillSpread( input );
-        for ( size_t i = 0; i < output_grad.size(); ++i )
+        for ( dim_t i = 0; i < output_grad.size(); ++i )
         {
             output_grad.data()[ i ] = 0.1f * static_cast<float>( i + 1 );
         }
@@ -641,7 +641,7 @@ namespace Mila::Tests::Dnn::Components::FFN
         TensorFp32 input( Device::Cpu(), shape );
         TensorFp32 output_grad( Device::Cpu(), shape );
         fillSpread( input );
-        for ( size_t i = 0; i < output_grad.size(); ++i )
+        for ( dim_t i = 0; i < output_grad.size(); ++i )
         {
             output_grad.data()[ i ] = 0.1f * static_cast<float>( i + 1 );
         }

@@ -106,7 +106,7 @@ namespace Mila::Tests::Dnn::Components::FFN::GatedMLP
         DeviceTensor zeros( const shape_t& shape )
         {
             HostFp32 host( Device::Cpu(), shape );
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = 0.0f;
             }
@@ -212,7 +212,7 @@ namespace Mila::Tests::Dnn::Components::FFN::GatedMLP
         gated.build( BuildContext( shape, RuntimeMode::Training ) );
 
         HostFp32 host_zero( Device::Cpu(), shape );
-        for ( size_t i = 0; i < host_zero.size(); ++i )
+        for ( dim_t i = 0; i < host_zero.size(); ++i )
         {
             host_zero.data()[ i ] = 0.0f;
         }
@@ -226,7 +226,7 @@ namespace Mila::Tests::Dnn::Components::FFN::GatedMLP
 
         auto host_out = toHost<TensorDataType::FP32>( output, cuda_context_.get() );
 
-        for ( size_t i = 0; i < host_out.size(); ++i )
+        for ( dim_t i = 0; i < host_out.size(); ++i )
         {
             EXPECT_NEAR( host_out.data()[ i ], 0.0f, 1e-6f )
                 << "non-zero output at index " << i;

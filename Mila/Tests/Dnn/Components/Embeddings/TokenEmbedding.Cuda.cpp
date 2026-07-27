@@ -162,7 +162,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
         HostIndex rampTokens( const shape_t& token_shape )
         {
             HostIndex host( Device::Cpu(), token_shape );
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = tokenAt( static_cast<int64_t>( i ) );
             }
@@ -287,7 +287,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
 
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float tolerance = TypeParam::atol + TypeParam::rtol * std::fabs( expected[ i ] );
 
@@ -325,7 +325,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
 
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float tolerance = TypeParam::atol + TypeParam::rtol * std::fabs( expected[ i ] );
 
@@ -365,7 +365,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
 
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float scaled = kScale * expected[ i ];
             const float tolerance = TypeParam::atol + TypeParam::rtol * std::fabs( scaled );
@@ -524,7 +524,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
         HostIndex rampTokens( const shape_t& token_shape )
         {
             HostIndex host( Device::Cpu(), token_shape );
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = tokenAt( static_cast<int64_t>( i ) );
             }

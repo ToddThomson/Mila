@@ -166,9 +166,9 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             }
 
             static inline void unpermute_output_padded(
-                const half* vaccum, half* out,
-                int B, int actual_T, int T, int NH, int HS,
-                cudaStream_t stream )
+                const half* /*vaccum*/, half* /*out*/,
+                int /*B*/, int /*actual_T*/, int /*T*/, int /*NH*/, int /*HS*/,
+                cudaStream_t /*stream*/ )
             {
                 // REVIEW: Not yet supported. 
                 // cuda_unpermute_output_padded_fp32( vaccum, out, B, actual_T, T, NH, HS, stream );

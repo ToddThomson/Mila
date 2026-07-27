@@ -139,7 +139,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Activation
         {
             auto* data = t.data();
 
-            for ( size_t i = 0; i < t.size(); ++i )
+            for ( dim_t i = 0; i < t.size(); ++i )
             {
                 data[ i ] = static_cast<float>( i ) / t.size() * 4.0f - 2.0f;
             }
@@ -178,7 +178,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Activation
 
         constexpr float tolerance = 1e-4f;
 
-        for ( size_t i = 0; i < input.size(); ++i )
+        for ( dim_t i = 0; i < input.size(); ++i )
         {
             const float expected = TypeParam::fwd( input.data()[ i ] );
 
@@ -196,7 +196,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Activation
         TensorFp32 output_grad( Device::Cpu(), shape );
         this->fillSpread( input );
 
-        for ( size_t i = 0; i < output_grad.size(); ++i )
+        for ( dim_t i = 0; i < output_grad.size(); ++i )
         {
             output_grad.data()[ i ] = static_cast<float>( i + 1 ) * 0.1f;
         }
@@ -208,7 +208,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Activation
 
         constexpr float tolerance = 2e-3f;
 
-        for ( size_t i = 0; i < input.size(); ++i )
+        for ( dim_t i = 0; i < input.size(); ++i )
         {
             const float expected = TypeParam::df( input.data()[ i ] ) * output_grad.data()[ i ];
 

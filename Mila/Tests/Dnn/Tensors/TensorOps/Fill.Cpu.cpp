@@ -28,7 +28,7 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
         ASSERT_NO_THROW( fill( t, 1.5f ) );
         {
             auto data = t.data();
-            for ( size_t i = 0; i < t.size(); ++i ) {
+            for ( dim_t i = 0; i < t.size(); ++i ) {
                 EXPECT_FLOAT_EQ( data[i], 1.5f );
             }
         }
@@ -36,7 +36,7 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
         ASSERT_NO_THROW( fill( t, 2.0f ) ); // Use explicit float literal
         {
             auto data = t.data();
-            for ( size_t i = 0; i < t.size(); ++i ) {
+            for ( dim_t i = 0; i < t.size(); ++i ) {
                 EXPECT_FLOAT_EQ( data[i], 2.0f );
             }
         }
@@ -59,7 +59,7 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
         // Verify integer values
         {
             auto data = t.data();
-            for ( size_t i = 0; i < t.size(); ++i ) {
+            for ( dim_t i = 0; i < t.size(); ++i ) {
                 EXPECT_EQ( data[i], int32_t{7} );
             }
         }
@@ -68,7 +68,7 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
         ASSERT_NO_THROW( fill( t, int32_t{-2} ) ); // Use explicit int32_t
         {
             auto data = t.data();
-            for ( size_t i = 0; i < t.size(); ++i ) {
+            for ( dim_t i = 0; i < t.size(); ++i ) {
                 EXPECT_EQ( data[i], int32_t{-2} );
             }
         }
@@ -137,7 +137,7 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
 
         {
             auto data = t.data();
-            for ( size_t i = 0; i < t.size(); ++i ) {
+            for ( dim_t i = 0; i < t.size(); ++i ) {
                 EXPECT_FLOAT_EQ( data[i], values[i] );
             }
         }

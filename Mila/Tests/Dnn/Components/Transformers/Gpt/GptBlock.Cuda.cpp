@@ -47,7 +47,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
         {
             auto* data = t.data();
 
-            for ( size_t i = 0; i < t.size(); ++i )
+            for ( dim_t i = 0; i < t.size(); ++i )
             {
                 data[ i ] = static_cast<float>( i ) / t.size() * 2.0f - 1.0f;
             }
@@ -57,7 +57,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
         {
             const auto* data = t.data();
 
-            for ( size_t i = 0; i < t.size(); ++i )
+            for ( dim_t i = 0; i < t.size(); ++i )
             {
                 if ( !std::isfinite( data[ i ] ) )
                 {
@@ -72,7 +72,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
         {
             const auto* data = t.data();
 
-            for ( size_t i = 0; i < t.size(); ++i )
+            for ( dim_t i = 0; i < t.size(); ++i )
             {
                 if ( data[ i ] != 0.0f )
                 {
@@ -300,7 +300,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
         auto input = spreadInput( shape );
 
         TensorHost host_grad( Device::Cpu(), shape );
-        for ( size_t i = 0; i < host_grad.size(); ++i )
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
         {
             host_grad.data()[ i ] = 0.1f * static_cast<float>( i + 1 );
         }

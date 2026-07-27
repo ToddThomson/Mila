@@ -103,7 +103,7 @@ namespace Mila::Tests::Dnn::Components::Attention::MHA
 
         void fillSpread( TensorFp32& t, float phase )
         {
-            for ( size_t i = 0; i < t.size(); ++i )
+            for ( dim_t i = 0; i < t.size(); ++i )
             {
                 t.data()[ i ] = std::sin( 0.2f * static_cast<float>( i ) + phase );
             }
@@ -197,7 +197,7 @@ namespace Mila::Tests::Dnn::Components::Attention::MHA
         ASSERT_EQ( output.shape(), ( shape_t{ B, T, kModelDim } ) );
         ASSERT_EQ( output.size(), expected.size() );
 
-        for ( size_t i = 0; i < output.size(); ++i )
+        for ( dim_t i = 0; i < output.size(); ++i )
         {
             EXPECT_NEAR( output.data()[ i ], expected[ i ], 1e-4f ) << "attention mismatch at index " << i;
         }
@@ -235,7 +235,7 @@ namespace Mila::Tests::Dnn::Components::Attention::MHA
         auto& input_grad = mha->backward( input, output_grad );
 
         ASSERT_EQ( input_grad.shape(), shape );
-        for ( size_t i = 0; i < input_grad.size(); ++i )
+        for ( dim_t i = 0; i < input_grad.size(); ++i )
         {
             EXPECT_TRUE( std::isfinite( input_grad.data()[ i ] ) ) << "non-finite dX at index " << i;
         }
