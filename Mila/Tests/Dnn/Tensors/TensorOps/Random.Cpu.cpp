@@ -168,8 +168,8 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
     {
         auto tensor = makeTensor();
 
-        const size_t fan_in = 784;   // MNIST input
-        const size_t fan_out = 10;   // MNIST output classes
+        const dim_t fan_in = 784;   // MNIST input
+        const dim_t fan_out = 10;   // MNIST output classes
         xavier( tensor, fan_in, fan_out );
 
         const float limit = std::sqrt( 6.0f / static_cast<float>( fan_in + fan_out ) );
@@ -194,8 +194,8 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
     {
         auto tensor = makeTensor();
 
-        const size_t fan_in = 10000;
-        const size_t fan_out = 1;
+        const dim_t fan_in = 10000;
+        const dim_t fan_out = 1;
         xavier( tensor, fan_in, fan_out );
 
         const float limit = std::sqrt( 6.0f / static_cast<float>( fan_in + fan_out ) );

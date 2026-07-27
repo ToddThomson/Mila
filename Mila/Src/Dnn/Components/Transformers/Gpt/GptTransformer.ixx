@@ -354,7 +354,7 @@ namespace Mila::Dnn
          * @param position Current sequence position (0-based).
          * @return         Reference to logits tensor [B, 1, vocab_size].
          */
-        TensorType& decode( const TokenIndexType& input, int position ) override
+        TensorType& decode( const TokenIndexType& input, dim_t position ) override
         {
             if ( !this->isBuilt() )
             {
@@ -739,8 +739,8 @@ namespace Mila::Dnn
         void createGraph()
         {
             LpeConfig enc_cfg;
-            enc_cfg.withVocabularyLength( static_cast<size_t>(config_.getVocabSize() ))
-                .withMaxSequenceLength( static_cast<size_t>(config_.getMaxSequenceLength() ))
+            enc_cfg.withVocabularyLength( config_.getVocabSize() )
+                .withMaxSequenceLength( config_.getMaxSequenceLength() )
                 .withEmbeddingDim( static_cast<size_t>(config_.getEmbeddingSize()));
 
             enc_cfg.validate();

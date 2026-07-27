@@ -182,7 +182,7 @@ namespace Mila::Dnn
         // Decode (inference / KV-cache path)
         // ====================================================================
 
-        TensorType& prefill( const TensorType& input, int position_offset )
+        TensorType& prefill( const TensorType& input, dim_t position_offset )
         {
             if ( !this->isBuilt() )
             {
@@ -250,7 +250,7 @@ namespace Mila::Dnn
             return res2_out;
         }
 
-        TensorType& decode( const TensorType& input, int position )
+        TensorType& decode( const TensorType& input, dim_t position )
         {
             if ( !this->isBuilt() )
             {

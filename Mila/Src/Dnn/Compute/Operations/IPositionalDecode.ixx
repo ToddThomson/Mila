@@ -8,6 +8,7 @@ module;
 export module Compute.IPositionalDecode;
 
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 
 namespace Mila::Dnn::Compute
 {
@@ -30,7 +31,7 @@ namespace Mila::Dnn::Compute
          * @param output   Single-token output [B, 1, ...].
          * @param position Zero-based absolute sequence position.
          */
-        virtual void decode( const ITensor& input, ITensor& output, int position ) = 0;
+        virtual void decode( const ITensor& input, ITensor& output, dim_t position ) = 0;
 
         virtual ~IPositionalDecode() = default;
     };

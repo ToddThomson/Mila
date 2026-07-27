@@ -165,6 +165,7 @@ Module partition files (`:Cuda`, `:Cpu` suffixes) are used to separate backend s
 ## Code Style
 
 - **No abbreviations in identifiers.** All names must be spelled out in full: `Quantization` not `Quant`, `Parameter` not `Param`, `Context` not `Ctx`, `Index` not `Idx`, `Implementation` not `Impl`. Template parameters follow the same rule: `TWeightQuantization` not `TWeightQuant`. Exception: established acronyms like `Kv` (Key-Value), `Gqa`, `Mha`, `Mlp`, `Lpe`, `Bpe` are acceptable.
+- **`dim_t` is the type of anything that describes a tensor axis** — its extent, a position within it, or a count of its elements — at every API, config, component, and operation-interface boundary. `size_t` never describes a dimension. Narrowing to the 32-bit index that kernels use happens exactly **once per call path**, at the kernel launch site, through `narrowToKernelIndex()` (`Tensor.Types.ixx`); kernel internals and the `*.Dispatch`/`*.Plans` layers stay `int`. Token ids are values, not extents, and are out of scope for this rule.
 - No column alignment with extra spaces — single-space formatting throughout.
 - Blank line before control flow blocks (`if`, `for`, `while`, `switch`).
 - Blank line after closing brace of blocks.

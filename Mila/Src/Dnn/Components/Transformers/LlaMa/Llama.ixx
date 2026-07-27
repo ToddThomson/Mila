@@ -198,7 +198,7 @@ namespace Mila::Dnn
 
                 for ( size_t i = 0; i < transformer_blocks_.size(); ++i )
                 {
-                    auto& block_out = transformer_blocks_[ i ]->prefill( *block_input, static_cast<int>( offset ) );
+                    auto& block_out = transformer_blocks_[ i ]->prefill( *block_input, offset );
 
                     block_input = &block_out;
                 }
@@ -220,7 +220,7 @@ namespace Mila::Dnn
             return *logits_ptr_;
         }
 
-        TensorType& decode( const TokenIndexType& input, int position ) override
+        TensorType& decode( const TokenIndexType& input, dim_t position ) override
         {
             auto& embed_out = token_embedding_->forward( input );
 
@@ -601,7 +601,7 @@ namespace Mila::Dnn
         void createGraph()
         {
             TokenEmbeddingConfig embedding_config;
-            embedding_config.withVocabSize( static_cast<size_t>(config_.getVocabSize()) )
+            embedding_config.withVocabSize( config_.getVocabSize() )
                 .withEmbeddingDim( static_cast<size_t>(config_.getModelDim()) );
 
             auto embedding = std::make_shared<TokenEmbeddingType>( this->getName() + ".temb", embedding_config );

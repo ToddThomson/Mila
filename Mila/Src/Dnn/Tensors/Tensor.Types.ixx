@@ -10,6 +10,7 @@ module;
 #include <array>
 #include <string>
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <algorithm>
 #include <initializer_list>
@@ -22,6 +23,35 @@ namespace Mila::Dnn
      * @brief Integer type used for tensor dimensions and indices.
      */
     export using dim_t = int64_t;
+
+    /**
+     * @brief Narrow a dim_t to the 32-bit index type used inside device kernels.
+     *
+     * dim_t is the type of every axis extent, position, and element count at the
+     * API, component, and operation-interface layers. Kernels index in 32-bit for
+     * register pressure and address-arithmetic cost, so exactly one narrowing point
+     * exists per call path: the operation that launches the kernel. Routing that
+     * narrowing through this function keeps the membrane greppable and gives the
+     * out-of-range case a diagnosable failure instead of a silent wrap.
+     *
+     * The check is host-side and runs once per launch, not per element -- negligible
+     * against launch overhead. The margin is not theoretical: a Gemma 4 12B embedding
+     * table is 262144 x 3840 ~ 1.0e9 elements, roughly half of INT_MAX.
+     *
+     * @throws std::out_of_range if the value does not fit in an int.
+     */
+    export inline int narrowToKernelIndex( dim_t value )
+    {
+        if ( value < static_cast<dim_t>(std::numeric_limits<int>::min()) ||
+             value > static_cast<dim_t>(std::numeric_limits<int>::max()) )
+        {
+            throw std::out_of_range(
+                "narrowToKernelIndex: value " + std::to_string( value ) +
+                " exceeds the 32-bit kernel index range" );
+        }
+
+        return static_cast<int>( value );
+    }
 
     /**
      * @brief Fixed-capacity inline shape descriptor for N-dimensional tensors.

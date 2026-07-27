@@ -155,7 +155,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 v_out_decode_opt_ = static_cast<NativeType*>(state.v_out_decode->rawData());
         }
 
-        void initializeKvCache( int batch_size, int max_seq_length ) override
+        void initializeKvCache( dim_t batch_size, dim_t max_sequence_length ) override
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error(
@@ -165,11 +165,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 throw std::invalid_argument(
                     "CudaGroupedQueryAttentionOp::initializeKVCache batch size mismatch" );
 
-            if ( max_seq_length <= 0 || max_seq_length > T_ )
+            if ( max_sequence_length <= 0 || max_sequence_length > T_ )
                 throw std::invalid_argument(
-                    "CudaGroupedQueryAttentionOp::initializeKVCache max_seq_length out of range" );
+                    "CudaGroupedQueryAttentionOp::initializeKVCache max_sequence_length out of range" );
 
-            active_max_seq_len_ = max_seq_length;
+            active_max_seq_len_ = narrowToKernelIndex( max_sequence_length );
             cached_seq_len_ = 0;
             kv_cache_enabled_ = true;
         }
@@ -179,7 +179,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             cached_seq_len_ = 0;
         }
 
-        bool rewindKvCache( int position ) override
+        bool rewindKvCache( dim_t position ) override
         {
             if ( position < 0 || position > cached_seq_len_ )
                 return false;
@@ -197,7 +197,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     return false;
             }
 
-            cached_seq_len_ = position;
+            cached_seq_len_ = narrowToKernelIndex( position );
 
             return true;
         }
@@ -205,21 +205,21 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         void prefill(
             const ITensor& q, const ITensor& k, const ITensor& v,
             ITensor& output,
-            int position_offset ) override
+            dim_t position_offset ) override
         {
             ensureKVCacheEnabled();
 
-            prefill_optimized( q, k, v, output, position_offset );
+            prefill_optimized( q, k, v, output, narrowToKernelIndex( position_offset ) );
         }
 
         void decode(
             const ITensor& q, const ITensor& k, const ITensor& v,
             ITensor& output,
-            int position ) override
+            dim_t position ) override
         {
             ensureKVCacheEnabled();
 
-            decode_optimized( q, k, v, output, position );
+            decode_optimized( q, k, v, output, narrowToKernelIndex( position ) );
         }
 
         // ====================================================================

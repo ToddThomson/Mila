@@ -260,7 +260,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
          * @param output          Pre-allocated embeddings [B, T, C].
          * @param position_offset Absolute position of the first token in this chunk.
          */
-        //void prefill( const ITensor& input, ITensor& output, int position_offset ) override
+        //void prefill( const ITensor& input, ITensor& output, dim_t position_offset ) override
         //{
         //    const auto& input_shape = input.shape();
         //    int B = static_cast<int>(input_shape[ 0 ]);
@@ -292,7 +292,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
          * @param output   Pre-allocated output buffer [B, 1, C].
          * @param position Zero-based absolute sequence position for the wpe lookup.
          */
-        void decode( const ITensor& input, ITensor& output, int position ) override
+        void decode( const ITensor& input, ITensor& output, dim_t position ) override
         {
             if ( position < 0 || position >= wpe_max_seq_len_ )
             {
@@ -308,7 +308,7 @@ namespace Mila::Dnn::Compute::Cuda::Lpe
             NativeType* Y = static_cast<NativeType*>( output.rawData() );
 
             Detail::cuda_lpe_impl<NativeType>::decode(
-                Y, X, wte_, wpe_, B, position, embedding_dim_, context_->getStream() );
+                Y, X, wte_, wpe_, B, narrowToKernelIndex( position ), embedding_dim_, context_->getStream() );
         }
 
         // ====================================================================

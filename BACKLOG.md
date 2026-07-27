@@ -201,11 +201,25 @@ good-first-issue.
   `Linear.cuh:83` (commented-out FP16 reductions), `Component.ixx:299` (commented-out accessor judged
   to add no value), and `CudaDeviceMemoryResource.ixx:139` (scoped to milestone Alpha.6, two stages
   stale).
-- [ ] Canonicalize `dim_t` for tensor-axis dimensions — configs store `int`/`size_t` while `Tensor`
-  shapes are `dim_t` (`int64_t`), so `static_cast` band-aids leak through `Rope.Config.ixx:269`,
-  `Linear.ixx:851`, `TokenEmbedding.ixx:519`, `GroupedQueryAttention.ixx:563`, `GemmaModel.ixx:395` —
-  and out to the public `decode()` signature, per the test-side marker at `Gemma.Cuda.cpp:337`. The
-  library-wide rule the markers agree on: if a field describes the size of a tensor axis, it is `dim_t`.
+- [x] Canonicalize `dim_t` for tensor-axis dimensions. Rule: **`dim_t` is the type of any value that
+  describes a tensor axis — its extent, a position within it, or a count of its elements — at every
+  API, config, component, and operation-interface boundary. Narrowing to `int` happens exactly once
+  per call path, at the kernel launch site, through `narrowToKernelIndex()`. Kernel internals stay
+  `int`; `size_t` never describes a dimension.** Landed: the three straggler configs (`Rope`, `Lpe`,
+  `TokenEmbedding`) moved off `size_t`; the KV/positional interfaces (`IKvCacheLifecycle`,
+  `IKvInference`, `IPackedKvInference`, `IPositionalDecode`, `IPositionalPairedOp`), the public
+  `LanguageNetwork::decode`/`prefillFrom`/`rewindKvCache`, and the `LanguageModel`
+  `maxSequenceLength`/`vocabSize` virtuals all widened; `xavier()` took `dim_t`; all six `REVIEW:`
+  markers removed. `narrowToKernelIndex()` (`Tensor.Types.ixx`) is the single checked narrowing point
+  — the margin is not theoretical, a Gemma 4 12B embedding table is ~1.0e9 elements against an
+  `INT_MAX` of 2.1e9. Token ids are deliberately **out of scope** (a value, not an extent) —
+  `TokenSequenceLoader.ixx:44` stays open under its own concern.
+- [ ] `Tensor::size()` returns `size_t` — the last type in the dimension mix, and the reason
+  `GroupedQueryAttention.ixx:583` needs an explicit `static_cast<dim_t>` to compare a slot size
+  against a required element count. Under the rule above it should be `dim_t`. Held back from the
+  canonicalization commit deliberately: its blast radius runs through every `parameterCount()`
+  override and cannot be predicted from grep — only a full rebuild is a valid oracle (see the
+  export-surface lesson). Do this one on its own, measured.
 - [ ] Broaden CI compiler coverage toward the supported matrix (adds MSVC + GCC 16 to clang-21).
 - [ ] Stage model weights off the Windows bind mount for the container (native disk speed).
 - [ ] **[contributor]** Llama-lineage CPU ops (`RmsNormOp`, `SwigluOp`, `RopeOp`, `TokenEmbeddingOp`,

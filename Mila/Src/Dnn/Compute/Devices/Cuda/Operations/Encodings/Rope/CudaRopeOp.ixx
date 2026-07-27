@@ -164,7 +164,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             // NOTE: Cache data type is always float32 regardless of input precision to
             // preserve accuracy of the trigonometric computations.
 
-            const std::size_t cache_bytes = config_.getMaxSequenceLength() * (config_.getHeadDim() / 2) * sizeof( float );
+            const dim_t cache_elements = config_.getMaxSequenceLength() * (config_.getHeadDim() / 2);
+            const std::size_t cache_bytes = static_cast<std::size_t>( cache_elements ) * sizeof( float );
 
             cache_key_ = makeCacheKey();
 
@@ -269,7 +270,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         void prefill(
             const ITensor& Q_in, const ITensor& K_in,
             ITensor& Q_out, ITensor& K_out,
-            int position_offset ) override
+            dim_t position_offset ) override
         {
             ensureBuilt();
 
@@ -278,12 +279,12 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             int T = static_cast<int>(q_shape[ 1 ]);
 
             if ( position_offset < 0 ||
-                static_cast<size_t>( position_offset + T ) > config_.getMaxSequenceLength() )
+                position_offset + T > config_.getMaxSequenceLength() )
                 throw std::invalid_argument( std::format(
                     "CudaRopeOp::prefill: position_offset {} + T {} exceeds max_seq_len {}",
                     position_offset, T, config_.getMaxSequenceLength() ) );
 
-            dispatchForward( Q_in, K_in, Q_out, K_out, B, T, position_offset );
+            dispatchForward( Q_in, K_in, Q_out, K_out, B, T, narrowToKernelIndex( position_offset ) );
         }
 
         /**
@@ -301,11 +302,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         void decode(
             const ITensor& Q_in, const ITensor& K_in,
             ITensor& Q_out, ITensor& K_out,
-            int position ) override
+            dim_t position ) override
         {
             ensureBuilt();
 
-            if ( position < 0 || static_cast<size_t>( position ) >= config_.getMaxSequenceLength() )
+            if ( position < 0 || position >= config_.getMaxSequenceLength() )
                 throw std::invalid_argument( std::format(
                     "CudaRopeOp::decode: position {} out of range [0, {})",
                     position, config_.getMaxSequenceLength() ) );
@@ -318,7 +319,7 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 static_cast<const ComputeType*>( Q_in.rawData() ),
                 static_cast<const ComputeType*>( K_in.rawData() ),
                 cos_cache_, sin_cache_,
-                B, position,
+                B, narrowToKernelIndex( position ),
                 static_cast<int>(config_.getNumHeads()),
                 static_cast<int>(config_.getNumKVHeads()),
                 static_cast<int>(config_.getHeadDim()),
@@ -346,7 +347,8 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             if ( !owns_cache_ )
                 return 0;
 
-            std::size_t cache_bytes = config_.getMaxSequenceLength() * (config_.getHeadDim() / 2) * sizeof( float );
+            const dim_t cache_elements = config_.getMaxSequenceLength() * (config_.getHeadDim() / 2);
+            const std::size_t cache_bytes = static_cast<std::size_t>( cache_elements ) * sizeof( float );
 
             return cache_bytes * 2; // cos and sin caches
         }

@@ -88,7 +88,7 @@ namespace Mila::Dnn
          * @param position Current sequence position (0-based).
          * @return         Logits [B, 1, vocab_size].
          */
-        virtual TensorType& decode( const TokenIndexType& input, int position ) = 0;
+        virtual TensorType& decode( const TokenIndexType& input, dim_t position ) = 0;
 
         /**
          * @brief Chunked prefill starting at an absolute position (prompt-prefix reuse).
@@ -103,7 +103,7 @@ namespace Mila::Dnn
          * override both this and rewindKvCache; callers only reach prefillFrom
          * after a successful rewind, so the default is never hit in practice.
          */
-        virtual TensorType& prefillFrom( const TokenIndexType& input, int64_t start_offset )
+        virtual TensorType& prefillFrom( const TokenIndexType& input, dim_t start_offset )
         {
             ( void )input;
             ( void )start_offset;
@@ -119,7 +119,7 @@ namespace Mila::Dnn
          * reuse capability); a full prefill positionally overwrites regardless,
          * so a refused or partial rewind never needs cleanup.
          */
-        virtual bool rewindKvCache( int position )
+        virtual bool rewindKvCache( dim_t position )
         {
             ( void )position;
             return false;

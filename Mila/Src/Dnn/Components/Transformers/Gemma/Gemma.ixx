@@ -205,7 +205,7 @@ namespace Mila::Dnn
          * (rewindKvCache). start_offset must lie inside the prompt so at least one
          * position is prefilled and the returned last-position logits are fresh.
          */
-        TensorType& prefillFrom( const TokenIndexType& input, int64_t start_offset ) override
+        TensorType& prefillFrom( const TokenIndexType& input, dim_t start_offset ) override
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GemmaTransformer must be built before calling prefill()." );
@@ -236,7 +236,7 @@ namespace Mila::Dnn
 
                 for ( auto* layer : layers_ )
                 {
-                    auto& block_out = layer->prefill( *block_input, static_cast<int>( offset ) );
+                    auto& block_out = layer->prefill( *block_input, offset );
                     block_input = &block_out;
                 }
 
@@ -256,7 +256,7 @@ namespace Mila::Dnn
             return *logits_ptr_;
         }
 
-        TensorType& decode( const TokenIndexType& input, int position ) override
+        TensorType& decode( const TokenIndexType& input, dim_t position ) override
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GemmaTransformer must be built before calling decode()." );
@@ -293,7 +293,7 @@ namespace Mila::Dnn
          * which positionally overwrites all caches -- so a partial rewind (some
          * layers moved, a bounded ring refused) needs no cleanup.
          */
-        bool rewindKvCache( int position ) override
+        bool rewindKvCache( dim_t position ) override
         {
             bool all_accepted = true;
 
@@ -635,7 +635,7 @@ namespace Mila::Dnn
             // the table is stored raw and shared with lm_head, so the scale is applied at
             // runtime here instead of being folded into the converted table (WeightTying.md D5).
             TokenEmbeddingConfig embedding_config;
-            embedding_config.withVocabSize( static_cast<size_t>(config_.getVocabSize()) )
+            embedding_config.withVocabSize( config_.getVocabSize() )
                 .withEmbeddingDim( static_cast<size_t>(config_.getModelDim()) )
                 .withEmbeddingScale( static_cast<float>(
                     std::sqrt( static_cast<double>( config_.getModelDim() ) ) ) );

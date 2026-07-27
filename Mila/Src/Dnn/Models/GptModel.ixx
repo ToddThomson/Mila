@@ -248,7 +248,7 @@ namespace Mila::Dnn
 
             on_token( next_token );
 
-            int position = static_cast<int>( seq_len );
+            dim_t position = seq_len;
             const int max_new = params.max_new_tokens.value_or( static_cast<int>( context_length_ ) );
 
             for ( int step = 1; step < max_new; ++step )
@@ -284,17 +284,17 @@ namespace Mila::Dnn
         /**
          * @brief Maximum sequence length from GPT config.
          */
-        int64_t maxSequenceLength() const noexcept override
+        dim_t maxSequenceLength() const noexcept override
         {
-            return static_cast<int64_t>(config_.getMaxSequenceLength());
+            return config_.getMaxSequenceLength();
         }
 
         /**
          * @brief Vocabulary size from GPT config.
          */
-        int64_t vocabSize() const noexcept override
+        dim_t vocabSize() const noexcept override
         {
-            return static_cast<int64_t>(config_.getVocabSize());
+            return config_.getVocabSize();
         }
 
         /**
@@ -363,18 +363,17 @@ namespace Mila::Dnn
 
         int32_t sampleFromLogits(
             const TensorType& logits,
-            int64_t position,
+            dim_t position,
             float temperature,
             int top_k,
             std::mt19937& rng ) const
         {
-            int64_t seq_len = logits.shape()[ 1 ];
+            dim_t seq_len = logits.shape()[ 1 ];
             shape_t shape = { 1, seq_len, config_.getVocabSize() };
             Tensor<TPrecision, CpuMemoryResource> cpu( Device::Cpu(), shape );
             copy( logits, cpu );
 
-            const float* last = cpu.data()
-                + static_cast<size_t>(position) * config_.getVocabSize();
+            const float* last = cpu.data() + position * config_.getVocabSize();
 
             return sampleToken( last,
                 static_cast<size_t>(config_.getVocabSize()),

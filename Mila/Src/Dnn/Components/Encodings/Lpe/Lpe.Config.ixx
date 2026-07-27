@@ -20,6 +20,7 @@ export module Dnn.Components.LpeConfig;
 import Dnn.Component;
 import Dnn.ComponentConfig;
 import Dnn.ActivationType;
+import Dnn.TensorTypes;
 import Serialization.Metadata;
 
 namespace Mila::Dnn
@@ -38,7 +39,7 @@ namespace Mila::Dnn
          * @brief C++23-style fluent setter for embedding dimension.
          */
         template <typename Self>
-        decltype(auto) withEmbeddingDim( this Self&& self, size_t embedding_dim )
+        decltype(auto) withEmbeddingDim( this Self&& self, dim_t embedding_dim )
         {
             self.embedding_dim_ = embedding_dim;
             return std::forward<Self>( self );
@@ -48,7 +49,7 @@ namespace Mila::Dnn
          * @brief C++23-style fluent setter for maximum sequence length.
          */
         template <typename Self>
-        decltype(auto) withMaxSequenceLength( this Self&& self, size_t max_seq_len )
+        decltype(auto) withMaxSequenceLength( this Self&& self, dim_t max_seq_len )
         {
             self.max_seq_len_ = max_seq_len;
             return std::forward<Self>( self );
@@ -58,7 +59,7 @@ namespace Mila::Dnn
          * @brief C++23-style fluent setter for vocabulary length.
          */
         template <typename Self>
-        decltype(auto) withVocabularyLength( this Self&& self, size_t vocab_len )
+        decltype(auto) withVocabularyLength( this Self&& self, dim_t vocab_len )
         {
             self.vocab_len_ = vocab_len;
             return std::forward<Self>( self );
@@ -67,23 +68,23 @@ namespace Mila::Dnn
         /**
          * @brief Get the configured embedding dimension.
          *
-         * @return size_t The embedding dimension
+         * @return dim_t The embedding dimension
          */
-        size_t getEmbeddingDim() const { return embedding_dim_; }
+        dim_t getEmbeddingDim() const { return embedding_dim_; }
 
         /**
          * @brief Get the configured maximum sequence length.
          *
-         * @return size_t The maximum sequence length
+         * @return dim_t The maximum sequence length
          */
-        size_t getMaxSequenceLength() const { return max_seq_len_; }
+        dim_t getMaxSequenceLength() const { return max_seq_len_; }
 
         /**
          * @brief Get the configured vocabulary length.
          *
-         * @return size_t The vocabulary length
+         * @return dim_t The vocabulary length
          */
-        size_t getVocabularyLength() const { return vocab_len_; }
+        dim_t getVocabularyLength() const { return vocab_len_; }
 
         /**
          * @brief Validate configuration parameters.
@@ -92,15 +93,15 @@ namespace Mila::Dnn
          */
         void validate() const override {
 
-            if ( embedding_dim_ == 0 ) {
+            if ( embedding_dim_ <= 0 ) {
                 throw std::invalid_argument( "EncoderConfig: channels must be > 0" );
             }
 
-            if ( max_seq_len_ == 0 ) {
+            if ( max_seq_len_ <= 0 ) {
                 throw std::invalid_argument( "EncoderConfig: max_sequence_length must be > 0" );
             }
 
-            if ( vocab_len_ == 0 ) {
+            if ( vocab_len_ <= 0 ) {
                 throw std::invalid_argument( "EncoderConfig: vocabulary_length must be > 0" );
             }
         }
@@ -132,17 +133,17 @@ namespace Mila::Dnn
         {
             if ( auto ch = meta.tryGetInt( "channels" ) )
             {
-                embedding_dim_ = static_cast<size_t>( *ch );
+                embedding_dim_ = static_cast<dim_t>( *ch );
             }
 
             if ( auto ms = meta.tryGetInt( "max_sequence_length" ) )
             {
-                max_seq_len_ = static_cast<size_t>( *ms );
+                max_seq_len_ = static_cast<dim_t>( *ms );
             }
 
             if ( auto vl = meta.tryGetInt( "vocabulary_length" ) )
             {
-                vocab_len_ = static_cast<size_t>( *vl );
+                vocab_len_ = static_cast<dim_t>( *vl );
             }
         }
 
@@ -162,8 +163,8 @@ namespace Mila::Dnn
         }
 
     private:
-        size_t embedding_dim_ = 0;      ///< The embedding dimension size
-        size_t max_seq_len_ = 512;      ///< The maximum sequence length
-        size_t vocab_len_ = 50000;      ///< The vocabulary size
+        dim_t embedding_dim_ = 0;      ///< The embedding dimension size
+        dim_t max_seq_len_ = 512;      ///< The maximum sequence length
+        dim_t vocab_len_ = 50000;      ///< The vocabulary size
     };
 }

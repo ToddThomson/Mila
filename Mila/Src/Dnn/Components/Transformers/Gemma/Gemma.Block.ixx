@@ -193,7 +193,7 @@ namespace Mila::Dnn
         // IDecoderLayer -- inference path
         // ====================================================================
 
-        TensorType& prefill( const TensorType& input, int position_offset ) override
+        TensorType& prefill( const TensorType& input, dim_t position_offset ) override
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GemmaBlock::prefill: must be built before prefill()." );
@@ -283,7 +283,7 @@ namespace Mila::Dnn
             return res2;
         }
 
-        TensorType& decode( const TensorType& input, int position ) override
+        TensorType& decode( const TensorType& input, dim_t position ) override
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GemmaBlock::decode: must be built before decode()." );
@@ -392,7 +392,7 @@ namespace Mila::Dnn
                 attn_->resetKVCache();
         }
 
-        bool rewindKvCache( int position ) override
+        bool rewindKvCache( dim_t position ) override
         {
             return attn_ && attn_->rewindKvCache( position );
         }

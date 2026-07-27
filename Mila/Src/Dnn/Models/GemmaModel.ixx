@@ -218,7 +218,7 @@ namespace Mila::Dnn
         }
 
         /// Deployment context length: the KV-cache depth the network was built with.
-        int64_t contextLength() const noexcept
+        dim_t contextLength() const noexcept
         {
             return static_cast<int64_t>( model_config_.getContextLength() );
         }
@@ -296,7 +296,7 @@ namespace Mila::Dnn
             const int64_t reuse = std::min( common, seq_len - 1 );
 
             const bool reused = reuse > 0
-                && this->getLanguageNetwork().rewindKvCache( static_cast<int>( reuse ) );
+                && this->getLanguageNetwork().rewindKvCache( reuse );
 
             auto& logits = reused
                 ? this->getLanguageNetwork().prefillFrom( prefill_input, reuse )
@@ -323,7 +323,7 @@ namespace Mila::Dnn
             // reusable, since the next turn's chat template starts with it.
             this->enqueueSampleNext( logits, decode_token_device_, params.sampling );
 
-            int position = static_cast<int>( seq_len );
+            dim_t position = seq_len;
             int emitted = 0;
 
             // nullopt max_new_tokens => run to EOS / the context bound (the guard below).
@@ -390,15 +390,14 @@ namespace Mila::Dnn
                 "GemmaModel::onTraining: Gemma is inference-only" );
         }
 
-        int64_t maxSequenceLength() const noexcept override
+        dim_t maxSequenceLength() const noexcept override
         {
-            // REVIEW: Settle this once and for all: int64_t vs dim_t. These static_casts are a code smell.
-            return static_cast<int64_t>( config_.getMaxSequenceLength() );
+            return config_.getMaxSequenceLength();
         }
 
-        int64_t vocabSize() const noexcept override
+        dim_t vocabSize() const noexcept override
         {
-            return static_cast<int64_t>(config_.getVocabSize());
+            return config_.getVocabSize();
         }
 
     private:

@@ -34,8 +34,8 @@ namespace Mila::Tests::Dnn::Components::Embeddings
     {
         TokenEmbeddingConfig config;
 
-        EXPECT_EQ( config.getVocabSize(), 0u );
-        EXPECT_EQ( config.getEmbeddingDim(), 0u );
+        EXPECT_EQ( config.getVocabSize(), 0 );
+        EXPECT_EQ( config.getEmbeddingDim(), 0 );
     }
 
     // ====================================================================
@@ -46,14 +46,14 @@ namespace Mila::Tests::Dnn::Components::Embeddings
     {
         auto config = TokenEmbeddingConfig().withVocabSize( 50257 );
 
-        EXPECT_EQ( config.getVocabSize(), 50257u );
+        EXPECT_EQ( config.getVocabSize(), 50257 );
     }
 
     TEST_F( TokenEmbeddingConfigTests, WithEmbeddingDim_SetsValue )
     {
         auto config = TokenEmbeddingConfig().withEmbeddingDim( 768 );
 
-        EXPECT_EQ( config.getEmbeddingDim(), 768u );
+        EXPECT_EQ( config.getEmbeddingDim(), 768 );
     }
 
     TEST_F( TokenEmbeddingConfigTests, EmbeddingScale_DefaultsToIdentity )
@@ -124,8 +124,8 @@ namespace Mila::Tests::Dnn::Components::Embeddings
         TokenEmbeddingConfig loaded;
         loaded.fromMetadata( meta );
 
-        EXPECT_EQ( loaded.getVocabSize(), 50257u );
-        EXPECT_EQ( loaded.getEmbeddingDim(), 768u );
+        EXPECT_EQ( loaded.getVocabSize(), 50257 );
+        EXPECT_EQ( loaded.getEmbeddingDim(), 768 );
         EXPECT_FLOAT_EQ( loaded.getEmbeddingScale(), 27.7128f );
     }
 

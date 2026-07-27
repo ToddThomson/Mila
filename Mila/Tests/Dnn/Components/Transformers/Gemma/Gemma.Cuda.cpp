@@ -284,7 +284,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         net->synchronize();
 
         // Rewind to the split ([0, kSplit) stays resident) and prefill only the tail.
-        ASSERT_TRUE( net->rewindKvCache( static_cast<int>( kSplit ) ) );
+        ASSERT_TRUE( net->rewindKvCache( kSplit ) );
 
         auto& logits_incremental = net->prefillFrom( tokens, kSplit );
         HostTensor incremental_host( Device::Cpu(), logits_incremental.shape() );
@@ -311,8 +311,8 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         net->prefill( tokens );
         net->synchronize();
 
-        EXPECT_TRUE( net->rewindKvCache( static_cast<int>( seq_ - 1 ) ) );
-        EXPECT_FALSE( net->rewindKvCache( static_cast<int>( seq_ + 10 ) ) );
+        EXPECT_TRUE( net->rewindKvCache( seq_ - 1 ) );
+        EXPECT_FALSE( net->rewindKvCache( seq_ + 10 ) );
     }
 
     TEST_F( GemmaTransformerCudaTests, PrefillFrom_ThrowsOnOffsetOutsidePrompt )
@@ -334,11 +334,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 
         auto step = makeTokens( batch_, 1 );
 
-        // REVIEW: These static_casts are a smell that the public decode() interface
-        // is not well-aligned with the internal block contract (int vs int64_t).
-        // The public interface should be fixed to take int64_t (dim_t) and avoid these.
-
-        auto& logits = net->decode( step, static_cast<int>( seq_ - 1) );
+        auto& logits = net->decode( step, seq_ - 1 );
 
         EXPECT_EQ( logits.shape(), ( shape_t{ batch_, 1, kVocab } ) );
     }

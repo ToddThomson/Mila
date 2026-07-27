@@ -250,7 +250,7 @@ namespace Mila::Dnn
          * @param position Current sequence position (0-based).
          * @return Reference to block output tensor.
          */
-        TensorType& decode( const TensorType& input, int position )
+        TensorType& decode( const TensorType& input, dim_t position )
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GptBlock must be built before decode()." );

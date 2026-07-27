@@ -24,6 +24,7 @@ export module Dnn.LanguageModel;
 import Dnn.Model;
 import Dnn.LanguageNetwork;
 import Dnn.Tensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.RuntimeMode;
@@ -222,8 +223,8 @@ namespace Mila::Dnn
             return { eosToken() };
         }
 
-        virtual int64_t maxSequenceLength() const noexcept = 0;
-        virtual int64_t vocabSize() const noexcept = 0;
+        virtual dim_t maxSequenceLength() const noexcept = 0;
+        virtual dim_t vocabSize() const noexcept = 0;
 
     private:
 

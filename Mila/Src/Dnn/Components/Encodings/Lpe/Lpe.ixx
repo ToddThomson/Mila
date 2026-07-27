@@ -229,7 +229,7 @@ namespace Mila::Dnn
          *
          * @throws std::runtime_error if component is not built.
          */
-        EmbeddingsTensorType& decode( const TokenIndexType& input, int position )
+        EmbeddingsTensorType& decode( const TokenIndexType& input, dim_t position )
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "Lpe must be built before calling decode()." );

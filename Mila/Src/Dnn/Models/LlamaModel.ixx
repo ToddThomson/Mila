@@ -306,7 +306,7 @@ namespace Mila::Dnn
 
             on_token( next_token );
 
-            int position = static_cast<int>( seq_len );
+            dim_t position = seq_len;
             const int max_new = params.max_new_tokens.value_or( static_cast<int>( context_length_ ) );
 
             for ( int step = 1; step < max_new; ++step )
@@ -347,17 +347,17 @@ namespace Mila::Dnn
         /**
          * @brief Maximum sequence length from LLaMA config.
          */
-        int64_t maxSequenceLength() const noexcept override
+        dim_t maxSequenceLength() const noexcept override
         {
-            return static_cast<int64_t>(config_.getMaxSequenceLength());
+            return config_.getMaxSequenceLength();
         }
 
         /**
          * @brief Vocabulary size from LLaMA config.
          */
-        int64_t vocabSize() const noexcept override
+        dim_t vocabSize() const noexcept override
         {
-            return static_cast<int64_t>(config_.getVocabSize());
+            return config_.getVocabSize();
         }
 
     private:
@@ -462,15 +462,14 @@ namespace Mila::Dnn
 
         int32_t sampleFromLogits(
             const TensorType& logits,
-            int64_t position,
+            dim_t position,
             float temperature,
             int top_k,
             std::mt19937& rng )
         {
             copy( logits, logits_staging_ );
 
-            const float* row = logits_staging_.data()
-                + static_cast<size_t>(position) * static_cast<size_t>(config_.getVocabSize());
+            const float* row = logits_staging_.data() + position * config_.getVocabSize();
 
             return sampleToken(
                 row,

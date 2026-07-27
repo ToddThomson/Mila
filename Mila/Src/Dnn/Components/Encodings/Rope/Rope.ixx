@@ -155,7 +155,7 @@ namespace Mila::Dnn
          * @param K               Key tensor   [B, T, n_kv_heads * head_dim]. Mutated in-place.
          * @param position_offset Absolute position of the first token in this chunk.
          */
-        void prefill( TensorType& Q, TensorType& K, int position_offset )
+        void prefill( TensorType& Q, TensorType& K, dim_t position_offset )
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "Rope must be built before calling prefill()." );
@@ -176,7 +176,7 @@ namespace Mila::Dnn
          * @param K        Key tensor   [B, 1, n_kv_heads * head_dim]. Mutated in-place.
          * @param position Absolute position of the token in the full sequence.
          */
-        void decode( TensorType& Q, TensorType& K, int position )
+        void decode( TensorType& Q, TensorType& K, dim_t position )
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "Rope must be built before calling decode()." );
@@ -267,7 +267,7 @@ namespace Mila::Dnn
             const auto& input_shape = build_context.inputShape();
 
             q_shape_ = shape_t{ input_shape[ 0 ], input_shape[ 1 ], static_cast<dim_t>( config_.getNumHeads() * config_.getHeadDim() ) };
-            k_shape_ = shape_t{ input_shape[ 0 ], input_shape[ 1 ], static_cast<dim_t>( config_.getNumKVHeads() * config_.getHeadDim() ) };
+            k_shape_ = shape_t{ input_shape[ 0 ], input_shape[ 1 ], config_.getNumKVHeads() * config_.getHeadDim() };
 
             if ( build_context.isTrainingMode() )
             {

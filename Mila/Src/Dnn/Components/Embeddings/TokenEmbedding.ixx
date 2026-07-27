@@ -516,9 +516,7 @@ namespace Mila::Dnn
         {
             auto device_id = this->getExecutionContext()->getDeviceId();
 
-            // REVIEW: static cast to dim_t is a band-aid for the fact that config_ uses int for vocab and embedding sizes,
-            // but Tensor shapes use dim_t (int64_t).  The API needs work to unify these types and avoid this kind of cast.
-            auto wte_shape = shape_t{ static_cast<dim_t>(config_.getVocabSize()), static_cast<dim_t>(config_.getEmbeddingDim()) };
+            auto wte_shape = shape_t{ config_.getVocabSize(), config_.getEmbeddingDim() };
 
             wte_ = std::make_shared<TableTensorType>( device_id, wte_shape, this->getName() + ".wte" );
 
@@ -527,7 +525,7 @@ namespace Mila::Dnn
                 // One scale per vocabulary row. Filled by operation_->quantize() at
                 // load time; the quantized path has no random-initialization mode.
                 wte_scales_ = std::make_shared<TableScaleTensorType>(
-                    device_id, shape_t{ static_cast<dim_t>(config_.getVocabSize()) }, this->getName() + ".wte.scales" );
+                    device_id, shape_t{ config_.getVocabSize() }, this->getName() + ".wte.scales" );
             }
             else
             {

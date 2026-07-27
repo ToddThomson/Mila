@@ -18,6 +18,7 @@ module;
 export module Dnn.Components.TokenEmbeddingConfig;
 
 import Dnn.ComponentConfig;
+import Dnn.TensorTypes;
 import Serialization.Metadata;
 
 namespace Mila::Dnn
@@ -36,14 +37,14 @@ namespace Mila::Dnn
     public:
 
         template <typename Self>
-        decltype(auto) withVocabSize( this Self&& self, size_t vocab_size )
+        decltype(auto) withVocabSize( this Self&& self, dim_t vocab_size )
         {
             self.vocab_size_ = vocab_size;
             return std::forward<Self>( self );
         }
 
         template <typename Self>
-        decltype(auto) withEmbeddingDim( this Self&& self, size_t embedding_dim )
+        decltype(auto) withEmbeddingDim( this Self&& self, dim_t embedding_dim )
         {
             self.embedding_dim_ = embedding_dim;
             return std::forward<Self>( self );
@@ -59,12 +60,12 @@ namespace Mila::Dnn
             return std::forward<Self>( self );
         }
 
-        size_t getVocabSize() const
+        dim_t getVocabSize() const
         {
             return vocab_size_;
         }
 
-        size_t getEmbeddingDim() const
+        dim_t getEmbeddingDim() const
         {
             return embedding_dim_;
         }
@@ -76,10 +77,10 @@ namespace Mila::Dnn
 
         void validate() const override
         {
-            if ( vocab_size_ == 0 )
+            if ( vocab_size_ <= 0 )
                 throw std::invalid_argument( "TokenEmbeddingConfig: vocab_size must be > 0" );
 
-            if ( embedding_dim_ == 0 )
+            if ( embedding_dim_ <= 0 )
                 throw std::invalid_argument( "TokenEmbeddingConfig: embedding_dim must be > 0" );
 
             if ( embedding_dim_ % 4 != 0 )
@@ -105,10 +106,10 @@ namespace Mila::Dnn
         void fromMetadata( const SerializationMetadata& meta ) override
         {
             if ( auto v = meta.tryGetInt( "vocab_size" ) )
-                vocab_size_ = static_cast<size_t>(*v);
+                vocab_size_ = static_cast<dim_t>(*v);
 
             if ( auto v = meta.tryGetInt( "embedding_dim" ) )
-                embedding_dim_ = static_cast<size_t>(*v);
+                embedding_dim_ = static_cast<dim_t>(*v);
 
             if ( auto v = meta.tryGetFloat( "embedding_scale" ) )
                 embedding_scale_ = *v;
@@ -124,8 +125,8 @@ namespace Mila::Dnn
         }
 
     private:
-        size_t vocab_size_{ 0 };
-        size_t embedding_dim_{ 0 };
+        dim_t vocab_size_{ 0 };
+        dim_t embedding_dim_{ 0 };
         float embedding_scale_{ 1.0f };
     };
 }

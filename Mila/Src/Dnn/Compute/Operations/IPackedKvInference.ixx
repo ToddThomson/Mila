@@ -8,6 +8,7 @@ module;
 export module Compute.IPackedKvInference;
 
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Compute.IKvCacheLifecycle;
 
 namespace Mila::Dnn::Compute
@@ -43,7 +44,7 @@ namespace Mila::Dnn::Compute
          * @param output   Pre-allocated output [B, 1, embedding_dim].
          * @param position Zero-based absolute sequence position into the KV cache.
          */
-        virtual void decode( const ITensor& input, ITensor& output, int position ) = 0;
+        virtual void decode( const ITensor& input, ITensor& output, dim_t position ) = 0;
 
         ~IPackedKvInference() override = default;
     };

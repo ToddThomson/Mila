@@ -143,8 +143,8 @@ namespace Mila::Dnn
                 if ( !cache_initialized_ )
                 {
                     kv_cache_op_->initializeKvCache(
-                        static_cast<int>(max_input_shape_[ 0 ]),
-                        static_cast<int>(max_input_shape_[ 1 ]) );
+                        max_input_shape_[ 0 ],
+                        max_input_shape_[ 1 ] );
                     cache_initialized_ = true;
                 }
 
@@ -206,7 +206,7 @@ namespace Mila::Dnn
          * @param position Current sequence position (0-based).
          * @return Reference to component-owned single-token output tensor.
          */
-        TensorType& decode( const TensorType& input, int position )
+        TensorType& decode( const TensorType& input, dim_t position )
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error(

@@ -32,9 +32,9 @@ namespace Mila::Tests::Dnn::Components::Encodings::Lpe
     {
         LpeConfig config;
 
-        EXPECT_EQ( config.getEmbeddingDim(), 0u );
-        EXPECT_EQ( config.getMaxSequenceLength(), 512u );
-        EXPECT_EQ( config.getVocabularyLength(), 50000u );
+        EXPECT_EQ( config.getEmbeddingDim(), 0 );
+        EXPECT_EQ( config.getMaxSequenceLength(), 512 );
+        EXPECT_EQ( config.getVocabularyLength(), 50000 );
     }
 
     // ====================================================================
@@ -45,21 +45,21 @@ namespace Mila::Tests::Dnn::Components::Encodings::Lpe
     {
         auto config = LpeConfig().withEmbeddingDim( 768 );
 
-        EXPECT_EQ( config.getEmbeddingDim(), 768u );
+        EXPECT_EQ( config.getEmbeddingDim(), 768 );
     }
 
     TEST_F( LpeConfigTests, WithMaxSequenceLength_SetsValue )
     {
         auto config = LpeConfig().withMaxSequenceLength( 1024 );
 
-        EXPECT_EQ( config.getMaxSequenceLength(), 1024u );
+        EXPECT_EQ( config.getMaxSequenceLength(), 1024 );
     }
 
     TEST_F( LpeConfigTests, WithVocabularyLength_SetsValue )
     {
         auto config = LpeConfig().withVocabularyLength( 50257 );
 
-        EXPECT_EQ( config.getVocabularyLength(), 50257u );
+        EXPECT_EQ( config.getVocabularyLength(), 50257 );
     }
 
     // ====================================================================
@@ -107,9 +107,9 @@ namespace Mila::Tests::Dnn::Components::Encodings::Lpe
         LpeConfig loaded;
         loaded.fromMetadata( meta );
 
-        EXPECT_EQ( loaded.getEmbeddingDim(), 768u );
-        EXPECT_EQ( loaded.getMaxSequenceLength(), 1024u );
-        EXPECT_EQ( loaded.getVocabularyLength(), 50257u );
+        EXPECT_EQ( loaded.getEmbeddingDim(), 768 );
+        EXPECT_EQ( loaded.getMaxSequenceLength(), 1024 );
+        EXPECT_EQ( loaded.getVocabularyLength(), 50257 );
     }
 
     // ====================================================================

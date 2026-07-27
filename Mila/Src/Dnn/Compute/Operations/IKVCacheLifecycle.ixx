@@ -7,6 +7,8 @@ module;
 
 export module Compute.IKvCacheLifecycle;
 
+import Dnn.TensorTypes;
+
 namespace Mila::Dnn::Compute
 {
     /**
@@ -25,7 +27,7 @@ namespace Mila::Dnn::Compute
          * @param batch_size          Number of sequences in the batch.
          * @param max_sequence_length Maximum number of tokens the cache must hold.
          */
-        virtual void initializeKvCache( int batch_size, int max_sequence_length ) = 0;
+        virtual void initializeKvCache( dim_t batch_size, dim_t max_sequence_length ) = 0;
 
         /**
          * @brief Reset the KV cache to an empty state, preserving the allocation.
@@ -44,7 +46,7 @@ namespace Mila::Dnn::Compute
          * from `position` would attend to. On false the caller falls back to a
          * full prefill, which positionally overwrites regardless of cache state.
          */
-        virtual bool rewindKvCache( int position ) = 0;
+        virtual bool rewindKvCache( dim_t position ) = 0;
 
         virtual ~IKvCacheLifecycle() = default;
     };
