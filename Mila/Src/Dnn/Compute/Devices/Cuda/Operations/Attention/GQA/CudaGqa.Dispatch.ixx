@@ -350,7 +350,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             static void reduce_kv_grad(
                 nv_bfloat16* /*dk_compact*/, nv_bfloat16* /*dv_compact*/,
                 const nv_bfloat16* /*dk_exp*/, const nv_bfloat16* /*dv_exp*/,
-                int /*B*/, int /*T*/, int /*NH*/, int /*NKV*/, int /*HS*/, cudaStream_t s )
+                int /*B*/, int /*T*/, int /*NH*/, int /*NKV*/, int /*HS*/, cudaStream_t /*s*/ )
             {
                 // REVIEW: This kernel has likely been deprecated with the optimized permute_q_compact path.
                 // Needs triage to understand if this is still needed for correctness or if it can be removed.
@@ -361,7 +361,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             static void permute_backward(
                 nv_bfloat16* /*dX*/,
                 const nv_bfloat16* /*dQ*/, const nv_bfloat16* /*dK*/, const nv_bfloat16* /*dV*/,
-                int /*B*/, int /*T*/, int /*NH*/, int /*NKV*/, int /*HS*/, cudaStream_t s )
+                int /*B*/, int /*T*/, int /*NH*/, int /*NKV*/, int /*HS*/, cudaStream_t /*s*/ )
             {
                 // REVIEW: This kernel has likely been deprecated with the optimized permute_q_compact path.
                 // cuda_gqa_permute_backward_fp16( dX, dQ, dK, dV, B, T, NH, NKV, HS, s );
@@ -506,7 +506,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             static void unpermute_output_padded(
                 const nv_bfloat16* /*vaccum*/, nv_bfloat16* /*out*/,
-                int /*B*/, int /*actual_T*/, int /*padded_T*/, int /*NH*/, int /*HS*/, cudaStream_t s )
+                int /*B*/, int /*actual_T*/, int /*padded_T*/, int /*NH*/, int /*HS*/, cudaStream_t /*s*/ )
             {
                 // REVIEW:
                 // Attention::Common::cuda_attention_unpermute_output_padded_bf16( vaccum, out, B, actual_T, padded_T, NH, HS, s );
@@ -515,9 +515,9 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
 
             static void unpermute_backward(
                 nv_bfloat16* /*dvaccum*/, const nv_bfloat16* /*dout*/,
-                int /*B*/, int /*T*/, int /*NH*/, int /*HS*/, cudaStream_t s )
+                int /*B*/, int /*T*/, int /*NH*/, int /*HS*/, cudaStream_t /*s*/ )
             {
-                // REVIEW: 
+                // REVIEW:
                 // Attention::Common::cuda_attention_unpermute_backward_fp16( dvaccum, dout, B, T, NH, HS, s );
                 throw std::runtime_error( "GQA unpermute_backward is not implemented for BF16. This likely needs triage to determine if it's still needed." );
             }

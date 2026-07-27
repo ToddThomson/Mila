@@ -269,7 +269,11 @@ namespace Mila::Dnn::Serialization
 
             std::string p = normalizeZipPath( path );
 
-            if (!mz_zip_writer_add_mem( &zip_, p.c_str(), data, size, MZ_DEFAULT_COMPRESSION ))
+            // MZ_DEFAULT_LEVEL, not MZ_DEFAULT_COMPRESSION: the level_and_flags parameter is
+            // mz_uint, and MZ_DEFAULT_COMPRESSION is -1 in a signed enum, so passing it round-trips
+            // through 0xFFFFFFFF and relies on miniz casting back to int. miniz maps that negative
+            // value to MZ_DEFAULT_LEVEL anyway, so naming the level directly is the same setting.
+            if (!mz_zip_writer_add_mem( &zip_, p.c_str(), data, size, MZ_DEFAULT_LEVEL ))
             {
                 Logging::Logger::error( std::format( "ZipSerializer: failed to add data '{}' to '{}'", p, filename_ ) );
                 return false;

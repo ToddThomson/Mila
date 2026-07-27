@@ -63,15 +63,19 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         static constexpr int kBlockThreads = kNumWarps * 32;   // 128
         static constexpr int kWarpM = kBlockM / kWarpsM;  // 32 output rows per warp
         static constexpr int kWarpN = kBlockN / kWarpsN;  // 32 output cols per warp
-        static constexpr int kWarpTilesM = kWarpM / kWmmaM;    // 2
-        static constexpr int kWarpTilesN = kWarpN / kWmmaN;    // 2
-        static constexpr int kKSubTiles = kBlockK / kWmmaK;    // 2
+        // The next three and the two helpers below are referenced only inside the kernel's
+        // __CUDA_ARCH__ >= 800 guard, so every sub-SM80 compilation pass sees them
+        // unreferenced. The constants the host-side launcher also reads (kBlockM,
+        // kBlockThreads) need no such marking.
+        [[maybe_unused]] static constexpr int kWarpTilesM = kWarpM / kWmmaM;    // 2
+        [[maybe_unused]] static constexpr int kWarpTilesN = kWarpN / kWmmaN;    // 2
+        [[maybe_unused]] static constexpr int kKSubTiles = kBlockK / kWmmaK;    // 2
         static constexpr int kPackedBytesPerRow = kBlockK / 2; // 16 packed FP4 bytes per weight row
 
         /**
          * @brief Decode a 4-bit FP4 E2M1 nibble to float32.
          */
-        __device__ __forceinline__ float fp4_e2m1_decode( uint8_t nibble )
+        [[maybe_unused]] __device__ __forceinline__ float fp4_e2m1_decode( uint8_t nibble )
         {
             static constexpr float kLut[8] = { 0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f };
             const float magnitude = kLut[ nibble & 0x7u ];
@@ -88,7 +92,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * K is a multiple of kBlockK (FP4 group_size constraint), so k0 + kBlockK <= K always
          * and every 16-byte copy is in-bounds along K and 16-byte aligned.
          */
-        __device__ __forceinline__ void loadTileAsync(
+        [[maybe_unused]] __device__ __forceinline__ void loadTileAsync(
             __nv_bfloat16 (&sA_buf)[ kBlockM ][ kBlockK ],
             uint8_t (&rawW_buf)[ kBlockN ][ kPackedBytesPerRow ],
             const __nv_bfloat16* __restrict__ activations,

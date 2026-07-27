@@ -283,9 +283,10 @@ namespace Mila::Dnn
             operation_->build( build_context );
         }
 
-        void onTrainingModeChanging( TrainingMode training_mode ) override
+        void onTrainingModeChanging( TrainingMode /*training_mode*/ ) override
         {
-
+            // RoPE has no mode-dependent state: the cos/sin tables and the gradient
+            // buffers allocated in onBuilding() are valid in both Training and Eval.
         }
 
     private:

@@ -29,7 +29,8 @@ good-first-issue.
   correctness oracle. Precondition for retiring the legacy GQA path. See `Specifications/GqaMemory.md`.
   `GroupedQueryAttention.ixx:177` is the dead branch this task decides retire-vs-wire on: it returns an
   un-computed `output_view_` and is unreached in the validated path (Llama/Gemma drive
-  `prefill()`/`decode()` directly).
+  `prefill()`/`decode()` directly). The C4702 at `:216` below is the same root cause seen from the
+  backward side — both clear together when this task lands.
 - [ ] GQA `forward()` fallback is stale — `GroupedQueryAttention.ixx:299` records the non-KV-cache
   fallback as needing a correctness review, with the shape derivation commented out beneath it.
 - [ ] `CudaMhaOp.ixx:433` initializes `active_max_seq_len_ = T_` with the reason unrecorded — confirm
@@ -65,8 +66,31 @@ good-first-issue.
   and `:103` throw `"needs review"` with the real calls commented out; `Gelu.Fp32.cu:65` records that
   the shipped backward is not the numerically stable `sech^2` form. Gradient-check these before the
   suite can claim backward coverage.
-- [ ] `CudaResidualOp.ixx:116-117` — `input_A` / `input_B` are marked unused in the backward
-  signature; either the contract is wrong or the parameters are dead.
+- [x] `CudaResidualOp.ixx:116-117` — `input_A` / `input_B` in the backward signature: **answered, the
+  parameters are dead and permanently so.** `ConnectionType` has exactly one enumerator, `Addition`, so
+  both partial derivatives of `A + B` are constant and the gradient depends on the output gradient alone.
+  That is a property of a linear combination, not of the current implementation — only a nonlinear
+  connection type (multiplication, where `dy/dA = B`) could make them live, and none exists. The
+  signature keeps them for binary-op uniformity (`CpuResidualOp::backward` carries the same dead
+  `input_b`); both unnamed with the reason stated at the site.
+- [ ] **`ResidualConfig` advertises a scaling factor that no backward implements, and that the two
+  devices disagree about in forward.** `withScalingFactor(float)` is public and `validate()` accepts any
+  value `> 0` (`ResidualConfig.ixx:97`). CUDA forward honours it — `y = a + scale * b`
+  (`Residual.Fp32.cu:34`) — but CUDA *backward* takes no scale parameter at all and the kernel writes
+  `dA = dY; dB = dY`, so for any factor other than 1.0 the gradient w.r.t. `input_b` is wrong by exactly
+  that factor. The only guard is `assert( scale_ == 1.0f )` at `CudaResidualOp.ixx:106`, which is
+  **debug-only**: under `x64-release` / `x64-profile` / `x64-validate` it compiles out and a scaled
+  residual trains silently wrong. `CpuResidualOp` ignores the factor entirely (no `scale` token in the
+  file; forward is `Y[i] = A[i] + B[i]`), so the same config also gives different *forward* results per
+  device. **Cheapest correct fix, and freeze-compatible because it removes an unimplemented knob rather
+  than adding a feature: have `validate()` reject `scaling_factor != 1.0f` instead of only `<= 0`** —
+  one fail-fast at config time on both devices, replacing a debug assert buried in a CUDA op. Implementing
+  scale properly in both backwards plus the CPU forward is the alternative, and is more code on a training
+  path that has never been validated end to end.
+- [ ] `Residual::backward` zeroes both gradient buffers because "backend ops use accumulation
+  (atomicAdd/+=)" (`Residual.ixx:182`) — true of `CpuResidualOp` (`dX1[i] += dY[i]`), false of
+  `CudaResidualOp`, whose kernel assigns (`dA[idx] = grad`). Harmless today only because the component
+  always zeroes first; the stated contract matches half the backends. Pick one and make both obey it.
 - [ ] **Known-red CUDA tests (5) — beta-phase cleanup.** Surfaced by `x64-validate` ctest at the
   beta.1 cut (1417/1418 pass); all CUDA-path, so invisible to the CPU-only CI ratchet. Accepted
   non-blocking for beta.1; triage in the beta ladder (inference-path first):
@@ -154,6 +178,25 @@ good-first-issue.
 
 ### Production Hardening
 
+- [ ] Isolate third-party warnings structurally with `/external:I` + `/external:W0` (and `-isystem` for
+  Clang/GCC). **Sequenced with the warnings-as-errors ratchet in `## Future`, not before it** — see the
+  sizing below. `Mila/CMakeLists.txt:87` sets `/W4` as `target_compile_options(Mila PRIVATE ...)`, which
+  reaches **only the `Mila` target**: miniz, nlohmann_json, cutlass, pybind11 and gtest are separate CPM/
+  FetchContent targets built with their own flags, so their *sources* were never compiled at Mila's level.
+  What `/external:` actually fixes is the other half — warnings emitted from inside third-party **header
+  text pulled into Mila's own TUs** (miniz.h, nlohmann/json.hpp, cutlass, CUDA headers, std internals).
+  Real, but narrower than this item used to claim. Two frictions to budget for: those headers enter
+  through **module global-module-fragments**, and `/external:` behaviour across GMF/BMI generation is not
+  well-trodden — validating it costs a full rebuild of a module-heavy CUDA tree; and `/external:` does
+  nothing for **nvcc** diagnostics (the `#177-D` class), which come from the CUDA frontend. **Still the
+  real precondition for any warnings-as-errors gate: without it, "warnings outside our control" is
+  whatever your dependencies emit this month, and a CUDA toolkit bump breaks the build.** What it is
+  *not*, once the count is small, is the only way to learn the first-party number — at n=12 that was one
+  read of the Error List, and **the belief that the residue was third-party proved false**: the 4 C4267
+  rows pointing into `<optional>` and `<xutility>` were a single first-party narrowing (below), and
+  `/external:W0` would have **hidden** them rather than isolated them. Weigh that against the isolation:
+  the std/miniz rows are where our own template arguments surface.
+
 - [x] **`/W4` warning sweep, 252 -> 72 — and it surfaced a real defect.** `ModelArchive::close()`
   discarded `ZipSerializer::close()`'s `[[nodiscard]] bool` and wrapped it in a `try`/`catch` that
   could never fire (close reports failure by return, not by throwing), so a failed archive finalize
@@ -167,15 +210,71 @@ good-first-issue.
   unreferenced because the function is an unimplemented or throw-only stub.** Unnamed parameters
   state that at the signature; the two genuine cases are `CudaLinearOp`'s `scales`, present for API
   parity with the quantized specializations.
-- [ ] Finish the C4100 sweep in the op layer (~44 remaining, `Cuda*Op.ixx` / `Cpu*Op.ixx`). **Do it
-  from the build's own file+line list, one site at a time — not with a regex.** A pattern matching
-  `<tokens> <name> ( ... ) {` also matches `if ( status != cudaSuccess ) {`, so it comments out
-  tokens inside conditions and mangles default arguments (`= nullptr` -> `= /*nullptr*/`); that
-  attempt corrupted 112 sites across 43 files and was reverted. Leave `input_A`/`input_B` in
-  `CudaResidualOp` named — their contract is an open question tracked above, not cosmetic debt.
-- [ ] `GroupedQueryAttention.ixx:216` C4702 left deliberately: the `return` is unreachable because GQA
-  backward is an unimplemented stub. The warning is honest reporting of a known-aspirational path and
-  should clear itself when the GQA training path is built, not be suppressed.
+- [x] **C4100 sweep in the op layer finished — 45 of the 47 remaining sites cleared, 13 files.** Done
+  the way the previous attempt should have been: from the build's own file+line list, one site at a
+  time, **not with a regex** (a pattern matching `<tokens> <name> ( ... ) {` also matches
+  `if ( status != cudaSuccess ) {`, so it comments out tokens inside conditions and mangles default
+  arguments (`= nullptr` -> `= /*nullptr*/`); that attempt corrupted 112 sites across 43 files and was
+  reverted). Same census result as the dispatch layer: nearly every site is an unimplemented stub
+  (`CudaSoftmaxOp` / `CudaSoftmaxCrossEntropyOp` half+float backward, four `CudaGqa.Dispatch` throw-only
+  stubs), a no-op virtual hook (`Component::loadParameter` / `onBuilding` / `onTrainingModeChanging`,
+  `Rope::onTrainingModeChanging`, `CpuGeluOp::build`, `SwigluConfig::fromMetadata`), or a parameter
+  that is dead by the math (`alignment` in the three CUDA memory resources — CUDA over-aligns;
+  `input` in `CpuAttentionOp::backward` — forward's cached permutation carries it; `input_grad` in
+  `CudaTokenEmbeddingOp::backward` — token ids are non-differentiable). `input_A`/`input_B` in
+  `CudaResidualOp::backward` were held back pending their contract question, and unnamed once that
+  question was answered (above).
+- [x] **nvcc `#177-D` cleared (15 rows, 7 sites).** The 5 `CudaW4A16Gemm.Wmma.cu` symbols
+  (`kWarpTilesM/N`, `kKSubTiles`, `fp4_e2m1_decode`, `loadTileAsync`) are **not** unreferenced because
+  the TU is parked — a `__global__` is compiled and emitted whether or not anything launches it, and
+  the file's other constants (`kBlockM`, `kBlockThreads`) never warn because the host-side launcher
+  reads them. These five are referenced **only inside the kernel's `#if __CUDA_ARCH__ >= 800` guard**
+  (BF16 WMMA fragments need SM80), so every sub-SM80 compilation pass sees them unreferenced. That is
+  a conditional-use warning, independent of the parking, and `[[maybe_unused]]` states the condition at
+  the declaration. (The parking itself is real and unchanged: `kUseFusedFp4Gemm = false` at
+  `CudaLinearOp.ixx:142`, Stage 2 kept in-tree as the cp.async foundation.) The 10 `CudaAdamW.cu` rows are one
+  pair of constants times 5 arch passes: `kNumParamsToPrint` pairs with the commented-out debug print
+  (same strip-vs-gate decision as the surviving `printf`s, tracked above), and `kAdaptiveLRAbsLimit`
+  is a **missing check** — the sequence runs Check 1,2,3,4,6 with no Check 5, so the adaptive update
+  magnitude `m / (sqrtf( v ) + eps)` is computed and never bounds-checked. Left unenforced deliberately
+  (behaviour change on a training path under an open decision); noted at the site.
+- [x] **Final 12 warnings: 10 cleared, 2 left deliberately — the warning burn-down closes at 252 -> 2.**
+  The 4 C4267 rows inside `<optional>`/`<xutility>` were **not** std noise: all four are the assign path
+  and the construct path of one `std::optional<int>` (`GenerateParams.ixx:31`) being handed a `size_t` at
+  `Chat.ixx:710` — the single assignment site of seven that lacked the `static_cast<int>` its siblings in
+  `ProfileModel`, the Python bindings and the Gemma parity test all have. Also fixed: `CpuAttentionOp.ixx:105`
+  implicit `dim_t`->`int` (the three lines above it cast explicitly); `CudaResidualOp.Dispatch.ixx:36` took
+  `size_t N` while its `nv_bfloat16` sibling and its own `forward` took `int` — now `int`, per the rule that
+  the `*.Dispatch` layer stays `int` (the caller already passed `static_cast<int>`); two C4456 shadows that
+  were pure duplicates of an enclosing local (`Llama.ixx:471` re-declared `B = input_shape[0]` over the same
+  value at `:422`, `TokenEmbedding.ixx:455` re-declared `device` over `:431`) — both deleted, not renamed;
+  and `ZipSerializer.ixx:272` passed `MZ_DEFAULT_COMPRESSION` (-1, signed enum) into an `mz_uint`
+  `level_and_flags`, round-tripping through `0xFFFFFFFF` and relying on miniz casting back to int. Verified
+  against the fetched source: `miniz.h:275` documents `MZ_DEFAULT_COMPRESSION=MZ_DEFAULT_LEVEL` and
+  `miniz_zip.c:3283` maps negatives to `MZ_DEFAULT_LEVEL`, so passing the level directly is the same
+  setting with no sign round-trip. The last 2 (`CudaResidualOp` `input_A`/`input_B`) closed with the
+  contract question above, taking first-party C4100 to zero. **The one warning left in the tree is
+  `GroupedQueryAttention.ixx:216` C4702 — deliberate, an honest report that GQA backward is a stub.**
+- [ ] **`CpuAttentionOp::build` divides before it validates.** `CpuAttentionOp.ixx:106` computes
+  `HS_ = embedding_dim_ / NH_` and *then* `:108` checks `embedding_dim_ % NH_ != 0` and throws. Two
+  consequences: a config with `num_heads == 0` integer-divides by zero at `:106` before the guard can
+  fire, and when heads do not divide the embedding, `HS_` is silently truncated before the throw. The
+  guard is plainly meant to precede the division — move the check above `:106` (and extend it to reject
+  `NH_ <= 0`). Not fixed with the warning sweep: it is a behaviour change in `Mila/Src`, not cosmetics.
+- [ ] `CudaManagedMemoryResource.ixx:85` builds a detailed `errorMsg` on `cudaMallocManaged` failure
+  then throws a bare `std::bad_alloc()`, discarding it — the diagnostic never reaches the caller
+  (and the dead local is itself a C4189). `CudaPinnedMemoryResource.ixx:101` throws bare `std::bad_alloc`
+  with no message at all. `CudaDeviceMemoryResource` gets this right: `throw CudaBadAlloc( errorMsg )`.
+  Align the other two on `CudaBadAlloc` so an OOM says which device, which size, and which resource.
+- [ ] `GroupedQueryAttention.ixx:216` C4702 left deliberately — **the one warning remaining in the
+  tree.** The `return` is unreachable because `CudaGqaOp::backward` unconditionally throws
+  (`CudaGqaOp.ixx:334`). Honest reporting of a known-aspirational path: it self-clears when the GQA
+  training path is built, whereas a suppression would have to be remembered and removed, and the only
+  mechanisms available are both worse — `#pragma warning` in module code is ruled out by the ratchet's
+  constraint (e), and a per-file CMake suppression would blind a file that is mostly live inference
+  logic. Same root cause as the GQA standalone-`forward()` stub above. **Note for the warnings-as-errors
+  decision: a blanket `/WX` would force this one to be silenced to get a green build; escalating only
+  the defect-class codes leaves it visible.**
 
 - [x] External consumer builds against Mila via **FetchContent** (gate met); `find_package` PARKED
   (retired in place, `MILA_INSTALL` OFF by default).
@@ -289,6 +388,21 @@ good-first-issue.
 
 Uncommitted / next-cycle work. Coarse by design — detailed tasking happens only when an item promotes
 to the current release.
+
+- **Warnings-as-errors ratchet** — prevent the 252-warning re-accumulation that the v0.20 sweep cleared.
+  Constraints worth keeping, decided 2026-07-27: **(a)** requires the `/external:W0` isolation above first;
+  **(b)** enforce in **CI only**, never locally — the existing `cpu-only-tests` anti-rot job is the same
+  pattern, and a local `/WX` that blocks bisecting gets quietly disabled within months; **(c)** ratchet on
+  **warning count not increasing** before demanding zero, so a compiler update raises the ceiling
+  deliberately instead of felling the build; **(d)** **MSVC first** — `/WX` across MSVC + Clang + GCC means
+  the union of three compilers' opinions must be zero, and cross-compiler builds already surface real
+  portability deltas; **(e)** dormant-but-retained code (GQA training substrate, AdamW debug constants)
+  warns *by nature* and the warnings usefully mark it — suppress per-file in CMake pointing at the owning
+  task, **not** with `#pragma warning` inside module code. Where the unreferenced symbol is *conditionally*
+  used rather than dormant, `[[maybe_unused]]` at the declaration is better than either: it is local,
+  standard, and states the condition at the site. **Land the blocking gate
+  after v0.20 ships**: it fits the freeze as hardening, but a newly-added gate that can fail the build does
+  not belong on the runway to a first production release.
 
 - **Qwen 3** (presumptive next release) — the dense decoder, thinking-mode suppression, model-agnostic
   tool calling, and FP8 KV cache (`PerChannelKvFp8<>`); the `OperationTraits<GqaOp, Cuda, BF16,

@@ -111,10 +111,14 @@ namespace Mila::Dnn::Compute::Cuda::Residual
 
         /**
          * @brief Backward pass
+         *
+         * The forward inputs are not read. For the Addition connection type -- the only
+         * one -- both partial derivatives of A + B are constant, so the gradient depends
+         * on the output gradient alone. Only a nonlinear connection would need the inputs.
          */
         void backward(
-            const ITensor& input_A, // REVIEW: Unused
-            const ITensor& input_B, // REVIEW: Unused
+            const ITensor& /*input_A*/,
+            const ITensor& /*input_B*/,
             const ITensor& output_grad,
             ITensor& A_grad,
             ITensor& B_grad ) const

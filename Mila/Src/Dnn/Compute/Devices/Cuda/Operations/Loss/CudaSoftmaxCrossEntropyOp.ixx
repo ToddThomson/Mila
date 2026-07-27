@@ -99,14 +99,14 @@ namespace Mila::Dnn::Compute::Cuda::SoftmaxCrossEntropy
         struct cuda_softmax_crossentropy_impl<half>
         {
             static inline void forward(
-                half* losses,
+                half* /*losses*/,
                 //half* probs,
-                const half* logits,
-                const int* targets,
-                int batch_size,
-                int seq_len,
-                int vocab_size,
-                cudaStream_t stream )
+                const half* /*logits*/,
+                const int* /*targets*/,
+                int /*batch_size*/,
+                int /*seq_len*/,
+                int /*vocab_size*/,
+                cudaStream_t /*stream*/ )
             {
                 /*cuda_softmax_crossentropy_forward<half>(
                     losses, probs, logits, targets,
@@ -114,14 +114,14 @@ namespace Mila::Dnn::Compute::Cuda::SoftmaxCrossEntropy
             }
 
             static inline void backward(
-                half* dlogits,
-                const half* dlosses,
+                half* /*dlogits*/,
+                const half* /*dlosses*/,
                 //const half* probs,
-                const int* targets,
-                int batch_size,
-                int seq_len,
-                int vocab_size,
-                cudaStream_t stream )
+                const int* /*targets*/,
+                int /*batch_size*/,
+                int /*seq_len*/,
+                int /*vocab_size*/,
+                cudaStream_t /*stream*/ )
             {
                 /*cuda_softmax_crossentropy_backward<half>(
                     dlogits, dlosses, probs, targets,

@@ -60,10 +60,15 @@ namespace Mila::Dnn::Compute
         // Sanity check thresholds
         constexpr float kGradAbsLimit = 500.0f;        // Gradients can spike temporarily
         constexpr float kMomentAbsLimit = 250.0f;      // Accumulated gradients
-        constexpr float kAdaptiveLRAbsLimit = 100.0f;  // Normalized update magnitude
+        // No "Check 5" asserts this one -- the adaptive update magnitude
+        // m / (sqrtf( v ) + eps) is computed inline below and never bounds-checked,
+        // so the limit is declared but unenforced. See BACKLOG "Re-enable the AdamW path".
+        [[maybe_unused]] constexpr float kAdaptiveLRAbsLimit = 100.0f;  // Normalized update magnitude
         constexpr float kParamAbsLimit = 10.0f;        // Actual parameter values
         constexpr float kParamChangeAbsLimit = 1.0f;   // Optional: limit |new - old|
-        constexpr int kNumParamsToPrint = 2;
+        // Pairs with the commented-out per-parameter debug print further down; both are
+        // covered by the same strip-vs-gate decision as the surviving debug printfs.
+        [[maybe_unused]] constexpr int kNumParamsToPrint = 2;
 
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
 

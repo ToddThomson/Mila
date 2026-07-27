@@ -86,7 +86,7 @@ namespace Mila::Dnn::Compute
          * @return Pointer to allocated device memory
          * @throws CudaBadAlloc If allocation fails
          */
-        void* do_allocate( std::size_t bytes, std::size_t alignment ) override {
+        void* do_allocate( std::size_t bytes, std::size_t /*alignment*/ ) override {
             if (bytes == 0) return nullptr;
 
             Cuda::setCurrentDevice( device_id_ );

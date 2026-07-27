@@ -707,7 +707,7 @@ namespace Mila::ChatApp
             std::vector<int32_t> input_tokens = buildInputTokens();
 
             GenerateParams gen_params;
-            gen_params.max_new_tokens = config_.max_new_tokens;
+            gen_params.max_new_tokens = static_cast<int>( config_.max_new_tokens );
             gen_params.sampling.temperature = config_.temperature;
             gen_params.sampling.top_k = config_.top_k;
 

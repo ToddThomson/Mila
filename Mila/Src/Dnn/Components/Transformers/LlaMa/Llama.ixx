@@ -468,7 +468,6 @@ namespace Mila::Dnn
             // so a single allocation is reused across the full forward pass.
             if ( context.isInferenceMode() )
             {
-                const int64_t B = input_shape[ 0 ];
                 const int64_t NH = config_.getNumHeads();
                 const int64_t HS = config_.getModelDim() / NH;
                 const int64_t T_ctx = input_shape[ 1 ];

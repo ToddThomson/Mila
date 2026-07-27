@@ -107,7 +107,7 @@ namespace Mila::Dnn::Compute
          */
         void backward(
             const ITensor& input_a,
-            const ITensor& input_b,
+            const ITensor& /*input_b*/,
             const ITensor& output_grad,
             ITensor& input_a_grad,
             ITensor& input_b_grad ) const

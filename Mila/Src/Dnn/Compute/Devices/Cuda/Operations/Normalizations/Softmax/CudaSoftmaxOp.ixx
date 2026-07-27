@@ -67,8 +67,8 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
             }
 
             static inline void backward(
-                float* dX, const float* dY, const float* Y,
-                int N, int axis, cudaStream_t stream )
+                float* /*dX*/, const float* /*dY*/, const float* /*Y*/,
+                int /*N*/, int /*axis*/, cudaStream_t /*stream*/ )
             {
                 // REVIEW: Why does the FP32 backward kernel need review?
                 // cuda_softmax_backward<float>( dX, dY, Y, N, axis, stream );
@@ -97,8 +97,8 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
             }
 
             static inline void backward(
-                half* dX, const half* dY, const half* Y,
-                int N, int axis, cudaStream_t stream )
+                half* /*dX*/, const half* /*dY*/, const half* /*Y*/,
+                int /*N*/, int /*axis*/, cudaStream_t /*stream*/ )
             {
                 // REVIEW: Why was this commented out? the half data type is likely key
                 // cuda_softmax_backward<half>( dX, dY, Y, N, axis, stream );

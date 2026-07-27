@@ -506,9 +506,9 @@ namespace Mila::Dnn
          * @throws std::runtime_error if component has no parameters to load.
          * @throws std::runtime_error if blob shape doesn't match parameter shape.
          */
-        virtual void loadParameter( 
-            const std::string& name, 
-            const Serialization::ITensorBlob& blob )
+        virtual void loadParameter(
+            const std::string& /*name*/,
+            const Serialization::ITensorBlob& /*blob*/ )
         {
             throw std::runtime_error(
                 std::format( "Component '{}' does not support parameter loading", getName() ) );
@@ -731,7 +731,7 @@ namespace Mila::Dnn
          * @param config Build-time configuration. Use config.allocationSeqLen()
          *               to obtain the correct output buffer sequence dimension.
          */
-        virtual void onBuilding( const BuildContext& config )
+        virtual void onBuilding( const BuildContext& /*config*/ )
         {
         }
  
@@ -747,7 +747,7 @@ namespace Mila::Dnn
          *
          * @param mode The incoming TrainingMode.
          */
-        virtual void onTrainingModeChanging( TrainingMode mode )
+        virtual void onTrainingModeChanging( TrainingMode /*mode*/ )
         {}
 
         /**

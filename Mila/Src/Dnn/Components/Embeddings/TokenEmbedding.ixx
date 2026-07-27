@@ -452,8 +452,6 @@ namespace Mila::Dnn
 
                     operation_->setGradients( wte_grad_.get(), nullptr );
 
-                    auto device = this->getExecutionContext()->getDeviceId();
-
                     input_grad_ = std::make_unique<TokenIndexType>( device, shape_t{ max_batch_size_, max_seq_len_ },
                         this->getName() + ".input.grad" );
                 }

@@ -93,7 +93,7 @@ namespace Mila::Dnn::Compute
 		// Lifecycle
 		// ====================================================================
 
-        void build( const BuildContext& config ) override
+        void build( const BuildContext& /*config*/ ) override
         {
 			// No shape-dependent setup required for this implementation.
 			// The default OperationBase build() could be used instead.

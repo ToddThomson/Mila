@@ -295,7 +295,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const
+            ITensor& /*input_grad*/ ) const
         {
             if constexpr ( kIsQuantized )
             {

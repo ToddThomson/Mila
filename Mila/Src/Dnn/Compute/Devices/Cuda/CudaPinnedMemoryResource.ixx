@@ -74,7 +74,7 @@ namespace Mila::Dnn::Compute
          * @return Pointer to allocated pinned memory
          * @throws std::bad_alloc If allocation fails
          */
-        void* do_allocate( std::size_t bytes, std::size_t alignment = alignof(std::max_align_t) ) override
+        void* do_allocate( std::size_t bytes, std::size_t /*alignment*/ = alignof(std::max_align_t) ) override
         {
             if ( bytes == 0 )
             {
@@ -115,7 +115,7 @@ namespace Mila::Dnn::Compute
          *
          * The size argument is unused and therefore intentionally unnamed.
          */
-        void do_deallocate( void* ptr, std::size_t, std::size_t alignment = alignof(std::max_align_t) ) override {
+        void do_deallocate( void* ptr, std::size_t, std::size_t /*alignment*/ = alignof(std::max_align_t) ) override {
             if (ptr) {
                 cudaSetDevice( device_id_ ); // Best effort - ignore errors in destructor path
                 cudaFreeHost( ptr );
