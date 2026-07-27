@@ -245,7 +245,7 @@ namespace Mila::Dnn
             }
 
             // Extract the last position from the final chunk output -> [B, 1, model_dim].
-            size_t last_pos_offset = static_cast<size_t>((T_last - 1) * config_.getModelDim());
+            dim_t last_pos_offset = (T_last - 1) * config_.getModelDim();
             auto last_pos = last_block_out->view(
                 shape_t{ B, 1, config_.getModelDim() }, last_pos_offset );
 
@@ -348,9 +348,9 @@ namespace Mila::Dnn
 
         // The base sums children; when tied, lm_head shares the embedding table, so its
         // elements would be counted twice. Subtract them once to match getMemoryStats (D7).
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
-            size_t count = NetworkBase::parameterCount();
+            dim_t count = NetworkBase::parameterCount();
 
             if ( tie_word_embeddings_ && lm_head_ )
                 count -= lm_head_->parameterCount();
@@ -704,21 +704,21 @@ namespace Mila::Dnn
 
         WorkspaceWidths computeWorkspaceWidths() const
         {
-            const int64_t NH = static_cast<int64_t>( config_.getNumHeads() );
+            const int64_t NH = config_.getNumHeads();
 
             WorkspaceWidths widths;
-            widths.model_dim = static_cast<int64_t>( config_.getModelDim() );
-            widths.hidden_dim = static_cast<int64_t>( config_.getHiddenDimension() );
+            widths.model_dim = config_.getModelDim();
+            widths.hidden_dim = config_.getHiddenDimension();
             widths.q_width = NH * std::max( config_.getHeadDim(), config_.getGlobalHeadDim() );
             widths.kv_width = std::max(
-                static_cast<int64_t>( config_.getNumKVHeads() ) * config_.getHeadDim(),
-                static_cast<int64_t>( config_.getNumGlobalKVHeads() ) * config_.getGlobalHeadDim() );
+                config_.getNumKVHeads() * config_.getHeadDim(),
+                config_.getNumGlobalKVHeads() * config_.getGlobalHeadDim() );
 
             // Packed QKV width per layer kind: global K=V layers drop the V section.
             const int64_t packed_local =
-                (NH + 2 * static_cast<int64_t>( config_.getNumKVHeads() )) * config_.getHeadDim();
+                (NH + 2 * config_.getNumKVHeads()) * config_.getHeadDim();
             const int64_t packed_global =
-                (NH + (config_.keyEqualsValue() ? 1 : 2) * static_cast<int64_t>( config_.getNumGlobalKVHeads() ))
+                (NH + (config_.keyEqualsValue() ? 1 : 2) * config_.getNumGlobalKVHeads())
                 * config_.getGlobalHeadDim();
             widths.qkv_width = std::max( packed_local, packed_global );
 
@@ -760,7 +760,7 @@ namespace Mila::Dnn
         {
             const int64_t precision_bytes =
                 static_cast<int64_t>( TensorDataTypeTraits<TPrecision>::size_in_bytes );
-            const int64_t NH = static_cast<int64_t>( config_.getNumHeads() );
+            const int64_t NH = config_.getNumHeads();
             const int64_t HS_max = std::max( config_.getHeadDim(), config_.getGlobalHeadDim() );
 
             const int64_t workspace_bytes =
@@ -784,7 +784,7 @@ namespace Mila::Dnn
                 }
 
                 ring_bytes = local_layers * 2 * B
-                    * static_cast<int64_t>( config_.getNumKVHeads() )
+                    * config_.getNumKVHeads()
                     * config_.getHeadDim() * precision_bytes;
             }
 
@@ -809,8 +809,8 @@ namespace Mila::Dnn
             }
 
             return global_layers * 2 * B
-                * static_cast<int64_t>( config_.getNumGlobalKVHeads() )
-                * T_ctx * static_cast<int64_t>( config_.getGlobalHeadDim() ) * precision_bytes;
+                * config_.getNumGlobalKVHeads()
+                * T_ctx * config_.getGlobalHeadDim() * precision_bytes;
         }
 
         // Heuristic v2 (Gemma4InferenceReview.md section 6.4): largest chunk in

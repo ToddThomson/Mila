@@ -78,7 +78,7 @@ namespace Mila::Tests::Dnn::Core
                 this->getExecutionContext()->synchronize();
             }
 
-            size_t parameterCount() const override
+            dim_t parameterCount() const override
             {
                 return 0;
             }
@@ -408,7 +408,7 @@ namespace Mila::Tests::Dnn::Core
     {
         auto component = contextualHarness();
 
-        EXPECT_EQ( component->parameterCount(), 0u );
+        EXPECT_EQ( component->parameterCount(), 0 );
         EXPECT_TRUE( component->getParameters().empty() );
         EXPECT_TRUE( component->getGradients().empty() );
         EXPECT_TRUE( component->getParameterNames().empty() );

@@ -64,9 +64,9 @@ namespace Mila::Tests::Dnn::Core
             void synchronize() override
             {}
 
-            size_t parameterCount() const override
+            dim_t parameterCount() const override
             {
-                return parameters_.size();
+                return static_cast<dim_t>( parameters_.size() );
             }
 
             std::vector<ITensor*> getParameters() const override
@@ -398,7 +398,7 @@ namespace Mila::Tests::Dnn::Core
         auto child = composite->exposeGetComponentAs<MockChild>( "typed" );
 
         ASSERT_NE( child, nullptr );
-        EXPECT_EQ( child->parameterCount(), 2u );
+        EXPECT_EQ( child->parameterCount(), 2 );
     }
 
     TEST_F( CompositeComponentTests, GetComponentAs_ThrowsOnTypeMismatch )
@@ -451,7 +451,7 @@ namespace Mila::Tests::Dnn::Core
         composite->addComponent( std::make_shared<MockChild>( "b", 3 ) );
         composite->build( build( RuntimeMode::Inference ) );
 
-        EXPECT_EQ( composite->parameterCount(), 5u );
+        EXPECT_EQ( composite->parameterCount(), 5 );
     }
 
     TEST_F( CompositeComponentTests, GetParameters_ThrowsBeforeBuild )

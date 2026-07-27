@@ -166,14 +166,14 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
     {
         auto block = builtBlock<LocalBlock>( RuntimeMode::Inference );
 
-        EXPECT_GT( block->parameterCount(), 0u );
+        EXPECT_GT( block->parameterCount(), 0 );
     }
 
     TEST_F( GemmaBlockCudaTests, BuildGlobal_AllocatesParameters )
     {
         auto block = builtBlock<GlobalBlock>( RuntimeMode::Inference );
 
-        EXPECT_GT( block->parameterCount(), 0u );
+        EXPECT_GT( block->parameterCount(), 0 );
     }
 
     TEST_F( GemmaBlockCudaTests, Build_ThrowsOnNonRank3Input )

@@ -268,7 +268,7 @@ namespace Mila::Dnn::Compute::Cuda::Softmax
             const NativeType* dY = static_cast<const NativeType*>(output_grad.rawData());
             NativeType* dX = static_cast<NativeType*>(input_grad.rawData());
 
-            int N = static_cast<int>(input.size());
+            const int N = narrowToKernelIndex( input.size() );
             cudaStream_t stream = context_->getStream();
 
             Detail::cuda_softmax_impl<NativeType>::backward(

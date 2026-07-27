@@ -746,7 +746,7 @@ namespace Mila::Dnn
                 throw std::invalid_argument( std::format(
                     "GemmaBlock: input must be rank 3 [B, T, model_dim], got rank {}", s.size() ) );
 
-            if ( s.back() != static_cast<int64_t>( config_.getModelDim() ) )
+            if ( s.back() != config_.getModelDim() )
                 throw std::invalid_argument( std::format(
                     "GemmaBlock: model_dim mismatch -- expected {}, got {}", config_.getModelDim(), s.back() ) );
         }

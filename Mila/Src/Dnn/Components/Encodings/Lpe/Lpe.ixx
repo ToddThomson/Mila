@@ -152,7 +152,7 @@ namespace Mila::Dnn
             operation_->forward( input, *output_ );
 
             // Return view with actual output shape
-            shape_t actual_out_shape = { B, T, static_cast<dim_t>( config_.getEmbeddingDim() ) };
+            shape_t actual_out_shape = { B, T, config_.getEmbeddingDim() };
             current_output_view_ = std::make_unique<EmbeddingsTensorType>( output_->view( actual_out_shape ) );
 
             return *current_output_view_;
@@ -241,7 +241,7 @@ namespace Mila::Dnn
             decode_path_->decode( input, *output_, position );
 
             // Single token output shape [1, 1, C]
-            shape_t decode_out_shape = { 1, 1, static_cast<dim_t>(config_.getEmbeddingDim()) };
+            shape_t decode_out_shape = { 1, 1, config_.getEmbeddingDim() };
             current_output_view_ = std::make_unique<EmbeddingsTensorType>(
                 output_->view( decode_out_shape ) );
 
@@ -276,9 +276,9 @@ namespace Mila::Dnn
         // Parameters and Gradients
         // ====================================================================
         
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
-            size_t count = 0;
+            dim_t count = 0;
 
             if ( wte_ )
                 count += wte_->size();
@@ -473,7 +473,7 @@ namespace Mila::Dnn
 
             // Allocate and cache component-owned output and input-grad tensors.
             auto device = this->getExecutionContext()->getDeviceId();
-            shape_t max_out_shape = { max_batch_size_, max_seq_len_, static_cast<dim_t>( config_.getEmbeddingDim() ) };
+            shape_t max_out_shape = { max_batch_size_, max_seq_len_, config_.getEmbeddingDim() };
 
             output_ = std::make_unique<EmbeddingsTensorType>( device, max_out_shape, this->getName() + ".output" );
 

@@ -274,7 +274,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
     {
         auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
 
-        EXPECT_GT( net->parameterCount(), 0u );
+        EXPECT_GT( net->parameterCount(), 0 );
     }
 
     // ====================================================================

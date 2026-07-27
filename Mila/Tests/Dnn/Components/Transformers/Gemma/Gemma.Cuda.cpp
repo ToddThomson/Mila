@@ -173,7 +173,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
     {
         auto net = builtNet( allLocalConfig(), batch_, seq_ );
 
-        EXPECT_GT( net->parameterCount(), 0u );
+        EXPECT_GT( net->parameterCount(), 0 );
     }
 
     TEST_F( GemmaTransformerCudaTests, Build_ThrowsOnNonRank2Input )
@@ -197,7 +197,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         auto net = builtNet( heterogeneousConfig(), batch_, seq_ );
 
         EXPECT_TRUE( net->isBuilt() );
-        EXPECT_GT( net->parameterCount(), 0u );
+        EXPECT_GT( net->parameterCount(), 0 );
         EXPECT_EQ( net->getComponents().size(), static_cast<size_t>( kLayers + 3 ) );
     }
 

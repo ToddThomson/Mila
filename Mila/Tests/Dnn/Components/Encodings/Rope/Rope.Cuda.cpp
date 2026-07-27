@@ -419,7 +419,7 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
     {
         auto rope = this->builtRope( shape_t{ 2, 4 }, RuntimeMode::Inference );
 
-        EXPECT_EQ( rope->parameterCount(), 0u );
+        EXPECT_EQ( rope->parameterCount(), 0 );
         EXPECT_TRUE( rope->getParameters().empty() );
         EXPECT_TRUE( rope->getGradients().empty() );
     }

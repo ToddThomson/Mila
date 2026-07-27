@@ -23,6 +23,7 @@ module;
 export module Compute.CpuTensorOps:Transfer;
 
 import Dnn.Tensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
@@ -54,14 +55,14 @@ namespace Mila::Dnn::Compute::Cpu
          * @note No operation performed if either pointer is null or count is zero.
          */
         template<TensorDataType TDataType>
-        inline void copyHostToHostImpl( const void* src_data, void* dst_data, size_t count ) {
+        inline void copyHostToHostImpl( const void* src_data, void* dst_data, dim_t count ) {
             if (!src_data || !dst_data || count == 0)
             {
                 return;
             }
 
             constexpr size_t element_size = TensorDataTypeTraits<TDataType>::size_in_bytes;
-            const size_t bytes = count * element_size;
+            const size_t bytes = static_cast<size_t>( count ) * element_size;
 
             std::memcpy( dst_data, src_data, bytes );
         }
@@ -86,7 +87,7 @@ namespace Mila::Dnn::Compute::Cpu
          * @note Loop form chosen to enable compiler auto-vectorization.
          */
         template<TensorDataType TSrcDataType, TensorDataType TDstDataType>
-        inline void copyHostToHostWithConversionImpl( const void* src_data, void* dst_data, size_t count ) {
+        inline void copyHostToHostWithConversionImpl( const void* src_data, void* dst_data, dim_t count ) {
             if (!src_data || !dst_data || count == 0)
             {
                 return;
@@ -104,7 +105,7 @@ namespace Mila::Dnn::Compute::Cpu
             const auto* typed_src = static_cast<const SrcType*>(src_data);
             auto* typed_dst = static_cast<DstType*>(dst_data);
 
-            for (size_t i = 0; i < count; ++i)
+            for (dim_t i = 0; i < count; ++i)
             {
                 typed_dst[i] = static_cast<DstType>( typed_src[i] );
             }
@@ -223,7 +224,7 @@ namespace Mila::Dnn::Compute::Cpu
          * @param count Number of logical elements to copy
          */
         template<TensorDataType TDataType>
-        static inline void hostCopyImpl( const void* src_data, void* dst_data, size_t count ) {
+        static inline void hostCopyImpl( const void* src_data, void* dst_data, dim_t count ) {
             Detail::copyHostToHostImpl<TDataType>( src_data, dst_data, count );
         }
 
@@ -240,7 +241,7 @@ namespace Mila::Dnn::Compute::Cpu
          * @param count Number of logical elements to convert and copy
          */
         template<TensorDataType TSrcDataType, TensorDataType TDstDataType>
-        static inline void hostConvertImpl( const void* src_data, void* dst_data, size_t count ) {
+        static inline void hostConvertImpl( const void* src_data, void* dst_data, dim_t count ) {
             Detail::copyHostToHostWithConversionImpl<TSrcDataType, TDstDataType>( src_data, dst_data, count );
         }
     };

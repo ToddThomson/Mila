@@ -17,6 +17,7 @@ module;
 export module Compute.CudaTensorOps:Random;
 
 import Dnn.Tensor;
+import Dnn.TensorTypes;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
@@ -67,7 +68,7 @@ namespace Mila::Dnn::Compute::Cuda
             float stddev,
             IExecutionContext* exec_context = nullptr )
         {
-            size_t n = tensor.size();
+            size_t n = static_cast<size_t>( tensor.size() );
             if ( n == 0 )
                 return;
 
@@ -167,7 +168,7 @@ namespace Mila::Dnn::Compute::Cuda
             float max_val,
             IExecutionContext* exec_context = nullptr )
         {
-            size_t n = tensor.size();
+            size_t n = static_cast<size_t>( tensor.size() );
             if ( n == 0 )
                 return;
 

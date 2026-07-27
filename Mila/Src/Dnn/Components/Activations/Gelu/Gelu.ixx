@@ -362,7 +362,7 @@ namespace Mila::Dnn
          *
          * @return 0
          */
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             return 0;
         }

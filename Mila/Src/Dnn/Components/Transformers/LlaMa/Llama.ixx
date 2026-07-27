@@ -208,7 +208,7 @@ namespace Mila::Dnn
             }
 
             // Extract last position from final chunk output -- [B, 1, model_dim]
-            size_t last_pos_offset = static_cast<size_t>((T_last - 1) * config_.getModelDim());
+            dim_t last_pos_offset = (T_last - 1) * config_.getModelDim();
             auto last_pos = last_block_out->view(
                 shape_t{ B, 1, config_.getModelDim() },
                 last_pos_offset );

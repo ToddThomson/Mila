@@ -135,7 +135,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
     {
         auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
 
-        EXPECT_GT( net->parameterCount(), 0u );
+        EXPECT_GT( net->parameterCount(), 0 );
     }
 
     TEST_F( LlamaTransformerCudaTests, Build_ThrowsOnNonRank2Input )
@@ -235,7 +235,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
     {
         auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
 
-        EXPECT_GT( net->parameterCount(), 0u );
+        EXPECT_GT( net->parameterCount(), 0 );
     }
 
     // ====================================================================

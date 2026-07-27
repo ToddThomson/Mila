@@ -283,7 +283,7 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
         }
 
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             return 0;
         }

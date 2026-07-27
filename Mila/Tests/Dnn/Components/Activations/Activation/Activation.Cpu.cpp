@@ -221,7 +221,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Activation
     {
         auto act = this->built( shape_t{ 2, 4 }, RuntimeMode::Inference );
 
-        EXPECT_EQ( act->parameterCount(), 0u );
+        EXPECT_EQ( act->parameterCount(), 0 );
         EXPECT_TRUE( act->getParameters().empty() );
         EXPECT_TRUE( act->getGradients().empty() );
     }

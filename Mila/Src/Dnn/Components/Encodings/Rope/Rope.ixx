@@ -209,7 +209,7 @@ namespace Mila::Dnn
             return {};
         }
 
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             return 0;
         }
@@ -266,7 +266,7 @@ namespace Mila::Dnn
             validateBuildContext( build_context );
             const auto& input_shape = build_context.inputShape();
 
-            q_shape_ = shape_t{ input_shape[ 0 ], input_shape[ 1 ], static_cast<dim_t>( config_.getNumHeads() * config_.getHeadDim() ) };
+            q_shape_ = shape_t{ input_shape[ 0 ], input_shape[ 1 ], config_.getNumHeads() * config_.getHeadDim() };
             k_shape_ = shape_t{ input_shape[ 0 ], input_shape[ 1 ], config_.getNumKVHeads() * config_.getHeadDim() };
 
             if ( build_context.isTrainingMode() )

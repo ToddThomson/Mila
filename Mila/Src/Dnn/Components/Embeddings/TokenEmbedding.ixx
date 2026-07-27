@@ -166,7 +166,7 @@ namespace Mila::Dnn
 
             operation_->forward( input, *output_ );
 
-            shape_t actual_out_shape = { B, T, static_cast<dim_t>(config_.getEmbeddingDim()) };
+            shape_t actual_out_shape = { B, T, config_.getEmbeddingDim() };
             current_output_view_ = std::make_unique<EmbeddingTensorType>(
                 output_->view( actual_out_shape ) );
 
@@ -257,7 +257,7 @@ namespace Mila::Dnn
         // Parameters and Gradients
         // ====================================================================
 
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             return wte_ ? wte_->size() : 0;
         }
@@ -358,11 +358,11 @@ namespace Mila::Dnn
 
         int64_t getVocabSize()    const noexcept
         {
-            return static_cast<int64_t>(config_.getVocabSize());
+            return config_.getVocabSize();
         }
         int64_t getEmbeddingDim() const noexcept
         {
-            return static_cast<int64_t>(config_.getEmbeddingDim());
+            return config_.getEmbeddingDim();
         }
 
         MemoryStats getMemoryStats() const override
@@ -434,7 +434,7 @@ namespace Mila::Dnn
             shape_t output_shape = {
                 max_batch_size_,
                 max_seq_len_,
-                static_cast<dim_t>(config_.getEmbeddingDim())
+                config_.getEmbeddingDim()
             };
 
             output_ = std::make_unique<EmbeddingTensorType>( device, output_shape, this->getName() + ".output" );

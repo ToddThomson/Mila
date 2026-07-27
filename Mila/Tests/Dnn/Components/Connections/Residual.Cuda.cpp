@@ -210,7 +210,7 @@ namespace Mila::Tests::Dnn::Components::Connections
     {
         auto residual = this->builtResidual( shape_t{ 2, 4 }, RuntimeMode::Inference );
 
-        EXPECT_EQ( residual->parameterCount(), 0u );
+        EXPECT_EQ( residual->parameterCount(), 0 );
         EXPECT_TRUE( residual->getParameters().empty() );
     }
 

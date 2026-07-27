@@ -349,7 +349,7 @@ namespace Mila::Dnn
          * tensors. CompositeComponent and Network implementations should
          * return the recursive aggregate across all children.
          */
-        virtual size_t parameterCount() const = 0;
+        virtual dim_t parameterCount() const = 0;
 
         /**
          * @brief Clear all model-owned gradients for this component.

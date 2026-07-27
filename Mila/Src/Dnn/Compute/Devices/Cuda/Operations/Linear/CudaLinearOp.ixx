@@ -504,7 +504,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          */
         void forward( const TensorType& input, TensorType& output ) const
         {
-            const int outer_size = static_cast<int>(input.size()) / cached_in_features_;
+            const int outer_size = narrowToKernelIndex( input.size() / cached_in_features_ );
 
             const ComputeType* input_ptr = static_cast<const ComputeType*>(input.rawData());
             ComputeType* output_ptr = static_cast<ComputeType*>(output.rawData());

@@ -26,6 +26,7 @@ module;
 export module Compute.CudaTensorOps:Math;
 
 import Dnn.Tensor;
+import Dnn.TensorTypes;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
@@ -534,7 +535,7 @@ namespace Mila::Dnn::Compute::Cuda
             const void* a_data,
             const void* b_data,
             void* result_data,
-            size_t count,
+            dim_t count,
             cudaStream_t stream,
             int device_id )
         {
@@ -551,7 +552,7 @@ namespace Mila::Dnn::Compute::Cuda
             auto* typed_result = static_cast<NativeType*>(result_data);
 
             Kernels::launch_elementwise_add_kernel<NativeType>(
-                typed_a, typed_b, typed_result, count, stream
+                typed_a, typed_b, typed_result, static_cast<size_t>( count ), stream
             );
 
             cudaError_t status = cudaGetLastError();
@@ -563,7 +564,7 @@ namespace Mila::Dnn::Compute::Cuda
             const void* a_data,
             const void* b_data,
             void* result_data,
-            size_t count,
+            dim_t count,
             cudaStream_t stream,
             int device_id )
         {
@@ -580,7 +581,7 @@ namespace Mila::Dnn::Compute::Cuda
             auto* typed_result = static_cast<NativeType*>(result_data);
 
             Kernels::launch_elementwise_subtract_kernel<NativeType>(
-                typed_a, typed_b, typed_result, count, stream
+                typed_a, typed_b, typed_result, static_cast<size_t>( count ), stream
             );
 
             cudaError_t status = cudaGetLastError();
@@ -592,7 +593,7 @@ namespace Mila::Dnn::Compute::Cuda
             const void* a_data,
             const void* b_data,
             void* result_data,
-            size_t count,
+            dim_t count,
             cudaStream_t stream,
             int device_id )
         {
@@ -609,7 +610,7 @@ namespace Mila::Dnn::Compute::Cuda
             auto* typed_result = static_cast<NativeType*>(result_data);
 
             Kernels::launch_elementwise_multiply_kernel<NativeType>(
-                typed_a, typed_b, typed_result, count, stream
+                typed_a, typed_b, typed_result, static_cast<size_t>( count ), stream
             );
 
             cudaError_t status = cudaGetLastError();
@@ -621,7 +622,7 @@ namespace Mila::Dnn::Compute::Cuda
             const void* in_data,
             void* result_data,
             float scalar,
-            size_t count,
+            dim_t count,
             cudaStream_t stream,
             int device_id )
         {
@@ -639,7 +640,7 @@ namespace Mila::Dnn::Compute::Cuda
             // Pass the float scalar straight to the kernel; the float->native conversion happens
             // device-side (host MSVC has no float->bf16). Arithmetic is done in float.
             Kernels::launch_scalar_multiply_float_kernel<NativeType>(
-                typed_in, typed_result, scalar, count, stream
+                typed_in, typed_result, scalar, static_cast<size_t>( count ), stream
             );
 
             cudaError_t status = cudaGetLastError();
@@ -651,7 +652,7 @@ namespace Mila::Dnn::Compute::Cuda
             const void* a_data,
             const void* b_data,
             void* result_data,
-            size_t count,
+            dim_t count,
             cudaStream_t stream,
             int device_id )
         {
@@ -668,7 +669,7 @@ namespace Mila::Dnn::Compute::Cuda
             auto* typed_result = static_cast<NativeType*>(result_data);
 
             launch_elementwise_divide_kernel<NativeType>(
-                typed_a, typed_b, typed_result, count, stream
+                typed_a, typed_b, typed_result, static_cast<size_t>( count ), stream
             );
 
             cudaError_t status = cudaGetLastError();
@@ -678,7 +679,7 @@ namespace Mila::Dnn::Compute::Cuda
         template<TensorDataType TDataType>
         static float sumImpl(
             const void* tensor_data,
-            size_t count,
+            dim_t count,
             cudaStream_t stream,
             int device_id )
         {

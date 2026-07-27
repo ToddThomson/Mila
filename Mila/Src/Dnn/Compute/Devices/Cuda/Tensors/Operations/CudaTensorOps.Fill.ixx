@@ -28,6 +28,7 @@ module;
 export module Compute.CudaTensorOps:Fill;
 
 import Dnn.Tensor;
+import Dnn.TensorTypes;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
@@ -140,7 +141,7 @@ namespace Mila::Dnn::Compute::Cuda
                 needs_sync = true;  // Must sync default stream before returning
             }
 
-            const size_t count = std::min(tensor.size(), host_values.size());
+            const dim_t count = std::min( tensor.size(), static_cast<dim_t>( host_values.size() ) );
             
             void* raw_dst = static_cast<ITensor&>(tensor).rawData();
 
@@ -148,11 +149,11 @@ namespace Mila::Dnn::Compute::Cuda
 
             if constexpr (TensorDataTypeTraits<TDataType>::is_integer_type) {
                 Cuda::launch_array_fill_typed<NativeType, int32_t>(
-                    raw_dst, host_values.data(), count, stream);
+                    raw_dst, host_values.data(), static_cast<size_t>( count ), stream);
             }
             else {
                 Cuda::launch_array_fill_typed<NativeType, float>(
-                    raw_dst, host_values.data(), count, stream);
+                    raw_dst, host_values.data(), static_cast<size_t>( count ), stream);
             }
 
             if (needs_sync) {
@@ -238,11 +239,11 @@ namespace Mila::Dnn::Compute::Cuda
 
             if constexpr ( TensorDataTypeTraits<TDataType>::is_integer_type ) {
                 Cuda::launch_constant_fill_typed<NativeType, int32_t>(
-                    raw_dst, tensor.size(), host_value, stream );
+                    raw_dst, static_cast<size_t>( tensor.size() ), host_value, stream );
             }
             else {
                 Cuda::launch_constant_fill_typed<NativeType, float>(
-                    raw_dst, tensor.size(), host_value, stream );
+                    raw_dst, static_cast<size_t>( tensor.size() ), host_value, stream );
             }
 
             if ( needs_sync ) {

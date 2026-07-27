@@ -408,7 +408,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Swiglu
     {
         auto swiglu = this->builtSwiglu( shape_t{ 2, 3, kInFeatures }, RuntimeMode::Inference );
 
-        EXPECT_EQ( swiglu->parameterCount(), 0u );
+        EXPECT_EQ( swiglu->parameterCount(), 0 );
         EXPECT_TRUE( swiglu->getParameters().empty() );
         EXPECT_TRUE( swiglu->getGradients().empty() );
     }

@@ -334,7 +334,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
     {
         auto block = builtBlock( model_dim_, num_heads_, hidden_, RuntimeMode::Inference );
 
-        EXPECT_GT( block->parameterCount(), 0u );
+        EXPECT_GT( block->parameterCount(), 0 );
     }
 
     TEST_F( GptBlockCudaTests, GetGradients_PresentWhenBuiltForTraining )

@@ -256,7 +256,7 @@ namespace Mila::Dnn
          *
          * @return 0
          */
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             return 0;
         }
@@ -366,7 +366,7 @@ namespace Mila::Dnn
 
             if ( output_installed_ )
             {
-                int64_t needed = 1;
+                dim_t needed = 1;
                 for ( auto d : input_shape )
                     needed *= d;
 

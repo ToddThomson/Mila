@@ -449,7 +449,7 @@ namespace Mila::Dnn
 
             // attn_ receives packed QKV -- trailing dim is model_dim * 3
             shape_t qkv_shape = input_shape;
-            qkv_shape.back() = static_cast<int64_t>(config_.getModelDim() * 3);
+            qkv_shape.back() = config_.getModelDim() * 3;
             auto qkv_context = BuildContext( qkv_shape, context.getRuntimeMode() );
             attn_ = this->template getComponentAs<AttentionType>( this->getName() + ".attn" );
             attn_->build( qkv_context );
@@ -531,17 +531,17 @@ namespace Mila::Dnn
             auto attn_cfg = MultiHeadAttentionConfig( config_.getModelDim(), config_.getNumHeads() );
             this->addComponent( std::make_shared<AttentionType>( this->getName() + ".attn", attn_cfg, std::nullopt ) );
 
-            auto ln1_cfg = LayerNormConfig( shape_t{ static_cast<int64_t>(config_.getModelDim()) } );
+            auto ln1_cfg = LayerNormConfig( shape_t{ config_.getModelDim() } );
             this->addComponent( std::make_shared<LayerNormType>( this->getName() + ".ln_1", ln1_cfg, std::nullopt ) );
 
-            auto ln2_cfg = LayerNormConfig( shape_t{ static_cast<int64_t>(config_.getModelDim()) } );
+            auto ln2_cfg = LayerNormConfig( shape_t{ config_.getModelDim() } );
             this->addComponent( std::make_shared<LayerNormType>( this->getName() + ".ln_2", ln2_cfg, std::nullopt ) );
 
-            auto qkv_cfg = LinearConfig( static_cast<dim_t>(config_.getModelDim()), static_cast<dim_t>(config_.getModelDim() * 3) );
+            auto qkv_cfg = LinearConfig( config_.getModelDim(), config_.getModelDim() * 3 );
             qkv_cfg.withBias( config_.useBias() );
             this->addComponent( std::make_shared<LinearType>( this->getName() + ".fc_qkv_proj", qkv_cfg, std::nullopt ) );
 
-            auto out_proj_cfg = LinearConfig( static_cast<dim_t>(config_.getModelDim()), static_cast<dim_t>(config_.getModelDim()) );
+            auto out_proj_cfg = LinearConfig( config_.getModelDim(), config_.getModelDim() );
             out_proj_cfg.withBias( config_.useBias() );
             this->addComponent( std::make_shared<LinearType>( this->getName() + ".fc_out_proj", out_proj_cfg, std::nullopt ) );
 
@@ -553,11 +553,11 @@ namespace Mila::Dnn
             res_cfg2.withScalingFactor( config_.getResidualScale() );
             this->addComponent( std::make_shared<ResidualType>( this->getName() + ".res_2", res_cfg2, std::nullopt ) );
 
-            dim_t hidden_dim = static_cast<dim_t>(config_.getHiddenSize());
+            dim_t hidden_dim = config_.getHiddenSize();
             if ( hidden_dim == 0 )
-                hidden_dim = static_cast<dim_t>(config_.getModelDim() * 4);
+                hidden_dim = config_.getModelDim() * 4;
 
-            auto mlp_cfg = MLPConfig( static_cast<dim_t>(config_.getModelDim()), hidden_dim );
+            auto mlp_cfg = MLPConfig( config_.getModelDim(), hidden_dim );
             mlp_cfg.withBias( config_.useBias() )
                 .withActivation( config_.getActivationType() );
             this->addComponent( std::make_shared<MLPType>( this->getName() + ".mlp", mlp_cfg, std::nullopt ) );
@@ -574,7 +574,7 @@ namespace Mila::Dnn
                     input_shape.size() ) );
             }
 
-            if ( input_shape.back() != static_cast<int64_t>(config_.getModelDim()) )
+            if ( input_shape.back() != config_.getModelDim() )
             {
                 throw std::invalid_argument( std::format(
                     "GptBlock: embedding dim mismatch -- expected {}, got {}",
@@ -590,7 +590,7 @@ namespace Mila::Dnn
             }
 
             int64_t trailing = input_shape.back();
-            if ( trailing != static_cast<int64_t>(config_.getModelDim()) )
+            if ( trailing != config_.getModelDim() )
             {
                 throw std::invalid_argument( std::format(
                     "GptBlock: embedding dim mismatch -- expected {}, got {}",

@@ -214,12 +214,25 @@ good-first-issue.
   — the margin is not theoretical, a Gemma 4 12B embedding table is ~1.0e9 elements against an
   `INT_MAX` of 2.1e9. Token ids are deliberately **out of scope** (a value, not an extent) —
   `TokenSequenceLoader.ixx:44` stays open under its own concern.
-- [ ] `Tensor::size()` returns `size_t` — the last type in the dimension mix, and the reason
-  `GroupedQueryAttention.ixx:583` needs an explicit `static_cast<dim_t>` to compare a slot size
-  against a required element count. Under the rule above it should be `dim_t`. Held back from the
-  canonicalization commit deliberately: its blast radius runs through every `parameterCount()`
-  override and cannot be predicted from grep — only a full rebuild is a valid oracle (see the
-  export-surface lesson). Do this one on its own, measured.
+- [x] `Tensor::size()` returns `dim_t` — the last type in the dimension mix is gone. `ITensor::size()`,
+  `Tensor::size()`, `size_`, `view_offset_` and both `view(shape, offset)` overloads moved over, along
+  with `Component::parameterCount()` and all 15 overrides (a parameter count is an element count).
+  `computeSize()` already returned `int64_t`, so this removed a silent per-construction conversion.
+  **The `size_t` boundary, stated so it stays stable: `size_t` begins where element counts become
+  bytes, or cross into a CUDA/std API. Mila-owned helpers that only forward an element count keep
+  `dim_t`.** So `TensorBuffer` stays `size_t` throughout (allocation layer; its overflow guards depend
+  on unsigned semantics), the `TensorOps` transfer/fill/math helpers carry `dim_t` and convert at the
+  `cudaMemcpy` / `launch_*_kernel` edge, and `CudaTensorOps.Random` stays `size_t` because every
+  consumer in it is curand or `cudaMalloc`. Two real defects fell out, not just type churn:
+  `CudaLinearOp` narrowed the total element count to 32 bits **before** dividing by
+  `cached_in_features_` (now divides in `dim_t`, narrows the quotient via `narrowToKernelIndex`), and
+  the four `output_->size() < needed` capacity guards were comparing `size_t` against `int64_t`.
+  Also swept 38 now-redundant `static_cast<dim_t>`/`<int64_t>` wrappers off config getters.
+  **LESSON, and the reason this needed a rebuild rather than grep: changing a base virtual's return
+  type silently un-overrides every stale override, leaving the class abstract — the error surfaces far
+  away as C2672 at each `make_shared` site, not at the declaration.** Three test mocks
+  (`HarnessComponent`, `MockChild`, `TestComponent`) were the entire blast radius; only four classes
+  outside `Mila/Src` derive from `Component`/`ITensor` at all.
 - [ ] Broaden CI compiler coverage toward the supported matrix (adds MSVC + GCC 16 to clang-21).
 - [ ] Stage model weights off the Windows bind mount for the container (native disk speed).
 - [ ] **[contributor]** Llama-lineage CPU ops (`RmsNormOp`, `SwigluOp`, `RopeOp`, `TokenEmbeddingOp`,

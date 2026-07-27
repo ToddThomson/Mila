@@ -334,9 +334,9 @@ namespace Mila::Dnn
         // Parameters and Gradients
         // ====================================================================
 
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
-            size_t count = 0;
+            dim_t count = 0;
 
             if ( weight_ )
             {
@@ -654,7 +654,7 @@ namespace Mila::Dnn
 
             if ( output_installed_ )
             {
-                int64_t needed = 1;
+                dim_t needed = 1;
                 for ( auto d : output_shape )
                     needed *= d;
 

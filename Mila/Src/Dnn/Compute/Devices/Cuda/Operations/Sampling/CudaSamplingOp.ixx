@@ -201,7 +201,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             float r ) const
         {
             const int64_t vocab = config_.getVocabularySize();
-            const int64_t offset = static_cast<int64_t>( logits.size() ) - vocab;
+            const dim_t offset = logits.size() - vocab;
 
             const NativeType* row = static_cast<const NativeType*>( logits.rawData() ) + offset;
             int32_t* out = static_cast<int32_t*>( token_out.rawData() );
@@ -245,7 +245,7 @@ namespace Mila::Dnn::Compute::Cuda::Sampling
             cudaStream_t stream ) const
         {
             const int64_t vocab = config_.getVocabularySize();
-            const int64_t offset = static_cast<int64_t>( logits.size() ) - vocab;
+            const dim_t offset = logits.size() - vocab;
 
             const NativeType* row = static_cast<const NativeType*>( logits.rawData() ) + offset;
             int32_t* out = static_cast<int32_t*>( token_out.rawData() );

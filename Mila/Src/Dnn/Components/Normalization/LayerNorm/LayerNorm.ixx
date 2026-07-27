@@ -253,9 +253,9 @@ namespace Mila::Dnn
             return grads;
         }
 
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
-            size_t count = 0;
+            dim_t count = 0;
 
             if ( weight_ )
             {

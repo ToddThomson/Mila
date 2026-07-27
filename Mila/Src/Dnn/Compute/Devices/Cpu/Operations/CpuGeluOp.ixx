@@ -138,7 +138,7 @@ namespace Mila::Dnn::Compute
                 throw std::runtime_error( "CpuGeluOp::forward - null tensor data pointer" );
             }
 
-            const size_t N = input.size();
+            const dim_t N = input.size();
 
 #pragma omp parallel for if(N > 1000)
             for (int i = 0; i < static_cast<int>( N ); i++)
@@ -183,7 +183,7 @@ namespace Mila::Dnn::Compute
                 throw std::runtime_error( "CpuGeluOp::backward - null tensor data pointer" );
             }
 
-            const size_t N = input.size();
+            const dim_t N = input.size();
 
             // Use OpenMP for larger tensors
 #pragma omp parallel for if(N > 1000)

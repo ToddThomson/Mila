@@ -36,7 +36,7 @@ namespace Dnn::Core::Networks::Tests
          * @param device_id Optional device for standalone mode (testing only)
          */
         explicit TestComponent( const std::string& name,
-            size_t param_count = 0,
+            dim_t param_count = 0,
             std::optional<DeviceId> device_id = std::nullopt )
             : ComponentBase( name ), param_count_( param_count )
         {
@@ -55,7 +55,7 @@ namespace Dnn::Core::Networks::Tests
         void synchronize() override
         {}
 
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             return param_count_;
         }
@@ -74,7 +74,7 @@ namespace Dnn::Core::Networks::Tests
         {
             SerializationMetadata meta;
             meta.set( "component_type", "TestComponent" )
-                .set( "param_count", static_cast<int64_t>(param_count_) );
+                .set( "param_count", param_count_ );
 
             archive.writeMetadata( "meta.json", meta );
         }
@@ -104,7 +104,7 @@ namespace Dnn::Core::Networks::Tests
         {}
 
     private:
-        size_t param_count_;
+        dim_t param_count_;
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
     };
 
@@ -167,7 +167,7 @@ namespace Dnn::Core::Networks::Tests
          * Creates a TestComponent in shared mode (no ExecutionContext) and registers it.
          * Context will be propagated when finalizeConstruction() is called.
          */
-        void addTestComponent( const std::string& name, size_t param_count = 0 )
+        void addTestComponent( const std::string& name, dim_t param_count = 0 )
         {
             auto component = std::make_shared<TestComponent>( name, param_count, std::nullopt );
             this->addComponent( component );
@@ -409,7 +409,7 @@ namespace Dnn::Core::Networks::Tests
         auto retrieved = net.getComponent( "findme" );
 
         EXPECT_NE( retrieved, nullptr );
-        EXPECT_EQ( retrieved->parameterCount(), 3u );
+        EXPECT_EQ( retrieved->parameterCount(), 3 );
     }
 
     TEST_F( NetworkTests, GetComponent_NonExistentName_Throws )
@@ -539,7 +539,7 @@ namespace Dnn::Core::Networks::Tests
 
         net.build( { 1 } );
 
-        EXPECT_EQ( net.parameterCount(), 45u );
+        EXPECT_EQ( net.parameterCount(), 45 );
     }
 
     TEST_F( NetworkTests, ParameterCount_BeforeBuild_Throws )
@@ -760,9 +760,9 @@ namespace Dnn::Core::Networks::Tests
         const auto& components = net.getComponents();
 
         ASSERT_EQ( components.size(), 3u );
-        EXPECT_EQ( components[ 0 ]->parameterCount(), 1u );
-        EXPECT_EQ( components[ 1 ]->parameterCount(), 2u );
-        EXPECT_EQ( components[ 2 ]->parameterCount(), 3u );
+        EXPECT_EQ( components[ 0 ]->parameterCount(), 1 );
+        EXPECT_EQ( components[ 1 ]->parameterCount(), 2 );
+        EXPECT_EQ( components[ 2 ]->parameterCount(), 3 );
     }
 
     TEST_F( NetworkTests, GetNamedComponents_ContainsAllChildren )

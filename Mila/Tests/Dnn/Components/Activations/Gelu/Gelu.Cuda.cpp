@@ -207,7 +207,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
         GeluCuda gelu( "gelu", GeluConfig(), Device::Cuda( 0 ) );
         gelu.build( BuildContext( shape_t{ 2, 4 }, RuntimeMode::Inference ) );
 
-        EXPECT_EQ( gelu.parameterCount(), 0u );
+        EXPECT_EQ( gelu.parameterCount(), 0 );
         EXPECT_TRUE( gelu.getParameters().empty() );
         EXPECT_TRUE( gelu.getGradients().empty() );
     }

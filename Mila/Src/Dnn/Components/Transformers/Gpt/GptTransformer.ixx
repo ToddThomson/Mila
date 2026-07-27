@@ -315,8 +315,7 @@ namespace Mila::Dnn
             // 3. Extract only the last token's representation for LN + LM head.
             //    This avoids writing T=seq_len into the T=1 inference output buffers
             //    allocated by LayerNorm and lm_head.
-            size_t last_pos_offset = static_cast<size_t>(
-                (T_prompt - 1) * config_.getEmbeddingSize());
+            dim_t last_pos_offset = (T_prompt - 1) * config_.getEmbeddingSize();
 
             auto last_pos = block_output_ptrs_.back()->view(
                 shape_t{ input.shape()[ 0 ], 1, config_.getEmbeddingSize() },
@@ -751,10 +750,10 @@ namespace Mila::Dnn
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 GptBlockConfig block_cfg( 
-                    static_cast<dim_t>( config_.getEmbeddingSize() ),
-                    static_cast<dim_t>( config_.getNumHeads() ));
+                    config_.getEmbeddingSize(),
+                    config_.getNumHeads());
 
-                block_cfg.withHiddenSize( static_cast<dim_t>( config_.getHiddenSize() ))
+                block_cfg.withHiddenSize( config_.getHiddenSize())
                     .withBias( config_.getUseBias() )
                     .withActivation( ActivationType::Gelu )
                     .withResidualScale( 1.0f );

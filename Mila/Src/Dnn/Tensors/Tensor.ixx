@@ -451,7 +451,7 @@ namespace Mila::Dnn
         /**
          * @brief Returns the total number of logical elements in the tensor
          */
-        size_t size() const override {
+        dim_t size() const override {
             return size_;
         }
 
@@ -513,7 +513,7 @@ namespace Mila::Dnn
         // Shape Transformation Operations
         // ====================================================================
 
-        [[nodiscard]] Tensor view( const shape_t& new_shape, size_t offset = 0 ) const
+        [[nodiscard]] Tensor view( const shape_t& new_shape, dim_t offset = 0 ) const
         {
             if ( !buffer_ )
             {
@@ -682,16 +682,16 @@ namespace Mila::Dnn
         
         std::string uid_;                   ///< Unique identifier for this tensor instance
         std::string name_;                  ///< Optional user-assigned name for debugging
-        size_t size_{ 0 };                  ///< Total number of logical elements in the tensor
+        dim_t size_{ 0 };                   ///< Total number of logical elements in the tensor
         shape_t shape_{};                   ///< Dimensional sizes for each tensor dimension
         stride_t strides_{};                ///< Memory stride values for multi-dimensional indexing
         std::shared_ptr<TensorBuffer<TDataType, TMemoryResource>> buffer_{ nullptr }; ///< Managed buffer containing tensor data
 
         bool is_view_{ false };
-        size_t view_offset_{ 0 };  // Offset into the buffer for views
+        dim_t view_offset_{ 0 };   // Offset into the buffer for views
 
         // View constructor - shares buffer with parent
-        Tensor( const Tensor& parent, const shape_t& shape, size_t offset )
+        Tensor( const Tensor& parent, const shape_t& shape, dim_t offset )
             : device_id_( parent.device_id_ )
             , uid_( setUId() )
             , name_( parent.name_ + ".view" )
@@ -702,7 +702,7 @@ namespace Mila::Dnn
             , is_view_( true )
             , view_offset_( parent.view_offset_ + offset )  // Accumulate offsets
         {
-            if ( view_offset_ + size_ > parent.buffer_->size() )
+            if ( view_offset_ + size_ > static_cast<dim_t>( parent.buffer_->size() ) )
             {
                 throw std::invalid_argument( "View exceeds buffer bounds" );
             }
@@ -742,7 +742,7 @@ namespace Mila::Dnn
         void allocateBuffer() {
             if (size_ > 0)
             {
-                buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>( device_id_.index, size_);
+                buffer_ = std::make_shared<TensorBuffer<TDataType, TMemoryResource>>( device_id_.index, static_cast<size_t>( size_ ) );
             }
         }
 

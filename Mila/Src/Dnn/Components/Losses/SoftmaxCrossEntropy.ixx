@@ -205,7 +205,7 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
         }
 
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             // No trainable parameters in fused softmax+cross-entropy
             return 0;

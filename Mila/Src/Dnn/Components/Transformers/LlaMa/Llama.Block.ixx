@@ -528,7 +528,7 @@ namespace Mila::Dnn
             // Decode view shapes -- T=1, always
             q_shape_ = { B, 1, n_heads * head_dim };
             k_shape_ = { B, 1, n_kv * head_dim };
-            q_offset_ = static_cast<size_t>(B * 1 * n_heads * head_dim);
+            q_offset_ = B * 1 * n_heads * head_dim;
 
             // GQA -- context_length for KV cache sizing, correct QKV trailing dim
             const shape_t qkv_shape = { B, context_length, (n_heads + 2 * n_kv) * head_dim };
@@ -554,7 +554,7 @@ namespace Mila::Dnn
                 // Prefill view shapes -- prefill chunk size
                 q_prefill_shape_ = { B, prefill_chunk_size, n_heads * head_dim };
                 k_prefill_shape_ = { B, prefill_chunk_size, n_kv * head_dim };
-                q_prefill_offset_ = static_cast<size_t>( B * prefill_chunk_size * n_heads * head_dim);
+                q_prefill_offset_ = B * prefill_chunk_size * n_heads * head_dim;
 
                 rms1_ = this->template getComponentAs<RmsNormType>( this->getName() + ".rmsn_1" );
                 rms1_->build( prefill_context );
@@ -695,12 +695,12 @@ namespace Mila::Dnn
 
         shape_t q_prefill_shape_;
         shape_t k_prefill_shape_;
-        size_t q_prefill_offset_;
+        dim_t q_prefill_offset_;
 
         // Pre-computed at build -- reused every forward/backward call.
         shape_t q_shape_;
         shape_t k_shape_;
-        size_t q_offset_{ 0 };
+        dim_t q_offset_{ 0 };
 
         std::unique_ptr<IExecutionContext> owned_exec_context_{ nullptr };
 
@@ -838,7 +838,7 @@ namespace Mila::Dnn
                     input_shape.size() ) );
             }
 
-            if ( input_shape.back() != static_cast<int64_t>(config_.getModelDim()) )
+            if ( input_shape.back() != config_.getModelDim() )
             {
                 throw std::invalid_argument( std::format(
                     "LlamaBlock: model dim mismatch -- expected {}, got {}",
@@ -854,7 +854,7 @@ namespace Mila::Dnn
                     "LlamaBlock: input must be [B, T, model_dim]" );
             }
 
-            if ( input_shape.back() != static_cast<int64_t>(config_.getModelDim()) )
+            if ( input_shape.back() != config_.getModelDim() )
             {
                 std::ostringstream oss;
                 oss << "LlamaBlock: model_dim mismatch -- expected "

@@ -21,6 +21,7 @@ import :Dispatch;
 import Dnn.Components.SwigluConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.ComponentConfig;
@@ -62,7 +63,7 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
                 throw std::invalid_argument( "CudaSwigluOp: Input must have even number of elements (split in half for SwiGLU)." );
             }
 
-            const size_t outSize = input.size() / 2;
+            const dim_t outSize = input.size() / 2;
             if ( output.size() != outSize )
             {
                 throw std::invalid_argument( "CudaSwigluOp: Output must have half the size of the input for SwiGLU." );
@@ -92,7 +93,7 @@ namespace Mila::Dnn::Compute::Cuda::Swiglu
                 throw std::invalid_argument( "CudaSwigluOp::backward: Input size must be even." );
             }
 
-            const size_t outSize = input.size() / 2;
+            const dim_t outSize = input.size() / 2;
             if ( output_gradient.size() != outSize || input_gradient.size() != input.size() )
             {
                 throw std::invalid_argument( "CudaSwigluOp::backward: Gradient and input gradient sizes are incompatible." );

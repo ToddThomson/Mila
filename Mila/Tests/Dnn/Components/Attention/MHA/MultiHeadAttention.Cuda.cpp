@@ -338,7 +338,7 @@ namespace Mila::Tests::Dnn::Components::Attention::MHA
     {
         auto mha = this->builtMha( shape_t{ 2, 3, 3 * kModelDim }, RuntimeMode::Inference );
 
-        EXPECT_EQ( mha->parameterCount(), 0u );
+        EXPECT_EQ( mha->parameterCount(), 0 );
         EXPECT_TRUE( mha->getParameters().empty() );
     }
 

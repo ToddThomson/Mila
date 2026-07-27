@@ -442,7 +442,7 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
         }
 
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             return 0;
         }
@@ -577,7 +577,7 @@ namespace Mila::Dnn
                     for ( auto d : output_shape )
                         needed *= d;
 
-                    if ( !output_ || static_cast<dim_t>( output_->size() ) < needed )
+                    if ( !output_ || output_->size() < needed )
                         throw std::invalid_argument(
                             "GroupedQueryAttention '" + this->getName() + "': installed shared output slot is smaller than the build shape requires" );
                 }

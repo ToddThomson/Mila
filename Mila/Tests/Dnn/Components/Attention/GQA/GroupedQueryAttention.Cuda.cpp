@@ -180,7 +180,7 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA
     {
         typename TestFixture::GqaType gqa( "gqa", this->config(), Device::Cuda( 0 ) );
 
-        EXPECT_EQ( gqa.parameterCount(), 0u );
+        EXPECT_EQ( gqa.parameterCount(), 0 );
         EXPECT_TRUE( gqa.getParameters().empty() );
         EXPECT_TRUE( gqa.getGradients().empty() );
     }

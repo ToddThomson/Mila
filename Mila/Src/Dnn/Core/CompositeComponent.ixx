@@ -482,7 +482,7 @@ namespace Mila::Dnn
          *
          * @throws std::runtime_error if called before build()
          */
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             if ( !this->isBuilt() )
             {
@@ -491,7 +491,7 @@ namespace Mila::Dnn
                 );
             }
 
-            size_t count = 0;
+            dim_t count = 0;
 
             for ( const auto& component : child_components_ )
             {
@@ -581,7 +581,7 @@ namespace Mila::Dnn
                 );
             }
 
-            size_t total_count = 0;
+            dim_t total_count = 0;
 
             for ( const auto& component : child_components_ )
             {
@@ -589,7 +589,7 @@ namespace Mila::Dnn
             }
 
             std::vector<ITensor*> params;
-            params.reserve( total_count );
+            params.reserve( static_cast<size_t>( total_count ) );
 
             for ( const auto& component : child_components_ )
             {
@@ -624,7 +624,7 @@ namespace Mila::Dnn
                 );
             }
 
-            size_t total_count = 0;
+            dim_t total_count = 0;
 
             for ( const auto& component : child_components_ )
             {
@@ -632,7 +632,7 @@ namespace Mila::Dnn
             }
 
             std::vector<ITensor*> grads;
-            grads.reserve( total_count );
+            grads.reserve( static_cast<size_t>( total_count ) );
 
             for ( const auto& component : child_components_ )
             {

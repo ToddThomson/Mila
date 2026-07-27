@@ -224,7 +224,7 @@ namespace Mila::Tests::Dnn::Components::Normalization
     {
         auto softmax = this->builtSoftmax( shape_t{ kRows, kChannels }, RuntimeMode::Inference );
 
-        EXPECT_EQ( softmax->parameterCount(), 0u );
+        EXPECT_EQ( softmax->parameterCount(), 0 );
         EXPECT_TRUE( softmax->getParameters().empty() );
     }
 
