@@ -2,6 +2,10 @@
 
 <section class="band hero">
   <div class="wrap wide">
+    {{/* The logo, above the headline. Deliberately not a link -- it sits on the page it would
+         point at. Decorative here: the wordmark next to it is real text, so a screen reader
+         already gets "Mila". */}}
+    <div><span class="lockup"><img src="{{ "mila-mark.svg" | relURL }}" alt="" width="797" height="620"><span class="word">Mila</span></span></div>
     <h1>Local LLMs at the metal</h1>
     {{/* The h1 is a hook, so the lede carries the claim: read AND understand (reading is access,
          understanding is the value), and "consumer hardware you already own" rather than a VRAM

@@ -342,7 +342,23 @@ to the current release.
   are repositioning to LLM. Current marking is `noindex,follow`, so crawl paths stay open. When GSC
   shows the authored pages indexing, open **class and struct pages only** — never the `dir_` or
   member-index pages, which are pure navigation.
-  (d) **Brand mark + share card — REDESIGN, v0.20.0 gate.** SUPERSEDES the 2026-07-23 decision
+  (d) **Brand mark + share card — MARK DELIVERED 2026-07-26; share card still open.** The mark
+  ships as `Web/static/mila-mark.svg`: the Achilles crest as an **a** (`#0a40c2`) beside a teal
+  parallelogram as an **i** (`#0f9aa8`), reading "ai" with an M for Mila as the second reading.
+  Landed in `baseof.html` as a `.lockup` (mark + wordmark as one object, scaled by `font-size`
+  alone, `align-items: baseline` against a viewBox trimmed so the SVG's bottom edge IS the mark's
+  baseline), in the hero above the h1, and as a full favicon set (`favicon.ico` 16/32/48,
+  `icon.png`, opaque `apple-touch-icon.png`). Teal is now a second token: `--accent` carries
+  structure, `--accent-2` everything clickable. CAVEAT, recorded deliberately: the a is a
+  least-squares **trace of the 64px raster** (95.3% IoU), and that raster is clipped by its own
+  canvas on the left edge and the right foot, so those edges are reconstructed rather than
+  recovered — invisible on screen, not invisible in print or at banner size. Full colour and
+  geometry record, and the directions rejected, in the session artefacts.
+  STILL OPEN from this item: **`og:image` (1200x630) and flipping `twitter:card` to
+  `summary_large_image`** — the share card was never cut; and the light-theme UI teal is a
+  darkened `#0d818c` (4.64:1 for link text) which is deltaE 9.9 from the mark's own `#0f9aa8`,
+  accepted 2026-07-26 as logo-ink-vs-interface-ink rather than resolved.
+  Original framing, for the record: SUPERSEDES the 2026-07-23 decision
   ("the Achilles mark with the dot removed, no redesign"), reversed 2026-07-25 on two grounds: the
   original **vector source was never found** — the old business assets were purged, and everything
   in-repo is 64x64 raster (`Web/static/achilles.png`, `icon.png`), too soft for high-DPI and unable to
