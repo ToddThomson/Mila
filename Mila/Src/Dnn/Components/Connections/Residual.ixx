@@ -180,8 +180,18 @@ namespace Mila::Dnn
             }
 
             // Zero BOTH owned input gradient buffers before backward pass.
-            // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed
-            // buffers to prevent gradient buildup across calls.
+            //
+            // The reason is CpuResidualOp, which accumulates (dX1[i] += dY[i]) and so
+            // needs a clean buffer; CudaResidualOp assigns (dA[idx] = grad) and does not.
+            // It is NOT to combine gradients arriving from several paths: each of these
+            // buffers has exactly one producer, and where the residual stream forks the
+            // summation is explicit in the owning block -- see GptBlock::backward, which
+            // does `zero(d_res1_accum_); add(d_res1_from_res2, d_res1_from_ln2, ...)`.
+            //
+            // Assign and accumulate-into-zero are therefore equivalent here, which is why
+            // the two backends disagree without any observable difference. Reconciling
+            // them (and dropping the zeroing for a full-overwrite op) is an API Coherence
+            // question parked in BACKLOG, not a defect.
             zero( *input_a_grad_ /*, this->getExecutionContext() */);
             zero( *input_b_grad_ /*, this->getExecutionContext() */);
 

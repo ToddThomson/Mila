@@ -93,8 +93,31 @@ good-first-issue.
   white-box and the Llama path.
 - [~] Re-green in sample-revival order — MNIST spine mostly landed; remaining: the `Core/Network.cpp`
   delta, GPU companions (`Network.Cuda`/`AdamW.Cuda`), then the Bard GPT-2 stack tail.
-- [ ] Retire the redundant op-layer mirror tests — out of the CMake build; files kept on disk pending
-  an explicit delete.
+- [x] **Retire the redundant op-layer mirror tests — closed 2026-07-28 as already done.** The item
+  read as pending work ("files kept on disk pending an explicit delete") but there is nothing to
+  delete: `Tests/Dnn/Compute/Operations/` holds only `OperationBase.cpp` and the two new
+  `OperationTraits` contract files, there is no `Operations/Cuda/` directory, and
+  `git log --all --diff-filter=AD` over `Mila/Tests/**` returns no op-layer test path ever tracked.
+  The files went with their CMake entries; only the DELETE banners at `Tests/CMakeLists.txt:130`
+  and `:207` remain, now describing entries no longer beneath them. The rationale they record is
+  still worth keeping — backend ops are implementation detail, not in `import Mila;`, and their
+  numerics are reachable through the component — so the banners stay as the standing rule against
+  re-adding op-layer mirrors.
+- [x] **Deleted the orphaned `Tests/Dnn/Models/Gpt2/DatasetReader.cpp`.** Found 2026-07-28 by an
+  orphan scan (every `.cpp` on disk against every path in
+  `Tests/CMakeLists.txt`, commented entries included; the only other hits were the two
+  `Packaging/*_consumer/main.cpp`, which their own sub-CMakeLists build). It is in no CMake list, so
+  it has never been compiled against the current API, and it could not be: it targets
+  `Gpt2::DatasetReader`, which no longer exists anywhere in `Mila/Src` or `Mila/Samples`, and its
+  `MockLogger` overrides a `log( const std::string&, int )` virtual that the current
+  `Logging::Logger` does not have (it exposes `log_trace`/`log_debug`/`log_info` taking
+  `std::string_view`). Last touched in `76e87955` (0.13.12-alpha.5). Superseded by
+  `TokenSequenceLoader`, which already has live coverage in `Tests/Data/Loaders/`. **Not a Bard
+  revival fragment** — the Bard tail needs the GPT-2 *training spine*, not this reader. Deleted
+  rather than retired in place (explicit call): retire-in-place exists to keep superseded code
+  readable, and here both the subject and its successor are already in the tree, so the file added
+  nothing a reader could use. Its `DataWraparound` case is worth *not* reviving in any form — it
+  slept 2000 ms for background threads and asserted on log message text.
 - [ ] Backward-path kernels disabled or unverified behind `REVIEW:` markers — `CudaSoftmaxOp.ixx:73`
   and `:103` throw `"needs review"` with the real calls commented out; `Gelu.Fp32.cu:65` records that
   the shipped backward is not the numerically stable `sech^2` form. Gradient-check these before the
@@ -126,10 +149,6 @@ good-first-issue.
   one fail-fast at config time on both devices, replacing a debug assert buried in a CUDA op. Implementing
   scale properly in both backwards plus the CPU forward is the alternative, and is more code on a training
   path that has never been validated end to end.
-- [ ] `Residual::backward` zeroes both gradient buffers because "backend ops use accumulation
-  (atomicAdd/+=)" (`Residual.ixx:182`) — true of `CpuResidualOp` (`dX1[i] += dY[i]`), false of
-  `CudaResidualOp`, whose kernel assigns (`dA[idx] = grad`). Harmless today only because the component
-  always zeroes first; the stated contract matches half the backends. Pick one and make both obey it.
 - [x] **Known-red CUDA tests (5) — CLOSED 2026-07-28, suite verified green in one pass (VS2026).**
   Surfaced by `x64-validate` ctest at the beta.1 cut (1417/1418 pass); all CUDA-path, so invisible to
   the CPU-only CI ratchet. Accepted non-blocking for beta.1, triaged and fixed in one session.
@@ -208,10 +227,60 @@ good-first-issue.
 - [~] Re-enable the AdamW path — `AdamW.Cpu.cpp` active with a convergence case; remaining:
   `AdamW.Cuda.cpp` companion + strip-vs-gate the `CudaAdamW.cu` / `CudaAdamWOptimizer.ixx:270` debug
   `printf`s in the same pass.
-- [ ] Mixed-precision AdamW master parameters are zeroed, not copied — `CudaAdamWOptimizer.ixx:178`
-  calls `zero( *master_param )` with the marker "For now, initialize to zero", so a mixed-precision run
-  starts from zeroed masters instead of the current parameter values. Pair with the outdated
-  precision-check / master-parameter logic flagged at `:169`.
+- [x] **Mixed-precision AdamW master parameters were zeroed, not copied — every BF16/FP16 model
+  trained from zero.** `CudaAdamWOptimizer::addParameter` allocated an FP32 master per parameter and
+  called `zero( *master_param )` under a "For now, initialize to zero" marker. The master is not a
+  mirror: the kernel reads `old_param = master ? master[idx] : (float)params[idx]`
+  (`CudaAdamW.cu:131`), applies the update to it, and writes the narrowed result back to the
+  parameter. So on the **first** `step()` the initialized weights were discarded and every element
+  was driven to `-lr * (0 + wd * 0) == 0`. Fixed by widening the live parameter into the master at
+  registration via `launch_convert_copy_kernel<NativeType, float>` — the same primitive the transfer
+  path uses, chosen over the typed `copy()` free function because `addParameter` receives an
+  `ITensor*` and must not assume a memory resource to downcast to. The stale `REVIEW:` at `:169`
+  ("this precision check and master parameter logic is outdated") is resolved and removed.
+  **Oracle — net-new, and its absence is the whole story: the mixed-precision path had no test in
+  any file, active or disabled.** `AdamW.Cuda.cpp` is 40 FP32 cases that never mention masters, BF16,
+  or mixed precision, so even reviving it would not have caught this. New
+  `Tests/Dnn/Optimizers/AdamW.MixedPrecision.Cuda.cpp` pins the contract with an oracle chosen so a
+  correct optimizer is exactly a no-op: zero gradient plus zero weight decay must leave the parameter
+  untouched, where the defect drives it to zero. Plus a decay-only case (pins the master as the value
+  decay applies *to*) and a five-step stability case (the master is rewritten each step, so an
+  initialization defect compounds).
+- [x] **`AdamWOptimizer<Cuda, BF16>` could not be instantiated at all — the public optimizer wrapper
+  was unusable for mixed precision.** Found 2026-07-28 while writing the test above, which failed to
+  compile at `AdamW.ixx:48`. The wrapper selected its backend with
+  `std::conditional_t<TDeviceType == Cuda, CudaAdamWOptimizer<TPrecision>, CpuAdamWOptimizer<TPrecision>>`,
+  and `std::conditional_t` **names both branches**: selecting the CUDA implementation still required
+  `CpuAdamWOptimizer<BF16>` to be a valid template-id. That template is constrained by
+  `PrecisionSupportedOnDevice<TPrecision, Cpu>`, and `BF16::supported_on_cpu` is `false`, so the
+  never-selected branch failed its own constraints (C7602/C2923). **The device-agnostic wrapper was
+  therefore broken for exactly the configuration the master-parameter path exists to serve**, which is
+  why the zeroed master above was never observed through the public API. Replaced with a
+  `Detail::AdamWImplFor<TDeviceType, TPrecision>` trait specialized per device, so only the selected
+  branch is named; a missing pair is a hard compile error, matching the `OperationTraits` convention.
+  Also reduces the file from two `#ifdef MILA_HAS_CUDA` sites to one.
+  **The general lesson, worth applying anywhere else this pattern appears: `std::conditional_t` is
+  not a lazy select.** Both arms are instantiated as template-ids, so it is unsafe whenever the arms
+  are constrained templates that do not both accept the same arguments. Grep for `conditional_t` over
+  a constrained template before trusting it. (Swept `Mila/Src` 2026-07-28: ten other sites, all
+  selecting between plain types or unconstrained templates. AdamW was the only instance.)
+- [x] **`adamw_update` had no BF16 instantiation — `CudaAdamWOptimizer<BF16>` compiled and failed to
+  link.** Third defect in the same path, found only once the two above were fixed and the test got as
+  far as linking. `CudaAdamW.cu` explicitly instantiates `<float, float>`, `<__half, __half>` and
+  `<__half, float>`, and no BF16 variant. The kernel body always supported it — the
+  `stochastic_rounding( float, __nv_bfloat16*, ... )` overload exists for exactly this path — so this
+  was a missing instantiation, not missing functionality. It never surfaced because nothing could
+  reference the symbol: the device-agnostic wrapper could not be instantiated for BF16 either.
+  Added `adamw_update<__nv_bfloat16, __nv_bfloat16>`. Deliberately did **not** add
+  `init_from_master<__nv_bfloat16>` for symmetry with the FP32/FP16 blocks — `init_from_master` is
+  not declared in `Kernels/CudaOptimizers.h` at all, so it is unreachable from outside the `.cu` and
+  its existing instantiations are dead weight.
+  **Taken together, the three defects are one finding: BF16 optimizer support was written end to end
+  — master parameters, the stochastic-rounding writeback, the precision branch — and never once
+  exercised. It could not compile, could not link, and would have trained from zero if it had.**
+  All three verified green 2026-07-28 (build + full suite + Gemma 4 chat coherent). That run is the
+  first time a BF16 CUDA optimizer step has executed in this codebase, so the three new cases in
+  `AdamW.MixedPrecision.Cuda.cpp` are new information rather than a regression check.
 - [~] **[net-new]** Training-loop integration test (sample-independent) — MNIST spine covered by
   `Network.Cpu.cpp`; remaining: a GPT-2-stack analogue for the Bard spine.
 - [ ] **[net-new]** Optimizer step-convergence test — minimizes a known convex objective in N steps
@@ -221,8 +290,27 @@ good-first-issue.
   `REVIEW:` markers are the invariant to assert, each guarding a state the author believes unreachable:
   `TokenEmbedding.ixx:221` and `Lpe.ixx:187` ("if built and in training mode these buffers should
   always be initialized -- if not, it's a bug"), and `Lpe.ixx:495` ("must already be built").
-- [ ] Fix the CUDA `fill_normal` / `fill_uniform` FP32-only gap (corrupts BF16 train-from-scratch
-  init) — pair with a BF16 init-at-precision `TYPED_TEST` that turns the silent corruption red.
+- [x] **CUDA `fill_normal` / `fill_uniform` FP32-only gap fixed — it was a heap overrun, not just
+  corrupt values.** Verified green 2026-07-28 (build + full suite + Gemma 4 chat coherent). Both functions are constrained to `is_float_type` (FP32/FP16/BF16/FP8) but
+  unconditionally cast the destination to `float*` and generated `n` FP32 values into it. For a BF16
+  tensor that is **4n bytes written into a 2n-byte buffer** — a full tensor's worth of overrun past
+  the end — and the values that did land in range were FP32 bit patterns reinterpreted in pairs as
+  BF16, which puts roughly half of them around 1e14. Reachable from `Linear<Cuda, BF16>` on a
+  training build via `xavier`, and from `TokenEmbedding`/`Lpe` via `fill_normal`. `CpuTensorOps`
+  was always correct (it converts per element through `static_cast<NativeType>`), so this was a
+  CPU/CUDA divergence as well as a defect.
+  **Fix:** non-FP32 tensors generate into an FP32 scratch buffer and narrow through a new
+  `launch_convert_f32` (BF16 and FP16 overloads); FP32 still generates in place, and the odd-count
+  Box-Muller padding path is preserved. `fill_uniform` scales and shifts at FP32 *before* narrowing,
+  so only the final value rounds. FP8 and FP4 are now a **compile error** naming the type rather
+  than a silent narrowing — train-from-scratch into a 4-bit weight is not a meaningful request, and
+  the `is_float_type` constraint alone would have admitted it.
+  **Oracle:** `Tests/Dnn/Tensors/TensorOps/Random.Cuda.cpp`, a FP32+BF16 `TYPED_TEST` sweep —
+  distribution shape, uniform bounds, the Glorot bound, the odd-count path, empty-tensor no-ops, and
+  a neighbouring-allocation check aimed at the overrun. Seeded via `RandomGenerator::setSeed` so a
+  distribution failure repeats rather than flickers. This closes the **init-at-precision** success
+  criterion ROADMAP names for Training Revival, and retires the `Testing.Tensors.md` note telling
+  future readers not to write CUDA tests against this path.
 - [ ] **[decoupled]** Revive the loss + backward path (CrossEntropy / SoftmaxCrossEntropy) — both
   samples compute loss host-side, so off the critical path to a converging sample.
 - [ ] **[net-new, training-only]** Revive the `Dropout` component from `Dev/Components/Regularization/`.
@@ -339,12 +427,22 @@ good-first-issue.
   setting with no sign round-trip. The last 2 (`CudaResidualOp` `input_A`/`input_B`) closed with the
   contract question above, taking first-party C4100 to zero. **The one warning left in the tree is
   `GroupedQueryAttention.ixx:216` C4702 — deliberate, an honest report that GQA backward is a stub.**
-- [ ] **`CpuAttentionOp::build` divides before it validates.** `CpuAttentionOp.ixx:106` computes
-  `HS_ = embedding_dim_ / NH_` and *then* `:108` checks `embedding_dim_ % NH_ != 0` and throws. Two
-  consequences: a config with `num_heads == 0` integer-divides by zero at `:106` before the guard can
-  fire, and when heads do not divide the embedding, `HS_` is silently truncated before the throw. The
-  guard is plainly meant to precede the division — move the check above `:106` (and extend it to reject
-  `NH_ <= 0`). Not fixed with the warning sweep: it is a behaviour change in `Mila/Src`, not cosmetics.
+- [x] **`CpuAttentionOp::build` divided before it validated — fixed 2026-07-28, and it is hardening,
+  not the live crash this entry previously claimed.** `:106` computed `HS_ = embedding_dim_ / NH_` and
+  *then* `:108` checked `embedding_dim_ % NH_ != 0`. Both expressions divide by `NH_`, so a zero head
+  count would have faulted inside the guard meant to catch it. The check now precedes the division and
+  also rejects `NH_ <= 0`.
+  **Correcting the original entry, which overstated the risk: this was unreachable, not latent-live.**
+  `config_` is a `MultiHeadAttentionConfig`, the constructor calls `config_.validate()`, and that
+  rejects `num_heads < 2` and `model_dim % num_heads != 0`; `validateInputShape` separately pins
+  `qkv_dim == 3 * model_dim`, so `embedding_dim_ == model_dim` exactly and no truncation was possible
+  either. The op-level guard is therefore redundant with the config — kept and ordered correctly
+  because it costs nothing and the op should not depend on an invariant it does not state, but it is
+  not defending against anything reachable today. No test added: the enforcement point is already
+  covered by `MultiHeadAttentionConfig.cpp` (`Validate_ThrowsForTooFewHeads`,
+  `Validate_ThrowsWhenModelDimNotDivisibleByHeads`), and a test at the op level could only re-assert
+  what the config already rejects. **Relevant to the API Coherence "redundant defensive checks"
+  group under `## Future`** — this is an instance of that question, not a defect independent of it.
 - [ ] `CudaManagedMemoryResource.ixx:85` builds a detailed `errorMsg` on `cudaMallocManaged` failure
   then throws a bare `std::bad_alloc()`, discarding it — the diagnostic never reaches the caller
   (and the dead local is itself a C4189). `CudaPinnedMemoryResource.ixx:101` throws bare `std::bad_alloc`
@@ -400,7 +498,13 @@ good-first-issue.
   Widening carries none of the risk measured for narrowing (Production Hardening).
   Remaining, if the umbrella is ever audited as a whole: `Serialization.Tensor` and
   `Compute.ExecutionContext` are both imported directly by consumer tests for the same class of
-  reason.
+  reason. **The audit needs to separate two cases that look alike from the outside.** A backend
+  module being absent is correct: `Compute.CudaAdamWOptimizer` is not exported, and should not be —
+  `Dnn.Optimizers.AdamW`'s device-agnostic `AdamWOptimizer<TDeviceType, TPrecision>` wrapper is the
+  public entry and takes `IExecutionContext*`, so a consumer never names the CUDA type. The policies
+  were the other case: a type appearing *in a public template's interface*, which must be visible.
+  The test for which case applies is whether a consumer has to spell the name to use the documented
+  API, not whether the name happens to be needed by some in-tree file.
 - [ ] **`IExecutionContext` is exported but unreachable in practice.** `Mila.ixx` re-exports
   `Compute.IExecutionContext` and `Compute.ExecutionContextFactory` as public API, but no model
   factory accepts one — `GemmaModel/LlamaModel/GptModel::fromPretrained` take a `DeviceId`
@@ -522,6 +626,41 @@ to the current release.
   `OperationTraits`, and the unspecced **Chat** feature milestone.
 - **Ministral** — SWA transformer; reuses the Llama foundation, Qwen 3 tool-calling, and the Gemma 4
   SWA mask + bounded-KV ring.
+- **The gradient-write contract: assign vs accumulate** — moved here from Test Suite Revival
+  2026-07-28 after investigation showed it is **not a defect**. It was filed as "`Residual::backward`
+  zeroes both buffers citing accumulation — true of CPU, false of CUDA; pick one", which read as a
+  latent bug. It is not: every gradient buffer has exactly **one producer** and is pre-zeroed, so
+  assign and accumulate-into-zero are identical. Where the residual stream forks, the summation is
+  **explicit in the owning block** — `GptBlock::backward` does
+  `zero( d_res1_accum_ ); add( d_res1_from_res2, d_res1_from_ln2, ... )` and the same for `d_input_`.
+  Bard converging to coherent Shakespeare is the end-to-end evidence.
+  What is real is an inconsistency worth settling once, pre-1.0. **Four of the six components
+  carrying the comment "backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed
+  buffers" were wrong about their own backend**, in two different ways, and all four were corrected
+  in place 2026-07-28:
+  *The CUDA op assigns, so the zero is redundant there and needed only for the CPU op* — `Residual`
+  (`dA[idx] = grad`), `Gelu` (`dX[i] = local_grad * dY[i]`), and `Linear`'s input gradient
+  (cuBLASLt `beta = 0.0`).
+  *The op never writes the buffer at all* — `Lpe`, whose input is token indices:
+  `CudaLpeOp::backward` documents `input_grad` as "Unused (non-differentiable input)" and never
+  touches it, so **the zero is the only thing standing between the caller and uninitialized memory**,
+  which is the opposite of the stated reason. Its `atomicAdd` is on `wte_grad_`/`wpe_grad_`, the
+  parameter gradients.
+  Left alone as accurate: `LayerNorm` (its CUDA kernel really does `atomicAdd( &dx[...] )` on the
+  input gradient, lines 202/364) and `TokenEmbedding`, whose comment is the model for the rest — it
+  scopes the `atomicAdd` claim to `wte_grad` and states plainly that the input gradient is a
+  non-differentiable formality.
+  **The framing that resolves it — two kinds of gradient buffer, which want opposite contracts:**
+  *parameter* gradients (weight, bias) must accumulate across backward calls, since that is what makes
+  gradient accumulation over micro-batches work, and are cleared by `zeroGradients()` between
+  optimizer steps; *input/activation* gradients are per-call, single-producer, and can simply be
+  assigned. `Linear` already implements exactly this split and is the reference. Deciding it project-
+  wide means either (a) every op accumulates and components pre-zero — uniform, keeps the
+  micro-batch option open, costs a zeroing pass plus a read-modify-write — or (b) ops declare which
+  they do and components zero only for accumulating ops — faster, needs the contract stated per op.
+  Today the tree states (a) and half-implements (b), which pays (a)'s cost without its uniformity.
+  Also worth folding in: the `zero()` on a full-overwrite CUDA op is dead work (two extra kernel
+  launches per Residual backward, ~24 per GPT-2 step).
 - **API Coherence** — the pre-1.0 consistency pass, and the precursor to any API-stability promise
   (RELEASING makes 1.0.0 a separate deliberate decision). 32 `REVIEW:` markers scope it, in four
   groups. *Construction:* factory design for tokenizers (`Tokenizer.ixx:45`), the half-baked

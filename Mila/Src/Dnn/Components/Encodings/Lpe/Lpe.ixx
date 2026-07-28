@@ -202,10 +202,16 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Encoder: owned input-grad buffer not allocated" );
             }
 
-            // Zero input gradient buffer before backward pass. No exeptions.
-            // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed buffers
-            // to prevent gradient buildup across calls. Without this, gradients grow linearly
-            // with each call -> explosion.
+            // Zero the input gradient buffer -- and here that is not hygiene before an
+            // accumulating op, it is the only thing that gives the buffer a value. Lpe's
+            // input is token indices, which are non-differentiable: CudaLpeOp::backward
+            // documents input_grad as "Unused" and never writes it. Without this zero the
+            // buffer returned below would hold uninitialized memory.
+            //
+            // The atomicAdd accumulation in the Lpe kernels targets wte_grad_/wpe_grad_,
+            // the PARAMETER gradients, which is a separate contract: those accumulate
+            // across backward calls and are cleared by zeroGradients() between optimizer
+            // steps.
             zero( *input_grad_ /*, this->getExecutionContext() */);
 
             operation_->backward( input, output_grad, *input_grad_ );

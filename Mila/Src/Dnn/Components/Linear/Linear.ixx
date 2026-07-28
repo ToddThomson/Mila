@@ -227,8 +227,17 @@ namespace Mila::Dnn
             }
             else
             {
-                // Zero before backward: backend ops use accumulation semantics (+=) and
-                // require pre-zeroed buffers to prevent gradient buildup across calls.
+                // Only the INPUT gradient is zeroed here, and the two kinds of gradient
+                // buffer are why. Parameter gradients (weight, bias) deliberately
+                // accumulate ACROSS backward calls -- that is what makes gradient
+                // accumulation over micro-batches work -- and are cleared separately by
+                // zeroGradients() between optimizer steps. The input gradient is per-call
+                // and flows upstream, so it is cleared every time.
+                //
+                // CudaLinearOp matches that split: the weight-gradient GEMM runs with
+                // beta = 1.0 (accumulate) while the input-gradient GEMM runs with
+                // beta = 0.0 (assign), which makes this zeroing redundant on CUDA and
+                // required on CPU.
                 zero( *input_grad_ );
 
                 operation_->backward( input, output_grad, *input_grad_ );

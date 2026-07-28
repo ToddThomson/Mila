@@ -184,6 +184,8 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Transformers/Gemma/Gemma.Cuda.cpp"
         "Dnn/Compute/Operations/OperationTraits.Cuda.cpp"
         "Dnn/Models/GemmaModel.Parity.Cuda.cpp"
+        # Net-new: the FP32 master-parameter path has no coverage in AdamW.Cuda.cpp.
+        "Dnn/Optimizers/AdamW.MixedPrecision.Cuda.cpp"
         "Dnn/Samplers/Sampling.Cuda.cpp"
         "Dnn/Tensors/Tensor.Constructors.Cuda.cpp"
         "Dnn/Tensors/Tensor.DataAccess.Cuda.cpp"
@@ -191,6 +193,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Tensors/Tensor.ShapeTransform.Cuda.cpp"
         "Dnn/Tensors/TensorOps/Fill.Cuda.cpp"
         "Dnn/Tensors/TensorOps/Math.Cuda.cpp"
+        "Dnn/Tensors/TensorOps/Random.Cuda.cpp"
         # split() is CUDA-only (no CpuTensorOps::split), so there is no .Cpu.cpp peer.
         "Dnn/Tensors/TensorOps/Structural.Cuda.cpp"
         "Dnn/Tensors/TensorOps/Zero.Cuda.cpp"

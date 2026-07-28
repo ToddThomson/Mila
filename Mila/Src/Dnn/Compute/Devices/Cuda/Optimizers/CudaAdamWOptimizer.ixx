@@ -16,6 +16,8 @@ module;
 #include <cstdint>
 #include <cuda_runtime.h>
 #include "Kernels/CudaOptimizers.h"
+// Widening the live parameter into its FP32 master copy (mixed precision).
+#include "../Tensors/Operations/Kernels/Transfer.Copy.h"
 
 export module Compute.CudaAdamWOptimizer;
 
@@ -166,18 +168,28 @@ namespace Mila::Dnn::Compute
             m_data_.push_back( reinterpret_cast<float*>(m_state->rawData()) );
             v_data_.push_back( reinterpret_cast<float*>(v_state->rawData()) );
 
-            // REVIEW: This precision check and master parameter logic here is outdated.
-            // Full analysis is required before deciding on the final approach
-
-            // For mixed precision, optionally create master parameters
+            // Mixed precision keeps an FP32 master copy of each reduced-precision
+            // parameter. The master is the authoritative value, not a mirror: the kernel
+            // reads `old_param = master ? master[idx] : (float)params[idx]`
+            // (CudaAdamW.cu), applies the update to it, and writes the narrowed result
+            // back to the parameter. It must therefore START from the parameter's current
+            // values -- it was previously zeroed, which silently discarded the
+            // initialized weights on the first step() and trained every BF16/FP16 model
+            // from zero.
             if constexpr (TPrecision == TensorDataType::FP16 || TPrecision == TensorDataType::BF16)
             {
                 auto master_param = std::make_shared<Tensor<TensorDataType::FP32, MR>>( device, shape );
                 master_param->setName( param->getName() + ".master" );
 
-                // REVIEW: Initialize master param from current param values. Implement copy with type conversion
-                // For now, initialize to zero
-                zero( *master_param );
+                // Widen the live parameter into the master. Uses the same conversion
+                // primitive as the transfer path rather than the typed copy() free
+                // function, because addParameter receives ITensor* and must not assume a
+                // specific memory resource to downcast to.
+                Cuda::launch_convert_copy_kernel<NativeType, float>(
+                    static_cast<const NativeType*>( param->rawData() ),
+                    reinterpret_cast<float*>( master_param->rawData() ),
+                    static_cast<size_t>( param->size() ),
+                    exec_context_->getStream() );
 
                 master_params_.push_back( master_param );
                 master_param_data_.push_back( reinterpret_cast<float*>(master_param->rawData()) );

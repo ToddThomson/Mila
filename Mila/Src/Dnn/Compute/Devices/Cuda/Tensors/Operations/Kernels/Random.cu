@@ -16,6 +16,7 @@ namespace Mila::Dnn::Compute::Cuda
                 data[ idx ] = data[ idx ] * range + min_val;
             }
         }
+
     }
 
     void launch_scale_shift( float* data, size_t n, float min_val, float max_val, cudaStream_t stream )

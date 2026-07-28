@@ -227,10 +227,12 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Gelu::backward: component must be in training mode" );
             }
 
-            // Zero input gradient buffer before backward pass. No exeptions.
-            // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed buffers
-            // to prevent gradient buildup across calls. Without this, gradients grow linearly
-            // with each call -> explosion.
+            // Zero the input gradient buffer before the backward pass, for CpuGeluOp,
+            // which accumulates (dinp[i] += local_grad * dout[i]) and would otherwise grow
+            // its gradient with every call. The CUDA kernel assigns
+            // (dX[i] = local_grad * dY[i]) and does not need this; the two backends
+            // disagree, with no observable difference while the buffer is pre-zeroed and
+            // has a single producer. Tracked as an API Coherence question in BACKLOG.
             zero( *input_grad_ );
 
             operation_->backward( input, output_grad, *input_grad_ );

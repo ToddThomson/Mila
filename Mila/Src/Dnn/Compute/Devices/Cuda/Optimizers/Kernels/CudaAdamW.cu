@@ -311,4 +311,17 @@ namespace Mila::Dnn::Compute
         ptrdiff_t w_stride, ptrdiff_t g_stride, ptrdiff_t s_stride, int num_slices,
         float learning_rate, float beta1, float beta2, int t, float eps, float weight_decay,
         float grad_scale, unsigned int seed, cudaStream_t stream );
+
+    // BF16 instantiations. The kernel body always supported BF16 -- the
+    // stochastic_rounding( float, __nv_bfloat16*, ... ) overload above is written for
+    // exactly this path -- but no instantiation existed, so CudaAdamWOptimizer<BF16>
+    // compiled and then failed to link. Nothing referenced it: the device-agnostic
+    // AdamWOptimizer<Cuda, BF16> could not be instantiated either (see AdamW.ixx), so the
+    // whole BF16 optimizer path was unreachable and the missing symbol never surfaced.
+    template void adamw_update<__nv_bfloat16, __nv_bfloat16>(
+        __nv_bfloat16* params_memory, float* master_params_memory, __nv_bfloat16* grads_memory,
+        float* m_memory, float* v_memory, size_t num_parameters,
+        ptrdiff_t w_stride, ptrdiff_t g_stride, ptrdiff_t s_stride, int num_slices,
+        float learning_rate, float beta1, float beta2, int t, float eps, float weight_decay,
+        float grad_scale, unsigned int seed, cudaStream_t stream );
 }

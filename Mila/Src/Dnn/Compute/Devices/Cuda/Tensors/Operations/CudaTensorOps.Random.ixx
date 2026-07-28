@@ -9,10 +9,14 @@
 
 module;
 #include <cuda_runtime.h>
+#include <cuda_bf16.h>
+#include <cuda_fp16.h>
 #include <curand.h>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include "Kernels/Random.h"
+#include "Kernels/Transfer.Copy.h"
 
 export module Compute.CudaTensorOps:Random;
 
@@ -26,6 +30,7 @@ import Compute.IExecutionContext;
 import Compute.DeviceType;
 //import Compute.DeviceTraits;
 import Compute.DeviceId;
+import Compute.CudaTensorDataType;
 import Core.RandomGenerator;
 
 import Cuda.Helpers;
@@ -34,6 +39,23 @@ import Cuda.Error;
 namespace Mila::Dnn::Compute::Cuda
 {
     using namespace Mila::Dnn::Compute;
+
+    namespace
+    {
+        // cuRAND emits FP32; anything narrower is produced by generating into an FP32
+        // scratch buffer and converting. FP32/BF16/FP16 have that conversion; the FP8 and
+        // packed-FP4 types do not, and are rejected at compile time rather than narrowed
+        // silently -- train-from-scratch into a 4-bit weight is not a meaningful request,
+        // and the `is_float_type` constraint alone would otherwise admit it.
+        // The message each use sites passes to static_assert is spelled out there rather
+        // than shared from a constant: static_assert's operand must be a string literal
+        // until C++26, so a named const char* is a syntax error, not a factoring.
+        template<typename TNative>
+        inline constexpr bool kIsSupportedRandomType =
+            std::is_same_v<TNative, float> ||
+            std::is_same_v<TNative, __nv_bfloat16> ||
+            std::is_same_v<TNative, __half>;
+    }
 
     export struct RandomOps
     {
@@ -56,8 +78,10 @@ namespace Mila::Dnn::Compute::Cuda
          * @param stddev Standard deviation of the normal distribution.
          * @param exec_context Optional execution context for stream and generator reuse (borrowed, not owned).
          *
-         * @note Only FP32 native tensors are currently supported. FP16/BF16 require a
-         *       temporary float buffer with a subsequent conversion pass (not yet implemented).
+         * BF16 and FP16 tensors are generated into an FP32 scratch buffer and narrowed by
+         * launch_convert_copy_kernel; FP32 generates in place. FP8 and FP4 are a compile
+         * error rather than a silent narrowing -- see the static_assert below.
+         *
          * @throws std::runtime_error On cuRAND or CUDA failure.
          */
         template<TensorDataType TDataType, typename TMemoryResource>
@@ -68,6 +92,13 @@ namespace Mila::Dnn::Compute::Cuda
             float stddev,
             IExecutionContext* exec_context = nullptr )
         {
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
+            static_assert( kIsSupportedRandomType<NativeType>,
+                "CudaTensorOps random fills support FP32, BF16 and FP16 only. FP8 and FP4 tensors "
+                "are quantized from a loaded checkpoint, not randomly initialized." );
+
+            constexpr bool kIsFp32 = std::is_same_v<NativeType, float>;
+
             size_t n = static_cast<size_t>( tensor.size() );
             if ( n == 0 )
                 return;
@@ -100,17 +131,24 @@ namespace Mila::Dnn::Compute::Cuda
 
             // curandGenerateNormal requires an even count (Box-Muller pairs).
             size_t gen_count = n + (n & 1);
-            float* gen_dst = static_cast<float*>(raw_dst);
-            float* temp_buf = nullptr;
 
-            if ( n & 1 )
+            // Two independent reasons to generate somewhere other than the tensor:
+            // an odd count needs one element of padding, and a non-FP32 tensor cannot
+            // receive cuRAND output at all -- its buffer is half (BF16/FP16) the size of
+            // the FP32 values cuRAND writes, so generating in place overruns it.
+            const bool needs_scratch = !kIsFp32 || (n & 1);
+
+            float* temp_buf = nullptr;
+            float* gen_dst = static_cast<float*>(raw_dst);
+
+            if ( needs_scratch )
             {
                 cudaError_t err = cudaMalloc( &temp_buf, gen_count * sizeof(float) );
 
                 if ( err != cudaSuccess )
                 {
                     if ( owns_gen ) curandDestroyGenerator( gen );
-                    throw std::runtime_error( "cudaMalloc failed for normal distribution padding buffer" );
+                    throw std::runtime_error( "cudaMalloc failed for normal distribution scratch buffer" );
                 }
 
                 gen_dst = temp_buf;
@@ -127,7 +165,18 @@ namespace Mila::Dnn::Compute::Cuda
 
             if ( temp_buf )
             {
-                cudaMemcpyAsync( raw_dst, temp_buf, n * sizeof(float), cudaMemcpyDeviceToDevice, stream );
+                if constexpr ( kIsFp32 )
+                {
+                    cudaMemcpyAsync( raw_dst, temp_buf, n * sizeof(float), cudaMemcpyDeviceToDevice, stream );
+                }
+                else
+                {
+                    Cuda::launch_convert_copy_kernel<float, NativeType>(
+                        temp_buf, static_cast<NativeType*>(raw_dst), n, stream );
+                }
+
+                // cudaFree synchronizes the device, so the async copy/convert above has
+                // completed before the scratch buffer goes away.
                 cudaFree( temp_buf );
             }
 
@@ -157,7 +206,10 @@ namespace Mila::Dnn::Compute::Cuda
          * @param max_val Upper bound of the uniform range (exclusive).
          * @param exec_context Optional execution context for stream and generator reuse (borrowed, not owned).
          *
-         * @note Only FP32 native tensors are currently supported.
+         * BF16 and FP16 tensors are generated and scaled in an FP32 scratch buffer, then
+         * narrowed; FP32 works in place. The scale/shift happens before the narrowing so
+         * the arithmetic runs at full precision and only the final value is rounded.
+         *
          * @throws std::runtime_error On cuRAND or CUDA failure.
          */
         template<TensorDataType TDataType, typename TMemoryResource>
@@ -168,6 +220,13 @@ namespace Mila::Dnn::Compute::Cuda
             float max_val,
             IExecutionContext* exec_context = nullptr )
         {
+            using NativeType = typename Cuda::TensorDataTypeMap<TDataType>::device_type;
+            static_assert( kIsSupportedRandomType<NativeType>,
+                "CudaTensorOps random fills support FP32, BF16 and FP16 only. FP8 and FP4 tensors "
+                "are quantized from a loaded checkpoint, not randomly initialized." );
+
+            constexpr bool kIsFp32 = std::is_same_v<NativeType, float>;
+
             size_t n = static_cast<size_t>( tensor.size() );
             if ( n == 0 )
                 return;
@@ -198,18 +257,49 @@ namespace Mila::Dnn::Compute::Cuda
                 owns_gen = true;
             }
 
+            // A non-FP32 tensor cannot receive cuRAND output: its buffer is half the size
+            // of the FP32 values cuRAND writes, so generating in place overruns it.
+            float* temp_buf = nullptr;
             float* dst = static_cast<float*>( raw_dst );
+
+            if constexpr ( !kIsFp32 )
+            {
+                cudaError_t err = cudaMalloc( &temp_buf, n * sizeof(float) );
+
+                if ( err != cudaSuccess )
+                {
+                    if ( owns_gen ) curandDestroyGenerator( gen );
+                    throw std::runtime_error( "cudaMalloc failed for uniform distribution scratch buffer" );
+                }
+
+                dst = temp_buf;
+            }
 
             curandStatus_t status = curandGenerateUniform( gen, dst, n );
 
             if ( status != CURAND_STATUS_SUCCESS )
             {
+                if ( temp_buf ) cudaFree( temp_buf );
                 if ( owns_gen ) curandDestroyGenerator( gen );
                 throw std::runtime_error( "curandGenerateUniform failed" );
             }
 
-            // Scale generated [0, 1) values to [min_val, max_val).
+            // Scale generated [0, 1) values to [min_val, max_val) at FP32, then narrow.
             Cuda::launch_scale_shift( dst, n, min_val, max_val, stream );
+
+            // if constexpr, not a runtime test on temp_buf: launch_convert_copy_kernel
+            // has no <float, float> instantiation, so on the FP32 instantiation a runtime
+            // guard would still have to compile a call that does not link. The scratch
+            // buffer is allocated unconditionally above whenever the type is not FP32, so
+            // reaching here on that branch means temp_buf is non-null.
+            if constexpr ( !kIsFp32 )
+            {
+                Cuda::launch_convert_copy_kernel<float, NativeType>(
+                    temp_buf, static_cast<NativeType*>(raw_dst), n, stream );
+
+                // cudaFree synchronizes the device, so the convert above has completed.
+                cudaFree( temp_buf );
+            }
 
             if ( owns_gen )
                 curandDestroyGenerator( gen );
