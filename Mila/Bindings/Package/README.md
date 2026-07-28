@@ -1,6 +1,6 @@
 # mila-llm
 
-The LLM stack you can read.
+The LLM stack you can read and understand.
 
 Mila is a C++23/CUDA runtime for open large language models — inference and
 training, built from explicit neural-network components. Device and precision are

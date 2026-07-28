@@ -46,12 +46,22 @@ def _register_cuda_dll_directories() -> list[str]:
     install on PATH still fails with a bare "DLL load failed", a message that names
     neither the missing library nor the reason.
 
-    Two sources. NVIDIA's own PyPI wheels (nvidia-cublas, nvidia-curand) are
-    registered first, since they are what this package's dependencies pinned. An
-    installed CUDA Toolkit is registered after them as a backstop -- deliberately as
-    well as, not instead of: a partial wheel install (one library present, another
-    missing) would otherwise fail to load while a perfectly good toolkit sat unused.
-    With both dependencies installed the toolkit is never reached.
+    Two sources. NVIDIA's own PyPI wheels (nvidia-cublas, nvidia-curand) are what
+    this package's dependencies pinned; an installed CUDA Toolkit is a backstop, so
+    that a partial wheel install degrades instead of failing while a perfectly good
+    toolkit sits unused.
+
+    Registering both is not enough to make the wheels win. The directories added by
+    os.add_dll_directory are searched in an UNSPECIFIED order relative to each other,
+    and measurement showed the toolkit winning: with both present, cublasLt64_13.dll
+    resolved to CUDA v13.3 rather than to site-packages. A wheel install silently
+    binding to whatever toolkit happens to be on the machine is exactly the outcome
+    the dependency pins exist to prevent.
+
+    So the wheel's DLLs are LOADED here, not merely made findable. Windows resolves a
+    dependency by base name against what is already in the process, so once
+    cublasLt64_13.dll is loaded from site-packages the extension gets that one. Same
+    approach PyTorch takes on Windows.
 
     Returns the directories registered. Empty off Windows, where the loader's normal
     search path resolves the .so.
@@ -59,13 +69,35 @@ def _register_cuda_dll_directories() -> list[str]:
     if _os.name != "nt":
         return []
 
+    wheel_directories = _nvidia_wheel_directories()
     registered: list[str] = []
 
-    for directory in _nvidia_wheel_directories() + _toolkit_directories():
+    # Register everything first: a preloaded DLL may itself pull in siblings.
+    for directory in wheel_directories + _toolkit_directories():
         _os.add_dll_directory(str(directory))
         registered.append(str(directory))
 
+    _preload(wheel_directories)
+
     return registered
+
+
+def _preload(directories: "list[_Path]") -> None:
+    """
+    Load every DLL in the given directories, making those copies authoritative.
+
+    Best effort by design: a library that fails to load here is skipped rather than
+    raised on, because it may be one the extension never needs, and the real error
+    -- with real context -- belongs to the extension import below.
+    """
+    import ctypes
+
+    for directory in directories:
+        for library in sorted(directory.glob("*.dll")):
+            try:
+                ctypes.WinDLL(str(library))
+            except OSError:
+                continue
 
 
 def _nvidia_wheel_directories() -> list[_Path]:

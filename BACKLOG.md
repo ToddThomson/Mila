@@ -646,9 +646,23 @@ good-first-issue.
   finds directories by searching for `*.dll` (survives the next reorganisation and the aarch64 split)
   and registers the Toolkit *as well as* the wheels, so a partial wheel install degrades instead of
   failing.
+  **TestPyPI dry run done 2026-07-28** — `mila-llm` 0.20.0b2 uploaded, metadata correct (markdown
+  README, MIT expression, `requires-python`, all three URLs), and installed from the index into a
+  clean venv, which pulls `nvidia-cublas` 13.6.0.2 (394 MB), `nvidia-curand` 10.4.3.29 and the
+  transitive `nvidia-cuda-nvrtc` 13.3.33, then runs a model.
+  **Second bug the verification caught, and it inverted the design comment:** registering both the
+  wheel directories and the Toolkit is NOT enough to make the wheel's copies win —
+  `os.add_dll_directory` searches added directories in an *unspecified* order, and measurement
+  (`GetModuleFileNameW` on the live process) showed `cublasLt64_13.dll` resolving to the machine's
+  CUDA v13.3 rather than site-packages. A wheel install silently binding to whatever toolkit is
+  present is what the dependency pins exist to prevent. Fixed by *loading* the wheel's DLLs at import
+  rather than merely making them findable — Windows resolves dependencies by base name against what
+  is already in the process, the same approach PyTorch takes. Re-measured: both now resolve to
+  site-packages, and generation runs on cuBLAS 13.6 rather than the Toolkit's 13.3.
   **Remaining:** whether the samples ship inside the wheel as `mila-chat` / `mila-generate` console
-  scripts (a scope decision, not engineering); a TestPyPI dry run; Trusted Publishing from CI; and
-  the cp314 / manylinux build matrix. Naming rationale and the multi-backend argument are in the spec.
+  scripts (a scope decision, not engineering); Trusted Publishing from CI; the cp314 / manylinux
+  build matrix; and the real-PyPI publish call. Naming rationale and the multi-backend argument are
+  in the spec.
 - [x] Python samples — `Mila/Samples/Python/`: `chat.py` (Gemma 4 streaming chat: instruct template,
   token loop, channel filter, cooperative Ctrl-C through `StopController`), `generate.py` (tokenizer
   round-trip + sampling knobs, Gemma or Llama, `--fp8` exercising the defect fix above), `common.py`

@@ -7,7 +7,7 @@ name = "mila-llm"
 # PEP 440 normalization of Mila's own scheme: Version.txt 0.20.0-beta.2 -> 0.20.0b2.
 # The +N build counter is deliberately dropped -- PyPI rejects local version labels.
 version = "0.20.0b2"
-description = "The LLM stack you can read: Gemma 4 and Llama on CUDA, built from explicit C++23 components."
+description = "The LLM stack you can read and understand: Gemma 4 and Llama on CUDA, built from explicit C++23 components."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 license = "MIT"
