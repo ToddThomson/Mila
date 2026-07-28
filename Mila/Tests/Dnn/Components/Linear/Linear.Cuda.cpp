@@ -43,10 +43,10 @@ import Mila;
 // concrete ExecutionContext<Cuda> methods (getCublasLtHandle, etc.). The Mila
 // umbrella does not complete that type for a consumer TU, so import it directly.
 import Compute.ExecutionContext;
-// Same reason: the weight-quant policy structs (PerChannelFp8 / PerGroupFp4) and the
-// serialization blob types (TensorMetadata / TensorBlobView) are not re-exported through
-// the Mila umbrella, so import their modules directly (clang requires it; MSVC did not).
-import Dnn.Quantization.Weight.Policies;
+// Same reason: the serialization blob types (TensorMetadata / TensorBlobView) are not
+// re-exported through the Mila umbrella, so import that module directly (clang requires
+// it; MSVC did not). The weight-quant policies used to need this too and no longer do --
+// Mila.ixx exports them.
 import Serialization.Tensor;
 
 namespace Mila::Tests::Dnn::Components::Linear
@@ -671,6 +671,20 @@ namespace Mila::Tests::Dnn::Components::Linear
     // relative to each token's own scale. The test stays valid with
     // kUseFp8ActivationPrefill=false (BF16 staging GEMM vs matvec, passes with
     // margin), so it does not depend on the toggle state.
+    //
+    // Budget: 1e-1 * row_absmax. Derived, not guessed -- a bit-faithful CPU model of
+    // both paths on this exact fixture (FP4 group quantize, FP4->FP8 upcast with the
+    // per-tensor sB, per-token BF16->FP8 activation quantize, FP32 accumulate, BF16
+    // epilogue) puts the worst correct-path deviation at 0.061 * row_absmax, spread
+    // 2.5x across rows. The original 5e-2 was calibrated against the BF16 staging path
+    // (worst 0.0073, a 7x margin) and was never re-derived when W4A8-FP8 shipped ON,
+    // where FP8 weights and FP8 activations contribute error in roughly equal shares
+    // and neither dominates. 1e-1 keeps ~1.6x headroom over the modelled worst while
+    // staying far tighter than any real regression: per-tensor activation scaling,
+    // a stale/degenerate sB, and a swapped nibble packing order overshoot it by
+    // 10x, 10x and 32x respectively. Anchoring the budget on the row's L1 reference
+    // mass instead of its absmax was measured and rejected -- same 2.6x row spread,
+    // so it buys nothing for a less obvious quantity.
     TEST( LinearCudaQuantizedTests, Forward_Fp4PrefillMatchesDecodeAcrossTokenMagnitudes )
     {
         using QuantizedLinear =
@@ -772,7 +786,7 @@ namespace Mila::Tests::Dnn::Components::Linear
                 row_absmax = std::max( row_absmax, std::fabs( decode_host.data()[ n ] ) );
             }
 
-            const float tolerance = 5e-2f * row_absmax;
+            const float tolerance = 1e-1f * row_absmax;
 
             for ( int64_t n = 0; n < kFp8OutFeatures; ++n )
             {

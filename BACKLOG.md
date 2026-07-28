@@ -47,17 +47,50 @@ good-first-issue.
   backward stub, BF16 Swiglu backward dtype, GptBlock composed gradient). The Softmax stub is not
   missing code — `CudaSoftmaxOp.ixx:73` deliberately throws `"needs review"` with the real
   `cuda_softmax_backward<float>` call commented out; the FP16 twin at `:103` is the same.
+- [x] **`Structural` (`split`) backfill — and it found a memory-safety defect.** Verified green 2026-07-28.
+  `Tests/Dnn/Tensors/TensorOps/Structural.Cuda.cpp` covers both overloads, the null-context default
+  stream, and every documented precondition throw. No `.Cpu.cpp` peer: `split` is CUDA-only (there is
+  no `CpuTensorOps::split`), so the spec's "CPU file + `.Cuda.cpp` companion" pattern does not apply
+  here — a CPU instantiation would not compile.
+  **The defect: `StructuralOps::split` validated a flat `D % 4` for both precisions, but the two
+  kernels move one 16-byte vector per thread — `float4` is 4 elements, `uint4` is 8 BF16.** A BF16
+  slice width of 4 therefore passed validation, then ran the kernel's `D0/8` index arithmetic on a
+  truncated quotient and stored eight elements into a four-element output row: an out-of-bounds write,
+  not merely a wrong result. Unreachable from the shipped models (Gemma/Llama fused projections are all
+  multiples of 8), which is why it survived. Fixed by keying the alignment off the element width
+  (`kVectorElements = 16 / sizeof(T)`); both docstrings said "multiples of 4" and now state the rule.
+  Three regression tests pin it.
 - [~] Core `Tensor.ixx` coverage to the value-type archetype — remaining: `TensorOps.Transfer`
-  device-split, `Structural`(`split`) backfill, and the wider `Tensors/` tree (`TensorBuffer`,
+  device-split, and the wider `Tensors/` tree (`TensorBuffer`,
   `TensorDataType*` maps, `Partitioning`, `Serialization`). See `Specifications/Testing.Tensors.md`.
   Eight `REVIEW:` markers name the specific contracts to pin: Copy as a no-op on empty tensors and on
   scalars (`TensorOps.Transfer.ixx:92`); context/device compatibility and the device-ID logic on the
   CUDA transfer path (`CudaTensorOps.Transfer.ixx:132,140,276`); sub-byte/packed FP4 sizing
   (`Tensor.ixx:267`, `TensorBuffer.ixx:78`); the size helper duplicated from `TensorBuffer`
   (`Tensor.ixx:83`); and the moved-from state (`Tensor.ixx:479`).
-- [ ] Backfill inference-drought coverage — load-time quantization (`PerChannelFp8`/`PerGroupFp4`,
+- [~] Backfill inference-drought coverage — load-time quantization (`PerChannelFp8`/`PerGroupFp4`,
   decode matvec kernels), `OperationTraits` dispatch, the Llama path. The `CudaLinearOp` quantization
   white-box is the sole legitimate op-layer test (unreachable through the public component).
+  **`OperationTraits` dispatch DONE 2026-07-28** — `Tests/Dnn/Compute/Operations/OperationTraits.cpp`
+  (+ `.Cuda.cpp`). The compile-time seam every component resolves its op through had no direct test at
+  all. Written as `static_assert`s, not runtime checks: the contract under test *is* the compile-time
+  one, so a regression fails the build rather than a binary, and the CPU half rides the CPU-only CI
+  ratchet. Deliberately never names a concrete op class — those are not re-exported through the
+  umbrella, and pinning them would couple the test to internal naming instead of to the dispatch
+  contract. What it pins: the `OperationSupported` predicate returning **false rather than
+  hard-erroring** (the seam a multi-precision typed test needs, and which only holds while the primary
+  stays undefined); every registered row on both devices; that the policy axis is part of the key
+  (`LinearOp` under the default `void` policy must *not* resolve, a weight policy must not satisfy
+  GQA's KV axis, an unregistered `PerGroupFp4<32>` group size must fail); and that distinct policies
+  and precisions resolve to **distinct types**, which is what stops a policy being accepted and then
+  quietly dispatching to the wrong kernel. Deliberate absences are pinned as contract too, so removing
+  one is a visible edit: no BF16 anywhere on CPU, no Llama-lineage CPU ops, no CPU GQA, no
+  `PerChannelKvFp8` (Qwen 3), no `PerGroupFp4` token embedding.
+  **Surfaced by writing it — the odd row in the whole table: `LayerNormOp` CUDA is registered at FP32
+  and FP16 and *not* BF16**, while BF16 is the primary target and FP16 is slated for removal. Deleting
+  the FP16 row under "Remove FP16" leaves CUDA LayerNorm FP32-only. Pinned by a `static_assert` so that
+  work has to confront it rather than discover it. Remaining in this item: the load-time quantization
+  white-box and the Llama path.
 - [~] Re-green in sample-revival order — MNIST spine mostly landed; remaining: the `Core/Network.cpp`
   delta, GPU companions (`Network.Cuda`/`AdamW.Cuda`), then the Bard GPT-2 stack tail.
 - [ ] Retire the redundant op-layer mirror tests — out of the CMake build; files kept on disk pending
@@ -65,7 +98,13 @@ good-first-issue.
 - [ ] Backward-path kernels disabled or unverified behind `REVIEW:` markers — `CudaSoftmaxOp.ixx:73`
   and `:103` throw `"needs review"` with the real calls commented out; `Gelu.Fp32.cu:65` records that
   the shipped backward is not the numerically stable `sech^2` form. Gradient-check these before the
-  suite can claim backward coverage.
+  suite can claim backward coverage. **Raised in priority 2026-07-28 by the RoPE FP32 finding above:
+  that backward was not merely unverified, it was arithmetically wrong in the first component of every
+  rotated pair, in a kernel carrying no `REVIEW:` marker at all and sitting beside a correct helper it
+  never called.** The marked kernels are the known unknowns; the RoPE defect says the unmarked backward
+  kernels need the same finite-difference sweep, not just the flagged ones. `Rope.Bf16.cu` being correct
+  while `Rope.Fp32.cu` was not also means per-precision twins must be checked independently — a green
+  BF16 case is not evidence for its FP32 sibling.
 - [x] `CudaResidualOp.ixx:116-117` — `input_A` / `input_B` in the backward signature: **answered, the
   parameters are dead and permanently so.** `ConnectionType` has exactly one enumerator, `Addition`, so
   both partial derivatives of `A + B` are constant and the gradient depends on the output gradient alone.
@@ -91,21 +130,66 @@ good-first-issue.
   (atomicAdd/+=)" (`Residual.ixx:182`) — true of `CpuResidualOp` (`dX1[i] += dY[i]`), false of
   `CudaResidualOp`, whose kernel assigns (`dA[idx] = grad`). Harmless today only because the component
   always zeroes first; the stated contract matches half the backends. Pick one and make both obey it.
-- [ ] **Known-red CUDA tests (5) — beta-phase cleanup.** Surfaced by `x64-validate` ctest at the
-  beta.1 cut (1417/1418 pass); all CUDA-path, so invisible to the CPU-only CI ratchet. Accepted
-  non-blocking for beta.1; triage in the beta ladder (inference-path first):
-  - `LinearCudaQuantizedTests.Forward_Fp4PrefillMatchesDecodeAcrossTokenMagnitudes` — FP4 prefill-vs-
-    decode parity across token magnitudes; **inference / flagship FP4 path — triage first** (Gemma FP4
-    validated token-for-token vs HF end-to-end, so likely a strict cross-path tolerance, not a live break).
-  - `BpeTokenizerGemma.Encode_StartOfTurn_IsSingleAtomicToken` — **ROOT CAUSE FOUND** (marker at
-    `Tests/Data/Tokenizers/Bpe/BpeTokenizer.Gemma.cpp:163`): the test is wrong, not the code. The Gemma 4
-    tokenizer binary has no `<start_of_turn>` token — it uses `<|turn>` / `<turn|>`. Fix the assertion.
-  - `RopeCudaTests.Backward_InverseRotationRecoversInput<Fp32>` — RoPE backward inverse-rotation recovery;
-    backward/training path (inference uses forward only).
-  - `LinearCudaTests.Backward_MatchesReferenceGradients<Bf16>` — BF16 Linear backward gradient match;
-    likely backward-path tolerance/precision.
-  - `DeviceRegistryTest.ThreadSafeDeviceOperations` — device-registry concurrency; confirm reproducible
-    (suspect flaky) before chasing a real thread-safety gap.
+- [x] **Known-red CUDA tests (5) — CLOSED 2026-07-28, suite verified green in one pass (VS2026).**
+  Surfaced by `x64-validate` ctest at the beta.1 cut (1417/1418 pass); all CUDA-path, so invisible to
+  the CPU-only CI ratchet. Accepted non-blocking for beta.1, triaged and fixed in one session.
+  **Two of the five were defects in the *test*, one was a defect in a *shipped kernel*, one was a
+  stale budget, and one was an unimplemented kernel that threw — the recorded "suspect flaky" and
+  "likely tolerance" priors were wrong in three of five cases. Worth carrying into the next triage:
+  a red numerics test is not by itself evidence of a numerics problem.**
+  - [x] `LinearCudaQuantizedTests.Forward_Fp4PrefillMatchesDecodeAcrossTokenMagnitudes` — **stale
+    tolerance, not a live break.** A bit-faithful CPU model of both paths on this exact fixture (FP4
+    group quantize -> FP4->FP8 upcast with the per-tensor `sB` -> per-token BF16->FP8 activation
+    quantize -> FP32 accumulate -> BF16 epilogue, against the W4A16 decode matvec) puts the worst
+    correct-path deviation at **0.061 * row_absmax** against the test's 5e-2 budget — red by 1.22x,
+    with 90 of 4096 comparisons over. The 5e-2 was calibrated for `kUseFp8ActivationPrefill=false`
+    (BF16 staging, worst 0.0073, a 7x margin) and never re-derived when W4A8-FP8 shipped ON in
+    `8724aa68`; the model reproduces that 7x control margin exactly, which is what calibrates it.
+    Weight-FP8 and activation-FP8 rounding contribute in roughly equal shares, so there is no single
+    kernel lever. Budget raised to **1e-1 * row_absmax** (~1.6x headroom) after confirming the test
+    still discriminates: per-tensor activation scaling, a stale/degenerate `sB`, and a swapped nibble
+    packing order overshoot the new budget by 10x, 10x and 32x. Anchoring on the row's L1 reference
+    mass instead of absmax was measured and rejected (same 2.6x row spread, less obvious quantity).
+  - [x] `BpeTokenizerGemma.Encode_StartOfTurn_IsSingleAtomicToken` — the test was wrong, not the code;
+    confirmed against `BpeVocabulary.ixx:1465`, which registers `<|turn>`/`<turn|>` and friends.
+    Replaced by `Encode_ControlTokens_AreSingleAtomicTokens` (sweeps all eleven registered Gemma 4
+    control tokens) plus `Encode_Gemma3TurnMarkers_AreNotInTheVocabulary`, which pins the Gemma 3 ->
+    Gemma 4 protocol change the old test asserted backwards.
+  - [x] `RopeCudaTests.Backward_InverseRotationRecoversInput<Fp32>` — **a real defect in a shipped
+    kernel, not a test problem.** `Rope.Fp32.cu` defines a correct `rotate_pair<negate_sin>` helper and
+    then never calls it: both `rope_rotate_kernel` and `rope_decode_kernel` open-code the rotation.
+    `rope_rotate_kernel`'s backward branch patched only `r1` and left `r0 = x0*c - x1*s` — the *forward*
+    formula — so the round trip returned `x0*cos(2t) - x1*sin(2t)` in the first component of every pair
+    instead of `x0`. `rope_decode_kernel` is worse: templated on `negate_sin` and ignoring it entirely.
+    The BF16 twin (`Rope.Bf16.cu`) writes both branches correctly, which is exactly why only `<Fp32>`
+    was red — BF16's 5e-2 budget is not the reason, its kernel was simply right. Both FP32 kernels now
+    call `rotate_pair<negate_sin>`. **RoPE backward has therefore never been correct in FP32**; the
+    decode-kernel half is inference-reachable in principle but only ever instantiated with
+    `negate_sin=false`, so no shipped inference path was affected.
+  - [x] `DeviceRegistryTest.ThreadSafeDeviceOperations` — **the race was in the test harness, not the
+    registry.** `std::vector<bool> results` is the packed-bit specialization, so twenty threads writing
+    distinct indices were doing read-modify-write on the same words and losing each other's results —
+    a textbook lost update, and the exact signature of the "fails intermittently" marker that sat on
+    the test. Switched to `std::vector<char>`, where distinct elements are distinct memory locations.
+    Note this means the test never actually exercised what it claims to; it should be watched for a
+    while before the registry's own thread-safety is considered evidenced.
+  - [x] `LinearCudaTests.Backward_MatchesReferenceGradients<Bf16>` — **not tolerance: the BF16 bias
+    gradient was an unimplemented stub that threw.** `compute_bias_gradient`
+    (`CudaLinearOp.Plans.ixx:150`) threw `std::logic_error( "Bias gradient for bfloat16 not yet
+    implemented" )`; the test builds with bias, so `bias_grad_ != nullptr` and backward threw outright.
+    FP32 passed only because `cuda_reduce_sum_batch_fp32` exists. The consequence was wider than the
+    single red test: **BF16 `Linear` could not train with bias at all.** Implemented 2026-07-28 (Todd's
+    scope call) as `cuda_reduce_sum_batch_bf16` in `Kernels/MatMul/CudaReduction.cu`, declared in
+    `Linear.cuh` where the commented-out stub had sat. One block per 32-column tile, `blockDim (32,
+    vstep)`, so consecutive lanes read consecutive columns and the strided row walk stays coalesced;
+    a bounds guard placed around the accumulation loop only (never around the `__syncthreads()`) lets
+    it handle any `out_features`, so it needs no fallback twin like the FP32 pair. **It accumulates in
+    FP32 and converts once on the final store — a BF16 running sum would be wrong rather than merely
+    imprecise, since with 8 mantissa bits a term more than 256x below the partial leaves the partial
+    unchanged and a long batch silently stops accumulating.** Follows the `+=` contract the FP32
+    kernels and `Linear::backward` already assume. FP16 deliberately still throws: it is scoped by the
+    "Remove FP16" trace in Production Hardening, and the `REVIEW:` marker at that declaration now says
+    so instead of asking whether the function is needed.
 - [x] Gradient-check archetype (finite-difference numeric backward) — shared `Common/GradientCheck.h`
   fanned out across the training spine; MHA backward exonerated. Validated VS2026 2026-07-02.
 - [x] Verify the full suite green in one pass (CPU-only `MILA_ENABLE_CUDA=OFF` + the CUDA build).
@@ -292,6 +376,31 @@ good-first-issue.
   landed (declaration-only primary + `OperationSupported<...>` predicate); optional named kernel
   concepts + `OperationDispatch.md` §12 reconcile remain.
 - [ ] Add the Samples build to CI (only tests build today).
+- [x] **The quantization policies were public API in practice but absent from the umbrella — fixed
+  2026-07-28.** A consumer writing `Linear<Cuda, BF16, PerChannelFp8<>>` — the compile-time
+  weight-quantization axis CLAUDE.md documents as a headline design feature — had to
+  `import Dnn.Quantization.Weight.Policies` directly, because `Mila.ixx` re-exported neither it nor
+  `Dnn.Quantization.KvCache.Policy`. **The governing rule is the one already recorded when the export
+  surface was frozen: a type in a public template's interface must be visible, not merely reachable,
+  at instantiation.** `TWeightQuantization` is `Linear`'s third template parameter and `TKvPolicy` is
+  GQA's, so the omission contradicted that principle rather than expressing it. Both are now
+  `export import`ed.
+  **Why it hid for so long — it failed asymmetrically, and per compiler.** `Linear<Cuda, BF16>`
+  compiled fine, because a *default* template argument only needs its type reachable; only the
+  explicit spelling broke. And MSVC surfaced the policies transitively through `import Mila` in any TU
+  that instantiated a component, while clang did not (non-export imports are not transitive) — so six
+  test files carried an explicit import as a **clang portability workaround**, each with a comment
+  saying so. The real export removes the workaround on both compilers; all six were dropped, keeping
+  the `Serialization.Tensor` half of two of those comments, which is a separate un-exported module and
+  still needed. Surfaced by a build break in the new dispatch contract tests, which name a policy
+  without instantiating a component and so hit the gap on MSVC too.
+  **Deliberately NOT bundled with the `IExecutionContext` item below.** They look like one question
+  but resolve in opposite directions: policies needed *adding*, whereas `IExecutionContext` is
+  exported with no consumer path and wants either removal or a real `fromPretrained` overload.
+  Widening carries none of the risk measured for narrowing (Production Hardening).
+  Remaining, if the umbrella is ever audited as a whole: `Serialization.Tensor` and
+  `Compute.ExecutionContext` are both imported directly by consumer tests for the same class of
+  reason.
 - [ ] **`IExecutionContext` is exported but unreachable in practice.** `Mila.ixx` re-exports
   `Compute.IExecutionContext` and `Compute.ExecutionContextFactory` as public API, but no model
   factory accepts one — `GemmaModel/LlamaModel/GptModel::fromPretrained` take a `DeviceId`
@@ -522,6 +631,17 @@ to the current release.
   `summary_large_image`** — the share card was never cut; and the light-theme UI teal is a
   darkened `#0d818c` (4.64:1 for link text) which is deltaE 9.9 from the mark's own `#0f9aa8`,
   accepted 2026-07-26 as logo-ink-vs-interface-ink rather than resolved.
+  ALSO OPEN (2026-07-27): **`Web/static/achilles.png` is orphaned but still published.** Nothing
+  under `Web/layouts/` references it -- it survives only as this entry and as the provenance comment
+  in `mila-mark.svg:4` -- yet living in `static/` means Hugo copies it to the site root, so the
+  retired mark is still served at `https://mila.toddt.me/achilles.png`. Keep it in the repo (it is
+  the trace source the SVG cites); move it to a tracked path outside `Web/static/`. Not
+  `.internal/Marketing/Brand/`, which is gitignored.
+  NOT a defect, recorded so it is not rediscovered as one: Search Console's property switcher shows
+  the old Achilles icon for `https://mila.toddt.me/`. That is Google's favicon cache from a crawl
+  predating `6f11a5f1` (which is where `favicon.ico`/`icon.png` were first added -- before it the
+  site's only icon was `achilles.png`). The live icons byte-match the repo; the favicon index
+  refreshes on its own cadence, separate from the page index.
   Original framing, for the record: SUPERSEDES the 2026-07-23 decision
   ("the Achilles mark with the dot removed, no redesign"), reversed 2026-07-25 on two grounds: the
   original **vector source was never found** — the old business assets were purged, and everything

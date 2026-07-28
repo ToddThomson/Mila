@@ -204,6 +204,19 @@ export import Dnn.Components.TokenEmbedding;
 // Compute - Base note) -- consumers instantiating any component need it visible.
 export import Compute.OperationTraits;
 
+// The quantization policies are PUBLIC for the same reason, and the rule is the one recorded
+// when the export surface was frozen: a type in a public template's interface must be VISIBLE,
+// not merely reachable, at instantiation. TWeightQuantization is Linear's third template
+// parameter and TKvPolicy is GroupedQueryAttention's, so both policy families are part of a
+// public interface.
+//
+// The omission was easy to miss because it fails asymmetrically: `Linear<Cuda, BF16>` compiles
+// through this umbrella since a DEFAULT template argument only needs its type reachable, while
+// `Linear<Cuda, BF16, PerChannelFp8<>>` -- the spelling the quantization design is documented in
+// terms of -- did not, until these two lines.
+export import Dnn.Quantization.Weight.Policies;
+export import Dnn.Quantization.KvCache.Policy;
+
 export import Dnn.Components.Linear;
 
 export import Dnn.Components.Residual;

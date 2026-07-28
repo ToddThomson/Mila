@@ -1,4 +1,5 @@
 #include <cuda_runtime.h>
+#include <cuda_bf16.h>
 #include "device_launch_parameters.h"
 #include "CudaUtils.h"
 #include <stdexcept>
@@ -125,6 +126,81 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             reduce_sum_batch_fallback<<<grid_size, block_size, block_size * sizeof( float ), stream>>>(
                 bias_grad, output_grad, batch_size, out_features );
         }
+
+        cudaCheck( cudaGetLastError() );
+    }
+
+    /**
+     * @brief BF16 bias gradient reduction: dbias[out] += sum over the batch of dY[row, out].
+     *
+     * One block per 32-column tile, blockDim (32, vstep): consecutive lanes read
+     * consecutive columns, so the strided row walk stays coalesced. The bounds guard
+     * covers an out_features that is not a multiple of 32, which is why this needs no
+     * fallback twin like the FP32 pair above.
+     *
+     * The reduction accumulates in FP32 and converts once on the final store. A BF16
+     * running sum would be wrong, not merely imprecise: with 8 mantissa bits, adding a
+     * term more than 256x smaller than the partial sum leaves the partial unchanged, so
+     * a long batch silently stops accumulating.
+     */
+    __global__ void reduce_sum_batch_bf16_kernel(
+        __nv_bfloat16* __restrict__       dbias,
+        const __nv_bfloat16* __restrict__ dout,
+        int outer_size,
+        int out_features )
+    {
+        extern __shared__ float smem[];
+
+        const int lane  = static_cast<int>( threadIdx.x );   // column within the tile
+        const int warp  = static_cast<int>( threadIdx.y );   // row-chunk index
+        const int vstep = static_cast<int>( blockDim.y );
+        const int col   = static_cast<int>( blockIdx.x ) * 32 + lane;
+
+        float thread_sum = 0.0f;
+
+        // Guarded around the loop only -- every thread must reach the __syncthreads()
+        // below, so out-of-range lanes contribute a zero partial rather than returning.
+        if ( col < out_features )
+        {
+            for ( int row = warp; row < outer_size; row += vstep )
+            {
+                thread_sum += __bfloat162float( dout[ row * out_features + col ] );
+            }
+        }
+
+        smem[ warp * 32 + lane ] = thread_sum;
+        __syncthreads();
+
+        if ( warp == 0 && col < out_features )
+        {
+            float total = 0.0f;
+            for ( int j = 0; j < vstep; ++j )
+            {
+                total += smem[ j * 32 + lane ];
+            }
+
+            // Accumulate, matching the FP32 kernels' contract: the component pre-zeroes
+            // the gradient buffers and the backend ops use += semantics.
+            dbias[ col ] = __float2bfloat16( __bfloat162float( dbias[ col ] ) + total );
+        }
+    }
+
+    void cuda_reduce_sum_batch_bf16(
+        __nv_bfloat16* bias_grad,
+        const __nv_bfloat16* output_grad,
+        int batch_size,
+        int out_features,
+        cudaStream_t stream )
+    {
+        constexpr int kWarpWidth = 32;
+        constexpr int kRowChunks = 8;   // 256 threads per block
+
+        const dim3 block( kWarpWidth, kRowChunks );
+        const int  grid_size = ( out_features + kWarpWidth - 1 ) / kWarpWidth;
+        const int  smem_bytes = kWarpWidth * kRowChunks * static_cast<int>( sizeof( float ) );
+
+        reduce_sum_batch_bf16_kernel<<<grid_size, block, smem_bytes, stream>>>(
+            bias_grad, output_grad, batch_size, out_features );
 
         cudaCheck( cudaGetLastError() );
     }

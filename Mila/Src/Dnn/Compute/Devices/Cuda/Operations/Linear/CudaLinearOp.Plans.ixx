@@ -149,7 +149,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
             }
             else if constexpr ( std::is_same_v<TComputePrecision, nv_bfloat16> )
             {
-                throw std::logic_error( "Bias gradient for bfloat16 not yet implemented" );
+                cuda_reduce_sum_batch_bf16( bias_grad, output_grad, batch_size, out_features, stream );
             }
             else
             {

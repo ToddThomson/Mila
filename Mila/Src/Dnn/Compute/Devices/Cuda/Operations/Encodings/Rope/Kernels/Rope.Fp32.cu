@@ -139,19 +139,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
         int base_idx = bth * (half_dim * 2);
 
-        float x0 = in[ base_idx + i ];
-        float x1 = in[ base_idx + i + half_dim ];
+        const float2 r = rotate_pair<negate_sin>(
+            make_float2( in[ base_idx + i ], in[ base_idx + i + half_dim ] ), c, s );
 
-        float r0 = x0 * c - x1 * s;
-        float r1 = x0 * s + x1 * c;
-
-        if constexpr ( negate_sin )
-        {
-            r1 = x0 * (-s) + x1 * c;
-        }
-
-        out[ base_idx + i ] = r0;
-        out[ base_idx + i + half_dim ] = r1;
+        out[ base_idx + i ] = r.x;
+        out[ base_idx + i + half_dim ] = r.y;
     }
 
     template <bool negate_sin>
@@ -175,14 +167,11 @@ namespace Mila::Dnn::Compute::Cuda::Rope
 
         int base_idx = bh * (half_dim * 2);
 
-        float x0 = in[ base_idx + i ];
-        float x1 = in[ base_idx + i + half_dim ];
+        const float2 r = rotate_pair<negate_sin>(
+            make_float2( in[ base_idx + i ], in[ base_idx + i + half_dim ] ), c, s );
 
-        float r0 = x0 * c - x1 * s;
-        float r1 = x0 * s + x1 * c;
-
-        out[ base_idx + i ] = r0;
-        out[ base_idx + i + half_dim ] = r1;
+        out[ base_idx + i ] = r.x;
+        out[ base_idx + i + half_dim ] = r.y;
     }
 
     // ========================================================================

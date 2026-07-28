@@ -80,19 +80,26 @@ namespace Mila::Dnn::Compute::Cuda::Linear
         int                  group_size,
         cudaStream_t         stream );
 
-    // REVIEW: Are these functions required. Full analysis is required.
-    // Should we enable these functions when implemented
+    /**
+     * @brief BF16 bias gradient reduction: dBias[out] += sum over the batch of dY[row, out].
+     *
+     * Accumulates in FP32 and converts once on the final store; a BF16 running sum stops
+     * accumulating once a term falls more than 256x below the partial. Handles any
+     * out_features (no 32-multiple restriction, unlike the FP32 pair).
+     */
+    void cuda_reduce_sum_batch_bf16(
+        __nv_bfloat16* dBias,
+        const __nv_bfloat16* dY,
+        int batch_size,
+        int out_features,
+        cudaStream_t stream );
+
+    // REVIEW: FP16 has no bias-gradient reduction. Scoped by the "Remove FP16" decision
+    // (BACKLOG, Production Hardening) -- implement only if FP16 survives that trace.
 
     //void cuda_reduce_sum_batch_fp16(
     //    half* dBias,
     //    const half* dY,
-    //    int batch_size,
-    //    int out_features,
-    //    cudaStream_t stream );
-
-    //void cuda_reduce_sum_batch_bfp16(
-    //    __nv_bfloat16* dBias,
-    //    const __nv_bfloat16* dY,
     //    int batch_size,
     //    int out_features,
     //    cudaStream_t stream );

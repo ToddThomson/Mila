@@ -60,7 +60,8 @@ Mila/
                       OperationType.ixx, OperationBase.ixx
     Models/           GptModel.ixx, LlamaModel.ixx, LlamaModelConfig.ixx
     Quantization/     Weight/Policies.ixx (NoWeightQuant, PerChannelFp8<>, PerGroupFp4<>)
-                      KvCache/Policy.ixx (NoKvCompression, PerChannelKvFp8<>)
+                      KvCache/Policy.ixx (NoKvCompression, SlidingWindowKvCache;
+                      PerChannelKvFp8<> is planned for Qwen 3, not yet a type)
     Tensors/          Tensor<T, MR> and memory resources
     Serialization/    Model weight loading from binary blobs
   Tests/Dnn/          GTest unit tests — mirrors Src/Dnn tree

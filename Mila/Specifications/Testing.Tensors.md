@@ -31,8 +31,14 @@ this slice: `elementSize`/`getStorageSize`, the whole shape-transform area (prev
 documented in [Testing.md](Testing.md) §1.
 
 **Next (wider tree, follow-on slice):** `TensorBuffer`, the `TensorDataType*` maps, `ITensor`,
-`Tensor.{Partitioning,Initializers,Serialization}`, and `Operations/{Fill,Math,Zero,Transfer,
-Structural,Random}`.
+`Tensor.{Partitioning,Initializers,Serialization}`, and the `Transfer` device-split.
+`Operations/{Fill,Math,Zero,Structural}` are done; `Random` stays deferred behind the CUDA
+FP32-only `fill_normal` bug.
+
+**Methodology note added 2026-07-28 (from the `Structural` slice):** the "CPU file plus `.Cuda.cpp`
+companion" rule assumes every op has a CPU backend. `split` does not, so it is a `.Cuda.cpp`-only
+area. Check for the CPU implementation before assuming the pair — an area with no CPU op gets one
+file, not an empty one.
 
 ---
 
@@ -187,7 +193,7 @@ Behavior is dtype-independent for most, so a float + integer case suffices.
 | `:Fill` | `fill` (scalar + vector) | `[x]` **re-greened** — namespace + header; CPU/CUDA already split, promoted to Section 1 |
 | `:Math` | `add` `subtract` `multiply` `divide` `sum` + operators `+ - * /` | `[x]` **re-greened** — namespace + header; CPU/CUDA already split, promoted to Section 1 |
 | `:Transfer` | `copy` `toHost` (+ device variants) | `[~]` namespace + header re-greened (Section 2); **device-split pending** — inherently cross-device (shared fixture builds both contexts), so lifting the `#ifdef MILA_HAS_CUDA` cases into a `TensorOps.Transfer.Cuda.cpp` with its own fixture is a dedicated follow-up |
-| `:Structural` | `split` (2 overloads) | `[ ]` **missing** — backfill |
+| `:Structural` | `split` (2 overloads) | `[x]` **done** — `Structural.Cuda.cpp`. **No `.Cpu.cpp`: `split` is CUDA-only** (no `CpuTensorOps::split`), the one area where the CPU-file-plus-companion rule does not apply. Covers both overloads, the null-context default-stream path, and every precondition throw. Writing it found an out-of-bounds write: the alignment precondition was a flat `D % 4` while the BF16 kernel moves 8 elements per 16-byte `uint4`, so a BF16 width of 4 passed validation and then stored 8 elements into a 4-element row (see BACKLOG) |
 | `:Random` | `fill_normal` `fill_uniform` `xavier` | `[ ]` **deferred -> Alpha.8** — training-init; CUDA path has the known FP32-only bug parked in Training Revival. Do not write CUDA numeric tests against the broken path |
 
 ---

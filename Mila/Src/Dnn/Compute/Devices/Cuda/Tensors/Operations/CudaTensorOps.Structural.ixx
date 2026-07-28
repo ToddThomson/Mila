@@ -36,6 +36,18 @@ namespace Mila::Dnn::Compute::Cuda
 
     namespace Detail
     {
+        /**
+         * @brief Elements moved per thread by the split kernels: one 16-byte vector.
+         *
+         * FP32 uses float4 (4 elements), BF16 uses uint4 (8 elements). The slice
+         * widths must be multiples of this, and it is NOT a constant 4 -- a BF16
+         * slice of 4 satisfies a flat multiple-of-4 check but then runs the kernel's
+         * D0/8 index arithmetic on a truncated quotient and stores eight elements
+         * into a four-element output row.
+         */
+        template<typename T>
+        inline constexpr int kVectorElements = 16 / static_cast<int>( sizeof( T ) );
+
         template<typename T>
         struct cuda_structural_kernels;
 
@@ -94,7 +106,8 @@ namespace Mila::Dnn::Compute::Cuda
          * and the aliased out_c is never written.
          *
          * Preconditions mirror the 3-way split: same device, rank-3 tensors,
-         * matching B/T, D0+D1 == input last dim, and D0, D1 multiples of 4.
+         * matching B/T, D0+D1 == input last dim, and D0, D1 multiples of the
+         * kernel's vector width (4 for FP32, 8 for BF16 -- see kVectorElements).
          */
         template<TensorDataType TDataType, typename TMemoryResource>
             requires isValidTensor<TDataType, TMemoryResource>
@@ -130,11 +143,13 @@ namespace Mila::Dnn::Compute::Cuda
                     D0, D1, D ) );
             }
 
-            if ( D0 % 4 != 0 || D1 % 4 != 0 )
+            constexpr int kAlign = Detail::kVectorElements<NativeType>;
+
+            if ( D0 % kAlign != 0 || D1 % kAlign != 0 )
             {
                 throw std::invalid_argument( std::format(
-                    "SplitOps::split: D0={}, D1={} must both be multiples of 4",
-                    D0, D1 ) );
+                    "SplitOps::split: D0={}, D1={} must both be multiples of {}",
+                    D0, D1, kAlign ) );
             }
 
             if ( s0[ 0 ] != B || s0[ 1 ] != T || s1[ 0 ] != B || s1[ 1 ] != T )
@@ -171,7 +186,8 @@ namespace Mila::Dnn::Compute::Cuda
          * Preconditions:
          *   - All tensors must be on the same CUDA device.
          *   - Input last dim must equal sum of output last dims.
-         *   - D0, D1, D2 must be multiples of 4 (float4 vectorization).
+         *   - D0, D1, D2 must be multiples of the kernel's 16-byte vector width:
+         *     4 for FP32 (float4), 8 for BF16 (uint4). See kVectorElements.
          *   - Input and outputs must be rank-3 tensors.
          *
          * @tparam TDataType Tensor element type -- drives vectorization width.
@@ -214,11 +230,13 @@ namespace Mila::Dnn::Compute::Cuda
                     D0, D1, D2, D ) );
             }
 
-            if ( D0 % 4 != 0 || D1 % 4 != 0 || D2 % 4 != 0 )
+            constexpr int kAlign = Detail::kVectorElements<NativeType>;
+
+            if ( D0 % kAlign != 0 || D1 % kAlign != 0 || D2 % kAlign != 0 )
             {
                 throw std::invalid_argument( std::format(
-                    "SplitOps::split: D0={}, D1={}, D2={} must all be multiples of 4",
-                    D0, D1, D2 ) );
+                    "SplitOps::split: D0={}, D1={}, D2={} must all be multiples of {}",
+                    D0, D1, D2, kAlign ) );
             }
 
             if ( s0[ 0 ] != B || s0[ 1 ] != T ||
