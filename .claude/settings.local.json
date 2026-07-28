@@ -171,7 +171,9 @@
       "Bash(time docker compose -f Docker/docker-compose.yml run -T --rm mila-dev mila-build-chat)",
       "Bash(time docker compose -f Docker/docker-compose.yml run -T --rm -e MILA_BUILD_JOBS=3 mila-dev mila-build-chat)",
       "Bash(docker compose *)",
-      "Bash(docker compose -f Docker/docker-compose.yml run --rm -T mila-dev bash -lc ' *)"
+      "Bash(docker compose -f Docker/docker-compose.yml run --rm -T mila-dev bash -lc ' *)",
+      "Bash(rm -rf Mila/Bindings/Package/dist Mila/Bindings/Package/build)",
+      "Bash(py -3.13 -m pip wheel Mila/Bindings/Package --no-deps -q -w Mila/Bindings/Package/dist)"
     ]
   }
 }
