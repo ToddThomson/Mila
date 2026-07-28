@@ -8,6 +8,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
+import cuda_runtime  # noqa: F401  -- must precede `import mila`; see the module docstring
 import mila
 from config import settings, ModelFamily
 from gemma_protocol import (

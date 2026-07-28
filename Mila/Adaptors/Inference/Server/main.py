@@ -3,15 +3,10 @@ Mila inference server.
 Start with: uvicorn main:app --host 0.0.0.0 --port 8000
 Protocol is selected via MILA_PROTOCOL env var: mila | openai | anthropic
 """
-import os
 import logging
-
-cuda_path = os.environ.get("CUDA_PATH")
-if cuda_path:
-    os.add_dll_directory(os.path.join(cuda_path, "bin", "x64"))
-
 from contextlib import asynccontextmanager
 
+import cuda_runtime  # noqa: F401  -- must precede `import mila`; see the module docstring
 import mila
 import uvicorn
 from fastapi import FastAPI

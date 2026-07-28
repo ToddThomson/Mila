@@ -126,23 +126,23 @@ static void bind_llama_model( py::module_& m )
                 int device_index,
                 bool quantize_fp8 ) -> std::unique_ptr<LlamaSession>
             {
-                (void)quantize_fp8;
-
                 py::gil_scoped_release _;
 
-                return LlamaSession::fromPretrained( path, context_length, device_index );
+                return LlamaSession::fromPretrained(
+                    path, context_length, device_index, quantize_fp8 );
             },
             py::arg( "path" ),
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
             py::arg( "quantize_fp8" ) = false,
-            "Load Llama 3.2 3B Instruct pretrained weights from a Mila artifact.\n\n"
+            "Load Llama 3.x Instruct pretrained weights from a Mila artifact.\n\n"
             "Args:\n"
-            "    path:          Path to the Mila pretrained artifact.\n"
+            "    path:           Path to the Mila pretrained artifact.\n"
             "    context_length: Maximum sequence length to build for.\n"
-            "    device_index:  CUDA device index (default: 0).\n"
-            "    quantize_fp8:  Quantize weights to FP8_E4M3 at load time (default: False).\n"
-            "                   Requires SM >= 8.9 (RTX 40xx / Ada Lovelace)." )
+            "    device_index:   CUDA device index (default: 0).\n"
+            "    quantize_fp8:   Quantize Linear weights to FP8_E4M3 at load time\n"
+            "                    (default: False). The KV cache stays uncompressed.\n"
+            "                    Requires SM >= 8.9 (RTX 40xx / Ada Lovelace)." )
         .def( "generate",
             []( LlamaSession& self,
                 const std::vector<int32_t>& prompt_tokens,
@@ -329,9 +329,20 @@ static void bind_stop_controller( py::module_& m )
 // Module entry point
 // ============================================================================
 
-PYBIND11_MODULE( mila, m )
+// The extension is the PRIVATE half of the `mila` package: users import `mila`,
+// whose __init__ registers the CUDA DLL directories and then re-exports from here.
+// A bare top-level `mila` extension cannot do that -- there is no __init__ to run
+// before the DLL load -- which is why the module is named _mila.
+PYBIND11_MODULE( _mila, m )
 {
-    m.doc() = "Mila inference bindings — Llama 3.2 3B Instruct on CUDA BF16.";
+    m.doc() =
+        "Mila inference bindings for CUDA.\n\n"
+        "Models:\n"
+        "    GemmaModel  Gemma 4 Instruct, BF16 compute with FP4 weights (the flagship).\n"
+        "    LlamaModel  Llama 3.x Instruct, BF16 compute, optional FP8 weights.\n\n"
+        "Both are loaded from a Mila binary artifact with from_pretrained() and paired\n"
+        "with a BpeTokenizer. The GIL is released around generation, so streaming\n"
+        "callbacks, a StopController and Ctrl-C all work from Python.";
 
     m.def( "initialize",
         []( const std::string& level ) {

@@ -90,7 +90,8 @@ namespace Mila::Bindings
     {
     public:
         static std::unique_ptr<LlamaSession> fromPretrained(
-            const std::string& path, int64_t context_length, int device_index );
+            const std::string& path, int64_t context_length, int device_index,
+            bool quantize_fp8 );
 
         std::vector<int32_t> generate(
             const std::vector<int32_t>& prompt_tokens,

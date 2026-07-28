@@ -137,10 +137,16 @@ namespace Mila::Bindings
     LlamaSession::~LlamaSession() = default;
 
     std::unique_ptr<LlamaSession> LlamaSession::fromPretrained(
-        const std::string& path, int64_t context_length, int device_index )
+        const std::string& path, int64_t context_length, int device_index,
+        bool quantize_fp8 )
     {
         DeviceId device_id{ DeviceType::Cuda, device_index };
         LlamaModelConfig model_config( static_cast<dim_t>( context_length ) );
+
+        // Weights only: withFP8Quantization() would also request an FP8 KV cache,
+        // which LlamaModel::fromPretrained does not yet implement.
+        if ( quantize_fp8 )
+            model_config.withWeightQuantization( WeightQuantization::FP8 );
 
         auto impl = std::make_unique<Impl>();
         impl->model = LlamaCudaBf16::fromPretrained(

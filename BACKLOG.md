@@ -317,9 +317,12 @@ good-first-issue.
 - [ ] ProgressReporter — an injected per-operation progress facility for long-lived ops (BPE vocab
   training, `PretrainedReader` load, load-time quantization). `BpeVocabulary.ixx:624` is the concrete
   call site: an inline every-100-merges elapsed-time print asking to become an async progress callback.
-- [ ] Validation — training path proven by the primitive suite (gradient-checks, optimizer
-  step-convergence, loader contracts, init-at-precision, the integration test), CI-gated; the samples
-  run as demos.
+- [ ] Validation — the **FP32** training path proven by the primitive suite (gradient-checks,
+  optimizer step-convergence, loader contracts, init-at-precision, the integration test), CI-gated;
+  the samples run as demos. Scope narrowed to FP32 GPT-2 / MLP 2026-07-28 (see ROADMAP): BF16 and GQA
+  training move to the Training (advanced) release. The BF16 optimizer and initializer defects fixed
+  in `e585be9d` stay fixed and stay tested — dormant and guarded, not reverted — they are simply not
+  something v0.20 claims.
 
 ### API Documentation
 
@@ -590,10 +593,68 @@ good-first-issue.
   whether to single-source via pybind or close on the parity test.
 - [ ] In-turn thoughts dropped between tool calls — Google's multi-turn rule (strip prior-turn
   thoughts, keep the current turn's).
-- [ ] MIS `top_p` dropped before the sampler — the pybind path does not forward it.
+- [x] MIS `top_p` dropped before the sampler — closed when the binding was wired for it; verified
+  2026-07-28 end to end (`protocols/*` → `routes/factory.py` → `model_worker` → `Mila_py.cpp` →
+  `params.sampling.top_p`).
 - [ ] Refine: buffer Gemma Anthropic streaming only when tools are present.
-- [ ] Neutral binding output location — `Bindings/CMakeLists.txt:49` still copies `mila.pyd` into a
-  non-neutral path.
+- [x] **CUDA DLL registration hoisted out of `main.py`** — found 2026-07-28 while validating the
+  Python samples, fixed the same day. Since Python 3.8, **PATH is not searched when resolving an
+  extension module's DLL dependencies** — only system directories, the extension's own directory, and
+  directories registered with `os.add_dll_directory`. The binding links `cublasLt64_13.dll` and
+  `curand64_10.dll` from the CUDA Toolkit, so a machine with CUDA correctly on PATH still fails with a
+  bare `DLL load failed while importing mila`. `main.py` handled this inline, which left three gaps:
+  every other entry point into the binding (`model_worker.py`, `routes/chat.py`,
+  `routes/completions.py`, `routes/factory.py`) failed when imported without `main` — including the
+  README's own verification step, `python -c "import mila"`, which did not work; only `bin\x64` was
+  registered, so a pre-CUDA-13 layout (DLLs directly in `bin`) still failed; and a stale `CUDA_PATH`
+  raised `FileNotFoundError` out of `os.add_dll_directory` rather than falling back. Now a
+  dependency-free `cuda_runtime.py` imported ahead of `mila` in all five modules: registers one
+  toolkit (`CUDA_PATH` if real, else the newest installed), both layouts, skipping what does not
+  exist, and exposes `CUDA_DLL_DIRECTORIES` for diagnosis. README verification step corrected.
+  Verified against the MIS venv with `CUDA_PATH` set, unset, and stale; 31 MIS tests green.
+- [x] Neutral binding output location — `MilaPy` now publishes to `<build dir>/python/`, a directory
+  holding nothing but the extension, so any consumer can put it on `sys.path` without dragging that
+  consumer's sources along. The MIS convenience copy is retained (its run instructions depend on it),
+  but it is no longer the only place the extension lands.
+- [x] Python binding defect repair — `LlamaModel.from_pretrained(quantize_fp8=True)` was accepted and
+  silently ignored (`(void)quantize_fp8;`); it now applies `WeightQuantization::FP8` to the weights
+  (the KV cache stays uncompressed — `withFP8Quantization()` would also request an FP8 KV cache, which
+  `LlamaModel::fromPretrained` does not implement). The stale module docstring ("Llama 3.2 3B Instruct
+  on CUDA BF16", the first thing `help(mila)` prints, while Gemma is bound and is the flagship) is
+  rewritten. Verified on the built extension 2026-07-28, Llama 3.2 3B Instruct on the 4070:
+  **54.1 tok/s BF16 -> 78.2 tok/s FP8** (+45%), output coherent, `buildCublasLtPlans` logging the FP8
+  dequant plan per projection.
+- [~] **`mila-llm` wheel (PythonBinding.md Tier 3)** — started 2026-07-28 by explicit direction,
+  overriding the spec's "post-v0.20" deferral: a pip-installable binding is what the Python-first
+  audience actually needs. Landed: the extension renamed to `mila._mila` behind a `mila/__init__.py`
+  that registers the CUDA DLL directories before the extension loads (the only place that can run
+  early enough — this single-sources the fix for samples, MIS and wheel alike); `Bindings/Package/`
+  with `pyproject.toml` + a `setup.py` whose sole job is `has_ext_modules()` so the wheel gets a real
+  `cp313-cp313-win_amd64` tag instead of `py3-none-any`; CMake staging the extension into the package
+  source tree, the neutral build directory, and MIS, all three now as package DIRECTORIES.
+  CUDA ships as `nvidia-cublas` + `nvidia-curand` dependencies so no Toolkit is required — note the
+  `-cu13` spellings are deprecated stubs and both live packages do publish win_amd64 wheels.
+  **Verified end to end 2026-07-28** on the rebuilt extension: `mila_llm-0.20.0b2-cp313-cp313-win_amd64.whl`
+  builds, installs into a clean venv, imports, and runs a sample (Llama 3.2 3B, 54.1 tok/s) against
+  the *installed* wheel rather than the build tree. MIS survived the rename — `import mila` resolves
+  to the staged package, 31 tests green. Stale flat `mila.*.pyd`/`.so` artifacts removed from the
+  Server and build directories.
+  **The verification earned its keep: NVIDIA's CUDA 13 wheels lay their DLLs out at
+  `nvidia/cu13/bin/x86_64`, not the `nvidia/<library>/bin` of the CUDA 12 wheels.** The first
+  implementation globbed `nvidia/*/bin`, which matched a directory containing only the `x86_64`
+  subdirectory and no DLLs — and then returned early, skipping the working Toolkit fallback. Now it
+  finds directories by searching for `*.dll` (survives the next reorganisation and the aarch64 split)
+  and registers the Toolkit *as well as* the wheels, so a partial wheel install degrades instead of
+  failing.
+  **Remaining:** whether the samples ship inside the wheel as `mila-chat` / `mila-generate` console
+  scripts (a scope decision, not engineering); a TestPyPI dry run; Trusted Publishing from CI; and
+  the cp314 / manylinux build matrix. Naming rationale and the multi-backend argument are in the spec.
+- [x] Python samples — `Mila/Samples/Python/`: `chat.py` (Gemma 4 streaming chat: instruct template,
+  token loop, channel filter, cooperative Ctrl-C through `StopController`), `generate.py` (tokenizer
+  round-trip + sampling knobs, Gemma or Llama, `--fp8` exercising the defect fix above), `common.py`
+  (extension + weight discovery, with an ABI-tag mismatch diagnostic), and a README stating what the
+  binding does **and does not** expose. Standard library only — no `requirements.txt`. Tier 1 of
+  `Specifications/PythonBinding.md`; Tiers 2 and 3 remain in `## Future`.
 
 ---
 
@@ -719,9 +780,34 @@ to the current release.
 - **Ungated GPT-2 zero-auth quick-start** — first-run HTTPS weights fetch (a runtime addition the
   freeze excludes). Freeze-compatible descope: host the pre-converted blob + a one-line download.
 - **`ComponentType` vitality** — does `getType()` earn its keep, or retire the unused converter surface?
-- **Python sample** — surface the `mila` binding as a standalone Python sample for the
-  Python-majority audience. The binding already exists, so this is sample/doc work (no runtime
-  feature) — a candidate beta.2 sprint rather than a hard v0.20 gate.
+- **Python binding and samples** — scoped 2026-07-28 into
+  `Specifications/PythonBinding.md`; read that before starting. Surface the `mila` binding as a
+  consumable product for the Python-majority audience: it already drives MIS but had exactly one
+  consumer, inside this repo, and no user-facing entry point.
+  **All four freeze-compatible items landed 2026-07-28** and are tracked under the Adaptor Validation
+  bucket above: the samples (`Mila/Samples/Python/`), the neutral extension output location, the
+  `quantize_fp8` defect, and the stale module docstring. **Still open here:** Tier 2 and Tier 3
+  below, binding `GptModel`, a precision parameter for `GemmaModel.from_pretrained`, and the product
+  call on whether any of this promotes out of `## Future` into a v0.20 ROADMAP theme (it changes what
+  v0.20 claims, so it is deliberate — the shipped work sits in the tree either way).
+  **The "one command from a clean checkout" goal is tiered.** Tier 1 (one command given a built
+  `.pyd`) is done. Tier 2 (weights fetched on first run) is **newly possible in Python and
+  was not in C++** — the deferred zero-auth quick-start was blocked by needing a runtime HTTP
+  dependency, and `urllib.request` is standard library while a sample is not the runtime.
+  **Licensing is settled: Gemma 4 12B is Apache 2.0** — a change from the bespoke Gemma Terms of Use
+  that governed earlier releases, so do not reason from those. Redistributing a converted FP4 `.bin`
+  needs only the standard four (licence, `NOTICE`, retained attribution, statement of modification),
+  with attribution going in root `NOTICE.md` per the existing licensing rule. A HuggingFace repo
+  removes the hosting cost. Structurally this means Tier 2 needs **neither GPT-2 nor `GptModel`
+  bound** and is freeze-compatible end to end. It also inverts the artifact question: Llama 3.2
+  carries the Llama Community License with naming and threshold conditions while Gemma 4 carries
+  none, so **Gemma 4 12B FP4 is both the flagship and the licensing-simplest choice** — the only
+  argument against it is download size. Tier 3 (a published wheel, no build at all) is what actually
+  reaches the stated audience and is a post-v0.20 piece of its own.
+  Open decisions in the spec: first-run experience versus a multi-gigabyte download (is there a
+  smaller Gemma 4 variant Mila could validate?), whether this promotes out of `## Future` into
+  Production Hardening as a barrier lever beside the Docker image and CPU-only path, and wheel
+  distribution.
 - **Discoverability (internal — not a README theme)** — site LIVE 2026-07-23 at **`mila.toddt.me`**
   (Cloudflare registrar + DNS, GitHub-issued cert, HTTPS enforced; the old
   `toddthomson.github.io/Mila` URL 301s to it). Landing page and writeups at the root, Doxygen

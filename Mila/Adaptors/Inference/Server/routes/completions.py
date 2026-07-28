@@ -5,6 +5,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+import cuda_runtime  # noqa: F401  -- must precede `import mila`; see the module docstring
 import mila
 from model_worker import worker
 from config import settings

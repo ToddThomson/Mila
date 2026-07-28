@@ -18,7 +18,10 @@ The roadmap shows the **release in flight**, plus a **Future** tail. A release i
 Mila is a craft-mastery project — understanding LLMs at the metal — not a llama.cpp/vLLM competitor.
 For a project like this, "first release" means **complete and beautiful**, not a minimal slice. v0.20
 delivers everything Mila has implemented and validated, as one coherent, tested, documented package:
-**Gemma 4, Llama 3.x, and GPT-2**; **inference and training**; FP32 / BF16 / FP8 / FP4; tool calling.
+**Gemma 4, Llama 3.x, and GPT-2** inference at FP32 / BF16 / FP8 / FP4, with tool calling; and
+**training for FP32 GPT-2 / MLP**. The two halves have deliberately different reach: inference spans
+every model and precision Mila supports, training covers the GPT-2 lineage at FP32. Reduced-precision
+and GQA training are a later release — see **Future**.
 
 This scope is a deliberate reunion of two bodies of work. The last year built the inference path
 (Llama, quantization, the `OperationTraits` dispatch, the chat harness). The year before built a
@@ -80,7 +83,8 @@ future API churn fails loudly instead of silently rotting coverage.
 ### Training Revival
 
 *Resurrect the validated GPT-2 / MLP training path — MNIST and Bard — to current-API quality, proven
-by its own revived tests. Scope is GPT-2 / MLP only; Llama 3.1/3.2 training stays Future.*
+by its own revived tests. Scope is **FP32 GPT-2 / MLP only**: Llama 3.1/3.2 training, GQA training,
+and reduced-precision (BF16) training all stay Future.*
 
 MNIST (MLP) and Bard (GPT-2 generation) were complete, working training samples that are now being
 revived. Reviving them reactivates the half of the library inference never exercises: the AdamW
@@ -91,12 +95,23 @@ then Bard**: MNIST is a pure MLP that exercises the full training spine on the s
 Bard then stacks the `GptTransformer`, the BPE/char tokenizers, and the sequence loader on an
 already-proven spine.
 
+**The precision boundary is FP32, and it is drawn deliberately rather than by omission.** Reduced-
+precision training touches machinery FP32 never does — FP32 master parameters, stochastic-rounding
+writeback, narrowing initializers — and that machinery was written but had never once executed: as of
+`0.20.0-beta.2+16` the BF16 path could not compile, could not link, and would have trained from zero,
+on top of an initializer that overran its own buffer. Fixing those was worth doing, and the code and
+its tests stay in the tree, but a path whose first successful step happened during hardening is not a
+path this release should claim. FP32 is also the better **reference** implementation, which is the
+point of the project: a reader learning how training works should not first have to understand why
+there are two copies of every weight.
+
 **Success criteria:** the training-path **primitive suite** is the green/red oracle — the
 gradient-check archetype, the AdamW step-convergence test, the concrete data-loader contract tests,
 and init-at-precision — with a small **sample-independent** training-loop integration test as
-composition/wiring insurance; train-from-scratch validated at the precisions the samples use; all
-training-path tests CI-gated. The MNIST and Bard samples are re-enabled and **run** against the
-current API (MNIST trains to target accuracy, Bard generates coherent text).
+composition/wiring insurance; train-from-scratch validated **at FP32**; all training-path tests
+CI-gated. The MNIST and Bard samples are re-enabled and **run** against the current API (MNIST trains
+to target accuracy, Bard generates coherent text). **Explicitly not in scope:** BF16 or FP8 training,
+GQA training (`CudaGqaOp::backward` throws by design), and Llama fine-tuning.
 
 ### API Documentation
 
@@ -168,8 +183,17 @@ own version, date, and tag, when it is scheduled.
 - **Ministral** — Ministral transformer with Sliding Window Attention; 3B Instruct (BF16) and 8B
   Instruct (FP8). Builds on the Llama foundation and the Qwen 3 tool-calling pipeline, reusing the SWA
   mask + bounded-KV ring cache from Gemma 4.
-- **Training (advanced)** — a full LLaMA fine-tuning pipeline, loss-function GPU migration, gradient
-  checkpointing, and checkpoint save/restore.
+- **Training (advanced)** — the second training release, and large enough to be one: **BF16
+  training** and **GQA training**, plus a full LLaMA fine-tuning pipeline, loss-function GPU
+  migration, gradient checkpointing, and checkpoint save/restore. Sized honestly, because v0.20's
+  training scope was narrowed on the evidence that this half was further out than it looked: GQA
+  backward does not exist (`CudaGqaOp::backward` throws, which is what the one deliberate compiler
+  warning reports), the loss path is still host-side in both samples, and BF16 needs gradient checks
+  at its own tolerance. The BF16 optimizer machinery is in the tree and guarded by
+  `AdamW.MixedPrecision.Cuda.cpp` — dormant and tested, in the same spirit as the GQA
+  expanded-layout substrate — so this release starts from working parts rather than from repair.
+  **Sequencing is open:** this competes for the slot after v0.20 with Qwen 3 and with MoE, which was
+  decided on 2026-07-20 as the highest-leverage single investment. Pick deliberately.
 - **Architecture** — Mixture-of-Experts components (the `GatedMLP` reusable gated FFN, the grouped
   `MoeOp`, `Router` + `MixtureOfExperts`; foundation specified in `Specifications/FfnAndMoE.md`). The
   Gemma 4 dense chassis is the precursor to the 26B-A4B MoE model, which reuses the chassis and swaps

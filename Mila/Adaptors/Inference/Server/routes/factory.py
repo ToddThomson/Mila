@@ -9,6 +9,7 @@ import time
 import uuid
 from typing import AsyncIterator
 
+import cuda_runtime  # noqa: F401  -- must precede `import mila`; see the module docstring
 import mila
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse

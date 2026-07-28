@@ -95,8 +95,19 @@ pip install -e ".[dev]"
 Confirm the whole chain resolves (binding + CUDA DLLs) before continuing:
 
 ```
-python -c "import mila; print('mila OK')"
+python -c "import cuda_runtime, mila; print('mila OK', cuda_runtime.CUDA_DLL_DIRECTORIES)"
 ```
+
+`cuda_runtime` must come first, and this is not a formality. Since Python 3.8,
+Windows does **not** search `PATH` when resolving an extension module's DLL
+dependencies — only system directories, the extension's own directory, and
+directories registered with `os.add_dll_directory`. The binding links `cublasLt`
+and `curand` from the CUDA Toolkit, so a bare `import mila` fails with
+`DLL load failed while importing mila` on a machine whose CUDA install is
+perfectly good. Importing `cuda_runtime` registers the toolkit directories; every
+MIS module that imports the binding does the same. If the import still fails, the
+printed directory list is the first thing to look at — an empty list means no CUDA
+Toolkit was found at `CUDA_PATH` or the default install root.
 
 ---
 
