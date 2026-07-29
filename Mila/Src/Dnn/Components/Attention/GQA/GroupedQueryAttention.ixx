@@ -403,10 +403,11 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
-        void save_( ModelArchive& archive, SerializationMode mode ) const override
+        void save_( ModelArchive&, SerializationMode ) const override
         {
-            (void)archive;
-            (void)mode;
+            // Deliberately empty: parameterCount() is 0. The projections that carry the
+            // weights are Linear components owned by the enclosing block, and they save
+            // themselves.
         }
 
         // ====================================================================

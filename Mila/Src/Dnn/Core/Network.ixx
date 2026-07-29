@@ -274,9 +274,37 @@ namespace Mila::Dnn
         {
             saveNetworkMetadata(archive, mode);
             saveComponentGraph(archive, mode);
-            
+
             // Hook: concrete class saves type-specific metadata
             save_(archive, mode);
+        }
+
+        /**
+         * @brief Restore this network's parameters from an archive.
+         *
+         * The inverse of save(). Restores into the LIVE graph: the network must already
+         * be constructed with the same topology and built, which is why this is a member
+         * and not a factory. Concrete models reconstruct themselves through their own
+         * fromCheckpoint() -- read the config, construct, build, then call this.
+         *
+         * The child manifest is not replayed. `saveComponentGraph` records names into
+         * per-child descriptor files rather than a list, so the live children are the
+         * authoritative enumeration; `network/architecture.json` is read only to check
+         * the count, which catches the common "loaded into a different model" mistake
+         * before any tensor is touched.
+         *
+         * @param archive Archive to read from.
+         * @param mode Serialization mode.
+         *
+         * @throws std::runtime_error if the archive's component count disagrees with this
+         *         network, or if any component's blobs are missing.
+         */
+        void load( ModelArchive& archive, SerializationMode mode )
+        {
+            loadComponentGraph( archive, mode );
+
+            // Hook: concrete class validates its own type-specific metadata
+            load_( archive, mode );
         }
 
         const ComponentType getType() const override
@@ -326,6 +354,27 @@ namespace Mila::Dnn
          * @param mode Serialization mode (passed from save())
          */
         virtual void save_(ModelArchive& archive, SerializationMode mode) const override = 0;
+
+        /**
+         * @brief Hook for concrete classes to validate type-specific state on load.
+         *
+         * Deliberately NOT pure, where save_() is. A concrete network must write its
+         * config, because nothing else can; it rarely needs to read it back here, because
+         * the config is consumed by the static factory *before* construction -- by the
+         * time this runs the network already exists with that geometry. Override only to
+         * assert the archive matches what was built.
+         *
+         * The empty body also keeps this from being a breaking change for every existing
+         * Network subclass.
+         *
+         * @param archive Archive to read from.
+         * @param mode Serialization mode.
+         */
+        virtual void load_( ModelArchive& archive, SerializationMode mode ) override
+        {
+            (void)archive;
+            (void)mode;
+        }
 
         /**
          * @brief Verify that imported model is compatible with network architecture
@@ -451,6 +500,66 @@ namespace Mila::Dnn
          * @param archive Archive to write to
          * @param mode Serialization mode (passed to children)
          */
+        /**
+         * @brief Restore each child component from its `components/<name>` scope.
+         *
+         * The mirror of saveComponentGraph. Iterates the LIVE children rather than a
+         * stored manifest and looks each one up by the scope it was written to, so the
+         * ordering difference between the two functions (this one has no need to sort)
+         * cannot cause a mismatch.
+         *
+         * @param archive Archive to read from.
+         * @param mode Serialization mode (passed to children).
+         *
+         * @throws std::runtime_error if the recorded component count disagrees with the
+         *         live graph, or if a component fails to load.
+         */
+        void loadComponentGraph( ModelArchive& archive, SerializationMode mode )
+        {
+            const auto& components = this->getComponents();
+
+            if ( archive.hasFile( "network/architecture.json" ) )
+            {
+                const SerializationMetadata arch_meta = archive.readMetadata( "network/architecture.json" );
+
+                if ( arch_meta.has( "num_components" ) )
+                {
+                    const int64_t recorded = arch_meta.getInt( "num_components" );
+
+                    if ( recorded != static_cast<int64_t>( components.size() ) )
+                    {
+                        throw std::runtime_error( std::format(
+                            "Network::load: archive '{}' holds {} components but network '{}' has {}",
+                            archive.getFilepath(), recorded, this->getName(), components.size() ) );
+                    }
+                }
+            }
+
+            for ( const auto& component : components )
+            {
+                const std::string& nm = component->getName();
+
+                try
+                {
+                    ModelArchive::ScopedScope scope( archive, std::string( "components/" ) + nm );
+
+                    component->requireSerializableParameters();
+                    component->load_( archive, mode );
+                }
+                catch ( const std::exception& e )
+                {
+                    throw std::runtime_error(
+                        std::format(
+                            "Network::load: failed loading component '{}' from archive '{}': {}",
+                            nm,
+                            archive.getFilepath(),
+                            e.what()
+                        )
+                    );
+                }
+            }
+        }
+
         void saveComponentGraph( ModelArchive& archive, SerializationMode mode ) const
         {
             // Use the insertion-order component list API (getComponents) instead of the
@@ -508,6 +617,8 @@ namespace Mila::Dnn
                 try
                 {
                     ModelArchive::ScopedScope scope( archive, std::string( "components/" ) + nm );
+
+                    component->requireSerializableParameters();
                     component->save_( archive, mode );
                 }
                 catch ( const std::exception& e )

@@ -44,6 +44,7 @@ import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Serialization.ModelArchive;
+import Serialization.Metadata;
 import Serialization.Mode;
 import Serialization.Tensor;
 
@@ -166,10 +167,39 @@ namespace Mila::Dnn
             }
         }
 
+        std::vector<std::string> getParameterNames() const override
+        {
+            if ( config_.hasBias() )
+            {
+                return { "weight", "bias" };
+            }
+
+            return { "weight" };
+        }
+
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
-            (void)archive;
             (void)mode;
+
+            SerializationMetadata meta;
+            meta.set( "type", "RmsNorm" )
+                .set( "version", int64_t( 1 ) )
+                .set( "name", this->getName() )
+                .set( "has_bias", config_.hasBias() );
+
+            archive.writeMetadata( "meta.json", meta );
+
+            for ( const auto& parameter_name : getParameterNames() )
+            {
+                if ( parameter_name == "weight" && weight_ )
+                {
+                    this->saveParameterToArchive( archive, parameter_name, *weight_ );
+                }
+                else if ( parameter_name == "bias" && bias_ )
+                {
+                    this->saveParameterToArchive( archive, parameter_name, *bias_ );
+                }
+            }
         }
 
         std::vector<ITensor*> getParameters() const override

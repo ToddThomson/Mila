@@ -452,33 +452,10 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
-        void save_( ModelArchive& archive, SerializationMode mode ) const override
-        {
-            rms1_->save_( archive, mode );
-            qkv_proj_->save_( archive, mode );
-            attn_->save_( archive, mode );
-            out_proj_->save_( archive, mode );
-            res1_->save_( archive, mode );
-            rms2_->save_( archive, mode );
-            fc_gate_up_->save_( archive, mode );
-            swiglu_->save_( archive, mode );
-            fc_down_->save_( archive, mode );
-            res2_->save_( archive, mode );
-        }
-
-        void load_( ModelArchive& archive, SerializationMode mode )
-        {
-            rms1_->load_( archive, mode );
-            qkv_proj_->load_( archive, mode );
-            attn_->load_( archive, mode );
-            out_proj_->load_( archive, mode );
-            res1_->load_( archive, mode );
-            rms2_->load_( archive, mode );
-            fc_gate_up_->load_( archive, mode );
-            swiglu_->load_( archive, mode );
-            fc_down_->load_( archive, mode );
-            res2_->load_( archive, mode );
-        }
+        // save_ is deliberately NOT overridden -- see the note in GptBlock. The hand-rolled
+        // version this replaces pushed no scope, so every child collided on one path; it
+        // also listed ten children where eleven are registered, so one was never written
+        // at all.
 
         const ComponentType getType() const override
         {

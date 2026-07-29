@@ -106,6 +106,49 @@ What it needs is a **hosted, pre-converted artifact** — the `.bin` weights plu
 — so the user never runs the converter. That removes the real cliff, which was never the download; it
 was requiring Python, PyTorch and a HuggingFace token just to produce a `.bin`.
 
+#### Settled 2026-07-29: Mila hosts nothing large, and the reason is that Gemma 4 is ungated
+
+`google/gemma-4-12B-it` reports **`gated: false`** with `license: apache-2.0` on the Hub API. No
+account, no token, no acceptance click. That single fact reshapes the tier:
+
+- **The user fetches from Google directly** over `urllib`, and Mila converts on the machine. There is
+  no mirror to host, no storage bill, and nothing to go stale when Google updates the checkpoint.
+- **No redistribution obligations arise at all.** Apache 2.0's `NOTICE` and modification-statement
+  duties attach to *distributing* the work; if Google serves the bytes, Mila never distributes.
+  Attribution in root `NOTICE.md` stays as courtesy rather than requirement.
+- Hosting was priced before this was known: the artifact is **BF16** (quantization happens at load,
+  by design), so Gemma 12B is **22.2 GB** — and Hugging Face free public storage is documented as
+  "best-effort", explicitly asking anyone past a few gigabytes to upgrade. A mirror was a monthly
+  bill to save the user a conversion step.
+
+Note the converter's `_check_hf_error` still advises `hf auth login` on a gated repo. That is now
+**stale for Gemma** (correct for Llama, which remains gated and licence-conditioned).
+
+The `mila-llm` organisation exists on the Hub (created 2026-07-29, matching the PyPI distribution
+name; bare `mila` is taken there by a dormant user account). It holds the org card and the converted
+tokenizer binaries — megabytes — not weights.
+
+#### Ruled out 2026-07-29: Gemma 4 E2B / E4B are not a smaller Gemma 4
+
+The open question was whether a small Gemma 4 variant could give the good first run without Llama's
+licence conditions. It cannot: **E2B/E4B are a different architecture**, established from the
+safetensors header alone (no weights downloaded). Their text stack carries, on every one of 42
+layers, `per_layer_input_gate.weight`, `per_layer_projection.weight` and
+`post_per_layer_input_norm.weight`, plus the globals `embed_tokens_per_layer`,
+`per_layer_model_projection` and `per_layer_projection_norm` — **Per-Layer Embeddings**, the Gemma 3n
+memory mechanism, of which the 12B has none. It is not skippable decoration: every layer gates on it,
+so ignoring those tensors yields wrong numerics rather than a degraded model. Two further deltas:
+`attention_k_eq_v: false` (global layers need a real `v_proj`, and `Gemma.Block.ixx:180` resolves
+`keyEqualsValue()` through the compile-time `kGlobal` path) and `num_kv_shared_layers: 18`, cross-layer
+KV cache sharing Mila has no concept of. Supporting either is a feature addition of real size.
+
+Incidental confirmation from the same check, worth keeping: the 12B has `v_proj` on **40 of 48**
+layers — exactly the 8 global layers sharing K=V, which is precisely how Mila models it.
+
+So the first-run model is **Gemma 4 12B (22.2 GB, Apache 2.0, ungated)** or **Llama 3.2 1B/3B
+(2.8/6.7 GB, Llama Community Licence with its naming conditions)**. There is no cheap Apache-2.0
+option.
+
 **Licensing is not a blocker: Gemma 4 12B is Apache 2.0.** This is a change from earlier Gemma
 releases, which shipped under the bespoke Gemma Terms of Use — do not reason from those. Apache 2.0
 permits redistribution, modification and commercial use outright, and the obligations are the

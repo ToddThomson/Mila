@@ -223,6 +223,7 @@ work they describe — never deferred to "later":
 Design decisions are documented under `Mila/Specifications/`:
 - `OperationDispatch.md` — the full `OperationTraits` design, migration checklist, file layout
 - `Quantization.V2.md` — quantization policy design and scope table
+- `ModelSerialization.md` — checkpoint vs distribution artifact, the `ModelArchive` defects, phased build plan
 - `PromptCaching.md`, `TokenSampling.md`, `ToolCalling.md` — planned features
 
 Work is tracked across `ROADMAP.md` / `BACKLOG.md` / `CHANGELOG.md` — see **Work-Tracking Docs** above.

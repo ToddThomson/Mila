@@ -83,6 +83,9 @@ add_executable( MilaTests
     "Dnn/Core/Component.cpp"
     "Dnn/Core/ComponentConfig.cpp"
     "Dnn/Core/CompositeComponent.cpp"
+    # The only GptModel factory reachable without a converted .bin: a checkpoint
+    # carries its own config, so fromCheckpoint needs nothing but an archive.
+    "Dnn/Models/GptModel.Cpu.cpp"
     "Dnn/Modeling/Network.Cpu.cpp"
     "Dnn/Optimizers/AdamW.Cpu.cpp"
     "Dnn/Tensors/Tensor.Constructors.cpp"
@@ -183,6 +186,9 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Transformers/Gemma/Gemma.Block.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.Cuda.cpp"
         "Dnn/Compute/Operations/OperationTraits.Cuda.cpp"
+        # The saveParameterToArchive staging branch needs a device-only dtype (BF16),
+        # so it is unreachable from the CPU companion in Dnn/Core/Component.cpp.
+        "Dnn/Core/Component.Cuda.cpp"
         "Dnn/Models/GemmaModel.Parity.Cuda.cpp"
         # Net-new: the FP32 master-parameter path has no coverage in AdamW.Cuda.cpp.
         "Dnn/Optimizers/AdamW.MixedPrecision.Cuda.cpp"

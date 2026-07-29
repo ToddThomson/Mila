@@ -19,8 +19,11 @@ interpreter and StopController cancels a decode loop already in flight.
 Source and documentation: https://github.com/toddthomson/Mila
 """
 
-import os
-from pathlib import Path
+# Imported under private names so they do not show up in dir(mila) or tab
+# completion: this module IS the public API, and everything visible in it reads as
+# part of that API whether __all__ lists it or not.
+import os as _os
+from pathlib import Path as _Path
 
 __all__ = [
     "initialize",
@@ -28,44 +31,125 @@ __all__ = [
     "GemmaModel",
     "LlamaModel",
     "StopController",
-    "cuda_dll_directories",
+    "cuda_library_directories",
 ]
 
 
-def _register_cuda_dll_directories() -> list[str]:
+def _register_cuda_libraries() -> list[str]:
     """
-    Make the CUDA runtime DLLs findable, before the extension is loaded.
+    Make the CUDA runtime libraries loadable, before the extension is imported.
 
-    Since Python 3.8, Windows does NOT search PATH when resolving an extension
-    module's DLL dependencies -- only system directories, the extension's own
-    directory, and directories passed to os.add_dll_directory. The extension links
-    cuBLASLt and cuRAND, so without this a machine with a perfectly good CUDA
-    install on PATH still fails with a bare "DLL load failed", a message that names
-    neither the missing library nor the reason.
+    Both platforms need help, for different reasons, and the same answer works for
+    both: LOAD the libraries this package's dependencies pinned, rather than merely
+    making them findable. A dependency is resolved against what is already in the
+    process -- by base name on Windows, by SONAME on Linux -- so a library loaded
+    here is the one the extension gets.
 
-    Two sources, in order. NVIDIA's own PyPI wheels (nvidia-cublas-cu13 and friends)
-    install their DLLs under site-packages/nvidia/*/bin, and are preferred because
-    they are the ones this package's dependencies pinned -- a wheel install must not
-    silently bind to whatever toolkit happens to be on the machine. Failing that, an
-    installed CUDA Toolkit: CUDA_PATH when it is set and real, otherwise the newest
-    under the default install root.
+    On WINDOWS, PATH is not searched at all when resolving an extension module's DLL
+    dependencies (Python 3.8 narrowed it to system directories, the extension's own
+    directory, and os.add_dll_directory). Directory registration alone is also not
+    enough to make the wheel's copies win: added directories are searched in an
+    UNSPECIFIED order, and measurement showed a machine's CUDA v13.3 shadowing the
+    site-packages copy -- a wheel silently binding to whatever toolkit is installed,
+    which is what the dependency pins exist to prevent.
 
-    Returns the directories registered. Empty off Windows, where the loader's normal
-    search path resolves the .so.
+    On LINUX the extension's DT_NEEDED entries are resolved through the normal loader
+    search path, which does NOT include site-packages. Without a system CUDA
+    registered with ldconfig -- exactly the machine a wheel exists to serve -- the
+    import fails on a missing libcublasLt.so. Preloading with RTLD_GLOBAL satisfies
+    those entries by SONAME.
+
+    An installed CUDA Toolkit remains a backstop on Windows, so that a partial wheel
+    install degrades instead of failing while a perfectly good toolkit sits unused.
+
+    Returns the directories the libraries came from -- print it when a load fails.
     """
-    if os.name != "nt":
+    wheel_directories = _nvidia_wheel_directories()
+
+    if _os.name == "nt":
+        registered = wheel_directories + _toolkit_directories()
+
+        # Register first: a preloaded library may itself pull in siblings.
+        for directory in registered:
+            _os.add_dll_directory(str(directory))
+    else:
+        registered = wheel_directories
+
+    _preload(wheel_directories)
+
+    return [str(directory) for directory in registered]
+
+
+def _preload(directories: "list[_Path]") -> None:
+    """
+    Load every CUDA library in the given directories, making those copies
+    authoritative for anything loaded afterwards.
+
+    Best effort by design: a library that fails to load is skipped rather than raised
+    on, because it may be one the extension never needs, and the real error -- with
+    real context -- belongs to the extension import below.
+
+    Two passes, because these libraries depend on each other and the filesystem order
+    is not a topological one: a library that failed on the first pass because a
+    sibling was not yet loaded succeeds on the second. Loading is idempotent, so a
+    repeat costs a refcount rather than a second mapping.
+    """
+    import ctypes
+
+    for _ in range(2):
+        for directory in directories:
+            for library in sorted(directory.glob("*.dll" if _os.name == "nt" else "*.so*")):
+                try:
+                    if _os.name == "nt":
+                        ctypes.WinDLL(str(library))
+                    else:
+                        # RTLD_GLOBAL: the point is to satisfy the extension's
+                        # DT_NEEDED entries, which a local-scope load would not.
+                        ctypes.CDLL(str(library), mode=ctypes.RTLD_GLOBAL)
+                except OSError:
+                    continue
+
+
+def _nvidia_wheel_directories() -> list[_Path]:
+    """
+    CUDA library directories provided by NVIDIA's PyPI wheels, if installed.
+
+    Located by finding the libraries themselves rather than by assuming a directory
+    convention, because NVIDIA has changed it: the CUDA 12 wheels used
+    nvidia/<library>/{bin,lib}, CUDA 13 uses nvidia/cu13/bin/x86_64. Measured, not
+    guessed -- the first version of this globbed nvidia/*/bin, which on a real
+    install matched a directory holding only the x86_64 subdirectory and no libraries
+    at all. Searching for the files survives the next reorganisation, the lib/bin
+    split across platforms, and the aarch64 layout.
+    """
+    nvidia_root = _Path(__file__).resolve().parent.parent / "nvidia"
+
+    if not nvidia_root.is_dir():
         return []
 
-    registered: list[str] = []
+    pattern = "*.dll" if _os.name == "nt" else "*.so*"
 
-    for directory in _nvidia_wheel_directories():
-        os.add_dll_directory(str(directory))
-        registered.append(str(directory))
+    return sorted({library.parent for library in nvidia_root.rglob(pattern)})
 
-    if registered:
-        return registered
 
-    for root in _toolkit_roots():
+def _toolkit_directories() -> list[_Path]:
+    """
+    Binary directories of ONE installed CUDA Toolkit: CUDA_PATH when it is set and
+    real, otherwise the newest under the default install root. One rather than all,
+    so it is deterministic which copy of a DLL the loader can find.
+    """
+    roots: list[_Path] = []
+    cuda_path = _os.environ.get("CUDA_PATH")
+
+    if cuda_path:
+        roots.append(_Path(cuda_path))
+
+    default_root = _Path(r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA")
+
+    if default_root.is_dir():
+        roots.extend(sorted(default_root.iterdir(), reverse=True))
+
+    for root in roots:
         # CUDA 13 puts the redistributables in bin/x64; earlier layouts use bin.
         directories = [
             directory for directory in (root / "bin" / "x64", root / "bin")
@@ -73,45 +157,14 @@ def _register_cuda_dll_directories() -> list[str]:
         ]
 
         if directories:
-            for directory in directories:
-                os.add_dll_directory(str(directory))
-                registered.append(str(directory))
+            return directories
 
-            return registered
-
-    return registered
+    return []
 
 
-def _nvidia_wheel_directories() -> list[Path]:
-    """CUDA DLL directories provided by NVIDIA's PyPI wheels, if installed."""
-    nvidia_root = Path(__file__).resolve().parent.parent / "nvidia"
-
-    if not nvidia_root.is_dir():
-        return []
-
-    return sorted(
-        directory for directory in nvidia_root.glob("*/bin") if directory.is_dir()
-    )
-
-
-def _toolkit_roots() -> list[Path]:
-    roots: list[Path] = []
-    cuda_path = os.environ.get("CUDA_PATH")
-
-    if cuda_path:
-        roots.append(Path(cuda_path))
-
-    default_root = Path(r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA")
-
-    if default_root.is_dir():
-        roots.extend(sorted(default_root.iterdir(), reverse=True))
-
-    return roots
-
-
-#: CUDA directories registered at import time. Print this when a load fails --
-#: an empty list on Windows means no CUDA was found at all.
-cuda_dll_directories = _register_cuda_dll_directories()
+#: CUDA library directories used at import time. Print this when a load fails --
+#: an empty list means no CUDA libraries were found anywhere.
+cuda_library_directories = _register_cuda_libraries()
 
 try:
     from ._mila import (
@@ -124,16 +177,20 @@ try:
 except ImportError as error:
     raise ImportError(
         f"{error}\n\n"
-        f"The Mila extension failed to load. CUDA directories registered: "
-        f"{cuda_dll_directories or 'none'}.\n"
-        "An empty list on Windows means neither NVIDIA's CUDA wheels nor a CUDA "
-        "Toolkit was found; install the toolkit, or set CUDA_PATH to it."
+        f"The Mila extension failed to load. CUDA libraries were taken from: "
+        f"{cuda_library_directories or 'nowhere -- none were found'}.\n"
+        "An empty list means neither NVIDIA's CUDA wheels (nvidia-cublas, "
+        "nvidia-curand) nor a local CUDA Toolkit was located."
     ) from error
 
-try:
+def _resolve_version() -> str:
+    """The installed distribution's version, or a marker when run from a build tree."""
     from importlib.metadata import PackageNotFoundError, version
 
-    __version__ = version("mila-llm")
-except PackageNotFoundError:
-    # Imported from a build tree rather than an installed wheel.
-    __version__ = "0.0.0+local"
+    try:
+        return version("mila-llm")
+    except PackageNotFoundError:
+        return "0.0.0+local"
+
+
+__version__ = _resolve_version()

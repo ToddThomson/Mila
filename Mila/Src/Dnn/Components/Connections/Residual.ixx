@@ -221,11 +221,9 @@ namespace Mila::Dnn
          * Placeholder; concrete implementations should write named parameter
          * tensors into the archive.
          */
-        void save_( ModelArchive& archive, SerializationMode mode ) const override
+        void save_( ModelArchive&, SerializationMode ) const override
         {
-            // No-op placeholder; serialize parameter tensors if needed
-            (void)archive;
-            (void)mode;
+            // Deliberately empty: parameterCount() is 0, so there is nothing to serialize.
         }
 
         // ====================================================================

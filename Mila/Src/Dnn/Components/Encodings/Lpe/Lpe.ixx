@@ -41,6 +41,7 @@ import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.IPositionalDecode;
 import Serialization.ModelArchive;
+import Serialization.Metadata;
 import Serialization.Mode;
 import Serialization.Tensor;
 
@@ -271,11 +272,31 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
+        std::vector<std::string> getParameterNames() const override
+        {
+            return { "wte", "wpe" };
+        }
+
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
-            // Persist parameters if present
-            (void)archive;
             (void)mode;
+
+            SerializationMetadata meta;
+            meta.set( "type", "Lpe" )
+                .set( "version", int64_t( 1 ) )
+                .set( "name", this->getName() );
+
+            archive.writeMetadata( "meta.json", meta );
+
+            if ( wte_ )
+            {
+                this->saveParameterToArchive( archive, "wte", *wte_ );
+            }
+
+            if ( wpe_ )
+            {
+                this->saveParameterToArchive( archive, "wpe", *wpe_ );
+            }
         }
 
         // ====================================================================

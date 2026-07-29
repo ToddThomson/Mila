@@ -372,6 +372,231 @@ good-first-issue.
   `/external:W0` would have **hidden** them rather than isolated them. Weigh that against the isolation:
   the std/miniz rows are where our own template arguments surface.
 
+- [x] **`Network::save()` writes an archive missing most of the model's weights, and reports success.**
+  Found 2026-07-29 while scoping the checkpoint API. `Component::save_()` is pure virtual and has 25
+  overrides; **10 are empty** (`(void)archive; (void)mode;`). Six of those are correct —
+  `Softmax.ixx:213`, `SoftmaxCrossEntropy.ixx:168`, `Rope.ixx:197`, `Residual.ixx:224`,
+  `MultiHeadAttention.ixx:248` and `GroupedQueryAttention.ixx:406` all report `parameterCount() == 0`,
+  so there is nothing to write. **Four own parameters and drop them silently:** `RmsNorm.ixx:169`
+  (every norm weight in Gemma and Llama), `LayerNorm.ixx:210`, `TokenEmbedding.ixx:250` (the embedding
+  table — the single largest tensor in the model) and `Lpe.ixx:274`. `Linear` is the only component
+  that writes real tensor blobs, so a saved Gemma or Llama archive holds the projection weights and
+  nothing else, with no error and no warning. Same class as the `ModelArchive::close()` defect below —
+  a save that lies — and it survives because nothing in the tree calls `Network::save()` on a
+  transformer.
+  **Minimum honest fix, freeze-compatible: a component reporting `parameterCount() > 0` with no
+  `save_` implementation must throw rather than no-op**, matching `GptModel.ixx:164`, where
+  `fromCheckpoint()` already refuses instead of pretending. Implementing the four is the larger fix and
+  belongs with the checkpoint API in `## Future`. Phase 0 of
+  `Specifications/ModelSerialization.md`.
+
+- [x] **`CompositeComponent::save_` collides every descendant into one archive scope — and this one
+  makes the other two moot.** `Network::save()` pushes `components/<name>` per top-level child
+  (`Network.ixx:510`), but the composite's own recursion at `CompositeComponent.ixx:783` calls
+  `component->save_( archive, mode )` with **no `ScopedScope`**. Every descendant therefore writes into
+  its parent's scope: in a 48-block transformer every `Linear` in every block writes
+  `tensors/weight/data.bin` at the same path, each overwriting the last. Compounding it, the same
+  function records `type` / `version` / `child_count` / `child_names` through `archive.addMetadata()`
+  (`:764`-`:782`), which is the **archive-global** store — `ZipSerializer.ixx:426` writes the unscoped
+  path `metadata/<key>`, bypassing `scopedPath()` — so every composite in the model overwrites the same
+  four keys. `ModelArchive` supports the nesting (`scope_stack_` is a stack and `currentPrefix()` joins
+  it); nothing pushes. **Fix this before implementing the four missing `save_` bodies above, or the
+  result is a larger archive that is still wrong.** Phase 1 of
+  `Specifications/ModelSerialization.md`.
+
+- [x] **`Linear::save_` writes a truncated, mislabelled blob for any non-FP32 weight.**
+  `Linear.ixx:306` takes `tmeta.dtype` and `:308` takes `tmeta.total_bytes` from the **device** tensor
+  (`size() * elementSize()`), then the CUDA branch stages through a host
+  `Tensor<dtype_t::FP32, CpuMemoryResource>` (`:317`) and hands `writeTensorBlob` that FP32 buffer with
+  the device tensor's byte count (`:323`). For a BF16 weight that writes **half the staged buffer** and
+  labels the result BF16 when the bytes are FP32 — every value wrong, not merely truncated. The bias
+  block repeats it verbatim (`:330`, `:332`, `:341`, `:347`). The CPU branch is correct (no staging, no
+  conversion), which is why the path reads as working. Quantized weights are not handled at all: a
+  `PerGroupFp4<128>` weight is packed nibbles plus per-group scales, and neither the packing nor the
+  scales have a representation here. Settle the staging dtype (mirror the device dtype rather than
+  widen to FP32) alongside the quantized-artifact question in `## Future`. Phases 2-3 of
+  `Specifications/ModelSerialization.md`, which also calls for hoisting the device-to-host staging out
+  of `Linear` into one shared helper — the other four parameter-owning components need it, and copying
+  the current branch would replicate this defect four more times.
+
+- [x] **`Serialization.Tensor` is exported by nobody, so `Component::loadParameter` names a type its
+  callers cannot see.** **Fixed 2026-07-29 while writing the Phase 4 round-trip test, which could not
+  be written without it** — a test double cannot override `loadParameter` when its parameter type is
+  unnameable, so this went from a filed observation to a blocker in one step. Added
+  `export import Serialization.Tensor;` to `Mila.ixx`. **Verify by full rebuild, not by the test
+  passing**: export-surface changes fail asymmetrically and per-compiler, so a green MSVC build is
+  necessary and not sufficient — the clang leg is the real check. `Mila.ixx` exports six `Serialization.*` modules (`:276-281`) and **not**
+  `Serialization.Tensor`, and no other module re-exports it. But `Component` *is* exported
+  (`Mila.ixx:143`) and its public `loadParameter( const std::string&, const ITensorBlob& )`
+  (`Component.ixx:509`) takes a type from that module — as do `TensorMetadata`, `TensorBlob<MR>`,
+  `TensorBlobView`, `writeTensorBlob` and `readTensorBlob`. So the parameter-loading entry point is
+  **reachable but not visible** to anyone consuming `import Mila;`: the signature resolves, the
+  argument type cannot be named. Found 2026-07-29 writing the serialization tests, which wanted
+  `readTensorBlob( archive, prefix )` to verify a saved blob and had to go through `ModelArchive`'s
+  own `readMetadata`/`getFileSize`/`readBlobInto` instead. **This is the exact failure class already
+  recorded for the quantization policies** — a type in a public interface must be visible, not merely
+  reachable — including its nastiest property: it fails *asymmetrically and per-compiler*, so MSVC
+  green is not evidence. Fix is one `export import Serialization.Tensor;` in `Mila.ixx`, but confirm
+  against a full rebuild rather than a grep.
+
+- [ ] **`save_` is public on `Component` and protected on `CompositeComponent`.** `Component.ixx`
+  declares it in the `public:` section (`:163`-`586`); `CompositeComponent.ixx` overrides it at `:767`,
+  inside `protected:` (`:651`). Legal, and calls through a `Component*` still work — which is why
+  `Network::saveComponentGraph` never noticed — but it means the accessibility of one virtual depends
+  on the static type you hold, and a caller holding a concrete composite cannot invoke it.
+  Surfaced 2026-07-29 as C2248 in `Tests/Dnn/Core/CompositeComponent.cpp`, worked around with an
+  `exposeSave()` forwarder. Pick one level and apply it in both places; the trailing-underscore
+  convention suggests non-public is the intent, in which case `Component`'s declaration is the one
+  that is wrong.
+
+- [ ] **Two exported types are named `MemoryStats`, and `import Mila;` makes both visible.**
+  `Mila::Dnn::MemoryStats` (`Core/Component.MemoryStats.ixx:33`, the per-component figure returned by
+  `Component::getMemoryStats()`) and `Mila::Dnn::Compute::MemoryStats`
+  (`Compute/MemoryResourceTracker.ixx:19`, the allocator-level figure). Both are exported from
+  `Mila.ixx`, so any consumer with `using namespace Mila::Dnn;` **and**
+  `using namespace Mila::Dnn::Compute;` — the pair every test file opens with — gets **C2872 on an
+  unqualified `MemoryStats`**. Found 2026-07-29 when the serialization tests tripped it in
+  `Tests/Dnn/Core/CompositeComponent.cpp`; worked around there by qualifying, which is a fix for the
+  call site and not for the collision. Two same-named exported structs one namespace apart is an
+  API-coherence defect, not a naming preference: the resolution is to rename one (the component-level
+  one reads naturally as `ComponentMemoryStats`, the tracker one as `AllocatorMemoryStats`) rather
+  than to keep qualifying at every consumer. Fold into the **API Coherence** pass in `## Future`.
+
+- [x] **Every shipped composite bypassed the Phase 1 scoping fix, and the Phase 1 test could not see
+  it.** Found 2026-07-29 when adding `Component::load_` turned a C2248 in `GptBlock.ixx:369`.
+  `GptBlock`, `Llama.Block`, `Gemma.Block`, `MLP` and `GatedMLP` all register their children through
+  `addComponent` **and** override `save_` with a hand-rolled walk that pushes **no scope** — so the
+  scoping repair landed in `CompositeComponent::save_` never ran for any of them, and inside every
+  transformer block all eight-to-sixteen children still wrote `tensors/weight/data.bin` at one path,
+  each overwriting the last. **The Phase 1 test passed because its `TestComposite` does not override
+  `save_`** — the fix was verified against a double that took the code path the real composites
+  replace. Two further defects fell out of the same audit: `Llama.Block` listed **ten** children where
+  eleven are registered, so one was never written at all; and `Gemma.Block` never wrote
+  `layer_scalar`, the per-layer output scale it owns directly, so a Gemma archive silently lost the
+  scales — a numerics change, not a missing extra.
+  **Fix:** the four pure containers drop their overrides entirely and inherit the base traversal
+  (safe: every hand-rolled member is resolved out of the child registry by name, so the base walks a
+  superset). `Gemma.Block` keeps an override that calls the base and then writes its own
+  `layer_scalar`, with a matching `load_` — it is the one composite in the tree that owns a parameter,
+  and `CompositeComponent::load_` only recurses, so the own-parameter half has to be explicit.
+  **The compile error was the useful part:** a hand-rolled `load_` on a class template is never
+  instantiated until something calls it, so `GptBlock::load_` had been dead and unchecked. Making
+  `load_` virtual put it in the vtable, forced instantiation, and the body failed immediately.
+  **Generalizable: adding a virtual to a base can convert dormant same-signature methods in derived
+  classes into live overrides — grep for the name across derived classes before adding one.**
+
+- [ ] **GPT-2 and Llama 3 pre-tokenization silently runs the ASCII fallback on every MSVC build.**
+  Found 2026-07-29 by capturing first-chance exceptions across the whole suite under `cdb`. Both
+  canonical patterns use Unicode classes — `BpePreTokenizationMode.ixx:33` and `:57` are
+  `\p{L}`/`\p{N}` throughout — and **MSVC's `std::regex` ECMAScript mode does not implement `\p{...}`**,
+  so `BpeTokenizer::initializePreTokenization` (`BpeTokenizer.ixx:344`) throws `regex_error` on
+  **every** construction and takes the documented ASCII-approximation branch at `:346`. Measured: 52
+  of the suite's 416 first-chance exceptions, one per tokenizer construction, 100% hit rate.
+  **The fallback is deliberate and even logs a warning — that is what makes it worth filing.** The
+  warning says "Non-ASCII text may tokenize differently from the HuggingFace reference", and on
+  Windows that is not a *may*: it is every run, always. The signal is drowned by its own frequency,
+  which is precisely how a permanent correctness limitation reads as routine noise. Gemma is
+  unaffected (SentencePiece returns early at `:330`); **Llama 3 and GPT-2 are affected on the primary
+  development and release platform.** No parity test would catch it — an ASCII prompt tokenizes
+  identically under both patterns, so the divergence only appears with accented text, CJK or emoji.
+  **Fix is a dependency decision, not a patch:** `std::regex` cannot express these patterns, so it
+  needs a real engine (PCRE2, RE2, `boost::regex`) or hand-rolled Unicode class matching. Worth
+  pricing against the reference-implementation positioning — "tokenizes like the reference" is a
+  claim the project would want to hold. Interim, cheap, and honest: log the warning **once** per
+  process rather than per construction so it is visible, and state the limitation in the tokenizer
+  docs.
+
+- [ ] **`copy()` issues every device-to-device transfer twice.** Noticed 2026-07-29 while tracing the
+  dispatch for the serialization staging copy; unrelated to that work. `TensorOps.Transfer.ixx:100`
+  handles the both-device-only case and calls `TensorOps<device>::copy`, then **falls through** to the
+  `:112` block — which is a second `if constexpr`, not an `else if`. Its condition
+  (`!src_host || !dst_host`) is also true for two device tensors, and its inner `!src_host` branch
+  issues the identical copy again. Benign in result (a repeated copy is idempotent) but it doubles the
+  cost of every D2D transfer and the `cudaMemcpyAsync` traffic that goes with it. Making the second
+  block an `else if` is the whole fix; the third block's "Both are host-accessible" comment already
+  reads as though the chain were exclusive.
+
+- [x] **Serialization Phases 0-3 DONE and verified 2026-07-29 — including the Phase 2-3 criteria,
+  closed by the round-trip coverage added with Phases 4-5.** `getParameterNames()` is now proven to
+  match what `loadParameter` accepts for all five parameter-owning components: `Linear`, `LayerNorm`
+  and `Lpe` through the GPT round trip, `RmsNorm` and `TokenEmbedding` through the Llama one, each
+  asserted as one archive blob per parameter rather than restated as a list.
+  *(status when first written, kept for the reasoning)* Build green, full suite green, and the new
+  coverage below green — the first time the save path has ever executed. Before it, no test called
+  `Network::save()` or any real `save_`; the only `save_` bodies the suite touched were stub overrides
+  in test doubles, so green meant the templates instantiated and nothing more.
+  **Remaining, deliberately not claimed:** `Specifications/ModelSerialization.md` sets Phase 2's bar at
+  "for each of the five, `getParameterNames()` matches the set `loadParameter` accepts" and Phase 3's
+  at "a saved Gemma archive contains one blob per parameter". Neither is asserted. The tests below
+  prove the *machinery* — the guard, the layout, the per-tensor writer, the staging dtype — against
+  test doubles; **the five real components' name-to-loader agreement (`Linear`, `RmsNorm`, `LayerNorm`,
+  `TokenEmbedding`, `Lpe`) has no oracle**, and a mismatch there would surface only when the Phase 4
+  load traversal tried to read a name save never wrote. Cheapest honest close is the Phase 4 round
+  trip; a literal-name assertion per component is weaker but nearly free, and `RmsNorm.Cpu.cpp` /
+  `TokenEmbedding.Cpu.cpp` are not in the active CMake list, so two of the five would need reviving
+  first.
+  Coverage added 2026-07-29, in place rather than in parallel files:
+  **`Tests/Dnn/Core/Component.cpp`** — the guard on all three of its cases (parameters owned but
+  unnamed throws; named passes; parameterless passes, which is what the six stateless empty `save_`
+  bodies rely on), plus `saveParameterToArchive` on the host branch asserting dtype, shape, recorded
+  byte count and the blob's actual size agree.
+  **`Tests/Dnn/Core/CompositeComponent.cpp`** — the layout defect: sibling and grandchild blobs at
+  distinct paths with a **count of `data.bin` entries** (3, not 1 overwritten three times); composite
+  metadata under its own scope with nothing at the archive-global `metadata/<key>`; child order
+  recorded as registered, using deliberately non-alphabetical names so a sorted or unordered container
+  fails; and the guard rejecting a child that owns unnamed parameters. `MockChild` gained
+  `getParameterNames()` and a real `save_` so the traversal has a faithful leaf to drive.
+  **`Tests/Dnn/Core/Component.Cuda.cpp` (new)** — the staging branch, unreachable from CPU because it
+  needs a device-only dtype. **The byte count alone does not discriminate here**: the old code staged
+  through FP32 and wrote the BF16 count, producing a file of exactly the right size holding the first
+  half of the FP32 data. So the test reads the contents — BF16 1.5 is six identical `0x3FC0` units,
+  where the truncated FP32 buffer would alternate `0x0000` / `0x3FC0`. Wired into the
+  `MILA_ENABLE_CUDA` block of `Tests/CMakeLists.txt`. Covers all
+  three defects above. `Specifications/ModelSerialization.md` carries the design; what landed:
+  **Phase 0** — `Component::requireSerializableParameters()` (virtual, public) throws when a component
+  reports `parameterCount() > 0` and names none, called by both save traversals so the failure names the
+  component instead of surfacing as a short archive; `CompositeComponent` overrides it to a no-op, since
+  a composite sums its children's parameters but names none of its own and the recursion checks each
+  child in turn. The six legitimately-parameterless `save_` bodies now take unnamed parameters and say
+  why they are empty.
+  **Phase 1** — `CompositeComponent::save_` pushes a `ScopedScope` per child, and its four metadata keys
+  moved from `addMetadata()` (archive-global) to `writeMetadata( "meta.json" )` (scoped). It now iterates
+  `child_components_` (vector, insertion order) rather than `child_component_map_` (unordered) — **the
+  map made both the recorded child order and the write order vary between runs**, which would have made
+  archives non-reproducible; the two containers hold the same children under the same names.
+  **Phase 2** — `getParameterNames()` implemented on all five parameter-owning components, matching the
+  vocabulary `loadParameter` already accepts (`weight`/`bias`, `wte`, `wte`+`wpe`).
+  **Phase 3** — new protected `Component::saveParameterToArchive()`, the save counterpart to
+  `loadParameterFromBlob`: it stages a device parameter through a host tensor of the **same** dtype and
+  sizes the blob from `getStorageSize()`. The four missing `save_` bodies are written against it, and
+  `Linear::save_` was rewritten onto it — the old body was deleted rather than retired, since keeping a
+  dead copy of a truncating write helps nobody.
+  **One design call worth flagging: `Linear` and `TokenEmbedding` now refuse outright on the quantized
+  path** (`if constexpr ( kIsQuantized ) throw`). A quantized weight is packed storage plus a scale
+  companion and the archive cannot express that pairing; quantization is applied on load for inference,
+  and a checkpoint is written from the unquantized training path. Better an explicit refusal naming the
+  dtype than a blob nothing can read back.
+  **First build round, and it corrected the fix rather than the diagnosis (C7602 at `Component.ixx:866`):
+  same-dtype staging cannot use `CpuMemoryResource`.** `isValidTensor` rejects a host-only memory
+  resource for any `is_device_only` dtype (`TensorDataTypeTraits.ixx:331`), and **every reduced
+  precision Mila trains or serves in is device-only** — BF16, FP16, FP8_E4M3/E5M2, FP4_E2M1/E3M0 all
+  set `is_device_only = true`; only FP32 and the integer types are host-compatible. So
+  `Tensor<BF16, CpuMemoryResource>` is not a valid template-id, which is **why the original code widened
+  to FP32** — that part was not arbitrary, only the byte count paired with it was wrong. Fixed by
+  staging through `CudaPinnedMemoryResource`, which is both host- and device-accessible and therefore
+  satisfies the constraint while staying readable on the host (`Tensor.Constructors.Cuda.cpp:145`
+  static_asserts `isValidTensor<FP8_E5M2, CudaPinnedMemoryResource>`). It is also the same staging
+  memory the load direction already uses in `PretrainedReader`. Constructed with
+  `parameter.getDeviceId()`, not `Device::Cpu()`.
+  **Verified by reading, not building:** `TensorOps::copy` self-synchronizes on the D2H path
+  (`CudaTensorOps.Transfer.ixx:244` sets `needs_sync = true` with the comment "Always sync D2H
+  transfers"), so the staging copy completes before `writeTensorBlob` reads the host buffer — that was
+  the one silent-corruption risk in the new helper. **Expect build rounds:** four files gained
+  `import Serialization.Metadata;` (only `Linear.ixx` had it), and `Component.ixx` gained
+  `import Compute.CpuMemoryResource;`. `copy()` resolves through ADL at instantiation exactly as the
+  existing `copyFromBlob` call in the same file does. Phases 4-7 (load traversal, model API, optimizer
+  state, quantized distribution artifact) are untouched.
+
 - [x] **`/W4` warning sweep, 252 -> 72 — and it surfaced a real defect.** `ModelArchive::close()`
   discarded `ZipSerializer::close()`'s `[[nodiscard]] bool` and wrapped it in a `try`/`catch` that
   could never fire (close reports failure by return, not by throwing), so a failed archive finalize
@@ -659,10 +884,31 @@ good-first-issue.
   rather than merely making them findable — Windows resolves dependencies by base name against what
   is already in the process, the same approach PyTorch takes. Re-measured: both now resolve to
   site-packages, and generation runs on cuBLAS 13.6 rather than the Toolkit's 13.3.
-  **Remaining:** whether the samples ship inside the wheel as `mila-chat` / `mila-generate` console
-  scripts (a scope decision, not engineering); Trusted Publishing from CI; the cp314 / manylinux
-  build matrix; and the real-PyPI publish call. Naming rationale and the multi-backend argument are
-  in the spec.
+  **PUBLISHED to PyPI 2026-07-29** as `mila-llm` 0.20.0b2.dev20. Version mapping settled:
+  `Version.txt` `0.20.0-beta.2+N` -> `0.20.0b2.devN`, **not** plain `0.20.0b2` — that number belongs
+  to the upcoming beta.2 *release*, and a published version can never be reused, so a snapshot taken
+  under it would have forced the real release to ship as a post-release of a snapshot. PEP 541 claim
+  on the derelict bare `mila` filed as pypi/support#11675.
+  **Remaining:** the wheel version is still hand-maintained in `pyproject.toml` *and* `Version.txt`
+  and will drift at the next bump — derive it at build time; the Linux CUDA preload path is written
+  but has never been exercised (needs a WSL build); the manylinux glibc floor is undecided (CI's
+  Ubuntu 26.04 yields ~`manylinux_2_43`, which reaches almost nobody, and the standard
+  `manylinux_2_28` image ships GCC 12 and cannot compile C++23 modules); `auditwheel` must be given
+  an explicit `--exclude` for the CUDA libraries or it will vendor 400 MB of cuBLAS into the wheel
+  and defeat the dependency design. Also open: whether the samples ship inside the wheel as
+  `mila-chat` / `mila-generate` console scripts, Trusted Publishing from CI, and the cp314 matrix.
+  Naming rationale and the multi-backend argument are in the spec.
+- [ ] **Tier 2 — weights, the real product gap.** `pip install mila-llm` today gives a runtime with
+  nothing to run: no weights ship, none download, and producing a `.bin` means cloning the repo and
+  running the torch/transformers converters. **Settled 2026-07-29 (details in the spec): Mila hosts
+  nothing large** — `google/gemma-4-12B-it` is `gated: false` + Apache 2.0, so the user fetches from
+  Google over `urllib` and converts locally, which costs no storage and incurs no redistribution
+  obligations. **Gemma 4 E2B/E4B are ruled out** as a smaller first-run candidate: they carry
+  Per-Layer Embeddings on every layer plus cross-layer KV sharing, a different architecture rather
+  than a smaller config. The `mila-llm` Hub organisation exists for tokenizers and the org card.
+  The work is a **torch-free safetensors -> Mila converter**: feasible on the standard library alone
+  (header is a u64 length + JSON; BF16 is a byte copy; the fused `[Q|K|V]` and `[gate|up]` are dim-0
+  concatenations; `v_norm` is synthesised ones; `layer_scalar` is one BF16->FP32 widen).
 - [x] Python samples — `Mila/Samples/Python/`: `chat.py` (Gemma 4 streaming chat: instruct template,
   token loop, channel filter, cooperative Ctrl-C through `StopController`), `generate.py` (tokenizer
   round-trip + sampling knobs, Gemma or Llama, `--fp8` exercising the defect fix above), `common.py`
@@ -736,6 +982,116 @@ to the current release.
   Today the tree states (a) and half-implements (b), which pays (a)'s cost without its uniformity.
   Also worth folding in: the `zero()` on a full-overwrite CUDA op is dead work (two extra kernel
   launches per Residual backward, ~24 per GPT-2 step).
+- **Serialization Phases 4-5 DONE and verified 2026-07-29** — build green, full ctest green, including
+  a real two-layer GPT round trip. Phase 6 (optimizer state) remains unstarted.
+  **What the green run actually establishes, and what it does not.** Verified end to end on the **GPT
+  stack only**: `Lpe`, `LayerNorm`, `Linear`, `GptBlock`, `MLP`, `GptTransformer` — round trip
+  bit-exact, one blob per parameter, config recovered including the two fields the old hand-rolled
+  block got wrong, and a throw on a mismatched archive. **The `blob_count == getParameters().size()`
+  assertion passing is the real prize**: it is empirical proof that `getParameterNames()` and
+  `getParameters()` agree for every component in that stack, which is the Phase 2 criterion for three
+  of the five components, obtained as a runtime check rather than a restatement.
+  **Gaps closed 2026-07-29 (written, unbuilt):** `Gemma.Block.Cuda.cpp` — `layer_scalar` written to the
+  archive and restored, verified *through the archive* since the block exposes no accessor (save with a
+  set value, reload into a fresh block whose default is 1.0f, re-save, read back: 2.5 means restored,
+  1.0 means `load_` did nothing), plus a blob count proving the sixteen children did not collapse onto
+  one scope. `Llama.Cuda.cpp` — full network round trip with one blob per parameter, which is also the
+  only coverage of `RmsNorm` and `TokenEmbedding` `getParameterNames()`, unused by the GPT stack.
+  **New `Dnn/Models/GptModel.Cpu.cpp`** — Phase 5's public API at last: `fromCheckpoint` reconstructing
+  a model from an archive alone, and the full cycle load → `saveCheckpoint` → compare **archives blob
+  for blob**. That last oracle exists because `getLanguageNetwork()` is protected and widening the
+  public API for a test would be the wrong trade; comparing archives is stronger anyway, since it
+  covers both legs.
+  **Original gap list, for the record:** `Llama.Block` and `Gemma.Block`
+  (both had hand-rolled overrides removed or rewritten, neither has a serialization test);
+  `Gemma.Block::layer_scalar` save/load (**net-new code, never executed** — and it is the one composite
+  that owns a parameter, so nothing else exercises that path); `RmsNorm` and `TokenEmbedding`
+  `getParameterNames()` (the remaining two of the five); and **`GptModel::saveCheckpoint` /
+  `fromCheckpoint` themselves** — the tests drive `GptTransformer::save`/`load` and
+  `configFromArchive` directly, so Phase 5's actual public deliverable has no oracle. A Llama or Gemma
+  CPU round trip plus a `GptModel`-level test would close all of it and is the obvious next coverage.
+  *(original entry)*
+- **Serialization Phases 4-5 written 2026-07-29.** Todd's call to take 4-6 out of freeze
+  scope. Phase 6 (optimizer state) deliberately sequenced *after* a build round rather than written
+  alongside — it adds a new module plus CPU and CUDA optimizer surfaces, and an export change is
+  already in flight in this batch.
+  **Phase 4 — the load traversal.** `Component::load_` is virtual with a **working default**, not pure:
+  it walks the same `getParameterNames()` vector `save_` walked, reads each blob, and hands it to
+  `loadParameter`, which already validates dtype and shape. That default is the entire implementation
+  for all five parameter-owning leaves. A named-but-absent blob **throws** — skipping would leave the
+  parameter at its initialized value and report success, which reads as a converged model that is not
+  one. `CompositeComponent::load_` recurses under the scopes Phase 1 established; `Network::load()` +
+  `loadComponentGraph()` mirror `save()` + `saveComponentGraph()`, iterating the **live** children
+  rather than replaying a manifest (`saveComponentGraph` records names into per-child descriptor
+  *filenames*, not a list, so the live graph is the only clean enumeration) and validating the recorded
+  component count first. `Network::load_` is non-pure where `save_` is pure: a concrete network must
+  write its config because nothing else can, but rarely needs to read it back, since the factory
+  consumes it before construction.
+  **Phase 5 — `GptModel::saveCheckpoint` / `fromCheckpoint`, cheaper than scoped.** `GptConfig`
+  already had `toMetadata()`/`fromMetadata()`, so the declared no-config signature is achievable after
+  all — `fromCheckpoint(path, device_id)` reads the config, rebuilds at the saved geometry, builds,
+  then loads. **This surfaced a live defect in the hand-rolled block it replaces:
+  `GptTransformer::save_` wrote `mlp_hidden_dim` where `GptConfig::fromMetadata` reads `hidden_dim`,
+  and omitted `use_bias` entirely** — a round trip would have silently rebuilt with a defaulted bias
+  flag and a hidden size guessed as 4x embedding (right for GPT-2 by coincidence, wrong in general).
+  `save_` now writes `config_.toMetadata()`, one source of truth. `GptTransformer::load_` validates
+  vocab/layers/embedding/heads so a mismatch names itself instead of surfacing as a shape error deep
+  inside a component.
+  **Tests, two layers of them.** In `Core/CompositeComponent.cpp`: round trip into a *separately
+  constructed* graph pre-filled with a sentinel so "restored" cannot be confused with "already
+  correct", distinct per-tensor values so a cross-wired restore is visible, and the missing-blob
+  throw. In `Components/Transformers/Gpt/GptTransformer.Cpu.cpp` (added after the mock-based suite
+  proved unable to see the composite defect): the same round trip on a **real two-layer network**,
+  asserting **one blob per parameter** — the assertion the unscoped walk fails outright, since it
+  produced a single blob regardless of parameter count — plus config recovery (pinning the two fields
+  the hand-rolled metadata got wrong) and a throw when the archive describes a different network.
+  Together these are the oracle the save side never had, and the first thing to exercise
+  `getParameterNames()` as a shared vocabulary rather than two lists that happen to agree, closing the
+  Phase 2-3 gap.
+  **One assertion is deliberately stronger than needed:** `blob_count == getParameters().size()` will
+  also fail if a component's `getParameterNames()` and `getParameters()` disagree. That is the Phase 2
+  gap restated as a runtime check, so a failure there is information rather than a bad test.
+
+- **Model serialization — the checkpoint round trip and the distribution artifact.** Specified
+  2026-07-29 in **`Specifications/ModelSerialization.md`**, which carries the design, the defect
+  analysis and a seven-phase build plan; this entry is the pointer. Phases 0-1 are freeze-compatible
+  defect repair and are filed under Production Hardening above; Phases 4-7 are the vNext feature.
+  **The three things worth knowing without opening the spec:**
+  **(a) The load side is much further along than "absent" — a first pass called it missing and that was
+  wrong in a way that shrinks the work.** `ITensorBlob` (`Tensor.Serialization.ixx:53`) is already the
+  type-erased boundary between a byte source and a component; `readTensorBlob( archive, prefix )`
+  (`:172`) already produces one *from an archive*; and `loadParameter` is already implemented by all
+  five parameter-owning components. What is missing is the **traversal** that walks an archive and
+  drives them — the flat path has one (`Gemma.ixx:383`, `Llama.ixx:377`, `GptTransformer.ixx:532`, each
+  welded to `PretrainedModelReader&`), the archive path has none. A default `Component::load_` iterating
+  `getParameterNames()` covers all five leaves with no per-component code.
+  **(b) `getParameterNames()` has ZERO overrides** (`Component.ixx:518`), though its own docstring calls
+  it "the canonical parameter name list in the same stable order used by `save_()` and
+  `loadParameter()`". That order does not exist, so save and load have no agreed vocabulary.
+  Implementing it is the precondition for both sides, not a tidy-up after.
+  **(c) `Checkpoint` and `WeightsOnly` are two artifacts, not two flags.** Training checkpoint =
+  parameters + optimizer moments + step/RNG, written repeatedly, read by the same build — `ModelArchive`
+  suits it. Distribution artifact = weights only, mmap-able, forward-compatible — that is the flat
+  `.bin` + `PretrainedModelReader`, and routing distribution through the archive would replace a
+  memory-mapped read with zip decompression into a heap buffer and produce a 22 GB zip. The small
+  hostable artifact needs **quantized-tensor serialization in the flat format** (packed FP4 nibbles plus
+  their per-group scale companion), which is what would take Gemma 12B from 22.2 GB to roughly 7 GB —
+  precisely the number that ruled out hosting in `Specifications/PythonBinding.md`.
+  **Also unbuilt and worth knowing: there is no optimizer state anywhere.** `SerializationMode` documents
+  `Checkpoint` as "architecture + weights + optimizer state"; `AdamWConfig` serializes hyperparameters
+  and the moments, step count and FP32 masters have no representation, so `Checkpoint` cannot currently
+  mean what it says.
+  **Naming is already settled by the codebase** — `fromPretrained` / `fromCheckpoint` as static
+  factories, `saveCheckpoint` as a member (loading constructs, saving does not), both thin over
+  `save( ModelArchive&, SerializationMode )`. Don't name the general API after one of three modes, and
+  don't route concrete models through `NetworkFactory` — it is the string-keyed runtime registry the
+  project is phasing out, and a model knows its own type at compile time.
+  **Sequencing: the training checkpoint has a consumer today** — MNIST and Bard cannot resume a run, and
+  the BF16 train-from-scratch path was just repaired in `e585be9d`; the distribution artifact has none
+  until the Python/packaging work lands. Checkpoint first also leaves the working mmap inference path
+  untouched. The acceptance test for the whole spine is Bard training N steps, checkpointing,
+  restarting, and continuing on the same loss trajectory.
+
 - **API Coherence** — the pre-1.0 consistency pass, and the precursor to any API-stability promise
   (RELEASING makes 1.0.0 a separate deliberate decision). 32 `REVIEW:` markers scope it, in four
   groups. *Construction:* factory design for tokenizers (`Tokenizer.ixx:45`), the half-baked

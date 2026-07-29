@@ -30,6 +30,8 @@ import Dnn.TensorTypes;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
+import Compute.CpuMemoryResource;
+import Compute.CudaPinnedMemoryResource;
 import Compute.IExecutionContext;
 import Serialization.Tensor;
 import Serialization.ModelArchive;
@@ -393,8 +395,74 @@ namespace Mila::Dnn
          * - Archive contains sufficient metadata and tensor blobs to allow an
          *   inference runtime to recreate the same component type and load its
          *   parameters on a possibly different device.
+         *
+         * Contract, enforced by the save traversal through
+         * requireSerializableParameters(): a component reporting parameterCount() > 0
+         * MUST name its parameters via getParameterNames() and write each one, using
+         * saveParameterToArchive(). An empty body is correct only for a component with
+         * no parameters. Writing nothing while owning weights produces an archive that
+         * looks saved and is not.
          */
         virtual void save_( ModelArchive& archive, SerializationMode mode ) const = 0;
+
+        /**
+         * @brief Restore this component's parameters from its archive scope.
+         *
+         * The inverse of save_(), and unlike save_() it is NOT pure virtual: the default
+         * below is the whole implementation for every leaf that owns parameters. It walks
+         * getParameterNames() -- the same vector save_() walked -- reads each blob back,
+         * and hands it to loadParameter(), which already validates dtype and shape and
+         * performs any conversion or device upload. The two directions cannot drift
+         * because they iterate the same names.
+         *
+         * Restores into an ALREADY-CONSTRUCTED, ALREADY-BUILT graph. This is weight
+         * restoration, not model reconstruction: the caller builds the same topology it
+         * saved (from a config it supplies or reads separately) and then calls this.
+         *
+         * Composites override to recurse; a component with no parameters inherits an
+         * empty loop and needs no override at all.
+         *
+         * @param archive Archive to read from, already scoped to this component.
+         * @param mode    Serialization mode (accepted for symmetry with save_).
+         *
+         * @throws std::runtime_error if a named parameter has no blob in the archive.
+         */
+        virtual void load_( ModelArchive& archive, SerializationMode mode )
+        {
+            (void)mode;
+
+            for ( const auto& parameter_name : getParameterNames() )
+            {
+                const std::string prefix = "tensors/" + parameter_name;
+
+                // Named but absent means the archive and this build disagree about what
+                // the component owns. Silently skipping would leave the parameter at its
+                // initialized value, which reads as a converged model that is not one.
+                if ( !archive.hasFile( prefix + "/data.bin" ) )
+                {
+                    throw std::runtime_error( std::format(
+                        "Component '{}': archive has no blob for parameter '{}'",
+                        getName(), parameter_name ) );
+                }
+
+                if constexpr ( TDeviceType == DeviceType::Cuda )
+                {
+                    // Pinned staging, matching saveParameterToArchive and the
+                    // PretrainedReader load path: copyFromBlob issues a direct DMA
+                    // from pinned host memory with no driver staging copy.
+                    auto blob = readTensorBlob<CudaPinnedMemoryResource>(
+                        archive, prefix, getDeviceId().index );
+
+                    loadParameter( parameter_name, blob );
+                }
+                else
+                {
+                    auto blob = readTensorBlob<CpuMemoryResource>( archive, prefix );
+
+                    loadParameter( parameter_name, blob );
+                }
+            }
+        }
 
         // ====================================================================
         // State and Configuration
@@ -524,6 +592,34 @@ namespace Mila::Dnn
         virtual std::vector<std::string> getParameterNames() const
         {
             return {};
+        }
+
+        /**
+         * @brief Verify this component can serialize whatever parameters it owns.
+         *
+         * getParameterNames() is the vocabulary shared by save_() and loadParameter().
+         * A component that owns parameters but names none of them has no way to round-trip
+         * them, and a save_() that silently writes nothing is indistinguishable from a
+         * successful save -- which is how an archive missing most of a model's weights gets
+         * reported as written. The save traversal calls this before each component so the
+         * failure names the component instead of surfacing as a short archive.
+         *
+         * Virtual because a composite reports its children's parameters through
+         * parameterCount() but names none of them itself -- the recursion checks each
+         * child in turn, so CompositeComponent overrides this to a no-op.
+         *
+         * @throws std::runtime_error if the component has parameters but no names for them.
+         */
+        virtual void requireSerializableParameters() const
+        {
+            if ( parameterCount() > 0 && getParameterNames().empty() )
+            {
+                throw std::runtime_error(
+                    std::format(
+                        "Component '{}' owns {} parameter elements but implements no "
+                        "getParameterNames(), so it cannot be serialized",
+                        getName(), parameterCount() ) );
+            }
         }
 
         /**
@@ -792,7 +888,58 @@ namespace Mila::Dnn
             copyFromBlob( blob, target );
         }
 
+        /**
+         * @brief Write one parameter tensor into the archive under "tensors/<name>".
+         *
+         * The save counterpart to loadParameterFromBlob(). Serialization moves the
+         * parameter's bytes as stored -- the archive records the tensor's own dtype, and
+         * any precision conversion happens on the way back in through loadParameter().
+         *
+         * A device-resident parameter is staged through a host tensor of the SAME dtype.
+         * Widening to FP32 here would pair a byte count derived from the device dtype with
+         * a buffer holding a wider one, writing a fraction of the staged bytes under the
+         * wrong type label. Same-dtype staging constrains the staging memory -- see the
+         * comment on the device branch.
+         *
+         * @param archive        Archive to write into, already scoped to this component.
+         * @param parameter_name Canonical name from getParameterNames().
+         * @param parameter      Parameter tensor to serialize.
+         */
+        template<TensorDataType TParameterPrecision, typename TMemoryResource>
+        void saveParameterToArchive(
+            ModelArchive& archive,
+            const std::string& parameter_name,
+            const Tensor<TParameterPrecision, TMemoryResource>& parameter ) const
+        {
+            TensorMetadata meta;
+            meta.dtype = parameter.getDataType();
+            meta.shape = parameter.shape();
+            meta.total_bytes = parameter.getStorageSize();
 
+            const std::string prefix = "tensors/" + parameter_name;
+
+            if constexpr ( TMemoryResource::is_host_accessible )
+            {
+                writeTensorBlob( archive, prefix, meta, parameter.rawData(), meta.total_bytes );
+            }
+            else
+            {
+                // Pinned, not CpuMemoryResource: every reduced precision Mila trains or
+                // serves in (BF16, FP16, FP8, FP4) is is_device_only, so isValidTensor
+                // rejects Tensor<TParameterPrecision, CpuMemoryResource> outright. Pinned
+                // memory is both host- and device-accessible, so it satisfies the constraint
+                // while staying readable here -- and it is the same staging memory the load
+                // direction uses in PretrainedReader.
+                Tensor<TParameterPrecision, CudaPinnedMemoryResource> staged_parameter(
+                    parameter.getDeviceId(), parameter.shape() );
+
+                // copy() synchronizes the D2H path itself, so the bytes are present before
+                // writeTensorBlob reads them.
+                copy( parameter, staged_parameter );
+
+                writeTensorBlob( archive, prefix, meta, staged_parameter.rawData(), meta.total_bytes );
+            }
+        }
 
     private:
 

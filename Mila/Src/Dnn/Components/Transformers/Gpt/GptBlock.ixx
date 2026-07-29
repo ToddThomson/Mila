@@ -345,29 +345,12 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
-        void save_( ModelArchive& archive, SerializationMode mode ) const override
-        {
-            attn_->save_( archive, mode );
-            ln1_->save_( archive, mode );
-            ln2_->save_( archive, mode );
-            qkv_proj_->save_( archive, mode );
-            out_proj_->save_( archive, mode );
-            res1_->save_( archive, mode );
-            res2_->save_( archive, mode );
-            ffn_->save_( archive, mode );
-        }
-
-        void load_( ModelArchive& archive, SerializationMode mode )
-        {
-            attn_->load_( archive, mode );
-            ln1_->load_( archive, mode );
-            ln2_->load_( archive, mode );
-            qkv_proj_->load_( archive, mode );
-            out_proj_->load_( archive, mode );
-            res1_->load_( archive, mode );
-            res2_->load_( archive, mode );
-            ffn_->load_( archive, mode );
-        }
+        // save_/load_ are deliberately NOT overridden: every member above is a registered
+        // child (they are resolved out of the registry by name in onBuilding), so
+        // CompositeComponent's traversal covers exactly this set and does the one thing
+        // the hand-rolled version could not -- push a scope per child. Without that, all
+        // eight wrote "tensors/weight/data.bin" at the block's own scope, each
+        // overwriting the last.
 
         // ====================================================================
         // Component interface

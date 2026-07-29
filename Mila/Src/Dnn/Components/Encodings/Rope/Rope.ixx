@@ -194,9 +194,10 @@ namespace Mila::Dnn
         void zeroGradients() override
         {}
 
-        void save_( ModelArchive& archive, SerializationMode mode ) const override
+        void save_( ModelArchive&, SerializationMode ) const override
         {
-            (void)archive; (void)mode;
+            // Deliberately empty: parameterCount() is 0, so there is nothing to serialize.
+            // The RoPE frequency tables are derived from config at build time, not trained.
         }
 
         std::vector<ITensor*> getParameters() const override

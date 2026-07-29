@@ -15,10 +15,14 @@
  */
 
 #include <gtest/gtest.h>
+#include <chrono>
+#include <filesystem>
+#include <format>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <sstream>
+#include <system_error>
 #include <vector>
 
 import Mila;
@@ -469,5 +473,156 @@ namespace Mila::Tests::Dnn::Core
         auto component = contextualHarness();
 
         EXPECT_EQ( component->getDeviceId().type, DeviceType::Cpu );
+    }
+
+    // ====================================================================
+    // K. Serialization base machinery
+    // ====================================================================
+    //
+    // requireSerializableParameters() is the guard the save traversal calls before
+    // each component, and saveParameterToArchive() is the per-tensor writer every
+    // parameter-owning leaf delegates to. Both are exercised here once, on the
+    // host-accessible memory path; the device-staging branch needs a device-only
+    // dtype and lives in Component.Cuda.cpp.
+
+    namespace
+    {
+        // A leaf carrying one real FP32 parameter. name_parameters == false reproduces
+        // the shape the guard exists to reject: parameters owned, none named, so a
+        // save_() that writes nothing is indistinguishable from a successful save.
+        class ParameterComponent : public Component<DeviceType::Cpu, TensorDataType::FP32>
+        {
+        public:
+            using Base = Component<DeviceType::Cpu, TensorDataType::FP32>;
+            using TensorType = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+            ParameterComponent( const std::string& name, bool name_parameters )
+                : Base( name ),
+                weight_( std::make_shared<TensorType>( Device::Cpu(), shape_t{ 2, 3 } ) ),
+                name_parameters_( name_parameters )
+            {}
+
+            void synchronize() override
+            {}
+
+            dim_t parameterCount() const override
+            {
+                return weight_->size();
+            }
+
+            std::vector<std::string> getParameterNames() const override
+            {
+                if ( name_parameters_ )
+                {
+                    return { "weight" };
+                }
+
+                return {};
+            }
+
+            std::vector<ITensor*> getParameters() const override
+            {
+                return { weight_.get() };
+            }
+
+            std::vector<ITensor*> getGradients() const override
+            {
+                return {};
+            }
+
+            void save_( ModelArchive& archive, SerializationMode ) const override
+            {
+                this->saveParameterToArchive( archive, "weight", *weight_ );
+            }
+
+            MemoryStats getMemoryStats() const override
+            {
+                return {};
+            }
+
+            const ComponentType getType() const override
+            {
+                return ComponentType::MockComponent;
+            }
+
+            DeviceId getDeviceId() const override
+            {
+                return Device::Cpu();
+            }
+
+            std::string toString() const override
+            {
+                return std::string( "ParameterComponent:" ) + this->getName();
+            }
+
+        private:
+            std::shared_ptr<TensorType> weight_;
+            bool name_parameters_;
+        };
+
+        std::filesystem::path makeTempArchivePath( const std::string& tag )
+        {
+            const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
+            return std::filesystem::temp_directory_path()
+                / std::format( "mila_test_component_{}_{}.mila", tag, stamp );
+        }
+    }
+
+    TEST( ComponentSerializationTests, RequireSerializableParameters_ThrowsWhenParametersAreUnnamed )
+    {
+        ParameterComponent component( "unnamed", false );
+
+        ASSERT_GT( component.parameterCount(), 0 );
+        EXPECT_THROW( component.requireSerializableParameters(), std::runtime_error );
+    }
+
+    TEST( ComponentSerializationTests, RequireSerializableParameters_PassesWhenParametersAreNamed )
+    {
+        ParameterComponent component( "named", true );
+
+        EXPECT_NO_THROW( component.requireSerializableParameters() );
+    }
+
+    TEST( ComponentSerializationTests, RequireSerializableParameters_PassesWhenParameterless )
+    {
+        // The six stateless components with an empty save_() rely on this: no
+        // parameters means no names are required and the guard must stay silent.
+        HarnessComponent<DeviceType::Cpu> component( "stateless" );
+
+        ASSERT_EQ( component.parameterCount(), 0 );
+        EXPECT_NO_THROW( component.requireSerializableParameters() );
+    }
+
+    TEST( ComponentSerializationTests, SaveParameterToArchive_RecordsDtypeShapeAndByteCount )
+    {
+        const auto path = makeTempArchivePath( "param" );
+        std::error_code ec;
+        std::filesystem::remove( path, ec );
+
+        ParameterComponent component( "named", true );
+
+        {
+            ModelArchive archive( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Write );
+            component.save_( archive, SerializationMode::Checkpoint );
+        }
+
+        ModelArchive reader( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Read );
+
+        ASSERT_TRUE( reader.hasFile( "tensors/weight/meta.json" ) );
+        ASSERT_TRUE( reader.hasFile( "tensors/weight/data.bin" ) );
+
+        const SerializationMetadata meta = reader.readMetadata( "tensors/weight/meta.json" );
+
+        EXPECT_EQ( meta.getString( "dtype" ), "FP32" );
+        EXPECT_EQ( meta.getShape( "shape" ), ( shape_t{ 2, 3 } ) );
+
+        // 6 elements at 4 bytes. The recorded count and the blob on disk must agree --
+        // they did not before, when the byte count came from one dtype and the buffer
+        // from another.
+        EXPECT_EQ( meta.getInt( "total_bytes" ), 24 );
+        EXPECT_EQ( reader.getFileSize( "tensors/weight/data.bin" ), 24u );
+
+        std::filesystem::remove( path, ec );
     }
 }

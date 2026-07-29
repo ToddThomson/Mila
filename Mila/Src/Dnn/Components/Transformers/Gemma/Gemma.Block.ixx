@@ -451,10 +451,55 @@ namespace Mila::Dnn
             return stats;
         }
 
+        std::vector<std::string> getParameterNames() const override
+        {
+            return { "layer_scalar" };
+        }
+
+        /**
+         * @brief Children through the base traversal, plus the block's own layer_scalar.
+         *
+         * This block is the one composite in the tree that owns a parameter itself, so it
+         * needs both halves. The hand-rolled version this replaces did neither correctly:
+         * it re-implemented the base recursion **without pushing a scope per child**, so
+         * every child collided on one path, and it never wrote `layer_scalar` at all --
+         * a Gemma archive silently lost the per-layer output scales, which is a numerics
+         * change, not a missing extra.
+         */
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
-            for ( const auto& child : this->getComponents() )
-                child->save_( archive, mode );
+            CompositeComponentBase::save_( archive, mode );
+
+            // Materialize the host float as the [1] FP32 tensor loadParameter expects back.
+            Tensor<TensorDataType::FP32, HostStagingMR> scalar(
+                TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1 } );
+
+            scalar.data()[ 0 ] = layer_scalar_;
+
+            this->saveParameterToArchive( archive, "layer_scalar", scalar );
+        }
+
+        /**
+         * @brief Children through the base traversal, then this block's own layer_scalar.
+         *
+         * CompositeComponent::load_ only recurses -- the own-parameter half is Component's
+         * default, which a composite does not inherit -- so both are driven explicitly.
+         */
+        void load_( ModelArchive& archive, SerializationMode mode ) override
+        {
+            CompositeComponentBase::load_( archive, mode );
+
+            const std::string prefix = "tensors/layer_scalar";
+
+            if ( !archive.hasFile( prefix + "/data.bin" ) )
+            {
+                throw std::runtime_error( std::format(
+                    "GemmaBlock '{}': archive has no blob for 'layer_scalar'", this->getName() ) );
+            }
+
+            auto blob = readTensorBlob<HostStagingMR>( archive, prefix, this->getDeviceId().index );
+
+            loadParameter( "layer_scalar", blob );
         }
 
         /**

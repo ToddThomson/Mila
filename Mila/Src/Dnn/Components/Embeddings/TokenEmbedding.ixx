@@ -44,6 +44,7 @@ import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Serialization.ModelArchive;
+import Serialization.Metadata;
 import Serialization.Mode;
 import Serialization.Tensor;
 
@@ -247,10 +248,39 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
+        std::vector<std::string> getParameterNames() const override
+        {
+            return { "wte" };
+        }
+
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
-            (void)archive;
             (void)mode;
+
+            // A quantized table is packed storage plus a per-row scale companion, and the
+            // archive has no representation for that pairing. Quantization is applied on
+            // load for inference; a checkpoint is written from the unquantized path.
+            if constexpr ( kIsQuantized )
+            {
+                throw std::runtime_error(
+                    std::format( "TokenEmbedding '{}': cannot serialize a quantized table ({}); "
+                        "checkpoints are written from the unquantized path",
+                        this->getName(), tensorDataTypeToString( kTableDtype ) ) );
+            }
+            else
+            {
+                SerializationMetadata meta;
+                meta.set( "type", "TokenEmbedding" )
+                    .set( "version", int64_t( 1 ) )
+                    .set( "name", this->getName() );
+
+                archive.writeMetadata( "meta.json", meta );
+
+                if ( wte_ )
+                {
+                    this->saveParameterToArchive( archive, "wte", *wte_ );
+                }
+            }
         }
 
         // ====================================================================

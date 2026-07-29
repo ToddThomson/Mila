@@ -269,15 +269,28 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
+         * @brief Canonical parameter names, in the order save_() and loadParameter() use.
+         */
+        std::vector<std::string> getParameterNames() const override
+        {
+            if ( hasBias() )
+            {
+                return { "weight", "bias" };
+            }
+
+            return { "weight" };
+        }
+
+        /**
          * @brief Save component state to a ModelArchive.
          *
          * Writes a "meta.json" blob with component type and name, a "config.json"
          * blob with input/output feature dimensions and bias flag, and raw tensor
-         * blobs for the weight and (if present) bias parameters under "tensors/".
+         * blobs for each name in getParameterNames() under "tensors/".
          *
-         * On CUDA devices, each tensor is copied to a temporary host buffer before
-         * writing. Weight is serialized at its storage dtype (kWeightDtype), which
-         * equals kWeightDtype = TWeightQuant::kStorageDtype on the quantized path.
+         * On CUDA devices each tensor is staged through a host buffer of the same dtype,
+         * so the blob carries the parameter's own storage bytes. Refuses outright on the
+         * quantized path -- see the body.
          *
          * @param archive ModelArchive to write to (scoped by caller).
          * @param mode    Serialization mode (currently unused; reserved for future use).
@@ -286,65 +299,42 @@ namespace Mila::Dnn
         {
             (void)mode;
 
-            SerializationMetadata meta;
-            meta.set( "type", "Linear" )
-                .set( "version", int64_t( 1 ) )
-                .set( "name", this->getName() );
-
-            archive.writeMetadata( "meta.json", meta );
-
-            SerializationMetadata cfg;
-            cfg.set( "input_features", config_.getInputFeatures() )
-                .set( "output_features", config_.getOutputFeatures() )
-                .set( "has_bias", config_.hasBias() );
-
-            archive.writeMetadata( "config.json", cfg );
-
-            if ( weight_ )
+            // Quantized weights are packed storage plus a scale companion, and the archive
+            // has no representation for that pairing. Quantization is applied on load for
+            // inference; a checkpoint is written from the unquantized training path.
+            if constexpr ( kIsQuantized )
             {
-                TensorMetadata tmeta;
-                tmeta.dtype = weight_->getDataType();
-                tmeta.shape = weight_->shape();
-                tmeta.total_bytes = static_cast<size_t>(weight_->size()) * weight_->elementSize();
-
-                if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
-                {
-                    const void* data_ptr = weight_->rawData();
-                    writeTensorBlob( archive, "tensors/weight", tmeta, data_ptr, tmeta.total_bytes );
-                }
-                else
-                {
-                    using HostTensorType = Tensor<dtype_t::FP32, CpuMemoryResource>;
-                    HostTensorType host_weight( Device::Cpu(), weight_->shape() );
-
-                    copy( *weight_, host_weight );
-
-                    const void* host_ptr = host_weight.rawData();
-                    writeTensorBlob( archive, "tensors/weight", tmeta, host_ptr, tmeta.total_bytes );
-                }
+                throw std::runtime_error(
+                    std::format( "Linear '{}': cannot serialize a quantized weight ({}); "
+                        "checkpoints are written from the unquantized path",
+                        this->getName(), tensorDataTypeToString( kWeightDtype ) ) );
             }
-
-            if ( config_.hasBias() && bias_ )
+            else
             {
-                TensorMetadata bmeta;
-                bmeta.dtype = bias_->getDataType();
-                bmeta.shape = bias_->shape();
-                bmeta.total_bytes = static_cast<size_t>(bias_->size()) * bias_->elementSize();
+                SerializationMetadata meta;
+                meta.set( "type", "Linear" )
+                    .set( "version", int64_t( 1 ) )
+                    .set( "name", this->getName() );
 
-                if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
+                archive.writeMetadata( "meta.json", meta );
+
+                SerializationMetadata cfg;
+                cfg.set( "input_features", config_.getInputFeatures() )
+                    .set( "output_features", config_.getOutputFeatures() )
+                    .set( "has_bias", config_.hasBias() );
+
+                archive.writeMetadata( "config.json", cfg );
+
+                for ( const auto& parameter_name : getParameterNames() )
                 {
-                    const void* data_ptr = bias_->rawData();
-                    writeTensorBlob( archive, "tensors/bias", bmeta, data_ptr, bmeta.total_bytes );
-                }
-                else
-                {
-                    using HostTensorType = Tensor<dtype_t::FP32, CpuMemoryResource>;
-                    HostTensorType host_bias( Device::Cpu(), bias_->shape() );
-
-                    copy( *bias_, host_bias );
-
-                    const void* host_ptr = host_bias.rawData();
-                    writeTensorBlob( archive, "tensors/bias", bmeta, host_ptr, bmeta.total_bytes );
+                    if ( parameter_name == "weight" && weight_ )
+                    {
+                        this->saveParameterToArchive( archive, parameter_name, *weight_ );
+                    }
+                    else if ( parameter_name == "bias" && bias_ )
+                    {
+                        this->saveParameterToArchive( archive, parameter_name, *bias_ );
+                    }
                 }
             }
         }

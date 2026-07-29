@@ -210,10 +210,9 @@ namespace Mila::Dnn
          * @param archive Archive to write to.
          * @param mode Serialization mode (currently unused for stateless components).
          */
-        void save_( ModelArchive& archive, SerializationMode mode ) const override
+        void save_( ModelArchive&, SerializationMode ) const override
         {
-            (void)archive;
-            (void)mode;
+            // Deliberately empty: parameterCount() is 0, so there is nothing to serialize.
         }
 
         // ====================================================================

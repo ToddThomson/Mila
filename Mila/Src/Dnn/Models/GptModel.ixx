@@ -55,8 +55,10 @@ import Compute.DeviceTypeTraits.Cpu;
 import Compute.CpuMemoryResource;
 import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
+import Serialization.Metadata;
 import Serialization.OpenMode;
 import Serialization.Mode;
+import Serialization.ZipSerializer;
 import Serialization.PretrainedReader;
 import Logging.Logger;
 
@@ -153,7 +155,8 @@ namespace Mila::Dnn
          */
         static std::unique_ptr<GptModel> fromCheckpoint(
             const std::filesystem::path& path,
-            DeviceId device_id = DeviceId{ TDeviceType, 0 } )
+            DeviceId device_id = DeviceId{ TDeviceType, 0 },
+            dim_t context_length = 0 )
         {
             if ( device_id.type != TDeviceType )
                 throw std::invalid_argument( std::format(
@@ -161,12 +164,64 @@ namespace Mila::Dnn
                     deviceTypeToString( TDeviceType ),
                     deviceTypeToString( device_id.type ) ) );
 
-            // NOT YET IMPLEMENTED: depends on the ModelArchive/ZipSerializer checkpoint path,
-            // which is unfinished (GptConfig::fromArchive and GptTransformer save/load do not
-            // exist). Use fromPretrained() instead.
-            throw std::runtime_error( std::format(
-                "GptModel::fromCheckpoint('{}'): Mila-native checkpoint loading is not yet "
-                "implemented; use fromPretrained().", path.string() ) );
+            ModelArchive archive( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Read );
+
+            GptConfig config = GptTransformerType::configFromArchive( archive );
+
+            // Default to the geometry the checkpoint was built with: a resumed run wants
+            // the shape it left off at, not a fresh guess. Fall back to the trained
+            // maximum when the archive recorded no build geometry.
+            if ( context_length <= 0 )
+            {
+                context_length = GptTransformerType::buildSequenceLengthFromArchive( archive );
+            }
+
+            if ( context_length <= 0 )
+            {
+                context_length = config.getMaxSequenceLength();
+            }
+
+            SerializationMetadata net_meta = archive.readMetadata( "network/meta.json" );
+            const std::string model_name = net_meta.has( "name" )
+                ? net_meta.getString( "name" ) : std::string( "gpt" );
+
+            auto network = std::make_unique<GptTransformerType>( model_name, config, device_id );
+
+            BuildContext build_context(
+                shape_t{ 1, static_cast<int64_t>( context_length ) },
+                RuntimeMode::Inference,
+                false );
+
+            network->build( build_context );
+
+            // The graph exists and is built; load restores weights into it.
+            network->load( archive, SerializationMode::Checkpoint );
+
+            return std::unique_ptr<GptModel>(
+                new GptModel( std::move( network ), config, context_length, RuntimeMode::Inference ) );
+        }
+
+        /**
+         * @brief Write a Mila-native archive that fromCheckpoint() can restore.
+         *
+         * Writes the network config, the component graph, and one blob per parameter.
+         * Weights only -- optimizer state belongs to the trainer, which owns its own
+         * archive scope.
+         *
+         * @param path Destination archive path (overwritten if it exists).
+         * @param mode Serialization mode recorded in the archive.
+         *
+         * @throws std::runtime_error if the archive cannot be opened or a component
+         *         cannot serialize its parameters.
+         */
+        void saveCheckpoint(
+            const std::filesystem::path& path,
+            SerializationMode mode = SerializationMode::Checkpoint ) const
+        {
+            ModelArchive archive( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Write );
+
+            // this-> is required: network_ is a member of a dependent base.
+            this->network_->save( archive, mode );
         }
 
         // ====================================================================

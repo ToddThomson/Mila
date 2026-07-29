@@ -277,6 +277,10 @@ export import Serialization.Mode;
 export import Serialization.OpenMode;
 export import Serialization.Metadata;
 export import Serialization.ModelArchive;
+// Component::loadParameter takes an ITensorBlob, so this module's types are part of the
+// public API whether or not they were exported. Without this, a consumer can call nothing
+// that names one and cannot override loadParameter at all.
+export import Serialization.Tensor;
 export import Serialization.ArchiveSerializer;
 export import Serialization.ZipSerializer;
 

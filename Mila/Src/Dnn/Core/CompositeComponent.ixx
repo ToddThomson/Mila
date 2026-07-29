@@ -30,6 +30,7 @@ import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
 import Serialization.ModelArchive;
+import Serialization.Metadata;
 import Serialization.Mode;
 
 namespace Mila::Dnn
@@ -752,6 +753,17 @@ namespace Mila::Dnn
          * @param archive Archive to write to
          * @param mode What to save (Checkpoint, WeightsOnly, Architecture)
          */
+        /**
+         * @brief No-op override: a composite names no parameters of its own.
+         *
+         * parameterCount() on a composite sums its children, so the base implementation
+         * would demand names this component never owns. Each child is checked individually
+         * by the recursion in save_().
+         */
+        void requireSerializableParameters() const override
+        {
+        }
+
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
             if ( !this->isBuilt() )
@@ -761,29 +773,71 @@ namespace Mila::Dnn
                 );
             }
 
-            archive.addMetadata( "type", this->getName() );
-            archive.addMetadata( "version", "1" );
-            archive.addMetadata( "child_count", std::to_string( child_components_.size() ) );
+            // meta.json, not addMetadata(): addMetadata writes the unscoped archive-global
+            // path "metadata/<key>", so every composite in the model would overwrite the
+            // same four keys. writeMetadata goes through scopedPath() and lands under this
+            // composite.
+            // child_components_ rather than child_component_map_ -- the map is unordered, so
+            // iterating it makes both the recorded child order and the write order vary
+            // between runs. The vector preserves registration order and the two containers
+            // hold the same children under the same names (addComponent keys the map on
+            // component->getName()).
+            std::vector<std::string> child_names;
+            child_names.reserve( child_components_.size() );
 
-            std::ostringstream names_stream;
-            bool first = true;
-
-            for ( const auto& [name, _] : child_component_map_ )
+            for ( const auto& component : child_components_ )
             {
-                if ( !first )
-                {
-                    names_stream << ",";
-                }
-
-                names_stream << name;
-                first = false;
+                child_names.push_back( component->getName() );
             }
 
-            archive.addMetadata( "child_names", names_stream.str() );
+            SerializationMetadata meta;
+            meta.set( "type", this->getName() )
+                .set( "version", int64_t( 1 ) )
+                .set( "child_count", static_cast<int64_t>( child_components_.size() ) )
+                .set( "child_names", child_names );
 
-            for ( const auto& [name, component] : child_component_map_ )
+            archive.writeMetadata( "meta.json", meta );
+
+            // Each child owns a nested scope. Without this every descendant writes into its
+            // parent's scope, so in a 48-block transformer every Linear would write
+            // tensors/weight/data.bin at the same path, each overwriting the last.
+            for ( const auto& component : child_components_ )
             {
+                ModelArchive::ScopedScope scope( archive, component->getName() );
+
+                component->requireSerializableParameters();
                 component->save_( archive, mode );
+            }
+        }
+
+        /**
+         * @brief Restore children from their nested scopes, mirroring save_().
+         *
+         * Walks the same children in the same order under the same scopes, so a child's
+         * blobs are read from exactly the paths they were written to. Restores into the
+         * live graph -- the composite and its children must already be constructed and
+         * built.
+         *
+         * @param archive Archive to read from, scoped to this composite.
+         * @param mode    Serialization mode (passed to children).
+         *
+         * @throws std::runtime_error if the composite is not built.
+         */
+        void load_( ModelArchive& archive, SerializationMode mode ) override
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error(
+                    "Cannot load into an unbuilt CompositeComponent"
+                );
+            }
+
+            for ( const auto& component : child_components_ )
+            {
+                ModelArchive::ScopedScope scope( archive, component->getName() );
+
+                component->requireSerializableParameters();
+                component->load_( archive, mode );
             }
         }
 
