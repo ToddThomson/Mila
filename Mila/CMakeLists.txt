@@ -414,6 +414,7 @@ PUBLIC
         "Src/Dnn/Components/Transformers/SamplingParams.ixx"
         "Src/Dnn/Components/Transformers/GenerateParams.ixx"
         "Src/Data/Tokenizers/SpecialTokens.ixx"
+        "Src/Dnn/Serialization/SafeTensors.ixx"
         "Src/Dnn/Serialization/PretrainedReader.ixx"
         "Src/Dnn/Serialization/Serializer.ixx"
         

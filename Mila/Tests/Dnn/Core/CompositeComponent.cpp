@@ -145,9 +145,7 @@ namespace Mila::Tests::Dnn::Core
                 this->loadParameterFromBlob( name, blob, *parameters_[ index ], parameters_[ index ]->shape() );
             }
 
-            // Qualified: Mila::Dnn::MemoryStats and Mila::Dnn::Compute::MemoryStats are
-            // distinct exported types and both using-directives are in scope here.
-            Mila::Dnn::MemoryStats getMemoryStats() const override
+            MemoryStats getMemoryStats() const override
             {
                 return {};
             }
@@ -257,7 +255,7 @@ namespace Mila::Tests::Dnn::Core
                 this->load_( archive, mode );
             }
 
-            Mila::Dnn::MemoryStats getMemoryStats() const override
+            MemoryStats getMemoryStats() const override
             {
                 return {};
             }

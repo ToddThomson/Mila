@@ -283,6 +283,8 @@ export import Serialization.ModelArchive;
 export import Serialization.Tensor;
 export import Serialization.ArchiveSerializer;
 export import Serialization.ZipSerializer;
+export import Serialization.SafeTensors;
+export import Serialization.PretrainedReader;
 
 // ============================================================================
 // Data - Core

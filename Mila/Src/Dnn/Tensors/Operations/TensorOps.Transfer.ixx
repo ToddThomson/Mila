@@ -108,8 +108,11 @@ namespace Mila::Dnn
             TensorOps<device>::copy( src, dst, exec_context );
         }
 
-        // Determine which DeviceType to use based on memory accessibility
-        if constexpr (!TSrcMemoryResource::is_host_accessible || !TDstMemoryResource::is_host_accessible)
+        // else if, not if: the device-to-device case above satisfies this condition too
+        // (both-device-only implies at least-one-device-only), so a plain `if` fell through
+        // and issued the identical copy a second time. Idempotent, and therefore invisible
+        // in results -- it simply doubled the memcpy traffic of every D2D transfer.
+        else if constexpr (!TSrcMemoryResource::is_host_accessible || !TDstMemoryResource::is_host_accessible)
         {
             // At least one tensor is device-only, must use device operations
             if constexpr (!TSrcMemoryResource::is_host_accessible)

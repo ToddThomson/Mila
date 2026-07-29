@@ -88,9 +88,7 @@ namespace Mila::Tests::Dnn::Core
                 this->saveParameterToArchive( archive, "weight", *weight_ );
             }
 
-            // Qualified: Mila::Dnn::MemoryStats and Mila::Dnn::Compute::MemoryStats are
-            // distinct exported types and both using-directives are in scope here.
-            Mila::Dnn::MemoryStats getMemoryStats() const override
+            MemoryStats getMemoryStats() const override
             {
                 return {};
             }

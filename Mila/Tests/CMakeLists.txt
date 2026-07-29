@@ -88,6 +88,9 @@ add_executable( MilaTests
     "Dnn/Models/GptModel.Cpu.cpp"
     "Dnn/Modeling/Network.Cpu.cpp"
     "Dnn/Optimizers/AdamW.Cpu.cpp"
+    # Covers both containers PretrainedModelReader accepts, including a hand-built
+    # MILA file that guards the legacy .bin path no fixture-free test could reach.
+    "Dnn/Serialization/SafeTensors.Cpu.cpp"
     "Dnn/Tensors/Tensor.Constructors.cpp"
     "Dnn/Tensors/Tensor.DataAccess.cpp"
     "Dnn/Tensors/Tensor.DataPointers.cpp"

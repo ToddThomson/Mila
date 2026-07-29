@@ -449,7 +449,15 @@ good-first-issue.
   convention suggests non-public is the intent, in which case `Component`'s declaration is the one
   that is wrong.
 
-- [ ] **Two exported types are named `MemoryStats`, and `import Mila;` makes both visible.**
+- [~] **Two exported types are named `MemoryStats`, and `import Mila;` makes both visible.** Fixed
+  2026-07-29 (unbuilt): the allocator-level one is now `Mila::Dnn::Compute::MemoryAllocationStats`;
+  `Mila::Dnn::MemoryStats` (the per-component figure) keeps the plain name, since it is the one on the
+  public `Component::getMemoryStats()` contract. **Contained to two files** — the tracker itself and the
+  parked `TensorBuffer.Tracking.cpp` — because `export import Compute.MemoryResourceTracker;` is
+  *commented out* at `Mila.ixx:95`. The type was never in the documented public surface at all; MSVC was
+  leaking it transitively through `TensorBuffer.ixx`, which is the same over-sharing already on record
+  from the quantization-policy episode, and is why the clash appeared on MSVC and would not have on
+  clang. The three call-site qualifications added as a workaround are reverted.
   `Mila::Dnn::MemoryStats` (`Core/Component.MemoryStats.ixx:33`, the per-component figure returned by
   `Component::getMemoryStats()`) and `Mila::Dnn::Compute::MemoryStats`
   (`Compute/MemoryResourceTracker.ixx:19`, the allocator-level figure). Both are exported from
@@ -485,7 +493,11 @@ good-first-issue.
   **Generalizable: adding a virtual to a base can convert dormant same-signature methods in derived
   classes into live overrides — grep for the name across derived classes before adding one.**
 
-- [ ] **GPT-2 and Llama 3 pre-tokenization silently runs the ASCII fallback on every MSVC build.**
+- [~] **GPT-2 and Llama 3 pre-tokenization silently runs the ASCII fallback on every MSVC build.**
+  **Interim fix 2026-07-29 (unbuilt): the warning is now emitted once per process via `std::call_once`,
+  not once per tokenizer, and states the limitation as permanent rather than possible.** That makes the
+  signal visible; it does not make the tokenization correct. The real fix is unchanged and still open —
+  see below.
   Found 2026-07-29 by capturing first-chance exceptions across the whole suite under `cdb`. Both
   canonical patterns use Unicode classes — `BpePreTokenizationMode.ixx:33` and `:57` are
   `\p{L}`/`\p{N}` throughout — and **MSVC's `std::regex` ECMAScript mode does not implement `\p{...}`**,
@@ -506,7 +518,12 @@ good-first-issue.
   process rather than per construction so it is visible, and state the limitation in the tokenizer
   docs.
 
-- [ ] **`copy()` issues every device-to-device transfer twice.** Noticed 2026-07-29 while tracing the
+- [~] **`copy()` issues every device-to-device transfer twice.** Fixed 2026-07-29 (unbuilt): the second
+  block is now `else if constexpr`. Safe by construction — the first condition
+  (`!src_host && !dst_host`) strictly implies the second (`!src_host || !dst_host`), so chaining them
+  changes behaviour for the device-to-device case only, which is exactly the one that was running
+  twice. No test asserts the absence of a duplicate copy; a green suite proves no regression, and the
+  correctness of the chain is by inspection. Noticed 2026-07-29 while tracing the
   dispatch for the serialization staging copy; unrelated to that work. `TensorOps.Transfer.ixx:100`
   handles the both-device-only case and calls `TensorOps<device>::copy`, then **falls through** to the
   `:112` block — which is a second `if constexpr`, not an `else if`. Its condition
@@ -982,8 +999,125 @@ to the current release.
   Today the tree states (a) and half-implements (b), which pays (a)'s cost without its uniformity.
   Also worth folding in: the `zero()` on a full-overwrite CUDA op is dead work (two extra kernel
   launches per Residual backward, ~24 per GPT-2 step).
+- **safetensors slice 1 DONE and GREEN 2026-07-29 — the container, both directions.** Clean rebuild
+  and full ctest green. **One build round, cost by the known MSVC C2079 `basic_istream::sentry`
+  defect**: `SafeTensors.Cpu.cpp` was the first `.cpp` in the tree ever to instantiate
+  `readTensorBlob<MR>`, which dragged `istream::seekg` into a consumer TU. Fixed by converting
+  `PretrainedReader.ixx` off `std::ifstream` to C stdio (`unique_ptr<FILE, int(*)(FILE*)>`, a
+  `readExact()` helper that now names the field it failed on, and a chunked `seekToOffset()` stepping
+  1 GiB at a time because `fseek`'s `long` is 32-bit on Win64) — the MnistDataLoader /
+  TokenSequenceLoader precedent. `SafeTensors.ixx` and the test fixtures were converted off stream
+  I/O pre-emptively for the same reason. **Durable lesson: the C2079 trigger is a TEMPLATE member
+  doing stream I/O in a module — it stays invisible until some `.cpp` instantiates it, so a module can
+  sit green for months with the trap armed.**
+  **MILA path re-confirmed end to end 2026-07-29: Chat on Gemma 4 FP4 green and coherent** after the
+  C stdio rewrite, which is the only oracle that covers a real 22 GB load through mmap plus pinned
+  staging (no ctest does).
+- **safetensors slice 2 DONE and GREEN 2026-07-29 — the component-level quantized save.** Clean
+  rebuild, full ctest, and Chat on Gemma 4 FP4 all green; no build round needed.
+  `Component::saveParameterToWriter()` is the safetensors twin of `saveParameterToArchive`: same
+  pinned-staging reasoning (FP8/FP4/BF16 are all `is_device_only`, so
+  `Tensor<TPrecision, CpuMemoryResource>` is not a valid template-id), with the staging tensor scoped
+  to a single write so only one parameter is resident. `Linear::saveFlatTensors( writer, prefix, pass )`
+  emits `<prefix>.weight`, `<prefix>.weight.scales` on the quantized path, and `<prefix>.bias`.
+  **One ordered body driven twice via `TensorSavePass`**, not two walks — the writer requires bodies in
+  declaration order and two walks could drift with no diagnostic until read-back.
+  **The scales stay OUT of `getParameterNames()` deliberately.** That vector is the join between the
+  archive's `save_` and `load_`, and the `blob_count == getParameters().size()` invariant the Phase 4-5
+  tests rest on would break. The flat path expresses the pairing as sibling tensor names instead, which
+  is the ecosystem convention and what the reader already handles.
+  Three tests added **in place** to `Linear.Cuda.cpp`: FP8 per-channel (structural, plus a host
+  `w ~= float(fp8) * scale[row]` dequantization check — the only assertion that catches scales landing
+  against the wrong rows, which passes every structural check), FP4 per-group (physical halved column
+  count, `[out, K/128]` scales), and the unquantized path (weight + bias, no scales).
+  **SCOPE NOTE — the whole-model dump tool is NOT here and is slice 3.** Scoping it surfaced three
+  library gaps: (1) **no runtime host-accessibility query** — `MemoryResource::is_host_accessible` is
+  `static constexpr` (`MemoryResource.ixx:37`), not virtual, so a type-erased walk over `ITensor*`
+  cannot decide whether to stage; the component-level save dodges this entirely by keeping concrete
+  types, which is why slice 2 stops here; (2) **no writer for `PretrainedMetadata`** — there is a
+  hand-rolled `parseMetadataJSON` and no inverse, so an artifact can be inspectable but not loadable;
+  (3) the generic traversal needs root-prefix stripping to match `.bin` flat naming (`findComponent`
+  strips it on the way in; nothing does on the way out).
+  Also found, not fixed: **`ITensor.ixx:34` documents `rawData()` as protected; it is public**
+  (`:147`, `:154`).
+  *(original entry)* New
+  `Src/Dnn/Serialization/SafeTensors.ixx` (`Serialization.SafeTensors`): dtype naming both ways,
+  `storageBytesPerElement`, and a **two-phase streaming `SafeTensorsWriter`** — declare every tensor,
+  `beginData()` emits the header, then bodies stream in declaration order. Two-phase is forced by the
+  container (the header records byte ranges, so shapes must be known first) and streaming is what lets
+  a 22 GB model be written with one staged tensor resident. `PretrainedModelReader` now **sniffs** the
+  container: `MILA` magic takes the existing path completely untouched, anything else parses a
+  safetensors header into the same `tensor_index_`, rebasing data-relative offsets to absolute so
+  `mapFile`/`buildOffsetOrder`/`streamTensorBlobs`/the pinned staging producer never learn which
+  container was opened. Wire codes 4-7 added for `UINT8`/`FP8_E4M3`/`FP8_E5M2`/`INT8`; codes 0-3 are
+  frozen by every `.bin` on disk. The sniff is sound by construction — the header-length cap
+  (128 MB) is below `MAGIC` (0x4D494C41), so a valid safetensors length can never alias it.
+  **New test `Dnn/Serialization/SafeTensors.Cpu.cpp` (11 cases), including two that build a MILA file
+  byte by byte from the format definition** — the legacy path had no coverage at all because every
+  existing test of it needs a converted model this suite does not have, so adding a second container
+  was otherwise a silent-regression risk. NEXT: the quantize-and-dump tool and the `Linear` save side
+  (slice 2), then the pre-quantized load branch (slice 3).
+- **safetensors: DECIDED 2026-07-29 — Phase 7 emits safetensors, not `MILA`.** Full analysis in
+  [ModelSerialization.md](Mila/Specifications/ModelSerialization.md#safetensors-compatibility).
+  **Goal is inspectability and trust** (a professional tooling need: any reader can verify a Mila file
+  without running Mila). **Consumption by `transformers`/vLLM is an explicit NON-GOAL** — recorded so
+  it is not rediscovered as a gap. Three capabilities: **(W)** write safetensors — decided, carries no
+  schedule of its own since it is a property of the Phase 7 writer; **(R)** read unconverted HF
+  snapshots — open, vNext, the larger item; **(C)** checkpoint — rejected, `ModelArchive` stays, since
+  step/epoch/RNG have no representation in a string-to-string `__metadata__`.
+  **Why W is free rather than a trade.** Phase 7 must build a C++ tensor-file writer regardless —
+  **there is none today**: `PretrainedReader.ixx` is read-only, the only `MILA` magic under `Mila/Src`
+  is the unrelated dataset header in `Data/Core/FileHeader.ixx`, and the flat format is written
+  exclusively by Python `MilaWeightWriter`. Quantized bytes exist only *after* a device-side
+  `operation_->quantize()`, so producing them in Python would mean a second absmax/packing
+  implementation to keep in agreement. The writer gets built once; the only question is what it emits.
+  The container is nearly isomorphic anyway (`u64` header length + JSON index + packed data versus
+  `MILA` magic + binary index + packed data), so on the read side `readHeader`/`readMetadata`/
+  `readTensorIndex` collapse to one nlohmann parse and the tuned parts — `mapFile`, `buildOffsetOrder`,
+  offset-ordered `streamTensorBlobs`, the pinned double-buffer producer — are untouched.
+  **Everything it costs, having gone looking:** no format version of its own (goes in `__metadata__`
+  and must be validated deliberately — this is Open Decision 3); no padding for alignment (the
+  reference validator expects contiguous tiling, so aligned starts for a direct mapped-view
+  `cudaMemcpy` are unavailable — costs nothing today, but confirm against the reference validator);
+  `__metadata__` is string-to-string, so the config is a stringified blob or a sidecar. No new
+  third-party dependency — a writer is a `u64`, an nlohmann dump, and the blobs.
+  **Tier 3 findings, recorded so the group-size question is not reopened casually.** Mila fails HF
+  loadability on structure before quantization: projections are **fused** (`fc_qkv_proj.weight`,
+  `fc_gate_up.weight`) where HF ships them separate, plus Mila names and Mila config schema. On
+  quantization the split is **FP8 interoperates, FP4 matches nothing**: Mila FP8 is `FP8_E4M3` + FP32
+  per-channel scales, which is substantively compressed-tensors `float-quantized`/`channel`; Mila FP4
+  is `UINT8`-packed E2M1 + FP32 scales at **group 128**, against NVFP4 (group 16, FP8 scales), MXFP4
+  (group 32, UE8M0 scales) and GPTQ/AWQ (int4 in int32). Matching would reach into the W4A16
+  tile-load dequant and the decode matvec and move the measured FP4 numbers — **never make that
+  change as a side effect of a format choice.** Tier 3, if ever wanted, is a separate **export** path
+  (unfuse, rename, HF `config.json` + `compressed-tensors` block), not a property the distribution
+  format acquires by adopting the container.
+  **R, when it promotes.** Four obstacles: the fused projections against the one-blob-to-one-parameter
+  contract; GPT-2's `Conv1D` transpose; a per-architecture `config.json` mapper in C++ tracking HF key
+  drift — **the piece worth pushing back on**, since it compiles a dependency on someone else's
+  evolving schema into the artifact strangers read, and is severable by keeping the config in a
+  converter-written sidecar; and sharding (22.2 GB Gemma is ~5 GB shards + an index file, against a
+  single-file single-mmap reader). Not an obstacle: the numerics already match — Gemma norms stored
+  raw with the `+1` at the kernel, no Llama q/k permute. Payoff is parity by construction, retiring
+  the converter-bug class the Llama HF-parity test exists to catch — and inbound is the more valuable
+  direction regardless, since the Hub already carries thousands of pre-quantized checkpoints and
+  reading them means never asking anyone to adopt Mila's artifacts.
 - **Serialization Phases 4-5 DONE and verified 2026-07-29** — build green, full ctest green, including
   a real two-layer GPT round trip. Phase 6 (optimizer state) remains unstarted.
+  **Phase 6 readiness, checked 2026-07-29: ready, and mechanically the easier of the two remaining
+  phases.** All state is FP32 — `m_states_`, `v_states_`, `master_params_` are `Tensor<FP32, MR>`
+  (`CudaAdamWOptimizer.ixx:427`, `:428`, `:433`) and `step_count_` is a `size_t` — so FP32 is not
+  `is_device_only` and the Phase 3 staging helper works unmodified; the constraint that made Phase 3
+  awkward does not bite here. **The one real design risk is that state is keyed by REGISTRATION ORDER,
+  not name** — `addParameter( ITensor*, ITensor* )` (`:113`) has no name to key on — so the checkpoint
+  must record parameter count plus per-slot shapes and validate on load, or a differently-built graph
+  silently mismatches, and mismatched Adam moments produce a run that trains and is wrong. Plumbing:
+  the optimizer is not a `Component`, so it cannot reach the staging writer at `Component.ixx:923`/
+  `:940`; hoist that into a small new module imported by both (new `.ixx` needs CMake registration).
+  Acceptance test is already specified — Phase 5's resume showing no loss discontinuity at the seam.
+  **Sequencing call: Phase 7 first.** 7 turns 22.2 GB into ~7 GB and unparks packaging; 6's acceptance
+  test is a long-running empirical training run and the training path is not on the v0.20 critical
+  path the way distribution is.
   **What the green run actually establishes, and what it does not.** Verified end to end on the **GPT
   stack only**: `Lpe`, `LayerNorm`, `Linear`, `GptBlock`, `MLP`, `GptTransformer` — round trip
   bit-exact, one blob per parameter, config recovered including the two fields the old hand-rolled

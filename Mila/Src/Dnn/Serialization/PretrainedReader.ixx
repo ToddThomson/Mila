@@ -19,8 +19,9 @@
  */
 
 module;
+#include <cstdio>
 #include <filesystem>
-#include <fstream>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -52,9 +53,12 @@ module;
 
 export module Serialization.PretrainedReader;
 
+import nlohmann.json;
+
 import Serialization.Serializer;
 import Serialization.OpenMode;
 import Serialization.Tensor;
+import Serialization.SafeTensors;
 import Dnn.Tensor;
 import Dnn.ITensor;
 import Dnn.TensorBuffer;
@@ -121,34 +125,72 @@ namespace Mila::Dnn::Serialization
         float    final_logit_softcapping;
     };
 
+    // Wire codes 0-3 are the flat MILA format's original set and are fixed by every
+    // .bin already on disk. Codes 4+ exist only to give safetensors dtypes a common
+    // internal spelling; the Python writer never emits them.
     enum class DType : uint32_t {
         Float32 = 0,
         Float16 = 1,
         BFloat16 = 2,
         Int32 = 3,
+        UInt8 = 4,
+        Float8E4M3 = 5,
+        Float8E5M2 = 6,
+        Int8 = 7,
     };
 
     inline TensorDataType dtypeToTensorDataType( uint32_t dtype )
     {
         switch ( static_cast<DType>( dtype ) )
         {
-            case DType::Float32:  return TensorDataType::FP32;
-            case DType::Float16:  return TensorDataType::FP16;
-            case DType::BFloat16: return TensorDataType::BF16;
-            case DType::Int32:    return TensorDataType::INT32;
+            case DType::Float32:    return TensorDataType::FP32;
+            case DType::Float16:    return TensorDataType::FP16;
+            case DType::BFloat16:   return TensorDataType::BF16;
+            case DType::Int32:      return TensorDataType::INT32;
+            case DType::UInt8:      return TensorDataType::UINT8;
+            case DType::Float8E4M3: return TensorDataType::FP8_E4M3;
+            case DType::Float8E5M2: return TensorDataType::FP8_E5M2;
+            case DType::Int8:       return TensorDataType::INT8;
             default:
                 throw std::runtime_error( "Unknown dtype code: " + std::to_string( dtype ) );
+        }
+    }
+
+    inline uint32_t tensorDataTypeToWireCode( TensorDataType type )
+    {
+        switch ( type )
+        {
+            case TensorDataType::FP32:     return static_cast<uint32_t>( DType::Float32 );
+            case TensorDataType::FP16:     return static_cast<uint32_t>( DType::Float16 );
+            case TensorDataType::BF16:     return static_cast<uint32_t>( DType::BFloat16 );
+            case TensorDataType::INT32:    return static_cast<uint32_t>( DType::Int32 );
+            case TensorDataType::UINT8:    return static_cast<uint32_t>( DType::UInt8 );
+            case TensorDataType::FP8_E4M3: return static_cast<uint32_t>( DType::Float8E4M3 );
+            case TensorDataType::FP8_E5M2: return static_cast<uint32_t>( DType::Float8E5M2 );
+            case TensorDataType::INT8:     return static_cast<uint32_t>( DType::Int8 );
+            default:
+                throw std::runtime_error(
+                    "No pretrained wire code for dtype " + tensorDataTypeToString( type ) );
         }
     }
 
     /**
      * @brief Reader for Mila pretrained binary format.
      *
-     * File format:
+     * Two containers are accepted, sniffed by the leading magic. Both fill the same tensor
+     * index, so everything past the header parse -- the mapping, the offset-ordered stream,
+     * the pinned staging producer -- is common.
+     *
+     * MILA (every .bin already on disk; support for it is permanent):
      *  - Header: MILA magic (0x4D494C41), version, num_tensors
      *  - Metadata: JSON string with model configuration
      *  - Tensor index: for each tensor: name, dtype, shape, offset, nbytes
      *  - Tensor data: concatenated binary blobs
+     *
+     * safetensors (what Mila now writes):
+     *  - Header: u64 little-endian header length, then that many bytes of JSON
+     *  - Each JSON entry: dtype, shape, data_offsets relative to the data region
+     *  - Model configuration rides in __metadata__ under the mila_config key
      *
      * Provides flat key-value access to tensors by name:
      *  - "lenc.wte.weight"
@@ -182,16 +224,23 @@ namespace Mila::Dnn::Serialization
         explicit PretrainedModelReader( const std::filesystem::path& filepath )
             : filepath_( filepath )
         {
-            file_.open( filepath, std::ios::binary );
+            file_.reset( std::fopen( filepath.string().c_str(), "rb" ) );
 
-            if ( !file_.is_open() )
+            if ( file_ == nullptr )
             {
                 throw std::runtime_error( "Cannot open pretrained model file: " + filepath.string() );
             }
 
-            readHeader();
-            readMetadata();
-            readTensorIndex();
+            if ( isMilaContainer() )
+            {
+                readHeader();
+                readMetadata();
+                readTensorIndex();
+            }
+            else
+            {
+                readSafeTensorsHeader();
+            }
 
             mapFile();
             buildOffsetOrder();
@@ -208,10 +257,7 @@ namespace Mila::Dnn::Serialization
 
         bool close()
         {
-            if ( file_.is_open() )
-            {
-                file_.close();
-            }
+            file_.reset();
 
             unmapFile();
 
@@ -225,7 +271,7 @@ namespace Mila::Dnn::Serialization
 
         bool isOpen() const noexcept
         {
-            return file_.is_open();
+            return file_ != nullptr;
         }
 
         const std::string& getFilename() const noexcept
@@ -324,15 +370,11 @@ namespace Mila::Dnn::Serialization
 
             TensorBuffer<dtype_t::UINT8, MR> buffer( device_id, static_cast<size_t>( blob_meta.nbytes ) );
 
-            file_.seekg( static_cast<std::streamoff>( blob_meta.offset ) );
-            file_.read(
+            seekToOffset( blob_meta.offset );
+            readExact(
                 reinterpret_cast<char*>( buffer.data() ),
-                static_cast<std::streamsize>( blob_meta.nbytes ) );
-
-            if ( !file_.good() )
-            {
-                throw std::runtime_error( "Failed to read tensor: " + name );
-            }
+                static_cast<size_t>( blob_meta.nbytes ),
+                "tensor '" + name + "'" );
 
             TensorMetadata tensor_meta{
                 .dtype = dtypeToTensorDataType( blob_meta.dtype ),
@@ -392,6 +434,11 @@ namespace Mila::Dnn::Serialization
         static constexpr uint32_t MAGIC = 0x4D494C41;  // "MILA"
         static constexpr uint32_t VERSION = 1;
 
+        // Bounds the safetensors header parse and doubles as the sniff discriminator:
+        // a u64 header length below this cannot alias the MILA magic in its low word.
+        static constexpr uint64_t MAX_SAFETENSORS_HEADER_BYTES =
+            static_cast<uint64_t>( 128 ) * 1024 * 1024;
+
         // Cap on each pinned staging buffer. Per-layer weights sit well under this;
         // larger tensors (token embedding / lm_head) bypass staging and are consumed
         // directly from the mapped view, bounding pinned memory to two of these.
@@ -399,7 +446,14 @@ namespace Mila::Dnn::Serialization
             static_cast<size_t>( 256 ) * 1024 * 1024;
 
         std::filesystem::path filepath_;
-        std::ifstream file_;
+
+        // C stdio rather than std::ifstream: MSVC C++23 fails to complete
+        // basic_istream<char>::sentry when a stream read is instantiated from a module,
+        // which breaks any consumer translation unit that names readTensorBlob. Same
+        // avoidance as MnistDataLoader and TokenSequenceLoader; repro in
+        // Dev/Repros/IstreamSentryModule.
+        std::unique_ptr<std::FILE, int( * )( std::FILE* )> file_{ nullptr, &std::fclose };
+
         std::string filename_;
 
         PretrainedMetadata metadata_;
@@ -782,18 +836,208 @@ namespace Mila::Dnn::Serialization
         }
 #endif
 
+        /**
+         * @brief Read exactly nbytes at the current position, or throw.
+         *
+         * @param description Names the field being read, so a truncated file reports what
+         *        it was truncated in the middle of.
+         */
+        void readExact( void* destination, size_t nbytes, const std::string& description )
+        {
+            if ( std::fread( destination, 1, nbytes, file_.get() ) != nbytes )
+            {
+                throw std::runtime_error(
+                    std::format( "Failed to read {} from {}", description, filepath_.string() ) );
+            }
+        }
+
+        /**
+         * @brief Position at an absolute byte offset.
+         *
+         * std::fseek takes a long, 32-bit on Win64, so a multi-gigabyte model cannot be
+         * positioned in one call. Stepping in bounded chunks from the start keeps the
+         * platform-specific helpers (_fseeki64 / fseeko) out of module code, matching
+         * TokenSequenceLoader.
+         */
+        void seekToOffset( uint64_t offset )
+        {
+            if ( std::fseek( file_.get(), 0, SEEK_SET ) != 0 )
+            {
+                throw std::runtime_error( "Failed to rewind " + filepath_.string() );
+            }
+
+            constexpr uint64_t SEEK_STEP_BYTES = static_cast<uint64_t>( 1 ) << 30;
+
+            while ( offset > 0 )
+            {
+                const long step = static_cast<long>( std::min( offset, SEEK_STEP_BYTES ) );
+
+                if ( std::fseek( file_.get(), step, SEEK_CUR ) != 0 )
+                {
+                    throw std::runtime_error(
+                        std::format( "Failed to seek to offset in {}", filepath_.string() ) );
+                }
+
+                offset -= static_cast<uint64_t>( step );
+            }
+        }
+
+        /**
+         * @brief Sniff the container without consuming it.
+         *
+         * A MILA file opens with the magic; a safetensors file opens with a u64 header
+         * length, whose first four bytes cannot collide with it because a header that
+         * large is rejected below. Leaves the stream positioned at zero either way.
+         */
+        bool isMilaContainer()
+        {
+            uint32_t magic = 0;
+
+            readExact( &magic, sizeof( magic ), "container magic" );
+            seekToOffset( 0 );
+
+            return magic == MAGIC;
+        }
+
+        /**
+         * @brief Parse a safetensors header into the same index the MILA path fills.
+         *
+         * Offsets in the container are relative to the start of the data region; they are
+         * rebased to absolute file offsets here so that every consumer downstream --
+         * buildOffsetOrder, streamTensorBlobs, the staging producer -- is indifferent to
+         * which container was opened.
+         *
+         * The Mila architecture config rides in __metadata__ as a JSON string. A file
+         * without it still reads: its tensors are inspectable, and a model factory that
+         * needs the architecture fails its own validation on the empty metadata.
+         */
+        void readSafeTensorsHeader()
+        {
+            uint64_t header_length = 0;
+
+            readExact( &header_length, sizeof( header_length ), "safetensors header length" );
+
+            if ( header_length == 0 || header_length > MAX_SAFETENSORS_HEADER_BYTES )
+            {
+                throw std::runtime_error(
+                    std::format( "Invalid file format: not a MILA file, and safetensors header "
+                        "length {} is out of range", header_length ) );
+            }
+
+            std::string header_text( static_cast<size_t>( header_length ), '\0' );
+            readExact( header_text.data(), static_cast<size_t>( header_length ), "safetensors header" );
+
+            const uint64_t data_start = sizeof( uint64_t ) + header_length;
+            const uint64_t file_size = static_cast<uint64_t>( std::filesystem::file_size( filepath_ ) );
+
+            nlohmann::json header = nlohmann::json::parse( header_text, nullptr, false );
+
+            if ( header.is_discarded() || !header.is_object() )
+            {
+                throw std::runtime_error( "Malformed safetensors header: not a JSON object" );
+            }
+
+            for ( const auto& item : header.items() )
+            {
+                const std::string& name = item.key();
+
+                if ( name == "__metadata__" )
+                {
+                    readSafeTensorsMetadata( item.value() );
+                    continue;
+                }
+
+                const nlohmann::json& record = item.value();
+
+                if ( !record.is_object() || !record.contains( "dtype" )
+                    || !record.contains( "shape" ) || !record.contains( "data_offsets" ) )
+                {
+                    throw std::runtime_error(
+                        std::format( "Malformed safetensors entry for '{}'", name ) );
+                }
+
+                const nlohmann::json& dims = record[ "shape" ];
+                const nlohmann::json& offsets = record[ "data_offsets" ];
+
+                if ( !dims.is_array() || dims.size() > TensorShape::MaxRank )
+                {
+                    throw std::runtime_error(
+                        std::format( "Invalid tensor dimensionality for '{}'", name ) );
+                }
+
+                if ( !offsets.is_array() || offsets.size() != 2 )
+                {
+                    throw std::runtime_error(
+                        std::format( "Invalid data_offsets for '{}'", name ) );
+                }
+
+                TensorBlobMetadata meta;
+                meta.name = name;
+                meta.dtype = tensorDataTypeToWireCode(
+                    fromSafeTensorsDataTypeName( record[ "dtype" ].get<std::string>() ) );
+
+                meta.shape.ndim = static_cast<uint8_t>( dims.size() );
+
+                for ( size_t d = 0; d < dims.size(); ++d )
+                {
+                    meta.shape[ d ] = dims[ d ].get<int64_t>();
+                }
+
+                const uint64_t begin = offsets[ 0 ].get<uint64_t>();
+                const uint64_t end = offsets[ 1 ].get<uint64_t>();
+
+                if ( end < begin )
+                {
+                    throw std::runtime_error(
+                        std::format( "Inverted data_offsets for '{}'", name ) );
+                }
+
+                meta.offset = data_start + begin;
+                meta.nbytes = end - begin;
+
+                if ( meta.offset + meta.nbytes > file_size )
+                {
+                    throw std::runtime_error(
+                        std::format( "Tensor '{}' extends past end of file", name ) );
+                }
+
+                tensor_index_[ meta.name ] = std::move( meta );
+            }
+
+            num_tensors_ = static_cast<uint32_t>( tensor_index_.size() );
+
+            if ( num_tensors_ == 0 )
+            {
+                throw std::runtime_error( "safetensors file declares no tensors" );
+            }
+        }
+
+        void readSafeTensorsMetadata( const nlohmann::json& metadata )
+        {
+            if ( !metadata.is_object() || !metadata.contains( kMilaConfigMetadataKey ) )
+            {
+                return;
+            }
+
+            const nlohmann::json& config = metadata[ kMilaConfigMetadataKey ];
+
+            if ( !config.is_string() )
+            {
+                throw std::runtime_error(
+                    std::format( "safetensors __metadata__['{}'] is not a string",
+                        kMilaConfigMetadataKey ) );
+            }
+
+            parseMetadataJSON( config.get<std::string>() );
+        }
+
         void readHeader()
         {
             uint32_t magic, version, num_tensors;
 
-            file_.read( reinterpret_cast<char*>( &magic ), sizeof( magic ) );
-            file_.read( reinterpret_cast<char*>( &version ), sizeof( version ) );
-            file_.read( reinterpret_cast<char*>( &num_tensors ), sizeof( num_tensors ) );
-
-            if ( !file_.good() )
-            {
-                throw std::runtime_error( "Failed to read binary header" );
-            }
+            readExact( &magic, sizeof( magic ), "binary header magic" );
+            readExact( &version, sizeof( version ), "binary header version" );
+            readExact( &num_tensors, sizeof( num_tensors ), "binary header tensor count" );
 
             if ( magic != MAGIC )
             {
@@ -813,20 +1057,15 @@ namespace Mila::Dnn::Serialization
         void readMetadata()
         {
             uint32_t metadata_size;
-            file_.read( reinterpret_cast<char*>( &metadata_size ), sizeof( metadata_size ) );
+            readExact( &metadata_size, sizeof( metadata_size ), "metadata size" );
 
-            if ( !file_.good() || metadata_size == 0 )
+            if ( metadata_size == 0 )
             {
                 throw std::runtime_error( "Failed to read metadata size" );
             }
 
             std::string json_str( metadata_size, '\0' );
-            file_.read( json_str.data(), static_cast<std::streamsize>( metadata_size ) );
-
-            if ( !file_.good() )
-            {
-                throw std::runtime_error( "Failed to read metadata JSON" );
-            }
+            readExact( json_str.data(), metadata_size, "metadata JSON" );
 
             parseMetadataJSON( json_str );
         }
@@ -931,23 +1170,26 @@ namespace Mila::Dnn::Serialization
                 TensorBlobMetadata meta;
 
                 uint32_t name_length;
-                file_.read( reinterpret_cast<char*>( &name_length ), sizeof( name_length ) );
+                readExact( &name_length, sizeof( name_length ),
+                    std::format( "tensor name length at index {}", i ) );
 
-                if ( !file_.good() || name_length == 0 || name_length > 1024 )
+                if ( name_length == 0 || name_length > 1024 )
                 {
                     throw std::runtime_error(
                         std::format( "Invalid tensor name length at index {}", i ) );
                 }
 
                 meta.name.resize( name_length );
-                file_.read( meta.name.data(), static_cast<std::streamsize>( name_length ) );
+                readExact( meta.name.data(), name_length,
+                    std::format( "tensor name at index {}", i ) );
 
-                file_.read( reinterpret_cast<char*>( &meta.dtype ), sizeof( meta.dtype ) );
+                readExact( &meta.dtype, sizeof( meta.dtype ),
+                    std::format( "dtype of '{}'", meta.name ) );
 
                 uint32_t ndim;
-                file_.read( reinterpret_cast<char*>( &ndim ), sizeof( ndim ) );
+                readExact( &ndim, sizeof( ndim ), std::format( "rank of '{}'", meta.name ) );
 
-                if ( !file_.good() || ndim > TensorShape::MaxRank )
+                if ( ndim > TensorShape::MaxRank )
                 {
                     throw std::runtime_error(
                         std::format( "Invalid tensor dimensionality for '{}'", meta.name ) );
@@ -958,18 +1200,15 @@ namespace Mila::Dnn::Serialization
                 for ( uint32_t d = 0; d < ndim; ++d )
                 {
                     uint32_t dim32;
-                    file_.read( reinterpret_cast<char*>( &dim32 ), sizeof( dim32 ) );
+                    readExact( &dim32, sizeof( dim32 ),
+                        std::format( "extent {} of '{}'", d, meta.name ) );
                     meta.shape[ d ] = static_cast<int64_t>( dim32 );
                 }
 
-                file_.read( reinterpret_cast<char*>( &meta.offset ), sizeof( meta.offset ) );
-                file_.read( reinterpret_cast<char*>( &meta.nbytes ), sizeof( meta.nbytes ) );
-
-                if ( !file_.good() )
-                {
-                    throw std::runtime_error(
-                        std::format( "Failed to read tensor metadata for '{}'", meta.name ) );
-                }
+                readExact( &meta.offset, sizeof( meta.offset ),
+                    std::format( "offset of '{}'", meta.name ) );
+                readExact( &meta.nbytes, sizeof( meta.nbytes ),
+                    std::format( "byte count of '{}'", meta.name ) );
 
                 tensor_index_[ meta.name ] = meta;
             }

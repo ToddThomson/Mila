@@ -43,6 +43,7 @@ import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Tensor;
 import Serialization.Metadata;
+import Serialization.SafeTensors;
 import nlohmann.json;
 
 import Dnn.TensorOps;
@@ -336,6 +337,52 @@ namespace Mila::Dnn
                         this->saveParameterToArchive( archive, parameter_name, *bias_ );
                     }
                 }
+            }
+        }
+
+        /**
+         * @brief Drive this Linear's tensors through one pass of a flat safetensors save.
+         *
+         * This is the path the archive cannot serve. A quantized weight is packed storage
+         * plus a scale companion, and save_() refuses it outright because ModelArchive has
+         * no representation for that pairing; the flat artifact expresses it as two sibling
+         * tensors, which is what the ecosystem does and what the reader already handles.
+         *
+         * Declare and write share one ordered body because the writer requires bodies in
+         * declaration order. Two separate walks could drift with no diagnostic until the
+         * file failed to read back.
+         *
+         * The scales are emitted under "<prefix>.weight.scales", matching the name the
+         * component already gives that tensor. They are deliberately absent from
+         * getParameterNames(): that vector is the join between the archive's save_ and
+         * load_, and widening it would break the blob-count invariant those rest on.
+         *
+         * @param writer Writer being driven.
+         * @param prefix Fully qualified component path, e.g. "tf_layer_0.qkv_proj".
+         * @param pass   Declare reserves byte ranges; Write streams bytes.
+         */
+        void saveFlatTensors(
+            Serialization::SafeTensorsWriter& writer,
+            const std::string& prefix,
+            Serialization::TensorSavePass pass ) const
+        {
+            if ( weight_ )
+            {
+                this->saveParameterToWriter( writer, prefix + ".weight", *weight_, pass );
+            }
+
+            if constexpr ( kIsQuantized )
+            {
+                if ( weight_scales_ )
+                {
+                    this->saveParameterToWriter(
+                        writer, prefix + ".weight.scales", *weight_scales_, pass );
+                }
+            }
+
+            if ( bias_ )
+            {
+                this->saveParameterToWriter( writer, prefix + ".bias", *bias_, pass );
             }
         }
 

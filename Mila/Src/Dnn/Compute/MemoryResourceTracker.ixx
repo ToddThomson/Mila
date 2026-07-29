@@ -14,9 +14,15 @@ import Dnn.TensorDataType;
 namespace Mila::Dnn::Compute
 {
     /**
-     * @brief Global memory statistics for all TrackedMemoryResource instances.
+     * @brief Process-wide allocator counters for all TrackedMemoryResource instances.
+     *
+     * Named MemoryAllocationStats, not MemoryStats, to stay distinct from
+     * Mila::Dnn::MemoryStats -- the per-component figure returned by
+     * Component::getMemoryStats(). The two are one namespace apart, and every consumer
+     * that opens both Mila::Dnn and Mila::Dnn::Compute (which is the conventional pair)
+     * saw an ambiguous unqualified name.
      */
-    export struct MemoryStats {
+    export struct MemoryAllocationStats {
         static std::atomic<size_t> totalAllocated;
         static std::atomic<size_t> totalDeallocated;
         static std::atomic<size_t> currentUsage;
@@ -53,14 +59,14 @@ namespace Mila::Dnn::Compute
     };
 
     // Initialize static members
-    std::atomic<size_t> MemoryStats::totalAllocated(0);
-    std::atomic<size_t> MemoryStats::totalDeallocated(0);
-    std::atomic<size_t> MemoryStats::currentUsage(0);
-    std::atomic<size_t> MemoryStats::peakUsage(0);
-    std::atomic<size_t> MemoryStats::allocationCount(0);
-    std::atomic<size_t> MemoryStats::deallocationCount(0);
-    std::atomic<size_t> MemoryStats::memcpyOperationCount(0);
-    std::atomic<size_t> MemoryStats::memsetOperationCount(0);
+    std::atomic<size_t> MemoryAllocationStats::totalAllocated(0);
+    std::atomic<size_t> MemoryAllocationStats::totalDeallocated(0);
+    std::atomic<size_t> MemoryAllocationStats::currentUsage(0);
+    std::atomic<size_t> MemoryAllocationStats::peakUsage(0);
+    std::atomic<size_t> MemoryAllocationStats::allocationCount(0);
+    std::atomic<size_t> MemoryAllocationStats::deallocationCount(0);
+    std::atomic<size_t> MemoryAllocationStats::memcpyOperationCount(0);
+    std::atomic<size_t> MemoryAllocationStats::memsetOperationCount(0);
 
     /**
      * @brief A memory resource wrapper that tracks allocation and deallocation statistics.
@@ -95,7 +101,7 @@ namespace Mila::Dnn::Compute
          */
         /*void memcpy(void* dst, const void* src, std::size_t size_bytes) override {
             underlying_->memcpy(dst, src, size_bytes);
-            MemoryStats::memcpyOperationCount++;
+            MemoryAllocationStats::memcpyOperationCount++;
         }*/
 
         /*
@@ -105,7 +111,7 @@ namespace Mila::Dnn::Compute
          */
         /*void memset(void* ptr, int value, std::size_t size_bytes) override {
             underlying_->memset(ptr, value, size_bytes);
-            MemoryStats::memsetOperationCount++;
+            MemoryAllocationStats::memsetOperationCount++;
         }*/
 
         /**
@@ -130,18 +136,18 @@ namespace Mila::Dnn::Compute
             void* ptr = underlying_->allocate(bytes, alignment);
 
             // Update statistics
-            MemoryStats::totalAllocated += bytes;
-            MemoryStats::currentUsage += bytes;
-            MemoryStats::allocationCount++;
+            MemoryAllocationStats::totalAllocated += bytes;
+            MemoryAllocationStats::currentUsage += bytes;
+            MemoryAllocationStats::allocationCount++;
 
             // Update peak usage atomically
-            size_t currentUsage = MemoryStats::currentUsage;
-            size_t peakUsage = MemoryStats::peakUsage;
+            size_t currentUsage = MemoryAllocationStats::currentUsage;
+            size_t peakUsage = MemoryAllocationStats::peakUsage;
             while (currentUsage > peakUsage) {
-                if (MemoryStats::peakUsage.compare_exchange_weak(peakUsage, currentUsage)) {
+                if (MemoryAllocationStats::peakUsage.compare_exchange_weak(peakUsage, currentUsage)) {
                     break;
                 }
-                peakUsage = MemoryStats::peakUsage;
+                peakUsage = MemoryAllocationStats::peakUsage;
             }
 
             return ptr;
@@ -158,9 +164,9 @@ namespace Mila::Dnn::Compute
             underlying_->deallocate(p, bytes, alignment);
 
             // Update statistics
-            MemoryStats::totalDeallocated += bytes;
-            MemoryStats::currentUsage -= bytes;
-            MemoryStats::deallocationCount++;
+            MemoryAllocationStats::totalDeallocated += bytes;
+            MemoryAllocationStats::currentUsage -= bytes;
+            MemoryAllocationStats::deallocationCount++;
         }
 
         /**

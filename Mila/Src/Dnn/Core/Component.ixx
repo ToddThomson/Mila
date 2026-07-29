@@ -35,6 +35,7 @@ import Compute.CudaPinnedMemoryResource;
 import Compute.IExecutionContext;
 import Serialization.Tensor;
 import Serialization.ModelArchive;
+import Serialization.SafeTensors;
 import Serialization.Mode;
 
 namespace Mila::Dnn
@@ -938,6 +939,55 @@ namespace Mila::Dnn
                 copy( parameter, staged_parameter );
 
                 writeTensorBlob( archive, prefix, meta, staged_parameter.rawData(), meta.total_bytes );
+            }
+        }
+
+        /**
+         * @brief Drive one parameter through one pass of a flat safetensors save.
+         *
+         * The flat artifact is keyed by dotted tensor name, not by archive scope, so the
+         * caller supplies the fully qualified name rather than a prefix plus a convention.
+         *
+         * Device parameters stage through PINNED host memory of the same dtype for the
+         * same reason saveParameterToArchive does: every reduced precision Mila serves in
+         * is is_device_only, so Tensor<TParameterPrecision, CpuMemoryResource> is not a
+         * valid template-id. The staging tensor is scoped to the write so only one
+         * parameter is resident at a time, which is what makes a 22 GB model writable.
+         *
+         * @param writer    Writer being driven.
+         * @param flat_name Fully qualified tensor name.
+         * @param parameter Parameter tensor.
+         * @param pass      Declare reserves the byte range; Write streams the bytes.
+         */
+        template<TensorDataType TParameterPrecision, typename TMemoryResource>
+        void saveParameterToWriter(
+            Serialization::SafeTensorsWriter& writer,
+            const std::string& flat_name,
+            const Tensor<TParameterPrecision, TMemoryResource>& parameter,
+            Serialization::TensorSavePass pass ) const
+        {
+            if ( pass == Serialization::TensorSavePass::Declare )
+            {
+                writer.declareTensor( flat_name, parameter.getDataType(), parameter.shape() );
+
+                return;
+            }
+
+            if constexpr ( TMemoryResource::is_host_accessible )
+            {
+                writer.writeTensorData( flat_name, parameter.rawData(), parameter.getStorageSize() );
+            }
+            else
+            {
+                Tensor<TParameterPrecision, CudaPinnedMemoryResource> staged_parameter(
+                    parameter.getDeviceId(), parameter.shape() );
+
+                // copy() synchronizes the D2H path itself, so the bytes are present before
+                // the writer reads them.
+                copy( parameter, staged_parameter );
+
+                writer.writeTensorData(
+                    flat_name, staged_parameter.rawData(), parameter.getStorageSize() );
             }
         }
 

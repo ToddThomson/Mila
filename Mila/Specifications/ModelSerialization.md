@@ -271,10 +271,205 @@ means a visible loss bump at the resume point.
 
 ### Phase 7 — the distribution artifact (vNext)
 
-Quantized-tensor serialization in the **flat** format: an FP4 tensor is packed nibbles plus a
-per-group scale tensor, an FP8 tensor is FP8 plus per-channel FP32 scales, and the tensor index needs
-to express that pairing. This is what turns a 22.2 GB Gemma BF16 artifact into roughly 7 GB and makes
-hosting viable. Depends on nothing in Phases 0–6 except the vocabulary.
+Quantized-tensor serialization in the flat format, turning a 22.2 GB Gemma BF16 artifact into roughly
+7 GB and making hosting viable. Depends on nothing in Phases 0–6 except the vocabulary. **The
+artifact this phase emits is safetensors, not `MILA`** — see the section below for why that costs
+nothing.
+
+**The contents already exist.** After `loadParameter` on a quantized build, both tensors are live
+device state with the names the artifact wants:
+
+- `weight_` at `kWeightDtype` — `FP8_E4M3` per-channel, or `UINT8`-packed `FP4_E2M1` at two nibbles
+  per byte with physical columns `input_features / 2` (`Linear.ixx:831`)
+- `weight_scales_` FP32 — `[out_features]` per-channel, `[out_features, K / group]` per-group
+  (`Linear.ixx:844`, `:851`)
+
+So this phase computes nothing new. It moves two existing tensors to disk and back.
+
+**The bulk of the work is a writer that does not exist.** `PretrainedReader.ixx` is read-only, and the
+only `MILA` magic under `Mila/Src` is `Data/Core/FileHeader.ixx`, which is the dataset header and
+unrelated. The flat format is written exclusively by `MilaWeightWriter` in Python — but the quantized
+bytes only exist *after* a device-side `operation_->quantize()`, so producing them in Python means
+reimplementing absmax and nibble packing outside the kernels and maintaining two implementations that
+must agree. This phase therefore needs a **new tensor-file writer in C++** plus a small tool that
+loads BF16, quantizes, and dumps. That work is independent of quantization, and it is why the
+container choice is free: the writer is built once either way, and the only question is which format
+it emits.
+
+The remainder is bounded:
+
+- **Dtype codes.** The flat enum carries four (`PretrainedReader.ixx` `DType`, mirrored in
+  `common.py`). safetensors supplies `F8_E4M3` natively; packed FP4 rides as `U8`. Decide and document
+  whether the recorded shape is logical or physical columns for packed nibbles.
+- **The pairing needs no index change.** `.weight` and `.weight.scales` are already the names
+  `Linear` uses. A sibling-name convention is how the ecosystem expresses this and it is sufficient;
+  the earlier claim that the tensor index must encode the pairing was overbuilt.
+- **The load side needs a branch.** `Linear.ixx:477` unconditionally calls
+  `operation_->quantize( blob, ... )` on the quantized path. A pre-quantized artifact must skip it and
+  perform two direct uploads instead, which means a metadata flag marking the artifact quantized and
+  **validation that its policy matches the compile-time `TWeightQuant`** — an FP4/group-128 artifact
+  loaded into a `PerChannelFp8<>` build must refuse, not reinterpret bytes.
+- **Weight tying is a live constraint.** `Linear.ixx:519` already refuses a quantized tied lm_head
+  without scales, and `:567` records that per-group scales sit on the input axis and do not transpose.
+  Gemma ties, and Gemma is the artifact worth shrinking, so the tied head must be handled explicitly
+  rather than discovered.
+
+*Done when:* a Gemma 4 12B FP4 artifact round-trips — quantize-and-dump, then load without
+re-quantizing — and generates token-for-token identically to the same model quantized on load from
+BF16. A size check is not the acceptance test; equality of output is.
+
+---
+
+## safetensors compatibility
+
+Scoped 2026-07-29. **The goal is inspectability and trust** — a Mila artifact any professional can
+open with standard tooling and verify, and a file format nobody has to take on faith. Consumption by
+`transformers` or vLLM is an explicit non-goal; see *What this does not buy* below, which records why
+so it is not rediscovered as a gap.
+
+Three separable capabilities, not one; they have different costs and different payoffs, and
+conflating them is the risk this section exists to prevent.
+
+| | What it is | Cost | Status |
+|---|---|---|---|
+| **W** — write safetensors | the distribution artifact becomes a safetensors file | none beyond Phase 7 | **decided** — Phase 7 emits it |
+| **R** — read HF repos | load an unconverted HF snapshot directly | high | open, vNext |
+| **C** — checkpoint | `ModelArchive` becomes safetensors | — | rejected |
+
+### The container is nearly isomorphic to the flat format
+
+safetensors is a `u64` header length (little-endian), that many bytes of UTF-8 JSON, then a packed
+data region. Each index entry is `{"dtype","shape","data_offsets":[begin,end]}`, offsets relative to
+the start of the data region. The flat format is `MILA` magic + version + tensor count + a JSON
+metadata blob + a binary index of `(name, dtype, ndim, shape, offset, nbytes)` + concatenated blobs
+(`PretrainedReader.ixx:139`, `Tools/Converters/common.py`). Same structure, differing in two places:
+the index is JSON rather than binary, and offsets are data-relative rather than absolute.
+
+The consequence is that `readHeader()` / `readMetadata()` / `readTensorIndex()` collapse into a single
+nlohmann parse — already a dependency — and nothing downstream changes. `mapFile()`,
+`buildOffsetOrder()`, the offset-ordered `streamTensorBlobs()` and the pinned double-buffered producer
+are all indifferent to how the index was encoded, and that is the tuned part of the reader.
+
+Everything the format costs, having gone looking for reasons not to adopt it. All three are small,
+and none is structural:
+
+- **No format version of its own.** The flat format carries `MAGIC` + `VERSION` and refuses a mismatch
+  (`PretrainedReader.ixx:392`, `:805`). safetensors has no version field, so a Mila format version
+  lives in `__metadata__` and must be validated deliberately rather than by construction. This is
+  Open Decision 3 and does not become easier by ignoring it.
+- **No padding for alignment.** The reference validator expects tensors to tile the data region
+  contiguously, so reserving aligned starts for a direct mapped-view to `cudaMemcpy` is unavailable.
+  Costs nothing today — `MilaWeightWriter` does not pad and staging is pread-into-pinned — but it is
+  a closed door, and the oversized-blob path that reads straight from the mapped view must therefore
+  not assume alignment. Confirm both behaviours against the reference validator before relying on
+  either.
+- **`__metadata__` is string to string only.** `PretrainedMetadata` goes in as one stringified JSON
+  value under a Mila-owned key, or as a sidecar. Foreign readers ignore unknown keys either way.
+
+Against that: no new third-party dependency (a writer is a `u64`, an nlohmann dump, and the blobs),
+universal readability, and Hub tensor-viewer support. Nothing structural is surrendered, which is
+what makes W a decision rather than a trade.
+
+### W — decided; it rides Phase 7
+
+Not a separate project. Phase 7 must build a C++ tensor-file writer regardless, so the only question
+is which format that writer emits, and the costs above answer it. On the Python side
+`MilaWeightWriter` becomes `safetensors.torch.save_file` and the bf16-as-`uint16`-view hack in
+`common.py:_get_dtype_code` / `convert_dtype` goes away with it. Every Mila artifact — BF16 or
+quantized — becomes readable by numpy, torch, netron and the Hub with no Mila code, which is the
+whole goal: a reader can verify what is in a Mila file without running Mila.
+
+### What this does not buy
+
+Compatibility has tiers, and the container reaches the first two only.
+
+| Tier | What works | Reached by |
+|---|---|---|
+| 1 — readable | `safetensors.torch.load_file`, numpy, netron | the container |
+| 2 — inspectable | Hub tensor viewer shows names, shapes, dtypes | the container |
+| 3 — loadable | `AutoModelForCausalLM.from_pretrained`, vLLM | **not reached; non-goal** |
+
+Tier 3 fails on structure before quantization is even reached: Mila's projections are **fused**
+(`fc_qkv_proj.weight`, `fc_gate_up.weight`) where HF ships them separate, the parameter names are
+Mila's, and the config schema is Mila's. Nothing in that ecosystem will recognize the file as a Llama.
+
+Quantization then diverges on its own axis, and the split is worth recording:
+
+| | Mila | Ecosystem |
+|---|---|---|
+| FP8 | `FP8_E4M3` storage, FP32 scales, per-channel `[out]` | compressed-tensors `float-quantized`, strategy `channel` — **substantively the same** |
+| FP4 | `UINT8`-packed `FP4_E2M1`, FP32 scales, **group 128** | NVFP4 is E2M1 / group 16 / FP8 scales; MXFP4 is E2M1 / group 32 / UE8M0 scales; GPTQ and AWQ are int4 packed into int32 |
+
+**Mila's FP8 would interoperate; Mila's FP4 matches nothing.** Group 128 with FP32 scales is its own
+point in the design space — coarser grouping, cheaper scale storage than NVFP4. Moving to group 16 or
+32 to match is not a serialization change: it reaches into the W4A16 tile-load dequant and the decode
+matvec and it would move the measured FP4 numbers. That decision must never be made as a side effect
+of a format choice.
+
+Tier 3, if it is ever wanted, is an **export path** — unfuse the projections, rename to HF
+conventions, emit an HF-shaped `config.json` and a `compressed-tensors` block — which is a third
+artifact with different contents in the same container. It is not a property the distribution format
+can acquire by adopting safetensors, and it is out of scope.
+
+### R — reading HF repos is where the work is
+
+The container is roughly a third of it. The rest is everything the converters do beyond copying
+bytes, and it is architecture-specific:
+
+- **Fused projections.** Llama concatenates `q_proj|k_proj|v_proj` into `fc_qkv_proj.weight` and
+  `gate|up` into `fc_gate_up.weight` (`Llama/convert_weights.py:262`, `:297`); Gemma does the same,
+  with a `q|k`-only variant on the K=V global layers (`Gemma/convert_weights.py:286`). HF ships these
+  as separate tensors. The load contract is one blob to one parameter, and this document freezes that
+  contract deliberately. Direct ingest needs *compose one parameter from an ordered list of blobs* —
+  mechanically three sequential copies, since a dim-0 concatenation of row-major tensors is byte
+  concatenation, but a change to the one interface everything else is built on.
+- **GPT-2 needs a real transform.** HF `Conv1D` weights are `[in, out]`; the converter transposes
+  (`Gpt2/convert_weights.py:121`, `:132`, `:153`, `:162`). A host-side transpose at load time is a
+  code path that does not exist. GPT-2 is the least important target — leaving it converter-only is
+  defensible.
+- **`config.json`.** `PretrainedMetadata` is Mila-shaped: `rope_theta_local`/`_global`,
+  `sliding_window_pattern`, `final_logit_softcapping`, `key_equals_value`, and a `head_dim` decoupled
+  from `embedding_dim / num_heads`. Direct ingest means a per-architecture HF-config mapper in C++,
+  tracking HF's key drift — the Gemma converter already reaches through `text_config`. **This is the
+  part to push back on.** Today that drift is absorbed by a Python script that gets rerun; compiled
+  in, it becomes a hard dependency on someone else's evolving schema, inside the artifact this
+  document says must not break for strangers.
+- **Sharding.** 12B BF16 is 22.2 GB, so HF ships roughly 5 GB shards plus `model.safetensors.index.json`.
+  The reader is single-file, single-mmap, single offset-ordered stream. N mappings with a merged
+  global order is not hard, but it perturbs the double-buffer producer.
+
+What is *not* an obstacle, and is the reason R is worth considering at all: the numerics already
+match. Gemma norm weights are written **raw**, with the `+1` applied at the kernel via
+`RmsNormConfig::withUnitOffset` (`Gemma/convert_weights.py:_rmsnorm_to_numpy`), and Llama applies no
+q/k permute. Those are the two places this normally goes wrong.
+
+The payoff is parity by construction. The Llama HF-parity test in the current release exists in part
+to catch converter bugs; reading the same bytes HF reads retires that class of defect instead of
+debugging it.
+
+### Quantization fit
+
+The container carries both policies without strain. FP8 is native — `F8_E4M3` and `F8_E5M2` are
+safetensors dtypes — and packed FP4 rides as `U8` beside a sibling scale tensor, which is how the
+ecosystem expresses it. Carrying the bytes is not the same as being consumable by that ecosystem; see
+*What this does not buy*.
+
+### C — the checkpoint stays `ModelArchive`
+
+Optimizer moments are tensors and would fit, but step count, epoch and RNG state have no
+representation beyond stringifying them into `__metadata__`. The checkpoint/distribution split above
+is the load-bearing decision; safetensors does not cross it.
+
+### Sequencing
+
+W is settled and carries no schedule of its own — it is a property of the Phase 7 writer. That leaves
+**Phase 7, then R**, both vNext under the freeze. R stays independent and much larger; its cost is
+dominated by the `config.json` mapper and the fusion contract, neither of which Phase 7 touches.
+
+R is also the more valuable direction, and worth stating plainly so the outbound framing does not
+recur: the Hub already carries thousands of pre-quantized checkpoints, so *reading* compressed-tensors
+and MXFP4 means Mila need not ask anyone to adopt its artifacts at all. Outbound Tier 3 assumes a
+consumer waiting on Mila files; inbound assumes only that other people publish models, which they do.
 
 ---
 
