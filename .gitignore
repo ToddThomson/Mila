@@ -18,8 +18,12 @@ Data/Datasets/**/*.mila
 Data/Datasets/**/*.tokens
 Data/**/*.exe
 
-# User-specific files
+# Model weights: converted .bin sources and exported safetensors artifacts. Both are
+# multi-gigabyte and reproducible from the converter / Tools/ExportArtifact.
 *.bin
+*.safetensors
+
+# User-specific files
 *.rsuser
 *.suo
 *.user

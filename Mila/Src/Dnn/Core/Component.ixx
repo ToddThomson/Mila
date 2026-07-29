@@ -407,6 +407,47 @@ namespace Mila::Dnn
         virtual void save_( ModelArchive& archive, SerializationMode mode ) const = 0;
 
         /**
+         * @brief Drive this component's tensors through one pass of a flat safetensors save.
+         *
+         * This is the path save_() cannot serve. A quantized weight is packed storage plus a
+         * scale companion and ModelArchive has no representation for that pairing, so save_()
+         * refuses it; the flat container expresses it as sibling tensors and this writes them.
+         *
+         * The vocabulary is the flat format's: a fully qualified dotted component path plus a
+         * parameter name, exactly what loadParameters() parses on the way back in. Composites
+         * contribute nothing themselves -- they recurse and extend the prefix -- so the emitted
+         * set matches what the reader will route back through loadParameter().
+         *
+         * Concrete parameter types, not ITensor, on purpose: a type-erased walk would have to
+         * ask at runtime whether a tensor's memory is host-accessible, and
+         * MemoryResource::is_host_accessible is a compile-time constant. Keeping concrete types
+         * here is what avoids widening an exported core type for a serialization concern.
+         *
+         * The default refuses rather than writing nothing. A component that owns parameters and
+         * does not implement this would otherwise contribute silently to an artifact that loads,
+         * runs, and produces garbage -- the same failure mode Phase 0 removed from save_().
+         *
+         * @param writer Writer being driven.
+         * @param prefix Fully qualified component path, e.g. "tf_layer_0.qkv_proj".
+         * @param pass   Declare reserves byte ranges; Write streams bytes in declaration order.
+         */
+        virtual void saveFlatTensors(
+            Serialization::SafeTensorsWriter& writer,
+            const std::string& prefix,
+            Serialization::TensorSavePass pass ) const
+        {
+            (void)writer;
+            (void)pass;
+
+            if ( parameterCount() > 0 )
+            {
+                throw std::runtime_error(
+                    std::format( "Component '{}' owns {} parameters but does not implement "
+                        "saveFlatTensors()", prefix, parameterCount() ) );
+            }
+        }
+
+        /**
          * @brief Restore this component's parameters from its archive scope.
          *
          * The inverse of save_(), and unlike save_() it is NOT pure virtual: the default

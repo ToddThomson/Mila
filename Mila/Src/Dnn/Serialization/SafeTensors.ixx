@@ -38,8 +38,13 @@ namespace Mila::Dnn::Serialization
     /**
      * @brief Key marking an artifact whose weights are already quantized.
      *
-     * Present only on pre-quantized artifacts. Its absence means the weights are in the
-     * declared compute precision and the load path quantizes as it always has.
+     * Present only on pre-quantized artifacts. Its absence, or the value "none", means the
+     * weights are in the declared compute precision and the load path quantizes as it
+     * always has.
+     *
+     * The value names the policy, not just the fact of quantization, because the storage
+     * dtype cannot distinguish one from another: FP4 at group 128 and at group 64 are both
+     * packed into U8. Only this string lets a load refuse the wrong one.
      */
     export inline constexpr const char* kMilaQuantizationMetadataKey = "mila_quantization";
 

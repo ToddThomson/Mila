@@ -32,6 +32,7 @@ import Compute.IExecutionContext;
 import Serialization.ModelArchive;
 import Serialization.Metadata;
 import Serialization.Mode;
+import Serialization.SafeTensors;
 
 namespace Mila::Dnn
 {
@@ -648,6 +649,39 @@ namespace Mila::Dnn
             return grads;
         }
 
+        /**
+         * @brief Recurse into children, extending the flat dotted prefix.
+         *
+         * A composite contributes no tensors of its own. It exists here to turn the component
+         * tree into the flat vocabulary the pretrained format uses -- the same dotted paths
+         * loadParameters() splits with parseParameterPath() and resolves with findComponent(),
+         * so what this writes is exactly what that reads.
+         *
+         * Children carry fully qualified names ("gemma.tf_layer_0.qkv_proj"), so the relative
+         * segment is recovered by stripping this composite's own name. Calling the root with an
+         * empty prefix therefore drops the model name and yields "tf_layer_0.qkv_proj",
+         * matching the converter's naming rather than a Mila-internal path.
+         *
+         * child_components_ rather than child_component_map_: the map is unordered, and the
+         * writer requires bodies in declaration order, so an unordered walk would produce a
+         * file whose data region disagrees with its own index.
+         *
+         * Public, unlike save_() which is public on Component but protected here -- an
+         * asymmetry already filed as a defect. A flat save is driven from outside the tree,
+         * so repeating it would force every caller through a forwarder.
+         */
+        void saveFlatTensors(
+            Serialization::SafeTensorsWriter& writer,
+            const std::string& prefix,
+            Serialization::TensorSavePass pass ) const override
+        {
+            for ( const auto& component : child_components_ )
+            {
+                component->saveFlatTensors(
+                    writer, childFlatPrefix( prefix, component->getName() ), pass );
+            }
+        }
+
     protected:
 
         /**
@@ -842,6 +876,34 @@ namespace Mila::Dnn
         }
 
     private:
+
+        /**
+         * @brief Build a child's flat prefix from this composite's.
+         *
+         * addComponent() keys children on their own getName(), which is fully qualified, so
+         * a child's name always begins with this composite's name followed by a dot. What
+         * remains is the segment the flat format wants. An empty parent prefix yields the
+         * bare relative path, which is how the root's own name is dropped.
+         *
+         * @param parent_prefix This composite's flat prefix; empty at the root.
+         * @param child_name    Child's fully qualified component name.
+         */
+        std::string childFlatPrefix(
+            const std::string& parent_prefix, const std::string& child_name ) const
+        {
+            const std::string my_name = this->getName();
+
+            std::string relative = child_name.starts_with( my_name + "." )
+                ? child_name.substr( my_name.size() + 1 )
+                : child_name;
+
+            if ( parent_prefix.empty() )
+            {
+                return relative;
+            }
+
+            return parent_prefix + "." + relative;
+        }
 
         /**
          * @brief Child components in insertion order.

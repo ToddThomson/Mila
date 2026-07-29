@@ -34,9 +34,11 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <format>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -832,6 +834,15 @@ namespace Mila::Tests::Dnn::Components::Linear
                 / std::format( "mila_linear_flat_{}_{}.safetensors", stem, counter++ );
         }
 
+        // C stdio, not fstream: MSVC C++23 raises C2079 on basic_istream::sentry when
+        // stream I/O meets `import Mila;` in a .cpp.
+        using FilePointer = std::unique_ptr<std::FILE, int( * )( std::FILE* )>;
+
+        FilePointer openFile( const std::filesystem::path& path, const char* mode )
+        {
+            return FilePointer( std::fopen( path.string().c_str(), mode ), &std::fclose );
+        }
+
         /**
          * @brief Decode one FP8 E4M3 byte to float. Bias 7, 3 mantissa bits, no infinities.
          */
@@ -913,11 +924,11 @@ namespace Mila::Tests::Dnn::Components::Linear
         Serialization::PretrainedModelReader reader( path );
 
         ASSERT_TRUE( reader.hasTensor( "tf_layer_0.qkv_proj.weight" ) );
-        ASSERT_TRUE( reader.hasTensor( "tf_layer_0.qkv_proj.weight.scales" ) );
+        ASSERT_TRUE( reader.hasTensor( "tf_layer_0.qkv_proj.weight_scale" ) );
         EXPECT_FALSE( reader.hasTensor( "tf_layer_0.qkv_proj.bias" ) );
 
         auto packed = reader.readTensorBlob<CpuMemoryResource>( "tf_layer_0.qkv_proj.weight" );
-        auto scales = reader.readTensorBlob<CpuMemoryResource>( "tf_layer_0.qkv_proj.weight.scales" );
+        auto scales = reader.readTensorBlob<CpuMemoryResource>( "tf_layer_0.qkv_proj.weight_scale" );
 
         // FP8 stores one element per byte, so the logical shape survives intact.
         EXPECT_EQ( packed.getMetadata().dtype, TensorDataType::FP8_E4M3 );
@@ -1020,7 +1031,7 @@ namespace Mila::Tests::Dnn::Components::Linear
         Serialization::PretrainedModelReader reader( path );
 
         auto packed = reader.readTensorBlob<CpuMemoryResource>( "tf_layer_3.down_proj.weight" );
-        auto scales = reader.readTensorBlob<CpuMemoryResource>( "tf_layer_3.down_proj.weight.scales" );
+        auto scales = reader.readTensorBlob<CpuMemoryResource>( "tf_layer_3.down_proj.weight_scale" );
 
         // Two nibbles per byte: the recorded shape is PHYSICAL, so the column count is
         // halved. A reader that assumed logical columns would allocate twice the bytes.
@@ -1049,6 +1060,147 @@ namespace Mila::Tests::Dnn::Components::Linear
 
         std::error_code ignored;
         std::filesystem::remove( path, ignored );
+    }
+
+    TEST( LinearCudaFlatSaveTests, PreQuantizedArtifactLoadsBackWithoutRequantizing )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerChannelFp8<>>;
+
+        std::unique_ptr<IExecutionContext> context;
+        try
+        {
+            context = createExecutionContext( Device::Cuda( 0 ) );
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "CUDA device not available";
+        }
+
+        std::vector<uint16_t> weight_bits( static_cast<size_t>( kOutFeatures * kInFeatures ) );
+        for ( int64_t o = 0; o < kOutFeatures; ++o )
+        {
+            for ( int64_t i = 0; i < kInFeatures; ++i )
+            {
+                const uint32_t bits = std::bit_cast<uint32_t>( weightValue( o, i ) );
+                const uint32_t rounding = 0x7FFF + ( ( bits >> 16 ) & 1 );
+                weight_bits[ o * kInFeatures + i ] = static_cast<uint16_t>( ( bits + rounding ) >> 16 );
+            }
+        }
+
+        const size_t blob_bytes = weight_bits.size() * sizeof( uint16_t );
+
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( false );
+
+        const shape_t decode_shape{ 1, kInFeatures };
+        Serialization::TensorMetadata weight_meta{
+            TensorDataType::BF16, shape_t{ kOutFeatures, kInFeatures }, blob_bytes };
+
+        // First leg: quantize on load from BF16, then export.
+        const auto first_path = makeScratchPath( "prequant_a" );
+
+        QuantizedLinear quantize_on_load( "proj", config, Device::Cuda( 0 ) );
+        quantize_on_load.build( BuildContext( decode_shape, RuntimeMode::Inference, false ) );
+
+        Serialization::TensorBlobView source_blob( weight_meta, weight_bits.data(), blob_bytes );
+        quantize_on_load.loadParameter( "weight", source_blob );
+        context->synchronize();
+
+        {
+            Serialization::SafeTensorsWriter writer( first_path );
+            quantize_on_load.saveFlatTensors( writer, "proj", Serialization::TensorSavePass::Declare );
+            writer.beginData();
+            quantize_on_load.saveFlatTensors( writer, "proj", Serialization::TensorSavePass::Write );
+            writer.close();
+        }
+
+        // Second leg: load those packed bytes and scales into a fresh component. The
+        // dtype on the blob is what tells loadParameter not to quantize again; feeding
+        // packed nibbles through quantize() would read them as BF16 and silently produce a
+        // model that runs and is wrong.
+        QuantizedLinear from_artifact( "proj", config, Device::Cuda( 0 ) );
+        from_artifact.build( BuildContext( decode_shape, RuntimeMode::Inference, false ) );
+
+        {
+            Serialization::PretrainedModelReader reader( first_path );
+
+            auto packed = reader.readTensorBlob<CpuMemoryResource>( "proj.weight" );
+            auto scales = reader.readTensorBlob<CpuMemoryResource>( "proj.weight_scale" );
+
+            from_artifact.loadParameter( "weight", packed );
+            from_artifact.loadParameter( "weight_scale", scales );
+            context->synchronize();
+        }
+
+        // Re-export and require the two artifacts to agree byte for byte. Comparing files
+        // rather than tensors keeps the assertion on the public API and covers both legs.
+        const auto second_path = makeScratchPath( "prequant_b" );
+
+        {
+            Serialization::SafeTensorsWriter writer( second_path );
+            from_artifact.saveFlatTensors( writer, "proj", Serialization::TensorSavePass::Declare );
+            writer.beginData();
+            from_artifact.saveFlatTensors( writer, "proj", Serialization::TensorSavePass::Write );
+            writer.close();
+        }
+
+        const auto first_size = std::filesystem::file_size( first_path );
+        const auto second_size = std::filesystem::file_size( second_path );
+
+        ASSERT_EQ( first_size, second_size );
+
+        std::vector<char> first_bytes( static_cast<size_t>( first_size ) );
+        std::vector<char> second_bytes( static_cast<size_t>( second_size ) );
+
+        {
+            auto first_file = openFile( first_path, "rb" );
+            auto second_file = openFile( second_path, "rb" );
+            ASSERT_NE( first_file.get(), nullptr );
+            ASSERT_NE( second_file.get(), nullptr );
+
+            ASSERT_EQ( std::fread( first_bytes.data(), 1, first_bytes.size(), first_file.get() ),
+                first_bytes.size() );
+            ASSERT_EQ( std::fread( second_bytes.data(), 1, second_bytes.size(), second_file.get() ),
+                second_bytes.size() );
+        }
+
+        EXPECT_EQ( first_bytes, second_bytes );
+
+        std::error_code ignored;
+        std::filesystem::remove( first_path, ignored );
+        std::filesystem::remove( second_path, ignored );
+    }
+
+    TEST( LinearCudaFlatSaveTests, RejectsScalesOnAnUnquantizedBuild )
+    {
+        using PlainLinear = Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16>;
+
+        std::unique_ptr<IExecutionContext> context;
+        try
+        {
+            context = createExecutionContext( Device::Cuda( 0 ) );
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "CUDA device not available";
+        }
+
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( false );
+
+        PlainLinear linear( "fc", config, Device::Cuda( 0 ) );
+        linear.build( BuildContext( shape_t{ 1, kInFeatures }, RuntimeMode::Inference, true ) );
+
+        std::vector<float> scales( static_cast<size_t>( kOutFeatures ), 1.0f );
+        Serialization::TensorMetadata scale_meta{
+            TensorDataType::FP32, shape_t{ kOutFeatures }, scales.size() * sizeof( float ) };
+        Serialization::TensorBlobView scale_blob(
+            scale_meta, scales.data(), scales.size() * sizeof( float ) );
+
+        // A quantized artifact reaching an unquantized build must fail loudly rather than
+        // drop the scales and leave the weights silently unscaled.
+        EXPECT_THROW( linear.loadParameter( "weight_scale", scale_blob ), std::invalid_argument );
     }
 
     TEST( LinearCudaFlatSaveTests, UnquantizedPathEmitsWeightAndBiasAndNoScales )
@@ -1091,7 +1243,7 @@ namespace Mila::Tests::Dnn::Components::Linear
 
         EXPECT_TRUE( reader.hasTensor( "fc.weight" ) );
         EXPECT_TRUE( reader.hasTensor( "fc.bias" ) );
-        EXPECT_FALSE( reader.hasTensor( "fc.weight.scales" ) );
+        EXPECT_FALSE( reader.hasTensor( "fc.weight_scale" ) );
 
         auto weight = reader.readTensorBlob<CpuMemoryResource>( "fc.weight" );
 

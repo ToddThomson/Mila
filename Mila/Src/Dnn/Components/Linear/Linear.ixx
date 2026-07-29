@@ -352,10 +352,16 @@ namespace Mila::Dnn
          * declaration order. Two separate walks could drift with no diagnostic until the
          * file failed to read back.
          *
-         * The scales are emitted under "<prefix>.weight.scales", matching the name the
-         * component already gives that tensor. They are deliberately absent from
-         * getParameterNames(): that vector is the join between the archive's save_ and
-         * load_, and widening it would break the blob-count invariant those rest on.
+         * The scales are emitted as "<prefix>.weight_scale" -- an underscore, not a dot.
+         * parseParameterPath() splits a flat name on its LAST dot, so a dotted
+         * "weight.scales" would resolve to a component named "<prefix>.weight", which does
+         * not exist, and the artifact could be written but never read back. The underscore
+         * also matches the compressed-tensors spelling, so the name is conventional as well
+         * as loadable.
+         *
+         * They are deliberately absent from getParameterNames(): that vector is the join
+         * between the archive's save_ and load_, and widening it would break the blob-count
+         * invariant those rest on.
          *
          * @param writer Writer being driven.
          * @param prefix Fully qualified component path, e.g. "tf_layer_0.qkv_proj".
@@ -364,19 +370,26 @@ namespace Mila::Dnn
         void saveFlatTensors(
             Serialization::SafeTensorsWriter& writer,
             const std::string& prefix,
-            Serialization::TensorSavePass pass ) const
+            Serialization::TensorSavePass pass ) const override
         {
-            if ( weight_ )
+            // An installed weight is borrowed, not owned -- a tied lm_head shares the token
+            // embedding table through a shared_ptr. Emitting it would write a byte-identical
+            // second copy of the table (0.94 GB on Gemma 4 12B) and, on load, hand the head
+            // its own storage instead of the donor's, re-allocating exactly what weight tying
+            // exists to save. The source .bin omits a tied head for the same reason.
+            const bool owns_weight = weight_ && !weight_installed_;
+
+            if ( owns_weight )
             {
                 this->saveParameterToWriter( writer, prefix + ".weight", *weight_, pass );
             }
 
             if constexpr ( kIsQuantized )
             {
-                if ( weight_scales_ )
+                if ( owns_weight && weight_scales_ )
                 {
                     this->saveParameterToWriter(
-                        writer, prefix + ".weight.scales", *weight_scales_, pass );
+                        writer, prefix + ".weight_scale", *weight_scales_, pass );
                 }
             }
 
@@ -521,11 +534,43 @@ namespace Mila::Dnn
 
                 if constexpr ( kIsQuantized )
                 {
-                    operation_->quantize( blob, *weight_, *weight_scales_, expected_shape );
+                    // The blob says which kind of source this is, so no external flag is
+                    // needed: storage dtype means the weights are already packed and the
+                    // scales arrive as their own tensor; compute precision means a
+                    // full-precision source that must be quantized here. Re-quantizing
+                    // packed bytes would read nibbles as BF16 and produce a model that runs
+                    // and is wrong, so the two must never be confused.
+                    if ( blob.getMetadata().dtype == kWeightDtype )
+                    {
+                        // weight_->shape() and not expected_shape: a packed FP4 weight is
+                        // physically [out, in/2], which is what the artifact recorded.
+                        this->loadParameterFromBlob( "weight", blob, *weight_, weight_->shape() );
+                    }
+                    else
+                    {
+                        operation_->quantize( blob, *weight_, *weight_scales_, expected_shape );
+                    }
                 }
                 else
                 {
                     this->loadParameterFromBlob( "weight", blob, *weight_, expected_shape );
+                }
+            }
+            else if ( name == "weight_scale" )
+            {
+                // Only a pre-quantized artifact carries this; quantize-on-load computes the
+                // scales itself and never routes one here.
+                if constexpr ( kIsQuantized )
+                {
+                    this->loadParameterFromBlob(
+                        "weight_scale", blob, *weight_scales_, weight_scales_->shape() );
+                }
+                else
+                {
+                    throw std::invalid_argument( std::format(
+                        "Linear '{}': received 'weight_scale' but this build is unquantized; "
+                        "the artifact was written with weight quantization",
+                        this->getName() ) );
                 }
             }
             else if ( name == "bias" )
@@ -541,7 +586,8 @@ namespace Mila::Dnn
             else
             {
                 throw std::invalid_argument( std::format(
-                    "Linear '{}': unknown parameter '{}' (expected 'weight' or 'bias')",
+                    "Linear '{}': unknown parameter '{}' "
+                    "(expected 'weight', 'weight_scale' or 'bias')",
                     this->getName(), name ) );
             }
         }

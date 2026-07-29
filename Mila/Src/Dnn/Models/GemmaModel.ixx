@@ -59,6 +59,7 @@ import Compute.CudaPinnedMemoryResource;
 #endif
 import Compute.ExecutionContextFactory;
 import Serialization.PretrainedReader;
+import Serialization.SafeTensors;
 import Serialization.Mode;
 import Logging.Logger;
 
@@ -209,6 +210,53 @@ namespace Mila::Dnn
         const GemmaConfig& getNetworkConfig() const noexcept
         {
             return config_;
+        }
+
+        /**
+         * @brief Write this model's live weights to a safetensors artifact.
+         *
+         * The weights are written as they currently sit on the device, so a model loaded
+         * with FP4 or FP8 quantization produces a PRE-QUANTIZED artifact -- packed storage
+         * plus its scale companion -- roughly a third the size of the BF16 source. That is
+         * the point of the operation: quantization is a load-time policy, so the quantized
+         * bytes exist nowhere until a model has been built with one.
+         *
+         * The source artifact's metadata is written back verbatim, so the result is
+         * loadable by the same path that loaded the original, and readable by any
+         * safetensors reader without Mila.
+         *
+         * Two passes over the network because the container records byte ranges in its
+         * header: everything is declared, the header is emitted, then bodies stream in
+         * declaration order with one staged tensor resident at a time.
+         *
+         * @param path Destination artifact path; parent directories are created.
+         *
+         * @throws std::runtime_error if the file cannot be written, or if any component
+         *         owning parameters cannot serialize them.
+         */
+        void saveArtifact( const std::filesystem::path& path ) const
+        {
+            Serialization::SafeTensorsWriter writer( path );
+
+            writer.setMetadata(
+                Serialization::kMilaConfigMetadataKey,
+                Serialization::toMetadataJSON( source_metadata_ ) );
+
+            writer.setMetadata(
+                Serialization::kMilaQuantizationMetadataKey,
+                weightQuantizationName( model_config_.getWeightQuantization() ) );
+
+            const auto& network = this->getLanguageNetwork();
+
+            // Empty prefix: the root's own name is dropped so tensors land under
+            // "tf_layer_0.qkv_proj.weight", the vocabulary loadParameters() reads back.
+            network.saveFlatTensors( writer, "", Serialization::TensorSavePass::Declare );
+
+            writer.beginData();
+
+            network.saveFlatTensors( writer, "", Serialization::TensorSavePass::Write );
+
+            writer.close();
         }
 
         /// Deployment configuration (context length, weight-quant, kv-compression) this model was loaded with.
@@ -406,12 +454,33 @@ namespace Mila::Dnn
             std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
             const GemmaConfig& config,
             const GemmaModelConfig& model_config,
+            const PretrainedMetadata& source_metadata,
             RuntimeMode runtime_mode )
             : ModelBase( std::move( network ), runtime_mode )
             , config_( config )
             , model_config_( model_config )
+            , source_metadata_( source_metadata )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
         {}
+
+        /**
+         * @brief Name recorded in the artifact for the weight quantization it was written with.
+         *
+         * The load side must refuse an artifact whose policy disagrees with the build's
+         * compile-time TWeightQuantization: the bytes are packed differently per policy, and
+         * reinterpreting them silently produces a model that runs and is wrong.
+         */
+        static std::string weightQuantizationName( WeightQuantization quantization )
+        {
+            switch ( quantization )
+            {
+                case WeightQuantization::FP4: return "per_group_fp4_128";
+                case WeightQuantization::FP8: return "per_channel_fp8_e4m3";
+                case WeightQuantization::None:
+                default:
+                    return "none";
+            }
+        }
 
         template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
         static std::unique_ptr<GemmaModel<TDeviceType, TPrecision>> fromPretrainedImpl(
@@ -421,6 +490,27 @@ namespace Mila::Dnn
         {
             PretrainedModelReader reader( path );
             const auto& metadata = reader.getPretrainedMetadata();
+
+            // A pre-quantized artifact declares the policy its bytes were packed with. The
+            // storage dtype alone cannot tell FP4 at group 128 from group 64 -- both are
+            // U8 -- so loading one into a build expecting the other would reinterpret the
+            // nibble layout and produce a model that runs and is wrong. An empty
+            // declaration is a full-precision source and any policy may quantize it on load.
+            const std::string& artifact_quantization = reader.getWeightQuantization();
+
+            if ( !artifact_quantization.empty() )
+            {
+                const std::string requested =
+                    weightQuantizationName( model_config.getWeightQuantization() );
+
+                if ( artifact_quantization != requested )
+                {
+                    throw std::runtime_error( std::format(
+                        "GemmaModel::fromPretrained: artifact '{}' is pre-quantized as '{}' "
+                        "but this load requested '{}'",
+                        path.string(), artifact_quantization, requested ) );
+                }
+            }
 
             GemmaConfig network_config = configFromMetadata( metadata );
 
@@ -451,11 +541,16 @@ namespace Mila::Dnn
             return std::unique_ptr<GemmaModel<TDeviceType, TPrecision>>(
                 new GemmaModel<TDeviceType, TPrecision>(
                     std::move( network ), network_config,
-                    model_config, RuntimeMode::Inference ) );
+                    model_config, metadata, RuntimeMode::Inference ) );
         }
 
         // Architecture config (from checkpoint metadata): the trained network geometry.
         GemmaConfig config_;
+
+        // The source artifact's own metadata, retained verbatim so a re-exported artifact
+        // carries the architecture description the loader will need rather than one
+        // reconstructed from GemmaConfig, which would be free to drift from it.
+        PretrainedMetadata source_metadata_;
 
         // Deployment config this model was loaded with. The deployment context length
         // (model_config_.getContextLength(), exposed via contextLength()) is the KV-cache depth the

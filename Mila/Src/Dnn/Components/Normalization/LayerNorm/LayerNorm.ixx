@@ -47,6 +47,7 @@ import Serialization.ModelArchive;
 import Serialization.Metadata;
 import Serialization.Mode;
 import Serialization.Tensor;
+import Serialization.SafeTensors;
 
 // DEBUG:
 import Dnn.TensorOps;
@@ -216,6 +217,22 @@ namespace Mila::Dnn
             }
 
             return { "weight" };
+        }
+
+        void saveFlatTensors(
+            Serialization::SafeTensorsWriter& writer,
+            const std::string& prefix,
+            Serialization::TensorSavePass pass ) const override
+        {
+            if ( weight_ )
+            {
+                this->saveParameterToWriter( writer, prefix + ".weight", *weight_, pass );
+            }
+
+            if ( bias_ )
+            {
+                this->saveParameterToWriter( writer, prefix + ".bias", *bias_, pass );
+            }
         }
 
         void save_( ModelArchive& archive, SerializationMode mode ) const override

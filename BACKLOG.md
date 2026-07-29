@@ -1030,14 +1030,156 @@ to the current release.
   `w ~= float(fp8) * scale[row]` dequantization check — the only assertion that catches scales landing
   against the wrong rows, which passes every structural check), FP4 per-group (physical halved column
   count, `[out, K/128]` scales), and the unquantized path (weight + bias, no scales).
-  **SCOPE NOTE — the whole-model dump tool is NOT here and is slice 3.** Scoping it surfaced three
-  library gaps: (1) **no runtime host-accessibility query** — `MemoryResource::is_host_accessible` is
-  `static constexpr` (`MemoryResource.ixx:37`), not virtual, so a type-erased walk over `ITensor*`
-  cannot decide whether to stage; the component-level save dodges this entirely by keeping concrete
-  types, which is why slice 2 stops here; (2) **no writer for `PretrainedMetadata`** — there is a
-  hand-rolled `parseMetadataJSON` and no inverse, so an artifact can be inspectable but not loadable;
-  (3) the generic traversal needs root-prefix stripping to match `.bin` flat naming (`findComponent`
-  strips it on the way in; nothing does on the way out).
+  **SCOPE NOTE — the whole-model dump tool is NOT here and is slice 3.** Two gaps to close, not the
+  three first recorded: (1) **no writer for `PretrainedMetadata`** — there is a hand-rolled
+  `parseMetadataJSON` and no inverse, so an artifact can be inspectable but not loadable; (2) the
+  traversal needs root-prefix stripping to match `.bin` flat naming (`findComponent` strips it on the
+  way in; nothing does on the way out).
+  **CORRECTED 2026-07-29 — the third "gap" was not one.** It was recorded as *no runtime
+  host-accessibility query* (`MemoryResource::is_host_accessible` is `static constexpr` at
+  `MemoryResource.ixx:37`, not virtual, so a type-erased walk over `ITensor*` cannot decide whether to
+  stage). That only binds if the traversal is type-erased, and it need not be: promote
+  `saveFlatTensors` to a **virtual on `Component`** and let each of the five parameter-owning
+  components implement it with concrete types, exactly as `save_` already does. `Linear`'s
+  implementation is written and green. **No addition to any exported core type is required** — do not
+  add a virtual to `MemoryResource` for this.
+  So slice 3 is: the virtual, four more implementations (`RmsNorm`, `LayerNorm`, `TokenEmbedding`,
+  `Lpe`), composite recursion building the dotted prefix, root-prefix stripping, the metadata writer,
+  and the tool.
+- **safetensors slice 3 PART A WRITTEN 2026-07-29, UNBUILT — the traversal.** `Component::saveFlatTensors`
+  is now virtual with a default that **throws when `parameterCount() > 0`** rather than writing
+  nothing (Phase 0's lesson: a component that contributes silently produces an artifact that loads,
+  runs, and generates garbage). Implemented on all five parameter-owning leaves — `Linear` (weight,
+  weight.scales, bias), `RmsNorm`/`LayerNorm` (weight, bias), `TokenEmbedding` (wte, wte.scales),
+  `Lpe` (wte, wpe). `CompositeComponent::saveFlatTensors` recurses over `child_components_` (ordered —
+  the map is unordered and the writer demands declaration order) and builds the dotted prefix via a
+  new `childFlatPrefix()`: children carry fully qualified names, so stripping the parent's name yields
+  the relative segment, and calling the root with an **empty prefix drops the model name**, producing
+  `tf_layer_0.qkv_proj` exactly as the converter names it. Placed **public** on the composite,
+  deliberately not repeating the `save_` public-on-Component / protected-on-Composite asymmetry
+  already filed as a defect. `toMetadataJSON()` added to `PretrainedReader.ixx` — the inverse
+  `parseMetadataJSON` never had, closing the "inspectable but not loadable" gap. Two CPU tests added:
+  full 27-field metadata write/read cycle, and the container cases from slice 1.
+  **Part B WRITTEN 2026-07-29, UNBUILT — the tool.** `GemmaModel::saveArtifact( path )` drives the
+  two passes over `getLanguageNetwork()` with an **empty root prefix**, writing whatever precision the
+  weights currently sit at — so a model loaded FP4 emits a pre-quantized artifact at roughly a third
+  the BF16 size. The source artifact's `PretrainedMetadata` is now **retained on the model**
+  (`source_metadata_`, threaded through the private constructor) and written back verbatim rather than
+  reconstructed from `GemmaConfig`, which would be free to drift. A `mila_quantization` metadata key
+  records the policy (`per_group_fp4_128` / `per_channel_fp8_e4m3` / `none`) so the load side can
+  refuse an artifact whose packing disagrees with the build's compile-time `TWeightQuantization`.
+  New CUDA-only target `Mila/Tools/ExportArtifact` — work confined to `ExportArtifact.ixx` with a thin
+  `.cpp`, the ProfileModel arrangement, because a plain `.cpp` instantiating the model-load templates
+  trips the C2079. It reopens what it wrote before reporting success, since a header that disagrees
+  with its data region produces a file that looks finished and fails at load.
+  **DEFECT IN SHIPPED SLICE 2, FOUND AND FIXED 2026-07-29 BEFORE THE LOAD SIDE WAS WRITTEN: the
+  scales name was unloadable.** `parseParameterPath()` (`Gemma.ixx:956`, mirrored in Llama and
+  GptTransformer) splits a flat name on its **last dot**, so the emitted
+  `tf_layer_0.qkv_proj.weight.scales` resolved to a component named `tf_layer_0.qkv_proj.weight`,
+  which does not exist — the artifact could be written and inspected but never read back. Renamed to
+  **`weight_scale`** and **`wte_scale`** (underscore), which splits correctly *and* matches the
+  compressed-tensors spelling, so the name is conventional as well as loadable. Tests updated.
+  **This is why the writer was verified against the reader's own splitting rule before the load path
+  was built on top of it** — every structural test passed, and numpy would have opened the file
+  happily, so nothing would have surfaced this until slice 4 failed with a confusing component-lookup
+  error.
+  **Runtime defect found by RUNNING the tool, fixed 2026-07-29 (needs a rebuild):** `runExport` never
+  called `Mila::initialize()`, so the export died before reading a byte with "log call before
+  initializeLogger()" — the model load path logs and the logger is not implicitly created. Both
+  existing entry points do it (`ProfileModel.ixx:645`, `Chat/Src/main.cpp:265`); a new one has no
+  compiler or test that notices. Textbook compile-hides-link-hides-runtime: the target built green and
+  passed every ctest.
+  **Export defect found by building the tool, fixed 2026-07-29.** `GemmaModelConfig`,
+  `LlamaModelConfig` and `GptModelConfig` each `import Dnn.LanguageModelConfig;` without
+  re-exporting, yet their own public setters take `WeightQuantization` and `KvCacheCompression` from
+  it — so any consumer outside the library could not name the types its API requires
+  (`error C3646: unknown override specifier`). Changed to `export import` in all three. Same class as
+  the `Serialization.Tensor` note in `Mila.ixx`: a module whose public interface names another
+  module's types must re-export it. **Only the tool caught this because the tool is the first
+  out-of-library consumer of those configs** — Chat builds its own config path, and every in-tree
+  caller imports `Dnn.LanguageModelConfig` directly.
+  **NOT DONE — the load side.** Nothing yet consumes `mila_quantization`: `Linear.ixx:477` still
+  always calls `operation_->quantize()`, so a pre-quantized artifact would be re-quantized as if it
+  were BF16. **The tool's output is therefore write-and-inspect only until slice 4.**
+  **TWO DEFECTS FOUND BY RUNNING THE TOOL AND DIFFING THE ARTIFACT AGAINST THE SOURCE INDEX
+  (2026-07-29). The export completed, self-verified, and reported success with both present.**
+  First run: 23.8 GB source -> 7.27 GB FP4 artifact, 725 tensors, header 8-byte aligned, spans
+  contiguous and covering EOF exactly, `mila_config` + `mila_quantization` intact. Structurally
+  perfect, and wrong in two ways no structural check can see:
+  **(1) All 48 `tf_layer_N.layer_scalar` tensors were silently dropped.** This CORRECTS the earlier
+  claim here, which said their absence was fine because `layer_scalar` was archive-only and "the
+  converter never writes it to `.bin`". **It does.** A direct index dump of the source shows 578
+  tensors including `tf_layer_{0..47}.layer_scalar`, so it is squarely in the flat vocabulary. This is
+  exactly the silent omission the base-class throw was added to prevent, bypassed because
+  `CompositeComponent::saveFlatTensors` overrides that default and cannot distinguish its own
+  parameters from its children's via `parameterCount()`. `Gemma.Block` is the one composite in the
+  tree that owns a parameter and must override and extend the recursion.
+  **(2) The tied `lm_head.weight` is written as a 0.94 GB byte-identical duplicate of `temb.wte`**
+  (verified identical over both the first and last 1 MB) -- 13% of the artifact, and absent from the
+  source by design since the head is tied at load time. The traversal walks the LIVE component tree,
+  where the tied head and the embedding hold the same tensor through a shared_ptr, so both emit it.
+  Loading it back would defeat tying and re-allocate the ~1 GB the weight-tying memory gate exists to
+  save. `Linear` already knows this case as `weight_installed_`.
+  **BOTH FIXED AND VERIFIED GREEN 2026-07-29.** `Gemma.Block::saveFlatTensors` calls the base
+  recursion then emits its own `layer_scalar`; `Linear::saveFlatTensors` skips a weight when
+  `weight_installed_` is set, which is exactly the tied-head flag. Re-export reconciles **exactly**:
+  578 source tensors -> 771 artifact tensors (193 scale companions), **nothing missing, nothing
+  extra**, 48 `layer_scalar` present as `F32 [1]`, zero `lm_head.*` tensors, `temb.wte` +
+  `temb.wte_scale` only. Size fell 7.27 -> **6.33 GB**, the 0.94 GB duplicate gone to the byte; from a
+  23.8 GB source that is a **3.76x** reduction.
+  **The tool now reconciles against its own source** (`compareAgainstSource`): every source tensor must
+  appear in the artifact and nothing may appear beyond `_scale` companions, exit 3 otherwise.
+  **Durable lesson: structural self-verification is not verification.** The first export reopened
+  cleanly, parsed, tiled its data region contiguously and covered EOF to the byte -- while missing 48
+  parameters and carrying a gigabyte of the same table twice. Diffing the OUTPUT against the INPUT is
+  what caught it, and that check now lives in the tool.
+- **safetensors slice 4 WRITTEN 2026-07-29, UNBUILT — the pre-quantized LOAD side.**
+  **The branch needs no flag: the blob's own dtype discriminates.** `Linear::loadParameter("weight")`
+  compares `blob.getMetadata().dtype` against `kWeightDtype` — storage dtype means the bytes are
+  already packed and the scales arrive as their own tensor, compute precision means quantize-on-load
+  as before. Same in `TokenEmbedding` against `kTableDtype`. Feeding packed nibbles through
+  `quantize()` would read them as BF16 and yield a model that runs and is wrong, so the two paths must
+  never be confused. Pre-quantized weights validate against `weight_->shape()`, not the config shape —
+  a packed FP4 weight is physically `[out, in/2]`.
+  New `"weight_scale"` / `"wte_scale"` parameter names accepted by `loadParameter`, which is why the
+  underscore rename mattered: `parseParameterPath` splits on the last dot and routes them to the right
+  component. On an **unquantized** build both **throw** rather than drop the scales and leave the
+  weights silently unscaled.
+  `PretrainedModelReader::getWeightQuantization()` surfaces the `mila_quantization` key, normalizing
+  `"none"` and an absent key to empty so callers have one test for "quantize on load"; every `.bin`
+  therefore reports empty and keeps its existing behaviour. `GemmaModel::fromPretrainedImpl` refuses a
+  policy mismatch — **the dtype cannot catch this**, since FP4 at group 128 and group 64 are both U8,
+  so only the declared string can.
+  Tests: three CPU cases for the metadata key (declared / `"none"` / legacy `.bin`), and two CUDA
+  cases — a full **quantize-on-load -> export -> import -> re-export** cycle asserting the two
+  artifacts match **byte for byte**, and a scales-on-unquantized-build refusal.
+  **Weight tying needs no new work**: the artifact omits `lm_head.weight` exactly as the `.bin` does,
+  so the existing tying path applies unchanged.
+  **VERIFIED END TO END 2026-07-29 by feeding the tool its own artifact.** Re-exporting the 6.33 GB
+  pre-quantized FP4 artifact loaded it through the new path and wrote it back: 771 source tensors ->
+  771 artifact tensors, **0 scale companions added** (the source already carries them), and the two
+  files are **SHA-256 identical** (`d49c6c16...`). Byte identity is the proof the load did not
+  re-quantize: a second quantization pass over packed nibbles cannot reproduce the input. The policy
+  guard was checked the same way — requesting `--quantization fp8` against the FP4 artifact refuses
+  with "is pre-quantized as 'per_group_fp4_128' but this load requested 'per_channel_fp8_e4m3'",
+  exit 1, and **writes no file**.
+  Phase 7 is functionally complete: Mila writes a pre-quantized safetensors artifact, reads it back
+  without re-quantizing, and refuses a mismatched one. **Still outstanding: Chat has not been pointed
+  at a `.safetensors` artifact** — the round trip proves the bytes survive, not that the model
+  generates coherently from them.
+  **Full suite and Chat green 2026-07-29** — but note precisely what Chat proved: its catalog
+  hardcodes `gemma/gemma4_12b_it_bf16.bin`, so a coherent session confirms the **`.bin` path is
+  unregressed** (the `loadParameter` dtype branch did not disturb quantize-on-load on a live 12B
+  model), not that the artifact generates. Added a `gemma-12b-packed` catalog entry pointing at
+  `gemma/gemma4_12b_it_fp4.safetensors` so `/model gemma-12b-packed` closes that last gap; array size
+  8 -> 9, and every consumer iterates with a range-for so nothing else changes.
+  **PHASE 7 COMPLETE AND PROVEN 2026-07-29.** `/model gemma-12b-packed` loads the 6.33 GB
+  pre-quantized artifact and Gemma 4 12B answers coherently. Every leg is now closed: writes a
+  correct artifact (reconciles exactly against its source, opens in any safetensors reader), reads it
+  back without re-quantizing (SHA-256 identical on a full 12B re-export), refuses a mismatched policy
+  (exit 1, no file written), leaves the `.bin` path unregressed (full ctest suite plus a coherent
+  `gemma-12b` session), and generates from the artifact. The distribution-artifact goal that ruled out
+  hosting in PythonBinding.md is met: **23.8 GB -> 6.33 GB, a 3.76x reduction.**
   Also found, not fixed: **`ITensor.ixx:34` documents `rawData()` as protected; it is public**
   (`:147`, `:154`).
   *(original entry)* New

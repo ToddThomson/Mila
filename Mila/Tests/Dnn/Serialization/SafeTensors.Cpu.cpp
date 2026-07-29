@@ -239,6 +239,144 @@ namespace Mila::Tests::Dnn::Serialization
         EXPECT_TRUE( reader.getPretrainedMetadata().architecture.empty() );
     }
 
+    TEST( SafeTensors, MetadataSurvivesAFullWriteReadCycle )
+    {
+        ScratchFile scratch( "metadata_cycle" );
+
+        // Every field the parser extracts, with distinct values so a field crossing into
+        // its neighbour is visible rather than masked by a shared default.
+        PretrainedMetadata original;
+        original.architecture = "gemma";
+        original.model_name = "gemma-4-12b";
+        original.vocab_size = 262144;
+        original.max_seq_length = 131072;
+        original.embedding_dim = 3840;
+        original.num_layers = 48;
+        original.num_heads = 16;
+        original.num_kv_heads = 8;
+        original.head_dim = 256;
+        original.hidden_dim = 15360;
+        original.use_bias = false;
+        original.tie_word_embeddings = true;
+        original.activation = "gelu";
+        original.norm_type = "rmsnorm";
+        original.attention_type = "gqa";
+        original.positional_encoding = "rope";
+        original.rope_theta = 1000000.0f;
+        original.norm_epsilon = 1e-6f;
+        original.global_head_dim = 256;
+        original.num_global_kv_heads = 4;
+        original.key_equals_value = true;
+        original.window = 1024;
+        original.sliding_window_pattern = 6;
+        original.global_rotary_dim = 128;
+        original.rope_theta_local = 10000.0f;
+        original.rope_theta_global = 1000000.0f;
+        original.final_logit_softcapping = 30.0f;
+
+        const std::vector<float> values{ 1.0f };
+
+        {
+            SafeTensorsWriter writer( scratch.path() );
+            writer.declareTensor( "w", TensorDataType::FP32, shape_t{ 1 } );
+            writer.setMetadata( kMilaConfigMetadataKey, toMetadataJSON( original ) );
+            writer.beginData();
+            writer.writeTensorData( "w", values.data(), sizeof( float ) );
+            writer.close();
+        }
+
+        PretrainedModelReader reader( scratch.path() );
+        const auto& restored = reader.getPretrainedMetadata();
+
+        EXPECT_EQ( restored.architecture, original.architecture );
+        EXPECT_EQ( restored.model_name, original.model_name );
+        EXPECT_EQ( restored.vocab_size, original.vocab_size );
+        EXPECT_EQ( restored.max_seq_length, original.max_seq_length );
+        EXPECT_EQ( restored.embedding_dim, original.embedding_dim );
+        EXPECT_EQ( restored.num_layers, original.num_layers );
+        EXPECT_EQ( restored.num_heads, original.num_heads );
+        EXPECT_EQ( restored.num_kv_heads, original.num_kv_heads );
+        EXPECT_EQ( restored.head_dim, original.head_dim );
+        EXPECT_EQ( restored.hidden_dim, original.hidden_dim );
+        EXPECT_EQ( restored.use_bias, original.use_bias );
+        EXPECT_EQ( restored.tie_word_embeddings, original.tie_word_embeddings );
+        EXPECT_EQ( restored.activation, original.activation );
+        EXPECT_EQ( restored.norm_type, original.norm_type );
+        EXPECT_EQ( restored.attention_type, original.attention_type );
+        EXPECT_EQ( restored.positional_encoding, original.positional_encoding );
+        EXPECT_FLOAT_EQ( restored.rope_theta, original.rope_theta );
+        EXPECT_FLOAT_EQ( restored.norm_epsilon, original.norm_epsilon );
+        EXPECT_EQ( restored.global_head_dim, original.global_head_dim );
+        EXPECT_EQ( restored.num_global_kv_heads, original.num_global_kv_heads );
+        EXPECT_EQ( restored.key_equals_value, original.key_equals_value );
+        EXPECT_EQ( restored.window, original.window );
+        EXPECT_EQ( restored.sliding_window_pattern, original.sliding_window_pattern );
+        EXPECT_EQ( restored.global_rotary_dim, original.global_rotary_dim );
+        EXPECT_FLOAT_EQ( restored.rope_theta_local, original.rope_theta_local );
+        EXPECT_FLOAT_EQ( restored.rope_theta_global, original.rope_theta_global );
+        EXPECT_FLOAT_EQ( restored.final_logit_softcapping, original.final_logit_softcapping );
+    }
+
+    TEST( SafeTensors, SurfacesTheDeclaredWeightQuantization )
+    {
+        ScratchFile scratch( "quantization" );
+
+        const std::vector<float> values{ 1.0f };
+
+        {
+            SafeTensorsWriter writer( scratch.path() );
+            writer.declareTensor( "w", TensorDataType::FP32, shape_t{ 1 } );
+            writer.setMetadata( kMilaQuantizationMetadataKey, "per_group_fp4_128" );
+            writer.beginData();
+            writer.writeTensorData( "w", values.data(), sizeof( float ) );
+            writer.close();
+        }
+
+        PretrainedModelReader reader( scratch.path() );
+
+        EXPECT_EQ( reader.getWeightQuantization(), "per_group_fp4_128" );
+    }
+
+    TEST( SafeTensors, TreatsAnUnquantizedDeclarationAsAbsent )
+    {
+        ScratchFile declared( "quant_none" );
+        ScratchFile omitted( "quant_absent" );
+
+        const std::vector<float> values{ 1.0f };
+
+        for ( const auto* scratch : { &declared, &omitted } )
+        {
+            SafeTensorsWriter writer( scratch->path() );
+            writer.declareTensor( "w", TensorDataType::FP32, shape_t{ 1 } );
+
+            if ( scratch == &declared )
+            {
+                writer.setMetadata( kMilaQuantizationMetadataKey, "none" );
+            }
+
+            writer.beginData();
+            writer.writeTensorData( "w", values.data(), sizeof( float ) );
+            writer.close();
+        }
+
+        // "none" and an absent key must be indistinguishable, so every caller has a single
+        // test for "quantize on load" rather than two.
+        EXPECT_TRUE( PretrainedModelReader( declared.path() ).getWeightQuantization().empty() );
+        EXPECT_TRUE( PretrainedModelReader( omitted.path() ).getWeightQuantization().empty() );
+    }
+
+    TEST( SafeTensors, LegacyMilaContainerDeclaresNoQuantization )
+    {
+        ScratchFile scratch( "legacy_quant" );
+
+        const std::vector<float> values{ 1.0f, 2.0f };
+        writeMilaFormatFile( scratch.path(), R"({"architecture":"gpt2"})", "w", values );
+
+        // Every .bin on disk is a full-precision source; the load path must keep
+        // quantizing them on load exactly as before.
+        EXPECT_TRUE( PretrainedModelReader( scratch.path() ).getWeightQuantization().empty() );
+    }
+
     // ================================================================
     // Writer contract
     // ================================================================

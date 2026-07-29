@@ -21,7 +21,9 @@ module;
 
 export module Dnn.Models.GemmaModelConfig;
 
-import Dnn.LanguageModelConfig;
+// Re-exported, not merely imported: this config's own setters take WeightQuantization
+// and KvCacheCompression, so a consumer that cannot name them cannot call them.
+export import Dnn.LanguageModelConfig;
 import Dnn.TensorTypes;
 
 namespace Mila::Dnn

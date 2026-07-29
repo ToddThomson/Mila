@@ -48,8 +48,13 @@ namespace Mila::ChatApp
         std::size_t      default_context;
     };
 
-    export inline constexpr std::array<ModelEntry, 8> kModelCatalog = { {
+    export inline constexpr std::array<ModelEntry, 9> kModelCatalog = { {
         { "gemma-12b",     ModelType::Gemma, ModelSize::B12, ModelPrecision::BF16, true,  true,  QuantizationMode::FP4,  "gemma/gemma4_12b_it_bf16.bin",       "gemma/gemma_tokenizer.bin",  512 },
+        // The same model from a pre-quantized safetensors artifact: 6.33 GB rather than
+        // 23.8 GB, with the FP4 packing done once by Tools/ExportArtifact instead of on
+        // every load. Quantization must stay FP4 -- the artifact declares the policy its
+        // bytes were packed with and a mismatched load is refused.
+        { "gemma-12b-packed", ModelType::Gemma, ModelSize::B12, ModelPrecision::BF16, true, true, QuantizationMode::FP4, "gemma/gemma4_12b_it_fp4.safetensors", "gemma/gemma_tokenizer.bin", 512 },
         { "llama-1b",      ModelType::Llama, ModelSize::B1,  ModelPrecision::BF16, true,  false, QuantizationMode::None, "llama/llama32_1b_instruct_bf16.bin", "llama/llama32_tokenizer.bin", 4096 },
         { "llama-3b",      ModelType::Llama, ModelSize::B3,  ModelPrecision::BF16, true,  false, QuantizationMode::None, "llama/llama32_3b_instruct_bf16.bin", "llama/llama32_tokenizer.bin", 4096 },
         { "llama-8b",      ModelType::Llama, ModelSize::B8,  ModelPrecision::BF16, true,  false, QuantizationMode::None, "llama/llama31_8b_instruct_bf16.bin", "llama/llama32_tokenizer.bin", 4096 },

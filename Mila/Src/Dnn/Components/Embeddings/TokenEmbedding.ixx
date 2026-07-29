@@ -47,6 +47,7 @@ import Serialization.ModelArchive;
 import Serialization.Metadata;
 import Serialization.Mode;
 import Serialization.Tensor;
+import Serialization.SafeTensors;
 
 import Dnn.TensorOps;
 import Dnn.TensorHelpers;
@@ -253,6 +254,34 @@ namespace Mila::Dnn
             return { "wte" };
         }
 
+        /**
+         * @brief Emit the table, and its per-row scales when the table is quantized.
+         *
+         * The scales ride as a sibling name rather than joining getParameterNames(), for the
+         * same reason as Linear: that vector is the archive's save/load join. Underscore, not
+         * dot -- parseParameterPath() splits on the last dot, so "wte.scales" would resolve to
+         * a component named "<prefix>.wte" and the artifact could never be read back.
+         */
+        void saveFlatTensors(
+            Serialization::SafeTensorsWriter& writer,
+            const std::string& prefix,
+            Serialization::TensorSavePass pass ) const override
+        {
+            if ( wte_ )
+            {
+                this->saveParameterToWriter( writer, prefix + ".wte", *wte_, pass );
+            }
+
+            if constexpr ( kIsQuantized )
+            {
+                if ( wte_scales_ )
+                {
+                    this->saveParameterToWriter(
+                        writer, prefix + ".wte_scale", *wte_scales_, pass );
+                }
+            }
+        }
+
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
             (void)mode;
@@ -323,13 +352,38 @@ namespace Mila::Dnn
             {
                 if constexpr ( kIsQuantized )
                 {
-                    // Quantize-on-load: the BF16 blob never lands on device at full
-                    // precision -- absmax scales and FP8 rows are produced in one pass.
-                    operation_->quantize( blob, *wte_, *wte_scales_, wte_->shape() );
+                    // The blob's dtype says which source this is: storage dtype means a
+                    // pre-quantized artifact whose scales arrive separately, compute
+                    // precision means quantize-on-load, where the BF16 blob never lands on
+                    // device at full precision -- absmax scales and FP8 rows are produced in
+                    // one pass. Same discrimination as Linear.
+                    if ( blob.getMetadata().dtype == kTableDtype )
+                    {
+                        this->loadParameterFromBlob( "wte", blob, *wte_, wte_->shape() );
+                    }
+                    else
+                    {
+                        operation_->quantize( blob, *wte_, *wte_scales_, wte_->shape() );
+                    }
                 }
                 else
                 {
                     this->loadParameterFromBlob( "wte", blob, *wte_, wte_->shape() );
+                }
+            }
+            else if ( name == "wte_scale" )
+            {
+                if constexpr ( kIsQuantized )
+                {
+                    this->loadParameterFromBlob(
+                        "wte_scale", blob, *wte_scales_, wte_scales_->shape() );
+                }
+                else
+                {
+                    throw std::invalid_argument( std::format(
+                        "TokenEmbedding '{}': received 'wte_scale' but this build is "
+                        "unquantized; the artifact was written with weight quantization",
+                        this->getName() ) );
                 }
             }
             else

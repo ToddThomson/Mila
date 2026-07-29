@@ -75,6 +75,7 @@ import Dnn.Components.Swiglu;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Tensor;
+import Serialization.SafeTensors;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 
@@ -466,6 +467,33 @@ namespace Mila::Dnn
          * a Gemma archive silently lost the per-layer output scales, which is a numerics
          * change, not a missing extra.
          */
+        /**
+         * @brief Children through the base recursion, then this block's own layer_scalar.
+         *
+         * CompositeComponent::saveFlatTensors only recurses -- the own-parameter half is
+         * Component's default, which a composite overrides away -- so a composite owning a
+         * parameter must drive both halves explicitly. Omitting this dropped all 48
+         * layer_scalar tensors from a Gemma export while every structural check passed;
+         * they are in the converted .bin, so they are part of the flat vocabulary.
+         *
+         * Order is identical across both passes, which the writer requires.
+         */
+        void saveFlatTensors(
+            Serialization::SafeTensorsWriter& writer,
+            const std::string& prefix,
+            Serialization::TensorSavePass pass ) const override
+        {
+            CompositeComponentBase::saveFlatTensors( writer, prefix, pass );
+
+            // Materialize the host float as the [1] FP32 tensor loadParameter expects back.
+            Tensor<TensorDataType::FP32, HostStagingMR> scalar(
+                TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1 } );
+
+            scalar.data()[ 0 ] = layer_scalar_;
+
+            this->saveParameterToWriter( writer, prefix + ".layer_scalar", scalar, pass );
+        }
+
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
             CompositeComponentBase::save_( archive, mode );

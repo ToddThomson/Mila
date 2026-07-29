@@ -125,6 +125,55 @@ namespace Mila::Dnn::Serialization
         float    final_logit_softcapping;
     };
 
+    /**
+     * @brief Serialize PretrainedMetadata to the JSON the reader parses back.
+     *
+     * The inverse of parseMetadataJSON, which until now had none -- an artifact could be
+     * inspectable without being loadable. Every field the parser extracts is emitted, so a
+     * written model carries the same architecture description a converted one does.
+     *
+     * Keys are quoted on both sides by the parser, so no key can match inside a longer one
+     * ("rope_theta" does not match within "rope_theta_local"). Do not introduce a key that
+     * is a prefix of another up to its closing quote.
+     */
+    export inline std::string toMetadataJSON( const PretrainedMetadata& metadata )
+    {
+        nlohmann::json json;
+
+        json[ "architecture" ] = metadata.architecture;
+        json[ "model_name" ] = metadata.model_name;
+        json[ "vocab_size" ] = metadata.vocab_size;
+        json[ "max_seq_length" ] = metadata.max_seq_length;
+        json[ "embedding_dim" ] = metadata.embedding_dim;
+        json[ "num_layers" ] = metadata.num_layers;
+        json[ "num_heads" ] = metadata.num_heads;
+        json[ "num_kv_heads" ] = metadata.num_kv_heads;
+        json[ "head_dim" ] = metadata.head_dim;
+        json[ "hidden_dim" ] = metadata.hidden_dim;
+        json[ "use_bias" ] = metadata.use_bias;
+        json[ "tie_word_embeddings" ] = metadata.tie_word_embeddings;
+
+        json[ "activation" ] = metadata.activation;
+        json[ "norm_type" ] = metadata.norm_type;
+        json[ "attention_type" ] = metadata.attention_type;
+        json[ "positional_encoding" ] = metadata.positional_encoding;
+
+        json[ "rope_theta" ] = metadata.rope_theta;
+        json[ "norm_epsilon" ] = metadata.norm_epsilon;
+
+        json[ "global_head_dim" ] = metadata.global_head_dim;
+        json[ "num_global_kv_heads" ] = metadata.num_global_kv_heads;
+        json[ "key_equals_value" ] = metadata.key_equals_value;
+        json[ "window" ] = metadata.window;
+        json[ "sliding_window_pattern" ] = metadata.sliding_window_pattern;
+        json[ "global_rotary_dim" ] = metadata.global_rotary_dim;
+        json[ "rope_theta_local" ] = metadata.rope_theta_local;
+        json[ "rope_theta_global" ] = metadata.rope_theta_global;
+        json[ "final_logit_softcapping" ] = metadata.final_logit_softcapping;
+
+        return json.dump();
+    }
+
     // Wire codes 0-3 are the flat MILA format's original set and are fixed by every
     // .bin already on disk. Codes 4+ exist only to give safetensors dtypes a common
     // internal spelling; the Python writer never emits them.
@@ -289,6 +338,21 @@ namespace Mila::Dnn::Serialization
         const PretrainedMetadata& getPretrainedMetadata() const
         {
             return metadata_;
+        }
+
+        /**
+         * @brief Weight quantization the artifact was written with, empty if unquantized.
+         *
+         * Only a pre-quantized artifact carries this. A MILA .bin and a BF16 safetensors
+         * file both return empty, which means "quantize on load" -- the behaviour that
+         * predates pre-quantized artifacts.
+         *
+         * The value distinguishes policies a dtype cannot: FP4 at group 128 and group 64
+         * are both packed into U8, so only this string can refuse the wrong one.
+         */
+        const std::string& getWeightQuantization() const noexcept
+        {
+            return weight_quantization_;
         }
 
         /**
@@ -457,6 +521,10 @@ namespace Mila::Dnn::Serialization
         std::string filename_;
 
         PretrainedMetadata metadata_;
+
+        // Empty unless the artifact declares a pre-quantized weight policy.
+        std::string weight_quantization_;
+
         std::unordered_map<std::string, TensorBlobMetadata> tensor_index_;
         uint32_t num_tensors_{ 0 };
 
@@ -1014,7 +1082,26 @@ namespace Mila::Dnn::Serialization
 
         void readSafeTensorsMetadata( const nlohmann::json& metadata )
         {
-            if ( !metadata.is_object() || !metadata.contains( kMilaConfigMetadataKey ) )
+            if ( !metadata.is_object() )
+            {
+                return;
+            }
+
+            if ( metadata.contains( kMilaQuantizationMetadataKey ) )
+            {
+                const nlohmann::json& quantization = metadata[ kMilaQuantizationMetadataKey ];
+
+                if ( quantization.is_string() )
+                {
+                    std::string value = quantization.get<std::string>();
+
+                    // The writer records "none" for an unquantized export; normalize it to
+                    // empty so every caller has one test for "quantize on load".
+                    weight_quantization_ = ( value == "none" ) ? std::string{} : std::move( value );
+                }
+            }
+
+            if ( !metadata.contains( kMilaConfigMetadataKey ) )
             {
                 return;
             }
