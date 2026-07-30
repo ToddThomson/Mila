@@ -40,6 +40,19 @@ int main( int argc, char** argv )
         return 2;
     }
 
+    // Transport probe: ExportArtifact --fetch <url> <destination>
+    if ( std::string_view( argv[ 1 ] ) == "--fetch" )
+    {
+        if ( argc < 4 )
+        {
+            std::cerr << "Usage: ExportArtifact --fetch <url> <destination>\n";
+
+            return 2;
+        }
+
+        return Mila::Tools::runFetch( argv[ 2 ], argv[ 3 ] );
+    }
+
     Mila::Tools::ExportOptions options;
     options.source = argv[ 1 ];
 

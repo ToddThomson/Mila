@@ -939,6 +939,23 @@ good-first-issue.
 
 Uncommitted / next-cycle work. Coarse by design — detailed tasking happens only when an item promotes
 
+- **Parallel range downloads for model retrieval** — the HTTP client is plain HTTP/1.1 on a single
+  connection, and a 6.33 GB cold fetch from the HuggingFace CDN is visibly bandwidth-starved rather
+  than CPU- or disk-bound. Issue N concurrent `Range` requests over disjoint byte spans and write
+  them into the same staging file.
+  **The cache design already supports it and that is the point**: a blob is content-addressed, so
+  correctness rests on the final digest and not on the order or granularity of arrival. What needs
+  care is the hash — SHA-256 is sequential, so it cannot be computed across out-of-order chunks.
+  Either hash the completed staging file in one pass before publishing (one extra read of 6.33 GB,
+  still far cheaper than the transfer), or keep the sequential hash only for the single-connection
+  path and accept the extra pass when parallel.
+  Also note `resolveRedirect` + the pre-signed CDN URL: each parallel request must re-resolve or share
+  the resolved URL, and **must not carry the authorization header to the CDN host** — the same trap
+  the single-connection path already avoids. Resume interacts too: a partial from a parallel run is
+  not a simple prefix, so either record the completed spans or restart parallel transfers from zero.
+  Measure before building: if the ceiling is the user's upstream rather than per-connection
+  throughput, this buys nothing.
+
 - **HF model distribution — spec written, Phase 1 WRITTEN 2026-07-29, UNBUILT.** Design in
   [ModelDistribution.md](Mila/Specifications/ModelDistribution.md). **DECIDED by Todd:** the `mila-llm`
   wheel carries no model assets; **the Mila C++ library retrieves the artifact itself**; publishing to
@@ -1355,6 +1372,57 @@ to the current release.
   pre-quantized artifact path now works end to end -- export, reconcile against source, reload
   bit-identical, generate. `switchModel` also reports correctly again ("Model switched. Conversation
   history cleared."), which is the message the `isCurrentModel` no-op had been hiding.
+- **Model publishing automated 2026-07-29 (dry-run verified).** `Mila/Tools/Publishing/publish_model.py`
+  plus CMake targets `publish-gemma-4-12b-it` and `publish-gemma-4-12b-it-check`, run from VS rather
+  than a terminal. **Excluded from ALL** -- publishing is outward-facing and must never happen as a
+  side effect of building.
+  **It validates before it uploads and verifies after**, because every failure in the first manual
+  publish was a mismatch nobody checked: it recomputes each declared file's SHA-256 and compares it
+  against `mila.json` (a stale digest means a repository that fails verification on every download),
+  refuses on any mismatch, skips files whose content the Hub already holds, and re-fetches the file
+  list afterwards. Safe to re-run, which is what makes it usable at 6.33 GB.
+  Card directory holds the verbatim files (`mila.json`, `README.md`, `LICENSE`) plus `publish.json`
+  mapping Hub paths to repo-relative sources for the large files that live outside git. Adding a model
+  is a new card directory and one line in the CMakeLists.
+  **Card material moved out of `Tools/ExportArtifact/publish/` -> `ModelCards/`**: `.gitignore:225`
+  ignores `publish/`, so the model card and manifest were silently untracked and would never have
+  been committed. Also added `Data/Models/**/mila.json` (derived) and `enc_temp_folder/` (VS scratch)
+  to `.gitignore`.
+  **PUBLISHED 2026-07-29: `mila-llm/gemma-4-12b-it` is live**, 6.35 GB across five files. The
+  verification that matters is that **HuggingFace's own recorded LFS digest matches `mila.json`**
+  (`d49c6c16dce14a64` for the artifact, `2448420a2efe488e` for the tokenizer), so Mila's downloader
+  will verify against the Hub copy rather than merely fetch it.
+  **The token was the friction, twice.** The stored credential was the Llama read token
+  (`user:toddt -> repo.access.read`, `canReadGatedRepos`), which would have 403'd partway through a
+  6 GB upload -- checking scopes first cost seconds and saved that. An org repo also needs a token
+  scoped to the **org**, not the user. And pasting into the `hf auth login` prompt on Windows requires
+  **right-click**, with invisible input and no feedback, which silently failed twice.
+  **The CMake publish targets were the wrong shape and were removed.** Publishing is not a build step:
+  it needed a cache regeneration to appear, buried failures in build output, and put "build" and "push
+  6.33 GB to the internet" in the same menu. The Python script stays -- it is the automation -- and
+  the agent drives it.
+  **Known inefficiency, not fixed:** the script hashes each large file TWICE, once in validation and
+  again in `already_current`. Several wasted minutes per re-run at 6.33 GB. Compute once and thread
+- **OPEN: one 6.33 GB download failed its digest check; cause unresolved.** `/model gemma-12b-hub`
+  downloaded the full artifact and reported `expected d49c6c16... got 8fe5cf53...`.
+  **Ruled out by measurement:** HuggingFace serves correct bytes (head and tail Range probes match
+  the local file exactly; a plain GET returns `content-length` 6799927760, no content-encoding, and a
+  valid safetensors header). **And Mila's client is correct at both sizes** -- a new
+  `ExportArtifact --fetch <url> <dest>` probe pulled the tokenizer (14198878 bytes, digest exact) and
+  then the full artifact (6799927760 bytes, digest `d49c6c16...` exact) through the same `httpGet`.
+  `--fetch` and the resolver share the entire transport; the only differences are the progress
+  callback and `ensureBlob`'s sink, neither of which touches the bytes.
+  **So the leading explanation is a genuinely corrupt transfer that the integrity check caught** --
+  the design working rather than failing. Not proven, and it may yet be intermittent.
+  **Diagnostics added so a recurrence is informative:** the mismatch now reports bytes received
+  alongside both digests and **keeps the file as `.rejected`** instead of destroying the evidence.
+  The old message reported neither, which is why the first occurrence could not be diagnosed at all.
+  The distinction that matters: exactly 6799927760 bytes with a wrong digest means content was
+  altered in flight; any other count means a length bug.
+  Cache seeded from the verified `--fetch` copies so the end-to-end load could be tested without a
+  second hour-long download. **A cold-fetch run still needs repeating** to learn whether this
+  reproduces.
+  the digest through.
   embedding / layer N", which is the difference between a whole-model search and a single-component
   one.
   hooks inside the transformer.

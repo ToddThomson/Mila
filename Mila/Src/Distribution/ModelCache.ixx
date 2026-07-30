@@ -226,11 +226,26 @@ namespace Mila::Distribution
 
             if ( actual != expected_sha256_hex )
             {
-                std::filesystem::remove( partial_path, ignored );
+                // Report the byte count too. A digest alone cannot distinguish "the right
+                // bytes arrived and the manifest is stale" from "the wrong number of bytes
+                // arrived", and those need completely different fixes. Keep the partial for
+                // inspection under a rejected name rather than destroying the evidence --
+                // it is excluded from resume by not being the .partial path.
+                std::error_code size_error;
+                const auto received = std::filesystem::file_size( partial_path, size_error );
+
+                const auto rejected_path = partial_path.string() + ".rejected";
+                std::filesystem::remove( rejected_path, ignored );
+                std::filesystem::rename( partial_path, rejected_path, ignored );
 
                 throw std::runtime_error( std::format(
-                    "ModelCache: digest mismatch for {}: expected sha256 {}, got {}",
-                    url, expected_sha256_hex, actual ) );
+                    "ModelCache: digest mismatch for {}\n"
+                    "  expected sha256 {}\n"
+                    "  actual   sha256 {}\n"
+                    "  bytes received  {}\n"
+                    "  kept for inspection at {}",
+                    url, expected_sha256_hex, actual,
+                    size_error ? 0 : received, rejected_path ) );
             }
 
             // The rename is what publishes the blob. Until it lands, no reader can see a
