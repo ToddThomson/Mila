@@ -564,6 +564,13 @@ namespace Mila::Dnn
                 {
                     this->loadParameterFromBlob(
                         "weight_scale", blob, *weight_scales_, weight_scales_->shape() );
+
+                    // quantize() derives further scalars from these scales (the FP8 sB
+                    // reduction on the FP4 activation-prefill path). A pre-quantized load
+                    // skips quantize(), so nothing else would ever compute them, and the
+                    // dequant would divide by uninitialized device memory. The weights
+                    // arrive before the scales, so both are present by now.
+                    operation_->onQuantizedWeightsLoaded();
                 }
                 else
                 {

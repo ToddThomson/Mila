@@ -26,6 +26,7 @@ module;
 #include <cstring>
 #include <type_traits>
 #include <cmath>
+#include <limits>
 
 export module Dnn.Models.GemmaModel;
 
@@ -295,6 +296,173 @@ namespace Mila::Dnn
             auto input = makeTokenTensor( token_ids );
             this->getLanguageNetwork().prefill( input );
             this->getLanguageNetwork().synchronize();
+        }
+
+        /**
+         * @brief Logits fingerprint for a fixed prompt, for comparing two loads of one model.
+         *
+         * Diagnostic. Parameters and config can be proven byte-identical between a
+         * quantize-on-load and a pre-quantized load while the models still behave
+         * differently, and nothing upstream of inference can see that. This runs one prefill
+         * and reports what the model actually computed.
+         *
+         * Raw token ids rather than text so no tokenizer is involved and two runs are
+         * comparable by construction.
+         *
+         * @return Digest of the last-position logits, the argmax token, and its value.
+         */
+        std::string fingerprintPrefill( const std::vector<int32_t>& token_ids )
+        {
+            auto input = makeTokenTensor( token_ids );
+
+            // Per-stage summary on the real prefill path. Logits are computed last, so a NaN
+            // there says nothing about where it entered; the first stage reporting a NaN
+            // does.
+            std::string stages;
+
+            this->getLanguageNetwork().setStageProbe(
+                [&]( std::string_view stage, const TensorType& value )
+                {
+                    const auto summary = summarizeActivation( value );
+
+                    // Only the transition matters, so report every stage until the first
+                    // NaN and then stop adding noise.
+                    if ( stages.empty() || summary.nan_count > 0 )
+                    {
+                        stages += std::format( "  {:<12} {}\n", stage, summary.text );
+                    }
+
+                    if ( summary.nan_count > 0 && !first_nan_stage_.has_value() )
+                    {
+                        first_nan_stage_ = std::string( stage );
+                    }
+                } );
+
+            auto& logits = this->getLanguageNetwork().prefill( input );
+            this->getLanguageNetwork().synchronize();
+
+            this->getLanguageNetwork().setStageProbe( {} );
+
+            // StagingMR is the class alias: pinned on CUDA, because every reduced precision
+            // Mila serves in is is_device_only and a CpuMemoryResource tensor of TPrecision
+            // is not a valid template-id.
+            Tensor<TPrecision, StagingMR> staged( this->getDeviceId(), logits.shape() );
+            copy( logits, staged );
+            this->getLanguageNetwork().synchronize();
+
+            const auto* bytes = static_cast<const uint8_t*>( staged.rawData() );
+            const size_t total_bytes = staged.getStorageSize();
+
+            // FNV-1a rather than a real digest: this only has to distinguish two runs, and
+            // a model diagnostic should not depend on the model-download feature being
+            // compiled in.
+            uint64_t digest = 1469598103934665603ull;
+
+            for ( size_t i = 0; i < total_bytes; ++i )
+            {
+                digest ^= bytes[ i ];
+                digest *= 1099511628211ull;
+            }
+
+            // Argmax over the last position, decoded straight from the stored bits so this
+            // works for BF16 without a conversion pass. BF16 is the high half of an FP32,
+            // and FP32 falls out of the same read.
+            const dim_t count = staged.size();
+            float best_value = -std::numeric_limits<float>::infinity();
+            dim_t best_index = 0;
+
+            for ( dim_t i = 0; i < count; ++i )
+            {
+                float value = 0.0f;
+
+                if constexpr ( TPrecision == TensorDataType::FP32 )
+                {
+                    value = reinterpret_cast<const float*>( bytes )[ i ];
+                }
+                else
+                {
+                    const uint32_t widened =
+                        static_cast<uint32_t>( reinterpret_cast<const uint16_t*>( bytes )[ i ] ) << 16;
+                    std::memcpy( &value, &widened, sizeof( value ) );
+                }
+
+                if ( value > best_value )
+                {
+                    best_value = value;
+                    best_index = i;
+                }
+            }
+
+            const std::string origin = first_nan_stage_.has_value()
+                ? std::format( "  FIRST NaN AT: {}\n", *first_nan_stage_ )
+                : std::string( "  no NaN in any prefill stage\n" );
+
+            first_nan_stage_.reset();
+
+            return std::format(
+                "\n{}{}  logits      fnv1a {:016x} | elements {} | argmax {} = {:.6f}",
+                stages, origin, digest, count, best_index, best_value );
+        }
+
+    private:
+
+        /// Set by the stage probe; names the earliest activation containing a NaN.
+        std::optional<std::string> first_nan_stage_;
+
+        struct ActivationSummary
+        {
+            int64_t nan_count{ 0 };
+            std::string text;
+        };
+
+        /**
+         * @brief Count NaNs and bound the finite range of an activation.
+         *
+         * Bits are decoded directly rather than converted, so BF16 needs no extra pass:
+         * BF16 is the high half of an FP32.
+         */
+        ActivationSummary summarizeActivation( const TensorType& value )
+        {
+            Tensor<TPrecision, StagingMR> staged( this->getDeviceId(), value.shape() );
+            copy( value, staged );
+            this->getLanguageNetwork().synchronize();
+
+            const auto* bytes = static_cast<const uint8_t*>( staged.rawData() );
+            const dim_t count = staged.size();
+
+            ActivationSummary summary;
+            float lowest = std::numeric_limits<float>::infinity();
+            float highest = -std::numeric_limits<float>::infinity();
+
+            for ( dim_t i = 0; i < count; ++i )
+            {
+                float element = 0.0f;
+
+                if constexpr ( TPrecision == TensorDataType::FP32 )
+                {
+                    element = reinterpret_cast<const float*>( bytes )[ i ];
+                }
+                else
+                {
+                    const uint32_t widened =
+                        static_cast<uint32_t>( reinterpret_cast<const uint16_t*>( bytes )[ i ] ) << 16;
+                    std::memcpy( &element, &widened, sizeof( element ) );
+                }
+
+                if ( std::isnan( element ) )
+                {
+                    ++summary.nan_count;
+                    continue;
+                }
+
+                lowest = std::min( lowest, element );
+                highest = std::max( highest, element );
+            }
+
+            summary.text = std::format( "elements {:>8} | NaN {:>8} | range [{:.4f}, {:.4f}]",
+                count, summary.nan_count, lowest, highest );
+
+            return summary;
         }
 
     protected:

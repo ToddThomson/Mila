@@ -9,12 +9,15 @@
 
 module;
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <format>
 #include <iostream>
 #include <set>
 #include <string>
+#include <memory>
+#include <stdexcept>
 #include <string_view>
 #include <vector>
 
@@ -32,8 +35,42 @@ namespace Mila::Tools
         std::filesystem::path source;
         std::filesystem::path destination;
         WeightQuantization quantization{ WeightQuantization::FP4 };
-        int64_t context_length{ 4096 };
+
+        /// Load only, print a logits fingerprint, and write nothing.
+        bool fingerprint_only{ false };
+
+        /// Emit mila.json beside the artifact. Costs a full re-read to hash it.
+        bool emit_manifest{ false };
+
+        /// Tokenizer to record in the manifest. Optional.
+        std::filesystem::path tokenizer;
     };
+
+    /**
+     * @brief Policy name as recorded in the artifact metadata.
+     */
+    std::string weightQuantizationName( WeightQuantization quantization )
+    {
+        switch ( quantization )
+        {
+            case WeightQuantization::FP4: return "per_group_fp4_128";
+            case WeightQuantization::FP8: return "per_channel_fp8_e4m3";
+            default:                      return "none";
+        }
+    }
+
+    /**
+     * @brief Short variant key used in a coordinate and as the manifest variant name.
+     */
+    std::string weightQuantizationVariantName( WeightQuantization quantization )
+    {
+        switch ( quantization )
+        {
+            case WeightQuantization::FP4: return "fp4";
+            case WeightQuantization::FP8: return "fp8";
+            default:                      return "bf16";
+        }
+    }
 
     /**
      * @brief Parse a quantization name, or report the accepted set.
@@ -62,6 +99,111 @@ namespace Mila::Tools
         }
 
         return false;
+    }
+
+    /**
+     * @brief Hash a file, reporting progress for anything large enough to notice.
+     */
+    std::string hashFile( const std::filesystem::path& path )
+    {
+        std::unique_ptr<std::FILE, int( * )( std::FILE* )> file(
+            std::fopen( path.string().c_str(), "rb" ), &std::fclose );
+
+        if ( file == nullptr )
+        {
+            throw std::runtime_error( "cannot open for hashing: " + path.string() );
+        }
+
+        Mila::Distribution::Sha256 hash;
+        std::string buffer( 4u << 20, '\0' );
+
+        for ( ;; )
+        {
+            const size_t read = std::fread( buffer.data(), 1, buffer.size(), file.get() );
+
+            if ( read == 0 )
+            {
+                break;
+            }
+
+            hash.update( buffer.data(), read );
+        }
+
+        return hash.finish();
+    }
+
+    /**
+     * @brief Emit the publishable manifest fragment beside the artifact.
+     *
+     * Derived, never hand-written: the digests must track the bytes, and a manifest edited by
+     * hand after a re-export is a repository that fails verification on every download. A
+     * repository manifest covers all its variants, so this writes one variant for merging
+     * rather than pretending to be the whole file.
+     */
+    int writeManifestFragment(
+        const ExportOptions& options,
+        const std::string& architecture,
+        const std::filesystem::path& tokenizer )
+    {
+        std::cout << "Hashing artifact for the manifest\n";
+
+        const std::string weights_digest = hashFile( options.destination );
+        const auto weights_bytes = std::filesystem::file_size( options.destination );
+
+        const std::string variant = weightQuantizationVariantName( options.quantization );
+
+        std::string tokenizer_entry;
+
+        if ( !tokenizer.empty() && std::filesystem::exists( tokenizer ) )
+        {
+            const std::string tokenizer_digest = hashFile( tokenizer );
+            const auto tokenizer_bytes = std::filesystem::file_size( tokenizer );
+
+            tokenizer_entry = std::format(
+                ",\n        \"tokenizer\": {{ \"path\": \"{}\", \"sha256\": \"{}\", \"bytes\": {} }}",
+                tokenizer.filename().string(), tokenizer_digest, tokenizer_bytes );
+        }
+
+        const std::string body = std::format(
+            "{{\n"
+            "  \"manifest_version\": 1,\n"
+            "  \"architecture\": \"{}\",\n"
+            "  \"default_variant\": \"{}\",\n"
+            "  \"variants\": {{\n"
+            "    \"{}\": {{\n"
+            "      \"minimum_mila_version\": \"0.20.0\",\n"
+            "      \"weight_quantization\": \"{}\",\n"
+            "      \"files\": {{\n"
+            "        \"weights\": {{ \"path\": \"{}\", \"sha256\": \"{}\", \"bytes\": {} }}{}\n"
+            "      }}\n"
+            "    }}\n"
+            "  }}\n"
+            "}}\n",
+            architecture, variant, variant,
+            weightQuantizationName( options.quantization ),
+            options.destination.filename().string(), weights_digest,
+            static_cast<uint64_t>( weights_bytes ),
+            tokenizer_entry );
+
+        const auto manifest_path = options.destination.parent_path() / "mila.json";
+
+        std::unique_ptr<std::FILE, int( * )( std::FILE* )> output(
+            std::fopen( manifest_path.string().c_str(), "wb" ), &std::fclose );
+
+        if ( output == nullptr )
+        {
+            std::cerr << "Cannot write " << manifest_path.string() << "\n";
+
+            return 4;
+        }
+
+        std::fwrite( body.data(), 1, body.size(), output.get() );
+        output.reset();
+
+        std::cout << std::format( "Wrote {}\n  sha256 {}\n",
+            manifest_path.string(), weights_digest );
+
+        return 0;
     }
 
     /**
@@ -157,11 +299,17 @@ namespace Mila::Tools
     }
 
     /**
-     * @brief Load the source at the requested quantization and write the artifact.
+     * @brief Build context length used for the load, and deliberately not a CLI option.
      *
-     * The context length is kept small by default: the export never runs a forward pass, but
-     * the network is built before weights load, and build allocates a KV cache proportional
-     * to it. A large value would cost gigabytes of device memory the export never touches.
+     * It cannot affect the artifact: the weights are what they are, and the architectural
+     * max_seq_length travels in the source metadata. Its only effect is the KV cache the
+     * build allocates before weights load, which the export never touches -- so the right
+     * value is the smallest one that builds, always.
+     */
+    inline constexpr int64_t kExportContextLength = 512;
+
+    /**
+     * @brief Load the source at the requested quantization and write the artifact.
      *
      * @return Process exit code.
      */
@@ -183,7 +331,7 @@ namespace Mila::Tools
             // Built in place rather than chained off a temporary: the fluent setters
             // return an lvalue reference to *this.
             GemmaModelConfig model_config;
-            model_config.withContextLength( options.context_length )
+            model_config.withContextLength( kExportContextLength )
                 .withWeightQuantization( options.quantization )
                 .withKvCacheCompression( KvCacheCompression::None );
 
@@ -191,6 +339,20 @@ namespace Mila::Tools
 
             auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
                 options.source, model_config, DeviceId{ DeviceType::Cuda, 0 } );
+
+            if ( options.fingerprint_only )
+            {
+                // Fixed, arbitrary token ids: no tokenizer is involved, so two runs over
+                // different files are comparable by construction. Values are within any
+                // Gemma vocabulary and their meaning is irrelevant -- only that both loads
+                // see the same input.
+                const std::vector<int32_t> probe{ 2, 1000, 2000, 3000, 4000, 5000, 6000, 7000 };
+
+                std::cout << std::format( "Fingerprint of {}\n", options.source.string() );
+                std::cout << "  " << model->fingerprintPrefill( probe ) << "\n";
+
+                return 0;
+            }
 
             std::cout << std::format( "Writing {}\n", options.destination.string() );
 
@@ -209,7 +371,20 @@ namespace Mila::Tools
                 verify.getTensorNames().size(),
                 verify.getPretrainedMetadata().architecture );
 
-            return compareAgainstSource( options.source, verify );
+            const int reconciled = compareAgainstSource( options.source, verify );
+
+            if ( reconciled != 0 )
+            {
+                return reconciled;
+            }
+
+            if ( options.emit_manifest )
+            {
+                return writeManifestFragment(
+                    options, verify.getPretrainedMetadata().architecture, options.tokenizer );
+            }
+
+            return 0;
         }
         catch ( const std::exception& error )
         {

@@ -63,6 +63,13 @@ option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ${PROJECT_IS_TOP_LEVEL
 option(MILA_ENABLE_ADAPTORS "Build the first-class Mila adaptors (Chat CLI)." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_DOCS "Build Doxygen API documentation. Requires Doxygen and Graphviz." ON)
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
+
+# Model retrieval from HuggingFace. OFF drops the libcurl dependency and the Http/
+# Distribution modules; local-path loading is unaffected, since the resolver takes a path
+# or a coordinate. Turned OFF for the manylinux wheel, where libcurl and libssl are not
+# whitelisted and the Python layer uses huggingface_hub instead. See
+# Specifications/ModelDistribution.md.
+option(MILA_ENABLE_MODEL_DOWNLOAD "Enable HuggingFace model retrieval (requires libcurl)." ON)
 # PARKED: find_package(Mila) is parked in favor of FetchContent. A C++23 module library is a
 # source distribution (BMIs are not portable -- a consumer recompiles the module graph either
 # way), so find_package's prebuilt-binary benefit is void while its install/export layout is
@@ -224,6 +231,54 @@ CPMAddPackage(
 #        "SPM_USE_BUILTIN_PROTOBUF ON"
 #        "SPM_BUILD_TEST OFF"
 #)
+
+if(MILA_ENABLE_MODEL_DOWNLOAD)
+    # Vendored and pinned on both platforms. Windows has no linkable OS libcurl, so it is
+    # built there regardless; building it on Linux too buys one known version everywhere
+    # rather than whatever the distribution shipped.
+    #
+    # TLS comes from the OS on both sides -- Schannel on Windows, system OpenSSL on Linux --
+    # so there is no CA bundle to ship or keep current, and a corporate proxy with an
+    # injected root just works.
+    #
+    # Protocols are cut to HTTP/HTTPS. No nghttp2, brotli or zstd either: HuggingFace serves
+    # LFS blobs uncompressed over HTTP/1.1, so each would be a dependency that buys nothing.
+    CPMAddPackage(
+        NAME curl
+        GITHUB_REPOSITORY curl/curl
+        GIT_TAG curl-8_11_1
+        OPTIONS
+            "BUILD_SHARED_LIBS OFF"
+            "BUILD_STATIC_LIBS ON"
+            "BUILD_CURL_EXE OFF"
+            "BUILD_TESTING OFF"
+            "BUILD_EXAMPLES OFF"
+            "CURL_DISABLE_INSTALL ON"
+            "CURL_USE_SCHANNEL ${WIN32}"
+            "CURL_USE_LIBSSH2 OFF"
+            "CURL_USE_LIBPSL OFF"
+            "CURL_ZLIB OFF"
+            "CURL_BROTLI OFF"
+            "CURL_ZSTD OFF"
+            "USE_NGHTTP2 OFF"
+            "USE_LIBIDN2 OFF"
+            "ENABLE_UNIX_SOCKETS OFF"
+            "CURL_DISABLE_LDAP ON"
+            "CURL_DISABLE_LDAPS ON"
+            "CURL_DISABLE_TELNET ON"
+            "CURL_DISABLE_DICT ON"
+            "CURL_DISABLE_GOPHER ON"
+            "CURL_DISABLE_SMTP ON"
+            "CURL_DISABLE_POP3 ON"
+            "CURL_DISABLE_IMAP ON"
+            "CURL_DISABLE_RTSP ON"
+            "CURL_DISABLE_TFTP ON"
+            "CURL_DISABLE_MQTT ON"
+            "CURL_DISABLE_SMB ON"
+            "CURL_DISABLE_FTP ON"
+            "CURL_DISABLE_FILE ON"
+    )
+endif()
 
 if(MILA_ENABLE_PYTHON_BINDINGS)
     CPMAddPackage(

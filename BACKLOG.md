@@ -938,6 +938,97 @@ good-first-issue.
 ## Future
 
 Uncommitted / next-cycle work. Coarse by design — detailed tasking happens only when an item promotes
+
+- **HF model distribution — spec written, Phase 1 WRITTEN 2026-07-29, UNBUILT.** Design in
+  [ModelDistribution.md](Mila/Specifications/ModelDistribution.md). **DECIDED by Todd:** the `mila-llm`
+  wheel carries no model assets; **the Mila C++ library retrieves the artifact itself**; publishing to
+  the **`mila-llm` HF org on the ToddThomson account**; **libcurl on both platforms**, one code base.
+  Firm non-goals: Mila runs no registry, never reads an ollama or LM Studio cache, never uploads.
+  **Coordinate is `<org>/<repo>:<variant>`** (`mila-llm/gemma-4-12b-it:fp4`) — variant separate from
+  repo because FP4/FP8/BF16 share a 14 MB tokenizer, which a flat `repo-variant` name hides. **Local
+  paths stay first-class**: that is the lesson from ollama, whose content-addressed store cannot
+  consume a file the user already has.
+  **Cache is content-addressed** (`blobs/sha256-<hex>` + per-variant manifest) — the one thing worth
+  taking from ollama, and free because HF serves the SHA-256 as the LFS ETag. Integrity, dedup, resume
+  and atomicity all fall out of it rather than being written by hand: a partial download never occupies
+  its final path, so an interrupted transfer cannot be mistaken for a good one.
+  **Phase 1 (this slice): CPM-pinned static libcurl + `Distribution.HttpClient`.** TLS from the OS —
+  Schannel on Windows, system OpenSSL on Linux — so no CA bundle ships. Protocols cut to HTTP/HTTPS;
+  no nghttp2/brotli/zstd, since HF serves LFS uncompressed over HTTP/1.1.
+  **Two hazards the client is built around.** (1) **`CURLOPT_FOLLOWLOCATION` is deliberately OFF** —
+  HF redirects LFS files to a pre-signed CDN host and libcurl forwards a `CURLOPT_HTTPHEADER` auth
+  header across a cross-host redirect, which would leak the token; redirects are followed by hand and
+  the header is dropped when the host changes. (2) **a `Range` request answered with 200 rather than
+  206 is reported as `RangeIgnored`, not success** — the server is sending the whole file, so appending
+  it to an existing partial would silently concatenate.
+  `MILA_ENABLE_MODEL_DOWNLOAD` (default ON) gates the whole thing: **libcurl and libssl are not on the
+  manylinux whitelist**, so the wheel builds with it OFF and resolves paths through
+  `huggingface_hub` in Python instead — which works precisely because local paths are first-class.
+  **Licensing is per-family, do not generalize:** Gemma 4 is Apache 2.0 (public + ungated, no token
+  needed); Gemma 3 and earlier carry the Gemma Terms of Use; **Llama 3.1/3.2 are gated** and their
+  community license propagates, as `Tools/Converters/README.md` already documents. See
+  [[project_gemma4_apache2_license]].
+  Remaining phases: 2 cache, 3 resolver, 4 Chat catalog coordinates, 5 publish. Open decisions in the
+  **Phase 2 WRITTEN 2026-07-29, UNBUILT — the cache.** New `Distribution.Sha256` (streaming, ~80
+  lines, implemented rather than depended on: the alternatives were a platform split of
+  BCrypt/OpenSSL EVP or a second vendored library; correctness is pinned by the NIST vectors in the
+  tests, and a chunk-boundary test proves incremental hashing matches one-shot). New
+  `Distribution.ModelCache` with `resolveCacheRoot()` (`MILA_CACHE_DIR`, then `LOCALAPPDATA`, then
+  `XDG_CACHE_HOME`/`HOME`) and `ensureBlob( url, digest, fetcher )`.
+  **The fetcher is INJECTED, which is the design point**: every cache test runs offline and
+  deterministically, including the two cases that are awkward to provoke against a real server —
+  a resumed transfer and a server that ignores `Range`. No network in the suite.
+  Behaviours pinned by test, each chosen so a failure mode is impossible rather than detected later:
+  a present blob is never re-fetched (content-addressing means present == verified); a resumed
+  transfer replays the partial through the hash (SHA-256 is sequential and cannot resume from an
+  offset); **`RangeIgnored` destroys the partial** (a from-zero response appended to a prefix
+  concatenates); a digest mismatch destroys the partial (keeping it would make the retry resume onto
+  corruption); a mid-transfer failure **keeps** it (those bytes are good, and the retry completes);
+  and the final path does not exist until the digest verifies, so a reader that sees a blob may
+  assume it is complete.
+  **Phase 3 WRITTEN 2026-07-29, UNBUILT — the resolver.** `Distribution.ModelResolver`:
+  `parseCoordinate()` for `[hf:]<org>/<repo>[:<variant>][@<revision>]`, `discoverHuggingFaceToken()`
+  (`MILA_HF_TOKEN`, `HF_TOKEN`, then the file `huggingface-cli login` writes),
+  `makeHuggingFaceRemoteAccess()` as the single place libcurl meets the resolver, and
+  `ModelResolver::resolve()` returning `ResolvedModel { weights_path, tokenizer_path, architecture,
+  weight_quantization, variant, from_local_path }`.
+  **Remote access is injected as a `RemoteAccess { fetch_blob, fetch_text }`, so all 14 cases run
+  offline** — the manifest is a string the test supplies. That covers what a live endpoint makes
+  awkward: variant selection, the available-variants error listing, version-skew refusal, and three
+  shapes of malformed manifest.
+  **`@revision` is parsed and honoured now** (defaulting to `main`) even though revision pinning is
+  still an open decision — the grammar is the expensive thing to change later, the policy is not.
+  **A local path short-circuits before any network or cache touch**, pinned by a test whose
+  `RemoteAccess` calls `ADD_FAILURE()` if either hook fires. Coordinate parsing deliberately rejects
+  anything path-shaped (a second `/`, a drive letter, a backslash, no separator) so a mistyped path
+  becomes a "no such file" rather than a request against a nonexistent repository.
+  Found, not fixed: **`Version::getMajor()`/`getMinor()`/`getPatch()` are non-const**
+  (`Src/Version.ixx`), so a version comparison needs a mutable copy.
+  **Phases 4 and 5 WRITTEN 2026-07-29, UNBUILT.**
+  **Phase 4 — the catalog.** New `resolveEntryPaths( entry, models_dir )` in
+  `Chat.ModelCatalog.ixx` is the single place an entry becomes paths; both call sites
+  (`Chat.ixx:1095` switchModel and `main.cpp` startup) now use it, so a coordinate behaves the same
+  however a model is selected. **A local file under the models directory still wins**, so an
+  exported artifact is used with no network — the coordinate is the fallback, not the override.
+  Resolution happens *before* the current model is released, so a failed download leaves the session
+  on its working model. New `gemma-12b-hub` entry -> `mila-llm/gemma-4-12b-it:fp4` (array 9 -> 10);
+  `gemma-12b-packed` keeps pointing at the local file. `makeHuggingFaceRemoteAccess` gained an
+  optional progress callback, and Chat prints a coarse percentage only while a transfer actually
+  runs — a cached artifact resolves silently. The `#ifdef MILA_HAS_MODEL_DOWNLOAD` guard gives a
+  clear refusal rather than a link error when the feature is compiled out, matching the pattern
+  `Mila.ixx` already uses.
+  **Phase 5 — publish material, derived not hand-written.** `ExportArtifact` gained
+  `--emit-manifest` and `--tokenizer`, writing `mila.json` beside the artifact with real SHA-256
+  digests and byte counts. **The manifest must never be hand-maintained**: its digests have to track
+  the bytes, and one edited by hand after a re-export is a repository that fails verification on
+  every download. Model card at `Mila/Tools/ExportArtifact/publish/gemma-4-12b-it/README.md` with
+  the Apache 2.0 declaration, Google attribution, and the **modification statement Apache 2.0
+  requires** (quantized, repacked, not fine-tuned) — plus a note that the scheme is Mila's own and
+  deliberately not NVFP4/MXFP4, so the file is inspectable everywhere but loadable only by Mila.
+  **Uploading is a human action and stays one** — the spec's non-goal. The remaining manual steps
+  are: add the Apache 2.0 `LICENSE` text, create the repo under the `mila-llm` org, and push the
+  four files.
+  spec: revision pinning, whether the manifest is re-fetched per load, progress-reporting surface.
 to the current release.
 
 - **Warnings-as-errors ratchet** — prevent the 252-warning re-accumulation that the v0.20 sweep cleared.
@@ -1173,7 +1264,123 @@ to the current release.
   model), not that the artifact generates. Added a `gemma-12b-packed` catalog entry pointing at
   `gemma/gemma4_12b_it_fp4.safetensors` so `/model gemma-12b-packed` closes that last gap; array size
   8 -> 9, and every consumer iterates with a range-for so nothing else changes.
-  **PHASE 7 COMPLETE AND PROVEN 2026-07-29.** `/model gemma-12b-packed` loads the 6.33 GB
+  **PHASE 7 -- SEE THE CORRECTION BELOW; the generation claim here was WRONG.** `/model gemma-12b-packed` loads the 6.33 GB
+- **CORRECTION 2026-07-29: `/model` never switched between same-architecture entries, so the
+  "Chat generates coherently from the artifact" claim above was never actually tested.**
+  `Chat.ixx:1074` `isCurrentModel()` compared family, size, precision and quantization — **not which
+  weights file** — so `gemma-12b`, `gemma-12b-packed` and `gemma-12b-hub`, all Gemma/B12/BF16/FP4,
+  compared equal. `/model gemma-12b-packed` fell through to the thinking-flag branch, printed
+  "Thinking display disabled.", and **never called `switchModel`**. The session stayed on the BF16
+  `.bin` loaded at startup. The "almost instantaneous load" was no load at all.
+  **Latent before the catalog additions**: every prior entry differed in at least one of those four
+  fields, so the comparison was accidentally sufficient. A second Gemma 12B FP4 entry exposed it.
+  **The tell was in the transcript twice and dismissed twice** — "Thinking display disabled." is not
+  a model-switch message, and it was noted as a curiosity rather than chased. What finally forced it
+  was the *absence* of the expected "Resolving ..." line.
+  **What survives from Phase 7:** everything verified through `ExportArtifact` — the SHA-256-identical
+  re-export, source reconciliation, and the policy-mismatch refusal. The artifact is provably correct
+  as data. **What does not:** that any model has ever loaded or generated from it. Still unproven.
+  FIXED: `ChatConfig::model_alias` added, set at startup and in `switchModel`; `isCurrentModel` now
+- **OPEN DEFECT: a pre-quantized FP4 artifact loads but generates garbage** (endless thinking
+  tokens), 2026-07-29. **Discriminated by test, not by reading**: `/model gemma-12b-packed` ->
+  `/model gemma-12b` reloads the known-good `.bin` through the *same* `switchModel` path and is
+  coherent, so the switch machinery is innocent and the artifact load is at fault.
+  **CORRECTION to an earlier claim in this file: the SHA-256-identical re-export does NOT prove the
+  load is correct.** The load is a device-side `copyFromBlob` and the export reads those same bytes
+  back, so bytes round-trip through a copy whether or not they landed usefully. It proves data
+  fidelity, not model correctness — the same error as trusting structural self-verification, made
+  one layer up. Ruled out by inspection: `quantize()` has no side effects beyond writing bytes; all
+  578 source names reconcile; metadata is written verbatim; `layer_scalar` is FP32 in both.
+  **An FP8 A/B on Gemma 12B is not available** — FP8 weights are ~12 GB on a 12 GB card, so the
+  artifact cannot even be produced. Reproduce at unit scale instead.
+  **Two new CUDA tests added, both asserting FORWARD OUTPUT rather than bytes** — the gap that let
+  this through. `TokenEmbedding.Cuda.cpp` `PreQuantizedReload_GathersIdenticallyToQuantizeOnLoad`
+  (the stronger suspect: a broken tied lm_head fits "endless thinking tokens" exactly) and the
+  forward-equivalence half of `Linear.Cuda.cpp`'s pre-quantized round trip. Both compare a
+  quantize-on-load component against one rebuilt from the artifact, at small dimensions that fit
+  trivially in VRAM. Bit-identical is the correct bar: same table, same scales, same kernel.
+  If either fails, the defect is reproduced at unit scale and iterable without the 12B model.
+  **MEASURED 2026-07-29: the artifact load produces NaN logits.** New
+  `GemmaModel::fingerprintPrefill()` + `ExportArtifact --fingerprint` run one prefill over fixed raw
+  token ids (no tokenizer, so two runs are comparable by construction) and report an FNV-1a digest
+  plus the argmax:
+  `.bin` -> `c366f445e968f327 | argmax 1264 = 9.187500`;
+  artifact -> `9cb2ee24aec50383 | argmax 0 = -inf`.
+  The `-inf` is the argmax loop finding nothing greater than its initializer, which is what an
+  all-NaN vector produces (every NaN comparison is false). So **the logits are NaN**, and the endless
+  thinking tokens are the sampler acting on that.
+  **Also ruled out since:** all 85,417,984 scale values in the artifact are finite and non-zero (no
+  NaN, no Inf, no zeros); the forward-time `getDeviceScratchBuffer` fetches request their own size
+  every call, so a stale/undersized scratch is not it; `onBuilding` binds both `setParameters` and
+  `setWeightScales` unconditionally on the quantized path, so the operation is never left pointing at
+  the wrong allocation.
+  **Note the earlier byte-comparison only covered the 385 tensors with the SAME dtype in both files**
+  -- the 193 quantized ones were skipped by that script. They are covered instead by the
+  bit-identical re-export, since the artifact was produced by quantize-on-load from this very `.bin`.
+  **NEXT: localize where NaN first appears.** Logits are the last thing computed, so the fault could
+  be anywhere upstream. A per-layer hidden-state fingerprint is the decisive measurement and needs
+  **Stage probe added 2026-07-29 (unbuilt).** `LanguageNetwork::setStageProbe()` is a virtual with a
+  no-op default; `GemmaTransformer` overrides it and fires it after the embedding and after every
+  layer, **on the real prefill path** -- a parallel diagnostic implementation would be free to not
+  reproduce the bug. Costs one null check per layer when unset. `fingerprintPrefill` now installs a
+  probe that counts NaNs and bounds the finite range per stage, reports stages until the first NaN,
+  and names it (`FIRST NaN AT: ...`). That turns "the logits are NaN" into "the NaN enters at
+  **ROOT CAUSE FOUND AND FIXED 2026-07-29.** Stage probe localized it exactly: `embedding` clean
+  (range [-14.5, 15.625], 0 NaN), `layer_0` **100% NaN** (30720 of 30720). The culprit is
+  `CudaLinearOp::quantize()`, which derives an **FP8 `sB` scalar** (`weight_fp8_scale_`) from the
+  per-group scales via `cuda_compute_fp8_weight_scale`. **A pre-quantized load skips quantize(), so
+  nothing ever computes it** -- `ensureFp8ScaleScalarsAllocated()` only `cudaMalloc`s it and writes
+  `activation_fp8_unit_scale_`, never `weight_fp8_scale_`. The FP4->FP8 dequant then divides by
+  uninitialized device memory and every activation becomes NaN.
+  **The code documents this exact failure mode from a previous incident** (the +98/+99 one): sB
+  cancels algebraically, so garbage is LUCK-DEPENDENT -- benign junk generates correctly, zeroed
+  pages saturate every weight to +-448.
+  FIXED: new `CudaLinearOp::onQuantizedWeightsLoaded()` performs the same reduction; `Linear`'s
+  `weight_scale` branch calls it once both weights and scales have landed.
+  **Why no test caught it, and the test added:** the forward-equivalence test written earlier used
+  **`PerChannelFp8`**, and the FP4 test only asserted shapes and scale finiteness -- so **the FP4
+  pre-quantized forward path had never executed**. New
+  `PreQuantizedFp4Reload_ForwardMatchesQuantizeOnLoad` uses a **prefill shape (outer_size > 1)**
+  deliberately: the decode matvec bypasses the FP8 activation path entirely, so a decode-shaped test
+  would pass with the scalar still garbage.
+  **Durable lesson: a load path that skips a producer must run whatever that producer DERIVED.**
+  Byte-identical parameters proved nothing here, because the missing state was neither a parameter
+  nor config -- it was a scalar computed as a side effect of quantization.
+  **VERIFIED 2026-07-29: the artifact now computes BIT-IDENTICAL logits to the `.bin`.** Post-fix
+  fingerprint: `no NaN in any prefill stage`, `logits fnv1a c366f445e968f327 | argmax 1264 =
+  9.187500` -- character-for-character the quantize-on-load digest. Identical is the correct bar
+  here, not merely coherent: the artifact was quantized from that exact model, so any divergence
+  would mean something else was still wrong.
+  **CLOSED 2026-07-29: full suite green and `/model gemma-12b-packed` generates coherently.** The
+  pre-quantized artifact path now works end to end -- export, reconcile against source, reload
+  bit-identical, generate. `switchModel` also reports correctly again ("Model switched. Conversation
+  history cleared."), which is the message the `isCurrentModel` no-op had been hiding.
+  embedding / layer N", which is the difference between a whole-model search and a single-component
+  one.
+  hooks inside the transformer.
+- **Distribution defect, found by the first live request 2026-07-29: relative `Location` broke every
+  redirect.** HuggingFace answers `/resolve/main/mila.json` with a **307 whose Location is a bare
+  path** (`/api/resolve-cache/models/.../mila.json?etag=...`) — RFC 7231 permits it. `httpGet`
+  assigned it straight to the URL and re-issued, giving `CURLE_URL_MALFORMAT` ("URL using
+  bad/illegal format"). FIXED with `resolveRedirect( base, location )` handling all four forms:
+  absolute, protocol-relative, root-relative, path-relative (query stripped from the base before
+  taking its directory).
+  **Second defect, same failure: the error named the wrong URL.** `fetch_text` reported the
+  *requested* URL, so a failure on hop 2 looked like a failure on hop 1 — the URL in the message was
+  provably fetchable, which is what made the cause non-obvious. `HttpResult` now carries `final_url`
+  and the message uses it.
+  **Phase 1 shipped with no tests on the argument that the client's contract was about live
+  behaviour. That was wrong**: relative-Location handling is pure string work, needs no server, and
+  is exactly what broke. New `Tests/Distribution/HttpClient.Cpu.cpp` pins all four forms including
+  the verbatim HuggingFace 307 shape, plus scheme preservation across a host change (the hop where
+  **Third defect, same request: the redirect's own body was fed to the sink.** After following a
+  307 the client `continue`d to the next hop, but libcurl had already delivered the redirect
+  response's 246-byte `text/plain` body through `writeBody`. The final JSON was appended to it, so
+  the manifest parse failed with "mila.json is not a JSON object" — a content error for what was
+  really a transport bug. FIXED: `readHeader` now parses the status line (the only place the code is
+  visible early enough) and sets a `discarding` flag that suppresses any 3xx body.
+  the auth header is dropped).
+  compares alias plus quantization. Unbuilt.
   pre-quantized artifact and Gemma 4 12B answers coherently. Every leg is now closed: writes a
   correct artifact (reconciles exactly against its source, opens in any safetensors reader), reads it
   back without re-quantizing (SHA-256 identical on a full 12B re-export), refuses a mismatched policy

@@ -23,8 +23,10 @@
 
 module;
 #include <cstdint>
+#include <functional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 export module Dnn.LanguageNetwork;
 
@@ -80,6 +82,26 @@ namespace Mila::Dnn
          * @return       Logits for the last token position.
          */
         virtual TensorType& prefill( const TokenIndexType& input ) = 0;
+
+        /**
+         * @brief Observer called with each intermediate activation during prefill.
+         *
+         * Diagnostic. Two loads of one model can hold byte-identical parameters and still
+         * compute differently, and only the activations show where they diverge. A probe on
+         * the real prefill path rather than a parallel diagnostic one, because a second
+         * implementation is free to not reproduce the bug.
+         */
+        using StageProbe = std::function<void( std::string_view stage, const TensorType& value )>;
+
+        /**
+         * @brief Install a stage probe, or clear it by passing an empty function.
+         *
+         * Default is a no-op so a network that has no instrumentation is unaffected.
+         */
+        virtual void setStageProbe( StageProbe probe )
+        {
+            (void)probe;
+        }
 
         /**
          * @brief Inference decode -- single-token autoregressive step.

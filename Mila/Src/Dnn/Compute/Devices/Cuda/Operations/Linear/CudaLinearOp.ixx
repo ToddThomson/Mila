@@ -303,6 +303,32 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * @param scales_out     Device Float32 tensor [out_features].
          * @param expected_shape Expected weight shape for validation.
          */
+        /**
+         * @brief Recompute scales derived from the per-group scales, after a direct upload.
+         *
+         * A pre-quantized artifact carries the weights and their per-group scales, so
+         * quantize() is skipped -- and with it the sB reduction below, which nothing else
+         * performs. ensureFp8ScaleScalarsAllocated() only allocates weight_fp8_scale_; it
+         * never writes it. Leaving it uninitialized reproduces the +98/+99 incident exactly:
+         * the FP4->FP8 dequant divides by garbage and every activation becomes NaN.
+         *
+         * Must be called after BOTH the weights and the scales have landed.
+         */
+        void onQuantizedWeightsLoaded() requires kIsQuantized
+        {
+            if constexpr ( kUseFp8ActivationPrefillPath )
+            {
+                ensureFp8ScaleScalarsAllocated();
+
+                const int64_t num_scales =
+                    ( static_cast<int64_t>( out_features_ ) * static_cast<int64_t>( weight_in_features_ ) )
+                    / TWeightQuant::kQuantizationGroupSize;
+
+                cuda_compute_fp8_weight_scale(
+                    weight_fp8_scale_, weight_scales_, num_scales, context_->getStream() );
+            }
+        }
+
         void quantize(
             const ITensorBlob& blob,
             ITensor& weight_out,

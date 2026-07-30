@@ -1075,10 +1075,13 @@ namespace Mila::ChatApp
         {
             const bool loaded = !std::visit( []( const auto& m ) { return m == nullptr; }, model_ );
 
+            // The alias, not the family/size/precision triple: three catalog entries can
+            // share Gemma/B12/BF16/FP4 and still name different weights -- the converted
+            // .bin, a local pre-quantized artifact, and a HuggingFace coordinate. Comparing
+            // only the triple made switching between them a silent no-op that reported
+            // success, which is worse than refusing.
             return loaded
-                && config_.model_type        == entry.family
-                && config_.model_size        == entry.size
-                && config_.precision         == entry.precision
+                && config_.model_alias       == entry.alias
                 && config_.quantization_mode == quant;
         }
 
@@ -1086,14 +1089,20 @@ namespace Mila::ChatApp
         {
             const ModelType prev_type = config_.model_type;
 
+            config_.model_alias       = std::string( entry.alias );
             config_.model_type        = entry.family;
             config_.model_size        = entry.size;
             config_.precision         = entry.precision;
             config_.is_instruct       = entry.is_instruct;
             config_.streaming_capable = entry.streaming_capable;
             config_.quantization_mode = quant;
-            config_.model_path        = config_.models_dir / entry.weights_file;
-            config_.tokenizer_path    = config_.models_dir / entry.tokenizer_file;
+            // May fetch from HuggingFace on a coordinate entry, and prints progress while it
+            // does. Resolution happens before the current model is released so a failed
+            // download leaves the session on its working model.
+            const auto paths = resolveEntryPaths( entry, config_.models_dir );
+
+            config_.model_path        = paths.weights;
+            config_.tokenizer_path    = paths.tokenizer;
 
             // Preserve context_length across same-architecture switches; reset to the
             // new model's default on an architecture change.

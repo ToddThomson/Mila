@@ -287,6 +287,16 @@ export import Serialization.SafeTensors;
 export import Serialization.PretrainedReader;
 
 // ============================================================================
+// Distribution - model retrieval (MILA_ENABLE_MODEL_DOWNLOAD)
+// ============================================================================
+#ifdef MILA_HAS_MODEL_DOWNLOAD
+export import Distribution.Sha256;
+export import Distribution.ModelCache;
+export import Distribution.HttpClient;
+export import Distribution.ModelResolver;
+#endif
+
+// ============================================================================
 // Data - Core
 // ============================================================================
 

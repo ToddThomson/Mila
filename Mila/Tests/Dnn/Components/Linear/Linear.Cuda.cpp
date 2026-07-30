@@ -1066,6 +1066,8 @@ namespace Mila::Tests::Dnn::Components::Linear
     {
         using QuantizedLinear =
             Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerChannelFp8<>>;
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+        using DeviceBf16 = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
 
         std::unique_ptr<IExecutionContext> context;
         try
@@ -1167,9 +1169,179 @@ namespace Mila::Tests::Dnn::Components::Linear
 
         EXPECT_EQ( first_bytes, second_bytes );
 
+        // Byte equality only says the storage survived a copy. Whether the reloaded
+        // component COMPUTES the same thing is a separate question, and the one that
+        // matters -- see PreQuantizedReload_ForwardMatchesQuantizeOnLoad below.
+        const shape_t input_shape{ 1, kInFeatures };
+
+        HostFp32 host_input( Device::Cpu(), input_shape );
+        for ( int64_t i = 0; i < kInFeatures; ++i )
+        {
+            host_input.data()[ i ] = 0.25f * weightValue( i % kOutFeatures, i );
+        }
+
+        DeviceBf16 device_input( Device::Cuda( 0 ), input_shape );
+        copy( host_input, device_input, context.get() );
+        context->synchronize();
+
+        auto& expected_device = quantize_on_load.forward( device_input );
+        context->synchronize();
+        HostFp32 expected( Device::Cpu(), expected_device.shape() );
+        copy( expected_device, expected, context.get() );
+        context->synchronize();
+
+        auto& actual_device = from_artifact.forward( device_input );
+        context->synchronize();
+        HostFp32 actual( Device::Cpu(), actual_device.shape() );
+        copy( actual_device, actual, context.get() );
+        context->synchronize();
+
+        ASSERT_EQ( expected.size(), actual.size() );
+
+        for ( dim_t i = 0; i < expected.size(); ++i )
+        {
+            EXPECT_EQ( expected.data()[ i ], actual.data()[ i ] )
+                << "pre-quantized reload diverges at output " << i;
+        }
+
         std::error_code ignored;
         std::filesystem::remove( first_path, ignored );
         std::filesystem::remove( second_path, ignored );
+    }
+
+    /**
+     * @brief The FP4 reload must compute identically, not merely store identically.
+     *
+     * The FP8 sibling of this test passed while a 12B FP4 model loaded from an artifact
+     * produced NaN at the first block: quantize() derives an FP8 sB scalar from the
+     * per-group scales, and a pre-quantized load skipped it, leaving the dequant dividing by
+     * uninitialized memory. Nothing byte-level could see that -- the weights and scales were
+     * bit-identical.
+     *
+     * A PREFILL shape (outer_size > 1) on purpose: the decode matvec does not go through the
+     * FP8 activation path, so a decode-shaped test would pass with the scalar still garbage.
+     */
+    TEST( LinearCudaFlatSaveTests, PreQuantizedFp4Reload_ForwardMatchesQuantizeOnLoad )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerGroupFp4<128>>;
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+        using DeviceBf16 = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+
+        constexpr int64_t kRows = 16;
+        constexpr int64_t kIn = 512;
+        constexpr int64_t kOut = 256;
+
+        std::unique_ptr<IExecutionContext> context;
+        try
+        {
+            context = createExecutionContext( Device::Cuda( 0 ) );
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "CUDA device not available";
+        }
+
+        std::vector<uint16_t> weight_bits( static_cast<size_t>( kOut * kIn ) );
+        for ( int64_t o = 0; o < kOut; ++o )
+        {
+            for ( int64_t i = 0; i < kIn; ++i )
+            {
+                const uint32_t bits = std::bit_cast<uint32_t>( weightValue( o, i ) );
+                const uint32_t rounding = 0x7FFF + ( ( bits >> 16 ) & 1 );
+                weight_bits[ o * kIn + i ] = static_cast<uint16_t>( ( bits + rounding ) >> 16 );
+            }
+        }
+
+        const size_t blob_bytes = weight_bits.size() * sizeof( uint16_t );
+        const shape_t prefill_shape{ kRows, kIn };
+
+        LinearConfig config( kIn, kOut );
+        config.withBias( false );
+
+        Serialization::TensorMetadata weight_meta{
+            TensorDataType::BF16, shape_t{ kOut, kIn }, blob_bytes };
+
+        QuantizedLinear quantize_on_load( "proj", config, Device::Cuda( 0 ) );
+        quantize_on_load.build( BuildContext( prefill_shape, RuntimeMode::Inference, false ) );
+
+        Serialization::TensorBlobView source_blob( weight_meta, weight_bits.data(), blob_bytes );
+        quantize_on_load.loadParameter( "weight", source_blob );
+        context->synchronize();
+
+        const auto artifact = makeScratchPath( "fp4_forward" );
+
+        {
+            Serialization::SafeTensorsWriter writer( artifact );
+            quantize_on_load.saveFlatTensors( writer, "proj", Serialization::TensorSavePass::Declare );
+            writer.beginData();
+            quantize_on_load.saveFlatTensors( writer, "proj", Serialization::TensorSavePass::Write );
+            writer.close();
+        }
+
+        QuantizedLinear from_artifact( "proj", config, Device::Cuda( 0 ) );
+        from_artifact.build( BuildContext( prefill_shape, RuntimeMode::Inference, false ) );
+
+        {
+            Serialization::PretrainedModelReader reader( artifact );
+
+            auto packed = reader.readTensorBlob<CpuMemoryResource>( "proj.weight" );
+            auto scales = reader.readTensorBlob<CpuMemoryResource>( "proj.weight_scale" );
+
+            from_artifact.loadParameter( "weight", packed );
+            from_artifact.loadParameter( "weight_scale", scales );
+            context->synchronize();
+        }
+
+        HostFp32 host_input( Device::Cpu(), prefill_shape );
+        for ( int64_t r = 0; r < kRows; ++r )
+        {
+            for ( int64_t i = 0; i < kIn; ++i )
+            {
+                host_input.data()[ r * kIn + i ] = 0.25f * weightValue( r, i );
+            }
+        }
+
+        DeviceBf16 device_input( Device::Cuda( 0 ), prefill_shape );
+        copy( host_input, device_input, context.get() );
+        context->synchronize();
+
+        auto& expected_device = quantize_on_load.forward( device_input );
+        context->synchronize();
+        HostFp32 expected( Device::Cpu(), expected_device.shape() );
+        copy( expected_device, expected, context.get() );
+        context->synchronize();
+
+        auto& actual_device = from_artifact.forward( device_input );
+        context->synchronize();
+        HostFp32 actual( Device::Cpu(), actual_device.shape() );
+        copy( actual_device, actual, context.get() );
+        context->synchronize();
+
+        ASSERT_EQ( expected.size(), actual.size() );
+
+        int64_t nan_count = 0;
+
+        for ( dim_t i = 0; i < actual.size(); ++i )
+        {
+            if ( std::isnan( actual.data()[ i ] ) )
+            {
+                ++nan_count;
+            }
+        }
+
+        // Called out separately: NaN is the shape this defect took, and "0 NaN" is a
+        // clearer failure message than a value mismatch on element 0.
+        EXPECT_EQ( nan_count, 0 ) << "pre-quantized FP4 reload produced NaN activations";
+
+        for ( dim_t i = 0; i < expected.size(); ++i )
+        {
+            EXPECT_EQ( expected.data()[ i ], actual.data()[ i ] )
+                << "pre-quantized FP4 reload diverges at output " << i;
+        }
+
+        std::error_code ignored;
+        std::filesystem::remove( artifact, ignored );
     }
 
     TEST( LinearCudaFlatSaveTests, RejectsScalesOnAnUnquantizedBuild )

@@ -793,6 +793,34 @@ if(MILA_HAS_METAL)
 endif()
 
 # ----------------------------------------------------------------------------
+# Model distribution (HuggingFace retrieval)
+#
+# Gated so a consumer that only loads from disk takes no network dependency, and so
+# the manylinux wheel can build without libcurl/libssl, which are not whitelisted
+# there. Local-path loading is unaffected either way -- the resolver accepts a path
+# or a coordinate. See Specifications/ModelDistribution.md.
+# ----------------------------------------------------------------------------
+if(MILA_ENABLE_MODEL_DOWNLOAD)
+    target_sources(Mila
+        PUBLIC
+            FILE_SET module_files
+            TYPE CXX_MODULES FILES
+                "Src/Distribution/Sha256.ixx"
+                "Src/Distribution/ModelCache.ixx"
+                "Src/Distribution/HttpClient.ixx"
+                "Src/Distribution/ModelResolver.ixx"
+    )
+
+    # PRIVATE: libcurl is an implementation detail. Its headers appear only in a global
+    # module fragment, so no consumer needs them.
+    target_link_libraries(Mila PRIVATE CURL::libcurl)
+
+    target_compile_definitions(Mila PUBLIC MILA_HAS_MODEL_DOWNLOAD)
+
+    message(STATUS "Added model distribution modules (libcurl)")
+endif()
+
+# ----------------------------------------------------------------------------
 # ROCm backend Modules
 # ----------------------------------------------------------------------------
 if(MILA_HAS_ROCM)

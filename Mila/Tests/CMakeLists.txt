@@ -156,6 +156,17 @@ add_executable( MilaTests
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
 )
 
+# Model-distribution tests. Compiled only when the feature is on, since the modules
+# under test do not exist otherwise. The cache takes its fetcher as a callable, so
+# these run offline -- no network in the suite.
+if(MILA_ENABLE_MODEL_DOWNLOAD)
+    target_sources( MilaTests PRIVATE
+        "Distribution/HttpClient.Cpu.cpp"
+        "Distribution/ModelCache.Cpu.cpp"
+        "Distribution/ModelResolver.Cpu.cpp"
+    )
+endif()
+
 # CUDA-only test translation units. These exercise CUDA memory resources,
 # execution contexts, and kernels directly and have no CPU-only meaning, so they
 # are compiled only when the CUDA backend is enabled. New *.Cuda.cpp / Cuda*.cpp

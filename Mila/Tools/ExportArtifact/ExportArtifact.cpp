@@ -19,9 +19,15 @@ namespace
             "\n"
             "  --quantization <fp4|fp8|none>  Weight quantization to apply on load\n"
             "                                 (default: fp4)\n"
-            "  --context-length <n>           Build context length (default: 4096).\n"
-            "                                 Only affects KV-cache allocation during\n"
-            "                                 the load; the export runs no forward pass.\n";
+            "  --emit-manifest                Write mila.json beside the artifact for\n"
+            "                                 publishing. Costs a re-read to hash it.\n"
+            "  --tokenizer <path>             Tokenizer to record in the manifest.\n"
+            "\n"
+            "Diagnostics:\n"
+            "  ExportArtifact <source> --fingerprint\n"
+            "                                 Load only, and print a logits fingerprint for a\n"
+            "                                 fixed prompt. Run it against two files that\n"
+            "                                 should hold the same model and diff the output.\n";
     }
 }
 
@@ -36,7 +42,18 @@ int main( int argc, char** argv )
 
     Mila::Tools::ExportOptions options;
     options.source = argv[ 1 ];
-    options.destination = argv[ 2 ];
+
+    // --fingerprint loads and reports only, so it takes no destination.
+    const bool fingerprint_only = ( std::string_view( argv[ 2 ] ) == "--fingerprint" );
+
+    if ( fingerprint_only )
+    {
+        options.fingerprint_only = true;
+    }
+    else
+    {
+        options.destination = argv[ 2 ];
+    }
 
     for ( int index = 3; index < argc; ++index )
     {
@@ -51,16 +68,17 @@ int main( int argc, char** argv )
                 return 2;
             }
         }
-        else if ( argument == "--context-length" && index + 1 < argc )
+        else if ( argument == "--fingerprint" )
         {
-            options.context_length = std::atoll( argv[ ++index ] );
-
-            if ( options.context_length <= 0 )
-            {
-                std::cerr << "context-length must be positive\n";
-
-                return 2;
-            }
+            options.fingerprint_only = true;
+        }
+        else if ( argument == "--emit-manifest" )
+        {
+            options.emit_manifest = true;
+        }
+        else if ( argument == "--tokenizer" && index + 1 < argc )
+        {
+            options.tokenizer = argv[ ++index ];
         }
         else
         {

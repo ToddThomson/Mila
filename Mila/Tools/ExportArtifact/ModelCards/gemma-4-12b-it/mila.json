@@ -1,0 +1,15 @@
+{
+  "manifest_version": 1,
+  "architecture": "gemma",
+  "default_variant": "fp4",
+  "variants": {
+    "fp4": {
+      "minimum_mila_version": "0.20.0",
+      "weight_quantization": "per_group_fp4_128",
+      "files": {
+        "weights": { "path": "gemma4_12b_it_fp4.safetensors", "sha256": "d49c6c16dce14a64c5adacb0f165ffa4c15da54b2394723772efa850168a26ec", "bytes": 6799927760 },
+        "tokenizer": { "path": "gemma_tokenizer.bin", "sha256": "2448420a2efe488e86b6555d195f8ebdb25d9ecd3d83526aafe46bba104b6e47", "bytes": 14198878 }
+      }
+    }
+  }
+}

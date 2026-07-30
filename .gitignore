@@ -23,6 +23,13 @@ Data/**/*.exe
 *.bin
 *.safetensors
 
+# Manifests emitted beside an exported artifact. Derived from the bytes by
+# --emit-manifest; the publishable copy is tracked under Tools/ExportArtifact/ModelCards.
+Data/Models/**/mila.json
+
+# Visual Studio scratch directory.
+enc_temp_folder/
+
 # User-specific files
 *.rsuser
 *.suo
