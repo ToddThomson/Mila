@@ -1,6 +1,6 @@
 /**
  * @file ModelResolver.Cpu.cpp
- * @brief Coordinate parsing, manifest validation, version skew and path passthrough.
+ * @brief Coordinate parsing, manifest validation, version skew, and the record a pull leaves.
  *
  * Remote access is injected, so every case runs offline: the manifest is a string this file
  * supplies and the blob fetcher serves bytes from memory. No network in the suite.
@@ -26,11 +26,11 @@ namespace Mila::Tests::Distribution
 
     namespace
     {
-        class ScratchCacheRoot
+        class ScratchStoreRoot
         {
         public:
 
-            ScratchCacheRoot()
+            ScratchStoreRoot()
             {
                 static int counter = 0;
 
@@ -41,7 +41,7 @@ namespace Mila::Tests::Distribution
                 std::filesystem::remove_all( path_, ignored );
             }
 
-            ~ScratchCacheRoot()
+            ~ScratchStoreRoot()
             {
                 std::error_code ignored;
                 std::filesystem::remove_all( path_, ignored );
@@ -86,42 +86,95 @@ namespace Mila::Tests::Distribution
                 sha256Hex( kWeightsPayload.data(), kWeightsPayload.size() ) );
         }
 
-        /// Serves the given manifest, and payloads keyed off the URL's filename.
-        RemoteAccess memoryAccess( std::string manifest, int* manifest_fetches = nullptr )
+        /**
+         * @brief A hub that serves a manifest this file supplies and payloads from memory.
+         *
+         * The point of IModelHub being an interface rather than a set of callbacks: the whole
+         * resolver suite runs with no network and no URL, and a case that would be awkward to
+         * provoke against a live endpoint is a one-line override here.
+         */
+        class FakeHub : public IModelHub
         {
-            RemoteAccess access;
+        public:
 
-            access.fetch_text = [manifest = std::move( manifest ), manifest_fetches](
-                const std::string& url ) -> std::string
+            explicit FakeHub( std::string manifest )
+                : manifest_( std::move( manifest ) )
+            {}
+
+            std::string name() const override { return "fake"; }
+
+            std::vector<HubModel> listModels( const std::string& ) const override { return {}; }
+
+            std::string fetchManifest( const ModelCoordinate& ) const override
+            {
+                ++manifest_fetches;
+
+                return manifest_;
+            }
+
+            FetchReport fetchFile(
+                const ModelCoordinate&,
+                const std::string& path,
+                uint64_t resume_from,
+                const std::function<bool( const char*, size_t )>& sink ) const override
+            {
+                ++file_fetches;
+
+                if ( fail_files )
                 {
-                    if ( url.ends_with( "mila.json" ) )
-                    {
-                        if ( manifest_fetches != nullptr )
-                        {
-                            ++( *manifest_fetches );
-                        }
+                    return { FetchOutcome::Failed, "connection reset" };
+                }
 
-                        return manifest;
-                    }
+                const std::string& payload =
+                    path.ends_with( "tokenizer.bin" ) ? kTokenizerPayload : kWeightsPayload;
 
-                    throw std::runtime_error( "unexpected text fetch: " + url );
-                };
+                const std::string remainder =
+                    payload.substr( static_cast<size_t>( resume_from ) );
 
-            access.fetch_blob = []( const std::string& url, uint64_t resume_from,
-                const std::function<bool( const char*, size_t )>& sink ) -> FetchReport
-                {
-                    const std::string& payload = url.ends_with( "tokenizer.bin" )
-                        ? kTokenizerPayload
-                        : kWeightsPayload;
+                sink( remainder.data(), remainder.size() );
 
-                    const std::string remainder = payload.substr( static_cast<size_t>( resume_from ) );
-                    sink( remainder.data(), remainder.size() );
+                return { FetchOutcome::Complete, {} };
+            }
 
-                    return { FetchOutcome::Complete, {} };
-                };
+            mutable int manifest_fetches{ 0 };
+            mutable int file_fetches{ 0 };
+            bool fail_files{ false };
 
-            return access;
-        }
+        private:
+
+            std::string manifest_;
+        };
+
+        /// A hub that fails the test if it is touched at all.
+        class ExplodingHub : public IModelHub
+        {
+        public:
+
+            std::string name() const override { return "exploding"; }
+
+            std::vector<HubModel> listModels( const std::string& ) const override
+            {
+                ADD_FAILURE() << "resolver listed a hub it should not have reached";
+
+                return {};
+            }
+
+            std::string fetchManifest( const ModelCoordinate& coordinate ) const override
+            {
+                ADD_FAILURE() << "resolver reached the hub for " << coordinate.toString();
+
+                return {};
+            }
+
+            FetchReport fetchFile(
+                const ModelCoordinate&, const std::string&, uint64_t,
+                const std::function<bool( const char*, size_t )>& ) const override
+            {
+                ADD_FAILURE() << "resolver fetched a file it should not have";
+
+                return { FetchOutcome::Failed, {} };
+            }
+        };
     }
 
     // ================================================================
@@ -173,29 +226,16 @@ namespace Mila::Tests::Distribution
     }
 
     // ================================================================
-    // Local path passthrough
+    // A path is an input to installation, never to loading
     // ================================================================
 
-    TEST( ModelResolverTests, ReturnsAnExistingPathWithoutTouchingTheNetwork )
+    TEST( ModelResolverTests, RefusesAPathAndSaysWhy )
     {
-        ScratchCacheRoot scratch;
-        ModelCache cache( scratch.path() );
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
 
-        // A local file must not be re-downloaded. Any remote call here is a failure.
-        RemoteAccess exploding;
-        exploding.fetch_text = []( const std::string& url ) -> std::string
-            {
-                ADD_FAILURE() << "resolver reached the network for a local path: " << url;
-
-                return {};
-            };
-        exploding.fetch_blob = []( const std::string&, uint64_t,
-            const std::function<bool( const char*, size_t )>& ) -> FetchReport
-            {
-                ADD_FAILURE() << "resolver fetched a blob for a local path";
-
-                return { FetchOutcome::Failed, {} };
-            };
+        // A path must not reach the hub either. Any remote call here is a failure.
+        const ExplodingHub exploding;
 
         const auto local = scratch.path() / "already_have_this.safetensors";
         std::filesystem::create_directories( local.parent_path() );
@@ -206,81 +246,142 @@ namespace Mila::Tests::Distribution
             std::fwrite( "x", 1, 1, file.get() );
         }
 
-        ModelResolver resolver( cache, exploding );
-        const auto resolved = resolver.resolve( local.string() );
+        ModelResolver resolver( store, exploding );
 
-        EXPECT_TRUE( resolved.from_local_path );
-        EXPECT_EQ( resolved.weights_path, local );
-        EXPECT_TRUE( resolved.tokenizer_path.empty() );
+        try
+        {
+            resolver.pull( local.string() );
+            FAIL() << "expected a throw";
+        }
+        catch ( const std::runtime_error& error )
+        {
+            // An existing file is a different mistake from a typo, and the message has to
+            // name the operation that does take a path rather than say "not a coordinate".
+            const std::string message = error.what();
+
+            EXPECT_NE( message.find( "install" ), std::string::npos ) << message;
+        }
     }
 
-    TEST( ModelResolverTests, RefusesASpecThatIsNeitherPathNorCoordinate )
+    TEST( ModelResolverTests, RefusesASpecThatIsNotACoordinate )
     {
-        ScratchCacheRoot scratch;
-        ModelCache cache( scratch.path() );
-        ModelResolver resolver( cache, memoryAccess( manifestJson() ) );
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+        const FakeHub hub( manifestJson() );
+        ModelResolver resolver( store, hub );
 
-        EXPECT_THROW( resolver.resolve( "not/a/real/thing.safetensors" ), std::runtime_error );
+        EXPECT_THROW( resolver.pull( "not/a/real/thing.safetensors" ), std::runtime_error );
     }
 
     // ================================================================
     // Coordinate resolution
     // ================================================================
 
-    TEST( ModelResolverTests, ResolvesACoordinateAndCachesBothFiles )
+    TEST( ModelResolverTests, PullsACoordinateAndStoresBothFiles )
     {
-        ScratchCacheRoot scratch;
-        ModelCache cache( scratch.path() );
-        ModelResolver resolver( cache, memoryAccess( manifestJson() ) );
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+        const FakeHub hub( manifestJson() );
+        ModelResolver resolver( store, hub );
 
-        const auto resolved = resolver.resolve( "mila-llm/gemma-4-12b-it:fp4" );
+        const auto pulled = resolver.pull( "mila-llm/gemma-4-12b-it:fp4" );
 
-        EXPECT_FALSE( resolved.from_local_path );
-        EXPECT_EQ( resolved.variant, "fp4" );
-        EXPECT_EQ( resolved.architecture, "gemma" );
-        EXPECT_EQ( resolved.weight_quantization, "per_group_fp4_128" );
+        EXPECT_EQ( pulled.record.variant, "fp4" );
+        EXPECT_EQ( pulled.record.architecture, "gemma" );
+        EXPECT_EQ( pulled.record.weight_quantization, "per_group_fp4_128" );
+        EXPECT_TRUE( pulled.complete );
 
-        EXPECT_TRUE( std::filesystem::exists( resolved.weights_path ) );
-        EXPECT_TRUE( std::filesystem::exists( resolved.tokenizer_path ) );
+        EXPECT_TRUE( std::filesystem::exists( pulled.weights_path ) );
+        EXPECT_TRUE( std::filesystem::exists( pulled.tokenizer_path ) );
 
         // Content-addressed: the filename is the digest, not the repository path.
-        EXPECT_EQ( resolved.weights_path,
-            cache.blobPath( sha256Hex( kWeightsPayload.data(), kWeightsPayload.size() ) ) );
+        EXPECT_EQ( pulled.weights_path,
+            store.blobPath( sha256Hex( kWeightsPayload.data(), kWeightsPayload.size() ) ) );
+    }
+
+    TEST( ModelResolverTests, APullLeavesARecordThatSurvivesTheResolver )
+    {
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        const FakeHub hub( manifestJson() );
+
+        {
+            ModelResolver resolver( store, hub );
+            resolver.pull( "mila-llm/gemma-4-12b-it:fp4" );
+        }
+
+        // The record is the whole point: pull and load are separate verbs, in separate
+        // processes, so what the hub knew has to outlive the object that fetched it.
+        const auto located = store.locate( "mila-llm", "gemma-4-12b-it", "fp4" );
+
+        ASSERT_TRUE( located.has_value() );
+        EXPECT_EQ( located->record.architecture, "gemma" );
+        EXPECT_EQ( located->record.revision, "main" );
+
+        // Against the hub's own name, not a literal: a record has to say which hub served it,
+        // and a second hub that forgot to identify itself has to fail here rather than pass
+        // because the only implementation happened to be HuggingFace.
+        EXPECT_EQ( located->record.hub, hub.name() );
+        EXPECT_TRUE( std::filesystem::exists( located->weights_path ) );
+
+        ASSERT_EQ( store.list().size(), 1u );
+    }
+
+    TEST( ModelResolverTests, AFailedPullLeavesNoRecord )
+    {
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        FakeHub failing( manifestJson() );
+        failing.fail_files = true;
+
+        ModelResolver resolver( store, failing );
+
+        EXPECT_THROW( resolver.pull( "mila-llm/gemma-4-12b-it:fp4" ), std::runtime_error );
+
+        // A record naming a blob that never arrived would make a broken model look installed.
+        EXPECT_TRUE( store.list().empty() );
+        EXPECT_FALSE( store.locate( "mila-llm", "gemma-4-12b-it", "fp4" ).has_value() );
     }
 
     TEST( ModelResolverTests, UsesTheDefaultVariantWhenNoneIsGiven )
     {
-        ScratchCacheRoot scratch;
-        ModelCache cache( scratch.path() );
-        ModelResolver resolver( cache, memoryAccess( manifestJson() ) );
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+        const FakeHub hub( manifestJson() );
+        ModelResolver resolver( store, hub );
 
-        const auto resolved = resolver.resolve( "mila-llm/gemma-4-12b-it" );
+        const auto pulled = resolver.pull( "mila-llm/gemma-4-12b-it" );
 
-        EXPECT_EQ( resolved.variant, "fp4" );
+        EXPECT_EQ( pulled.record.variant, "fp4" );
     }
 
-    TEST( ModelResolverTests, ResolvesAVariantWithNoTokenizer )
+    TEST( ModelResolverTests, PullsAVariantWithNoTokenizer )
     {
-        ScratchCacheRoot scratch;
-        ModelCache cache( scratch.path() );
-        ModelResolver resolver( cache, memoryAccess( manifestJson() ) );
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+        const FakeHub hub( manifestJson() );
+        ModelResolver resolver( store, hub );
 
-        const auto resolved = resolver.resolve( "mila-llm/gemma-4-12b-it:fp8" );
+        const auto pulled = resolver.pull( "mila-llm/gemma-4-12b-it:fp8" );
 
-        EXPECT_EQ( resolved.variant, "fp8" );
-        EXPECT_TRUE( std::filesystem::exists( resolved.weights_path ) );
-        EXPECT_TRUE( resolved.tokenizer_path.empty() );
+        EXPECT_EQ( pulled.record.variant, "fp8" );
+        EXPECT_TRUE( pulled.complete );
+        EXPECT_TRUE( std::filesystem::exists( pulled.weights_path ) );
+        EXPECT_TRUE( pulled.tokenizer_path.empty() );
     }
 
     TEST( ModelResolverTests, NamesTheAvailableVariantsWhenOneIsMissing )
     {
-        ScratchCacheRoot scratch;
-        ModelCache cache( scratch.path() );
-        ModelResolver resolver( cache, memoryAccess( manifestJson() ) );
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+        const FakeHub hub( manifestJson() );
+        ModelResolver resolver( store, hub );
 
         try
         {
-            resolver.resolve( "mila-llm/gemma-4-12b-it:int2" );
+            resolver.pull( "mila-llm/gemma-4-12b-it:int2" );
             FAIL() << "expected a throw";
         }
         catch ( const std::runtime_error& error )
@@ -296,46 +397,66 @@ namespace Mila::Tests::Distribution
 
     TEST( ModelResolverTests, RefusesAnArtifactRequiringANewerMila )
     {
-        ScratchCacheRoot scratch;
-        ModelCache cache( scratch.path() );
-        ModelResolver resolver( cache, memoryAccess( manifestJson( "99.0.0" ) ) );
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+        const FakeHub hub( manifestJson( "99.0.0" ) );
+        ModelResolver resolver( store, hub );
 
         // Better a version comparison than a parse error deep inside the tensor index, which
         // is what a future format change would otherwise look like.
-        EXPECT_THROW( resolver.resolve( "mila-llm/gemma-4-12b-it:fp4" ), std::runtime_error );
+        EXPECT_THROW( resolver.pull( "mila-llm/gemma-4-12b-it:fp4" ), std::runtime_error );
     }
 
     TEST( ModelResolverTests, RejectsAMalformedManifest )
     {
-        ScratchCacheRoot scratch;
-        ModelCache cache( scratch.path() );
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
 
-        ModelResolver not_json( cache, memoryAccess( "this is not json" ) );
-        EXPECT_THROW( not_json.resolve( "mila-llm/gemma-4-12b-it:fp4" ), std::runtime_error );
+        const FakeHub not_json_hub( "this is not json" );
+        ModelResolver not_json( store, not_json_hub );
+        EXPECT_THROW( not_json.pull( "mila-llm/gemma-4-12b-it:fp4" ), std::runtime_error );
 
-        ModelResolver no_variants( cache, memoryAccess( R"({"architecture":"gemma"})" ) );
-        EXPECT_THROW( no_variants.resolve( "mila-llm/gemma-4-12b-it:fp4" ), std::runtime_error );
+        const FakeHub no_variants_hub( R"({"architecture":"gemma"})" );
+        ModelResolver no_variants( store, no_variants_hub );
+        EXPECT_THROW( no_variants.pull( "mila-llm/gemma-4-12b-it:fp4" ), std::runtime_error );
 
-        ModelResolver no_digest( cache, memoryAccess(
-            R"({"variants":{"fp4":{"files":{"weights":{"path":"m.safetensors"}}}}})" ) );
-        EXPECT_THROW( no_digest.resolve( "mila-llm/gemma-4-12b-it:fp4" ), std::runtime_error );
+        const FakeHub no_digest_hub(
+            R"({"variants":{"fp4":{"files":{"weights":{"path":"m.safetensors"}}}}})" );
+        ModelResolver no_digest( store, no_digest_hub );
+        EXPECT_THROW( no_digest.pull( "mila-llm/gemma-4-12b-it:fp4" ), std::runtime_error );
     }
 
-    TEST( ModelResolverTests, SecondResolutionReusesTheCachedBlobs )
+    TEST( ModelResolverTests, SecondPullReusesTheStoredBlobs )
     {
-        ScratchCacheRoot scratch;
-        ModelCache cache( scratch.path() );
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
 
-        int manifest_fetches = 0;
-        ModelResolver resolver( cache, memoryAccess( manifestJson(), &manifest_fetches ) );
+        const FakeHub hub( manifestJson() );
+        ModelResolver resolver( store, hub );
 
-        const auto first = resolver.resolve( "mila-llm/gemma-4-12b-it:fp4" );
-        const auto second = resolver.resolve( "mila-llm/gemma-4-12b-it:fp4" );
+        const auto first = resolver.pull( "mila-llm/gemma-4-12b-it:fp4" );
+        const auto second = resolver.pull( "mila-llm/gemma-4-12b-it:fp4" );
 
         EXPECT_EQ( first.weights_path, second.weights_path );
 
         // The manifest is still fetched each time -- an open decision in the spec. The blobs
-        // are not, which is the part that matters at 6.33 GB.
-        EXPECT_EQ( manifest_fetches, 2 );
+        // are not, which is the part that matters at 6.33 GB: two files on the first pull,
+        // none on the second.
+        EXPECT_EQ( hub.manifest_fetches, 2 );
+        EXPECT_EQ( hub.file_fetches, 2 );
+    }
+
+    TEST( ModelResolverTests, RefusesToPullAModelBuiltHere )
+    {
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        // The reserved owner names a model no hub serves, so this is a mistake worth naming
+        // rather than a 404 from a repository called "local".
+        const ExplodingHub exploding;
+        ModelResolver resolver( store, exploding );
+
+        EXPECT_THROW(
+            resolver.pull( "local/my-model:bf16" ), std::runtime_error );
     }
 }

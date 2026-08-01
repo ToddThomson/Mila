@@ -155,16 +155,10 @@ static ChatConfig buildConfig( int argc, char* argv[] )
     config.streaming_capable = entry->streaming_capable;
     config.models_dir     = models_dir;
 
-    {
-        const auto paths = resolveEntryPaths( *entry, models_dir );
-
-        config.model_path     = paths.weights;
-        config.tokenizer_path = paths.tokenizer;
-    }
-
     config.config_path    = config_path;
 
-    // Quantization: explicit config override, else the model's own default.
+    // Quantization: explicit config override, else the model's own default. Settled before the
+    // model is resolved, because for a coordinate entry the quantization *is* the variant.
     config.quantization_mode = entry->default_quantization;
 
     if ( j.contains( "quantization" ) && j[ "quantization" ].is_string() )
@@ -177,6 +171,13 @@ static ChatConfig buildConfig( int argc, char* argv[] )
                 "Unknown quantization '{}'. Use none, fp8, or fp4.", value ) );
 
         config.quantization_mode = *parsed;
+    }
+
+    {
+        const auto paths = resolveEntryPaths( *entry, models_dir, config.quantization_mode );
+
+        config.model_path     = paths.weights;
+        config.tokenizer_path = paths.tokenizer;
     }
 
     // Context length: explicit override, else the model's own default.

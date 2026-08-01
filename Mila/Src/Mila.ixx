@@ -287,12 +287,16 @@ export import Serialization.SafeTensors;
 export import Serialization.PretrainedReader;
 
 // ============================================================================
-// Distribution - model retrieval (MILA_ENABLE_MODEL_DOWNLOAD)
+// Distribution - the local store, always present; the hub is gated
 // ============================================================================
-#ifdef MILA_HAS_MODEL_DOWNLOAD
 export import Distribution.Sha256;
-export import Distribution.ModelCache;
+export import Distribution.Environment;
+export import Distribution.ModelCoordinate;
+export import Distribution.ModelStore;
+
+#ifdef MILA_HAS_MODEL_DOWNLOAD
 export import Distribution.HttpClient;
+export import Distribution.ModelHub;
 export import Distribution.ModelResolver;
 #endif
 

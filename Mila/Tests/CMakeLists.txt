@@ -156,13 +156,18 @@ add_executable( MilaTests
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
 )
 
-# Model-distribution tests. Compiled only when the feature is on, since the modules
-# under test do not exist otherwise. The cache takes its fetcher as a callable, so
-# these run offline -- no network in the suite.
+# The local store is always present, so its tests always compile. The store takes its
+# fetcher as a callable, so these run offline -- no network in the suite.
+target_sources( MilaTests PRIVATE
+    "Distribution/ModelStore.Cpu.cpp"
+)
+
+# Hub tests. Compiled only when the feature is on, since the modules under test do not
+# exist otherwise. Remote access is injected, so these run offline too.
 if(MILA_ENABLE_MODEL_DOWNLOAD)
     target_sources( MilaTests PRIVATE
         "Distribution/HttpClient.Cpu.cpp"
-        "Distribution/ModelCache.Cpu.cpp"
+        "Distribution/ModelHub.Cpu.cpp"
         "Distribution/ModelResolver.Cpu.cpp"
     )
 endif()
@@ -255,6 +260,15 @@ target_compile_definitions( MilaTests PRIVATE TEST_DATA_DIR="${MILA_DATA_DIR}" )
 target_include_directories( MilaTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" )
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+  # Test translation units cannot use <fstream>: MSVC C++23 raises C2079 on
+  # basic_istream::sentry when stream I/O meets `import Mila;` in a .cpp, so the four test
+  # files doing file I/O are on std::fopen by necessity rather than by choice. The library
+  # itself needs no such exemption -- its module units use <fstream>. Revisit when the
+  # C2079 defect is fixed; the test files can then follow.
+  target_compile_definitions( MilaTests PRIVATE _CRT_SECURE_NO_WARNINGS )
+endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   target_compile_options(MilaTests PRIVATE

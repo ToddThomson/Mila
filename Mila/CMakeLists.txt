@@ -83,10 +83,11 @@ target_include_directories( Mila
 )
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-  target_compile_options(Mila PRIVATE 
+  target_compile_options(Mila PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:/std:c++latest /permissive- /Zc:preprocessor /W4>
     $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>
   )
+
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   target_compile_options(Mila PRIVATE 
     $<$<COMPILE_LANGUAGE:CXX>:-fmodules-ts -std=c++23>
@@ -793,21 +794,38 @@ if(MILA_HAS_METAL)
 endif()
 
 # ----------------------------------------------------------------------------
-# Model distribution (HuggingFace retrieval)
+# Model distribution -- the local store
 #
-# Gated so a consumer that only loads from disk takes no network dependency, and so
-# the manylinux wheel can build without libcurl/libssl, which are not whitelisted
-# there. Local-path loading is unaffected either way -- the resolver accepts a path
-# or a coordinate. See Specifications/ModelDistribution.md.
+# Always compiled. The store is the only thing a load reads from, and listing,
+# locating and removing an installed model touch no network -- so a build without
+# the hub, including the manylinux wheel that cannot link libcurl, still manages
+# its models. See Specifications/ModelDistribution.md.
+# ----------------------------------------------------------------------------
+target_sources(Mila
+    PUBLIC
+        FILE_SET module_files
+        TYPE CXX_MODULES FILES
+            "Src/Distribution/Sha256.ixx"
+            "Src/Distribution/Environment.ixx"
+            "Src/Distribution/ModelCoordinate.ixx"
+            "Src/Distribution/ModelStore.ixx"
+)
+
+# ----------------------------------------------------------------------------
+# Model distribution -- the hub (HuggingFace retrieval)
+#
+# Gated so a consumer that only loads from the store takes no network dependency,
+# and so the manylinux wheel can build without libcurl/libssl, which are not
+# whitelisted there. That wheel installs into the same store through Python's
+# huggingface_hub instead.
 # ----------------------------------------------------------------------------
 if(MILA_ENABLE_MODEL_DOWNLOAD)
     target_sources(Mila
         PUBLIC
             FILE_SET module_files
             TYPE CXX_MODULES FILES
-                "Src/Distribution/Sha256.ixx"
-                "Src/Distribution/ModelCache.ixx"
                 "Src/Distribution/HttpClient.ixx"
+                "Src/Distribution/ModelHub.ixx"
                 "Src/Distribution/ModelResolver.ixx"
     )
 
@@ -817,7 +835,7 @@ if(MILA_ENABLE_MODEL_DOWNLOAD)
 
     target_compile_definitions(Mila PUBLIC MILA_HAS_MODEL_DOWNLOAD)
 
-    message(STATUS "Added model distribution modules (libcurl)")
+    message(STATUS "Added model distribution hub modules (libcurl)")
 endif()
 
 # ----------------------------------------------------------------------------

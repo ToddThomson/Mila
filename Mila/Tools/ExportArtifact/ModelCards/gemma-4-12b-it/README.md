@@ -28,20 +28,25 @@ load, so a Mila session starts near-instantly rather than quantizing 12 billion 
 ## Use
 
 ```
-/model gemma-12b-hub
+/pull mila-llm/gemma-4-12b-it:fp4
+/model gemma-12b
 ```
 
-Mila's resolver fetches this repository on first use into a content-addressed cache, verifies
-each file against the digest in `mila.json`, and reuses it afterwards. Nothing needs to be
-downloaded by hand.
+Mila pulls this repository on first use into a content-addressed local store, verifies each
+file against the digest in `mila.json`, and loads from the store afterwards. Nothing needs to
+be downloaded by hand.
 
 From the library:
 
 ```cpp
-ModelCache cache;
-ModelResolver resolver( cache, makeHuggingFaceRemoteAccess() );
+ModelStore store;
 
-const auto model = resolver.resolve( "mila-llm/gemma-4-12b-it:fp4" );
+// Pull once. This is the only step that touches the network.
+ModelResolver resolver( store, makeHuggingFaceRemoteAccess() );
+resolver.pull( "mila-llm/gemma-4-12b-it:fp4" );
+
+// Load from the store thereafter -- no network, and no manifest fetch.
+const auto model = store.locate( "mila-llm", "gemma-4-12b-it", "fp4" );
 ```
 
 No token is required — this repository is public and ungated.

@@ -290,6 +290,104 @@ namespace Mila::ChatApp
                         continue;
                     }
 
+                    if ( cmd == "models" || cmd.starts_with( "models " ) )
+                    {
+                        const std::vector<std::string_view> args =
+                            cmd == "models" ? std::vector<std::string_view>{}
+                                            : splitWhitespace( cmd.substr( 7 ) );
+
+                        try
+                        {
+                            // Installed is the default because it is the offline, instant
+                            // answer, and because it is the only one that says what can
+                            // actually be loaded.
+                            const auto lines = args.empty()
+                                ? describeInstalledModels()
+                                : describeHubModels( std::string( args.front() ) );
+
+                            for ( const auto& line : lines )
+                            {
+                                renderer_.printInfo( line );
+                            }
+
+                            if ( args.empty() )
+                            {
+                                renderer_.printInfo(
+                                    "  /models <owner> lists what a hub publishes, e.g. /models mila-llm" );
+                            }
+                        }
+                        catch ( const std::exception& error )
+                        {
+                            renderer_.printInfo( std::format( "Could not list models: {}", error.what() ) );
+                        }
+
+                        continue;
+                    }
+
+                    if ( cmd.starts_with( "pull " ) )
+                    {
+                        const std::vector<std::string_view> args = splitWhitespace( cmd.substr( 5 ) );
+
+                        if ( args.size() != 1 )
+                        {
+                            renderer_.printInfo( "Usage: /pull <owner>/<repository>[:<variant>]" );
+                            continue;
+                        }
+
+                        try
+                        {
+                            for ( const auto& line : pullModel( std::string( args.front() ) ) )
+                            {
+                                renderer_.printInfo( line );
+                            }
+                        }
+                        catch ( const std::exception& error )
+                        {
+                            // A failed pull must leave the session on its working model, so
+                            // this reports and returns to the prompt rather than propagating.
+                            renderer_.printInfo( std::format( "Pull failed: {}", error.what() ) );
+                        }
+
+                        continue;
+                    }
+
+                    if ( cmd == "pull" )
+                    {
+                        renderer_.printInfo( "Usage: /pull <owner>/<repository>[:<variant>]" );
+                        continue;
+                    }
+
+                    if ( cmd.starts_with( "rm " ) )
+                    {
+                        const std::vector<std::string_view> args = splitWhitespace( cmd.substr( 3 ) );
+
+                        if ( args.size() != 1 )
+                        {
+                            renderer_.printInfo( "Usage: /rm <owner>/<repository>[:<variant>]" );
+                            continue;
+                        }
+
+                        try
+                        {
+                            for ( const auto& line : removeModel( std::string( args.front() ) ) )
+                            {
+                                renderer_.printInfo( line );
+                            }
+                        }
+                        catch ( const std::exception& error )
+                        {
+                            renderer_.printInfo( std::format( "Remove failed: {}", error.what() ) );
+                        }
+
+                        continue;
+                    }
+
+                    if ( cmd == "rm" )
+                    {
+                        renderer_.printInfo( "Usage: /rm <owner>/<repository>[:<variant>]" );
+                        continue;
+                    }
+
                     renderer_.printInfo( std::format(
                         "Unknown command: {}. Type /help for available commands.", user_input ) );
                     continue;
@@ -1099,7 +1197,7 @@ namespace Mila::ChatApp
             // May fetch from HuggingFace on a coordinate entry, and prints progress while it
             // does. Resolution happens before the current model is released so a failed
             // download leaves the session on its working model.
-            const auto paths = resolveEntryPaths( entry, config_.models_dir );
+            const auto paths = resolveEntryPaths( entry, config_.models_dir, quant );
 
             config_.model_path        = paths.weights;
             config_.tokenizer_path    = paths.tokenizer;
@@ -1471,6 +1569,10 @@ Available commands:
   /clear                             Clear conversation history
   /model                             Show current model and quantization
   /model <alias> [quant] [thinking]  Switch model (clears history)
+  /models                            List installed models and what they cost on disk
+  /models <owner>                    List what a hub publishes, e.g. /models mila-llm
+  /pull <owner>/<repo>[:<variant>]   Download a published model into the local store
+  /rm <owner>/<repo>[:<variant>]     Remove an installed model and reclaim its blobs
   /effort [1-5]                      Show or set the thinking token-budget level
   /verbose [off|thoughts|all]        Show or set display detail (reasoning, raw + logs)
   /stats                             Show per-round timing for the last turn

@@ -1,38 +1,50 @@
 # Model Distribution
 
-How a Mila model gets from a HuggingFace repository onto a machine and into a loader: the coordinate
-that names it, the cache that holds it, and the HTTP client that fetches it.
+How a Mila model is named, packaged, published, stored and loaded. One manifest describes every
+model, whether it was fetched from a hub or built on the machine that loads it.
 
-Scoped 2026-07-29, after [ModelSerialization.md](ModelSerialization.md) Phase 7 made a 6.33 GB
-pre-quantized safetensors artifact the thing worth distributing.
+Scoped 2026-07-29 after [ModelSerialization.md](ModelSerialization.md) Phase 7 made a pre-quantized
+safetensors artifact the thing worth distributing. Rewritten 2026-08-01, when distribution moved into
+the v0.20 release: the manifest became the only way a model is described, `.bin` stopped being a
+distributed form, and publishing joined retrieval.
 
 ---
 
 ## Why
 
-`fromPretrained()` takes a filesystem path, so using a model means already having the file. The
-converter path is the only way to get one, and it needs PyTorch, 23.8 GB of source weights, and a
-conversion run. That is the right workflow for adding a model family and the wrong one for using a
-model Mila already publishes.
+`fromPretrained()` takes a filesystem path, so using a model means already having the file, and the
+converter is the only way to get one -- PyTorch, 23.8 GB of source weights, and a conversion run. That
+is the right workflow for adding a model family and the wrong one for using a model Mila already
+publishes.
 
-Phase 7 changed what is worth shipping: 6.33 GB, one file, format the ecosystem reads. The remaining
-gap is retrieval.
+The second problem is that a path says nothing. A file named `gemma4_12b_it_fp4.safetensors` carries
+its architecture and quantization inside it, but nothing outside the file knows what it is, what it
+needs, or where it came from. Every consumer -- the chat catalog, the inference server, a user with a
+directory of files -- reinvents that knowledge as a hardcoded table.
+
+One manifest for every model closes both. A model is a described thing with a name, and retrieval,
+listing, removal and publishing are operations on described things.
 
 ---
 
 ## Goals and non-goals
 
-**Goals.** Name a published model with one string. Fetch it once, verify it, reuse it. Keep local
-files working exactly as they do today. Support gated repositories, because Llama is gated.
+**Goals.** Name any model with one string. Describe every model with one manifest, whatever its
+origin. Fetch a published model once, verify it, reuse it. Let a user publish a model they built,
+locally or to a hub. Make the store inspectable: what is installed, how much disk it costs, and how
+to remove it.
 
 **Non-goals, and they are firm:**
 
-- **Mila does not run a registry.** HuggingFace is the registry. The `mila-llm` organization on the
-  ToddThomson account is the namespace.
+- **Mila does not run a registry.** A hub is somebody else's service. The `mila-llm` organization on
+  HuggingFace is the namespace Mila publishes into.
+- **Mila does not upload.** Nothing in the library writes to a remote. Publishing to a hub is
+  packaging in the library plus an upload performed by external tooling. See
+  [Publishing](#publishing).
 - **Mila does not read another tool's cache.** Not ollama's content-addressed store, not LM Studio's
   repo mirror. Interoperating with either is out of scope permanently.
-- **Mila does not upload.** Publishing is a human action through HuggingFace's own tooling. Nothing in
-  the library writes to a remote.
+- **Loading never downloads.** See [The load boundary](#the-load-boundary). This is the constraint
+  that keeps a multi-gigabyte transfer out of a chat prompt and out of an inference request.
 - **No model assets in the `mila-llm` wheel.** A 6.33 GB wheel is unshippable and the decision is
   settled; see [PythonBinding.md](PythonBinding.md).
 
@@ -40,27 +52,43 @@ files working exactly as they do today. Support gated repositories, because Llam
 
 ## The coordinate
 
+Every model is named the same way, whether it lives on a hub or was built locally:
+
 ```
-<organization>/<repository>:<variant>
+[<hub>:]<owner>/<repository>[:<variant>][@<revision>]
 ```
 
-For example `mila-llm/gemma-4-12b-it:fp4`. Variant is separate from repository because variants share
-components: FP4, FP8 and BF16 of one model share a 14 MB tokenizer, and a flat
-`<repository>-<variant>` name makes that sharing invisible.
+```
+hf:mila-llm/gemma-4-12b-it:fp4      explicit hub
+mila-llm/gemma-4-12b-it:fp4         hub defaulted
+mila-llm/gemma-4-12b-it             variant defaulted from the manifest
+local/llama-3.2-3b-instruct:bf16    built on this machine
+```
 
-An optional `hf:` prefix forces coordinate interpretation. A bare `<organization>/<repository>` with
-no variant resolves to the manifest's declared default.
+**Variant is separate from repository** because variants share components: the FP4, FP8 and BF16
+builds of one model share a 14 MB tokenizer, and a flat `<repository>-<variant>` name makes that
+sharing invisible.
 
-**Local paths stay first-class.** A spec that names an existing file is used as-is, with no network
-access and no cache involvement. This is the lesson from ollama, whose content-addressed store cannot
-consume a file the user already has. Mila's resolver takes a path or a coordinate, and the model
-catalog holds either.
+**`local` is a reserved owner** naming a model that was converted, trained or exported on this
+machine. It never carries a hub scheme, and it is what makes a family Mila cannot republish -- Llama,
+whose license propagates and whose source Meta gates -- a first-class model rather than a special
+case. See [Licensing per family](#licensing-per-family).
+
+**Parsing.** A `:` occurring before the first `/` is the hub scheme; a `:` after it opens the variant.
+`@` splits the revision from the right. Owner, repository and variant admit only the characters
+HuggingFace permits in a namespace: alphanumerics, `.`, `_`, `-`.
+
+**A path is an input to installation, never to loading.** A file on disk is installed once and becomes
+a store model like any other; nothing resolves an arbitrary path into a load. A user who already has
+the file is still not made to re-download it -- that is the failure ollama's content-addressed store
+has, and Mila does not repeat it -- but the answer is one install, not a permanent second way to load.
+See [Manifest provenance](#manifest-provenance).
 
 ---
 
-## The repository manifest
+## The manifest
 
-Each published repository carries `mila.json` at its root:
+One schema, at `mila.json` in a hub repository and at `<variant>.json` in the local store.
 
 ```json
 {
@@ -72,34 +100,65 @@ Each published repository carries `mila.json` at its root:
       "minimum_mila_version": "0.20.0",
       "weight_quantization": "per_group_fp4_128",
       "files": {
-        "weights":   { "path": "gemma4_12b_it_fp4.safetensors", "sha256": "d49c…", "bytes": 6799927760 },
-        "tokenizer": { "path": "gemma_tokenizer.bin",           "sha256": "…",     "bytes": 14198878 }
+        "weights":   { "path": "gemma4_12b_it_fp4.safetensors", "sha256": "d49c...", "bytes": 6799927760 },
+        "tokenizer": { "path": "gemma_tokenizer.bin",           "sha256": "2448...", "bytes": 14198878 }
       }
     }
   }
 }
 ```
 
-HuggingFace's own API already reports file listings and LFS digests, so a manifest is not needed to
-discover *what is there*. It is needed for what the API cannot know: which files compose a loadable
-model, which variant a caller means, what quantization the bytes carry, and the oldest Mila that can
-read them. One small GET buys all of that and makes the repository self-describing.
+A hub's own API already reports file listings and digests, so a manifest is not needed to discover
+*what is there*. It is needed for what the API cannot know: which files compose a loadable model,
+which variant a caller means, what quantization the bytes carry, and the oldest Mila that can read
+them. One small GET buys all of that and makes a repository self-describing.
 
 `minimum_mila_version` is the version-skew guard. A newer artifact loaded by an older Mila fails with
 a version comparison rather than a parse error somewhere inside the tensor index.
 
+A record in the local store carries one additional block, written by the store and never published:
+
+```json
+"installed": {
+  "hub": "huggingface",
+  "revision": "9c1e4f2a...",
+  "installed_at": "2026-08-01T14:22:07Z"
+}
+```
+
+`revision` is the *resolved* commit, not the ref that was asked for. A record installed from `main`
+names the commit `main` pointed at, so `list` reports what is actually on disk.
+
+### Manifest provenance
+
+Every model has a manifest. Three things produce one:
+
+| Provenance | Source | Role |
+|---|---|---|
+| **Fetched** | `mila.json` at the hub repository root | Written into the store on pull |
+| **Stored** | `models/<owner>/<repository>/<variant>.json` | What `list`, `locate` and `describe` read |
+| **Synthesized** | The artifact's own `__metadata__` | Describes a loose file so it can be installed |
+
+Synthesis is what lets a file be installed without anyone authoring JSON. A Mila safetensors artifact
+already carries `mila_config` and `mila_quantization` in its `__metadata__`
+(`Serialization.SafeTensors`), so architecture and quantization come out of the file itself. A
+synthesized manifest is an input to `install`, not a substitute for one: once installed the model has
+a stored record, and that record is what every later operation reads.
+
+The consequence worth stating plainly: **one description, one place.** Every consumer sees the same
+shape from the same source, and no workflow gains a JSON-authoring step it did not have before.
+
 ---
 
-## The cache
+## The local store
 
-Content-addressed, which is the one thing worth taking from ollama's design. The digest arrives with
-the manifest and HuggingFace serves it as the ETag on LFS files, so it costs nothing to key on.
+One store holds every managed model, whatever its origin.
 
 ```
-<cache-root>/
-  manifests/<organization>/<repository>/<variant>.json   resolved manifest as fetched
-  blobs/sha256-<hex>                                     the files themselves
-  tmp/<unique>                                           in-flight downloads only
+<store-root>/
+  models/<owner>/<repository>/<variant>.json    the records -- this is the index
+  blobs/sha256-<hex>                            the content
+  tmp/                                          in-flight transfers and locks only
 ```
 
 Root resolution, first match wins:
@@ -108,8 +167,12 @@ Root resolution, first match wins:
 2. `%LOCALAPPDATA%\Mila\models` on Windows
 3. `$XDG_CACHE_HOME/mila/models`, else `~/.cache/mila/models`
 
-Four properties follow from content-addressing, and each replaces code that would otherwise be
-written by hand:
+**Records are the index; blobs are content.** The blob store is deliberately opaque -- a digest is not
+a name -- so nothing can be listed, described or removed from it alone. The record tree is what makes
+the store a store rather than a cache, and it is small enough that every management operation is a
+directory walk.
+
+Content-addressing buys four properties, each replacing code that would otherwise be written by hand:
 
 | Property | Why it is free |
 |---|---|
@@ -121,37 +184,111 @@ written by hand:
 A partially written blob never occupies its final path, so an interrupted download cannot be mistaken
 for a good one. That is the failure the design is chosen to make impossible rather than to detect.
 
+### Removal is refcounted
+
+Deduplication stops being free the moment removal exists: deleting `gemma-4-12b-it:fp4` must not
+delete the tokenizer blob that `:fp8` also references.
+
+Removal unlinks the record, then sweeps blobs that no surviving record names. Mark-and-sweep over the
+record tree is exact and cheap -- records are kilobytes -- and it makes `remove` and `prune` the same
+primitive. The sweep also reclaims what nothing else ever will: `.rejected` files from digest
+mismatches, and `tmp/` partials from transfers that were abandoned rather than resumed.
+
+### Concurrent processes
+
+Chat and the inference server are separate processes over one store, so every mutation is written to
+assume a peer.
+
+- **Blob publication** is a rename onto a content-addressed path. Already safe: a losing racer finds
+  its target present, and those bytes are equally verified.
+- **Record writes** go to `tmp/` and rename into place, for the same reason.
+- **In-flight transfers need a lock.** The partial is named `tmp/sha256-<digest>.partial` so a retry
+  can find it and resume, which means two processes pulling the same blob would otherwise append into
+  one file and interleave. A `tmp/sha256-<digest>.lock`, created exclusively, arbitrates: the holder
+  transfers, and a process that cannot take it reports that another transfer is in progress rather
+  than joining it. The deterministic partial name is kept -- it is what resume depends on.
+- **Removal can lose to a reader.** A loaded model is memory-mapped. Windows refuses to delete a
+  mapped file, which surfaces as a sharing violation; POSIX unlinks it and leaves the mapping valid.
+  Removal reports the platform's answer rather than papering over the difference, and a sweep that
+  cannot delete a blob leaves it for the next sweep.
+
 ---
 
-## Retrieval
+## Hubs
+
+A hub is a remote that serves manifests and files. HuggingFace is the first and only implementation;
+the interface exists because the store, the verification and the resume logic must not learn its URL
+shapes.
 
 ```
-resolve(spec) -> ResolvedModel { weights_path, tokenizer_path, manifest }
+IModelHub
+  name()                                  -- "huggingface"
+  listModels(owner)      -> [HubModel]    -- what the owner publishes
+  fetchManifest(coordinate) -> string     -- the mila.json text
+  fetchFile(FileRef, resume_from, sink)   -- stream bytes, hashed by the caller
 ```
 
-1. If `spec` names an existing file, return it directly. No network, no cache.
-2. Parse as a coordinate; reject anything that is neither.
-3. Fetch `mila.json`, select the variant, check `minimum_mila_version`.
-4. For each file: if `blobs/sha256-<digest>` exists, use it. Otherwise download to `tmp/`, hashing as
-   the bytes arrive, then verify and rename.
-5. Return the blob paths.
+What varies between hubs is URL construction, authentication and the listing API. What does not vary
+is the manifest schema, the digest check, the blob store and the resume protocol -- so the interface
+is deliberately narrow, and `fetchFile` takes a resume offset rather than a URL so that a hub which is
+not HTTP can still satisfy it.
 
-Hashing during the transfer rather than in a second pass matters at 6.33 GB: a verification re-read
-would double the I/O for no additional confidence.
+`HuggingFaceHub` is the concrete class. Repository files come from
+`https://huggingface.co/<owner>/<repository>/resolve/<revision>/<path>`, and listing from
+`https://huggingface.co/api/models?author=<owner>`.
+
+### Listing
+
+`mila-llm` holds a **small curated set** of models Mila has validated, not a mirror of what runs. That
+scale is what lets listing stay simple: there is no pressure to optimize a handful of requests, and an
+owner-level index file -- a cache that lies the moment a publish forgets to update it -- has nothing
+to recommend it.
+
+Measured against the live API on 2026-08-01, `?author=<owner>&full=true` returns per repository:
+
+```json
+{ "id": "mila-llm/gemma-4-12b-it",
+  "gated": false,
+  "sha": "570dbe0e5778c4a1ab96fb8ec2dcc626da828e37",
+  "lastModified": "2026-07-30T03:14:20.000Z",
+  "library_name": "mila",
+  "tags": ["mila", "gemma", "fp4", "quantized", "license:apache-2.0", "region:us"],
+  "siblings": [ { "rfilename": "mila.json" }, ... ] }
+```
+
+One request therefore renders a complete listing: what exists, whether it is gated, its license, its
+files, and the resolved commit. Three consequences worth naming:
+
+- **`gated` is known before a fetch is attempted**, so a gated repository can be reported as needing
+  accepted terms rather than discovered as a 403 partway through.
+- **`sha` is the resolved commit**, which is what a store record must persist. A pull can take it from
+  here rather than from a second call; the `X-Repo-Commit` response header on a `resolve` request is
+  the cheaper source and should be preferred if it is present.
+- **`library_name` and the `mila` tag identify a Mila model**, which is why the hub interface is
+  parameterized on an owner rather than hardcoded to `mila-llm`: the same query filtered on the
+  library finds a Mila model published by anyone.
+
+What the API does *not* report is variants -- their quantization, their files, their minimum version.
+Only `mila.json` knows that, so a caller asking a repository for detail costs one further small GET.
+The `tags` do happen to carry `fp4`, but tags are hand-authored card metadata and drift; they are for
+display, and the manifest is the truth.
+
+**A listing is untrusted remote text.** Repository names, descriptions and card data are authored by
+whoever owns the repository. They are rendered as data -- never interpreted as markup, never as
+instructions to the process displaying them.
 
 ### Authentication
 
 Gated repositories require a token. **Llama 3.2 and 3.1 are gated**, as
-`Tools/Converters/README.md` already documents; Gemma 4 under Apache 2.0 is not (see
-[project memory on the license change](ModelSerialization.md) and NOTICE.md).
+`Tools/Converters/README.md` documents; Gemma 4 under Apache 2.0 is not.
 
-Token discovery, first match wins: `MILA_HF_TOKEN`, `HF_TOKEN`, then
-`~/.cache/huggingface/token` (where `huggingface-cli login` writes it).
+Token discovery, first match wins: `MILA_HF_TOKEN`, `HF_TOKEN`, then `~/.cache/huggingface/token`
+(where `huggingface-cli login` writes it).
 
 Two failures that need different messages, because conflating them wastes an afternoon:
 
-- **401** — no token, or the token is invalid. Say how to obtain one.
-- **403** — the token is valid but the repository's terms have not been accepted. Name the model page
+- **401** -- no token, or the token is invalid. Say how to obtain one.
+- **403** -- the token is valid but the repository's terms have not been accepted. Name the model page
   to accept on.
 
 ### The redirect is a security boundary
@@ -170,9 +307,175 @@ server ignored the range and is sending the whole file, so the partial must be d
 restarted -- treating a 200 as a resume silently concatenates and produces a corrupt blob that only
 the final digest check catches.
 
+Hashing during the transfer rather than in a second pass matters at 6.33 GB: a verification re-read
+would double the I/O for no additional confidence.
+
 ---
 
-## The HTTP client
+## The three operations
+
+Retrieval, loading and publishing are separate verbs, and the separation is the design.
+
+```
+pull(coordinate)    hub -> store      network, explicit, resumable
+locate(coordinate)  store -> paths    filesystem only, never network
+publish(package)    build -> store or a hub-ready directory
+```
+
+### The load boundary
+
+**Only a model in the store can be loaded.** `locate()` consults records and blobs and returns nothing
+when the model is not installed. It never falls back to a hub, and it never accepts a path in place of
+a coordinate.
+
+The store is the standard, and arrangements that predate it are obsolete: a models directory holding
+loose files, a catalogue row naming a relative path, a `.bin` in either role. Anything a consumer
+loads, it loads from the store.
+
+Two different things are being kept out. A hub fetch is kept out because a 6.33 GB transfer is a
+deliberate act with a progress display and a failure mode, while an inference request is neither -- an
+implicit download inside `fromPretrained()` turns a chat prompt into a twenty-minute stall and lets a
+server initiate multi-gigabyte traffic in response to an untrusted request. An arbitrary path is kept
+out because it is an undescribed model: nothing knows what it is, what quantization it carries or
+whether its bytes are intact, which is the condition the manifest exists to end.
+
+`fromPretrained()` still takes a filesystem path, because the store hands it one -- a verified blob.
+What no longer exists is a way to turn a user-supplied path into a load without installing it first.
+
+A consumer that finds a model missing reports it and names the pull. Chat may **offer** to pull and
+run it on a yes -- an explicit user gate, not an implicit download. The inference server refuses.
+
+### Pull
+
+1. Parse the coordinate; reject anything that is not one. A path here is a mistake worth naming, since
+   installing is the operation that takes one.
+2. Fetch `mila.json`, select the variant, check `minimum_mila_version`.
+3. For each declared file: if `blobs/sha256-<digest>` exists, it is done. Otherwise take the transfer
+   lock, download into `tmp/` while hashing, verify, rename into `blobs/`.
+4. Write the record, including the resolved revision.
+
+A pull of a variant already installed at a different revision **replaces** the record. The blobs it
+referenced become unreferenced and the next sweep reclaims them. Holding two revisions of one variant
+side by side is not supported: a store that silently keeps two copies of a 6.33 GB model is a disk
+trap, and a user who wants both can say so with two coordinates today only by choosing.
+
+---
+
+## Packaging and publishing
+
+A published model is a directory, and the same directory is what installs locally and what uploads:
+
+```
+<package>/
+  mila.json              the manifest
+  <weights>.safetensors  the artifact
+  <tokenizer>.bin
+  LICENSE                the source model's license text
+  README.md              model card, including the statement that changes were made
+```
+
+`Tools/ExportArtifact` already produces the artifact and, with `--emit-manifest`, a manifest carrying
+the digests. Packaging is the remaining step: assemble the directory, validate that every declared
+file exists with the declared digest and byte count, and refuse to emit a package that is not
+self-consistent.
+
+**Publishing to the local store** installs the package: hash each file, move it into `blobs/`, write
+the record. Move rather than copy -- it is free on one volume, and it keeps a single integrity model
+in which the path is the digest, with no second class of file that a manifest merely points at.
+
+**Publishing to a hub** validates the package and hands it to external tooling.
+`Tools/Publishing/publish_model.py` does the upload through `huggingface_hub`: it validates digests
+before uploading, skips files the hub already holds, and verifies afterward. The library contributes
+the package and the validation; it does not contain an HTTP method that writes.
+
+The division is deliberate. Uploading to HuggingFace means the preupload check, the LFS batch API,
+multipart transfer and a commit call -- a large failure surface, for a workflow a maintainer runs by
+hand a few times per release, in a language that already has a maintained client.
+
+---
+
+## The management surface
+
+```
+ModelStore                     filesystem only, always available
+  list()                    -> [StoredModel]     every installed record
+  locate(coordinate)        -> StoredModel?      paths, or nothing
+  describe(coordinate)      -> Manifest?
+  remove(coordinate)        -> RemovalReport     record, then sweep
+  prune()                   -> RemovalReport     unreferenced blobs, rejects, stale partials
+  diskUsage()               -> StoreUsage        by model and in total
+  install(package)          -> StoredModel
+
+ModelHub                       network, gated
+  listModels(owner)         -> [HubModel]
+  describe(coordinate)      -> Manifest
+  pull(coordinate, store, progress) -> StoredModel
+```
+
+Progress is a callback taking bytes-so-far and total, and the library does not rate-limit it. Deciding
+how often to redraw is the consumer's problem, because a console line, a TUI and a server log want
+three different answers.
+
+---
+
+## Consumers
+
+**Chat.** The catalog stops being a table of file paths and becomes a table of aliases over
+coordinates. Quantization stops being part of the alias and becomes the variant, which the coordinate
+grammar already expresses:
+
+| Before | After |
+|---|---|
+| `gemma-12b`, `gemma-12b-packed`, `gemma-12b-hub` | `gemma-12b` -> `mila-llm/gemma-4-12b-it`, variants `fp4`, `fp8` |
+| `llama-3b`, `llama-3b-fp32` | `llama-3b` -> `local/llama-3.2-3b-instruct`, variants `bf16`, `fp32` |
+
+`/model <alias|coordinate> [variant]` selects; `/models` lists what is installed and what the hub
+offers; `/pull` and `/rm` manage. Three aliases naming one model, distinguished by a provenance nobody
+outside the codebase can decode, go away.
+
+**The inference server.** Consumes the same store through the Python binding, in a separate process
+from Chat. It lists and loads; it never pulls in response to a request.
+
+**The binding.** `ModelStore` must be reachable from Python even in a build without the hub -- the
+manylinux wheel cannot link libcurl, and listing or removing an installed model is not a network
+operation. See [Build gating](#build-gating).
+
+---
+
+## Retiring `.bin`
+
+The flat MILA container stops being a form Mila distributes or catalogues. Every catalogued model is a
+safetensors artifact with a manifest.
+
+**The reader keeps its MILA branch.** `Serialization.PretrainedReader` sniffs the leading magic and
+fills the same tensor index from either container, so everything past the header parse is already
+common. Removing that branch would buy nothing and would strand every `.bin` already on disk;
+retiring the *format* is a catalogue and publishing decision, not a loader change.
+
+Migration per model: export to safetensors, package, publish to the local store. `ExportArtifact`
+already performs the export, including the BF16 passthrough case where no quantization is applied.
+Models Mila may republish go to `mila-llm`; the rest stay under `local` on the machine that converted
+them.
+
+---
+
+## Build gating
+
+The split is by dependency, not by theme.
+
+- **`Distribution.ModelStore`**, with `Sha256` -- layout, records, list, locate, remove, prune,
+  install. Filesystem only, **always compiled**.
+- **`Distribution.ModelHub`**, with `HttpClient` and `HuggingFaceHub` -- listing, manifest fetch,
+  pull. Gated on `MILA_ENABLE_MODEL_DOWNLOAD`, keeps libcurl private.
+
+`MILA_ENABLE_MODEL_DOWNLOAD` defaults ON, matching `MILA_ENABLE_CUDA` and
+`MILA_ENABLE_PYTHON_BINDINGS`, and exists for two reasons. **libcurl and libssl are not on the
+manylinux whitelist**, so a Linux `mila-llm` wheel cannot link them; Python already has
+`huggingface_hub`, so the wheel pulls in Python and installs into the same store. And a library whose
+entire third-party surface is two headers should not force a network dependency on a consumer that
+only loads from disk.
+
+### The HTTP client
 
 libcurl, one implementation for both platforms. Windows has no linkable OS libcurl, so it is vendored
 there regardless; vendoring on Linux too buys one known version everywhere instead of whatever the
@@ -185,19 +488,6 @@ distribution shipped, matching how nlohmann, cutlass and pybind11 are already pi
   TFTP, MQTT, SMB, FTP
 - No nghttp2, brotli or zstd: HuggingFace serves LFS blobs uncompressed over HTTP/1.1, so HTTP/2 and
   content encodings add dependencies and buy nothing
-
-### `MILA_ENABLE_MODEL_DOWNLOAD`
-
-Defaults ON, matching `MILA_ENABLE_CUDA` and `MILA_ENABLE_PYTHON_BINDINGS`. Two reasons it exists:
-
-**libcurl and libssl are not on the manylinux whitelist**, so a Linux `mila-llm` wheel cannot link
-them. The wheel does not need to: Python already has `huggingface_hub`. The wheel builds with the
-feature off, resolves a path in Python, and passes it to Mila -- which the resolver already supports,
-because local paths are first-class. The C++ client exists for Chat and native consumers, which is
-where it is wanted.
-
-Second, a library whose entire third-party surface is two headers should not force a network
-dependency on a consumer that only loads from disk.
 
 ---
 
@@ -212,48 +502,71 @@ The publishing story is not uniform, and assuming it is would be the first mista
 | Llama 3.1 / 3.2 | Llama Community License | Propagates; Meta gates the source |
 
 Gemma 4's Apache 2.0 still requires the license text, attribution, and a statement that changes were
-made -- quantization is a modification. That belongs in the repository alongside the root NOTICE.md
-habit already established.
+made -- quantization is a modification. That belongs in the package alongside the root NOTICE.md habit
+already established.
 
-For a family that cannot be cleanly republished, the coordinate must fail usefully rather than 403 into
-a wall: the manifest can declare a variant unavailable and name the conversion path instead.
+A family that cannot be republished is not a hole in the catalogue. It is a `local/` model: the user
+converts it once, the store lists it exactly like a fetched one, and `publish` refuses the hub
+destination with the reason rather than failing at a 403.
+
+---
+
+## Decisions closed
+
+1. **Revision pinning.** A coordinate accepts `@<revision>` and a record stores the resolved commit.
+   One installed revision per variant; a pull at a different revision replaces the record and the old
+   blobs become sweepable. Side-by-side revisions are not supported, because the disk cost is
+   invisible at the point where a user would incur it.
+2. **Manifest caching.** Records are persisted, so `list`, `describe` and `locate` are offline
+   operations and startup never depends on the network. A `pull` always revalidates against the hub,
+   since fetching a manifest is one small GET and a stale one silently pins a superseded artifact.
+3. **Progress reporting.** Bytes-so-far and total, unthrottled by the library. Chat renders a bar; the
+   current consumer-side gate fires on every chunk whose running percentage happens to be a multiple
+   of five, which at 6.33 GB is hundreds of redraws per step rather than one.
 
 ---
 
 ## Build plan
 
-**Phase 1 -- the client.** CPM wiring, `MILA_ENABLE_MODEL_DOWNLOAD`, and an HTTP module: GET with
-progress, manual redirect handling, `Range` resume, token injection, 401/403 discrimination.
-*Done when:* a small public file downloads, resumes correctly from a truncated partial, and a 200
-response to a range request restarts rather than concatenates.
+Phases 1 to 5 landed in `0.20.0-beta.2+21..+25`: the HTTP client, the content-addressed cache, the
+coordinate resolver, the Chat catalog entry, and the published `mila-llm/gemma-4-12b-it` repository.
+What follows completes distribution as a managed system.
 
-**Phase 2 -- the cache.** Root resolution, blob store, `tmp/` staging, hash-during-transfer, atomic
-rename.
-*Done when:* the same blob fetched twice hits the cache on the second call, and an interrupted
-transfer leaves nothing in `blobs/`.
+**Phase 6 -- the store.** Split `ModelStore` out from behind `MILA_ENABLE_MODEL_DOWNLOAD`; add the
+record tree, and write a record on every successful pull.
+*Done when:* a pulled model appears in `list()`, and a build with `MILA_ENABLE_MODEL_DOWNLOAD=OFF`
+still lists and locates it.
 
-**Phase 3 -- the resolver.** Coordinate parsing, manifest fetch and validation, variant selection,
-version-skew check, path-or-coordinate dispatch.
-*Done when:* a coordinate and a local path both load the same model, and a bumped
-`minimum_mila_version` refuses.
+**Phase 7 -- management.** `remove`, `prune`, `diskUsage`, refcounted sweep, transfer lock.
+*Done when:* removing one of two variants sharing a tokenizer leaves the tokenizer blob in place;
+prune reclaims a `.rejected` file and a stale partial; two processes pulling one blob do not corrupt
+each other.
 
-**Phase 4 -- the catalog.** Chat entries carry a coordinate or a path. `gemma-12b-packed` becomes
-`mila-llm/gemma-4-12b-it:fp4`.
-*Done when:* a clean machine runs `/model gemma-12b-packed` and gets a coherent Gemma 4 session with
-no manual download.
+**Phase 8 -- the hub interface.** `IModelHub` with `HuggingFaceHub` behind it, plus `listModels`.
+*Done when:* the resolver names no HuggingFace URL, and listing `mila-llm` reports the published
+models.
 
-**Phase 5 -- publish.** The `mila-llm/gemma-4-12b-it` repository: artifact, tokenizer, `mila.json`,
-Apache 2.0 license text, attribution, modification statement.
+**Phase 9 -- packaging and publish.** Package assembly and validation; install to the local store;
+hub-ready output handed to `publish_model.py`.
+*Done when:* a converted model becomes a `local/` model that `list` reports and Chat loads, and the
+same package validates for hub upload.
+
+**Phase 10 -- the load boundary and the catalogue.** `locate` never touches the network; Chat's
+catalog becomes aliases over coordinates; `.bin` leaves the catalogue.
+*Done when:* a clean machine pulls and runs Gemma 4 through named commands, and no catalogue entry
+names a `.bin`.
 
 ---
 
-## Open decisions
+## Open items
 
-1. **Revision pinning.** A coordinate resolves against `main` today. A `@<revision>` suffix would make
-   a load reproducible against a moving repository. Decide before the first published artifact is
-   updated, not after.
-2. **Whether the manifest is fetched every load.** Caching it makes startup offline-capable and makes
-   a republished artifact invisible until the cache is cleared. An ETag revalidation is the middle
-   path and costs one conditional GET.
-3. **Progress reporting surface.** Chat wants a rendered bar; a library callback taking bytes-so-far
-   and total is the minimum. Whether anything else consumes it is unsettled.
+- **The cold download has one unexplained failure.** A 6.33 GB Chat transfer failed its digest check
+  (`expected d49c6c16..., got 8fe5cf53...`) while the same client fetched the exact digest at both
+  14 MB and 6.33 GB through `ExportArtifact --fetch`. The leading explanation is a corrupt transfer
+  that the integrity check caught -- the design working -- but it is unproven. A mismatch now reports
+  the byte count and keeps the file as `.rejected`: exactly 6799927760 bytes with a wrong digest means
+  altered in flight, any other count means a length bug.
+- **Parallel range downloads.** A single connection may not saturate the link. Measure before
+  building; the CDN's single-connection throughput is the suspect, not the client.
+- **`publish_model.py` hashes each large file twice**, once to validate and once to decide whether the
+  hub already holds it.

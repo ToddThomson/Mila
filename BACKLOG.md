@@ -824,6 +824,206 @@ good-first-issue.
   `CudaMhaOp.Dispatch.ixx:126,173`, `CudaLpeOp.Dispatch.ixx:18,105,152,173`, `CudaSoftmaxOp.ixx:79`,
   `CudaLinearOp.ixx:1068` (the last reading "we need only support bf16 for CUDA").
 
+### Model Distribution
+
+Promoted out of Future 2026-08-01 — **Todd's call: distribution is in the beta and the v0.20 release**,
+driven by onboarding and the marketing changes landing before the `dev -> master` push. It is the one
+deliberate carve-in to the feature freeze. Spec rewritten the same day:
+[ModelDistribution.md](Mila/Specifications/ModelDistribution.md).
+
+The five constraints the spec is built on, all Todd's calls: **one manifest for every model** (hub-
+published and locally built alike, with HuggingFace the first *concrete* hub behind an abstracted
+interface); **only a model in the local store can be loaded** — pull and load are separate verbs, and
+Chat and MIS share one store as separate processes; **no upload in the library** (it packages and
+validates, `publish_model.py` uploads); **`.bin` retired as a distributed and catalogued form**; and a
+unified `mila` CLI is forward-looking only, gated on resolving the Python/C++ split.
+
+- [x] **Phases 1-5 — retrieval, shipped `+21..+25`.** `Distribution.HttpClient` (CPM-pinned static
+  libcurl, OS TLS: Schannel on Windows, system OpenSSL on Linux, protocols cut to HTTP/HTTPS),
+  `Distribution.Sha256` (streaming, pinned by the NIST vectors), `Distribution.ModelCache`
+  (content-addressed `blobs/sha256-<hex>`, `tmp/` staging, hash-during-transfer, atomic rename),
+  `Distribution.ModelResolver` (coordinate parsing, manifest fetch, variant selection, version-skew
+  refusal), the Chat catalog entry, and the live `mila-llm/gemma-4-12b-it` repository (6.35 GB, five
+  files, HF's own LFS digests matching `mila.json` exactly).
+  **Two hazards the client is built around, and both must survive any rewrite.** (1)
+  **`CURLOPT_FOLLOWLOCATION` is deliberately OFF** — HF redirects LFS files to a pre-signed CDN host
+  and libcurl forwards a `CURLOPT_HTTPHEADER` auth header across a cross-host redirect, which leaks
+  the token; redirects are followed by hand and the header dropped when the host changes. (2) **a
+  `Range` request answered 200 rather than 206 is `RangeIgnored`, not success** — the server is
+  sending the whole file, and appending it to a partial silently concatenates.
+  **Remote access is injected**, which is why the whole suite runs offline including the two cases a
+  live server makes awkward: a resumed transfer and a server that ignores `Range`.
+- [ ] **Verify the `MILA_ENABLE_MODEL_DOWNLOAD=OFF` build.** This is the whole justification for the
+  module split and it has never been configured, let alone run — a build with no hub must still list,
+  locate and remove. Cheap to check and expensive to discover late, since the manylinux wheel depends
+  on it. `cmake -S . -B out/build/no-hub -G Ninja -DMILA_ENABLE_MODEL_DOWNLOAD=OFF`.
+- [x] **Phase 6 — the store. DONE 2026-08-01**, validated live: `/pull mila-llm/gemma-4-12b-it:fp4`
+  against a store holding the two hand-seeded blobs and no records completed in about a second —
+  both digests already present, so nothing transferred — and wrote the record, which `/models` then
+  reported at 6.35 GB. `tmp/` was left clean, so the lock released and the staged record renamed.
+  The OFF-build leg of the done-when is tracked as its own gate above.
+  `ModelCache` renamed to `ModelStore`
+  (`Src/Distribution/ModelStore.ixx`), which now owns records as well as blobs: `ModelFile` /
+  `ModelRecord` / `StoredModel`, `writeRecord` / `readRecord` / `list` / `locate` / `describe`.
+  `Sha256` + `ModelStore` moved out of the gated CMake block and are always compiled; `HttpClient` +
+  `ModelResolver` stay gated, so a build without libcurl still manages its models.
+  `ModelResolver::resolve()` became `pull()`, `ResolvedModel` gave way to `StoredModel`, and **the
+  local-path branch is gone** — a path is refused with a message naming installation. The record is
+  written **last**, after every blob verifies, so a failed pull leaves nothing that looks installed.
+  Records are staged in `tmp/` and renamed, because a peer process may be listing mid-install.
+  *Done when:* a pulled model appears in `list()`, and a `MILA_ENABLE_MODEL_DOWNLOAD=OFF` build still
+  lists and locates it.
+- [x] **Phase 7 — management. DONE 2026-08-01.** `remove`, `prune`, `usage`, and the
+  refcounted mark-and-sweep over the record tree. **Removal must be refcount-aware or it corrupts the
+  store** — deduplication stops being free the moment removal exists, and deleting `:fp4` must not
+  take the tokenizer blob `:fp8` shares. Prune also reclaims `.rejected` files and locks abandoned
+  more than 24 hours; **partials are kept unless `PruneOptions::discard_partials` is set**, since a
+  partial is good bytes a retry resumes onto and deleting it converts a cheap retry into a full
+  re-download. *Done when:* removing one of two variants sharing a tokenizer leaves the tokenizer in
+  place, and prune reclaims a reject and a stale lock.
+- [ ] **`isAbandoned()`'s 24-hour lock reclamation is untested** — the shared-tokenizer case and the
+  reject sweep are covered, but this branch needs a file with a backdated write time. Make the
+  threshold a constructor parameter so a test can set it to zero; that is a better shape than
+  backdating with `last_write_time()` in the test.
+- [ ] **`prune()` is destructive on a store that predates records.** Every pre-record blob is by
+  definition unreferenced, so a first sweep on an upgraded store reclaims all of it — 6.33 GB, in the
+  case actually observed on 2026-08-01. Adopting the blobs by pulling first is the workaround and it
+  worked, but a store carrying blobs and zero records is a recognizable state that should be reported
+  rather than silently swept.
+- [x] **Concurrency defect — transfer lock, BUILT AND GREEN 2026-08-01.** `tmp/sha256-<digest>.partial`
+  is deterministic and opened in append mode, so two processes pulling one blob interleaved writes
+  into a single file; the digest check caught the corruption but both transfers failed and
+  re-thrashed. Fixed with an exclusively created `tmp/sha256-<digest>.lock` (`fopen` mode `"wbx"`,
+  RAII release), and the final path is re-checked under the lock so a peer that finished first is a
+  cache hit rather than a redundant transfer. **The deterministic partial name stays** — resume
+  depends on finding it. Removal keeps its platform split: Windows refuses to delete a mapped file,
+  POSIX unlinks it and leaves the mapping valid, and `RemovalReport::retained` reports whichever
+  answer the platform gave. `RefusesToTransferABlobAnotherProcessHasLocked` passes, which is the
+  evidence that `std::ios::noreplace` really does fail on an existing file rather than merely
+  compile.
+- [~] **14 C4996 warnings on `getenv`/`fopen`/`sscanf` — 11 FIXED, 3 exempted, 2026-08-01.** Not
+  introduced by the store work; `ModelStore` inherited the calls verbatim from `ModelCache`. First
+  attempt was a target-wide `_CRT_SECURE_NO_WARNINGS`, which **Todd rejected as glossing over it**.
+  The deprecations are not equivalent and were graded separately:
+  **`fopen`/`fread`/`fwrite` -> `<fstream>` (9 sites).** No impediment; the C stdio was habit. The
+  exclusive-create the transfer lock needs is **C++23 `std::ios::noreplace`**, which is a better fit
+  for this codebase than `fopen`'s `"wbx"`. One ordering subtlety this forced into the open: the
+  output stream must be closed **before** the digest is judged, since a buffered tail still in the
+  stream would leave the file shorter than the bytes that were hashed.
+  **`sscanf` -> `std::from_chars` (1 site).** No impediment, and the replacement is stricter: the old
+  parse silently discarded trailing text, so a `minimum_mila_version` that was not a version at all
+  read as one this build happened to satisfy. `-prerelease`/`+build` suffixes stay legal because
+  Mila's own versions carry them.
+  **`getenv` (7 sites) — exempt, and now confined to one function.** No portable non-deprecated API
+  exists: `_dupenv_s` is MSVC, `secure_getenv` is glibc with different semantics. Per Todd's in-code
+  TODO, the call is wrapped once in `Distribution.Environment::readEnvironmentVariable()`, returning
+  `std::optional<std::string>` — so the borrowed pointer the warning is actually about never escapes,
+  the null-and-empty check is structural instead of repeated at seven call sites, and **exactly one
+  file in the library carries `_CRT_SECURE_NO_WARNINGS`**. `resolveStoreRoot()` lost a level of
+  nesting as a side effect.
+  **`MilaTests` keeps the target-wide define, for a real reason:** MSVC C++23 raises C2079 on
+  `basic_istream::sentry` when stream I/O meets `import Mila;` in a `.cpp`, so the four test files
+  doing file I/O are on `std::fopen` by necessity. Revisit when that defect is fixed.
+- [ ] **The same `fopen` conversion is available in three more modules** — `SafeTensors.ixx`,
+  `TokenSequenceLoader.ixx` and `PretrainedReader.ixx` still emit C4996 and are now the library's
+  only source of it. The first two look like straight `<fstream>` swaps. **`PretrainedReader` is
+  not**: it deliberately uses positioned `ReadFile`/`pread` against the file handle alongside the
+  mapping, because faulting a large model through the mapped view throttles well below disk
+  bandwidth — that one needs the exemption, not a conversion. Clearing the first two is what
+  unblocks the warnings-as-errors ratchet.
+- [ ] **Coverage the store work surfaced, now written:** the `.rejected` retention added at `+25` had
+  no test at all — the case asserted only that the `.partial` was gone, which the rename satisfies.
+  `Tests/Distribution/ModelStore.Cpu.cpp` now pins the rejected file's presence and contents.
+- [~] **Phase 10 — Gemma rows collapsed 2026-08-01.** Three aliases became one: `gemma-12b` now names
+  the coordinate `mila-llm/gemma-4-12b-it` **with no variant**, and the requested quantization
+  supplies it via `variantName()` — so `/model gemma-12b fp8` asks for `:fp8` and is answered with
+  the variants that exist, instead of loading FP4 bytes under an FP8 policy. `gemma-12b-packed` and
+  `gemma-12b-hub` are gone; the catalogue is 10 rows down to 8. `resolveEntryPaths` gained a
+  `QuantizationMode` parameter, which forced `main.cpp` to settle quantization *before* resolving
+  rather than after.
+  **The store lookup now runs BEFORE the models-directory fallback**, so a migrated model loads from
+  the store even when a stale loose file is still on disk — the previous order would have kept
+  reading the 23.8 GB BF16 `.bin` forever.
+  The `REVIEW:`-marked fallback stays for the seven un-migrated Llama and GPT-2 rows.
+  *Remaining:* migrate those rows, then delete the branch; `.bin` leaves the catalogue with it.
+- [x] **Phase 8 — the hub interface. DONE 2026-08-01**, both halves of the done-when proven: the
+  resolver names no HuggingFace URL, and `/models mila-llm` listed the published model against the
+  live API and marked it `[installed]`. New `Distribution.ModelHub`
+  (gated) with `IModelHub`, `HubModel`, `parseHuggingFaceListing()` and `HuggingFaceHub` — now the
+  only class in the library naming a `huggingface.co` URL. New `Distribution.ModelCoordinate`
+  (always compiled) holds `ModelCoordinate` + `parseCoordinate`, extracted from the resolver because
+  both the hub and the store-facing side need it and naming a model is not a network operation.
+  `RemoteAccess` and `makeHuggingFaceRemoteAccess` are gone; the resolver now takes an `IModelHub&`,
+  and the 15 resolver cases run against a `FakeHub` plus an `ExplodingHub` that fails the test if it
+  is touched at all. **`BlobFetcher` lost its URL parameter** — `ensureBlob` takes a *description*
+  used only for messages, so the store no longer knows what a URL is. `pull` on the reserved `local`
+  owner is refused by name rather than left to 404. New `Tests/Distribution/ModelHub.Cpu.cpp` pins
+  parsing against the **verbatim recorded live response**, including two cases the shape makes easy
+  to get wrong: `gated` arrives as `"auto"`/`"manual"` rather than `true` (reading it as a boolean
+  would call Llama ungated), and a repository with no `mila.json` is dropped rather than listed as
+  available. **BUILT AND GREEN 2026-08-01** — full ctest passes. One failure on the way through was
+  a *test* defect worth keeping in mind: `APullLeavesARecordThatSurvivesTheResolver` asserted
+  `record.hub == "huggingface"`, which had been passing only because the resolver hardcoded it;
+  introducing a second implementation is what exposed it, and the assertion now compares against
+  `hub.name()`.
+  **Consumer wired the same day:** Chat gained `/models` (installed, offline), `/models <owner>`
+  (what a hub publishes, marking what is already installed and what is gated), `/pull` and `/rm`.
+  **Measured 2026-08-01, question closed:**
+  `?author=<owner>&full=true` returns `id`, `gated`, `sha` (the resolved commit), `lastModified`,
+  `library_name`, `tags` and `siblings` (the file list, including `mila.json`) — so one GET renders a
+  complete listing, `gated` is known before a fetch is attempted rather than discovered as a 403, and
+  `sha` is the revision a store record must persist (prefer the `X-Repo-Commit` header on a `resolve`
+  request if present). Variants are *not* in the API response — only `mila.json` knows them, at one
+  further small GET. Tags carry `fp4` but are hand-authored card metadata that drifts: display only,
+  the manifest is the truth. `library_name: "mila"` is why the interface takes an owner rather than
+  hardcoding `mila-llm`. An owner-level index file was considered and rejected. A listing is untrusted
+  remote text: rendered as data, never as markup. *Done when:* the resolver names no HuggingFace URL
+  and listing `mila-llm` reports the published models.
+- [ ] **The `mila-llm` organization has no organization card** — it is the landing page for anyone who
+  follows a coordinate or searches the hub, and it is currently HuggingFace's "create one" placeholder.
+  The org blurb is already right ("Reference implementations of LLM inference at the metal"); what is
+  missing is the card: what a Mila artifact is, that it is loadable only by Mila and deliberately not
+  NVFP4/MXFP4, the coordinate form, and the link to mila.toddt.me. Onboarding is the reason
+  distribution was carved into the release, so this is part of the deliverable rather than decoration.
+  See [[project_positioning_reference_impl]] — never lead with throughput.
+- [ ] **Phase 9 — packaging and publish.** Assemble and validate the package directory (manifest,
+  artifact, tokenizer, LICENSE, model card with the modification statement Apache 2.0 requires), refuse
+  one that is not self-consistent, and install to the local store by **move, not copy** — free on one
+  volume, and it keeps a single integrity model in which the path is the digest.
+  `ExportArtifact --emit-manifest` already derives the manifest with real digests; **it must never be
+  hand-maintained**, since one edited after a re-export is a repository that fails verification on
+  every download. Hub upload stays with `publish_model.py`. *Done when:* a converted model becomes a
+  `local/` model that `list` reports and Chat loads, and the same package validates for upload.
+- [ ] **Phase 10 — the load boundary and the catalogue.** `locate` never touches the network; Chat may
+  *offer* to pull (explicit user gate), MIS refuses. Chat's catalog becomes aliases over coordinates,
+  and **quantization stops being part of the alias and becomes the variant** — `gemma-12b`,
+  `gemma-12b-packed` and `gemma-12b-hub` are one model distinguished by a provenance nobody outside the
+  codebase can decode, and the `-fp32` rows are variants. Ten rows collapse to about four.
+  **`.bin` leaves the catalogue, not the reader:** `Serialization.PretrainedReader` sniffs the leading
+  magic and fills the same tensor index from either container (`PretrainedReader.ixx:229`), so removing
+  that branch buys nothing and strands every `.bin` on disk. *Done when:* a clean machine pulls and
+  runs Gemma 4 through named commands, and no catalogue entry names a `.bin`.
+- [ ] **[gate]** **The cold download has never succeeded end-to-end.** The cache was seeded by hand
+  from verified `ExportArtifact --fetch` copies, so the fetch-from-empty leg has zero successful runs.
+  One real Chat download failed its digest check (`expected d49c6c16..., got 8fe5cf53...`) while the
+  same client fetched the exact digest at both 14 MB and 6.33 GB through `--fetch`. Leading
+  explanation is a corrupt transfer the integrity check caught — the design working — but it is
+  unproven and possibly intermittent. A mismatch now reports the byte count and keeps the file as
+  `.rejected`: **exactly 6799927760 bytes with a wrong digest means altered in flight; any other count
+  means a length bug.** A distribution feature cannot ship on a leg that has never run clean.
+- [ ] The licensing story is per-family and must not be generalized: Gemma 4 is Apache 2.0 (public,
+  ungated, no token); Gemma 3 and earlier carry the Gemma Terms of Use; **Llama 3.1/3.2 are gated** and
+  their community license propagates. A family Mila cannot republish is not a hole in the catalogue —
+  it is a `local/` model, and `publish` refuses the hub destination with the reason rather than failing
+  at a 403. See [[project_gemma4_apache2_license]].
+- [ ] `Version::getMajor()`/`getMinor()`/`getPatch()` are non-const (`Src/Version.ixx`), so the
+  version-skew comparison needs a mutable copy. Found during Phase 3, not fixed.
+- [ ] `publish_model.py` hashes each large file twice — once to validate, once to decide whether the
+  hub already holds it.
+- [ ] Progress reporting is bytes-so-far and total, unthrottled by the library. The current
+  consumer-side gate (`Chat.ModelCatalog.ixx:160`) fires on every chunk whose running percentage is a
+  multiple of five, which at 6.33 GB is hundreds of redraws per step rather than one.
+
 ### Product Family — Adaptor Validation
 
 - [~] MIS Gemma 4 tool-calling validated end-to-end — Codex + Claude Code CLI round-trips live; the
@@ -953,100 +1153,13 @@ Uncommitted / next-cycle work. Coarse by design — detailed tasking happens onl
   the resolved URL, and **must not carry the authorization header to the CDN host** — the same trap
   the single-connection path already avoids. Resume interacts too: a partial from a parallel run is
   not a simple prefix, so either record the completed spans or restart parallel transfers from zero.
-  Measure before building: if the ceiling is the user's upstream rather than per-connection
-  throughput, this buys nothing.
-
-- **HF model distribution — spec written, Phase 1 WRITTEN 2026-07-29, UNBUILT.** Design in
-  [ModelDistribution.md](Mila/Specifications/ModelDistribution.md). **DECIDED by Todd:** the `mila-llm`
-  wheel carries no model assets; **the Mila C++ library retrieves the artifact itself**; publishing to
-  the **`mila-llm` HF org on the ToddThomson account**; **libcurl on both platforms**, one code base.
-  Firm non-goals: Mila runs no registry, never reads an ollama or LM Studio cache, never uploads.
-  **Coordinate is `<org>/<repo>:<variant>`** (`mila-llm/gemma-4-12b-it:fp4`) — variant separate from
-  repo because FP4/FP8/BF16 share a 14 MB tokenizer, which a flat `repo-variant` name hides. **Local
-  paths stay first-class**: that is the lesson from ollama, whose content-addressed store cannot
-  consume a file the user already has.
-  **Cache is content-addressed** (`blobs/sha256-<hex>` + per-variant manifest) — the one thing worth
-  taking from ollama, and free because HF serves the SHA-256 as the LFS ETag. Integrity, dedup, resume
-  and atomicity all fall out of it rather than being written by hand: a partial download never occupies
-  its final path, so an interrupted transfer cannot be mistaken for a good one.
-  **Phase 1 (this slice): CPM-pinned static libcurl + `Distribution.HttpClient`.** TLS from the OS —
-  Schannel on Windows, system OpenSSL on Linux — so no CA bundle ships. Protocols cut to HTTP/HTTPS;
-  no nghttp2/brotli/zstd, since HF serves LFS uncompressed over HTTP/1.1.
-  **Two hazards the client is built around.** (1) **`CURLOPT_FOLLOWLOCATION` is deliberately OFF** —
-  HF redirects LFS files to a pre-signed CDN host and libcurl forwards a `CURLOPT_HTTPHEADER` auth
-  header across a cross-host redirect, which would leak the token; redirects are followed by hand and
-  the header is dropped when the host changes. (2) **a `Range` request answered with 200 rather than
-  206 is reported as `RangeIgnored`, not success** — the server is sending the whole file, so appending
-  it to an existing partial would silently concatenate.
-  `MILA_ENABLE_MODEL_DOWNLOAD` (default ON) gates the whole thing: **libcurl and libssl are not on the
-  manylinux whitelist**, so the wheel builds with it OFF and resolves paths through
-  `huggingface_hub` in Python instead — which works precisely because local paths are first-class.
-  **Licensing is per-family, do not generalize:** Gemma 4 is Apache 2.0 (public + ungated, no token
-  needed); Gemma 3 and earlier carry the Gemma Terms of Use; **Llama 3.1/3.2 are gated** and their
-  community license propagates, as `Tools/Converters/README.md` already documents. See
-  [[project_gemma4_apache2_license]].
-  Remaining phases: 2 cache, 3 resolver, 4 Chat catalog coordinates, 5 publish. Open decisions in the
-  **Phase 2 WRITTEN 2026-07-29, UNBUILT — the cache.** New `Distribution.Sha256` (streaming, ~80
-  lines, implemented rather than depended on: the alternatives were a platform split of
-  BCrypt/OpenSSL EVP or a second vendored library; correctness is pinned by the NIST vectors in the
-  tests, and a chunk-boundary test proves incremental hashing matches one-shot). New
-  `Distribution.ModelCache` with `resolveCacheRoot()` (`MILA_CACHE_DIR`, then `LOCALAPPDATA`, then
-  `XDG_CACHE_HOME`/`HOME`) and `ensureBlob( url, digest, fetcher )`.
-  **The fetcher is INJECTED, which is the design point**: every cache test runs offline and
-  deterministically, including the two cases that are awkward to provoke against a real server —
-  a resumed transfer and a server that ignores `Range`. No network in the suite.
-  Behaviours pinned by test, each chosen so a failure mode is impossible rather than detected later:
-  a present blob is never re-fetched (content-addressing means present == verified); a resumed
-  transfer replays the partial through the hash (SHA-256 is sequential and cannot resume from an
-  offset); **`RangeIgnored` destroys the partial** (a from-zero response appended to a prefix
-  concatenates); a digest mismatch destroys the partial (keeping it would make the retry resume onto
-  corruption); a mid-transfer failure **keeps** it (those bytes are good, and the retry completes);
-  and the final path does not exist until the digest verifies, so a reader that sees a blob may
-  assume it is complete.
-  **Phase 3 WRITTEN 2026-07-29, UNBUILT — the resolver.** `Distribution.ModelResolver`:
-  `parseCoordinate()` for `[hf:]<org>/<repo>[:<variant>][@<revision>]`, `discoverHuggingFaceToken()`
-  (`MILA_HF_TOKEN`, `HF_TOKEN`, then the file `huggingface-cli login` writes),
-  `makeHuggingFaceRemoteAccess()` as the single place libcurl meets the resolver, and
-  `ModelResolver::resolve()` returning `ResolvedModel { weights_path, tokenizer_path, architecture,
-  weight_quantization, variant, from_local_path }`.
-  **Remote access is injected as a `RemoteAccess { fetch_blob, fetch_text }`, so all 14 cases run
-  offline** — the manifest is a string the test supplies. That covers what a live endpoint makes
-  awkward: variant selection, the available-variants error listing, version-skew refusal, and three
-  shapes of malformed manifest.
-  **`@revision` is parsed and honoured now** (defaulting to `main`) even though revision pinning is
-  still an open decision — the grammar is the expensive thing to change later, the policy is not.
-  **A local path short-circuits before any network or cache touch**, pinned by a test whose
-  `RemoteAccess` calls `ADD_FAILURE()` if either hook fires. Coordinate parsing deliberately rejects
-  anything path-shaped (a second `/`, a drive letter, a backslash, no separator) so a mistyped path
-  becomes a "no such file" rather than a request against a nonexistent repository.
-  Found, not fixed: **`Version::getMajor()`/`getMinor()`/`getPatch()` are non-const**
-  (`Src/Version.ixx`), so a version comparison needs a mutable copy.
-  **Phases 4 and 5 WRITTEN 2026-07-29, UNBUILT.**
-  **Phase 4 — the catalog.** New `resolveEntryPaths( entry, models_dir )` in
-  `Chat.ModelCatalog.ixx` is the single place an entry becomes paths; both call sites
-  (`Chat.ixx:1095` switchModel and `main.cpp` startup) now use it, so a coordinate behaves the same
-  however a model is selected. **A local file under the models directory still wins**, so an
-  exported artifact is used with no network — the coordinate is the fallback, not the override.
-  Resolution happens *before* the current model is released, so a failed download leaves the session
-  on its working model. New `gemma-12b-hub` entry -> `mila-llm/gemma-4-12b-it:fp4` (array 9 -> 10);
-  `gemma-12b-packed` keeps pointing at the local file. `makeHuggingFaceRemoteAccess` gained an
-  optional progress callback, and Chat prints a coarse percentage only while a transfer actually
-  runs — a cached artifact resolves silently. The `#ifdef MILA_HAS_MODEL_DOWNLOAD` guard gives a
-  clear refusal rather than a link error when the feature is compiled out, matching the pattern
-  `Mila.ixx` already uses.
-  **Phase 5 — publish material, derived not hand-written.** `ExportArtifact` gained
-  `--emit-manifest` and `--tokenizer`, writing `mila.json` beside the artifact with real SHA-256
-  digests and byte counts. **The manifest must never be hand-maintained**: its digests have to track
-  the bytes, and one edited by hand after a re-export is a repository that fails verification on
-  every download. Model card at `Mila/Tools/ExportArtifact/publish/gemma-4-12b-it/README.md` with
-  the Apache 2.0 declaration, Google attribution, and the **modification statement Apache 2.0
-  requires** (quantized, repacked, not fine-tuned) — plus a note that the scheme is Mila's own and
-  deliberately not NVFP4/MXFP4, so the file is inspectable everywhere but loadable only by Mila.
-  **Uploading is a human action and stays one** — the spec's non-goal. The remaining manual steps
-  are: add the Apache 2.0 `LICENSE` text, create the repo under the `mila-llm` org, and push the
-  four files.
-  spec: revision pinning, whether the manifest is re-fetched per load, progress-reporting surface.
-to the current release.
+  **Evidence AGAINST this, 2026-07-30:** LM Studio took roughly **2 hours** to pull a comparable
+  Gemma 4 12B on the same fibre connection -- in the same order as Mila's single-connection fetch.
+  A mature client with its own transfer tuning landing in the same place suggests the ceiling is
+  HuggingFace's edge or the Xet bridge, not per-connection TCP throughput, which would make parallel
+  range requests worth little. Claude's earlier 3-5x estimate is not supported. **Measure before
+  building any of this**; if the two clients really are within a factor of the same wall, close this
+  item rather than implement it.
 
 - **Warnings-as-errors ratchet** — prevent the 252-warning re-accumulation that the v0.20 sweep cleared.
   Constraints worth keeping, decided 2026-07-27: **(a)** requires the `/external:W0` isolation above first;

@@ -161,9 +161,9 @@ namespace Mila::ChatApp
         int                   thinking_effort{ 3 };    ///< 1..5 token-budget scale for the reasoning (when thinking on).
         DetailLevel           detail{ DetailLevel::Off };  ///< Display verbosity: thoughts / tool calls / all.
         /// Catalog alias the current model came from. This, not the family/size/precision
-        /// triple, is what identifies a model: several entries can share an architecture and
-        /// quantization while pointing at different weights -- a converted .bin, a local
-        /// pre-quantized artifact, and a HuggingFace coordinate for the same Gemma 4 12B.
+        /// triple, is what identifies a model: two entries can share an architecture and
+        /// quantization while pointing at different weights -- a coordinate resolved from the
+        /// store, and a converted .bin still awaiting migration.
         std::string           model_alias;
 
         std::filesystem::path model_path;

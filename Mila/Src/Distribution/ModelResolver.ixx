@@ -1,385 +1,99 @@
 /**
  * @file ModelResolver.ixx
- * @brief Turns a model spec -- a coordinate or a local path -- into files on disk.
+ * @brief Pulls a published model into the store: manifest, variant selection, blobs, record.
  *
- * Remote access is injected, so coordinate parsing, manifest validation and version-skew
- * refusal are all testable without a network. The libcurl wiring lives in one factory at the
- * edge. See Specifications/ModelDistribution.md.
+ * Composes a hub with a store and knows neither one's internals -- no URL appears here, and no
+ * filesystem layout. The hub is an interface, so every case runs offline against a fake.
+ * See Specifications/ModelDistribution.md.
  */
 
 module;
+#include <charconv>
 #include <cstdint>
-#include <cstdio>
-#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <functional>
-#include <memory>
-#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <vector>
+#include <system_error>
 
 export module Distribution.ModelResolver;
 
 import nlohmann.json;
-import Distribution.ModelCache;
-import Distribution.HttpClient;
+import Distribution.ModelCoordinate;
+import Distribution.ModelStore;
+import Distribution.ModelHub;
 import Mila.Version;
 
 namespace Mila::Distribution
 {
     /**
-     * @brief A published model, named as <organization>/<repository>:<variant>[@revision].
+     * @brief Pulls a published model into the store.
      *
-     * Variant is separate from repository because variants share components: the FP4, FP8 and
-     * BF16 builds of one model share a tokenizer, which a flat repository-variant name hides.
-     */
-    export struct ModelCoordinate
-    {
-        std::string organization;
-        std::string repository;
-
-        /// Empty means the manifest's declared default.
-        std::string variant;
-
-        /// Branch, tag or commit. Defaults to main.
-        std::string revision{ "main" };
-
-        std::string toString() const
-        {
-            std::string text = organization + "/" + repository;
-
-            if ( !variant.empty() )
-            {
-                text += ":" + variant;
-            }
-
-            if ( revision != "main" )
-            {
-                text += "@" + revision;
-            }
-
-            return text;
-        }
-    };
-
-    /**
-     * @brief Everything a loader needs after resolution.
-     */
-    export struct ResolvedModel
-    {
-        std::filesystem::path weights_path;
-
-        /// Empty when the model carries no tokenizer, or when resolved from a bare local path.
-        std::filesystem::path tokenizer_path;
-
-        /// From the manifest; empty for a local path, whose metadata lives inside the file.
-        std::string architecture;
-        std::string weight_quantization;
-        std::string variant;
-
-        /// True when the spec named a file directly and no network or cache was involved.
-        bool from_local_path{ false };
-    };
-
-    /**
-     * @brief The two remote operations resolution needs.
-     *
-     * Injected rather than called directly so the resolver's logic can be tested offline.
-     */
-    export struct RemoteAccess
-    {
-        BlobFetcher fetch_blob;
-        std::function<std::string( const std::string& url )> fetch_text;
-    };
-
-    /**
-     * @brief Parse a coordinate, or return nothing if the spec is not one.
-     *
-     * Grammar: [hf:]<organization>/<repository>[:<variant>][@<revision>], where organization
-     * and repository allow only characters HuggingFace permits in a namespace.
-     */
-    export std::optional<ModelCoordinate> parseCoordinate( std::string_view spec )
-    {
-        if ( spec.starts_with( "hf:" ) )
-        {
-            spec.remove_prefix( 3 );
-        }
-
-        if ( spec.empty() )
-        {
-            return std::nullopt;
-        }
-
-        ModelCoordinate coordinate;
-
-        const auto at = spec.rfind( '@' );
-
-        if ( at != std::string_view::npos )
-        {
-            coordinate.revision = std::string( spec.substr( at + 1 ) );
-            spec = spec.substr( 0, at );
-
-            if ( coordinate.revision.empty() )
-            {
-                return std::nullopt;
-            }
-        }
-
-        const auto colon = spec.rfind( ':' );
-
-        if ( colon != std::string_view::npos )
-        {
-            coordinate.variant = std::string( spec.substr( colon + 1 ) );
-            spec = spec.substr( 0, colon );
-
-            if ( coordinate.variant.empty() )
-            {
-                return std::nullopt;
-            }
-        }
-
-        const auto slash = spec.find( '/' );
-
-        // Exactly one separator: a second would be a path, not a coordinate.
-        if ( slash == std::string_view::npos || spec.find( '/', slash + 1 ) != std::string_view::npos )
-        {
-            return std::nullopt;
-        }
-
-        coordinate.organization = std::string( spec.substr( 0, slash ) );
-        coordinate.repository = std::string( spec.substr( slash + 1 ) );
-
-        if ( coordinate.organization.empty() || coordinate.repository.empty() )
-        {
-            return std::nullopt;
-        }
-
-        const auto isPermitted = []( std::string_view text )
-            {
-                for ( char character : text )
-                {
-                    const bool allowed =
-                        ( character >= 'A' && character <= 'Z' ) ||
-                        ( character >= 'a' && character <= 'z' ) ||
-                        ( character >= '0' && character <= '9' ) ||
-                        character == '.' || character == '_' || character == '-';
-
-                    if ( !allowed )
-                    {
-                        return false;
-                    }
-                }
-
-                return true;
-            };
-
-        if ( !isPermitted( coordinate.organization ) || !isPermitted( coordinate.repository )
-            || !isPermitted( coordinate.variant ) )
-        {
-            return std::nullopt;
-        }
-
-        return coordinate;
-    }
-
-    /**
-     * @brief HuggingFace token, or empty for anonymous access.
-     *
-     * First match wins: MILA_HF_TOKEN, HF_TOKEN, then the file huggingface-cli login writes.
-     * Gemma 4 is Apache 2.0 and needs none of this; Llama 3.1 and 3.2 are gated and do.
-     */
-    export std::string discoverHuggingFaceToken()
-    {
-        for ( const char* name : { "MILA_HF_TOKEN", "HF_TOKEN" } )
-        {
-            if ( const char* value = std::getenv( name ) )
-            {
-                if ( *value != '\0' )
-                {
-                    return value;
-                }
-            }
-        }
-
-        std::filesystem::path home;
-
-        if ( const char* user_profile = std::getenv( "USERPROFILE" ) )
-        {
-            home = user_profile;
-        }
-        else if ( const char* home_variable = std::getenv( "HOME" ) )
-        {
-            home = home_variable;
-        }
-
-        if ( home.empty() )
-        {
-            return {};
-        }
-
-        const auto token_path = home / ".cache" / "huggingface" / "token";
-
-        std::unique_ptr<std::FILE, int( * )( std::FILE* )> file(
-            std::fopen( token_path.string().c_str(), "rb" ), &std::fclose );
-
-        if ( file == nullptr )
-        {
-            return {};
-        }
-
-        std::string token;
-        char buffer[ 512 ];
-        size_t read = 0;
-
-        while ( ( read = std::fread( buffer, 1, sizeof( buffer ), file.get() ) ) > 0 )
-        {
-            token.append( buffer, read );
-        }
-
-        while ( !token.empty() &&
-            ( token.back() == '\n' || token.back() == '\r' || token.back() == ' ' ) )
-        {
-            token.pop_back();
-        }
-
-        return token;
-    }
-
-    /**
-     * @brief Wire libcurl into a RemoteAccess.
-     *
-     * The only place the HTTP client meets the resolver. Failure messages are mapped here so
-     * a 401 and a 403 stay distinguishable -- one means "get a token", the other means "accept
-     * the terms", and conflating them wastes an afternoon.
-     */
-    export RemoteAccess makeHuggingFaceRemoteAccess(
-        std::string token = discoverHuggingFaceToken(),
-        ProgressCallback progress = {} )
-    {
-        RemoteAccess access;
-
-        access.fetch_blob = [token, progress](
-            const std::string& url, uint64_t resume_from,
-            const std::function<bool( const char*, size_t )>& sink ) -> FetchReport
-            {
-                HttpRequest request;
-                request.url = url;
-                request.token = token;
-                request.resume_from = resume_from;
-
-                const HttpResult result = httpGet( request, sink, progress );
-
-                if ( result.status == HttpStatus::Ok )
-                {
-                    return { FetchOutcome::Complete, {} };
-                }
-
-                if ( result.status == HttpStatus::RangeIgnored )
-                {
-                    return { FetchOutcome::RangeIgnored, result.message };
-                }
-
-                return { FetchOutcome::Failed,
-                    std::format( "{} ({})", result.message, toString( result.status ) ) };
-            };
-
-        access.fetch_text = [token]( const std::string& url ) -> std::string
-            {
-                HttpRequest request;
-                request.url = url;
-                request.token = token;
-
-                std::string body;
-                const HttpResult result = httpGetString( request, body );
-
-                if ( result.ok() )
-                {
-                    return body;
-                }
-
-                if ( result.status == HttpStatus::Unauthorized )
-                {
-                    throw std::runtime_error( std::format(
-                        "{}: no valid HuggingFace token. Set HF_TOKEN, or run "
-                        "'huggingface-cli login'.", url ) );
-                }
-
-                if ( result.status == HttpStatus::Forbidden )
-                {
-                    throw std::runtime_error( std::format(
-                        "{}: the token is valid but this repository's terms have not been "
-                        "accepted. Open the model page on huggingface.co and accept them.",
-                        url ) );
-                }
-
-                // The final URL, not the requested one: after a redirect they differ, and
-                // naming the requested one hides which hop actually failed.
-                const std::string& failed_at =
-                    result.final_url.empty() ? url : result.final_url;
-
-                throw std::runtime_error( std::format( "{}: {}", failed_at, result.message ) );
-            };
-
-        return access;
-    }
-
-    /**
-     * @brief Resolves a model spec to files on disk, fetching what is missing.
+     * Pull and load are separate verbs: this is the only thing that touches a hub, and what it
+     * leaves behind is a store record that every later operation reads.
      */
     export class ModelResolver
     {
     public:
 
-        ModelResolver( ModelCache& cache, RemoteAccess access )
-            : cache_( cache ), access_( std::move( access ) )
+        ModelResolver( ModelStore& store, const IModelHub& hub )
+            : store_( store ), hub_( hub )
         {}
 
         /**
-         * @brief Resolve a spec that is either a local path or a coordinate.
+         * @brief Pull the model a coordinate names.
          *
-         * A path is returned as-is with no network and no cache: a user who already has the
-         * file must not be made to re-download it, which is the failure mode ollama's
-         * content-addressed store has.
+         * A path is refused rather than loaded. Installing is the operation that takes one, and
+         * a load reads only the store -- an undescribed file is a model nothing knows the
+         * quantization, the architecture or the integrity of.
          *
-         * @throws std::runtime_error if the spec is neither, if the manifest is malformed, or
-         *         if the artifact requires a newer Mila.
+         * @throws std::runtime_error if the spec is not a coordinate, if the manifest is
+         *         malformed, or if the artifact requires a newer Mila.
          */
-        ResolvedModel resolve( const std::string& spec )
+        StoredModel pull( const std::string& spec )
         {
-            std::error_code ignored;
-
-            const bool forced_coordinate = spec.starts_with( "hf:" );
-
-            if ( !forced_coordinate && std::filesystem::exists( spec, ignored ) )
-            {
-                ResolvedModel resolved;
-                resolved.weights_path = spec;
-                resolved.from_local_path = true;
-
-                return resolved;
-            }
-
             const auto coordinate = parseCoordinate( spec );
 
             if ( !coordinate.has_value() )
             {
+                std::error_code ignored;
+
+                if ( std::filesystem::exists( spec, ignored ) )
+                {
+                    throw std::runtime_error( std::format(
+                        "Model spec '{}' is a path, and a path cannot be loaded directly. "
+                        "Install the file into the store first; only installed models load.",
+                        spec ) );
+                }
+
                 throw std::runtime_error( std::format(
-                    "Model spec '{}' is neither an existing file nor a coordinate of the form "
+                    "Model spec '{}' is not a coordinate of the form "
                     "<organization>/<repository>[:<variant>][@<revision>]", spec ) );
             }
 
-            return resolveCoordinate( *coordinate );
+            return pull( *coordinate );
         }
 
         /**
-         * @brief Resolve a parsed coordinate.
+         * @brief Pull a parsed coordinate, writing its record on success.
+         *
+         * The record is written last. Until every blob has verified there is nothing worth
+         * recording, and a record naming a blob that never arrived would make a broken model
+         * look installed.
          */
-        ResolvedModel resolveCoordinate( const ModelCoordinate& coordinate )
+        StoredModel pull( const ModelCoordinate& coordinate )
         {
-            const std::string manifest_text = access_.fetch_text( manifestUrl( coordinate ) );
+            if ( coordinate.isLocal() )
+            {
+                throw std::runtime_error( std::format(
+                    "{}: '{}' names a model built on this machine, which no hub serves. "
+                    "Install it from a package instead of pulling it.",
+                    coordinate.toString(), kLocalOwner ) );
+            }
+
+            const std::string manifest_text = hub_.fetchManifest( coordinate );
 
             nlohmann::json manifest = nlohmann::json::parse( manifest_text, nullptr, false );
 
@@ -394,38 +108,33 @@ namespace Mila::Distribution
 
             requireCompatibleVersion( coordinate, variant_name, variant );
 
-            ResolvedModel resolved;
-            resolved.variant = variant_name;
-            resolved.architecture = manifest.value( "architecture", std::string{} );
-            resolved.weight_quantization = variant.value( "weight_quantization", std::string{} );
-
             if ( !variant.contains( "files" ) || !variant[ "files" ].is_object() )
             {
                 throw std::runtime_error( std::format(
                     "{}: variant '{}' declares no files", coordinate.toString(), variant_name ) );
             }
 
+            ModelRecord record;
+            record.owner = coordinate.organization;
+            record.repository = coordinate.repository;
+            record.variant = variant_name;
+            record.architecture = manifest.value( "architecture", std::string{} );
+            record.weight_quantization = variant.value( "weight_quantization", std::string{} );
+            record.minimum_mila_version = variant.value( "minimum_mila_version", std::string{} );
+            record.hub = hub_.name();
+            record.revision = coordinate.revision;
+
             const nlohmann::json& files = variant[ "files" ];
 
-            resolved.weights_path = fetchDeclaredFile( coordinate, files, "weights", true );
-            resolved.tokenizer_path = fetchDeclaredFile( coordinate, files, "tokenizer", false );
+            fetchDeclaredFile( coordinate, files, "weights", true, record );
+            fetchDeclaredFile( coordinate, files, "tokenizer", false, record );
 
-            return resolved;
+            store_.writeRecord( record );
+
+            return store_.describe( record );
         }
 
     private:
-
-        static std::string manifestUrl( const ModelCoordinate& coordinate )
-        {
-            return std::format( "https://huggingface.co/{}/{}/resolve/{}/mila.json",
-                coordinate.organization, coordinate.repository, coordinate.revision );
-        }
-
-        static std::string fileUrl( const ModelCoordinate& coordinate, const std::string& path )
-        {
-            return std::format( "https://huggingface.co/{}/{}/resolve/{}/{}",
-                coordinate.organization, coordinate.repository, coordinate.revision, path );
-        }
 
         static std::string selectVariant(
             const nlohmann::json& manifest, const ModelCoordinate& coordinate )
@@ -465,6 +174,54 @@ namespace Mila::Distribution
         }
 
         /**
+         * @brief Parse "<major>.<minor>[.<patch>]", with an optional prerelease or build suffix.
+         *
+         * std::from_chars rather than sscanf: no locale involvement, and trailing text is
+         * examined rather than silently discarded, so a manifest whose version field holds
+         * something that is not a version is refused instead of read as one this build happens
+         * to satisfy. A '-' or '+' suffix is accepted because Mila's own versions carry one.
+         */
+        static bool parseVersion( std::string_view text, int& major, int& minor, int& patch )
+        {
+            major = 0;
+            minor = 0;
+            patch = 0;
+
+            int* const components[] = { &major, &minor, &patch };
+            int parsed = 0;
+
+            for ( int* component : components )
+            {
+                const char* const first = text.data();
+
+                const auto result = std::from_chars( first, first + text.size(), *component );
+
+                if ( result.ec != std::errc{} )
+                {
+                    break;
+                }
+
+                text.remove_prefix( static_cast<size_t>( result.ptr - first ) );
+                ++parsed;
+
+                if ( text.empty() || text.front() != '.' )
+                {
+                    break;
+                }
+
+                text.remove_prefix( 1 );
+            }
+
+            // Major and minor are the least a comparison can mean anything with.
+            if ( parsed < 2 )
+            {
+                return false;
+            }
+
+            return text.empty() || text.front() == '-' || text.front() == '+';
+        }
+
+        /**
          * @brief Refuse an artifact that needs a newer Mila.
          *
          * A version comparison here beats a parse error somewhere inside the tensor index,
@@ -486,7 +243,7 @@ namespace Mila::Distribution
             int minor = 0;
             int patch = 0;
 
-            if ( std::sscanf( minimum.c_str(), "%d.%d.%d", &major, &minor, &patch ) < 2 )
+            if ( !parseVersion( minimum, major, minor, patch ) )
             {
                 throw std::runtime_error( std::format(
                     "{}: variant '{}' has an unparseable minimum_mila_version '{}'",
@@ -509,11 +266,15 @@ namespace Mila::Distribution
             }
         }
 
-        std::filesystem::path fetchDeclaredFile(
+        /**
+         * @brief Fetch one declared file and append it to the record being built.
+         */
+        void fetchDeclaredFile(
             const ModelCoordinate& coordinate,
             const nlohmann::json& files,
             const std::string& role,
-            bool required )
+            bool required,
+            ModelRecord& record )
         {
             if ( !files.contains( role ) )
             {
@@ -523,7 +284,7 @@ namespace Mila::Distribution
                         "{}: manifest declares no '{}' file", coordinate.toString(), role ) );
                 }
 
-                return {};
+                return;
             }
 
             const nlohmann::json& entry = files[ role ];
@@ -535,13 +296,29 @@ namespace Mila::Distribution
                     coordinate.toString(), role ) );
             }
 
-            const std::string path = entry[ "path" ].get<std::string>();
-            const std::string digest = entry[ "sha256" ].get<std::string>();
+            ModelFile file;
+            file.role = role;
+            file.path = entry[ "path" ].get<std::string>();
+            file.sha256 = entry[ "sha256" ].get<std::string>();
+            file.bytes = entry.value( "bytes", uint64_t{ 0 } );
 
-            return cache_.ensureBlob( fileUrl( coordinate, path ), digest, access_.fetch_blob );
+            const IModelHub& hub = hub_;
+            const ModelCoordinate& source = coordinate;
+            const std::string path = file.path;
+
+            store_.ensureBlob(
+                std::format( "{} ({})", path, coordinate.toString() ),
+                file.sha256,
+                [&hub, &source, path]( uint64_t resume_from,
+                    const std::function<bool( const char*, size_t )>& sink ) -> FetchReport
+                {
+                    return hub.fetchFile( source, path, resume_from, sink );
+                } );
+
+            record.files.push_back( std::move( file ) );
         }
 
-        ModelCache& cache_;
-        RemoteAccess access_;
+        ModelStore& store_;
+        const IModelHub& hub_;
     };
 }

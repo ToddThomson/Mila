@@ -243,6 +243,8 @@ if(MILA_ENABLE_MODEL_DOWNLOAD)
     #
     # Protocols are cut to HTTP/HTTPS. No nghttp2, brotli or zstd either: HuggingFace serves
     # LFS blobs uncompressed over HTTP/1.1, so each would be a dependency that buys nothing.
+    #
+    # REVIEW: 8.21 is the latest GH release
     CPMAddPackage(
         NAME curl
         GITHUB_REPOSITORY curl/curl

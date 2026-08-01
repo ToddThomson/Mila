@@ -10,13 +10,15 @@
 
 module;
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <cstddef>
+#include <vector>
 
 export module Chat.ModelCatalog;
 
@@ -58,18 +60,30 @@ namespace Mila::ChatApp
         std::size_t      default_context;
     };
 
-    export inline constexpr std::array<ModelEntry, 10> kModelCatalog = { {
-        { "gemma-12b",     ModelType::Gemma, ModelSize::B12, ModelPrecision::BF16, true,  true,  QuantizationMode::FP4,  "gemma/gemma4_12b_it_bf16.bin",       "gemma/gemma_tokenizer.bin",  512 },
-        // The same model from a pre-quantized safetensors artifact: 6.33 GB rather than
-        // 23.8 GB, with the FP4 packing done once by Tools/ExportArtifact instead of on
-        // every load. Quantization must stay FP4 -- the artifact declares the policy its
-        // bytes were packed with and a mismatched load is refused.
-        //
-        // A local file of this name still wins if one is present, so an exported artifact
-        // in the models directory is used without touching the network. Otherwise this
-        // resolves as a coordinate and is fetched once into the content-addressed cache.
-        { "gemma-12b-packed", ModelType::Gemma, ModelSize::B12, ModelPrecision::BF16, true, true, QuantizationMode::FP4, "gemma/gemma4_12b_it_fp4.safetensors", "gemma/gemma_tokenizer.bin", 512 },
-        { "gemma-12b-hub",    ModelType::Gemma, ModelSize::B12, ModelPrecision::BF16, true, true, QuantizationMode::FP4, "mila-llm/gemma-4-12b-it:fp4",         "gemma/gemma_tokenizer.bin", 512 },
+    /**
+     * @brief The variant name a quantization selects.
+     *
+     * None means unquantized weights, which the manifest names by their dtype rather than by
+     * the absence of a policy -- there is no variant called "none".
+     */
+    export constexpr std::string_view variantName( QuantizationMode mode )
+    {
+        switch ( mode )
+        {
+            case QuantizationMode::FP8: return "fp8";
+            case QuantizationMode::FP4: return "fp4";
+            case QuantizationMode::None: return "bf16";
+        }
+
+        return "bf16";
+    }
+
+    export inline constexpr std::array<ModelEntry, 8> kModelCatalog = { {
+        // A coordinate with no variant: the requested quantization supplies it, so
+        // `/model gemma-12b fp8` asks the hub for :fp8 and is told which variants exist
+        // rather than loading FP4 bytes under an FP8 policy. Loaded from the store as a
+        // pre-quantized 6.33 GB artifact rather than quantizing 23.8 GB of BF16 on the way in.
+        { "gemma-12b",     ModelType::Gemma, ModelSize::B12, ModelPrecision::BF16, true,  true,  QuantizationMode::FP4,  "mila-llm/gemma-4-12b-it",            "gemma/gemma_tokenizer.bin",  512 },
         { "llama-1b",      ModelType::Llama, ModelSize::B1,  ModelPrecision::BF16, true,  false, QuantizationMode::None, "llama/llama32_1b_instruct_bf16.bin", "llama/llama32_tokenizer.bin", 4096 },
         { "llama-3b",      ModelType::Llama, ModelSize::B3,  ModelPrecision::BF16, true,  false, QuantizationMode::None, "llama/llama32_3b_instruct_bf16.bin", "llama/llama32_tokenizer.bin", 4096 },
         { "llama-8b",      ModelType::Llama, ModelSize::B8,  ModelPrecision::BF16, true,  false, QuantizationMode::None, "llama/llama31_8b_instruct_bf16.bin", "llama/llama32_tokenizer.bin", 4096 },
@@ -119,12 +133,41 @@ namespace Mila::ChatApp
      *         in a build compiled without model download.
      */
     export EntryPaths resolveEntryPaths(
-        const ModelEntry& entry, const std::filesystem::path& models_dir )
+        const ModelEntry& entry,
+        const std::filesystem::path& models_dir,
+        QuantizationMode quantization )
     {
         const std::string weights_spec( entry.weights_file );
 
-        // A relative file under the models directory is the historical form and stays the
-        // fast path: no parsing, no cache, no network.
+        auto coordinate = Mila::Distribution::parseCoordinate( weights_spec );
+
+        if ( coordinate.has_value() )
+        {
+            // Quantization is the variant, not part of the name. An entry that pins one keeps
+            // it; otherwise the request chooses, so asking for a quantization nobody published
+            // is answered with the list of variants that exist rather than by loading the
+            // wrong bytes under the right-sounding policy.
+            if ( coordinate->variant.empty() )
+            {
+                coordinate->variant = std::string( variantName( quantization ) );
+            }
+
+            // The store, with no network call. A pull is a deliberate act; a load is not, so
+            // an installed model resolves on nothing but a directory read.
+            Mila::Distribution::ModelStore store;
+
+            if ( auto installed = store.locate(
+                coordinate->organization, coordinate->repository, coordinate->variant ) )
+            {
+                return { installed->weights_path, installed->tokenizer_path };
+            }
+        }
+
+        // REVIEW: the models-directory branch is retired by the catalogue migration -- only a
+        // model in the store is loadable. It stays until the catalogue's remaining .bin rows
+        // have been exported, packaged and installed, because removing it first would leave
+        // every entry but the Gemma one unloadable. It is now *after* the store lookup, so a
+        // migrated model loads from the store even when a stale loose file is still on disk.
         const auto local_candidate = models_dir / weights_spec;
 
         if ( std::filesystem::exists( local_candidate ) )
@@ -133,8 +176,6 @@ namespace Mila::ChatApp
         }
 
 #ifdef MILA_HAS_MODEL_DOWNLOAD
-        const auto coordinate = Mila::Distribution::parseCoordinate( weights_spec );
-
         if ( !coordinate.has_value() )
         {
             throw std::runtime_error( std::format(
@@ -142,7 +183,8 @@ namespace Mila::ChatApp
                 entry.alias, weights_spec, models_dir.string() ) );
         }
 
-        std::cout << std::format( "Resolving {}\n", coordinate->toString() );
+        std::cout << std::format( "{} is not installed. Pulling {}\n",
+            entry.alias, coordinate->toString() );
 
         bool reported = false;
 
@@ -170,25 +212,300 @@ namespace Mila::ChatApp
                 return true;
             };
 
-        Mila::Distribution::ModelCache cache;
-        Mila::Distribution::ModelResolver resolver(
-            cache,
-            Mila::Distribution::makeHuggingFaceRemoteAccess(
-                Mila::Distribution::discoverHuggingFaceToken(), progress ) );
+        const Mila::Distribution::HuggingFaceHub hub(
+            Mila::Distribution::discoverHuggingFaceToken(), progress );
 
-        const auto resolved = resolver.resolveCoordinate( *coordinate );
+        Mila::Distribution::ModelStore pull_store;
+        Mila::Distribution::ModelResolver resolver( pull_store, hub );
+
+        const auto pulled = resolver.pull( *coordinate );
 
         if ( reported )
         {
             std::cout << "\n";
         }
 
-        return { resolved.weights_path, resolved.tokenizer_path };
+        return { pulled.weights_path, pulled.tokenizer_path };
 #else
         throw std::runtime_error( std::format(
             "Model '{}': '{}' is not under {}, and this build was compiled without "
             "MILA_ENABLE_MODEL_DOWNLOAD so a HuggingFace coordinate cannot be fetched",
             entry.alias, weights_spec, models_dir.string() ) );
 #endif
+    }
+
+    /**
+     * @brief Render a byte count at a scale a person reads.
+     */
+    inline std::string formatBytes( std::uint64_t bytes )
+    {
+        constexpr double kGigabyte = 1024.0 * 1024.0 * 1024.0;
+        constexpr double kMegabyte = 1024.0 * 1024.0;
+
+        if ( bytes >= static_cast<std::uint64_t>( kGigabyte ) )
+        {
+            return std::format( "{:.2f} GB", static_cast<double>( bytes ) / kGigabyte );
+        }
+
+        return std::format( "{:.1f} MB", static_cast<double>( bytes ) / kMegabyte );
+    }
+
+    /**
+     * @brief What the store holds, one line per model plus a total.
+     *
+     * Reads only the record tree, so it is instant and works with no network and in a build
+     * with no hub at all.
+     */
+    export std::vector<std::string> describeInstalledModels()
+    {
+        Mila::Distribution::ModelStore store;
+
+        const auto models = store.list();
+
+        std::vector<std::string> lines;
+
+        if ( models.empty() )
+        {
+            lines.push_back( std::format(
+                "No models installed. Store: {}", store.root().string() ) );
+
+            return lines;
+        }
+
+        lines.push_back( std::format( "Installed ({}):", store.root().string() ) );
+
+        for ( const auto& model : models )
+        {
+            // A record whose blobs went missing is shown rather than hidden: a store that
+            // silently omits a broken entry cannot be repaired by the person who owns it.
+            lines.push_back( std::format( "  {:<40} {:>10}  {}{}",
+                model.record.coordinate(),
+                formatBytes( model.bytes_on_disk ),
+                model.record.architecture.empty() ? "-" : model.record.architecture,
+                model.complete ? "" : "  [INCOMPLETE - blobs missing]" ) );
+        }
+
+        const auto usage = store.usage();
+
+        lines.push_back( std::format( "  {} model(s), {} on disk{}",
+            usage.model_count,
+            formatBytes( usage.blob_bytes ),
+            usage.reclaimable_bytes > 0
+                ? std::format( ", {} reclaimable with /rm --prune",
+                    formatBytes( usage.reclaimable_bytes ) )
+                : std::string{} ) );
+
+        return lines;
+    }
+
+    /**
+     * @brief What an owner publishes, one line per repository.
+     *
+     * Repository names and tags are authored by whoever owns the repository. They are printed
+     * as data and nothing here interprets them.
+     */
+    export std::vector<std::string> describeHubModels( const std::string& owner )
+    {
+        std::vector<std::string> lines;
+
+#ifdef MILA_HAS_MODEL_DOWNLOAD
+        const Mila::Distribution::HuggingFaceHub hub;
+
+        const auto models = hub.listModels( owner );
+
+        if ( models.empty() )
+        {
+            lines.push_back( std::format( "{} publishes no Mila models.", owner ) );
+
+            return lines;
+        }
+
+        // Which repositories are already here. The listing knows no variants, so this matches
+        // on the repository: "some variant of this is installed" is what a reader wants before
+        // deciding whether to pull.
+        const auto installed = Mila::Distribution::ModelStore{}.list();
+
+        const auto isInstalled = [&installed]( const Mila::Distribution::HubModel& model )
+            {
+                for ( const auto& stored : installed )
+                {
+                    if ( stored.record.owner == model.owner
+                        && stored.record.repository == model.repository )
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            };
+
+        lines.push_back( std::format( "Published by {}:", owner ) );
+
+        for ( const auto& model : models )
+        {
+            // Gating is known from the listing, so a repository behind terms says so here
+            // instead of surfacing as a 403 partway through a multi-gigabyte transfer.
+            lines.push_back( std::format( "  {:<40} {}{}",
+                model.coordinate(),
+                isInstalled( model ) ? "[installed] " : "",
+                model.gated ? "[gated - accept terms on huggingface.co]" : "" ) );
+        }
+
+        lines.push_back( "  Install one with /pull <owner>/<repository>:<variant>" );
+#else
+        lines.push_back(
+            "This build was compiled without MILA_ENABLE_MODEL_DOWNLOAD, so no hub can be "
+            "listed. Installed models are still available with /models." );
+#endif
+
+        return lines;
+    }
+
+    /**
+     * @brief Pull a coordinate into the store.
+     */
+    export std::vector<std::string> pullModel( const std::string& spec )
+    {
+        std::vector<std::string> lines;
+
+#ifdef MILA_HAS_MODEL_DOWNLOAD
+        Mila::Distribution::ModelStore store;
+
+        bool reported = false;
+
+        auto progress = [&reported]( std::uint64_t received, std::uint64_t total ) -> bool
+            {
+                if ( total == 0 )
+                {
+                    return true;
+                }
+
+                const int percent = static_cast<int>( ( received * 100 ) / total );
+
+                std::cout << std::format( "\r  {:>3}%  {} / {}", percent,
+                    formatBytes( received ), formatBytes( total ) ) << std::flush;
+
+                reported = true;
+
+                return true;
+            };
+
+        const Mila::Distribution::HuggingFaceHub hub(
+            Mila::Distribution::discoverHuggingFaceToken(), progress );
+
+        Mila::Distribution::ModelResolver resolver( store, hub );
+
+        const auto pulled = resolver.pull( spec );
+
+        if ( reported )
+        {
+            std::cout << "\n";
+        }
+
+        lines.push_back( std::format( "Installed {} ({}, {}).",
+            pulled.record.coordinate(),
+            pulled.record.architecture.empty() ? "unknown architecture" : pulled.record.architecture,
+            formatBytes( pulled.bytes_on_disk ) ) );
+#else
+        lines.push_back( std::format(
+            "Cannot pull '{}': this build was compiled without MILA_ENABLE_MODEL_DOWNLOAD.",
+            spec ) );
+#endif
+
+        return lines;
+    }
+
+    /**
+     * @brief Remove an installed model, reclaiming only what nothing else references.
+     *
+     * A coordinate with no variant is resolved against what is installed: unambiguous when one
+     * variant is present, and reported rather than guessed when several are.
+     */
+    export std::vector<std::string> removeModel( const std::string& spec )
+    {
+        std::vector<std::string> lines;
+
+        const auto coordinate = Mila::Distribution::parseCoordinate( spec );
+
+        if ( !coordinate.has_value() )
+        {
+            lines.push_back( std::format(
+                "'{}' is not a coordinate of the form <owner>/<repository>[:<variant>]", spec ) );
+
+            return lines;
+        }
+
+        Mila::Distribution::ModelStore store;
+
+        std::string variant = coordinate->variant;
+
+        if ( variant.empty() )
+        {
+            std::vector<std::string> installed;
+
+            for ( const auto& model : store.list() )
+            {
+                if ( model.record.owner == coordinate->organization
+                    && model.record.repository == coordinate->repository )
+                {
+                    installed.push_back( model.record.variant );
+                }
+            }
+
+            if ( installed.empty() )
+            {
+                lines.push_back( std::format( "{}/{} is not installed.",
+                    coordinate->organization, coordinate->repository ) );
+
+                return lines;
+            }
+
+            if ( installed.size() > 1 )
+            {
+                std::string names;
+
+                for ( const auto& name : installed )
+                {
+                    names += names.empty() ? name : ", " + name;
+                }
+
+                lines.push_back( std::format(
+                    "{}/{} has several variants installed: {}. Name one.",
+                    coordinate->organization, coordinate->repository, names ) );
+
+                return lines;
+            }
+
+            variant = installed.front();
+        }
+
+        const auto report = store.remove(
+            coordinate->organization, coordinate->repository, variant );
+
+        if ( report.records_removed == 0 )
+        {
+            lines.push_back( std::format( "{}/{}:{} is not installed.",
+                coordinate->organization, coordinate->repository, variant ) );
+
+            return lines;
+        }
+
+        lines.push_back( std::format( "Removed {}/{}:{} -- {} blob(s), {} reclaimed.",
+            coordinate->organization, coordinate->repository, variant,
+            report.blobs_removed, formatBytes( report.bytes_reclaimed ) ) );
+
+        // Shared blobs survive by design; saying so pre-empts "why did that free so little".
+        if ( report.blobs_removed == 0 )
+        {
+            lines.push_back(
+                "  Its files are shared with another installed variant, so none were deleted." );
+        }
+
+        for ( const auto& retained : report.retained )
+        {
+            lines.push_back( std::format( "  Could not delete (in use?): {}", retained ) );
+        }
+
+        return lines;
     }
 }

@@ -43,7 +43,9 @@ acceptable. The release is reached through the themed workstreams below, in depe
 suite is revived to become the correctness oracle; training is resurrected against green tests;
 documentation describes the stabilized surface; hardening validates and packages it for the public;
 and the MIS adaptor proves the product definition end-to-end. At `beta.1` the feature set is
-**frozen** — what remains is hardening, not new capability.
+**frozen** — what remains is hardening, not new capability. **Model Distribution is the one deliberate
+carve-in**, added during `beta.2` because a release nobody can get a model for is not an onboarding
+story; the freeze holds for everything else.
 
 ### Models
 
@@ -147,6 +149,39 @@ a reproducible container build; contributor onboarding (`CONTRIBUTING.md`, `gett
 guided reading path) complete; the public export surface frozen at the narrowest defensible umbrella; a
 missing dispatch specialization reads as a sentence, not a constraint cascade. GPU-first: the CUDA
 backend is the validated inference path; full CPU op parity is not a gate.
+
+### Model Distribution
+
+*One manifest describes every model, whatever its origin; a published model is one command away, and
+the store that holds it can be inspected and emptied.*
+
+Until now, using a Mila model meant already having the file, and the only way to get one was a
+converter run needing PyTorch and 23.8 GB of source weights. That is the right workflow for adding a
+model family and the wrong one for using a model Mila already publishes. The second problem is that a
+path says nothing: every consumer — the chat catalog, the inference server, a user with a directory of
+files — rebuilds by hand the knowledge of what a file is, what it needs, and where it came from.
+
+This workstream makes a model a described thing with a name. **One manifest describes every model**,
+whether it was fetched from a hub or built on the machine that loads it, so a model converted from a
+gated family is as first-class as one Mila publishes. Retrieval, listing, removal and publishing then
+become operations on described things rather than conventions over filenames. HuggingFace is the first
+concrete hub behind an abstracted interface, and the `mila-llm` organization is the namespace Mila
+publishes into; Mila runs no registry of its own and never uploads from the library.
+
+Two boundaries define the design. **Loading never downloads** — a model is pulled deliberately, with
+progress and a failure mode, and loaded from the local store afterward, so a multi-gigabyte transfer
+can never begin inside a chat prompt or in response to an inference request. And **the flat `.bin`
+container stops being a distributed form**: every catalogued model is a pre-quantized safetensors
+artifact with a manifest, which also retires the model aliases whose meaning nobody outside the
+codebase could decode. Engineering detail lives in [BACKLOG.md](BACKLOG.md) under this bucket; the
+design is [ModelDistribution.md](Mila/Specifications/ModelDistribution.md).
+
+**Success criteria:** a clean machine pulls and runs Gemma 4 12B FP4 from `mila-llm` through named
+commands, with no manual download and no converter; a model built locally from a family Mila cannot
+republish is listed, loaded and described exactly like a fetched one; the store reports what is
+installed and what it costs, and removing one variant does not damage another that shares its
+tokenizer; Chat and the inference server share one store as separate processes; no catalogue entry
+names a `.bin`; and a build without the hub still lists, locates and removes.
 
 ### Product Family — Adaptor Validation
 
