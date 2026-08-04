@@ -364,6 +364,68 @@ namespace Mila::Dnn
             return stats;
         }
 
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * Mirrors allocateParameters() and onBuilding(), sharing the channel derivation
+         * through resolveNormalizedPartition(). See Specifications/MemoryFootprint.md.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            const auto& input_shape = context.inputShape();
+
+            validateInputShape( input_shape );
+
+            MemoryStats stats;
+
+            // A weight already present is not reallocated -- allocateParameters() returns
+            // early -- so it costs this build nothing.
+            if ( !weight_ )
+            {
+                const NormalizedPartition partition = resolveNormalizedPartition( &input_shape );
+
+                stats.device_parameter_bytes +=
+                    storageBytes<TPrecision>( partition.channels );
+
+                if ( config_.hasBias() )
+                {
+                    stats.device_parameter_bytes +=
+                        storageBytes<TPrecision>( partition.channels );
+                }
+            }
+
+            // An installed shared output slot is owned and counted by the installer.
+            if ( !output_installed_ )
+            {
+                stats.device_state_bytes +=
+                    storageBytes<TPrecision>( elementCount( input_shape ) );
+            }
+
+            if ( operation_ )
+            {
+                stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
+            }
+
+            if ( context.isTrainingMode() )
+            {
+                const NormalizedPartition partition = resolveNormalizedPartition( &input_shape );
+
+                stats.device_gradient_bytes +=
+                    storageBytes<TPrecision>( elementCount( input_shape ) );
+
+                stats.device_gradient_bytes +=
+                    storageBytes<TPrecision>( partition.channels );
+
+                if ( config_.hasBias() )
+                {
+                    stats.device_gradient_bytes +=
+                        storageBytes<TPrecision>( partition.channels );
+                }
+            }
+
+            return stats;
+        }
+
         std::string toString() const override
         {
             std::ostringstream oss;
@@ -496,6 +558,70 @@ namespace Mila::Dnn
             }
         }
 
+        /**
+         * @brief The parameter channel count and outer shape the config implies.
+         *
+         * Extracted from allocateParameters() so that it and getRequiredMemory() cannot
+         * disagree about geometry. A second derivation would be invisible until a
+         * reported footprint was wrong -- see Specifications/MemoryFootprint.md.
+         */
+        struct NormalizedPartition
+        {
+            dim_t channels{ 1 };
+            shape_t outer_shape{};
+        };
+
+        NormalizedPartition resolveNormalizedPartition( const shape_t* input_shape ) const
+        {
+            NormalizedPartition partition;
+
+            if ( config_.getAxis().has_value() )
+            {
+                const dim_t axis = config_.getAxis().value();
+                AxisPartition ap = computeAxisPartition( *input_shape, axis, "RmsNorm" );
+
+                partition.channels = ap.axis_size;
+
+                uint8_t out_ndim = 0;
+
+                for ( uint8_t i = 0; i < input_shape->ndim; ++i )
+                {
+                    if ( static_cast<int64_t>( i ) != ap.normalized_axis )
+                    {
+                        partition.outer_shape.dims[ out_ndim++ ] = (*input_shape)[ i ];
+                    }
+                }
+
+                partition.outer_shape.ndim = out_ndim;
+
+                return partition;
+            }
+
+            const auto& normalized_shape = config_.getNormalizedShape();
+
+            if ( normalized_shape.empty() )
+            {
+                throw std::invalid_argument( "RmsNorm: cannot allocate parameters without normalized_shape or axis" );
+            }
+
+            if ( input_shape )
+            {
+                MultiAxisPartition mp = computeNormalizedShapePartition( *input_shape, normalized_shape, "RmsNorm" );
+
+                partition.channels = mp.normalized_size;
+                partition.outer_shape = shape_t{ mp.outer_shape.data(), mp.outer_shape.data() + mp.outer_shape.size() };
+
+                return partition;
+            }
+
+            for ( const auto& dim : normalized_shape )
+            {
+                partition.channels *= dim;
+            }
+
+            return partition;
+        }
+
         void allocateParameters( const shape_t* input_shape )
         {
             if ( weight_ )
@@ -503,62 +629,17 @@ namespace Mila::Dnn
                 return;
             }
 
-            int64_t channels = 1;
+            const NormalizedPartition partition = resolveNormalizedPartition( input_shape );
 
-            if ( config_.getAxis().has_value() )
-            {
-                const dim_t axis = config_.getAxis().value();
-                AxisPartition ap = computeAxisPartition( *input_shape, axis, "RmsNorm" );
-
-                channels = ap.axis_size;
-
-                outer_shape_ = {};
-                uint8_t out_ndim = 0;
-
-                for ( uint8_t i = 0; i < input_shape->ndim; ++i )
-                {
-                    if ( static_cast<int64_t>( i ) != ap.normalized_axis )
-                    {
-                        outer_shape_.dims[ out_ndim++ ] = (*input_shape)[ i ];
-                    }
-                }
-
-                outer_shape_.ndim = out_ndim;
-            }
-            else
-            {
-                const auto& normalized_shape = config_.getNormalizedShape();
-
-                if ( normalized_shape.empty() )
-                {
-                    throw std::invalid_argument( "RmsNorm: cannot allocate parameters without normalized_shape or axis" );
-                }
-
-                if ( input_shape )
-                {
-                    MultiAxisPartition mp = computeNormalizedShapePartition( *input_shape, normalized_shape, "RmsNorm" );
-
-                    channels = mp.normalized_size;
-                    outer_shape_ = shape_t{ mp.outer_shape.data(), mp.outer_shape.data() + mp.outer_shape.size() };
-                }
-                else
-                {
-                    for ( const auto& dim : normalized_shape )
-                    {
-                        channels *= dim;
-                    }
-
-                    outer_shape_ = {};
-                }
-            }
+            outer_shape_ = partition.outer_shape;
 
             auto device = this->getExecutionContext()->getDeviceId();
 
-            weight_ = std::make_shared<TensorType>( device, shape_t{ channels }, this->getName() + ".weight" );
+            weight_ = std::make_shared<TensorType>( device, shape_t{ partition.channels }, this->getName() + ".weight" );
 
             if ( config_.hasBias() )
             {
-                bias_ = std::make_shared<TensorType>( device, shape_t{ channels }, this->getName() + ".bias" );
+                bias_ = std::make_shared<TensorType>( device, shape_t{ partition.channels }, this->getName() + ".bias" );
             }
         }
 

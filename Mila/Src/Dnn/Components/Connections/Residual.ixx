@@ -331,6 +331,38 @@ namespace Mila::Dnn
             return stats;
         }
 
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * See Specifications/MemoryFootprint.md.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            const auto& input_shape = context.inputShape();
+            const dim_t elements = elementCount( input_shape );
+
+            MemoryStats stats;
+
+            // An installed shared output slot is owned and counted by the installer.
+            if ( !output_installed_ )
+            {
+                stats.device_state_bytes += storageBytes<TPrecision>( elements );
+            }
+
+            if ( operation_ )
+            {
+                stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
+            }
+
+            if ( context.isTrainingMode() )
+            {
+                // Two inputs, two input gradients.
+                stats.device_gradient_bytes += 2 * storageBytes<TPrecision>( elements );
+            }
+
+            return stats;
+        }
+
     protected:
 
         /**

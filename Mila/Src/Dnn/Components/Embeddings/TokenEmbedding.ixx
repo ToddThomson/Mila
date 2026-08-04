@@ -481,6 +481,60 @@ namespace Mila::Dnn
             return stats;
         }
 
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * Mirrors initializeParameters() and onBuilding(). The table dominates every other
+         * allocation in this component, which is what makes an unquantized table in a
+         * quantized model visible here without running anything.
+         * See Specifications/MemoryFootprint.md.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            validateBuildContext( context );
+
+            const auto& input_shape = context.inputShape();
+
+            const dim_t batch_size = input_shape[ 0 ];
+            const dim_t sequence_length = input_shape[ 1 ];
+            const dim_t vocabulary_size = config_.getVocabSize();
+            const dim_t embedding_dim = config_.getEmbeddingDim();
+
+            MemoryStats stats;
+
+            stats.device_parameter_bytes +=
+                storageBytes<kTableDtype>( vocabulary_size * embedding_dim );
+
+            if constexpr ( kIsQuantized )
+            {
+                // One scale per vocabulary row.
+                stats.device_parameter_bytes +=
+                    storageBytes<TTableQuantization::kScaleDtype>( vocabulary_size );
+            }
+
+            stats.device_state_bytes +=
+                storageBytes<TPrecision>( batch_size * sequence_length * embedding_dim );
+
+            if ( operation_ )
+            {
+                stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
+            }
+
+            if ( context.isTrainingMode() )
+            {
+                if constexpr ( !kIsQuantized )
+                {
+                    stats.device_gradient_bytes +=
+                        storageBytes<TPrecision>( vocabulary_size * embedding_dim );
+
+                    stats.device_gradient_bytes +=
+                        storageBytes<TIndex>( batch_size * sequence_length );
+                }
+            }
+
+            return stats;
+        }
+
     protected:
 
         // ====================================================================

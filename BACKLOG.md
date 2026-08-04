@@ -15,6 +15,57 @@ good-first-issue.
 
 ### Models
 
+- [~] **VRAM footprint: report what a build would allocate, without allocating it.** Design and
+  phasing in [`Specifications/MemoryFootprint.md`](Mila/Specifications/MemoryFootprint.md).
+  Answers "will this model run on my hardware at this context length" before a multi-gigabyte
+  download and for hardware the user does not own. The mechanism is a constructed-but-unbuilt
+  graph answering `getRequiredMemory( BuildContext )` — possible because **construction commits no
+  device memory** (`Linear.ixx` calls `initializeParameters` from `onBuilding`). Three alternatives
+  are recorded as rejected in §3.3; do not re-propose them.
+  - [x] **Phase 1 — contract and leaves.** Green 2026-08-04, first build round.
+    `Component::getRequiredMemory( BuildContext )` (throwing default, so an unconverted component
+    cannot silently underestimate) and `Operation::getRequiredStateMemorySize( BuildContext )`
+    (0 default, matching `getStateMemorySize()`). Implemented on `Linear`, `RmsNorm`,
+    `TokenEmbedding`; Gate A tests in `Linear.Cuda.cpp`. Full ctest suite green and Chat coherent —
+    the latter matters because `RmsNorm::resolveNormalizedPartition()` moved live parameter-shape
+    derivation out of `allocateParameters()`, and incoherent output would have been the symptom.
+    Supporting additions: `Mila::Dnn::storageBytes<TDataType>( dim_t )` (sub-byte aware — FP4 packs
+    two elements per byte, so a naive multiply overstates a packed weight by exactly 2x) and
+    `elementCount( shape_t )`.
+  - [~] **Phase 2 — Gemma composite.** *Leaves + operations green 2026-08-04 (clean rebuild, full
+    ctest suite clean, Chat coherent):*
+    `Residual`, `Swiglu`, `Rope`, `GroupedQueryAttention`, plus
+    `CudaGqaOp::getRequiredStateMemorySize` (the KV cache — the context-scaling term, sharing the
+    ring-capacity rule with `build()` via a new `resolveCacheCapacity()`) and
+    `CudaRopeOp::getRequiredStateMemorySize`. `Rope` also needed `resolveRotatedShapes()` extracted,
+    for the same reason `RmsNorm` did — `q_shape_`/`k_shape_` are assigned in `onBuilding` and a
+    pre-build call read them unset. *Still to do:* `GemmaBlock` and `GemmaTransformer` themselves,
+    prefill-chunk resolution (§6.1), and the pooling/tying corrections (§6.2).
+- [ ] **RoPE cos/sin caches are process-wide, so a per-layer sum overcounts them.**
+  `RopeCacheRegistry` keys on (theta, max_seq_len, head_dim); only the first op to acquire a key
+  allocates, and the rest report 0 from `getStateMemorySize()`. `getRequiredStateMemorySize` cannot
+  consult the registry instead — before any build nothing is cached, so every layer would answer
+  "I own it". It therefore returns what one owner pays, and **`GemmaTransformer` must deduplicate
+  by distinct cache key** (Gemma has two: local and global theta). Left undone deliberately;
+  summing naively would invent ~(layers-1) x cache of phantom VRAM. Same correction shape as weight
+  tying. Also means leaf-level Gate A for `Rope` is registry-order dependent and must not be
+  written as a naive predict-vs-build equality.
+  - [ ] Phase 3 — `requiredMemoryImpl` entry point plus Gate B against `cudaMemGetInfo`, to
+    attribute the currently-unexplained ~3.8 GB between predicted weights+KV and measured total.
+  - [ ] Phase 4 — Llama chassis. Expected to report the memory-gate defect below as a figure.
+  - [ ] Phase 5 — Chat `/model` pre-flight, warn-and-proceed per §6.5, plus a context sweep.
+- [x] **The component lifecycle documentation stated the opposite of the truth.** Fixed 2026-08-04.
+  `Component.MemoryStats.ixx` and `Component.ixx:567` both documented *"After construction —
+  parameters only"*; parameters are allocated in `onBuilding`. Load-bearing: taken at face value it
+  forecloses the footprint design entirely. `Component.ixx:570` also referenced a
+  `setEvaluation( false )` that does not exist — the API is `setTrainingMode()`. A new test,
+  `Construct_AllocatesNoDeviceMemory`, pins the fact so the comment cannot drift back.
+- [ ] **`getStorageSize` is implemented three times.** `Mila::Dnn::detail::getStorageSize`
+  (`Tensor.ixx:81`, carrying a `REVIEW:` that already asks why), `Detail::getStorageSize` used by
+  `TensorBuffer.ixx:221`, and now `Mila::Dnn::storageBytes` (`Component.MemoryStats.ixx`) — added
+  rather than reused because the first two are unexported. Note the two namespaces differ only in
+  case (`detail` / `Detail`), which is its own hazard. Consolidate onto one exported helper; the
+  blocker is that `Tensor.ixx` cannot import `Dnn.Component` without a cycle.
 - [ ] **KNOWN LIMITATION — the Llama chassis never received Gemma's memory gates.** Measured
   2026-08-03: **Llama 3.1 8B at FP4 uses about the same VRAM as Gemma 4 12B at FP4 (~10.7 GB)**,
   which is the anomaly — an 8B should sit well under a 12B. The body quantizes correctly; the two
@@ -383,6 +434,24 @@ good-first-issue.
 
 ### Production Hardening
 
+- [ ] **One concept, two names: the compute-precision template parameter is `TPrecision` in most of
+  the tree and `TComputePrecision` in nine files.** It is the same axis — the activation/compute
+  dtype — spelled two ways, split along no principle: `Linear` and `GroupedQueryAttention` use
+  `TComputePrecision`, their siblings `RmsNorm` / `Rope` / `Residual` / `Swiglu` /
+  `TokenEmbedding` use `TPrecision`. **This cost two compile errors in one session** (2026-08-04),
+  once in each direction, while adding `getRequiredMemory` across both groups — the author cannot
+  tell from the surrounding code which spelling a given class expects.
+  **Rename `TComputePrecision` -> `TPrecision`** (the majority: 58 files declare it against 9).
+  126 occurrences, 9 files, **0 in `Mila/Tests`**. Not a blind sweep — two files use *both*
+  spellings and need hand work:
+  `Components/Attention/GQA/GroupedQueryAttention.ixx` and
+  `Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.ixx`.
+  Full list: the two above plus `Components/Linear/Linear.ixx`,
+  `Compute/Devices/Cuda/Operations/Common/CublasLtLinearPlan.ixx`, `.../Common/CublasLtPlan.ixx`,
+  `.../Linear/CudaLinearOp.ixx`, `.../Linear/CudaLinearOp.Plans.ixx`,
+  `Compute/Operations/OperationBase.ixx`, `Quantization/KvCache/Policy.ixx`.
+  Related debt in the same family: CLAUDE.md mandates `TWeightQuantization` and the code says
+  `TWeightQuant`.
 - [ ] Isolate third-party warnings structurally with `/external:I` + `/external:W0` (and `-isystem` for
   Clang/GCC). **Sequenced with the warnings-as-errors ratchet in `## Future`, not before it** — see the
   sizing below. `Mila/CMakeLists.txt:87` sets `/W4` as `target_compile_options(Mila PRIVATE ...)`, which
@@ -479,26 +548,17 @@ good-first-issue.
   convention suggests non-public is the intent, in which case `Component`'s declaration is the one
   that is wrong.
 
-- [~] **Two exported types are named `MemoryStats`, and `import Mila;` makes both visible.** Fixed
-  2026-07-29 (unbuilt): the allocator-level one is now `Mila::Dnn::Compute::MemoryAllocationStats`;
-  `Mila::Dnn::MemoryStats` (the per-component figure) keeps the plain name, since it is the one on the
-  public `Component::getMemoryStats()` contract. **Contained to two files** — the tracker itself and the
-  parked `TensorBuffer.Tracking.cpp` — because `export import Compute.MemoryResourceTracker;` is
-  *commented out* at `Mila.ixx:95`. The type was never in the documented public surface at all; MSVC was
-  leaking it transitively through `TensorBuffer.ixx`, which is the same over-sharing already on record
-  from the quantization-policy episode, and is why the clash appeared on MSVC and would not have on
-  clang. The three call-site qualifications added as a workaround are reverted.
-  `Mila::Dnn::MemoryStats` (`Core/Component.MemoryStats.ixx:33`, the per-component figure returned by
-  `Component::getMemoryStats()`) and `Mila::Dnn::Compute::MemoryStats`
-  (`Compute/MemoryResourceTracker.ixx:19`, the allocator-level figure). Both are exported from
-  `Mila.ixx`, so any consumer with `using namespace Mila::Dnn;` **and**
-  `using namespace Mila::Dnn::Compute;` — the pair every test file opens with — gets **C2872 on an
-  unqualified `MemoryStats`**. Found 2026-07-29 when the serialization tests tripped it in
-  `Tests/Dnn/Core/CompositeComponent.cpp`; worked around there by qualifying, which is a fix for the
-  call site and not for the collision. Two same-named exported structs one namespace apart is an
-  API-coherence defect, not a naming preference: the resolution is to rename one (the component-level
-  one reads naturally as `ComponentMemoryStats`, the tracker one as `AllocatorMemoryStats`) rather
-  than to keep qualifying at every consumer. Fold into the **API Coherence** pass in `## Future`.
+- [x] **Two exported types were named `MemoryStats`, and `import Mila;` made both visible.** Verified
+  2026-08-04: the allocator-level one is `Mila::Dnn::Compute::MemoryAllocationStats`
+  (`Compute/MemoryResourceTracker.ixx:25`) and no `Compute::MemoryStats` reference remains in `Src` or
+  `Tests`. `Mila::Dnn::MemoryStats` keeps the plain name, since it is the one on the public
+  `Component::getMemoryStats()` contract — and is now the return type of `getRequiredMemory()` as well
+  (see `Specifications/MemoryFootprint.md` §4). The three call-site qualifications added as a
+  workaround are reverted. **The durable lesson:** the type was never in the documented public surface
+  — MSVC was leaking it transitively through `TensorBuffer.ixx`, since
+  `export import Compute.MemoryResourceTracker;` is *commented out* at `Mila.ixx:95`. Same over-sharing
+  already on record from the quantization-policy episode, and why the C2872 appeared on MSVC and would
+  not have on clang.
 
 - [x] **Every shipped composite bypassed the Phase 1 scoping fix, and the Phase 1 test could not see
   it.** Found 2026-07-29 when adding `Component::load_` turned a C2248 in `GptBlock.ixx:369`.

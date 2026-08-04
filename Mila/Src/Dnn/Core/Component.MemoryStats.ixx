@@ -14,17 +14,48 @@ module;
 
 export module Dnn.Component:MemoryStats;
 
+import Dnn.TensorTypes;
+import Dnn.TensorDataType;
+import Dnn.TensorDataTypeTraits;
+
 namespace Mila::Dnn
 {
+    /**
+     * @brief Storage bytes occupied by an element count of a given tensor data type.
+     *
+     * The counterpart to Tensor::getStorageSize() for buffers that do not exist yet --
+     * getRequiredMemory() sizes allocations before build() makes them. Sub-byte types
+     * are the reason this cannot be a multiply: FP4 packs two elements per byte, so
+     * element_count * size_in_bytes overstates a packed weight by exactly 2x.
+     *
+     * @param element_count Logical elements, not bytes.
+     */
+    export template<TensorDataType TDataType>
+    constexpr std::size_t storageBytes( dim_t element_count ) noexcept
+    {
+        constexpr std::size_t bits = []() constexpr {
+            if constexpr ( requires { TensorDataTypeTraits<TDataType>::bits_per_element; } )
+                return TensorDataTypeTraits<TDataType>::bits_per_element;
+            else
+                return TensorDataTypeTraits<TDataType>::size_in_bytes * std::size_t( 8 );
+            }();
+
+        return ( static_cast<std::size_t>( element_count ) * bits + 7 ) / 8;
+    }
+
     /**
      * @brief Memory allocation breakdown for a single component.
      *
      * Reflects the current allocation state at the moment of the call.
      * Categories map directly onto the component build lifecycle:
      *
-     *   After construction        parameters only
+     *   After construction        nothing -- construction allocates no device memory
      *   After build()             parameters + state
      *   After setTrainingMode()   parameters + state + gradients
+     *
+     * Parameters are allocated in onBuilding(), not in the constructor. That is what
+     * lets Component::getRequiredMemory() report a footprint from a constructed but
+     * unbuilt graph. See Specifications/MemoryFootprint.md section 3.1.
      *
      * All sizes are in bytes. Device and host allocations are tracked
      * separately as they represent distinct, independently constrained

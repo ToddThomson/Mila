@@ -732,6 +732,106 @@ namespace Mila::Dnn
             return stats;
         }
 
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * Mirrors initializeParameters() and onBuilding() below. The two must agree; the
+         * drift gate in the test suite compares this against getMemoryStats() after a real
+         * build. See Specifications/MemoryFootprint.md section 7.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            validateBuildContext( context );
+
+            MemoryStats stats;
+
+            const dim_t input_features = config_.getInputFeatures();
+            const dim_t output_features = config_.getOutputFeatures();
+
+            // An installed weight is REPORTED here, not skipped, even though
+            // initializeParameters() will not allocate it. That matches getMemoryStats(),
+            // which also reports it, and leaves the tying composite to subtract it exactly
+            // once (Gemma.ixx). Hiding it at both levels would make a tied table vanish
+            // from the model total instead of being counted a single time.
+            if ( weight_installed_ && weight_ )
+            {
+                stats.device_parameter_bytes += weight_->getStorageSize();
+
+                if ( weight_scales_ )
+                {
+                    stats.device_parameter_bytes += weight_scales_->getStorageSize();
+                }
+            }
+            else
+            {
+                // Packed nibble formats store 2 elements per byte, so the physical column
+                // count is halved here exactly as initializeParameters() halves it. The
+                // storage dtype is UINT8 for those formats, so the halving must happen on
+                // the extent and not a second time on the dtype.
+                const dim_t weight_cols = ( kIsQuantized && !TWeightQuant::kPerChannel )
+                    ? input_features / 2
+                    : input_features;
+
+                stats.device_parameter_bytes +=
+                    storageBytes<kWeightDtype>( output_features * weight_cols );
+
+                if constexpr ( kIsQuantized )
+                {
+                    if constexpr ( TWeightQuant::kPerChannel )
+                    {
+                        stats.device_parameter_bytes +=
+                            storageBytes<TWeightQuant::kScaleDtype>( output_features );
+                    }
+                    else
+                    {
+                        const dim_t num_groups =
+                            input_features / TWeightQuant::kQuantizationGroupSize;
+
+                        stats.device_parameter_bytes +=
+                            storageBytes<TWeightQuant::kScaleDtype>( output_features * num_groups );
+                    }
+                }
+            }
+
+            if ( config_.hasBias() )
+            {
+                stats.device_parameter_bytes +=
+                    storageBytes<TComputePrecision>( output_features );
+            }
+
+            // An installed shared output slot is owned and counted by the installer.
+            if ( !output_installed_ )
+            {
+                shape_t output_shape = context.inputShape();
+                output_shape.back() = output_features;
+
+                stats.device_state_bytes +=
+                    storageBytes<TComputePrecision>( elementCount( output_shape ) );
+            }
+
+            if ( operation_ )
+            {
+                stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
+            }
+
+            if ( context.isTrainingMode() )
+            {
+                stats.device_gradient_bytes +=
+                    storageBytes<TComputePrecision>( elementCount( context.inputShape() ) );
+
+                stats.device_gradient_bytes +=
+                    storageBytes<TComputePrecision>( output_features * input_features );
+
+                if ( config_.hasBias() )
+                {
+                    stats.device_gradient_bytes +=
+                        storageBytes<TComputePrecision>( output_features );
+                }
+            }
+
+            return stats;
+        }
+
     protected:
 
         void onExecutionContextSet() override

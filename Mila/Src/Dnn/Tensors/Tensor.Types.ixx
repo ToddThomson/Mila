@@ -173,6 +173,24 @@ namespace Mila::Dnn
     export using shape_t = TensorShape;
 
     /**
+     * @brief Product of a shape's extents -- the number of logical elements it describes.
+     *
+     * Distinct from TensorShape::size(), which is the rank. A rank-0 shape holds one
+     * element, so the empty product of 1 is the correct answer rather than a special case.
+     */
+    export constexpr dim_t elementCount( const shape_t& shape ) noexcept
+    {
+        dim_t count = 1;
+
+        for ( auto extent : shape )
+        {
+            count *= extent;
+        }
+
+        return count;
+    }
+
+    /**
      * @brief Stride descriptor (in elements) for each tensor dimension, row-major layout.
      *
      * stride_t[i] is the element count to advance one step along dimension i.

@@ -342,6 +342,29 @@ namespace Mila::Dnn::Compute::Cuda::Rope
             return "Cuda::RopeOp";
         }
 
+        /**
+         * @brief Cos/sin cache bytes needed for this configuration.
+         *
+         * CAUTION -- this is NOT per-instance cost. The caches live in the process-wide
+         * RopeCacheRegistry keyed on (theta, max_seq_len, head_dim), so across a 48-layer
+         * model only the first op to acquire a given key allocates; the rest alias it and
+         * report zero from getStateMemorySize(). This returns what making the cache exist
+         * costs, once.
+         *
+         * The consequence is that a caller summing this over every layer overcounts by
+         * (layers - 1) caches. Deduplication belongs to the transformer, which knows the
+         * distinct key set from its config -- the same shape as the tied-weight correction.
+         * Registry state cannot be consulted here instead: before any build, nothing is
+         * cached, so every layer would answer "I own it".
+         */
+        std::size_t getRequiredStateMemorySize( const BuildContext& ) const override
+        {
+            const dim_t cache_elements = config_.getMaxSequenceLength() * (config_.getHeadDim() / 2);
+            const std::size_t cache_bytes = static_cast<std::size_t>( cache_elements ) * sizeof( float );
+
+            return cache_bytes * 2; // cos and sin caches
+        }
+
         std::size_t getStateMemorySize() const override
         {
             if ( !owns_cache_ )

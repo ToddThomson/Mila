@@ -468,6 +468,50 @@ namespace Mila::Dnn
             output_installed_ = true;
         }
 
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * The KV cache -- the dominant, context-scaling term -- is reported by the
+         * operation, which is where it is allocated.
+         * See Specifications/MemoryFootprint.md.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            const auto& input_shape = context.inputShape();
+
+            validateConcatenatedQKVShape( input_shape );
+
+            const dim_t batch = input_shape[ 0 ];
+            const dim_t model_dim = config_.getModelDim();
+
+            MemoryStats stats;
+
+            stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
+
+            if ( context.isInferenceMode() )
+            {
+                // Decode output is T=1 and always component-owned -- never pooled.
+                stats.device_state_bytes += storageBytes<TComputePrecision>( batch * model_dim );
+
+                // Prefill output is one chunk wide, not the whole context.
+                if ( !output_installed_ )
+                {
+                    stats.device_state_bytes +=
+                        storageBytes<TComputePrecision>( batch * context.getPrefillSize() * model_dim );
+                }
+            }
+            else
+            {
+                shape_t output_shape = input_shape;
+                output_shape.back() = model_dim;
+
+                stats.device_state_bytes +=
+                    storageBytes<TComputePrecision>( elementCount( output_shape ) );
+            }
+
+            return stats;
+        }
+
         MemoryStats getMemoryStats() const override
         {
             MemoryStats stats;

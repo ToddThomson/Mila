@@ -564,10 +564,10 @@ namespace Mila::Dnn
          * Reflects allocations at the moment of the call. The returned stats
          * naturally track the component lifecycle:
          *
-         *   After construction              -- parameters only
+         *   After construction              -- nothing; construction allocates none
          *   After build( Inference )        -- parameters + T=1 state buffers
          *   After build( Training )         -- parameters + T=full state buffers
-         *   After setEvaluation( false )    -- parameters + state + gradients
+         *   After setTrainingMode( Train )  -- parameters + state + gradients
          *
          * For CompositeComponent and Network, the returned stats are the
          * recursive aggregate of all child components.
@@ -577,6 +577,39 @@ namespace Mila::Dnn
          * @return MemoryStats reflecting current allocations.
          */
         virtual MemoryStats getMemoryStats() const = 0;
+
+        /**
+         * @brief Report what build( context ) would allocate, without allocating it.
+         *
+         * The predictive counterpart to getMemoryStats(): what this component would
+         * need against what it currently has. Called on a constructed but unbuilt
+         * component, which is possible because construction commits no device memory
+         * -- see Specifications/MemoryFootprint.md.
+         *
+         * Implementations mirror their own onBuilding(), which is why the two take
+         * the same BuildContext: an implementation cannot answer for a different
+         * shape, runtime mode, or prefill size than the one build() would receive.
+         *
+         * Composites mirror whatever their getMemoryStats() twin does -- children,
+         * plus directly-owned buffers, minus any pooling, output-sharing or weight-
+         * tying correction. A plain sum over children overcounts wherever a buffer
+         * is installed rather than self-allocated.
+         *
+         * @param context The context that would be passed to build().
+         * @return MemoryStats the component would allocate.
+         * @throws std::logic_error if this component has not implemented the contract.
+         */
+        virtual MemoryStats getRequiredMemory( [[maybe_unused]] const BuildContext& context ) const
+        {
+            // Not pure virtual only so the contract can land family by family. A default
+            // returning zero would be a silent underestimate, and an underestimate is the
+            // one failure direction this whole mechanism exists to prevent -- it reports
+            // "fits" for a model that does not. Throwing makes an unconverted component
+            // impossible to miss the first time a composite recurses into it.
+            throw std::logic_error( std::format(
+                "Component '{}': getRequiredMemory() is not implemented for this component type",
+                getName() ) );
+        }
 
         // ====================================================================
         // Operators

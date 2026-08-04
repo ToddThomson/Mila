@@ -240,7 +240,43 @@ namespace Mila::Dnn
             {
                 stats.device_gradient_bytes += input_grad_->getStorageSize();
             }
-            
+
+            return stats;
+        }
+
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * The output feature dimension is halved: the input carries gate and value
+         * concatenated, and the gated product emits one of them.
+         * See Specifications/MemoryFootprint.md.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            validateBuildContext( context );
+
+            shape_t output_shape = context.inputShape();
+            output_shape.back() /= 2;
+
+            MemoryStats stats;
+
+            // An installed shared output slot is owned and counted by the installer.
+            if ( !output_installed_ )
+            {
+                stats.device_state_bytes += storageBytes<TPrecision>( elementCount( output_shape ) );
+            }
+
+            if ( operation_ )
+            {
+                stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
+            }
+
+            if ( context.isTrainingMode() )
+            {
+                stats.device_gradient_bytes +=
+                    storageBytes<TPrecision>( elementCount( context.inputShape() ) );
+            }
+
             return stats;
         }
 

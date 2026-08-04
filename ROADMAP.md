@@ -59,8 +59,15 @@ precision.*
 - **GPT-2** — the foundation model behind the MNIST and Bard training samples; FP32 / BF16, inference
   and train-from-scratch.
 
+Which of these a given machine can actually run is a question the library answers rather than one the
+user discovers by waiting for an out-of-memory error. A model reports what a build would allocate —
+weights, KV cache, activation workspace — for a chosen context length, without allocating any of it,
+without the weights present, and therefore for hardware the user does not yet own. The estimate comes
+from the same components that do the allocating, so it cannot drift into fiction.
+
 **Success criteria:** each family decodes token-for-token against HuggingFace at its target precision,
-captured as CI-guarded regression tests; tool calling validated on Gemma 4 and Llama 3.2 3B / 3.1 8B.
+captured as CI-guarded regression tests; tool calling validated on Gemma 4 and Llama 3.2 3B / 3.1 8B;
+a model's reported footprint matches what it actually allocates, held by test.
 
 ### Test Suite Revival
 

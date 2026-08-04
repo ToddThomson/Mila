@@ -12,6 +12,8 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <optional>
+#include <tuple>
+#include <utility>
 
 export module Dnn.Components.Rope;
 export import Dnn.Components.RopeConfig;
@@ -245,6 +247,31 @@ namespace Mila::Dnn
             return stats;
         }
 
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * NOT additive across layers. The cos/sin caches are process-wide and shared
+         * through RopeCacheRegistry, so the operation reports what one owner pays and a
+         * transformer summing its layers must deduplicate by cache key. See
+         * CudaRopeOp::getRequiredStateMemorySize and MemoryFootprint.md section 6.2.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            MemoryStats stats;
+
+            stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
+
+            if ( context.isTrainingMode() )
+            {
+                const auto [q_shape, k_shape] = resolveRotatedShapes( context );
+
+                stats.device_gradient_bytes += storageBytes<TPrecision>( elementCount( q_shape ) );
+                stats.device_gradient_bytes += storageBytes<TPrecision>( elementCount( k_shape ) );
+            }
+
+            return stats;
+        }
+
         std::string toString() const override
         {
             std::ostringstream oss;
@@ -262,13 +289,26 @@ namespace Mila::Dnn
             createOperation();
         }
 
+        /**
+         * @brief The Q and K shapes this context implies.
+         *
+         * Shared with getRequiredMemory(), which runs before onBuilding() has assigned
+         * q_shape_/k_shape_ and would otherwise read them unset.
+         */
+        std::pair<shape_t, shape_t> resolveRotatedShapes( const BuildContext& build_context ) const
+        {
+            const auto& input_shape = build_context.inputShape();
+
+            return {
+                shape_t{ input_shape[ 0 ], input_shape[ 1 ], config_.getNumHeads() * config_.getHeadDim() },
+                shape_t{ input_shape[ 0 ], input_shape[ 1 ], config_.getNumKVHeads() * config_.getHeadDim() } };
+        }
+
         void onBuilding( const BuildContext& build_context ) override
         {
             validateBuildContext( build_context );
-            const auto& input_shape = build_context.inputShape();
 
-            q_shape_ = shape_t{ input_shape[ 0 ], input_shape[ 1 ], config_.getNumHeads() * config_.getHeadDim() };
-            k_shape_ = shape_t{ input_shape[ 0 ], input_shape[ 1 ], config_.getNumKVHeads() * config_.getHeadDim() };
+            std::tie( q_shape_, k_shape_ ) = resolveRotatedShapes( build_context );
 
             if ( build_context.isTrainingMode() )
             {

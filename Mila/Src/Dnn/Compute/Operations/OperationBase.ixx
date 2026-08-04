@@ -146,6 +146,24 @@ namespace Mila::Dnn::Compute
         }
 
         /**
+         * @brief Bytes of state build( context ) would allocate, without allocating it.
+         *
+         * The predictive counterpart to getStateMemorySize(). Zero by default because
+         * an operation allocates no state unless it says otherwise -- the same premise
+         * getStateMemorySize() already defaults on, so the two agree for every stateless
+         * operation without either being written.
+         *
+         * Override wherever getStateMemorySize() is overridden. The KV cache capacity
+         * rule belongs here rather than in the component: the cache is allocated on this
+         * side of the boundary.
+         */
+        virtual std::size_t getRequiredStateMemorySize(
+            [[maybe_unused]] const BuildContext& build_context ) const
+        {
+            return 0;
+        }
+
+        /**
          * @brief Human-readable operation name.
          */
         virtual std::string getName() const = 0;

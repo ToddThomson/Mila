@@ -466,6 +466,86 @@ namespace Mila::Tests::Dnn::Components::Linear
     }
 
     // ====================================================================
+    // G2. Required-memory contract (MemoryFootprint.md section 7, Gate A)
+    // ====================================================================
+
+    // The premise the whole footprint mechanism rests on: construction commits no
+    // device memory, so a constructed-but-unbuilt graph can be asked what building
+    // would cost. Asserted directly so it cannot regress silently -- the lifecycle
+    // comment claiming otherwise survived in two files until 2026-08-04.
+    TYPED_TEST( LinearCudaTests, Construct_AllocatesNoDeviceMemory )
+    {
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( true );
+
+        typename TestFixture::LinearType unbuilt( "linear", config, Device::Cuda( 0 ) );
+
+        const MemoryStats stats = unbuilt.getMemoryStats();
+
+        EXPECT_EQ( stats.totalBytes(), 0u );
+    }
+
+    // Gate A: what an unbuilt component predicts must equal what a built one reports.
+    // Category-by-category, so a disagreement names parameters, state or gradients
+    // rather than handing back a total that is merely wrong.
+    TYPED_TEST( LinearCudaTests, RequiredMemory_MatchesBuiltFootprint )
+    {
+        for ( bool has_bias : { false, true } )
+        {
+            for ( RuntimeMode mode : { RuntimeMode::Inference, RuntimeMode::Training } )
+            {
+                LinearConfig config( kInFeatures, kOutFeatures );
+                config.withBias( has_bias );
+
+                const shape_t shape{ 2, kInFeatures };
+                const BuildContext context( shape, mode, false );
+
+                typename TestFixture::LinearType predictor( "linear", config, Device::Cuda( 0 ) );
+                const MemoryStats predicted = predictor.getRequiredMemory( context );
+
+                typename TestFixture::LinearType built( "linear", config, Device::Cuda( 0 ) );
+                built.build( context );
+                const MemoryStats actual = built.getMemoryStats();
+
+                EXPECT_EQ( predicted.device_parameter_bytes, actual.device_parameter_bytes )
+                    << "parameters, bias=" << has_bias;
+                EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes )
+                    << "state, bias=" << has_bias;
+                EXPECT_EQ( predicted.device_gradient_bytes, actual.device_gradient_bytes )
+                    << "gradients, bias=" << has_bias;
+            }
+        }
+    }
+
+    // A tied lm_head adopting the embedding table. getRequiredMemory must follow
+    // getMemoryStats's convention exactly -- both REPORT the installed weight, and the
+    // tying composite subtracts it once -- or the two disagree precisely on the largest
+    // tensor in the model.
+    TYPED_TEST( LinearCudaTests, RequiredMemory_MatchesBuiltFootprintWithInstalledWeight )
+    {
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( false );
+
+        const shape_t shape{ 2, kInFeatures };
+        const BuildContext context( shape, RuntimeMode::Inference, false );
+
+        auto shared_weight = std::make_shared<typename TestFixture::DeviceTensor>(
+            Device::Cuda( 0 ), shape_t{ kOutFeatures, kInFeatures }, "shared.weight" );
+
+        typename TestFixture::LinearType predictor( "linear", config, Device::Cuda( 0 ) );
+        predictor.installSharedWeight( shared_weight );
+        const MemoryStats predicted = predictor.getRequiredMemory( context );
+
+        typename TestFixture::LinearType built( "linear", config, Device::Cuda( 0 ) );
+        built.installSharedWeight( shared_weight );
+        built.build( context );
+        const MemoryStats actual = built.getMemoryStats();
+
+        EXPECT_EQ( predicted.device_parameter_bytes, actual.device_parameter_bytes );
+        EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes );
+    }
+
+    // ====================================================================
     // H. Shared weight installation (weight tying — WeightTying.md)
     // ====================================================================
 
