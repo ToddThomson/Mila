@@ -47,22 +47,21 @@ static void printUsage( const char* prog_name )
         << "  --help, -h        Show this message.\n"
         << "\n"
         << "Session config keys:\n"
-        << "  model              Model alias (see below). Default: " << kDefaultModelAlias << ".\n"
-        << "  quantization       none | fp8 | fp4. Default: the model's own default.\n"
+        << "  model              Installed model name. Default: " << kDefaultModelName << ".\n"
         << "  context_length     Maximum sequence length. Default: the model's own default.\n"
         << "  thinking           true to surface Gemma's reasoning channel.\n"
         << "  thinking_effort    1-5 token-budget scale for reasoning (default 3 = balanced).\n"
         << "  verbose            display detail: off | thoughts | all (default off).\n"
         << "  temperature, top_k, max_new_tokens, system_prompt_path.\n"
         << "\n"
-        << "Model aliases:\n";
+        << "  quantization       none | fp8 | fp4. Quantizes an unquantized artifact on load;\n"
+        << "                     a name ending -fp4/-fp8 is already quantized and refuses it.\n"
+        << "\n";
 
-    for ( const auto& entry : kModelCatalog )
+    // What is loadable is what is installed, so the list is read rather than compiled in.
+    for ( const auto& line : describeInstalledModels() )
     {
-        std::cerr << std::format( "  {:<14} {} weights{}\n",
-            entry.alias,
-            entry.precision == ModelPrecision::BF16 ? "BF16" : "FP32",
-            entry.default_quantization == QuantizationMode::FP4 ? ", FP4 default" : "" );
+        std::cerr << line << "\n";
     }
 }
 
@@ -134,32 +133,16 @@ static ChatConfig buildConfig( int argc, char* argv[] )
             << " — using defaults.\n";
     }
 
-    // Resolve the model alias against the catalog.
-    std::string alias( kDefaultModelAlias );
+    // Resolve the model name against the store. There is no catalogue: what can be loaded is
+    // what is installed, which is why this is a lookup rather than a table.
+    std::string name( kDefaultModelName );
 
     if ( j.contains( "model" ) && j[ "model" ].is_string() )
-        alias = j[ "model" ].get<std::string>();
+        name = j[ "model" ].get<std::string>();
 
-    const ModelEntry* entry = findModel( alias );
-
-    if ( entry == nullptr )
-        throw std::invalid_argument( std::format(
-            "Unknown model alias '{}' in session config. Run with --help for the list.", alias ) );
-
-    ChatConfig config;
-    config.model_alias       = std::string( entry->alias );
-    config.model_type        = entry->family;
-    config.model_size        = entry->size;
-    config.precision         = entry->precision;
-    config.is_instruct       = entry->is_instruct;
-    config.streaming_capable = entry->streaming_capable;
-    config.models_dir     = models_dir;
-
-    config.config_path    = config_path;
-
-    // Quantization: explicit config override, else the model's own default. Settled before the
-    // model is resolved, because for a coordinate entry the quantization *is* the variant.
-    config.quantization_mode = entry->default_quantization;
+    // Quantization is a deployment choice against an unquantized artifact, so it is settled
+    // before the model resolves rather than being part of the name.
+    std::optional<QuantizationMode> requested_quantization;
 
     if ( j.contains( "quantization" ) && j[ "quantization" ].is_string() )
     {
@@ -170,18 +153,26 @@ static ChatConfig buildConfig( int argc, char* argv[] )
             throw std::invalid_argument( std::format(
                 "Unknown quantization '{}'. Use none, fp8, or fp4.", value ) );
 
-        config.quantization_mode = *parsed;
+        requested_quantization = *parsed;
     }
 
-    {
-        const auto paths = resolveEntryPaths( *entry, models_dir, config.quantization_mode );
+    ResolvedModel resolved = resolveModel( name, requested_quantization );
 
-        config.model_path     = paths.weights;
-        config.tokenizer_path = paths.tokenizer;
-    }
+    ChatConfig config;
+    config.model_name        = resolved.name;
+    config.model_type        = resolved.family;
+    config.precision         = resolved.precision;
+    config.is_instruct       = resolved.instruct;
+    config.streaming_capable = resolved.streaming_capable;
+    config.quantization_mode = resolved.quantization;
+    config.model_path        = resolved.weights;
+    config.tokenizer_path    = resolved.tokenizer;
+
+    config.models_dir     = models_dir;
+    config.config_path    = config_path;
 
     // Context length: explicit override, else the model's own default.
-    config.context_length = entry->default_context;
+    config.context_length = resolved.default_context;
 
     if ( j.contains( "context_length" ) && j[ "context_length" ].is_number_unsigned() )
         config.context_length = j[ "context_length" ].get<std::size_t>();

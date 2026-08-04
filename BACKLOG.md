@@ -15,6 +15,36 @@ good-first-issue.
 
 ### Models
 
+- [ ] **KNOWN LIMITATION — the Llama chassis never received Gemma's memory gates.** Measured
+  2026-08-03: **Llama 3.1 8B at FP4 uses about the same VRAM as Gemma 4 12B at FP4 (~10.7 GB)**,
+  which is the anomaly — an 8B should sit well under a 12B. The body quantizes correctly; the two
+  largest single tensors do not participate.
+  ```
+  GEMMA  Gemma.ixx:146  TokenEmbedding<..., TableQuantizationPolicy>   quantized
+  GEMMA  Gemma.ixx:147  Linear<..., TableQuantizationPolicy>           quantized
+  GEMMA  Gemma.ixx:365  if ( tie_word_embeddings_ && lm_head_ )        tied, one allocation
+  LLAMA  Llama.ixx:117  TokenEmbedding<..., TPrecision>                BF16
+  LLAMA  Llama.ixx:119  Linear<..., TPrecision>                        BF16
+  LLAMA                 (no tying anywhere)
+  ```
+  Gemma's `:138` carries the design note — *"D4 Design B: weight-quantized bodies (FP4/FP8) convert
+  the tied..."* — so this was the Gemma memory-gate milestone (weight tying + bounded sliding-window
+  KV ring), and **none of it was carried across**. See [[project_gemma_memory_gates]].
+  **The arithmetic, Llama 3.1 8B, vocab 128256 x hidden 4096.** Embedding and `lm_head` are 525M
+  parameters *each* and 3.1-8B does not tie them, so that is **2.1 GB of BF16 tables** where Gemma
+  pays for one quantized, tied table. Llama 3.1 also uses full global attention, so KV is ~1.07 GB at
+  8192 context against Gemma's bounded ring. Together that is roughly the whole 8B-vs-12B advantage.
+  **Three fixes, all mirroring what Gemma already has:**
+  1. Pass the quantization policy to `TokenEmbedding` — ~0.79 GB on the 8B at FP4.
+  2. Pass it to `lm_head` — another ~0.79 GB. **Decide deliberately rather than by omission:**
+     keeping the head at higher precision is a known quality trade and Gemma chose to quantize, so
+     whichever way it goes it should be a commented decision, not a dropped template argument.
+  3. Implement weight tying when `tie_word_embeddings` is set. **This matters most for Llama 3.2
+     1B/3B, which are tied upstream** and currently carry a duplicate table (~0.79 GB on the 3B).
+     The 8B is genuinely untied, so tying does not help it.
+  Expected after: 8B FP4 near **9 GB instead of 10.7**, 3B down about 0.8 GB.
+  **This gates the OOM pre-flight** — no footprint estimator is worth building while the largest
+  tensors ignore the quantization policy the user asked for.
 - [~] Llama HF-parity regression test — add a `LlamaModel` parity test (Gemma has
   `GemmaModel.Parity.Cuda.cpp`, Llama has none); validate + record 3.1 8B FP8. Folds into Test Suite
   Revival's Llama-path backfill.
@@ -986,15 +1016,233 @@ unified `mila` CLI is forward-looking only, gated on resolving the Python/C++ sp
   NVFP4/MXFP4, the coordinate form, and the link to mila.toddt.me. Onboarding is the reason
   distribution was carved into the release, so this is part of the deliverable rather than decoration.
   See [[project_positioning_reference_impl]] — never lead with throughput.
-- [ ] **Phase 9 — packaging and publish.** Assemble and validate the package directory (manifest,
-  artifact, tokenizer, LICENSE, model card with the modification statement Apache 2.0 requires), refuse
-  one that is not self-consistent, and install to the local store by **move, not copy** — free on one
-  volume, and it keeps a single integrity model in which the path is the digest.
-  `ExportArtifact --emit-manifest` already derives the manifest with real digests; **it must never be
-  hand-maintained**, since one edited after a re-export is a repository that fails verification on
-  every download. Hub upload stays with `publish_model.py`. *Done when:* a converted model becomes a
-  `local/` model that `list` reports and Chat loads, and the same package validates for upload.
-- [ ] **Phase 10 — the load boundary and the catalogue.** `locate` never touches the network; Chat may
+- [~] **Phase 9 — packaging and publish. WRITTEN 2026-08-03, not yet compiled.** Three always-compiled
+  modules, one per file: **`Distribution.ModelManifest`** (the `mila.json` schema in one place —
+  `ModelFile` moved here from `ModelStore`, plus `ManifestVariant`, `parseModelManifest`,
+  `toJsonText`, `selectVariant`, `requireCompatibleMilaVersion`), **`Distribution.ModelPackage`**
+  (`ModelPackage::open` / `validate` / `buildPackage`, and `sha256OfFile`), and
+  `ModelStore::adoptBlob` + `ModelStore::install`.
+  **The manifest was being parsed in two places and is now parsed in one:** the resolver's private
+  `selectVariant` / `parseVersion` / `requireCompatibleVersion` and its inline `nlohmann` walk are
+  gone, and `pull` now fetches **every file the variant declares** rather than a hardcoded
+  weights-plus-tokenizer pair — what composes the model is the manifest's statement.
+  **`adoptBlob` is `ensureBlob`'s counterpart for bytes that need no transfer.** It hashes rather
+  than trusting the caller (a blob adopted unverified poisons every later cache hit), takes the same
+  per-digest transfer lock, publishes by rename on one volume, and stages through `tmp/` across
+  volumes because there is no atomic move there. On a mismatch the caller's file is left exactly as
+  it was — unlike a download, those bytes are not the store's to quarantine.
+  **Install does not validate first, deliberately:** adoption hashes each file as it takes it, so a
+  `validate()` pass beforehand would read every byte twice — 6.8 GB for a check that already happened.
+  Validation grades findings: a **problem** (bytes disagree with the manifest, or a declared path
+  escapes the package — a manifest can come from a hub, so its paths are untrusted) blocks emit and
+  install; a **warning** (no LICENSE, no model card) is a publishing decision.
+  `ExportArtifact` gained `--package <dir>` / `--license` / `--model-card` and the standalone
+  `--validate <dir>` and `--install <dir> [--as owner/repo] [--variant x] [--keep]`;
+  `--emit-manifest` now means package-in-place. **Its hand-rolled `std::format` manifest string is
+  gone** — the digests come from the serializer, and a repository manifest merges across variants
+  instead of one fragment pretending to be the whole file. `publish_model.py` takes a package
+  directory with `--repo <owner>/<name>`, since a package holds every file it declares and needs no
+  `publish.json` mapping.
+  New `Tests/Distribution/ModelPackage.Cpu.cpp` (24 cases, filesystem-only so it rides the CUDA=OFF
+  gate) covers the schema, assembly and merge, each validation grade, and install — including the two
+  cases the move semantics make sharp: **a second variant whose tokenizer was already moved out of
+  the package must find the blob and not fail**, and removing one of the two must leave that blob for
+  the other. *Done when:* a converted model becomes a `local/` model that `list` reports and Chat
+  loads, and the same package validates for upload.
+  **BUILT AND GREEN 2026-08-03, and proven against the real 6.35 GB Gemma artifact:**
+  `--validate Data/Models/Gemma` read both declared files back, matched the published digests, and
+  reported exactly the two expected warnings (that directory has no LICENSE or README — they live in
+  `ModelCards/`). `--install ... --as local/gemma-4-12b-it --keep` then wrote
+  `models/local/gemma-4-12b-it/fp4.json` with `hub` and `revision` empty, left `tmp/` clean, and left
+  the source directory untouched. **Both blobs were already in the store, so adoption returned before
+  copying anything** — two records now share 6.35 GB, which is the dedup property on real data, but
+  it also means *the adopt-and-move path has only unit-test coverage, not a large-file run.*
+  **The Chat leg is NOT proven and is blocked twice over — see the two items below.**
+- [x] **Family-agnostic transcode — BUILT AND PROVEN 2026-08-03.** `ExportArtifact` could only
+  export Gemma (`runExport` names `GemmaModelConfig` and `GemmaModel<Cuda, BF16>` outright), and
+  `saveArtifact` / `fingerprintPrefill` exist **only** on `GemmaModel` — so this was never a dispatch
+  gap, it was a missing capability. **Family dispatch was the wrong lever:** every remaining
+  catalogue row is unquantized, and an unquantized export changes the container, not the numbers.
+  New `runTranscode` reads any `.bin` or safetensors through `PretrainedModelReader` and writes
+  safetensors — **no model build, no GPU, no architecture named, nothing family-specific.**
+  Two passes over the reader's offset-ordered index (safetensors records byte ranges in its header,
+  so everything is declared before any body is written); both walk the same order, so declaration
+  and write order agree by construction, and **the first pass touches only blob metadata and never
+  dereferences the mapped bytes, so it costs no I/O.** Needed no library change — the reader's
+  `streamTensorBlobs` and the writer's `declareTensor`/`writeTensorData` were already exported.
+  **Measured:** GPT-2 652 MB in **0.75 s**, 149 tensors; Llama 3.2 3B Instruct BF16 6.72 GB in
+  **7.3 s**, 171 tensors. Both reconciled exactly against source (0 missing, 0 extra) via the
+  existing `compareAgainstSource`, which is reader-based and transferred for free.
+- [x] **Standalone `--package` verb — DONE 2026-08-03.** Packaging was only reachable as a post-step
+  of a full GPU export. `--package <dir> --weights <artifact>` now takes a finished artifact and
+  **derives architecture, quantization and variant from the file itself** (the spec's "synthesized"
+  manifest provenance): a pre-quantized artifact names its policy in metadata; an unquantized one
+  takes its weight dtype from the **largest** tensor, because that is the token embedding in every
+  family here and unambiguously a weight, where the first tensor in file order is whatever the
+  converter happened to write. Verified: the Llama artifact packaged as `variant bf16`,
+  `architecture llama`, `quantization none`, with **no copy** — a file already in the package
+  directory is described in place.
+- [x] **Adopt-and-move proven on a large file 2026-08-03**, closing the gap left this morning when
+  both Gemma blobs were already in the store. Installing the 6.72 GB Llama package into a scratch
+  store (`MILA_CACHE_DIR`) took **25.5 s** — the cost is hashing at ~270 MB/s, which is what makes
+  the blob trustworthy — and left the package directory holding **only `mila.json`**, with `tmp/`
+  clean. The blob is 7,499 bytes larger than the source `.bin`: the safetensors JSON header.
+- [~] **First catalogue row migrated 2026-08-03 — awaiting the load test.** Llama 3.2 3B Instruct is
+  transcoded, packaged and **installed in the real store** as `local/llama-3.2-3b-instruct:bf16`
+  (6.72 GB blob; the transcode is deterministic — the scratch and real installs produced the same
+  digest `8e4e9494…`). The `llama-3b` catalogue row now names the coordinate instead of
+  `llama/llama32_3b_instruct_bf16.bin`, so it resolves from the store; `ChatApp` builds green.
+  The loose `.bin` is untouched on disk and simply unused by that row now.
+  **GATE CLEARED 2026-08-03: `/model llama-3b` loads from the store and generates coherently.**
+  Multi-turn conversation, on-topic and grammatical. So a Llama safetensors artifact produced by the
+  transcode loads through the same `PretrainedReader` magic-sniff branch as a `.bin`, all 171 tensors
+  bind, and `.bin` is not needed to run a Llama. **The catalogue can now be deleted safely.**
+  The `BpeTokenizer` ASCII-fallback warning fired on the switch, as designed — that is the tracked
+  item below, not a regression.
+- [ ] **Packaging then installing hashes every file twice.** `buildPackage` hashes to derive the
+  manifest digests, then `install` hashes again to verify adoption — about 50 s of the ~60 s Llama 3B
+  migration, and it would be ~2 minutes of redundant work on the 16 GB Llama 8B. Neither hash is
+  wrong on its own (install must not trust a manifest it did not produce), so the fix is a combined
+  verb that packages and installs in one pass rather than removing either check. Same defect already
+  logged against `publish_model.py`.
+- [x] **Store layout and flat naming — LANDED 2026-08-03, full suite green (1561 pass, 1 pre-existing
+  skip).** Todd's calls across a design pass, none to re-litigate:
+  **(1) The root no longer doubles the `models` segment.** `resolveStoreRoot()` appended it *and* so
+  did `recordPath()`, producing `Mila\models\models\...`. The defect was in the spec, stated in two
+  places independently, and was implemented faithfully. Root is now `%LOCALAPPDATA%\Mila` holding
+  `models/`, `blobs/`, `tmp/`. `MILA_CACHE_DIR` was correct all along — only the four platform
+  defaults carried the extra segment.
+  **(2) The name is the key: flat, unique, one level.** `models\<name>.json`. `ModelRecord` lost
+  `owner`/`repository`/`variant` as identity and gained `name`; `locate`/`remove`/`readRecord` take
+  one string. **Origin moved into the record's `installed` block and out of the path entirely** —
+  it is mutable (a locally published model may be pushed to a hub later), so in a path it would be a
+  file move, and a path segment for it would let two origins coexist under one name, which is the
+  state the uniqueness rule forbids.
+  **(3) The `:variant` grammar is gone.** One repository is one model at one precision, which the
+  name carries — the platform's own convention, and what lets a hub listing show every variant with
+  no manifest fetch. `ManifestVariant`, the variants map, `selectVariant` and `default_variant` are
+  deleted; the manifest is a single-model document that gained `name`, `base_model` and `license`.
+  **Deduplication was never the naming's doing** — content addressing does it, so two models with
+  byte-identical tokenizers still share one blob, which the tests pin.
+  **(4) The hub owner is hidden.** `kDefaultHubOwner` lives in `ModelCoordinate` and is passed *by
+  the consumer*, never baked into `HuggingFaceHub` — the hub class is "HuggingFace", the owner is
+  Mila's. `pull` takes a name plus an owner and refuses a path-shaped name before it becomes a URL.
+  **A real defect the tests caught, not a test bug:** the first uniqueness check compared origin
+  fields, and two *different* locally published models both have empty origin — so a collision read
+  as a refresh and silently replaced, leaving the displaced model's blobs for the next prune. Now a
+  collision is refused unless the origin genuinely matches or **the weights digest is identical**,
+  which is what keeps a local re-install idempotent without a namespace.
+  **Store migrated in place:** blobs moved up one level (content-addressed, so free), both models
+  reinstalled under the new layout — `gemma-4-12b-it-fp4` and `llama-3.2-3b-instruct-bf16`, 13.06 GB,
+  Gemma's install instant because its blobs were already present.
+- [ ] **[gate] The published `mila-llm/gemma-4-12b-it` repository is now incompatible with this
+  build.** Its `mila.json` is the old `variants:{}` schema, which the new parser refuses outright, and
+  its name lacks the `-fp4` suffix the flat scheme requires. Nothing can pull it. Renaming a HF repo
+  and rewriting its manifest must happen **before** anyone else pulls, and the model card needs the
+  same pass — it still shows `makeHuggingFaceRemoteAccess()`, deleted in Phase 8, and a `/pull`
+  line with a coordinate that no longer parses.
+- [x] **Phase 10 — the catalogue is DELETED, 2026-08-03.** Full suite green (1561 pass, 1
+  pre-existing skip). `ModelEntry`, `kModelCatalog`, `findModel`, `EntryPaths`,
+  `resolveEntryPaths` and `kDefaultModelAlias` are gone, and **the `REVIEW:`-marked
+  models-directory fallback went with them** — `.bin` left the catalogue by construction, since a
+  `.bin` cannot be in the store.
+  **Why the alias layer had to go, beyond duplication:** it was a closed set compiled into the
+  binary while the store is discovered at runtime, so it would have blocked loading any model
+  pulled after the build — an obstruction, not a redundancy. `/model <name>` now resolves straight
+  against the store, and **quantization stopped being a command argument** because the name carries
+  it; a stray token is refused rather than silently loading different weights.
+  What the table used to supply now comes from three places: architecture and variant from the
+  **record**; `instruct` from a **new manifest field**, because it decides the prompt template and
+  nothing else can infer it; and context length plus streaming capability from **Chat policy keyed
+  on architecture** — those are deployment decisions, not model properties (Gemma's 512 is a VRAM
+  choice on a 12 GB card). `ModelSize` left `ChatConfig` with the reverse-lookup that needed it.
+  **All four models migrated and verified:** `gemma-4-12b-it-fp4` (6.35 GB),
+  `llama-3.2-3b-instruct-bf16` (6.72), `llama-3.1-8b-instruct-bf16` (14.96),
+  `gpt2-small-fp32` (0.61) — 28.63 GB, 7 blobs, with the 3B and 8B **sharing one tokenizer blob**.
+  GPT-2 and Llama 8B were transcoded family-agnostically; the 8B round trip took 184 s, most of it
+  the double hash.
+  **A self-inflicted bug worth recording:** `--instruct` was added *after* the first installs, so
+  three records said `instruct: false` and the instruct models would have used the base prompt
+  template. Caught by reading the records back rather than by any test — there is no coverage that
+  a record's `instruct` survives a round trip, and the store tests would not have noticed.
+  *Remaining for the four dead rows:* `llama-1b` and the three `*-fp32` named `.bin` files that do
+  not exist on this machine; they retired with the table rather than being migrated.
+- [x] **`instruct` round trip now pinned 2026-08-03**, closing the gap that let the flag be silently
+  wrong on three models. The package fixture sets it and the install case asserts it survives to
+  both the returned record and a `locate()` read back.
+- [x] **Naming convention fixed and `ModelStore::rename` added, 2026-08-03.** Todd's rule: **the
+  suffix marks a quantization, and its absence means the weights are native** — so
+  `llama-3.1-8b-instruct-bf16` -> `llama-3.1-8b-it`, `llama-3.2-3b-instruct-bf16` ->
+  `llama-3.2-3b-it`, `gpt2-small-fp32` -> `gpt2-small`; `gemma-4-12b-it-fp4` keeps its suffix
+  because it is quantized. `instruct` shortens to `it`, matching Gemma and the hub convention where
+  a base repo carries no suffix and quantized derivatives add one.
+  **Renaming rewrites one record and moves nothing** — blobs are content-addressed and origin is a
+  field, so neither depends on what a model is called here. The install time carries over, because
+  renaming is not reinstalling. `ExportArtifact --rename <from> <to>`.
+  *The rule's one gap:* two **unquantized** artifacts of one model at different precisions would
+  collide. Keep `-fp32` as the explicit exception if the dead `*-fp32` rows ever return, since BF16
+  is the native form for those models and FP32 is the deliberate departure. GPT-2 is the reverse —
+  FP32 is its native form, hence a bare `gpt2-small`.
+- [x] **`--compare <left> <right>` — tensor-by-tensor byte comparison, added 2026-08-03.**
+  `compareAgainstSource` reconciles tensor *names*, which catches a dropped or duplicated tensor
+  and nothing else, so "the transcode changes the container, never the numbers" was an argument
+  rather than a measurement. **Now measured:** the installed `llama-3.2-3b-it` blob against its
+  source `.bin` — **171 tensors, 0 mismatched, 6.72 GB, every tensor byte-identical.** Streams both
+  files in offset order holding one tensor from each, so it costs two sequential reads. Every
+  future migration should run it.
+- [x] **The 3B "not right anymore" report was the SYSTEM PROMPT, not the weights** (2026-08-03).
+  `Data/assistant.json` combines **"You do not make up facts."** with a tool list, and a 3B reads
+  that literally enough to treat generation as retrieval: it refused to tell a joke or a story
+  ("I don't have a joke stored in my knowledge"), and when asked what it could help with it
+  answered with **seven tool names when the prompt defines one** — six confabulated. Switching
+  `system_prompt_path` to `Data/assistant-chat.local.json` (same persona, no tools, "if you are
+  unsure, say so rather than guess") restored normal behaviour immediately, including an
+  unprompted story about dancing hippos.
+  **The durable lesson: prompt instructions do not scale down.** "Do not make up facts" is sound
+  guidance for a 12B and actively harmful on a 3B, where it collapses into refusal. A tool-laden
+  prompt is likewise the wrong default for the small models even though it is right for Gemma
+  tool-call validation. `session.json` now defaults to the plain chat prompt; the tool prompts stay
+  for tool testing.
+- [x] **Base models are labelled rather than disguised, 2026-08-03.** `gpt2-small` exposed it:
+  `buildInputTokens` falls to `prompt = history_.back().content` for a non-instruct model, so a base
+  model gets **no chat template, no system prompt and no history** — the last line, raw, continued.
+  Correct for a base model; the surroundings were what lied. Chat renders turns, `clearHistory()`
+  seeded a system prompt the branch never reads, and history accumulated for nothing.
+  Now: loading a non-instruct model announces completion mode in as many words, and `clearHistory()`
+  does not seed a persona the model will never see. Pre-existing, not introduced by the catalogue
+  work — the old table also had `is_instruct = false` for `gpt2`; sourcing it from the record just
+  put a base model back in front of a user.
+- [x] **`max_new_tokens` could exceed the model's context — fixed 2026-08-03, in two goes.** The
+  session config asked for 8192 against GPT-2's 1024 context. The first clamp,
+  `min(max_new_tokens, context_length)`, was **right in shape and wrong in quantity**: the prompt
+  already occupies context, so generation still ran off the end. `gpt2-small` crashed at **1005
+  generated tokens** on a 1024 context. Now `generationBudget(prompt_tokens)` measures against the
+  context the prompt leaves free, and a prompt that fills the context says so instead of generating
+  zero tokens silently.
+- [ ] **[crash] `generate()` walks off the end of the context instead of stopping.** Chat now clamps
+  the budget, but that is a consumer working around a library defect: a caller that asks for more
+  tokens than the context can hold should get a bounded generation or an error, **not a crash**.
+  GPT-2 is where it shows because its positional embeddings are **learned** — exactly
+  `context_length` of them — so position 1024 is an out-of-bounds lookup rather than a truncation.
+  `GptModel.ixx:307` has the same off-by-prompt flaw in its own default:
+  `max_new_tokens.value_or( context_length_ )` does not subtract the prompt length either, so calling
+  `generate` with no explicit budget crashes on a long prompt.
+  **`GenerateStatus::ContextLimit` already exists** and Chat prints a message for it, so the intent
+  is there and the guard simply does not fire before the position lookup. Repro: `/model gpt2-small`,
+  a short prompt, and a `max_new_tokens` at or above the context. **Crash output not yet captured —
+  get the message before fixing, since an out-of-bounds LPE read and a KV-cache overrun look
+  identical from the outside.**
+- [ ] **Chat reports "Thinking: balanced" for models that have no thinking mode.** `show_thinking`
+  is a session-config flag, but only Gemma routes a reasoning channel — the welcome banner and
+  `/model` show an effort level for Llama and GPT-2 regardless, which reads as a capability they do
+  not have. It should say "off (not supported)" or be omitted when the loaded model is not
+  streaming/channel-capable.
+- [x] **`writeRecord` returned void and stamped a copy** — found by the rename test, 2026-08-03.
+  It takes the record by value, so the install time it stamps never reached the caller: `install()`
+  and `pull()` both returned a `StoredModel` whose `installed_at` was empty while the persisted
+  record had one. **A returned object that disagrees with disk.** `writeRecord` now returns the
+  stamped record and both callers describe *that*.
+- [ ] **Phase 10 leftovers — the load boundary.** `locate` never touches the network; Chat may
   *offer* to pull (explicit user gate), MIS refuses. Chat's catalog becomes aliases over coordinates,
   and **quantization stops being part of the alias and becomes the variant** — `gemma-12b`,
   `gemma-12b-packed` and `gemma-12b-hub` are one model distinguished by a provenance nobody outside the
@@ -1026,6 +1274,22 @@ unified `mila` CLI is forward-looking only, gated on resolving the Python/C++ sp
 
 ### Product Family — Adaptor Validation
 
+- [ ] **`ToolCallParser::parse` routes ANY response containing `[` into the tool-call parser**
+  (`Chat.ToolCallParser.ixx:63` — `response.find( '[' )`, not a leading-bracket test). **The class's
+  own doc comment at `:35` says "Leading `[`"**, and the nested `parseTagged` path at `:109` does
+  check `trimmed.front() == '['` correctly; only the top-level `parse()` scans the whole string.
+  Found 2026-08-03 by an ordinary Llama 3B chat turn: the model answered
+  `[no, I don't have that information]`, which went straight into `parsePythonicCall`. It declined
+  and the text rendered fine, so **this degraded gracefully** — but any Llama prose containing a
+  bracket enters the tool-call path (markdown links, `[1]` footnotes, an array literal in a code
+  answer), and a parse that ever *succeeds* on prose would swallow the answer and emit a phantom
+  tool call. Fix is to match the documented behaviour: a leading bracket after trimming.
+- [ ] **The logger writes over the spinner.** A model switch renders
+  `⠋ Loading llama-3b (none)11:41:09.360 [WARN ] BpeTokenizer.ixx:378 ...` — the log line lands on the
+  spinner's line because `Logging` writes to the console independently of `ConsoleRenderer`, which
+  owns that line. Cosmetic, but it is the first thing a user sees on every switch that logs, and any
+  warning during a spinner collides the same way. Needs the renderer to clear its line for log
+  output, or the logger to route through the renderer while a spinner is live.
 - [~] MIS Gemma 4 tool-calling validated end-to-end — Codex + Claude Code CLI round-trips live; the
   native grammar reconciled to Google's canonical chat template (nine divergences fixed), pinned by an
   oracle. Remaining: N sequential distinct tool calls in one turn, channel-content parser polish,

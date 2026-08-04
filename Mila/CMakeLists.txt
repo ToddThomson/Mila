@@ -808,6 +808,8 @@ target_sources(Mila
             "Src/Distribution/Sha256.ixx"
             "Src/Distribution/Environment.ixx"
             "Src/Distribution/ModelCoordinate.ixx"
+            "Src/Distribution/ModelManifest.ixx"
+            "Src/Distribution/ModelPackage.ixx"
             "Src/Distribution/ModelStore.ixx"
 )
 

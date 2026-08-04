@@ -1,11 +1,10 @@
 /**
  * @file Chat.ModelCatalog.ixx
- * @brief Single source of truth mapping a model alias to its full descriptor.
+ * @brief Resolving a model name against the store, and the store management commands.
  *
- * Both startup (the session config "model" key) and the in-session /model command
- * resolve aliases through this catalog, so model selection, weight/tokenizer paths,
- * and per-model defaults are defined in exactly one place. Adding a model is a
- * single table row.
+ * There is no catalogue. A model is whatever the store holds under its name, so the set Chat can
+ * load is discovered at runtime rather than compiled in -- which is the point, since a compiled
+ * table could not name a model the user pulled after the build.
  */
 
 module;
@@ -15,6 +14,7 @@ module;
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -28,210 +28,231 @@ import Mila;
 namespace Mila::ChatApp
 {
     /**
-     * @brief Everything needed to select and load a model from a short alias.
+     * @brief Everything Chat needs to load a model, resolved from its store record.
      *
-     * weights_file is either a path relative to the configured models directory, or a
-     * HuggingFace coordinate of the form `<organization>/<repository>[:<variant>]`. When it
-     * is a coordinate the artifact is fetched and cached on first use and tokenizer_file is
-     * ignored, because the repository manifest names the tokenizer too.
-     *
-     * default_quantization is used when the session config / command omits an explicit
-     * quantization. default_context is the per-model maximum sequence length used when the
-     * config does not override it (the primary VRAM lever; Gemma 4 12B is deliberately
-     * conservative for a 12 GB card).
-     *
-     * streaming_capable marks models whose responses the chat harness streams to
-     * the console live. True only for Gemma, whose tool calls are protocol tokens
-     * detectable per-token; Llama's text-convention tool calls need the full
-     * buffered response to parse, so those models stay buffered until their
-     * deferred tool/sampler migration.
+     * Assembled rather than looked up. Architecture and variant come from the record; the rest
+     * are deployment decisions Chat owns, keyed on architecture.
      */
-    export struct ModelEntry
+    export struct ResolvedModel
     {
-        std::string_view alias;
-        ModelType        family;
-        ModelSize        size;
-        ModelPrecision   precision;
-        bool             is_instruct;
-        bool             streaming_capable;
-        QuantizationMode default_quantization;
-        std::string_view weights_file;
-        std::string_view tokenizer_file;
-        std::size_t      default_context;
-    };
+        std::string name;
 
-    /**
-     * @brief The variant name a quantization selects.
-     *
-     * None means unquantized weights, which the manifest names by their dtype rather than by
-     * the absence of a policy -- there is no variant called "none".
-     */
-    export constexpr std::string_view variantName( QuantizationMode mode )
-    {
-        switch ( mode )
-        {
-            case QuantizationMode::FP8: return "fp8";
-            case QuantizationMode::FP4: return "fp4";
-            case QuantizationMode::None: return "bf16";
-        }
-
-        return "bf16";
-    }
-
-    export inline constexpr std::array<ModelEntry, 8> kModelCatalog = { {
-        // A coordinate with no variant: the requested quantization supplies it, so
-        // `/model gemma-12b fp8` asks the hub for :fp8 and is told which variants exist
-        // rather than loading FP4 bytes under an FP8 policy. Loaded from the store as a
-        // pre-quantized 6.33 GB artifact rather than quantizing 23.8 GB of BF16 on the way in.
-        { "gemma-12b",     ModelType::Gemma, ModelSize::B12, ModelPrecision::BF16, true,  true,  QuantizationMode::FP4,  "mila-llm/gemma-4-12b-it",            "gemma/gemma_tokenizer.bin",  512 },
-        { "llama-1b",      ModelType::Llama, ModelSize::B1,  ModelPrecision::BF16, true,  false, QuantizationMode::None, "llama/llama32_1b_instruct_bf16.bin", "llama/llama32_tokenizer.bin", 4096 },
-        { "llama-3b",      ModelType::Llama, ModelSize::B3,  ModelPrecision::BF16, true,  false, QuantizationMode::None, "llama/llama32_3b_instruct_bf16.bin", "llama/llama32_tokenizer.bin", 4096 },
-        { "llama-8b",      ModelType::Llama, ModelSize::B8,  ModelPrecision::BF16, true,  false, QuantizationMode::None, "llama/llama31_8b_instruct_bf16.bin", "llama/llama32_tokenizer.bin", 4096 },
-        { "llama-1b-fp32", ModelType::Llama, ModelSize::B1,  ModelPrecision::FP32, true,  false, QuantizationMode::None, "llama/llama32_1b_instruct_fp32.bin", "llama/llama32_tokenizer.bin", 4096 },
-        { "llama-3b-fp32", ModelType::Llama, ModelSize::B3,  ModelPrecision::FP32, true,  false, QuantizationMode::None, "llama/llama32_3b_instruct_fp32.bin", "llama/llama32_tokenizer.bin", 4096 },
-        { "llama-8b-fp32", ModelType::Llama, ModelSize::B8,  ModelPrecision::FP32, true,  false, QuantizationMode::None, "llama/llama31_8b_instruct_fp32.bin", "llama/llama32_tokenizer.bin", 4096 },
-        { "gpt2",          ModelType::Gpt,   ModelSize::B3,  ModelPrecision::FP32, false, false, QuantizationMode::None, "gpt2/gpt2_small_fp32.bin",           "gpt2/gpt2_tokenizer.bin",    1024 },
-    } };
-
-    /// Alias used when the session config does not name a model.
-    export inline constexpr std::string_view kDefaultModelAlias = "gemma-12b";
-
-    /**
-     * @brief Look up a model entry by alias, or nullptr when the alias is unknown.
-     */
-    export constexpr const ModelEntry* findModel( std::string_view alias )
-    {
-        for ( const auto& entry : kModelCatalog )
-        {
-            if ( entry.alias == alias )
-                return &entry;
-        }
-
-        return nullptr;
-    }
-
-    /**
-     * @brief Where an entry's weights and tokenizer actually live.
-     */
-    export struct EntryPaths
-    {
         std::filesystem::path weights;
         std::filesystem::path tokenizer;
+
+        ModelType family{ ModelType::Gemma };
+        ModelPrecision precision{ ModelPrecision::BF16 };
+        QuantizationMode quantization{ QuantizationMode::None };
+
+        bool instruct{ false };
+        bool streaming_capable{ false };
+
+        std::size_t default_context{ 4096 };
     };
 
+    /// The model a session loads when its config names none.
+    export inline constexpr std::string_view kDefaultModelName = "gemma-4-12b-it-fp4";
+
     /**
-     * @brief Resolve an entry to concrete paths, fetching from HuggingFace if it names a repository.
-     *
-     * Startup and the in-session /model command both go through here, so a coordinate behaves
-     * identically whichever way a model is selected.
-     *
-     * Progress is printed only while a transfer is actually running: a cached artifact resolves
-     * with no output at all, which is what makes a second run feel instant rather than merely be
-     * instant.
-     *
-     * @throws std::runtime_error if a coordinate cannot be resolved, or if the entry names one
-     *         in a build compiled without model download.
+     * @brief Architecture string from the record to the family Chat dispatches on.
      */
-    export EntryPaths resolveEntryPaths(
-        const ModelEntry& entry,
-        const std::filesystem::path& models_dir,
-        QuantizationMode quantization )
+    export ModelType familyFromArchitecture( std::string_view architecture )
     {
-        const std::string weights_spec( entry.weights_file );
-
-        auto coordinate = Mila::Distribution::parseCoordinate( weights_spec );
-
-        if ( coordinate.has_value() )
+        if ( architecture == "gemma" )
         {
-            // Quantization is the variant, not part of the name. An entry that pins one keeps
-            // it; otherwise the request chooses, so asking for a quantization nobody published
-            // is answered with the list of variants that exist rather than by loading the
-            // wrong bytes under the right-sounding policy.
-            if ( coordinate->variant.empty() )
-            {
-                coordinate->variant = std::string( variantName( quantization ) );
-            }
-
-            // The store, with no network call. A pull is a deliberate act; a load is not, so
-            // an installed model resolves on nothing but a directory read.
-            Mila::Distribution::ModelStore store;
-
-            if ( auto installed = store.locate(
-                coordinate->organization, coordinate->repository, coordinate->variant ) )
-            {
-                return { installed->weights_path, installed->tokenizer_path };
-            }
+            return ModelType::Gemma;
         }
 
-        // REVIEW: the models-directory branch is retired by the catalogue migration -- only a
-        // model in the store is loadable. It stays until the catalogue's remaining .bin rows
-        // have been exported, packaged and installed, because removing it first would leave
-        // every entry but the Gemma one unloadable. It is now *after* the store lookup, so a
-        // migrated model loads from the store even when a stale loose file is still on disk.
-        const auto local_candidate = models_dir / weights_spec;
-
-        if ( std::filesystem::exists( local_candidate ) )
+        if ( architecture == "llama" )
         {
-            return { local_candidate, models_dir / std::string( entry.tokenizer_file ) };
+            return ModelType::Llama;
         }
 
-#ifdef MILA_HAS_MODEL_DOWNLOAD
-        if ( !coordinate.has_value() )
+        if ( architecture == "gpt2" )
+        {
+            return ModelType::Gpt;
+        }
+
+        throw std::runtime_error( std::format(
+            "Architecture '{}' is not one this build can load.", architecture ) );
+    }
+
+    /**
+     * @brief Compute precision and weight quantization, from the variant the record declares.
+     *
+     * The quantized paths run BF16 activations -- the model classes refuse anything else -- so
+     * the variant settles both axes.
+     */
+    export void axesFromVariant(
+        std::string_view variant, ModelPrecision& precision, QuantizationMode& quantization )
+    {
+        if ( variant == "fp4" )
+        {
+            precision = ModelPrecision::BF16;
+            quantization = QuantizationMode::FP4;
+        }
+        else if ( variant == "fp8" )
+        {
+            precision = ModelPrecision::BF16;
+            quantization = QuantizationMode::FP8;
+        }
+        else if ( variant == "fp32" )
+        {
+            precision = ModelPrecision::FP32;
+            quantization = QuantizationMode::None;
+        }
+        else if ( variant == "bf16" )
+        {
+            precision = ModelPrecision::BF16;
+            quantization = QuantizationMode::None;
+        }
+        else
         {
             throw std::runtime_error( std::format(
-                "Model '{}': '{}' is not under {} and is not a HuggingFace coordinate",
-                entry.alias, weights_spec, models_dir.string() ) );
+                "Variant '{}' is not one this build can load. Expected bf16, fp32, fp8 or fp4.",
+                variant ) );
         }
+    }
 
-        std::cout << std::format( "{} is not installed. Pulling {}\n",
-            entry.alias, coordinate->toString() );
-
-        bool reported = false;
-
-        auto progress = [&reported]( uint64_t received, uint64_t total ) -> bool
-            {
-                // Coarse on purpose: this is a console line, not a UI, and a 6 GB transfer
-                // does not want a redraw per chunk.
-                if ( total == 0 )
-                {
-                    return true;
-                }
-
-                const int percent = static_cast<int>( ( received * 100 ) / total );
-
-                if ( percent % 5 == 0 )
-                {
-                    std::cout << std::format( "\r  {:>3}%  {:.2f} / {:.2f} GB", percent,
-                        static_cast<double>( received ) / ( 1024.0 * 1024.0 * 1024.0 ),
-                        static_cast<double>( total ) / ( 1024.0 * 1024.0 * 1024.0 ) )
-                        << std::flush;
-
-                    reported = true;
-                }
-
-                return true;
-            };
-
-        const Mila::Distribution::HuggingFaceHub hub(
-            Mila::Distribution::discoverHuggingFaceToken(), progress );
-
-        Mila::Distribution::ModelStore pull_store;
-        Mila::Distribution::ModelResolver resolver( pull_store, hub );
-
-        const auto pulled = resolver.pull( *coordinate );
-
-        if ( reported )
+    /**
+     * @brief Context length to build for, when the session config does not say.
+     *
+     * A deployment decision rather than a model property: Gemma 4 12B is conservative because
+     * its KV cache is the primary VRAM lever on a 12 GB card, not because the architecture
+     * cannot go further.
+     */
+    export std::size_t defaultContextFor( ModelType family )
+    {
+        switch ( family )
         {
-            std::cout << "\n";
+            case ModelType::Gemma: return 512;
+            case ModelType::Gpt:   return 1024;
+            default:               return 4096;
+        }
+    }
+
+    /**
+     * @brief Apply a requested load-time quantization to an unquantized artifact.
+     *
+     * Quantizing on load is a deployment choice, like context length -- not an identity. A
+     * pre-quantized artifact is a *different model*: different bytes, its own name. The same
+     * BF16 artifact run at FP4 is one model deployed two ways, which is what lets an 8B whose
+     * weights are 15 GB run on a card that cannot hold them.
+     *
+     * The cost is paid at load: the full BF16 file is still read, and quantization happens on
+     * the way to the device. A pre-quantized artifact avoids that read entirely, which is why
+     * it is worth producing for a model used often.
+     *
+     * @throws std::runtime_error when the artifact is already quantized, since its bytes cannot
+     *         be turned back into something else.
+     */
+    void applyRequestedQuantization(
+        const std::string& name,
+        std::string_view variant,
+        QuantizationMode requested,
+        ResolvedModel& resolved )
+    {
+        const bool artifact_is_quantized =
+            ( resolved.quantization != QuantizationMode::None );
+
+        if ( artifact_is_quantized )
+        {
+            if ( requested != resolved.quantization )
+            {
+                throw std::runtime_error( std::format(
+                    "'{}' is a pre-quantized {} artifact; its weights cannot be loaded as "
+                    "something else. Install the variant you want as its own model.",
+                    name, variant ) );
+            }
+
+            return;
         }
 
-        return { pulled.weights_path, pulled.tokenizer_path };
-#else
-        throw std::runtime_error( std::format(
-            "Model '{}': '{}' is not under {}, and this build was compiled without "
-            "MILA_ENABLE_MODEL_DOWNLOAD so a HuggingFace coordinate cannot be fetched",
-            entry.alias, weights_spec, models_dir.string() ) );
-#endif
+        if ( requested == QuantizationMode::None )
+        {
+            return;
+        }
+
+        if ( resolved.precision != ModelPrecision::BF16 )
+        {
+            throw std::runtime_error( std::format(
+                "'{}' is an FP32 artifact, and quantized weights require BF16 compute.",
+                name ) );
+        }
+
+        resolved.quantization = requested;
+    }
+
+    /**
+     * @brief Resolve a model name against the store.
+     *
+     * The store is the only source. Nothing here consults a hub, reads a models directory or
+     * accepts a path -- a load is not a deliberate act the way a pull is, so it must never
+     * become a multi-gigabyte transfer.
+     *
+     * @param requested_quantization Quantize an unquantized artifact on the way in. Empty loads
+     *        the artifact as it is.
+     *
+     * @throws std::runtime_error if no model of that name is installed, if this build cannot
+     *         load what the record describes, or if the requested quantization contradicts it.
+     */
+    export ResolvedModel resolveModel(
+        const std::string& name,
+        std::optional<QuantizationMode> requested_quantization = std::nullopt )
+    {
+        Mila::Distribution::ModelStore store;
+
+        const auto installed = store.locate( name );
+
+        if ( !installed.has_value() )
+        {
+            // The alternatives are named here rather than pointing at /models, because this
+            // also fires at startup, where the session never opens and no command can be run.
+            std::string available;
+
+            for ( const auto& model : store.list() )
+            {
+                available += available.empty() ? "" : ", ";
+                available += model.record.name;
+            }
+
+            if ( available.empty() )
+            {
+                throw std::runtime_error( std::format(
+                    "No model named '{}' is installed, and neither is anything else.\n"
+                    "Store: {}\nPull one with /pull <name>, or install a package you built with "
+                    "ExportArtifact --install.", name, store.root().string() ) );
+            }
+
+            throw std::runtime_error( std::format(
+                "No model named '{}' is installed.\nInstalled: {}\nStore: {}",
+                name, available, store.root().string() ) );
+        }
+
+        const auto& record = installed->record;
+
+        ResolvedModel resolved;
+        resolved.name = record.name;
+        resolved.weights = installed->weights_path;
+        resolved.tokenizer = installed->tokenizer_path;
+        resolved.family = familyFromArchitecture( record.architecture );
+        resolved.instruct = record.instruct;
+
+        axesFromVariant( record.variant, resolved.precision, resolved.quantization );
+
+        if ( requested_quantization.has_value() )
+        {
+            applyRequestedQuantization(
+                record.name, record.variant, *requested_quantization, resolved );
+        }
+
+        // A harness capability, not a model one: only Gemma's tool calls are protocol tokens a
+        // per-token router can see, so the others stay buffered.
+        resolved.streaming_capable = ( resolved.family == ModelType::Gemma );
+
+        resolved.default_context = defaultContextFor( resolved.family );
+
+        return resolved;
     }
 
     /**
@@ -278,10 +299,11 @@ namespace Mila::ChatApp
         {
             // A record whose blobs went missing is shown rather than hidden: a store that
             // silently omits a broken entry cannot be repaired by the person who owns it.
-            lines.push_back( std::format( "  {:<40} {:>10}  {}{}",
-                model.record.coordinate(),
+            lines.push_back( std::format( "  {:<34} {:>10}  {:<8} {}{}",
+                model.record.name,
                 formatBytes( model.bytes_on_disk ),
                 model.record.architecture.empty() ? "-" : model.record.architecture,
+                model.record.origin(),
                 model.complete ? "" : "  [INCOMPLETE - blobs missing]" ) );
         }
 
@@ -299,10 +321,11 @@ namespace Mila::ChatApp
     }
 
     /**
-     * @brief What an owner publishes, one line per repository.
+     * @brief What is available to pull, one line per model.
      *
-     * Repository names and tags are authored by whoever owns the repository. They are printed
-     * as data and nothing here interprets them.
+     * The owner is supplied by the caller and never shown: one publisher makes it a constant
+     * rather than a decision, and a name the user cannot act on is noise. Names and tags are
+     * authored by whoever owns the repository -- printed as data, interpreted by nothing.
      */
     export std::vector<std::string> describeHubModels( const std::string& owner )
     {
@@ -315,22 +338,20 @@ namespace Mila::ChatApp
 
         if ( models.empty() )
         {
-            lines.push_back( std::format( "{} publishes no Mila models.", owner ) );
+            lines.push_back( "No models are available to pull." );
 
             return lines;
         }
 
-        // Which repositories are already here. The listing knows no variants, so this matches
-        // on the repository: "some variant of this is installed" is what a reader wants before
-        // deciding whether to pull.
+        // One repository is one model at one precision, so the repository name is the store
+        // name and matching on it is exact rather than approximate.
         const auto installed = Mila::Distribution::ModelStore{}.list();
 
         const auto isInstalled = [&installed]( const Mila::Distribution::HubModel& model )
             {
                 for ( const auto& stored : installed )
                 {
-                    if ( stored.record.owner == model.owner
-                        && stored.record.repository == model.repository )
+                    if ( stored.record.name == model.repository )
                     {
                         return true;
                     }
@@ -339,19 +360,19 @@ namespace Mila::ChatApp
                 return false;
             };
 
-        lines.push_back( std::format( "Published by {}:", owner ) );
+        lines.push_back( "Available to pull:" );
 
         for ( const auto& model : models )
         {
             // Gating is known from the listing, so a repository behind terms says so here
             // instead of surfacing as a 403 partway through a multi-gigabyte transfer.
             lines.push_back( std::format( "  {:<40} {}{}",
-                model.coordinate(),
+                model.repository,
                 isInstalled( model ) ? "[installed] " : "",
                 model.gated ? "[gated - accept terms on huggingface.co]" : "" ) );
         }
 
-        lines.push_back( "  Install one with /pull <owner>/<repository>:<variant>" );
+        lines.push_back( "  Install one with /pull <name>" );
 #else
         lines.push_back(
             "This build was compiled without MILA_ENABLE_MODEL_DOWNLOAD, so no hub can be "
@@ -362,7 +383,7 @@ namespace Mila::ChatApp
     }
 
     /**
-     * @brief Pull a coordinate into the store.
+     * @brief Pull a model into the store by name.
      */
     export std::vector<std::string> pullModel( const std::string& spec )
     {
@@ -395,7 +416,8 @@ namespace Mila::ChatApp
 
         Mila::Distribution::ModelResolver resolver( store, hub );
 
-        const auto pulled = resolver.pull( spec );
+        const auto pulled = resolver.pull(
+            spec, std::string( Mila::Distribution::kDefaultHubOwner ) );
 
         if ( reported )
         {
@@ -403,7 +425,7 @@ namespace Mila::ChatApp
         }
 
         lines.push_back( std::format( "Installed {} ({}, {}).",
-            pulled.record.coordinate(),
+            pulled.record.name,
             pulled.record.architecture.empty() ? "unknown architecture" : pulled.record.architecture,
             formatBytes( pulled.bytes_on_disk ) ) );
 #else
@@ -417,88 +439,30 @@ namespace Mila::ChatApp
 
     /**
      * @brief Remove an installed model, reclaiming only what nothing else references.
-     *
-     * A coordinate with no variant is resolved against what is installed: unambiguous when one
-     * variant is present, and reported rather than guessed when several are.
      */
-    export std::vector<std::string> removeModel( const std::string& spec )
+    export std::vector<std::string> removeModel( const std::string& name )
     {
         std::vector<std::string> lines;
 
-        const auto coordinate = Mila::Distribution::parseCoordinate( spec );
-
-        if ( !coordinate.has_value() )
-        {
-            lines.push_back( std::format(
-                "'{}' is not a coordinate of the form <owner>/<repository>[:<variant>]", spec ) );
-
-            return lines;
-        }
-
         Mila::Distribution::ModelStore store;
 
-        std::string variant = coordinate->variant;
-
-        if ( variant.empty() )
-        {
-            std::vector<std::string> installed;
-
-            for ( const auto& model : store.list() )
-            {
-                if ( model.record.owner == coordinate->organization
-                    && model.record.repository == coordinate->repository )
-                {
-                    installed.push_back( model.record.variant );
-                }
-            }
-
-            if ( installed.empty() )
-            {
-                lines.push_back( std::format( "{}/{} is not installed.",
-                    coordinate->organization, coordinate->repository ) );
-
-                return lines;
-            }
-
-            if ( installed.size() > 1 )
-            {
-                std::string names;
-
-                for ( const auto& name : installed )
-                {
-                    names += names.empty() ? name : ", " + name;
-                }
-
-                lines.push_back( std::format(
-                    "{}/{} has several variants installed: {}. Name one.",
-                    coordinate->organization, coordinate->repository, names ) );
-
-                return lines;
-            }
-
-            variant = installed.front();
-        }
-
-        const auto report = store.remove(
-            coordinate->organization, coordinate->repository, variant );
+        const auto report = store.remove( name );
 
         if ( report.records_removed == 0 )
         {
-            lines.push_back( std::format( "{}/{}:{} is not installed.",
-                coordinate->organization, coordinate->repository, variant ) );
+            lines.push_back( std::format( "{} is not installed.", name ) );
 
             return lines;
         }
 
-        lines.push_back( std::format( "Removed {}/{}:{} -- {} blob(s), {} reclaimed.",
-            coordinate->organization, coordinate->repository, variant,
-            report.blobs_removed, formatBytes( report.bytes_reclaimed ) ) );
+        lines.push_back( std::format( "Removed {} -- {} blob(s), {} reclaimed.",
+            name, report.blobs_removed, formatBytes( report.bytes_reclaimed ) ) );
 
         // Shared blobs survive by design; saying so pre-empts "why did that free so little".
         if ( report.blobs_removed == 0 )
         {
             lines.push_back(
-                "  Its files are shared with another installed variant, so none were deleted." );
+                "  Its files are shared with another installed model, so none were deleted." );
         }
 
         for ( const auto& retained : report.retained )

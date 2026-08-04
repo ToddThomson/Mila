@@ -157,9 +157,11 @@ add_executable( MilaTests
 )
 
 # The local store is always present, so its tests always compile. The store takes its
-# fetcher as a callable, so these run offline -- no network in the suite.
+# fetcher as a callable, so these run offline -- no network in the suite. Packaging and
+# installing are filesystem-only for the same reason.
 target_sources( MilaTests PRIVATE
     "Distribution/ModelStore.Cpu.cpp"
+    "Distribution/ModelPackage.Cpu.cpp"
 )
 
 # Hub tests. Compiled only when the feature is on, since the modules under test do not

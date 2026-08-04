@@ -8,6 +8,7 @@
  */
 
 module;
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -29,6 +30,8 @@ export module Distribution.ModelStore;
 import nlohmann.json;
 import Distribution.Sha256;
 import Distribution.Environment;
+import Distribution.ModelManifest;
+import Distribution.ModelPackage;
 
 namespace Mila::Distribution
 {
@@ -67,6 +70,9 @@ namespace Mila::Distribution
      *
      * MILA_CACHE_DIR, then the platform user cache. An explicit override exists because a
      * multi-gigabyte store often does not belong on the same volume as the user profile.
+     *
+     * The root holds models/, blobs/ and tmp/, so it does NOT end in "models" -- appending it
+     * here as well as in recordPath() is what produced the Mila\models\models tree.
      */
     export inline std::filesystem::path resolveStoreRoot()
     {
@@ -77,54 +83,57 @@ namespace Mila::Distribution
 
         if ( const auto local_app_data = readEnvironmentVariable( "LOCALAPPDATA" ) )
         {
-            return std::filesystem::path( *local_app_data ) / "Mila" / "models";
+            return std::filesystem::path( *local_app_data ) / "Mila";
         }
 
         if ( const auto xdg_cache = readEnvironmentVariable( "XDG_CACHE_HOME" ) )
         {
-            return std::filesystem::path( *xdg_cache ) / "mila" / "models";
+            return std::filesystem::path( *xdg_cache ) / "mila";
         }
 
         if ( const auto home = readEnvironmentVariable( "HOME" ) )
         {
-            return std::filesystem::path( *home ) / ".cache" / "mila" / "models";
+            return std::filesystem::path( *home ) / ".cache" / "mila";
         }
 
-        return std::filesystem::temp_directory_path() / "mila" / "models";
+        return std::filesystem::temp_directory_path() / "mila";
     }
 
     /**
-     * @brief One file composing a model, as the manifest declares it.
+     * @brief An installed model: what the manifest published, plus how this copy came to be here.
      *
-     * `path` is the name the file has at its origin, kept for diagnostics and for republishing; the
-     * bytes live at the digest.
-     */
-    export struct ModelFile
-    {
-        std::string role;
-        std::string path;
-        std::string sha256;
-        uint64_t bytes{ 0 };
-    };
-
-    /**
-     * @brief An installed model: its manifest variant, plus how it came to be here.
-     *
-     * Owner and repository are implied by the record's location and stored anyway, so a record
-     * copied out of the store still says what it describes.
+     * The name is the key and the only thing in the path. Everything about origin is a field, so
+     * a record copied out of the store still says what it describes and where it came from.
      */
     export struct ModelRecord
     {
-        std::string owner;
-        std::string repository;
-        std::string variant;
+        /// The store's key, and the only name a user types. Unique across the store.
+        std::string name;
 
         std::string architecture;
+
+        /// Descriptive. The name carries the precision; this says what the bytes actually are.
+        std::string variant;
+
         std::string weight_quantization;
         std::string minimum_mila_version;
 
-        /// Empty for a model installed from a local package rather than fetched.
+        std::string base_model;
+        std::string license;
+
+        /// Instruction-tuned. Decides the prompt template a consumer applies.
+        bool instruct{ false };
+
+        /**
+         * @brief Where this copy came from. Never published, and never part of the path.
+         *
+         * A model published from this machine leaves hub empty. Origin is mutable -- a locally
+         * published model may be pushed to a hub later -- which is the reason it is a field
+         * rather than a directory: changing it must not move files.
+         */
         std::string hub;
+        std::string owner;
+        std::string repository;
 
         /// The resolved commit, not the ref that was asked for. Empty for a local install.
         std::string revision;
@@ -133,16 +142,18 @@ namespace Mila::Distribution
 
         std::vector<ModelFile> files;
 
-        std::string coordinate() const
-        {
-            std::string text = owner + "/" + repository;
+        /// True when nothing served this: it was published from this machine.
+        bool isLocal() const noexcept { return hub.empty(); }
 
-            if ( !variant.empty() )
+        /// Where it came from, for display. Never a key.
+        std::string origin() const
+        {
+            if ( hub.empty() )
             {
-                text += ":" + variant;
+                return "local";
             }
 
-            return text;
+            return owner.empty() ? hub : hub + ":" + owner + "/" + repository;
         }
 
         const ModelFile* file( std::string_view role ) const
@@ -204,6 +215,36 @@ namespace Mila::Distribution
         int blob_count{ 0 };
     };
 
+    /**
+     * @brief How a package is to be installed.
+     *
+     * A package carries its own name; these are the overrides. Nothing here names an origin,
+     * because installing from a package is what "published from this machine" means.
+     */
+    export struct InstallOptions
+    {
+        /// Empty takes the manifest's name, then the package directory's name.
+        std::string name;
+
+        /**
+         * @brief Replace an existing record of the same name.
+         *
+         * Off by default. A name is unique across the store, so installing over one is either a
+         * refresh the caller meant or a collision they need to know about, and the store cannot
+         * tell which.
+         */
+        bool replace{ false };
+
+        /**
+         * @brief Move the package's files into the store rather than copying them.
+         *
+         * On by default. A move is free on one volume, and it keeps a single integrity model in
+         * which the path is the digest -- a copy leaves a second, unmanaged copy of a file that
+         * may be several gigabytes. Turn it off to keep the package for a hub upload.
+         */
+        bool move_files{ true };
+    };
+
     export struct PruneOptions
     {
         /**
@@ -238,12 +279,9 @@ namespace Mila::Distribution
             return root_ / "blobs" / ( "sha256-" + sha256_hex );
         }
 
-        std::filesystem::path recordPath(
-            const std::string& owner,
-            const std::string& repository,
-            const std::string& variant ) const
+        std::filesystem::path recordPath( const std::string& name ) const
         {
-            return root_ / "models" / owner / repository / ( variant + ".json" );
+            return root_ / "models" / ( name + ".json" );
         }
 
         bool contains( const std::string& sha256_hex ) const
@@ -419,6 +457,179 @@ namespace Mila::Distribution
             return final_path;
         }
 
+        /**
+         * @brief Take a file that is already on disk into the store, verifying it on the way.
+         *
+         * The counterpart to ensureBlob for bytes that need no transfer. It hashes rather than
+         * trusting the caller, because the store's whole guarantee is that a path names its
+         * content -- a blob adopted unverified would poison every later cache hit.
+         *
+         * A move publishes by rename when the package and the store share a volume, which costs
+         * nothing whatever the file's size. Across volumes there is no atomic move, so the bytes
+         * go through tmp/ and are renamed from there: a partial copy must never occupy a path
+         * that implies verification.
+         *
+         * @return Path to the verified blob.
+         * @throws std::runtime_error on a digest mismatch or a lock held by another process.
+         */
+        std::filesystem::path adoptBlob(
+            const std::string& description,
+            const std::filesystem::path& source,
+            const std::string& expected_sha256_hex,
+            bool move_file = true )
+        {
+            const auto final_path = blobPath( expected_sha256_hex );
+
+            std::error_code ignored;
+
+            if ( std::filesystem::exists( final_path, ignored ) )
+            {
+                return final_path;
+            }
+
+            std::filesystem::create_directories( final_path.parent_path() );
+            std::filesystem::create_directories( root_ / "tmp" );
+
+            TransferLock lock( root_ / "tmp" / ( "sha256-" + expected_sha256_hex + ".lock" ) );
+
+            if ( !lock.held() )
+            {
+                throw std::runtime_error( std::format(
+                    "ModelStore: another process is already installing this blob.\n"
+                    "  blob {}\n"
+                    "  lock {}\n"
+                    "If no install is running, delete the lock file and retry.",
+                    description, lock.path().string() ) );
+            }
+
+            if ( std::filesystem::exists( final_path, ignored ) )
+            {
+                return final_path;
+            }
+
+            const std::string actual = sha256OfFile( source );
+
+            if ( actual != expected_sha256_hex )
+            {
+                // The source is the caller's file and is left exactly as it was: unlike a
+                // download, these bytes are not the store's to quarantine.
+                throw std::runtime_error( std::format(
+                    "ModelStore: digest mismatch for {}\n"
+                    "  file            {}\n"
+                    "  expected sha256 {}\n"
+                    "  actual   sha256 {}",
+                    description, source.string(), expected_sha256_hex, actual ) );
+            }
+
+            if ( move_file )
+            {
+                std::error_code move_error;
+                std::filesystem::rename( source, final_path, move_error );
+
+                if ( !move_error )
+                {
+                    return final_path;
+                }
+            }
+
+            const auto staging =
+                root_ / "tmp" / ( "sha256-" + expected_sha256_hex + ".partial" );
+
+            std::error_code copy_error;
+            std::filesystem::copy_file( source, staging,
+                std::filesystem::copy_options::overwrite_existing, copy_error );
+
+            if ( copy_error )
+            {
+                throw std::runtime_error( std::format(
+                    "ModelStore: cannot stage {}: {}", source.string(), copy_error.message() ) );
+            }
+
+            std::error_code rename_error;
+            std::filesystem::rename( staging, final_path, rename_error );
+
+            if ( rename_error )
+            {
+                if ( !std::filesystem::exists( final_path, ignored ) )
+                {
+                    std::filesystem::remove( staging, ignored );
+
+                    throw std::runtime_error( std::format(
+                        "ModelStore: cannot publish blob {}: {}",
+                        final_path.string(), rename_error.message() ) );
+                }
+
+                std::filesystem::remove( staging, ignored );
+            }
+
+            if ( move_file )
+            {
+                std::filesystem::remove( source, ignored );
+            }
+
+            return final_path;
+        }
+
+        // -------------------------------------------------------------------
+        // Installation
+        // -------------------------------------------------------------------
+
+        /**
+         * @brief Install one variant of a package, and record it.
+         *
+         * Publishing to the local store and publishing to a hub take the same directory: what
+         * differs is only where the bytes go. The record is written last, after every file has
+         * verified, so a failed install leaves nothing that looks installed.
+         *
+         * The package is not validated first on purpose. Adoption hashes each file as it takes
+         * it, so a separate validate() pass would read every byte a second time -- at 6.8 GB
+         * that is not a cost worth paying for a check that already happened.
+         *
+         * @throws std::runtime_error if the variant does not exist, if it needs a newer Mila, if
+         *         a file's digest disagrees with the manifest, or if the names do not form a
+         *         coordinate.
+         */
+        StoredModel install( const ModelPackage& package, const InstallOptions& options = {} )
+        {
+            const ModelManifest& manifest = package.manifest();
+            const std::string source = package.directory().string();
+
+            requireCompatibleMilaVersion( manifest, source );
+
+            ModelRecord record;
+            record.name = firstNonEmpty(
+                options.name, manifest.name, package.directory().filename().string() );
+            record.architecture = manifest.architecture;
+            record.variant = manifest.variant;
+            record.weight_quantization = manifest.weight_quantization;
+            record.minimum_mila_version = manifest.minimum_mila_version;
+            record.base_model = manifest.base_model;
+            record.license = manifest.license;
+            record.instruct = manifest.instruct;
+
+            // hub, owner, repository and revision stay empty: nothing served this, and a record
+            // naming a hub it did not come from would make a local build look published.
+
+            const ModelFile* weights = manifest.file( kWeightsRole );
+
+            requireUsableName( record.name );
+            requireNameIsFree( record.name, record,
+                weights == nullptr ? std::string{} : weights->sha256, options.replace );
+
+            for ( const auto& file : manifest.files )
+            {
+                adoptBlob(
+                    std::format( "{} ({})", file.path, record.name ),
+                    package.pathOf( file ),
+                    file.sha256,
+                    options.move_files );
+
+                record.files.push_back( file );
+            }
+
+            return describe( writeRecord( std::move( record ) ) );
+        }
+
         // -------------------------------------------------------------------
         // Records
         // -------------------------------------------------------------------
@@ -429,28 +640,29 @@ namespace Mila::Distribution
          * Written to tmp/ and renamed, because a peer process may be listing the store while this
          * one installs, and a half-written record must never be readable.
          */
-        void writeRecord( ModelRecord record )
+        /**
+         * @brief Persist a record, and hand back what was actually written.
+         *
+         * Returns the record rather than void because the install time is stamped here: a
+         * caller that kept its own copy would hold one that disagrees with the store.
+         */
+        ModelRecord writeRecord( ModelRecord record )
         {
-            if ( record.owner.empty() || record.repository.empty() || record.variant.empty() )
-            {
-                throw std::runtime_error(
-                    "ModelStore: a record needs an owner, a repository and a variant" );
-            }
+            requireUsableName( record.name );
 
             if ( record.installed_at.empty() )
             {
                 record.installed_at = utcTimestamp();
             }
 
-            const auto destination = recordPath( record.owner, record.repository, record.variant );
+            const auto destination = recordPath( record.name );
 
             std::filesystem::create_directories( destination.parent_path() );
             std::filesystem::create_directories( root_ / "tmp" );
 
             const std::string text = toJson( record ).dump( 2 );
 
-            const auto staging = root_ / "tmp" / std::format( "record-{}-{}-{}.json",
-                record.owner, record.repository, record.variant );
+            const auto staging = root_ / "tmp" / std::format( "record-{}.json", record.name );
 
             {
                 std::ofstream output( staging, std::ios::binary | std::ios::trunc );
@@ -484,14 +696,13 @@ namespace Mila::Distribution
                     "ModelStore: cannot publish record {}: {}",
                     destination.string(), rename_error.message() ) );
             }
+
+            return record;
         }
 
-        std::optional<ModelRecord> readRecord(
-            const std::string& owner,
-            const std::string& repository,
-            const std::string& variant ) const
+        std::optional<ModelRecord> readRecord( const std::string& name ) const
         {
-            return readRecordFile( recordPath( owner, repository, variant ) );
+            return readRecordFile( recordPath( name ) );
         }
 
         /**
@@ -513,8 +724,10 @@ namespace Mila::Distribution
                 return models;
             }
 
+            // One level: the name is the key, so the record tree is flat and a walk is a single
+            // directory read.
             for ( const auto& entry :
-                std::filesystem::recursive_directory_iterator( models_root, ignored ) )
+                std::filesystem::directory_iterator( models_root, ignored ) )
             {
                 if ( !entry.is_regular_file() || entry.path().extension() != ".json" )
                 {
@@ -537,12 +750,9 @@ namespace Mila::Distribution
          * from. A record whose blobs are incomplete resolves to nothing, because a caller that
          * receives a path expects bytes behind it.
          */
-        std::optional<StoredModel> locate(
-            const std::string& owner,
-            const std::string& repository,
-            const std::string& variant ) const
+        std::optional<StoredModel> locate( const std::string& name ) const
         {
-            auto record = readRecord( owner, repository, variant );
+            auto record = readRecord( name );
 
             if ( !record.has_value() )
             {
@@ -585,11 +795,11 @@ namespace Mila::Distribution
                     continue;
                 }
 
-                if ( file.role == "weights" )
+                if ( file.role == kWeightsRole )
                 {
                     model.weights_path = path;
                 }
-                else if ( file.role == "tokenizer" )
+                else if ( file.role == kTokenizerRole )
                 {
                     model.tokenizer_path = path;
                 }
@@ -603,6 +813,51 @@ namespace Mila::Distribution
             return model;
         }
 
+        /**
+         * @brief Rename an installed model.
+         *
+         * One record is rewritten and nothing else moves. The blobs are content-addressed, so
+         * what a model is called here has no bearing on where its bytes live; and origin is a
+         * field rather than a path segment, so a renamed model still says where it came from.
+         *
+         * The install time is carried over: renaming is not reinstalling.
+         *
+         * @return False when no model of that name is installed.
+         * @throws std::runtime_error if the new name is unusable or already taken.
+         */
+        bool rename( const std::string& from, const std::string& to )
+        {
+            requireUsableName( to );
+
+            auto record = readRecord( from );
+
+            if ( !record.has_value() )
+            {
+                return false;
+            }
+
+            if ( from == to )
+            {
+                return true;
+            }
+
+            if ( readRecord( to ).has_value() )
+            {
+                throw std::runtime_error( std::format(
+                    "ModelStore: a model named '{}' is already installed. One name is one model.",
+                    to ) );
+            }
+
+            record->name = to;
+
+            writeRecord( *record );
+
+            std::error_code ignored;
+            std::filesystem::remove( recordPath( from ), ignored );
+
+            return true;
+        }
+
         // -------------------------------------------------------------------
         // Removal
         // -------------------------------------------------------------------
@@ -611,16 +866,13 @@ namespace Mila::Distribution
          * @brief Remove one installed model, then reclaim what nothing else references.
          *
          * The sweep is what makes this safe. Deduplication means a tokenizer blob may back several
-         * variants, so removal cannot delete a model's files simply because that model is going.
+         * models, so removal cannot delete a model's files simply because that model is going.
          */
-        RemovalReport remove(
-            const std::string& owner,
-            const std::string& repository,
-            const std::string& variant )
+        RemovalReport remove( const std::string& name )
         {
             RemovalReport report;
 
-            const auto record_path = recordPath( owner, repository, variant );
+            const auto record_path = recordPath( name );
 
             std::error_code ignored;
 
@@ -640,8 +892,6 @@ namespace Mila::Distribution
             }
 
             report.records_removed = 1;
-
-            removeEmptyParents( record_path.parent_path() );
 
             const RemovalReport swept = prune();
 
@@ -913,29 +1163,89 @@ namespace Mila::Distribution
             }
         }
 
-        void removeEmptyParents( std::filesystem::path directory ) const
+        static const std::string& firstNonEmpty(
+            const std::string& first, const std::string& second, const std::string& third )
         {
-            const auto models_root = root_ / "models";
-
-            std::error_code ignored;
-
-            while ( directory != models_root && directory.has_relative_path() )
+            if ( !first.empty() )
             {
-                if ( !std::filesystem::is_empty( directory, ignored ) || ignored )
-                {
-                    return;
-                }
-
-                std::error_code remove_error;
-                std::filesystem::remove( directory, remove_error );
-
-                if ( remove_error )
-                {
-                    return;
-                }
-
-                directory = directory.parent_path();
+                return first;
             }
+
+            return second.empty() ? third : second;
+        }
+
+        /**
+         * @brief Refuse a name that cannot be a filename or cannot be typed back.
+         *
+         * The name is the record's filename, so anything path-shaped would escape the store, and
+         * a name a user cannot retype is not a name. The permitted set matches what a hub allows
+         * in a repository, which is what these names come from.
+         */
+        static void requireUsableName( const std::string& name )
+        {
+            const bool usable = !name.empty() && std::all_of( name.begin(), name.end(),
+                []( char character )
+                {
+                    return ( character >= 'A' && character <= 'Z' )
+                        || ( character >= 'a' && character <= 'z' )
+                        || ( character >= '0' && character <= '9' )
+                        || character == '.' || character == '_' || character == '-';
+                } );
+
+            if ( !usable )
+            {
+                throw std::runtime_error( std::format(
+                    "ModelStore: '{}' is not a usable model name. Letters, digits, '.', '_' and "
+                    "'-' only.", name ) );
+            }
+        }
+
+        /**
+         * @brief Enforce that one name means one model.
+         *
+         * A collision is refused rather than namespaced, because a store where one name means
+         * two things is the state this layout exists to make impossible. Silently replacing
+         * would be worse than refusing: the displaced model's blobs become unreferenced and the
+         * next prune reclaims them.
+         *
+         * Two cases are not collisions. A hub model reinstalled from the same repository is a
+         * refresh, possibly at a newer revision. And identical content under the same name is
+         * the same model, which is what keeps a local re-install idempotent -- a locally
+         * published model has no origin to compare, so content is the only evidence there is.
+         */
+        void requireNameIsFree(
+            const std::string& name,
+            const ModelRecord& incoming,
+            const std::string& incoming_weights_digest,
+            bool replace ) const
+        {
+            auto existing = readRecord( name );
+
+            if ( !existing.has_value() || replace )
+            {
+                return;
+            }
+
+            if ( !incoming.hub.empty() && existing->hub == incoming.hub
+                && existing->owner == incoming.owner
+                && existing->repository == incoming.repository )
+            {
+                return;
+            }
+
+            const ModelFile* existing_weights = existing->file( kWeightsRole );
+
+            if ( existing_weights != nullptr
+                && existing_weights->sha256 == incoming_weights_digest )
+            {
+                return;
+            }
+
+            throw std::runtime_error( std::format(
+                "ModelStore: a model named '{}' is already installed, from {}. One name is one "
+                "model: install this under a different name, remove that one first, or pass "
+                "replace to overwrite it.",
+                name, existing->origin() ) );
         }
 
         static std::optional<ModelRecord> readRecordFile( const std::filesystem::path& path )
@@ -986,17 +1296,23 @@ namespace Mila::Distribution
                     { "bytes", file.bytes } };
             }
 
+            // The published half of the record is the manifest verbatim; `installed` is the half
+            // the store writes and never publishes.
             return {
                 { "manifest_version", 1 },
+                { "name", record.name },
                 { "architecture", record.architecture },
                 { "variant", record.variant },
                 { "weight_quantization", record.weight_quantization },
                 { "minimum_mila_version", record.minimum_mila_version },
+                { "base_model", record.base_model },
+                { "license", record.license },
+                { "instruct", record.instruct },
                 { "files", files },
                 { "installed", {
+                    { "hub", record.hub },
                     { "owner", record.owner },
                     { "repository", record.repository },
-                    { "hub", record.hub },
                     { "revision", record.revision },
                     { "installed_at", record.installed_at } } } };
         }
@@ -1005,18 +1321,22 @@ namespace Mila::Distribution
         {
             ModelRecord record;
 
+            record.name = json.value( "name", std::string{} );
             record.architecture = json.value( "architecture", std::string{} );
             record.variant = json.value( "variant", std::string{} );
             record.weight_quantization = json.value( "weight_quantization", std::string{} );
             record.minimum_mila_version = json.value( "minimum_mila_version", std::string{} );
+            record.base_model = json.value( "base_model", std::string{} );
+            record.license = json.value( "license", std::string{} );
+            record.instruct = json.value( "instruct", false );
 
             if ( json.contains( "installed" ) && json[ "installed" ].is_object() )
             {
                 const nlohmann::json& installed = json[ "installed" ];
 
+                record.hub = installed.value( "hub", std::string{} );
                 record.owner = installed.value( "owner", std::string{} );
                 record.repository = installed.value( "repository", std::string{} );
-                record.hub = installed.value( "hub", std::string{} );
                 record.revision = installed.value( "revision", std::string{} );
                 record.installed_at = installed.value( "installed_at", std::string{} );
             }
@@ -1042,7 +1362,7 @@ namespace Mila::Distribution
                 }
             }
 
-            if ( record.owner.empty() || record.repository.empty() || record.variant.empty() )
+            if ( record.name.empty() )
             {
                 return std::nullopt;
             }

@@ -125,7 +125,7 @@ namespace Mila::ChatApp
      *
      * ## model selection
      *
-     * model_type / model_size / precision / is_instruct / quantization_mode /
+     * model_type / precision / is_instruct / quantization_mode /
      * model_path / tokenizer_path are all resolved from a single model alias via
      * the ModelEntry catalog (see Chat.ModelCatalog), either at startup (the
      * session config "model" key) or by the /model command. They are not set
@@ -152,7 +152,6 @@ namespace Mila::ChatApp
     export struct ChatConfig
     {
         ModelType             model_type{ ModelType::Llama };
-        ModelSize             model_size{ ModelSize::B3 };
         ModelPrecision        precision{ ModelPrecision::BF16 };
         QuantizationMode      quantization_mode{ QuantizationMode::None };
         bool                  is_instruct{ false };
@@ -164,7 +163,7 @@ namespace Mila::ChatApp
         /// triple, is what identifies a model: two entries can share an architecture and
         /// quantization while pointing at different weights -- a coordinate resolved from the
         /// store, and a converted .bin still awaiting migration.
-        std::string           model_alias;
+        std::string           model_name;
 
         std::filesystem::path model_path;
         std::filesystem::path tokenizer_path;

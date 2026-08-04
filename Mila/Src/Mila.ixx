@@ -292,6 +292,8 @@ export import Serialization.PretrainedReader;
 export import Distribution.Sha256;
 export import Distribution.Environment;
 export import Distribution.ModelCoordinate;
+export import Distribution.ModelManifest;
+export import Distribution.ModelPackage;
 export import Distribution.ModelStore;
 
 #ifdef MILA_HAS_MODEL_DOWNLOAD

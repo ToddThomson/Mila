@@ -234,23 +234,15 @@ namespace Mila::ChatApp
                             continue;
                         }
 
-                        const std::string_view alias = args.front();
+                        const std::string name( args.front() );
 
-                        const ModelEntry* entry = findModel( alias );
-                        if ( entry == nullptr )
-                        {
-                            renderer_.printInfo( std::format(
-                                "Unknown model alias '{}'. Type /help for available aliases.", alias ) );
-                            continue;
-                        }
-
-                        // Remaining tokens are an optional quantization and an optional
-                        // "thinking" flag, order-independent. An omitted quantization
-                        // falls back to the alias default (FP4 for Gemma, whose BF16
-                        // weights do not fit the dev card).
-                        QuantizationMode quant = entry->default_quantization;
                         bool thinking = false;
                         bool bad_token = false;
+
+                        // Quantizing on load is a deployment choice, not an identity: it lets a
+                        // BF16 artifact too large for the card run anyway. A pre-quantized
+                        // artifact is a different model with its own name, and refuses this.
+                        std::optional<QuantizationMode> requested_quantization;
 
                         for ( size_t i = 1; i < args.size(); ++i )
                         {
@@ -261,14 +253,17 @@ namespace Mila::ChatApp
                             }
 
                             const auto parsed = parseQuantization( args[ i ] );
+
                             if ( !parsed )
                             {
                                 renderer_.printInfo( std::format(
-                                    "Unknown option '{}'. Use none, fp8, fp4, or thinking.", args[ i ] ) );
+                                    "Unknown option '{}'. Use none, fp8, fp4, or thinking.",
+                                    args[ i ] ) );
                                 bad_token = true;
                                 break;
                             }
-                            quant = *parsed;
+
+                            requested_quantization = *parsed;
                         }
 
                         if ( bad_token )
@@ -278,7 +273,7 @@ namespace Mila::ChatApp
 
                         // Toggling only the thinking flag on the already-loaded model
                         // must not trigger a multi-GB weight reload.
-                        if ( isCurrentModel( *entry, quant ) )
+                        if ( isCurrentModel( name, requested_quantization ) )
                         {
                             renderer_.printInfo( thinking
                                 ? "Thinking display enabled."
@@ -286,7 +281,17 @@ namespace Mila::ChatApp
                             continue;
                         }
 
-                        switchModel( *entry, quant );
+                        try
+                        {
+                            switchModel( name, requested_quantization );
+                        }
+                        catch ( const std::exception& error )
+                        {
+                            // The session keeps its working model: resolution happens before
+                            // the current one is released.
+                            renderer_.printInfo( error.what() );
+                        }
+
                         continue;
                     }
 
@@ -301,9 +306,21 @@ namespace Mila::ChatApp
                             // Installed is the default because it is the offline, instant
                             // answer, and because it is the only one that says what can
                             // actually be loaded.
+                            // The owner is hidden: --online means the one Mila publishes into.
+                            // An explicit owner still works, as the escape hatch for a second
+                            // publisher, but nothing advertises it.
+                            const auto hub_owner = [&]() -> std::string
+                                {
+                                    const std::string argument( args.front() );
+
+                                    return ( argument == "--online" || argument == "online" )
+                                        ? std::string( Mila::Distribution::kDefaultHubOwner )
+                                        : argument;
+                                };
+
                             const auto lines = args.empty()
                                 ? describeInstalledModels()
-                                : describeHubModels( std::string( args.front() ) );
+                                : describeHubModels( hub_owner() );
 
                             for ( const auto& line : lines )
                             {
@@ -313,7 +330,7 @@ namespace Mila::ChatApp
                             if ( args.empty() )
                             {
                                 renderer_.printInfo(
-                                    "  /models <owner> lists what a hub publishes, e.g. /models mila-llm" );
+                                    "  /models --online lists what is available to pull" );
                             }
                         }
                         catch ( const std::exception& error )
@@ -804,8 +821,20 @@ namespace Mila::ChatApp
         {
             std::vector<int32_t> input_tokens = buildInputTokens();
 
+            const std::size_t budget = generationBudget( input_tokens.size() );
+
+            if ( budget == 0 )
+            {
+                renderer_.printInfo( std::format(
+                    "The prompt is {} tokens and the context is {}, so there is no room to "
+                    "generate. Clear the history or raise context_length.",
+                    input_tokens.size(), config_.context_length ) );
+
+                return;
+            }
+
             GenerateParams gen_params;
-            gen_params.max_new_tokens = static_cast<int>( config_.max_new_tokens );
+            gen_params.max_new_tokens = static_cast<int>( budget );
             gen_params.sampling.temperature = config_.temperature;
             gen_params.sampling.top_k = config_.top_k;
 
@@ -961,7 +990,7 @@ namespace Mila::ChatApp
                     renderer_.printInfo( round_status == GenerateStatus::MaxNewTokensReached
                         ? std::format(
                             "Response hit the {}-token cap without a stop token (finish: length).",
-                            config_.max_new_tokens )
+                            budget )
                         : "Response stopped at the context limit (finish: context_limit)." );
                 }
 
@@ -1166,46 +1195,45 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief True when the requested model entry and quantization match the model
-         *        already resident in memory, so a switch would be a no-op reload.
+         * @brief True when the named model is the one already resident in memory, so a
+         *        switch would be a no-op reload.
          */
-        bool isCurrentModel( const ModelEntry& entry, QuantizationMode quant ) const
+        bool isCurrentModel(
+            const std::string& name, std::optional<QuantizationMode> requested ) const
         {
             const bool loaded = !std::visit( []( const auto& m ) { return m == nullptr; }, model_ );
 
-            // The alias, not the family/size/precision triple: three catalog entries can
-            // share Gemma/B12/BF16/FP4 and still name different weights -- the converted
-            // .bin, a local pre-quantized artifact, and a HuggingFace coordinate. Comparing
-            // only the triple made switching between them a silent no-op that reported
-            // success, which is worse than refusing.
+            // The name identifies the weights exactly -- it is unique across the store, which
+            // the family/size/precision triple never was. Quantization still counts, because
+            // one artifact can be deployed at more than one.
             return loaded
-                && config_.model_alias       == entry.alias
-                && config_.quantization_mode == quant;
+                && config_.model_name == name
+                && ( !requested.has_value() || *requested == config_.quantization_mode );
         }
 
-        void switchModel( const ModelEntry& entry, QuantizationMode quant )
+        void switchModel(
+            const std::string& name,
+            std::optional<QuantizationMode> requested_quantization = std::nullopt )
         {
             const ModelType prev_type = config_.model_type;
 
-            config_.model_alias       = std::string( entry.alias );
-            config_.model_type        = entry.family;
-            config_.model_size        = entry.size;
-            config_.precision         = entry.precision;
-            config_.is_instruct       = entry.is_instruct;
-            config_.streaming_capable = entry.streaming_capable;
-            config_.quantization_mode = quant;
-            // May fetch from HuggingFace on a coordinate entry, and prints progress while it
-            // does. Resolution happens before the current model is released so a failed
-            // download leaves the session on its working model.
-            const auto paths = resolveEntryPaths( entry, config_.models_dir, quant );
+            // Resolved before the current model is released, so a name that is not installed
+            // leaves the session on its working model.
+            const ResolvedModel resolved = resolveModel( name, requested_quantization );
 
-            config_.model_path        = paths.weights;
-            config_.tokenizer_path    = paths.tokenizer;
+            config_.model_name        = resolved.name;
+            config_.model_type        = resolved.family;
+            config_.precision         = resolved.precision;
+            config_.is_instruct       = resolved.instruct;
+            config_.streaming_capable = resolved.streaming_capable;
+            config_.quantization_mode = resolved.quantization;
+            config_.model_path        = resolved.weights;
+            config_.tokenizer_path    = resolved.tokenizer;
 
             // Preserve context_length across same-architecture switches; reset to the
             // new model's default on an architecture change.
             if ( prev_type != config_.model_type )
-                config_.context_length = entry.default_context;
+                config_.context_length = resolved.default_context;
 
             // Destroy the current model before allocating the replacement.
             // This returns VRAM to the CUDA pool before the new model is loaded,
@@ -1230,18 +1258,63 @@ namespace Mila::ChatApp
         {
             if ( config_.detail == DetailLevel::All )
             {
+                // No spinner: its redraws and the log lines fight for the same line.
                 initializeTokenizer();
                 loadModel();
+                announceCompletionMode();
+
                 return;
             }
 
             renderer_.startSpinner( std::format( "Loading {} ({})",
-                modelAlias(), quantizationName( config_.quantization_mode ) ) );
+                modelName(), quantizationName( config_.quantization_mode ) ) );
 
             initializeTokenizer();
             loadModel();
 
             renderer_.stopSpinner();
+
+            announceCompletionMode();
+        }
+
+        /**
+         * @brief Tokens this model may generate, bounded by the context the prompt leaves free.
+         *
+         * The prompt already occupies context, so a budget measured from zero runs past the end
+         * of the position table. For GPT-2 that is a crash rather than a truncation: its
+         * positional embeddings are *learned*, exactly context_length of them, so position
+         * 1024 is an out-of-bounds lookup. Observed at 1005 generated tokens on a 1024 context.
+         *
+         * A base model is where this bites, because it has no stop token in ordinary text and
+         * simply generates until the budget runs out.
+         */
+        std::size_t generationBudget( std::size_t prompt_tokens ) const
+        {
+            const std::size_t remaining = config_.context_length > prompt_tokens
+                ? config_.context_length - prompt_tokens
+                : 0;
+
+            return std::min( config_.max_new_tokens, remaining );
+        }
+
+        /**
+         * @brief Say plainly when the loaded model is not an instruct model.
+         *
+         * Chat renders turns and accumulates history, and a base model uses none of it: the
+         * prompt is the last line, raw. Saying so is the difference between a model that looks
+         * broken and one doing exactly what a base model does.
+         */
+        void announceCompletionMode() const
+        {
+            if ( config_.is_instruct )
+            {
+                return;
+            }
+
+            renderer_.printInfo( std::format(
+                "{} is a base model, so this is completion mode: no chat template, no system "
+                "prompt, and no history. Your line is the prompt and the model continues it.",
+                modelName() ) );
         }
 
         void printModelInfo() const
@@ -1256,7 +1329,7 @@ namespace Mila::ChatApp
                 "  Thinking:     {}\n"
                 "  Effort:       {} ({}, ~{} tokens)\n"
                 "  Detail:       {}\n",
-                modelAlias(),
+                modelName(),
                 (config_.precision == ModelPrecision::BF16) ? "bf16" : "fp32",
                 quantizationName( config_.quantization_mode ),
                 config_.is_instruct ? "yes" : "no",
@@ -1535,19 +1608,7 @@ namespace Mila::ChatApp
 
         static constexpr const char* kVersion = "v0.20";
 
-        std::string modelAlias() const
-        {
-            // Reverse the catalog: family + size + precision uniquely identify an alias.
-            for ( const auto& entry : kModelCatalog )
-            {
-                if ( entry.family == config_.model_type
-                    && entry.size == config_.model_size
-                    && entry.precision == config_.precision )
-                    return std::string( entry.alias );
-            }
-
-            return "unknown";
-        }
+        const std::string& modelName() const { return config_.model_name; }
 
         void printWelcome() const
         {
@@ -1557,7 +1618,7 @@ namespace Mila::ChatApp
 
             renderer_.printWelcomeBox( std::format( "Mila Chat {}", kVersion ) );
             renderer_.printInfo( std::format( "  Model: {}  ·  Thinking: {}",
-                modelAlias(), thinking_display ) );
+                modelName(), thinking_display ) );
             std::cout << "  Type /help for commands, /exit to quit.\n\n";
         }
 
@@ -1568,32 +1629,27 @@ Available commands:
   /help                              Show this help message
   /clear                             Clear conversation history
   /model                             Show current model and quantization
-  /model <alias> [quant] [thinking]  Switch model (clears history)
+  /model <name> [quant] [thinking]   Switch model (clears history). quant quantizes an
+                                     unquantized artifact on load: none, fp8, fp4.
   /models                            List installed models and what they cost on disk
-  /models <owner>                    List what a hub publishes, e.g. /models mila-llm
-  /pull <owner>/<repo>[:<variant>]   Download a published model into the local store
-  /rm <owner>/<repo>[:<variant>]     Remove an installed model and reclaim its blobs
+  /models --online                   List what is available to pull
+  /pull <name>                       Download a published model into the local store
+  /rm <name>                         Remove an installed model and reclaim its blobs
   /effort [1-5]                      Show or set the thinking token-budget level
   /verbose [off|thoughts|all]        Show or set display detail (reasoning, raw + logs)
   /stats                             Show per-round timing for the last turn
   /seed <n>                          Reseed the sampler for reproducible generation
   /exit                              Exit the application
 
-Model aliases:  )";
+Installed:      )";
 
-            bool first = true;
-            for ( const auto& entry : kModelCatalog )
-            {
-                std::cout << (first ? "" : ", ") << entry.alias;
-
-                if ( entry.alias == kDefaultModelAlias )
-                    std::cout << " (default)";
-
-                first = false;
-            }
+            for ( const auto& line : describeInstalledModels() )
+                std::cout << line << "\n";
 
             std::cout << R"(
-Quantization:   none, fp8, fp4  (each model has its own default)
+Quantization:   a name ending -fp4/-fp8 is a pre-quantized artifact. For an unquantized
+                one, /model <name> fp4 quantizes it on load -- same weights, less VRAM,
+                but the full file is still read.
 Thinking:       add 'thinking' to make Gemma reason (its <|think|> mode); toggling it
                 does not reload weights. Effort (length) is set with /effort 1-5.
 Detail:         tool calls always show as an agentic trace. /verbose thoughts adds the
@@ -1610,6 +1666,12 @@ Examples:
         void clearHistory()
         {
             history_.clear();
+
+            // A base model never reads the system prompt -- buildInputTokens takes the last
+            // message verbatim -- so seeding one would be a persona the user configured and
+            // the model never sees.
+            if ( !config_.is_instruct )
+                return;
 
             if ( system_prompt_config_.system_prompt.empty() )
                 return;

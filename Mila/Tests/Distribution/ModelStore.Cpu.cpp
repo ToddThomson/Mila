@@ -206,8 +206,19 @@ namespace Mila::Tests::Distribution
 
         EXPECT_EQ( store.root(), scratch.path() );
         EXPECT_EQ( store.blobPath( "abcd" ).filename().string(), "sha256-abcd" );
-        EXPECT_EQ( store.recordPath( "mila-llm", "gemma-4-12b-it", "fp4" ),
-            scratch.path() / "models" / "mila-llm" / "gemma-4-12b-it" / "fp4.json" );
+
+        // One level, and the name is the key. The root holds models/, blobs/ and tmp/, so it
+        // must not itself end in "models" -- that produced the Mila\models\models tree.
+        EXPECT_EQ( store.recordPath( "gemma-4-12b-it-fp4" ),
+            scratch.path() / "models" / "gemma-4-12b-it-fp4.json" );
+    }
+
+    TEST( ModelStore, ResolvesARootThatDoesNotDoubleTheModelsSegment )
+    {
+        // The default root holds models/ rather than being it.
+        const auto root = resolveStoreRoot();
+
+        EXPECT_NE( root.filename().string(), "models" );
     }
 
     // ================================================================
@@ -429,9 +440,7 @@ namespace Mila::Tests::Distribution
         ModelStore store( scratch.path() );
 
         ModelRecord record;
-        record.owner = "mila-llm";
-        record.repository = "gemma-4-12b-it";
-        record.variant = "fp4";
+        record.name = "gemma-4-12b-it-fp4";
         record.architecture = "gemma";
         record.weight_quantization = "per_group_fp4_128";
         record.minimum_mila_version = "0.20.0";
@@ -441,10 +450,10 @@ namespace Mila::Tests::Distribution
 
         store.writeRecord( record );
 
-        const auto read_back = store.readRecord( "mila-llm", "gemma-4-12b-it", "fp4" );
+        const auto read_back = store.readRecord( "gemma-4-12b-it-fp4" );
 
         ASSERT_TRUE( read_back.has_value() );
-        EXPECT_EQ( read_back->coordinate(), "mila-llm/gemma-4-12b-it:fp4" );
+        EXPECT_EQ( read_back->name, "gemma-4-12b-it-fp4" );
         EXPECT_EQ( read_back->architecture, "gemma" );
         EXPECT_EQ( read_back->weight_quantization, "per_group_fp4_128" );
         EXPECT_EQ( read_back->revision, "570dbe0e" );
@@ -467,9 +476,10 @@ namespace Mila::Tests::Distribution
         for ( const char* variant : { "fp4", "fp8" } )
         {
             ModelRecord record;
+            record.name = std::string( "gemma-4-12b-it-" ) + variant;
+            record.hub = "huggingface";
             record.owner = "mila-llm";
-            record.repository = "gemma-4-12b-it";
-            record.variant = variant;
+            record.repository = record.name;
             record.files.push_back( makeFile( "weights", "w.safetensors", weights_digest, 13 ) );
             record.files.push_back( makeFile( "tokenizer", "t.bin", tokenizer_digest, 15 ) );
 
@@ -477,9 +487,7 @@ namespace Mila::Tests::Distribution
         }
 
         ModelRecord local;
-        local.owner = "local";
-        local.repository = "llama-3.2-3b-instruct";
-        local.variant = "bf16";
+        local.name = "llama-3.2-3b-instruct-bf16";
         local.files.push_back( makeFile( "weights", "l.safetensors", weights_digest, 13 ) );
 
         store.writeRecord( local );
@@ -488,16 +496,16 @@ namespace Mila::Tests::Distribution
 
         ASSERT_EQ( models.size(), 3u );
 
-        // A locally built model is listed exactly like a fetched one; that is the point of
-        // the reserved owner rather than a separate mechanism.
+        // A locally published model is listed exactly like a fetched one. Origin is a field
+        // on the record, never a namespace in the path.
         const bool has_local = std::any_of( models.begin(), models.end(),
-            []( const StoredModel& model ) { return model.record.owner == "local"; } );
+            []( const StoredModel& model ) { return model.record.isLocal(); } );
 
         EXPECT_TRUE( has_local );
 
         for ( const auto& model : models )
         {
-            EXPECT_TRUE( model.complete ) << model.record.coordinate();
+            EXPECT_TRUE( model.complete ) << model.record.name;
         }
     }
 
@@ -510,23 +518,21 @@ namespace Mila::Tests::Distribution
         const std::string tokenizer_digest = seedBlob( store, "the tokenizer" );
 
         ModelRecord record;
-        record.owner = "mila-llm";
-        record.repository = "gemma-4-12b-it";
-        record.variant = "fp4";
+        record.name = "gemma-4-12b-it-fp4";
         record.files.push_back( makeFile( "weights", "w.safetensors", weights_digest, 11 ) );
         record.files.push_back( makeFile( "tokenizer", "t.bin", tokenizer_digest, 13 ) );
 
         store.writeRecord( record );
 
-        const auto located = store.locate( "mila-llm", "gemma-4-12b-it", "fp4" );
+        const auto located = store.locate( "gemma-4-12b-it-fp4" );
 
         ASSERT_TRUE( located.has_value() );
         EXPECT_EQ( located->weights_path, store.blobPath( weights_digest ) );
         EXPECT_EQ( located->tokenizer_path, store.blobPath( tokenizer_digest ) );
         EXPECT_TRUE( located->complete );
 
-        EXPECT_FALSE( store.locate( "mila-llm", "gemma-4-12b-it", "fp8" ).has_value() );
-        EXPECT_FALSE( store.locate( "mila-llm", "not-a-model", "fp4" ).has_value() );
+        EXPECT_FALSE( store.locate( "gemma-4-12b-it-fp8" ).has_value() );
+        EXPECT_FALSE( store.locate( "not-a-model" ).has_value() );
     }
 
     TEST( ModelStore, RefusesToLocateAModelWhoseBlobsAreMissing )
@@ -535,15 +541,13 @@ namespace Mila::Tests::Distribution
         ModelStore store( scratch.path() );
 
         ModelRecord record;
-        record.owner = "mila-llm";
-        record.repository = "gemma-4-12b-it";
-        record.variant = "fp4";
+        record.name = "gemma-4-12b-it-fp4";
         record.files.push_back( makeFile( "weights", "w.safetensors", "deadbeef", 11 ) );
 
         store.writeRecord( record );
 
         // A caller receiving a path is entitled to bytes behind it.
-        EXPECT_FALSE( store.locate( "mila-llm", "gemma-4-12b-it", "fp4" ).has_value() );
+        EXPECT_FALSE( store.locate( "gemma-4-12b-it-fp4" ).has_value() );
 
         // But the broken record is still listed, so its owner can see and repair it.
         const auto models = store.list();
@@ -555,7 +559,7 @@ namespace Mila::Tests::Distribution
     // Removal -- refcounted, because deduplication is not free
     // ================================================================
 
-    TEST( ModelStore, RemovingOneVariantKeepsTheTokenizerAnotherShares )
+    TEST( ModelStore, RemovingOneModelKeepsTheTokenizerAnotherShares )
     {
         ScratchStoreRoot scratch;
         ModelStore store( scratch.path() );
@@ -568,31 +572,29 @@ namespace Mila::Tests::Distribution
             { "fp4", fp4_digest }, { "fp8", fp8_digest } } )
         {
             ModelRecord record;
-            record.owner = "mila-llm";
-            record.repository = "gemma-4-12b-it";
-            record.variant = variant;
+            record.name = std::string( "gemma-4-12b-it-" ) + variant;
             record.files.push_back( makeFile( "weights", "w.safetensors", digest, 11 ) );
             record.files.push_back( makeFile( "tokenizer", "t.bin", tokenizer_digest, 20 ) );
 
             store.writeRecord( record );
         }
 
-        const RemovalReport report = store.remove( "mila-llm", "gemma-4-12b-it", "fp4" );
+        const RemovalReport report = store.remove( "gemma-4-12b-it-fp4" );
 
         EXPECT_EQ( report.records_removed, 1 );
         EXPECT_EQ( report.blobs_removed, 1 );
 
-        // The variant's own weights are gone...
+        // The removed model's own weights are gone...
         EXPECT_FALSE( store.contains( fp4_digest ) );
 
         // ...and the tokenizer is not, because fp8 still names it. This is the failure the
         // sweep exists to prevent, and it is silent if it is ever got wrong.
         EXPECT_TRUE( store.contains( tokenizer_digest ) );
         EXPECT_TRUE( store.contains( fp8_digest ) );
-        EXPECT_TRUE( store.locate( "mila-llm", "gemma-4-12b-it", "fp8" ).has_value() );
+        EXPECT_TRUE( store.locate( "gemma-4-12b-it-fp8" ).has_value() );
     }
 
-    TEST( ModelStore, RemovingTheLastVariantReclaimsEverything )
+    TEST( ModelStore, RemovingTheLastModelReclaimsEverything )
     {
         ScratchStoreRoot scratch;
         ModelStore store( scratch.path() );
@@ -601,15 +603,13 @@ namespace Mila::Tests::Distribution
         const std::string tokenizer_digest = seedBlob( store, "only tokenizer" );
 
         ModelRecord record;
-        record.owner = "local";
-        record.repository = "my-model";
-        record.variant = "bf16";
+        record.name = "my-model-bf16";
         record.files.push_back( makeFile( "weights", "w.safetensors", weights_digest, 12 ) );
         record.files.push_back( makeFile( "tokenizer", "t.bin", tokenizer_digest, 14 ) );
 
         store.writeRecord( record );
 
-        const RemovalReport report = store.remove( "local", "my-model", "bf16" );
+        const RemovalReport report = store.remove( "my-model-bf16" );
 
         EXPECT_EQ( report.records_removed, 1 );
         EXPECT_EQ( report.blobs_removed, 2 );
@@ -627,14 +627,12 @@ namespace Mila::Tests::Distribution
         const std::string digest = seedBlob( store, "unreferenced but not ours to judge" );
 
         ModelRecord record;
-        record.owner = "local";
-        record.repository = "kept";
-        record.variant = "bf16";
+        record.name = "kept-bf16";
         record.files.push_back( makeFile( "weights", "w.safetensors", digest, 34 ) );
 
         store.writeRecord( record );
 
-        const RemovalReport report = store.remove( "local", "absent", "bf16" );
+        const RemovalReport report = store.remove( "absent" );
 
         EXPECT_EQ( report.records_removed, 0 );
         EXPECT_EQ( report.blobs_removed, 0 );
@@ -652,9 +650,7 @@ namespace Mila::Tests::Distribution
         const std::string orphan_digest = seedBlob( store, "referenced by nothing" );
 
         ModelRecord record;
-        record.owner = "local";
-        record.repository = "kept";
-        record.variant = "bf16";
+        record.name = "kept-bf16";
         record.files.push_back( makeFile( "weights", "w.safetensors", kept_digest, 22 ) );
 
         store.writeRecord( record );
@@ -694,9 +690,7 @@ namespace Mila::Tests::Distribution
         seedBlob( store, "orphaned" );
 
         ModelRecord record;
-        record.owner = "local";
-        record.repository = "kept";
-        record.variant = "bf16";
+        record.name = "kept-bf16";
         record.files.push_back( makeFile( "weights", "w.safetensors", kept_digest, 10 ) );
 
         store.writeRecord( record );

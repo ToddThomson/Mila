@@ -50,68 +50,87 @@ to remove it.
 
 ---
 
-## The coordinate
+## The name
 
-Every model is named the same way, whether it lives on a hub or was built locally:
-
-```
-[<hub>:]<owner>/<repository>[:<variant>][@<revision>]
-```
+A model has one name, and it is the only string a user types:
 
 ```
-hf:mila-llm/gemma-4-12b-it:fp4      explicit hub
-mila-llm/gemma-4-12b-it:fp4         hub defaulted
-mila-llm/gemma-4-12b-it             variant defaulted from the manifest
-local/llama-3.2-3b-instruct:bf16    built on this machine
+gemma-4-12b-it-fp4
+llama-3.2-3b-instruct-bf16
 ```
 
-**Variant is separate from repository** because variants share components: the FP4, FP8 and BF16
-builds of one model share a 14 MB tokenizer, and a flat `<repository>-<variant>` name makes that
-sharing invisible.
+**The name is flat, and unique across the store.** No two models may share one, and nothing is
+namespaced by where it came from -- a store in which one name can mean two things is the state this
+design exists to make impossible.
 
-**`local` is a reserved owner** naming a model that was converted, trained or exported on this
-machine. It never carries a hub scheme, and it is what makes a family Mila cannot republish -- Llama,
-whose license propagates and whose source Meta gates -- a first-class model rather than a special
-case. See [Licensing per family](#licensing-per-family).
+**Precision is part of the name**, because one repository is one model at one precision. That is the
+platform's own convention (`-GGUF`, `-AWQ`, `-bnb-4bit`), and it is what lets a hub listing show every
+variant without fetching a manifest per repository. A `:variant` sub-grammar was tried and dropped:
+its benefits accrued in the store, which nobody looks at, and its costs landed on the hub page, which
+is the only place the naming is ever visible.
 
-**Parsing.** A `:` occurring before the first `/` is the hub scheme; a `:` after it opens the variant.
-`@` splits the revision from the right. Owner, repository and variant admit only the characters
-HuggingFace permits in a namespace: alphanumerics, `.`, `_`, `-`.
+Variants sharing a tokenizer costs nothing under this scheme. **Deduplication is content addressing's
+doing, not the naming's** -- two repositories whose tokenizers are byte-identical collapse to one
+blob, because the path is the digest.
+
+### The hub coordinate
+
+Retrieval addresses a repository, which HuggingFace names with an owner:
+
+```
+[hf:]<owner>/<repository>[@<revision>]
+```
+
+**The owner is supplied by the consumer, never typed by a user.** Mila publishes into one
+organization, so it is a constant (`kDefaultHubOwner`) rather than a decision -- and a repository
+that publishes no `mila.json` is not loadable anyway, so the owner conveys nothing a user could act
+on. It lives at the consumer layer, not in `HuggingFaceHub`: the hub class is "HuggingFace" and the
+owner is Mila's, and baking the second into the first would make the implementation Mila-specific
+and defeat the interface it sits behind.
+
+The coordinate grammar survives for the fetch, so a second publisher is a change of argument rather
+than a redesign. Owner and repository admit only the characters HuggingFace permits in a namespace:
+alphanumerics, `.`, `_`, `-`. A path-shaped name is refused before it becomes a URL, because a 404
+from a repository that cannot exist says nothing about the actual mistake.
 
 **A path is an input to installation, never to loading.** A file on disk is installed once and becomes
 a store model like any other; nothing resolves an arbitrary path into a load. A user who already has
 the file is still not made to re-download it -- that is the failure ollama's content-addressed store
 has, and Mila does not repeat it -- but the answer is one install, not a permanent second way to load.
-See [Manifest provenance](#manifest-provenance).
 
 ---
 
 ## The manifest
 
-One schema, at `mila.json` in a hub repository and at `<variant>.json` in the local store.
+One schema, at `mila.json` in a hub repository and at `<name>.json` in the local store.
 
 ```json
 {
   "manifest_version": 1,
+  "name": "gemma-4-12b-it-fp4",
   "architecture": "gemma",
-  "default_variant": "fp4",
-  "variants": {
-    "fp4": {
-      "minimum_mila_version": "0.20.0",
-      "weight_quantization": "per_group_fp4_128",
-      "files": {
-        "weights":   { "path": "gemma4_12b_it_fp4.safetensors", "sha256": "d49c...", "bytes": 6799927760 },
-        "tokenizer": { "path": "gemma_tokenizer.bin",           "sha256": "2448...", "bytes": 14198878 }
-      }
-    }
+  "variant": "fp4",
+  "weight_quantization": "per_group_fp4_128",
+  "minimum_mila_version": "0.20.0",
+  "base_model": "google/gemma-4-12b-it",
+  "license": "apache-2.0",
+  "files": {
+    "weights":   { "path": "gemma4_12b_it_fp4.safetensors", "sha256": "d49c...", "bytes": 6799927760 },
+    "tokenizer": { "path": "gemma_tokenizer.bin",           "sha256": "2448...", "bytes": 14198878 }
   }
 }
 ```
 
 A hub's own API already reports file listings and digests, so a manifest is not needed to discover
 *what is there*. It is needed for what the API cannot know: which files compose a loadable model,
-which variant a caller means, what quantization the bytes carry, and the oldest Mila that can read
+what quantization the bytes carry, which file is the tokenizer, and the oldest Mila that can read
 them. One small GET buys all of that and makes a repository self-describing.
+
+`variant` is descriptive, not a key -- the name already carries the precision, and this states what
+the bytes actually are, so a name that lies is visible rather than load-bearing.
+
+`base_model` and `license` are **lineage**, and they are published on purpose: every license Mila
+redistributes under requires attribution to travel with the weights.
 
 `minimum_mila_version` is the version-skew guard. A newer artifact loaded by an older Mila fails with
 a version comparison rather than a parse error somewhere inside the tensor index.
@@ -121,10 +140,17 @@ A record in the local store carries one additional block, written by the store a
 ```json
 "installed": {
   "hub": "huggingface",
+  "owner": "mila-llm",
+  "repository": "gemma-4-12b-it-fp4",
   "revision": "9c1e4f2a...",
   "installed_at": "2026-08-01T14:22:07Z"
 }
 ```
+
+This is **origin** -- where this copy came from -- as distinct from lineage, which is what the weights
+were derived from. Lineage is published and travels; origin belongs to one installation and does not.
+An empty `hub` means the model was published from this machine, which is a lifecycle stage rather
+than a licensing category: nothing stops it being pushed to a hub later.
 
 `revision` is the *resolved* commit, not the ref that was asked for. A record installed from `main`
 names the commit `main` pointed at, so `list` reports what is actually on disk.
@@ -136,14 +162,16 @@ Every model has a manifest. Three things produce one:
 | Provenance | Source | Role |
 |---|---|---|
 | **Fetched** | `mila.json` at the hub repository root | Written into the store on pull |
-| **Stored** | `models/<owner>/<repository>/<variant>.json` | What `list`, `locate` and `describe` read |
+| **Stored** | `models/<name>.json` | What `list`, `locate` and `describe` read |
 | **Synthesized** | The artifact's own `__metadata__` | Describes a loose file so it can be installed |
 
 Synthesis is what lets a file be installed without anyone authoring JSON. A Mila safetensors artifact
 already carries `mila_config` and `mila_quantization` in its `__metadata__`
-(`Serialization.SafeTensors`), so architecture and quantization come out of the file itself. A
-synthesized manifest is an input to `install`, not a substitute for one: once installed the model has
-a stored record, and that record is what every later operation reads.
+(`Serialization.SafeTensors`), so architecture and quantization come out of the file itself; an
+unquantized artifact takes its variant from the weight dtype of its largest tensor, which is the
+token embedding in every family here and unambiguously a weight. A synthesized manifest is an input
+to `install`, not a substitute for one: once installed the model has a stored record, and that record
+is what every later operation reads.
 
 The consequence worth stating plainly: **one description, one place.** Every consumer sees the same
 shape from the same source, and no workflow gains a JSON-authoring step it did not have before.
@@ -156,16 +184,30 @@ One store holds every managed model, whatever its origin.
 
 ```
 <store-root>/
-  models/<owner>/<repository>/<variant>.json    the records -- this is the index
-  blobs/sha256-<hex>                            the content
-  tmp/                                          in-flight transfers and locks only
+  models/<name>.json          the records -- this is the index
+  blobs/sha256-<hex>          the content
+  tmp/                        in-flight transfers and locks only
 ```
 
 Root resolution, first match wins:
 
 1. `MILA_CACHE_DIR` if set
-2. `%LOCALAPPDATA%\Mila\models` on Windows
-3. `$XDG_CACHE_HOME/mila/models`, else `~/.cache/mila/models`
+2. `%LOCALAPPDATA%\Mila` on Windows
+3. `$XDG_CACHE_HOME/mila`, else `~/.cache/mila`
+
+**The root holds `models/`; it is not itself `models/`.** Appending the segment in both places is
+what produced a `Mila\models\models` tree.
+
+**The name is the key, and it is flat and unique.** One name is one model, so a name that is taken
+is refused rather than namespaced -- silently replacing would leave the displaced model's blobs
+unreferenced for the next prune to reclaim. Two cases are not collisions: a hub model reinstalled
+from the same repository is a refresh, and identical content under the same name is the same model,
+which is what keeps a local re-install idempotent.
+
+**Origin is a field, never a path segment.** Where a copy came from belongs to one installation, and
+it is mutable -- a model published locally today may be pushed to a hub next month. In the record
+that is a field edit; in the path it would be a file move. Putting it in the path would also let two
+origins coexist under one name, which is exactly the state the uniqueness rule forbids.
 
 **Records are the index; blobs are content.** The blob store is deliberately opaque -- a digest is not
 a name -- so nothing can be listed, described or removed from it alone. The record tree is what makes
@@ -186,7 +228,7 @@ for a good one. That is the failure the design is chosen to make impossible rath
 
 ### Removal is refcounted
 
-Deduplication stops being free the moment removal exists: deleting `gemma-4-12b-it:fp4` must not
+Deduplication stops being free the moment removal exists: deleting `gemma-4-12b-it-fp4` must not
 delete the tokenizer blob that `:fp8` also references.
 
 Removal unlinks the record, then sweeps blobs that no surviving record names. Mark-and-sweep over the
@@ -374,19 +416,38 @@ A published model is a directory, and the same directory is what installs locall
   README.md              model card, including the statement that changes were made
 ```
 
-`Tools/ExportArtifact` already produces the artifact and, with `--emit-manifest`, a manifest carrying
-the digests. Packaging is the remaining step: assemble the directory, validate that every declared
-file exists with the declared digest and byte count, and refuse to emit a package that is not
-self-consistent.
+`Distribution.ModelPackage` is that directory: `buildPackage` assembles it and derives every digest
+from the bytes, and `validate` reads each declared file back and reports whether the package agrees
+with its own manifest. A repository manifest covers every variant it publishes, so packaging FP8 into
+a directory that already holds FP4 merges into the manifest rather than replacing it.
+
+`Tools/ExportArtifact` drives it: `--package <dir>` after an export, `--validate <dir>` on its own,
+and `--install <dir>` to publish to the local store.
+
+Two grades of finding, because they have different consequences. A **problem** means the bytes
+disagree with the manifest, and nothing may be emitted or installed. A **warning** means the package
+would ship without its LICENSE or its model card, which is a publishing decision rather than a
+corruption. A declared path that would leave the package directory is a problem: a manifest can
+arrive from a hub, so the path in one is untrusted input.
 
 **Publishing to the local store** installs the package: hash each file, move it into `blobs/`, write
 the record. Move rather than copy -- it is free on one volume, and it keeps a single integrity model
 in which the path is the digest, with no second class of file that a manifest merely points at.
+`ModelStore::adoptBlob` is `ensureBlob`'s counterpart for bytes that need no transfer, and it hashes
+rather than trusting the caller: a blob adopted unverified would poison every later cache hit. It
+takes the same per-digest transfer lock, and across volumes -- where there is no atomic move -- the
+bytes go through `tmp/` so a partial copy never occupies a path that implies verification.
+
+Installing does not validate first. Adoption hashes each file as it takes it, so a separate
+validation pass would read every byte a second time; at 6.8 GB that is not a cost worth paying for a
+check that already happened.
 
 **Publishing to a hub** validates the package and hands it to external tooling.
 `Tools/Publishing/publish_model.py` does the upload through `huggingface_hub`: it validates digests
 before uploading, skips files the hub already holds, and verifies afterward. The library contributes
-the package and the validation; it does not contain an HTTP method that writes.
+the package and the validation; it does not contain an HTTP method that writes. It takes a package
+directory and `--repo <owner>/<name>`; the older card directory, whose `publish.json` maps hub paths
+onto large files kept outside it, still works and is what a package makes unnecessary.
 
 The division is deliberate. Uploading to HuggingFace means the preupload check, the LFS batch API,
 multipart transfer and a commit call -- a large failure surface, for a workflow a maintainer runs by
@@ -404,7 +465,12 @@ ModelStore                     filesystem only, always available
   remove(coordinate)        -> RemovalReport     record, then sweep
   prune()                   -> RemovalReport     unreferenced blobs, rejects, stale partials
   diskUsage()               -> StoreUsage        by model and in total
-  install(package)          -> StoredModel
+  install(package, options) -> StoredModel       verify, adopt, record
+
+ModelPackage                   filesystem only, always available
+  open(directory)           -> ModelPackage      reads the manifest, hashes nothing
+  validate(variant)         -> PackageValidation problems and warnings
+  buildPackage(request)     -> ModelPackage      assemble, merging into what is there
 
 ModelHub                       network, gated
   listModels(owner)         -> [HubModel]
@@ -427,7 +493,7 @@ grammar already expresses:
 | Before | After |
 |---|---|
 | `gemma-12b`, `gemma-12b-packed`, `gemma-12b-hub` | `gemma-12b` -> `mila-llm/gemma-4-12b-it`, variants `fp4`, `fp8` |
-| `llama-3b`, `llama-3b-fp32` | `llama-3b` -> `local/llama-3.2-3b-instruct`, variants `bf16`, `fp32` |
+| `llama-3b`, `llama-3b-fp32` | `llama-3.2-3b-instruct-bf16`, `llama-3.2-3b-instruct-fp32` |
 
 `/model <alias|coordinate> [variant]` selects; `/models` lists what is installed and what the hub
 offers; `/pull` and `/rm` manage. Three aliases naming one model, distinguished by a provenance nobody
@@ -463,8 +529,9 @@ them.
 
 The split is by dependency, not by theme.
 
-- **`Distribution.ModelStore`**, with `Sha256` -- layout, records, list, locate, remove, prune,
-  install. Filesystem only, **always compiled**.
+- **`Distribution.ModelStore`**, with `Sha256`, `ModelCoordinate`, `ModelManifest` and
+  `ModelPackage` -- naming, the schema, layout, records, list, locate, remove, prune, package,
+  validate, install. Filesystem only, **always compiled**.
 - **`Distribution.ModelHub`**, with `HttpClient` and `HuggingFaceHub` -- listing, manifest fetch,
   pull. Gated on `MILA_ENABLE_MODEL_DOWNLOAD`, keeps libcurl private.
 
@@ -505,7 +572,7 @@ Gemma 4's Apache 2.0 still requires the license text, attribution, and a stateme
 made -- quantization is a modification. That belongs in the package alongside the root NOTICE.md habit
 already established.
 
-A family that cannot be republished is not a hole in the catalogue. It is a `local/` model: the user
+A family that cannot be republished is not a hole in the catalogue. It is a locally published model: the user
 converts it once, the store lists it exactly like a fetched one, and `publish` refuses the hub
 destination with the reason rather than failing at a 403.
 
@@ -548,7 +615,7 @@ models.
 
 **Phase 9 -- packaging and publish.** Package assembly and validation; install to the local store;
 hub-ready output handed to `publish_model.py`.
-*Done when:* a converted model becomes a `local/` model that `list` reports and Chat loads, and the
+*Done when:* a converted model becomes an installed model that `list` reports and Chat loads, and the
 same package validates for hub upload.
 
 **Phase 10 -- the load boundary and the catalogue.** `locate` never touches the network; Chat's

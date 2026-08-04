@@ -1,10 +1,10 @@
 /**
  * @file ModelCoordinate.ixx
- * @brief How a model is named: [<hub>:]<owner>/<repository>[:<variant>][@<revision>].
+ * @brief How a hub repository is addressed: [hf:]<owner>/<repository>[@<revision>].
  *
- * One naming scheme for every model, whether it came from a hub or was built here. Always
- * compiled, because naming and locating a model are not network operations.
- * See Specifications/ModelDistribution.md.
+ * This is the *fetch* grammar, not the store's. A model is named by a single flat name; the
+ * owner is provenance that a consumer supplies and a user never types. Always compiled, because
+ * naming a model is not a network operation. See Specifications/ModelDistribution.md.
  */
 
 module;
@@ -16,40 +16,33 @@ export module Distribution.ModelCoordinate;
 
 namespace Mila::Distribution
 {
-    /// The reserved owner for a model converted, trained or exported on this machine.
-    export inline constexpr std::string_view kLocalOwner = "local";
+    /**
+     * @brief The owner Mila's published models live under.
+     *
+     * A default a consumer passes to the hub, not something the hub class knows: the hub is
+     * "HuggingFace", the owner is Mila's, and baking the second into the first would make the
+     * implementation Mila-specific and defeat the interface it sits behind.
+     */
+    export inline constexpr std::string_view kDefaultHubOwner = "mila-llm";
 
     /**
-     * @brief A model's name.
+     * @brief Where a repository lives on a hub.
      *
-     * Variant is separate from repository because variants share components: the FP4, FP8 and
-     * BF16 builds of one model share a tokenizer, which a flat repository-variant name hides.
+     * There is no variant here. One repository is one model at one precision, which the model's
+     * name already states -- the platform's own convention, and the reason a listing shows every
+     * variant without a manifest fetch.
      */
     export struct ModelCoordinate
     {
         std::string organization;
         std::string repository;
 
-        /// Empty means the manifest's declared default.
-        std::string variant;
-
         /// Branch, tag or commit. Defaults to main.
         std::string revision{ "main" };
-
-        /// True for the reserved `local` owner, which no hub serves.
-        bool isLocal() const
-        {
-            return organization == kLocalOwner;
-        }
 
         std::string toString() const
         {
             std::string text = organization + "/" + repository;
-
-            if ( !variant.empty() )
-            {
-                text += ":" + variant;
-            }
 
             if ( revision != "main" )
             {
@@ -63,10 +56,10 @@ namespace Mila::Distribution
     /**
      * @brief Parse a coordinate, or return nothing if the spec is not one.
      *
-     * Grammar: [hf:]<organization>/<repository>[:<variant>][@<revision>], where organization
-     * and repository allow only characters HuggingFace permits in a namespace. Anything
-     * path-shaped is rejected on purpose, so a mistyped path reads as a path mistake rather
-     * than as a request against a repository that does not exist.
+     * Grammar: [hf:]<organization>/<repository>[@<revision>], where organization and repository
+     * allow only characters HuggingFace permits in a namespace. Anything path-shaped is rejected
+     * on purpose, so a mistyped path reads as a path mistake rather than as a request against a
+     * repository that does not exist.
      */
     export std::optional<ModelCoordinate> parseCoordinate( std::string_view spec )
     {
@@ -90,19 +83,6 @@ namespace Mila::Distribution
             spec = spec.substr( 0, at );
 
             if ( coordinate.revision.empty() )
-            {
-                return std::nullopt;
-            }
-        }
-
-        const auto colon = spec.rfind( ':' );
-
-        if ( colon != std::string_view::npos )
-        {
-            coordinate.variant = std::string( spec.substr( colon + 1 ) );
-            spec = spec.substr( 0, colon );
-
-            if ( coordinate.variant.empty() )
             {
                 return std::nullopt;
             }
@@ -143,8 +123,7 @@ namespace Mila::Distribution
                 return true;
             };
 
-        if ( !isPermitted( coordinate.organization ) || !isPermitted( coordinate.repository )
-            || !isPermitted( coordinate.variant ) )
+        if ( !isPermitted( coordinate.organization ) || !isPermitted( coordinate.repository ) )
         {
             return std::nullopt;
         }

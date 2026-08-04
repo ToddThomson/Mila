@@ -61,29 +61,35 @@ namespace Mila::Tests::Distribution
         {
             return std::format( R"({{
               "manifest_version": 1,
+              "name": "gemma-4-12b-it-fp4",
               "architecture": "gemma",
-              "default_variant": "fp4",
-              "variants": {{
-                "fp4": {{
-                  "minimum_mila_version": "{}",
-                  "weight_quantization": "per_group_fp4_128",
-                  "files": {{
-                    "weights":   {{ "path": "model_fp4.safetensors", "sha256": "{}" }},
-                    "tokenizer": {{ "path": "tokenizer.bin",         "sha256": "{}" }}
-                  }}
-                }},
-                "fp8": {{
-                  "weight_quantization": "per_channel_fp8_e4m3",
-                  "files": {{
-                    "weights": {{ "path": "model_fp8.safetensors", "sha256": "{}" }}
-                  }}
-                }}
+              "variant": "fp4",
+              "weight_quantization": "per_group_fp4_128",
+              "minimum_mila_version": "{}",
+              "base_model": "google/gemma-4-12b-it",
+              "license": "apache-2.0",
+              "files": {{
+                "weights":   {{ "path": "model_fp4.safetensors", "sha256": "{}" }},
+                "tokenizer": {{ "path": "tokenizer.bin",         "sha256": "{}" }}
               }}
             }})",
                 minimum_version,
                 sha256Hex( kWeightsPayload.data(), kWeightsPayload.size() ),
-                sha256Hex( kTokenizerPayload.data(), kTokenizerPayload.size() ),
-                sha256Hex( kWeightsPayload.data(), kWeightsPayload.size() ) );
+                sha256Hex( kTokenizerPayload.data(), kTokenizerPayload.size() ) );
+        }
+
+        /// A model with no tokenizer -- the weights are the only required role.
+        std::string weightsOnlyManifestJson()
+        {
+            return std::format( R"({{
+              "name": "gemma-4-12b-it-fp8",
+              "architecture": "gemma",
+              "variant": "fp8",
+              "weight_quantization": "per_channel_fp8_e4m3",
+              "files": {{
+                "weights": {{ "path": "model_fp8.safetensors", "sha256": "{}" }}
+              }}
+            }})", sha256Hex( kWeightsPayload.data(), kWeightsPayload.size() ) );
         }
 
         /**
@@ -183,12 +189,11 @@ namespace Mila::Tests::Distribution
 
     TEST( ModelCoordinateParsing, AcceptsTheFullForm )
     {
-        const auto coordinate = parseCoordinate( "mila-llm/gemma-4-12b-it:fp4@v2" );
+        const auto coordinate = parseCoordinate( "mila-llm/gemma-4-12b-it@v2" );
 
         ASSERT_TRUE( coordinate.has_value() );
         EXPECT_EQ( coordinate->organization, "mila-llm" );
         EXPECT_EQ( coordinate->repository, "gemma-4-12b-it" );
-        EXPECT_EQ( coordinate->variant, "fp4" );
         EXPECT_EQ( coordinate->revision, "v2" );
     }
 
@@ -197,17 +202,15 @@ namespace Mila::Tests::Distribution
         const auto coordinate = parseCoordinate( "mila-llm/gemma-4-12b-it" );
 
         ASSERT_TRUE( coordinate.has_value() );
-        EXPECT_EQ( coordinate->variant, "" );
         EXPECT_EQ( coordinate->revision, "main" );
     }
 
     TEST( ModelCoordinateParsing, StripsTheExplicitPrefix )
     {
-        const auto coordinate = parseCoordinate( "hf:mila-llm/gemma-4-12b-it:fp4" );
+        const auto coordinate = parseCoordinate( "hf:mila-llm/gemma-4-12b-it" );
 
         ASSERT_TRUE( coordinate.has_value() );
         EXPECT_EQ( coordinate->organization, "mila-llm" );
-        EXPECT_EQ( coordinate->variant, "fp4" );
     }
 
     TEST( ModelCoordinateParsing, RejectsThingsThatAreReallyPaths )
@@ -250,7 +253,7 @@ namespace Mila::Tests::Distribution
 
         try
         {
-            resolver.pull( local.string() );
+            resolver.pull( local.string(), "mila-llm" );
             FAIL() << "expected a throw";
         }
         catch ( const std::runtime_error& error )
@@ -270,7 +273,7 @@ namespace Mila::Tests::Distribution
         const FakeHub hub( manifestJson() );
         ModelResolver resolver( store, hub );
 
-        EXPECT_THROW( resolver.pull( "not/a/real/thing.safetensors" ), std::runtime_error );
+        EXPECT_THROW( resolver.pull( "not/a/real/thing.safetensors", "mila-llm" ), std::runtime_error );
     }
 
     // ================================================================
@@ -284,9 +287,9 @@ namespace Mila::Tests::Distribution
         const FakeHub hub( manifestJson() );
         ModelResolver resolver( store, hub );
 
-        const auto pulled = resolver.pull( "mila-llm/gemma-4-12b-it:fp4" );
+        const auto pulled = resolver.pull( "gemma-4-12b-it-fp4", "mila-llm" );
 
-        EXPECT_EQ( pulled.record.variant, "fp4" );
+        EXPECT_EQ( pulled.record.name, "gemma-4-12b-it-fp4" );
         EXPECT_EQ( pulled.record.architecture, "gemma" );
         EXPECT_EQ( pulled.record.weight_quantization, "per_group_fp4_128" );
         EXPECT_TRUE( pulled.complete );
@@ -308,12 +311,12 @@ namespace Mila::Tests::Distribution
 
         {
             ModelResolver resolver( store, hub );
-            resolver.pull( "mila-llm/gemma-4-12b-it:fp4" );
+            resolver.pull( "gemma-4-12b-it-fp4", "mila-llm" );
         }
 
         // The record is the whole point: pull and load are separate verbs, in separate
         // processes, so what the hub knew has to outlive the object that fetched it.
-        const auto located = store.locate( "mila-llm", "gemma-4-12b-it", "fp4" );
+        const auto located = store.locate( "gemma-4-12b-it-fp4" );
 
         ASSERT_TRUE( located.has_value() );
         EXPECT_EQ( located->record.architecture, "gemma" );
@@ -338,61 +341,26 @@ namespace Mila::Tests::Distribution
 
         ModelResolver resolver( store, failing );
 
-        EXPECT_THROW( resolver.pull( "mila-llm/gemma-4-12b-it:fp4" ), std::runtime_error );
+        EXPECT_THROW( resolver.pull( "gemma-4-12b-it-fp4", "mila-llm" ), std::runtime_error );
 
         // A record naming a blob that never arrived would make a broken model look installed.
         EXPECT_TRUE( store.list().empty() );
-        EXPECT_FALSE( store.locate( "mila-llm", "gemma-4-12b-it", "fp4" ).has_value() );
+        EXPECT_FALSE( store.locate( "gemma-4-12b-it-fp4" ).has_value() );
     }
 
-    TEST( ModelResolverTests, UsesTheDefaultVariantWhenNoneIsGiven )
+    TEST( ModelResolverTests, PullsAModelWithNoTokenizer )
     {
         ScratchStoreRoot scratch;
         ModelStore store( scratch.path() );
-        const FakeHub hub( manifestJson() );
+        const FakeHub hub( weightsOnlyManifestJson() );
         ModelResolver resolver( store, hub );
 
-        const auto pulled = resolver.pull( "mila-llm/gemma-4-12b-it" );
+        const auto pulled = resolver.pull( "gemma-4-12b-it-fp8", "mila-llm" );
 
-        EXPECT_EQ( pulled.record.variant, "fp4" );
-    }
-
-    TEST( ModelResolverTests, PullsAVariantWithNoTokenizer )
-    {
-        ScratchStoreRoot scratch;
-        ModelStore store( scratch.path() );
-        const FakeHub hub( manifestJson() );
-        ModelResolver resolver( store, hub );
-
-        const auto pulled = resolver.pull( "mila-llm/gemma-4-12b-it:fp8" );
-
-        EXPECT_EQ( pulled.record.variant, "fp8" );
+        EXPECT_EQ( pulled.record.name, "gemma-4-12b-it-fp8" );
         EXPECT_TRUE( pulled.complete );
         EXPECT_TRUE( std::filesystem::exists( pulled.weights_path ) );
         EXPECT_TRUE( pulled.tokenizer_path.empty() );
-    }
-
-    TEST( ModelResolverTests, NamesTheAvailableVariantsWhenOneIsMissing )
-    {
-        ScratchStoreRoot scratch;
-        ModelStore store( scratch.path() );
-        const FakeHub hub( manifestJson() );
-        ModelResolver resolver( store, hub );
-
-        try
-        {
-            resolver.pull( "mila-llm/gemma-4-12b-it:int2" );
-            FAIL() << "expected a throw";
-        }
-        catch ( const std::runtime_error& error )
-        {
-            const std::string message = error.what();
-
-            // Listing what is there turns a typo into a one-line fix.
-            EXPECT_NE( message.find( "int2" ), std::string::npos );
-            EXPECT_NE( message.find( "fp4" ), std::string::npos );
-            EXPECT_NE( message.find( "fp8" ), std::string::npos );
-        }
     }
 
     TEST( ModelResolverTests, RefusesAnArtifactRequiringANewerMila )
@@ -404,7 +372,7 @@ namespace Mila::Tests::Distribution
 
         // Better a version comparison than a parse error deep inside the tensor index, which
         // is what a future format change would otherwise look like.
-        EXPECT_THROW( resolver.pull( "mila-llm/gemma-4-12b-it:fp4" ), std::runtime_error );
+        EXPECT_THROW( resolver.pull( "gemma-4-12b-it-fp4", "mila-llm" ), std::runtime_error );
     }
 
     TEST( ModelResolverTests, RejectsAMalformedManifest )
@@ -414,16 +382,15 @@ namespace Mila::Tests::Distribution
 
         const FakeHub not_json_hub( "this is not json" );
         ModelResolver not_json( store, not_json_hub );
-        EXPECT_THROW( not_json.pull( "mila-llm/gemma-4-12b-it:fp4" ), std::runtime_error );
+        EXPECT_THROW( not_json.pull( "gemma-4-12b-it-fp4", "mila-llm" ), std::runtime_error );
 
-        const FakeHub no_variants_hub( R"({"architecture":"gemma"})" );
-        ModelResolver no_variants( store, no_variants_hub );
-        EXPECT_THROW( no_variants.pull( "mila-llm/gemma-4-12b-it:fp4" ), std::runtime_error );
+        const FakeHub no_files_hub( R"({"architecture":"gemma"})" );
+        ModelResolver no_variants( store, no_files_hub );
+        EXPECT_THROW( no_variants.pull( "gemma-4-12b-it-fp4", "mila-llm" ), std::runtime_error );
 
-        const FakeHub no_digest_hub(
-            R"({"variants":{"fp4":{"files":{"weights":{"path":"m.safetensors"}}}}})" );
+        const FakeHub no_digest_hub( R"({"files":{"weights":{"path":"m.safetensors"}}})" );
         ModelResolver no_digest( store, no_digest_hub );
-        EXPECT_THROW( no_digest.pull( "mila-llm/gemma-4-12b-it:fp4" ), std::runtime_error );
+        EXPECT_THROW( no_digest.pull( "gemma-4-12b-it-fp4", "mila-llm" ), std::runtime_error );
     }
 
     TEST( ModelResolverTests, SecondPullReusesTheStoredBlobs )
@@ -434,8 +401,8 @@ namespace Mila::Tests::Distribution
         const FakeHub hub( manifestJson() );
         ModelResolver resolver( store, hub );
 
-        const auto first = resolver.pull( "mila-llm/gemma-4-12b-it:fp4" );
-        const auto second = resolver.pull( "mila-llm/gemma-4-12b-it:fp4" );
+        const auto first = resolver.pull( "gemma-4-12b-it-fp4", "mila-llm" );
+        const auto second = resolver.pull( "gemma-4-12b-it-fp4", "mila-llm" );
 
         EXPECT_EQ( first.weights_path, second.weights_path );
 
@@ -446,17 +413,17 @@ namespace Mila::Tests::Distribution
         EXPECT_EQ( hub.file_fetches, 2 );
     }
 
-    TEST( ModelResolverTests, RefusesToPullAModelBuiltHere )
+    TEST( ModelResolverTests, RefusesANameThatIsNotAName )
     {
         ScratchStoreRoot scratch;
         ModelStore store( scratch.path() );
 
-        // The reserved owner names a model no hub serves, so this is a mistake worth naming
-        // rather than a 404 from a repository called "local".
+        // Caught before it becomes a URL: a path-shaped name would otherwise 404 against a
+        // repository that cannot exist, and say nothing about the actual mistake.
         const ExplodingHub exploding;
         ModelResolver resolver( store, exploding );
 
-        EXPECT_THROW(
-            resolver.pull( "local/my-model:bf16" ), std::runtime_error );
+        EXPECT_THROW( resolver.pull( "not a name", "mila-llm" ), std::runtime_error );
+        EXPECT_THROW( resolver.pull( "some/path", "mila-llm" ), std::runtime_error );
     }
 }

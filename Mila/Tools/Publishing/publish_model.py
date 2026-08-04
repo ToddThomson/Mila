@@ -131,7 +131,11 @@ def already_current(api: HfApi, repo_id: str, hub_path: str, local: Path) -> boo
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("card", type=Path, help="Model card directory")
+    parser.add_argument("card", type=Path,
+                        help="Model card directory, or a package directory built by "
+                             "ExportArtifact --package")
+    parser.add_argument("--repo", help="Target repository as <owner>/<name>. Required for a "
+                                       "package directory, which carries no publish.json.")
     parser.add_argument("--dry-run", action="store_true",
                         help="Validate and report, upload nothing")
     args = parser.parse_args()
@@ -140,15 +144,24 @@ def main() -> int:
     if not card_dir.is_dir():
         sys.exit(f"Not a directory: {card_dir}")
 
-    # <root>/Mila/Tools/ExportArtifact/ModelCards/<name> -> <root>
-    repo_root = card_dir.parents[4]
-
     publish_path = card_dir / "publish.json"
-    if not publish_path.is_file():
-        sys.exit(f"No publish.json in {card_dir}")
+    publish = {}
 
-    publish = json.loads(publish_path.read_text(encoding="utf-8"))
-    repo_id = publish["repo_id"]
+    if publish_path.is_file():
+        publish = json.loads(publish_path.read_text(encoding="utf-8"))
+    elif not args.repo:
+        sys.exit(
+            f"No publish.json in {card_dir}, and no --repo given.\n"
+            f"A package directory holds every declared file, so it needs only the "
+            f"repository: --repo <owner>/<name>."
+        )
+
+    repo_id = args.repo or publish["repo_id"]
+
+    # Only mapped sources are resolved against it; a package directory has none, because it
+    # holds the files it declares.
+    repo_root = card_dir.parents[4] if len(card_dir.parents) > 4 else card_dir
+
     sources = {k: v for k, v in publish.get("sources", {}).items() if not k.startswith("//")}
 
     manifest = load_manifest(card_dir)

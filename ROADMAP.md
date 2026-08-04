@@ -171,9 +171,9 @@ publishes into; Mila runs no registry of its own and never uploads from the libr
 Two boundaries define the design. **Loading never downloads** — a model is pulled deliberately, with
 progress and a failure mode, and loaded from the local store afterward, so a multi-gigabyte transfer
 can never begin inside a chat prompt or in response to an inference request. And **the flat `.bin`
-container stops being a distributed form**: every catalogued model is a pre-quantized safetensors
-artifact with a manifest, which also retires the model aliases whose meaning nobody outside the
-codebase could decode. Engineering detail lives in [BACKLOG.md](BACKLOG.md) under this bucket; the
+container stops being a distributed form**: every distributed model is a safetensors artifact with a
+manifest, which also retires the model aliases whose meaning nobody outside the codebase could
+decode. Engineering detail lives in [BACKLOG.md](BACKLOG.md) under this bucket; the
 design is [ModelDistribution.md](Mila/Specifications/ModelDistribution.md).
 
 **Success criteria:** a clean machine pulls and runs Gemma 4 12B FP4 from `mila-llm` through named
