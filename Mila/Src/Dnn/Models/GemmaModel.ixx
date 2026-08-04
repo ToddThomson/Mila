@@ -203,6 +203,87 @@ namespace Mila::Dnn
             throw std::runtime_error( "GemmaModel::fromPretrained: unhandled quantization configuration" );
         }
 
+        /**
+         * @brief What loading this checkpoint at this context length would cost in VRAM.
+         *
+         * Reads the artifact header for geometry and constructs the graph, then reports what
+         * build() would allocate -- without building it, without reading a weight, and
+         * therefore without needing the device to have room. Answers before a multi-gigabyte
+         * download and for hardware the caller does not own.
+         *
+         * Returns measurements only. Whether a given headroom is too tight is a deployment
+         * policy and belongs to the adaptor, not here; on Windows in particular WDDM
+         * oversubscribes rather than failing, so "fits" is not a property the runtime can
+         * decide. See Specifications/MemoryFootprint.md.
+         *
+         * @throws std::invalid_argument on device type mismatch or zero context length.
+         * @throws std::runtime_error    on an unreadable artifact or unsupported quantization.
+         */
+        static MemoryStats getRequiredMemory(
+            const std::filesystem::path& path,
+            const GemmaModelConfig& model_config,
+            DeviceId device_id = DeviceId{ TDeviceType, 0 } )
+        {
+            if ( device_id.type != TDeviceType )
+            {
+                throw std::invalid_argument( std::format(
+                    "GemmaModel::getRequiredMemory: device type mismatch: expected {}, got {}",
+                    deviceTypeToString( TDeviceType ),
+                    deviceTypeToString( device_id.type ) ) );
+            }
+
+            if ( model_config.getContextLength() == 0 )
+            {
+                throw std::invalid_argument(
+                    "GemmaModel::getRequiredMemory: context_length must be greater than zero" );
+            }
+
+            // REVIEW: this switch mirrors fromPretrained's above. Two copies today, four once
+            // Llama's footprint lands, and a quantization mode added to one and not the other
+            // is a silent divergence between what a model reports and what it allocates.
+            // Factoring both onto one dispatcher is filed in BACKLOG; not done here because it
+            // would rework the working load path for no functional gain in this phase.
+            using GemmaSlidingKvPolicy = SlidingWindowKvCache;
+
+            switch ( model_config.getWeightQuantization() )
+            {
+                case WeightQuantization::FP4:
+                    if constexpr ( TPrecision == TensorDataType::BF16 )
+                    {
+                        return requiredMemoryImpl<PerGroupFp4<128>, GemmaSlidingKvPolicy>(
+                            path, model_config, device_id );
+                    }
+                    else
+                    {
+                        throw std::runtime_error(
+                            "GemmaModel::getRequiredMemory: FP4 weight quantization requires BF16 compute precision" );
+                    }
+
+                case WeightQuantization::FP8:
+                    if constexpr ( TPrecision == TensorDataType::BF16 )
+                    {
+                        return requiredMemoryImpl<PerChannelFp8<>, GemmaSlidingKvPolicy>(
+                            path, model_config, device_id );
+                    }
+                    else
+                    {
+                        throw std::runtime_error(
+                            "GemmaModel::getRequiredMemory: FP8 weight quantization requires BF16 compute precision" );
+                    }
+
+                case WeightQuantization::None:
+                default:
+                    if ( model_config.getKvCacheCompression() == KvCacheCompression::FP8 )
+                    {
+                        throw std::runtime_error(
+                            "GemmaModel::getRequiredMemory: FP8 KV cache compression is not yet supported" );
+                    }
+
+                    return requiredMemoryImpl<NoWeightQuant, GemmaSlidingKvPolicy>(
+                        path, model_config, device_id );
+            }
+        }
+
         // ====================================================================
         // Accessors
         // ====================================================================
@@ -710,6 +791,64 @@ namespace Mila::Dnn
                 new GemmaModel<TDeviceType, TPrecision>(
                     std::move( network ), network_config,
                     model_config, metadata, RuntimeMode::Inference ) );
+        }
+
+        /**
+         * @brief The footprint sibling of fromPretrainedImpl: same prologue, stops before build().
+         *
+         * Everything above network->build() is shared with the load path deliberately -- the
+         * artifact check, the geometry, and the context-length validation must be the ones a
+         * real load would apply, or the reported figure describes a model that would not load.
+         */
+        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
+        static MemoryStats requiredMemoryImpl(
+            const std::filesystem::path& path,
+            const GemmaModelConfig& model_config,
+            DeviceId device_id )
+        {
+            PretrainedModelReader reader( path );
+            const auto& metadata = reader.getPretrainedMetadata();
+
+            const std::string& artifact_quantization = reader.getWeightQuantization();
+
+            if ( !artifact_quantization.empty() )
+            {
+                const std::string requested =
+                    weightQuantizationName( model_config.getWeightQuantization() );
+
+                if ( artifact_quantization != requested )
+                {
+                    throw std::runtime_error( std::format(
+                        "GemmaModel::getRequiredMemory: artifact '{}' is pre-quantized as '{}' "
+                        "but this query requested '{}'",
+                        path.string(), artifact_quantization, requested ) );
+                }
+            }
+
+            GemmaConfig network_config = configFromMetadata( metadata );
+
+            if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
+            {
+                throw std::invalid_argument( std::format(
+                    "GemmaModel::getRequiredMemory: context_length {} exceeds trained max_seq_len {}",
+                    model_config.getContextLength(),
+                    network_config.getMaxSequenceLength() ) );
+            }
+
+            using ConcreteTransformerType =
+                GemmaTransformer<TDeviceType, TPrecision, TWeightQuantization, TKvCachePolicy>;
+
+            // Construction commits no device memory -- that is the whole premise. The graph
+            // exists, correctly shaped, and is then asked rather than built.
+            auto network = std::make_unique<ConcreteTransformerType>(
+                metadata.model_name, network_config, device_id );
+
+            BuildContext build_context(
+                shape_t{ 1, model_config.getContextLength() },
+                RuntimeMode::Inference,
+                false );
+
+            return network->getRequiredMemory( build_context );
         }
 
         // Architecture config (from checkpoint metadata): the trained network geometry.

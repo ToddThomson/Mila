@@ -211,6 +211,10 @@ if(MILA_ENABLE_CUDA)
         # so it is unreachable from the CPU companion in Dnn/Core/Component.cpp.
         "Dnn/Core/Component.Cuda.cpp"
         "Dnn/Models/GemmaModel.Parity.Cuda.cpp"
+        # Gate B: the reported footprint against cudaMemGetInfo. Both skip without a real
+        # checkpoint, so neither runs in CI -- see Specifications/MemoryFootprint.md 7.
+        "Dnn/Models/GemmaModel.Footprint.Cuda.cpp"
+        "Dnn/Models/LlamaModel.Footprint.Cuda.cpp"
         # Net-new: the FP32 master-parameter path has no coverage in AdamW.Cuda.cpp.
         "Dnn/Optimizers/AdamW.MixedPrecision.Cuda.cpp"
         "Dnn/Samplers/Sampling.Cuda.cpp"

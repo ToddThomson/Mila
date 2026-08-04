@@ -471,6 +471,18 @@ namespace Mila::Dnn
                 stats += child->getMemoryStats();
             }
 
+            // Prefill scratch this block owns outright. Previously omitted, which understated
+            // every Llama footprint by these buffers -- 0.31 GiB on 3.1 8B at context 8192,
+            // chunk 512. Llama does not pool activations across layers, so unlike Gemma's
+            // installed slots these belong to no one else and must be counted here.
+            for ( auto* t : { res1_prefill_.get(), q_.get(), k_.get(), v_.get() } )
+            {
+                if ( t )
+                {
+                    stats.device_state_bytes += t->getStorageSize();
+                }
+            }
+
             if ( d_res1_accum_ != nullptr )
             {
                 stats.device_gradient_bytes += d_res1_accum_->getStorageSize();
@@ -484,7 +496,122 @@ namespace Mila::Dnn
             return stats;
         }
 
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * Children are named rather than walked: each is built with its own context, and a
+         * generic recursion over getComponents() would size every one of them against the
+         * block's shape. Fetched by name because the member pointers are assigned in
+         * onBuilding and are null before a build.
+         * See Specifications/MemoryFootprint.md section 4.4.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            validateBuildContext( context );
+
+            const BlockBuildContexts contexts = resolveBlockBuildContexts( context );
+            const std::string n = this->getName();
+
+            auto required = [&]( const auto& component, const BuildContext& child_context )
+            {
+                return component->getRequiredMemory( child_context );
+            };
+
+            MemoryStats stats;
+
+            stats += required( this->template getComponentAs<RmsNormType>( n + ".rmsn_1" ), contexts.main );
+            stats += required( this->template getComponentAs<LinearType>( n + ".fc_qkv_proj" ), contexts.main );
+            stats += required( this->template getComponentAs<RopeType>( n + ".rope" ), contexts.main );
+            stats += required( this->template getComponentAs<AttentionType>( n + ".gqa" ), contexts.qkv );
+            stats += required( this->template getComponentAs<LinearType>( n + ".fc_out_proj" ), contexts.main );
+            stats += required( this->template getComponentAs<ResidualType>( n + ".res_1" ), contexts.main );
+            stats += required( this->template getComponentAs<RmsNormType>( n + ".rmsn_2" ), contexts.main );
+            stats += required( this->template getComponentAs<LinearType>( n + ".fc_gate_up" ), contexts.main );
+            stats += required( this->template getComponentAs<SwiGLUType>( n + ".sglu" ), contexts.gate_up );
+            stats += required( this->template getComponentAs<LinearType>( n + ".fc_down" ), contexts.hidden );
+            stats += required( this->template getComponentAs<ResidualType>( n + ".res_2" ), contexts.main );
+
+            // Prefill-only scratch. Llama does not pool activations across layers the way
+            // Gemma does, so every block owns these outright -- which is part of why the
+            // Llama footprint sits higher per layer.
+            if ( context.isInferenceMode() )
+            {
+                const dim_t rows = contexts.batch * contexts.sequence;
+
+                stats.device_state_bytes += storageBytes<TPrecision>( rows * contexts.model_dim );
+                stats.device_state_bytes +=
+                    storageBytes<TPrecision>( rows * contexts.num_heads * contexts.head_dim );
+                stats.device_state_bytes +=
+                    2 * storageBytes<TPrecision>( rows * contexts.num_kv_heads * contexts.head_dim );
+            }
+            else
+            {
+                // Backward scratch: d_res1_accum and d_input, both at the full training shape.
+                stats.device_gradient_bytes +=
+                    2 * storageBytes<TPrecision>( elementCount( contexts.main.inputShape() ) );
+            }
+
+            return stats;
+        }
+
     protected:
+
+        /**
+         * @brief The per-child build contexts this block implies.
+         *
+         * Shared with onBuilding() so the two cannot disagree. The inference and training
+         * paths differ only in the sequence extent -- one prefill chunk against the full
+         * context -- so both fall out of the same derivation.
+         */
+        struct BlockBuildContexts
+        {
+            BuildContext main;
+            BuildContext qkv;
+            BuildContext gate_up;
+            BuildContext hidden;
+
+            dim_t batch{ 0 };
+            dim_t sequence{ 0 };
+            dim_t num_heads{ 0 };
+            dim_t num_kv_heads{ 0 };
+            dim_t head_dim{ 0 };
+            dim_t model_dim{ 0 };
+        };
+
+        BlockBuildContexts resolveBlockBuildContexts( const BuildContext& context ) const
+        {
+            const auto& input_shape = context.inputShape();
+
+            BlockBuildContexts contexts;
+            contexts.batch = input_shape[ 0 ];
+            contexts.num_heads = config_.getNumHeads();
+            contexts.num_kv_heads = config_.getNumKVHeads();
+            contexts.model_dim = config_.getModelDim();
+            contexts.head_dim = contexts.model_dim / contexts.num_heads;
+
+            const dim_t context_length = input_shape[ 1 ];
+            const dim_t hidden_dim = config_.getHiddenDimension() > 0
+                ? config_.getHiddenDimension()
+                : contexts.model_dim * 4;
+
+            contexts.sequence = context.isInferenceMode()
+                ? context.getPrefillSize()
+                : context_length;
+
+            const dim_t B = contexts.batch;
+            const dim_t S = contexts.sequence;
+
+            contexts.main = context.withShape( shape_t{ B, S, contexts.model_dim } );
+            contexts.gate_up = context.withShape( shape_t{ B, S, 2 * hidden_dim } );
+            contexts.hidden = context.withShape( shape_t{ B, S, hidden_dim } );
+
+            // Attention is built at the full context length regardless -- that is what sizes
+            // the KV cache, and it is why context length shows up in the footprint at all.
+            contexts.qkv = context.withShape( shape_t{ B, context_length,
+                ( contexts.num_heads + 2 * contexts.num_kv_heads ) * contexts.head_dim } );
+
+            return contexts;
+        }
 
         void onBuilding( const BuildContext& context ) override
         {
@@ -493,39 +620,33 @@ namespace Mila::Dnn
             const auto& input_shape = context.inputShape();
 
             const int64_t B = input_shape[ 0 ];
-            const int64_t context_length = input_shape[ 1 ];
             const int64_t n_heads = config_.getNumHeads();
             const int64_t n_kv = config_.getNumKVHeads();
             const int64_t head_dim = config_.getModelDim() / n_heads;
-            const int64_t hidden_dim = config_.getHiddenDimension() > 0
-                ? config_.getHiddenDimension()
-                : config_.getModelDim() * 4;
 
             // Decode view shapes -- T=1, always
             q_shape_ = { B, 1, n_heads * head_dim };
             k_shape_ = { B, 1, n_kv * head_dim };
             q_offset_ = B * 1 * n_heads * head_dim;
 
-            // GQA -- context_length for KV cache sizing, correct QKV trailing dim
-            const shape_t qkv_shape = { B, context_length, (n_heads + 2 * n_kv) * head_dim };
-            BuildContext qkv_context = context.withShape( qkv_shape );
+            const BlockBuildContexts contexts = resolveBlockBuildContexts( context );
+
+            // Attention builds at the full context length, not the prefill chunk -- that is
+            // what sizes the KV cache.
+            const BuildContext& qkv_context = contexts.qkv;
 
             if ( context.isInferenceMode() )
             {
                 // Tuned prefill chunk size, computed once by LlamaTransformer and
                 // threaded down via BuildContext. Sizes every prefill-path buffer.
-                const int64_t prefill_chunk_size = context.getPrefillSize();
+                const int64_t prefill_chunk_size = contexts.sequence;
 
                 // Non-attention components built at the prefill chunk size --
                 // owned_output_ sized to hold a full prefill chunk.
                 // decode() uses resolveOutputView() to extract T=1 slice.
-                const shape_t prefill_shape = { B, prefill_chunk_size, config_.getModelDim() };
-                const shape_t gate_up_prefill = { B, prefill_chunk_size, 2 * hidden_dim };
-                const shape_t hidden_prefill = { B, prefill_chunk_size, hidden_dim };
-
-                BuildContext prefill_context = context.withShape( prefill_shape );
-                BuildContext gate_up_context = context.withShape( gate_up_prefill );
-                BuildContext hidden_context = context.withShape( hidden_prefill );
+                const BuildContext& prefill_context = contexts.main;
+                const BuildContext& gate_up_context = contexts.gate_up;
+                const BuildContext& hidden_context = contexts.hidden;
 
                 // Prefill view shapes -- prefill chunk size
                 q_prefill_shape_ = { B, prefill_chunk_size, n_heads * head_dim };
@@ -584,13 +705,9 @@ namespace Mila::Dnn
             else
             {
                 // Training -- build all components at full T
-                const shape_t training_shape = { B, context_length, config_.getModelDim() };
-                const shape_t gate_up_shape = { B, context_length, 2 * hidden_dim };
-                const shape_t hidden_shape = { B, context_length, hidden_dim };
-
-                BuildContext training_context = context.withShape( training_shape );
-                BuildContext gate_up_context = context.withShape( gate_up_shape );
-                BuildContext hidden_context = context.withShape( hidden_shape );
+                const BuildContext& training_context = contexts.main;
+                const BuildContext& gate_up_context = contexts.gate_up;
+                const BuildContext& hidden_context = contexts.hidden;
 
                 rms1_ = this->template getComponentAs<RmsNormType>( this->getName() + ".rmsn_1" );
                 rms1_->build( training_context );
@@ -634,6 +751,7 @@ namespace Mila::Dnn
 
                 // Training backward scratch buffers
                 auto device = this->getExecutionContext()->getDeviceId();
+                const shape_t& training_shape = training_context.inputShape();
 
                 d_res1_accum_ = std::make_unique<TensorType>(
                     device, training_shape,

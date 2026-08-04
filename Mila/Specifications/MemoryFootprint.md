@@ -371,11 +371,56 @@ the pooled-output double count (4.5).
 
 **Phase 3 -- entry point and residual.** `requiredMemoryImpl` plus the public static.
 Gate B against `cudaMemGetInfo`, attributing the gap between predicted and measured.
-*Verifiable:* the residual is a named, bounded number instead of ~3.8 GB of
-unexplained difference.
+*Verifiable:* the residual is a named, bounded number instead of an unexplained
+difference.
+
+**Green 2026-08-04. Measured, Gemma 4 12B FP4 on the 4070:**
+
+```
+context 8192    predicted 8.649 GiB   reported 8.649 GiB
+                consumed  9.972 GiB   residual 1.323 GiB (13.3%)
+
+context 4096    weights 6.33 GiB   state 1.97 GiB   total 8.31 GiB
+context 32768   weights 6.33 GiB   state 2.49 GiB   total 8.83 GiB
+```
+
+Three things this establishes:
+
+- **Predicted equals reported to the byte on a real model**, not just on the synthetic
+  configs Gate A uses. The two accountings agree at 12B scale.
+- **The context curve is sub-linear, as the bounded ring intends.** Eight times the
+  context costs +0.52 GiB of state, because only the global layers' KV grows; the
+  sliding layers hold a window-bounded ring. A model that scaled linearly here would
+  have indicated the ring was not being used.
+- **The residual is 1.323 GiB and is not yet attributed.** It is everything a
+  build-time contract cannot see: the grow-on-demand execution-context scratch
+  (section 6.4), allocator rounding, and any load-path staging that outlives the load.
+  On a 12 GB card that is the margin between fits and does not, so it is reported as a
+  measured bound rather than folded into the estimate.
 
 **Phase 4 -- Llama.** Same contract on the Llama chassis. Expected to expose 8.2 as
 a reported figure.
+
+**Green 2026-08-04.** Llama 3.1 8B FP4 at context 8192: predicted 9.732 GiB ==
+reported 9.732 GiB, consumed 10.331 GiB, residual 0.598 GiB (5.8%).
+
+It did expose 8.2, and larger than recorded:
+
+```
+context   Llama 3.1 8B FP4    Gemma 4 12B FP4
+8192      9.73 GiB            8.65 GiB
+32768     12.08 GiB           8.83 GiB
+```
+
+An 8B costs more than a 12B and the gap widens with context. Two causes, separable
+because the report splits weights from state: 1.438 GiB of unquantized untied tables,
+and an attention scratch that grows 3.12 GiB across an 8x context increase against
+Gemma's 0.52 GiB. The second is the larger effect at long context and is a different
+defect from the one 8.2 describes.
+
+Note also the residual is 5.8% here against Gemma's 13.3%. Gemma quantizes its tied
+table to FP8 during load and Llama does not, which makes load-path staging the leading
+suspect for the unattributed term rather than anything in the prefill path.
 
 **Phase 5 -- adaptor.** Chat `/model` pre-flight, warn-and-proceed per 6.5, plus a
 context sweep -- the probe is cheap enough to search for the largest context that

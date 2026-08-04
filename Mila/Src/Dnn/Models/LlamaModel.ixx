@@ -200,6 +200,79 @@ namespace Mila::Dnn
             throw std::runtime_error( "LlamaModel::fromPretrained: unhandled quantization configuration" );
         }
 
+        /**
+         * @brief What loading this checkpoint at this context length would cost in VRAM.
+         *
+         * Reads the artifact header for geometry and constructs the graph, then reports what
+         * build() would allocate -- without building it and without reading a weight.
+         * Returns measurements only; the fits/does-not verdict is adaptor policy.
+         * See Specifications/MemoryFootprint.md.
+         *
+         * @throws std::invalid_argument on device type mismatch or zero context length.
+         * @throws std::runtime_error    on an unreadable artifact or unsupported quantization.
+         */
+        static MemoryStats getRequiredMemory(
+            const std::filesystem::path& path,
+            const LlamaModelConfig& model_config,
+            DeviceId device_id = DeviceId{ TDeviceType, 0 } )
+        {
+            if ( device_id.type != TDeviceType )
+            {
+                throw std::invalid_argument( std::format(
+                    "LlamaModel::getRequiredMemory: device type mismatch: expected {}, got {}",
+                    deviceTypeToString( TDeviceType ),
+                    deviceTypeToString( device_id.type ) ) );
+            }
+
+            if ( model_config.getContextLength() == 0 )
+            {
+                throw std::invalid_argument(
+                    "LlamaModel::getRequiredMemory: context_length must be greater than zero" );
+            }
+
+            // REVIEW: fourth copy of this dispatch, as predicted when the second was written.
+            // A quantization mode added to a load path and not its footprint path is a silent
+            // divergence between what a model reports and what it allocates. Factoring all
+            // four onto one dispatcher is filed in BACKLOG, Production Hardening.
+            switch ( model_config.getWeightQuantization() )
+            {
+                case WeightQuantization::FP4:
+                    if constexpr ( TPrecision == TensorDataType::BF16 )
+                    {
+                        return requiredMemoryImpl<PerGroupFp4<128>, NoKvCompression>(
+                            path, model_config, device_id );
+                    }
+                    else
+                    {
+                        throw std::runtime_error(
+                            "LlamaModel::getRequiredMemory: FP4 weight quantization requires BF16 compute precision" );
+                    }
+
+                case WeightQuantization::FP8:
+                    if constexpr ( TPrecision == TensorDataType::BF16 )
+                    {
+                        return requiredMemoryImpl<PerChannelFp8<>, NoKvCompression>(
+                            path, model_config, device_id );
+                    }
+                    else
+                    {
+                        throw std::runtime_error(
+                            "LlamaModel::getRequiredMemory: FP8 weight quantization requires BF16 compute precision" );
+                    }
+
+                case WeightQuantization::None:
+                default:
+                    if ( model_config.getKvCacheCompression() == KvCacheCompression::FP8 )
+                    {
+                        throw std::runtime_error(
+                            "LlamaModel::getRequiredMemory: FP8 KV cache compression is not yet supported" );
+                    }
+
+                    return requiredMemoryImpl<NoWeightQuant, NoKvCompression>(
+                        path, model_config, device_id );
+            }
+        }
+
         // ====================================================================
         // Accessors
         // ====================================================================
@@ -413,6 +486,43 @@ namespace Mila::Dnn
                 new LlamaModel<TDeviceType, TPrecision>(
                     std::move( network ), network_config,
                     static_cast<int64_t>( context_length ), RuntimeMode::Inference ) );
+        }
+
+        /**
+         * @brief The footprint sibling of fromPretrainedImpl: same prologue, stops before build().
+         */
+        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
+        static MemoryStats requiredMemoryImpl(
+            const std::filesystem::path& path,
+            const LlamaModelConfig& model_config,
+            DeviceId device_id )
+        {
+            PretrainedModelReader reader( path );
+            const auto& metadata = reader.getPretrainedMetadata();
+
+            LlamaConfig network_config = configFromMetadata( metadata );
+
+            if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
+            {
+                throw std::invalid_argument( std::format(
+                    "LlamaModel::getRequiredMemory: context_length {} exceeds max_seq_len {}",
+                    model_config.getContextLength(),
+                    network_config.getMaxSequenceLength() ) );
+            }
+
+            using ConcreteTransformerType =
+                LlamaTransformer<TDeviceType, TPrecision, TWeightQuantization, TKvCachePolicy>;
+
+            // Construction commits no device memory -- the graph exists and is asked, not built.
+            auto network = std::make_unique<ConcreteTransformerType>(
+                metadata.model_name, network_config, device_id );
+
+            BuildContext build_context(
+                shape_t{ 1, model_config.getContextLength() },
+                RuntimeMode::Inference,
+                false );
+
+            return network->getRequiredMemory( build_context );
         }
 
         LlamaConfig config_;

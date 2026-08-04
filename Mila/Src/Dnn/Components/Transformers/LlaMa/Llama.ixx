@@ -341,6 +341,90 @@ namespace Mila::Dnn
             return stats;
         }
 
+        /**
+         * @brief What build( context ) would allocate for the whole model, without allocating.
+         *
+         * Mirrors onBuilding(): resolve the prefill chunk first, recurse with the same
+         * per-child contexts, then add the shared GQA workspace this transformer owns.
+         *
+         * Two corrections Gemma needs are absent here, and their absence is the finding
+         * rather than an omission. Llama does not pool per-block activations, so there is no
+         * installed-output adjustment; and it does not tie the embedding to the head, so the
+         * two largest tensors are counted separately and in full. See BACKLOG, Models.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            validateBuildContext( context );
+
+            const auto& input_shape = context.inputShape();
+            const dim_t B = input_shape[ 0 ];
+            const dim_t T = input_shape[ 1 ];
+            const dim_t NH = config_.getNumHeads();
+            const dim_t HS = config_.getModelDim() / NH;
+
+            const int64_t prefill_chunk = computePrefillChunkSize(
+                B, NH, HS, T,
+                static_cast<int64_t>( TensorDataTypeTraits<TPrecision>::size_in_bytes ) );
+
+            BuildContext block_context =
+                BuildContext( shape_t{ B, T, config_.getModelDim() },
+                    context.getRuntimeMode(), context.shouldInitializeParameters() )
+                .withPrefillSize( prefill_chunk );
+
+            const shape_t final_shape = context.isInferenceMode()
+                ? shape_t{ B, 1, config_.getModelDim() }
+                : shape_t{ B, T, config_.getModelDim() };
+
+            BuildContext final_context(
+                final_shape, context.getRuntimeMode(), context.shouldInitializeParameters() );
+
+            const std::string n = this->getName();
+
+            MemoryStats stats;
+
+            stats += this->template getComponentAs<TokenEmbeddingType>( n + ".temb" )
+                ->getRequiredMemory( context );
+
+            for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
+            {
+                stats += this->template getComponentAs<TransformerBlockType>(
+                    n + ".tf_layer_" + std::to_string( i ) )->getRequiredMemory( block_context );
+            }
+
+            stats += this->template getComponentAs<RmsNormType>( n + ".rmsn_final" )
+                ->getRequiredMemory( final_context );
+
+            stats += this->template getComponentAs<LmHeadLinearType>( n + ".lm_head" )
+                ->getRequiredMemory( final_context );
+
+            // Shared GQA transient workspace, mirroring onBuilding(). Note preatt/att span
+            // the full context: Llama has no flash-prefill reclaim, so this term grows
+            // linearly with context length where Gemma's collapses to the ring width.
+            if ( context.isInferenceMode() )
+            {
+                const dim_t prefill_elements =
+                    ( 2 * B * NH * prefill_chunk * HS )   // q_permute, v_out
+                    + ( 2 * B * NH * prefill_chunk * T ); // preatt, att
+
+                const dim_t decode_elements =
+                    ( 2 * B * NH * T )                    // preatt_decode, att_decode
+                    + ( B * NH * HS );                    // v_out_decode
+
+                stats.device_state_bytes +=
+                    storageBytes<TPrecision>( prefill_elements + decode_elements );
+            }
+
+            // RoPE cos/sin caches are process-wide, deduplicated by RopeCacheRegistry on
+            // (theta, max_seq_len, head_dim). Every layer above reported one, but Llama's
+            // layers are homogeneous, so exactly one cache exists for the whole model.
+            // At 128K trained context that is 64 MiB a copy -- 1.94 GiB of caches that are
+            // never allocated if this correction is missing.
+            stats.device_state_bytes -=
+                std::max<dim_t>( config_.getNumLayers() - 1, 0 ) * ropeCacheBytes( HS );
+
+            return stats;
+        }
+
         std::string toString() const override
         {
             std::ostringstream oss;
@@ -412,6 +496,21 @@ namespace Mila::Dnn
         }
 
     protected:
+
+        /**
+         * @brief Bytes one RoPE cos/sin cache occupies for a given head width.
+         *
+         * MUST match CudaRopeOp::getRequiredStateMemorySize -- FP32 regardless of the model
+         * precision, half the head dimension, two caches. Duplicated here because the
+         * deduplication is the transformer's to apply and it needs the per-key size; the
+         * model-level comparison against getMemoryStats is what holds the two together.
+         */
+        std::size_t ropeCacheBytes( dim_t head_dim ) const noexcept
+        {
+            const dim_t cache_elements = config_.getMaxSequenceLength() * ( head_dim / 2 );
+
+            return static_cast<std::size_t>( cache_elements ) * sizeof( float ) * 2;
+        }
 
         void onBuilding( const BuildContext& context ) override
         {
