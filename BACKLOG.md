@@ -94,7 +94,24 @@ good-first-issue.
     also caused `predicted > consumed`, the dangerous direction) plus 0.3125 GiB (the
     `getMemoryStats` prefill-scratch omission above). The two errors pointed in opposite
     directions and would have partially cancelled under a looser tolerance.
-  - [ ] Phase 5 — Chat `/model` pre-flight, warn-and-proceed per §6.5, plus a context sweep.
+  - [x] **Phase 5 — Chat `/model` pre-flight. Green 2026-08-04.** Every load now reports what it
+    will cost before it starts: *"gemma-4-12b-it-fp4 at context 8192: weights 6.33 GiB, working
+    memory 2.32 GiB, about 9.73 GiB in total."* Warn-and-proceed per §6.5, with a `+1/8`
+    proportional allowance for the residual (Gate B measured 6-13%, scaling with the model, so a
+    fixed byte margin would be wrong in both directions). When the weights fit but the total does
+    not, `suggestFittingContext()` binary-searches the largest context that would, in 512-token
+    steps — a dozen probes cost milliseconds and no VRAM.
+    Free VRAM arrives via a new `Device::getMemoryInfo()` -> `DeviceMemoryInfo{free,total}`
+    (virtual, zeros by default, `CudaDevice` overrides with `cudaMemGetInfo`). It could not be
+    `cudaMemGetInfo` in Chat: *"ChatApp uses no CUDA APIs directly"* is a stated property of that
+    target, and MIS and the `mila` CLI will want the same accessor.
+    **Live-run correction:** the first wording said *"This will not run"* for the
+    weights-exceed-free case. **It ran** — Llama 3.1 8B unquantized, 20.81 GiB predicted against
+    10.82 free, loaded and generated at **3.1 tok/s against roughly 40** for a model that fits.
+    That is §6.5's WDDM spill, observed. A refusal there would have blocked a working
+    configuration. Also fixed: the context sweep was being offered on that path, where it is
+    useless — weights do not shrink with context — so it now runs only on the softer path, and
+    the hard path names quantization as the lever with the concrete command.
 - [x] **`GemmaTransformer` decided weight tying from two sources that disagreed between `build()`
   and `loadParameters()`.** Fixed 2026-08-04 (unbuilt). `onBuilding` installs the shared table from
   `config_.getTieWordEmbeddings()`, but `getMemoryStats` subtracted the double-count using the
@@ -121,6 +138,13 @@ good-first-issue.
   summing naively would invent ~(layers-1) x cache of phantom VRAM. Same correction shape as weight
   tying. Also means leaf-level Gate A for `Rope` is registry-order dependent and must not be
   written as a naive predict-vs-build equality.
+- [ ] **Gate B has no unquantized case.** Both suites test FP4 only, so the `NoWeightQuant` path
+  has never been checked against `cudaMemGetInfo` — and it is the path a user hits by default,
+  since a store name without an `-fp4`/`-fp8` suffix loads BF16. An out-of-process measurement
+  corroborated it 2026-08-04 (Llama 3.1 8B BF16: predicted 20.81 GiB against 11.7 dedicated +
+  ~9 shared observed, inside 0.5%), but that was manual and on a configuration that spills. Add
+  a case using **`llama-3.2-3b-it` at BF16** — roughly 6.3 GiB, fits the 12 GB card, so it
+  exercises the unquantized accounting without spilling and without a slow run.
 - [~] **Attribute the Gate B residual — scratch measured, and it is NOT the answer.** Done
   2026-08-04: `IExecutionContext::getScratchHighWaterBytes()` (virtual, 0 by default),
   `CudaExecutionContext` override returning `device_scratch_size_` (the high-water by

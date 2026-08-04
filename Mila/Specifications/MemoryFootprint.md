@@ -303,7 +303,52 @@ and divide.
 Note also the measurement noise floor: `consumed` moved 50-70 MiB between runs of the
 same configuration, so nothing below ~0.1 GiB should be read as signal.
 
-### 6.5 On Windows, "fits" is not binary
+### 6.5 On Windows, "fits" is not binary -- measured
+
+**Confirmed 2026-08-04 with a mechanism, not just an outcome.** Llama 3.1 8B unquantized
+at context 4096, predicted 20.81 GiB, loaded on a 12 GB 4070:
+
+```
+Task Manager    11.7 GiB dedicated + ~9 GiB shared  = ~20.7 GiB
+predicted                                             20.81 GiB
+generation      3.1 tok/s, token gaps 318.2 ms median / 318.8 p99 / 318.8 max
+```
+
+The footprint agrees with an independent, out-of-process measurement to within half a
+percent -- on the unquantized path, which Gate B does not yet cover.
+
+**The spill is to system RAM over PCIe, not to disk.** 9 GiB in 318 ms is ~28 GB/s,
+which is PCIe 4.0 x16 at practical efficiency. A 7 GB/s NVMe would need 1.4 s per
+token, four times what was measured. The variance settles it further: 0.6 ms spread
+between median and maximum across a whole turn is a fixed-size DMA every token, where
+filesystem paging would be jittery.
+
+Shared memory disappears from Task Manager when the session is idle and returns on the
+next prompt, which is why an idle snapshot can read 11.6 dedicated / 0.1 shared and look
+like the model fits.
+
+That is a residency effect, not a lifetime one. The spilled bytes are persistent
+component tensors, allocated for the model's lifetime; they are not released between
+prompts, and generation would not stay correct if they were. What cycles is the GPU
+aperture *mapping*: "Shared GPU memory" counts system memory currently mapped
+GPU-accessible, so when the device idles those mappings are torn down and the bytes
+sit in ordinary paged system memory, counted against the process rather than a GPU
+figure. The next submission re-maps them.
+
+Idle demotion appears not to reach the pagefile. A cold prompt after the shared figure
+drops costs 2103 ms of prefill against 1145 ms warm -- a 958 ms penalty, which is
+*less* than reading 9 GiB back from a 7 GB/s NVMe would take on its own. The penalty
+being under the disk floor is the argument; re-establishing residency for roughly 2.4M
+pages accounts for it without any storage traffic, and the GPU moves that same volume
+across PCIe in 318 ms during generation. Not conclusive against a PCIe 5.0 drive; the
+clean discriminator is disk read throughput during the cold prompt.
+
+The user-visible consequence is worth stating in the warning: on an oversubscribed
+model the first prompt after a pause costs about a second more than the rest.
+
+The practical consequence for a footprint report: **a model that does not fit still runs,
+at roughly a thirteenth of its speed.** Refusing would block it; saying nothing would
+leave the user to discover it by waiting. Warn.
 
 WDDM oversubscribes into shared host memory rather than failing. Contexts of 65536
 and above measured 12282/0 MiB and kept running, pathologically slowly. The number
@@ -451,6 +496,25 @@ suspect for the unattributed term rather than anything in the prefill path.
 **Phase 5 -- adaptor.** Chat `/model` pre-flight, warn-and-proceed per 6.5, plus a
 context sweep -- the probe is cheap enough to search for the largest context that
 fits.
+
+**Green 2026-08-04, and it produced the empirical confirmation of 6.5.** Loading
+Llama 3.1 8B **unquantized** at context 4096 predicted weights 14.96 GiB against
+10.82 GiB free. It loaded and generated -- at **3.1 tok/s**, against roughly 40 for a
+model that fits. Nothing failed; the driver spilled.
+
+Two corrections that fell out of seeing it run:
+
+- The message said *"This will not run."* It ran. A refusal on this path would have
+  blocked a working, if slow, configuration -- which is the whole reason 6.5 says warn
+  rather than refuse. The wording now states the consequence, not a prohibition.
+- **Context is not the lever when the weights alone overflow**, because they do not
+  shrink with it. The sweep is offered only on the softer path, where the weights fit
+  and trimming context can bring working memory under the line. On the harder path the
+  advice is quantization, named as the concrete command.
+
+Free VRAM reaches the adaptor through `Device::getMemoryInfo()` rather than
+`cudaMemGetInfo` in Chat: `ChatApp uses no CUDA APIs directly` is a stated property of
+that target, and the same accessor is what MIS and the `mila` CLI will need.
 
 ---
 

@@ -1254,8 +1254,153 @@ namespace Mila::ChatApp
          * model / memory dumps remain readable; otherwise the multi-second weight
          * load runs under the same braille spinner used for turns.
          */
+        /**
+         * @brief Byte count in the units a person reads footprints in.
+         */
+        static std::string formatBytes( std::size_t bytes )
+        {
+            constexpr double kGiB = 1024.0 * 1024.0 * 1024.0;
+            constexpr double kMiB = 1024.0 * 1024.0;
+
+            if ( bytes >= static_cast<std::size_t>( kGiB ) )
+                return std::format( "{:.2f} GiB", static_cast<double>( bytes ) / kGiB );
+
+            return std::format( "{:.0f} MiB", static_cast<double>( bytes ) / kMiB );
+        }
+
+        /**
+         * @brief What this model would need, and whether the card has room.
+         *
+         * Runs before the load and costs nothing on the device: the graph is constructed,
+         * asked, and discarded without a weight being read. See
+         * Specifications/MemoryFootprint.md.
+         *
+         * Warn-and-proceed, deliberately. On Windows the driver oversubscribes into shared
+         * host memory rather than failing, so "will not fit" is not a thing the runtime can
+         * assert -- an over-eager refusal blocks configurations that would have run. The one
+         * refusal is the case that cannot work at all: weights alone exceeding free memory.
+         */
+        void reportFootprintBeforeLoad()
+        {
+            std::optional<MemoryStats> required =
+                predictFootprint( static_cast<dim_t>( config_.context_length ) );
+
+            if ( !required )
+            {
+                return;
+            }
+
+            const auto device = DeviceRegistry::instance().getDevice( Device::Cuda( 0 ) );
+            const DeviceMemoryInfo memory = device ? device->getMemoryInfo() : DeviceMemoryInfo{};
+
+            // Gate B measured the unmodelled remainder at 6-13% of what a load consumes --
+            // allocator rounding and lazily grown scratch, which scale with the model rather
+            // than being a fixed cost. A proportional allowance is closer to right than a
+            // constant, and erring high here only costs a warning.
+            const std::size_t practical =
+                required->totalDeviceBytes() + ( required->totalDeviceBytes() / 8 );
+
+            renderer_.printInfo( std::format(
+                "{} at context {}: weights {}, working memory {}, about {} in total.",
+                modelName(), config_.context_length,
+                formatBytes( required->device_parameter_bytes ),
+                formatBytes( required->device_state_bytes ),
+                formatBytes( practical ) ) );
+
+            if ( memory.total_bytes == 0 )
+            {
+                return;
+            }
+
+            if ( required->device_parameter_bytes > memory.free_bytes )
+            {
+                // Not "this will not run": it does. Measured at 3.1 tok/s against roughly 40
+                // for a model that fits -- the driver spills to system memory rather than
+                // failing. Context is not the lever when the weights alone overflow, since
+                // they do not shrink with it; quantization is.
+                renderer_.printError( std::format(
+                    "The weights alone need {} and only {} is free. It will load, but the "
+                    "driver will spill to system memory and generation will be many times "
+                    "slower -- and the first prompt after a pause slower still.",
+                    formatBytes( required->device_parameter_bytes ),
+                    formatBytes( memory.free_bytes ) ) );
+
+                if ( config_.quantization_mode == QuantizationMode::None )
+                {
+                    renderer_.printInfo( std::format(
+                        "Quantizing on load is the lever here -- try /model {} fp4.",
+                        modelName() ) );
+                }
+
+                return;
+            }
+
+            if ( practical > memory.free_bytes )
+            {
+                renderer_.printInfo( std::format(
+                    "This needs about {} and {} is free. It will still load -- the driver "
+                    "spills to system memory rather than failing -- but expect it to be slow.",
+                    formatBytes( practical ), formatBytes( memory.free_bytes ) ) );
+
+                // Worth suggesting only here: the weights fit, so trimming context can bring
+                // the working memory under the line.
+                suggestFittingContext( memory.free_bytes );
+            }
+        }
+
+        /**
+         * @brief Largest context length that would fit, reported as a suggestion.
+         *
+         * A footprint query is cheap enough to binary-search: it reads the artifact header
+         * and walks a constructed graph, so a dozen probes cost milliseconds and no VRAM.
+         */
+        void suggestFittingContext( std::size_t free_bytes )
+        {
+            std::size_t low = 512;
+            std::size_t high = config_.context_length;
+            std::size_t best = 0;
+
+            while ( low <= high )
+            {
+                const std::size_t midpoint = low + ( ( high - low ) / 2 / 512 ) * 512;
+
+                std::optional<MemoryStats> required =
+                    predictFootprint( static_cast<dim_t>( midpoint ) );
+
+                if ( !required )
+                {
+                    return;
+                }
+
+                const std::size_t practical =
+                    required->totalDeviceBytes() + ( required->totalDeviceBytes() / 8 );
+
+                if ( practical <= free_bytes )
+                {
+                    best = midpoint;
+                    low = midpoint + 512;
+                }
+                else
+                {
+                    if ( midpoint < 512 )
+                        break;
+
+                    high = midpoint - 512;
+                }
+            }
+
+            if ( best > 0 )
+            {
+                renderer_.printInfo( std::format(
+                    "Context {} would fit -- set \"context_length\": {} in the chat config.",
+                    best, best ) );
+            }
+        }
+
         void loadActiveModel()
         {
+            reportFootprintBeforeLoad();
+
             if ( config_.detail == DetailLevel::All )
             {
                 // No spinner: its redraws and the log lines fight for the same line.
@@ -1433,6 +1578,66 @@ namespace Mila::ChatApp
             return (ids.size() == 1)
                 ? std::optional<int32_t>( static_cast<int32_t>( ids[ 0 ] ) )
                 : std::nullopt;
+        }
+
+        /**
+         * @brief Footprint for a context length, built from the same config loadModel() uses.
+         *
+         * Mirrors loadModel()'s config construction deliberately: a prediction made under
+         * different settings than the load would use describes a different model.
+         *
+         * Returns nullopt for GPT-2, which has no footprint entry point yet, and on any
+         * failure to read the artifact -- the load will report that properly, and a
+         * pre-flight should never be the thing that stops a model from being tried.
+         */
+        std::optional<MemoryStats> predictFootprint( dim_t context_length )
+        {
+            const DeviceId device{ DeviceType::Cuda, 0 };
+
+            try
+            {
+                switch ( config_.model_type )
+                {
+                    case ModelType::Llama:
+                    {
+                        if ( config_.precision != ModelPrecision::BF16 )
+                        {
+                            return std::nullopt;
+                        }
+
+                        LlamaModelConfig llama_config( context_length );
+
+                        if ( config_.quantization_mode == QuantizationMode::FP8 )
+                            llama_config.withFP8Quantization();
+                        else if ( config_.quantization_mode == QuantizationMode::FP4 )
+                            llama_config.withFP4Quantization();
+
+                        return LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::getRequiredMemory(
+                            config_.model_path, llama_config, device );
+                    }
+
+                    case ModelType::Gemma:
+                    {
+                        GemmaModelConfig gemma_config( context_length );
+
+                        if ( config_.quantization_mode == QuantizationMode::FP8 )
+                            gemma_config.withFP8Quantization();
+                        else if ( config_.quantization_mode == QuantizationMode::FP4 )
+                            gemma_config.withFP4Quantization();
+
+                        return GemmaModelBF16Type::getRequiredMemory(
+                            config_.model_path, gemma_config, device );
+                    }
+
+                    case ModelType::Gpt:
+                    default:
+                        return std::nullopt;
+                }
+            }
+            catch ( const std::exception& )
+            {
+                return std::nullopt;
+            }
         }
 
         void loadModel()
