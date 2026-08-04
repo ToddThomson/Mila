@@ -800,7 +800,7 @@ namespace Mila::Dnn
             }
 
             // An installed shared output slot is owned and counted by the installer.
-            if ( !output_installed_ )
+            if ( !output_installed_ && !context.hasInstalledOutput() )
             {
                 shape_t output_shape = context.inputShape();
                 output_shape.back() = output_features;

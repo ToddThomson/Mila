@@ -176,6 +176,26 @@ derivation** so `onBuilding` and `getRequiredMemory` share it, rather than deriv
 seven shapes twice. What remains hand-written is only *which child gets which
 context*, and that mismatch is what Gate A's composite comparison detects.
 
+### 4.5 Installation is an intent, and must be declared
+
+The recurring hazard of this design is a value that `onBuilding` assigns and a
+pre-build `getRequiredMemory` reads as garbage. Six instances so far --
+`RmsNorm::outer_shape_`, `Rope::q_shape_`, `GemmaBlock`'s child pointers,
+`prefill_chunk_size_` via `prefillScoreWidth`, `tie_word_embeddings_`, and the
+`output_installed_` / `workspace_installed_` flags.
+
+The last is the one that cannot be fixed by extracting a helper, because the value is
+not derived -- it is *decided by the parent*, which installs a shared slot into each
+child between constructing it and building it. Pre-build the flag is false everywhere,
+so every pooled activation is counted twice: once by the child that would otherwise
+self-allocate it, and once by the pooling parent that actually owns it.
+
+`BuildContext::withInstalledOutput()` carries that intent down. A component predicts
+against `output_installed_ || context.hasInstalledOutput()`, while `onBuilding` keeps
+using the member, which by then is accurate. Gate A caught this as an overcount that
+scaled exactly per layer -- 2x on two layers, 2.9x on four -- which is what a
+per-child double count looks like from the outside.
+
 Note this makes the composite comparison in section 7 load-bearing rather than
 belt-and-braces. A block whose child list drifts from its context list produces a
 plausible number, not an obviously wrong one.
@@ -235,14 +255,20 @@ self-allocation when a slot is installed (`Linear.ixx:764`). Pooling, output sha
 and weight tying all break `sum(children)`. The corrections already exist in
 `getMemoryStats()` and `parameterCount()`; they must be mirrored, not re-derived.
 
-### 6.3 The tied load peak is above the settled footprint
+### 6.3 The tied load peak -- RESOLVED, and a residual inconsistency
 
-`lm_head` is constructed with its own `[vocab, model_dim]` weight because
-`tie_word_embeddings_` is unknown until `loadParameters`; tying then installs the
-shared table and frees it. Measured at ~1 GB. The probe reports the settled
-footprint, so **it under-reports the binding constraint on tied models** until that
-allocation is skipped. Recorded rather than worked around: the fix belongs in the
-tying path, not in the estimate.
+**No longer applies to Gemma.** `Gemma.ixx:571` installs the shared table *before*
+`lm_head_->build()`, driven by `config_.getTieWordEmbeddings()` rather than by load
+metadata, so the head never allocates its own `[vocab, model_dim]` weight. The ~1 GB
+load-time transient this section was written against is gone, and the probe's settled
+figure is the real high-water.
+
+What remains is a **source inconsistency**, filed in BACKLOG: `onBuilding` ties from
+config, while `getMemoryStats` subtracts the double-count from the
+`tie_word_embeddings_` member, which is assigned from checkpoint metadata at load.
+Between `build()` and `loadParameters()` the two disagree and `getMemoryStats`
+double-counts ~2.0 GB on Gemma 4 12B. `getRequiredMemory` uses the config source,
+because that is the one available when the decision is actually made.
 
 ### 6.4 The scratch buffer is not visible at build time
 
@@ -336,6 +362,12 @@ decisions taken while implementing:
 resolution (6.1) and the sharing corrections (6.2). Gate A at model level.
 *Verifiable:* predicted total matches `getMemoryStats()` for 12B FP4 across a
 context sweep.
+
+**Green 2026-08-04**, five Gate A cases: all-local, heterogeneous, four-layer (the
+case that pins RoPE deduplication -- two layers cannot distinguish a correct dedup
+from an off-by-one), tied embeddings, and construct-allocates-nothing. Two defects
+found by the gate rather than by inspection: the tying source disagreement (6.3) and
+the pooled-output double count (4.5).
 
 **Phase 3 -- entry point and residual.** `requiredMemoryImpl` plus the public static.
 Gate B against `cudaMemGetInfo`, attributing the gap between predicted and measured.

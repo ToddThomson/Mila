@@ -32,15 +32,43 @@ good-first-issue.
     Supporting additions: `Mila::Dnn::storageBytes<TDataType>( dim_t )` (sub-byte aware — FP4 packs
     two elements per byte, so a naive multiply overstates a packed weight by exactly 2x) and
     `elementCount( shape_t )`.
-  - [~] **Phase 2 — Gemma composite.** *Leaves + operations green 2026-08-04 (clean rebuild, full
-    ctest suite clean, Chat coherent):*
+  - [x] **Phase 2 — Gemma composite. Green 2026-08-04, all five Gate A cases passing.** A Gemma
+    model now reports its own footprint from a constructed, unbuilt graph, matching what it
+    actually allocates category by category. *Leaves + operations:*
     `Residual`, `Swiglu`, `Rope`, `GroupedQueryAttention`, plus
     `CudaGqaOp::getRequiredStateMemorySize` (the KV cache — the context-scaling term, sharing the
     ring-capacity rule with `build()` via a new `resolveCacheCapacity()`) and
     `CudaRopeOp::getRequiredStateMemorySize`. `Rope` also needed `resolveRotatedShapes()` extracted,
     for the same reason `RmsNorm` did — `q_shape_`/`k_shape_` are assigned in `onBuilding` and a
-    pre-build call read them unset. *Still to do:* `GemmaBlock` and `GemmaTransformer` themselves,
-    prefill-chunk resolution (§6.1), and the pooling/tying corrections (§6.2).
+    pre-build call read them unset.
+    *Composites written 2026-08-04, unbuilt:* `GemmaBlock` (extracted `resolveBlockBuildContexts()`
+    for the seven child contexts; children fetched by name because the member pointers are assigned
+    in `onBuilding`) and `GemmaTransformer` (chunk resolution first, then blocks, then its own
+    pooled `block_workspace_` and GQA scratch, then the tying and RoPE-dedup corrections; new
+    `blockWorkspaceBytes` / `gqaWorkspaceBytes` / `ropeCacheBytes` and a
+    `prefillScoreWidth( T, chunk )` overload). Model-level Gate A added to `Gemma.Cuda.cpp` over
+    five cases: all-local, heterogeneous, four-layer (pins the RoPE deduplication — two layers
+    cannot distinguish a correct dedup from an off-by-one), tied embeddings, and
+    construct-allocates-nothing.
+    **Recurring hazard, SIX instances: a value assigned in `onBuilding` reads as garbage from a
+    pre-build `getRequiredMemory`, silently.** `RmsNorm::outer_shape_`, `Rope::q_shape_`,
+    `GemmaBlock`'s child pointers, `GemmaTransformer::prefill_chunk_size_` via `prefillScoreWidth`,
+    `tie_word_embeddings_`, and `output_installed_`/`workspace_installed_`. The first five are
+    *derived* and were fixed by extracting a shared helper. **The sixth is different in kind —
+    installation is DECIDED BY THE PARENT between constructing a child and building it, so no
+    extraction helps and the intent must be declared:** `BuildContext::withInstalledOutput()`
+    (spec §4.5). Gate A caught it as a per-layer double count — 2x on two layers, 2.9x on four —
+    i.e. a ~2x overestimate on every Gemma model, which would have made the feature useless while
+    erring in the "safe" direction. Check for this class first in every remaining component.
+- [x] **`GemmaTransformer` decided weight tying from two sources that disagreed between `build()`
+  and `loadParameters()`.** Fixed 2026-08-04 (unbuilt). `onBuilding` installs the shared table from
+  `config_.getTieWordEmbeddings()`, but `getMemoryStats` subtracted the double-count using the
+  `tie_word_embeddings_` member, assigned from checkpoint metadata only at load. **Between
+  `build()` and `loadParameters()` the head already held the shared table while the member was
+  still false, so `getMemoryStats` double-counted the largest tensor in the model** — ~2.0 GB on
+  Gemma 4 12B. `onBuilding` now adopts the config value, which is the only source available at the
+  point the decision is actually made. Found writing `getRequiredMemory`; the tied Gate A case
+  would not have passed without it.
 - [ ] **RoPE cos/sin caches are process-wide, so a per-layer sum overcounts them.**
   `RopeCacheRegistry` keys on (theta, max_seq_len, head_dim); only the first op to acquire a key
   allocates, and the rest report 0 from `getStateMemorySize()`. `getRequiredStateMemorySize` cannot

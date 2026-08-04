@@ -261,7 +261,7 @@ namespace Mila::Dnn
             MemoryStats stats;
 
             // An installed shared output slot is owned and counted by the installer.
-            if ( !output_installed_ )
+            if ( !output_installed_ && !context.hasInstalledOutput() )
             {
                 stats.device_state_bytes += storageBytes<TPrecision>( elementCount( output_shape ) );
             }

@@ -214,6 +214,38 @@ namespace Mila::Dnn
         // Prefill
         // ====================================================================
 
+        // ====================================================================
+        // Output installation
+        // ====================================================================
+
+        /**
+         * @brief Declare that the caller will install this component's output buffer.
+         *
+         * A composite that pools activations installs a shared slot into each child
+         * *before* calling build(), so the child skips self-allocating its output. That
+         * decision is invisible to getRequiredMemory(), which runs before any installation
+         * has happened and would otherwise count a buffer the build never allocates --
+         * once in the child and again in the pooling parent.
+         *
+         * Only prediction reads this; onBuilding() continues to use the component's own
+         * installed flag, which by then is accurate.
+         */
+        [[nodiscard]] BuildContext withInstalledOutput( bool installed ) const
+        {
+            BuildContext copy( *this );
+            copy.installed_output_ = installed;
+
+            return copy;
+        }
+
+        /**
+         * @brief True if the caller will install this component's output buffer.
+         */
+        bool hasInstalledOutput() const noexcept
+        {
+            return installed_output_;
+        }
+
         /**
          * @brief Number of tokens processed per prefill pass.
          *
@@ -260,5 +292,6 @@ namespace Mila::Dnn
         RuntimeMode              runtime_mode_;
         int64_t                  prefill_size_{ 0 };
         bool                     initialize_parameters_{ true };
+        bool                     installed_output_{ false };
     };
 }

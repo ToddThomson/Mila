@@ -368,6 +368,103 @@ namespace Mila::Dnn
             return stats;
         }
 
+        /**
+         * @brief What build( context ) would allocate for the whole model, without allocating.
+         *
+         * Mirrors onBuilding(): resolve the prefill chunk first, then recurse with the same
+         * per-child contexts, then add the transformer's own pooled buffers and apply the two
+         * no-double-count corrections. See Specifications/MemoryFootprint.md.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            const auto& input_shape = context.inputShape();
+            const dim_t B = input_shape[ 0 ];
+            const dim_t T = input_shape[ 1 ];
+
+            // The chunk must be resolved before recursing: it sizes every block's activation
+            // scratch and the pooled workspace below.
+            const int64_t prefill_chunk = resolvePrefillChunkSize( B, T );
+
+            // The pooled workspace is installed on every block in inference mode
+            // (allocateBlockWorkspace + installSharedWorkspace in onBuilding), and this
+            // transformer accounts for it once below. Declaring it here is what stops each
+            // block and each of its children from also counting their own slot.
+            BuildContext block_context =
+                BuildContext( shape_t{ B, T, config_.getModelDim() },
+                    context.getRuntimeMode(), context.shouldInitializeParameters() )
+                .withPrefillSize( prefill_chunk )
+                .withInstalledOutput( context.isInferenceMode() );
+
+            const shape_t final_shape = context.isInferenceMode()
+                ? shape_t{ B, 1, config_.getModelDim() }
+                : shape_t{ B, T, config_.getModelDim() };
+
+            BuildContext final_context(
+                final_shape, context.getRuntimeMode(), context.shouldInitializeParameters() );
+
+            const std::string n = this->getName();
+
+            MemoryStats stats;
+
+            stats += this->template getComponentAs<TokenEmbeddingType>( n + ".temb" )
+                ->getRequiredMemory( context );
+
+            dim_t local_layers = 0;
+            dim_t global_layers = 0;
+
+            for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
+            {
+                const std::string block_name = n + ".tf_layer_" + std::to_string( i );
+
+                if ( config_.isGlobalLayer( static_cast<dim_t>( i ) ) )
+                {
+                    stats += this->template getComponentAs<GlobalBlockType>( block_name )
+                        ->getRequiredMemory( block_context );
+                    ++global_layers;
+                }
+                else
+                {
+                    stats += this->template getComponentAs<LocalBlockType>( block_name )
+                        ->getRequiredMemory( block_context );
+                    ++local_layers;
+                }
+            }
+
+            stats += this->template getComponentAs<RmsNormType>( n + ".rmsn_final" )
+                ->getRequiredMemory( final_context );
+
+            MemoryStats head_stats =
+                this->template getComponentAs<LmHeadLinearType>( n + ".lm_head" )
+                    ->getRequiredMemory( final_context );
+
+            stats += head_stats;
+
+            if ( context.isInferenceMode() )
+            {
+                stats.device_state_bytes += blockWorkspaceBytes( B, prefill_chunk );
+                stats.device_state_bytes += gqaWorkspaceBytes( B, T, prefill_chunk );
+            }
+
+            // Correction 1 -- weight tying. The head reports the shared table (Linear reports
+            // an installed weight rather than hiding it), so subtract it once. Matches
+            // getMemoryStats above.
+            if ( config_.getTieWordEmbeddings() && context.isInferenceMode() )
+            {
+                stats.device_parameter_bytes -= head_stats.device_parameter_bytes;
+            }
+
+            // Correction 2 -- RoPE cos/sin caches are process-wide, deduplicated by
+            // RopeCacheRegistry on (theta, max_seq_len, head_dim). Every block above reported
+            // one cache, but only one per distinct key is ever allocated: Gemma has two, the
+            // local and global theta. Without this the sum invents (layers - 2) phantom caches.
+            stats.device_state_bytes -=
+                std::max<dim_t>( local_layers - 1, 0 ) * ropeCacheBytes( config_.getHeadDim() );
+            stats.device_state_bytes -=
+                std::max<dim_t>( global_layers - 1, 0 ) * ropeCacheBytes( config_.getGlobalHeadDim() );
+
+            return stats;
+        }
+
         // The base sums children; when tied, lm_head shares the embedding table, so its
         // elements would be counted twice. Subtract them once to match getMemoryStats (D7).
         dim_t parameterCount() const override
@@ -568,6 +665,12 @@ namespace Mila::Dnn
             // so its table/scales allocations already exist. Inference only (the shared table
             // is loaded/quantized by loadParameters). See WeightTying.md / GqaAttentionExtent
             // sibling BACKLOG item.
+            // Adopt the config's tie decision now, not at loadParameters. onBuilding is where
+            // tying actually happens, so leaving the member false until load left getMemoryStats
+            // subtracting nothing while the head already held the shared table -- a ~2.0 GB
+            // double-count on 12B for the whole window between build() and load.
+            tie_word_embeddings_ = config_.getTieWordEmbeddings();
+
             if ( context.isInferenceMode() && config_.getTieWordEmbeddings() )
             {
                 if constexpr ( TableQuantizationPolicy::kIsQuantized )
@@ -773,10 +876,72 @@ namespace Mila::Dnn
         // also flashed, no prefill path reads it at all above the threshold -- the width
         // is deliberately KEPT at the sliding need so the cuBLASLt fallback (flash toggled
         // off on a standalone op) stays valid; shrinking further is a tracked follow-up.
+        /**
+         * @brief Bytes the pooled per-block activation workspace would take.
+         *
+         * Mirrors allocateBlockWorkspace(): eighteen slots, each [B, chunk, width], summed
+         * through the same WorkspaceWidths the allocation uses.
+         */
+        std::size_t blockWorkspaceBytes( dim_t B, int64_t prefill_chunk ) const
+        {
+            return storageBytes<TPrecision>(
+                computeWorkspaceWidths().totalRowElements() * B * prefill_chunk );
+        }
+
+        /**
+         * @brief Bytes the shared GQA prefill/decode scratch would take.
+         *
+         * Mirrors allocateAndWireGqaWorkspace(). The score buffers are the term that made
+         * flash prefill worth ~1 GB at 64K -- score_width collapses to the ring capacity
+         * once the global layers flash, so this must use the same prefillScoreWidth().
+         */
+        std::size_t gqaWorkspaceBytes( dim_t B, int64_t T_ctx, int64_t prefill_chunk ) const
+        {
+            const dim_t NH = config_.getNumHeads();
+            const dim_t HS_max = std::max( config_.getHeadDim(), config_.getGlobalHeadDim() );
+            const dim_t score_width = prefillScoreWidth( T_ctx, prefill_chunk );
+
+            const dim_t prefill_elements =
+                ( 2 * B * NH * prefill_chunk * HS_max )      // q_permute, v_out
+                + ( 2 * B * NH * prefill_chunk * score_width ); // preatt, att
+
+            const dim_t decode_elements =
+                ( 2 * B * NH * T_ctx )                        // preatt_decode, att_decode
+                + ( B * NH * HS_max );                        // v_out_decode
+
+            return storageBytes<TPrecision>( prefill_elements + decode_elements );
+        }
+
+        /**
+         * @brief Bytes one RoPE cos/sin cache occupies for a given head width.
+         *
+         * MUST match CudaRopeOp::getRequiredStateMemorySize -- FP32 regardless of the
+         * model precision, half the head dimension, two caches. Duplicated here because
+         * the deduplication is the transformer's to apply and it needs the per-key size;
+         * the model-level Gate A comparison is what holds the two together.
+         */
+        std::size_t ropeCacheBytes( dim_t head_dim ) const noexcept
+        {
+            const dim_t cache_elements = config_.getMaxSequenceLength() * ( head_dim / 2 );
+
+            return static_cast<std::size_t>( cache_elements ) * sizeof( float ) * 2;
+        }
+
         int64_t prefillScoreWidth( int64_t T_ctx ) const noexcept
         {
+            return prefillScoreWidth( T_ctx, prefill_chunk_size_ );
+        }
+
+        /**
+         * @brief Score width for an explicit chunk, for callers that run before build().
+         *
+         * getRequiredMemory() reports the workspace before prefill_chunk_size_ has been
+         * assigned, so it must pass the chunk it resolved rather than read the member.
+         */
+        int64_t prefillScoreWidth( int64_t T_ctx, int64_t prefill_chunk ) const noexcept
+        {
             if ( useFlashPrefillForContext( T_ctx ) )
-                return std::min<int64_t>( T_ctx, config_.getWindow() + prefill_chunk_size_ - 1 );
+                return std::min<int64_t>( T_ctx, config_.getWindow() + prefill_chunk - 1 );
 
             return T_ctx;
         }

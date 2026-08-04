@@ -171,6 +171,78 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         EXPECT_GT( net->parameterCount(), 0 );
     }
 
+    // ====================================================================
+    // Required-memory contract at model level (MemoryFootprint.md 7, Gate A)
+    //
+    // Load-bearing rather than belt-and-braces (MemoryFootprint.md 4.4). A block does
+    // not cascade one BuildContext -- it derives seven, and getRequiredMemory pairs
+    // children to them by hand. A mispairing, a forgotten pooled buffer, or wrong RoPE
+    // deduplication all produce a PLAUSIBLE total, not an obviously wrong one. This
+    // comparison is the only thing that distinguishes them.
+    // ====================================================================
+
+    class GemmaRequiredMemoryCudaTests : public GemmaTransformerCudaTests
+    {
+    protected:
+        void expectPredictionMatchesBuild( const GemmaConfig& config, const char* label )
+        {
+            const BuildContext context( shape_t{ batch_, seq_ }, RuntimeMode::Inference );
+
+            GemmaCuda predictor( "gemma", config, Device::Cuda( 0 ) );
+            const MemoryStats predicted = predictor.getRequiredMemory( context );
+
+            GemmaCuda built( "gemma", config, Device::Cuda( 0 ) );
+            built.build( context );
+            const MemoryStats actual = built.getMemoryStats();
+
+            EXPECT_EQ( predicted.device_parameter_bytes, actual.device_parameter_bytes )
+                << label << ": parameters";
+            EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes )
+                << label << ": state";
+            EXPECT_EQ( predicted.device_gradient_bytes, actual.device_gradient_bytes )
+                << label << ": gradients";
+        }
+    };
+
+    TEST_F( GemmaRequiredMemoryCudaTests, MatchesBuiltFootprint_AllLocalLayers )
+    {
+        expectPredictionMatchesBuild( allLocalConfig(), "all-local" );
+    }
+
+    // Heterogeneous layers exercise the two block instantiations, which differ in head_dim,
+    // KV heads and RoPE theta -- so they also exercise the two distinct RoPE cache keys the
+    // transformer must deduplicate rather than sum per layer.
+    TEST_F( GemmaRequiredMemoryCudaTests, MatchesBuiltFootprint_HeterogeneousLayers )
+    {
+        expectPredictionMatchesBuild( heterogeneousConfig(), "heterogeneous" );
+    }
+
+    // Four layers of one kind: with only one cache per key allocated, three of the four RoPE
+    // reports must be subtracted. Two layers cannot tell a correct deduplication from an
+    // off-by-one, so this case is the one that pins the arithmetic.
+    TEST_F( GemmaRequiredMemoryCudaTests, MatchesBuiltFootprint_FourLayersPinsRopeDeduplication )
+    {
+        expectPredictionMatchesBuild( fourLayerAllLocalConfig(), "four-layer" );
+    }
+
+    // Weight tying is the largest single correction: the head reports the shared table and
+    // the transformer subtracts it exactly once. Getting this wrong is a whole embedding
+    // table -- ~2.0 GB on a real 12B.
+    TEST_F( GemmaRequiredMemoryCudaTests, MatchesBuiltFootprint_TiedWordEmbeddings )
+    {
+        expectPredictionMatchesBuild(
+            allLocalConfig().withTieWordEmbeddings( true ), "tied" );
+    }
+
+    // The premise the model-level report rests on, asserted at model scale: a constructed
+    // graph holds no device memory, which is what makes prediction possible at all.
+    TEST_F( GemmaRequiredMemoryCudaTests, Construct_AllocatesNoDeviceMemory )
+    {
+        GemmaCuda unbuilt( "gemma", allLocalConfig(), Device::Cuda( 0 ) );
+
+        EXPECT_EQ( unbuilt.getMemoryStats().totalBytes(), 0u );
+    }
+
     TEST_F( GemmaTransformerCudaTests, Build_ThrowsOnNonRank2Input )
     {
         GemmaCuda net( "gemma", allLocalConfig(), Device::Cuda( 0 ) );

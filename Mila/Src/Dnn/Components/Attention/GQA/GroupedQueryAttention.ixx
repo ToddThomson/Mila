@@ -494,7 +494,7 @@ namespace Mila::Dnn
                 stats.device_state_bytes += storageBytes<TComputePrecision>( batch * model_dim );
 
                 // Prefill output is one chunk wide, not the whole context.
-                if ( !output_installed_ )
+                if ( !output_installed_ && !context.hasInstalledOutput() )
                 {
                     stats.device_state_bytes +=
                         storageBytes<TComputePrecision>( batch * context.getPrefillSize() * model_dim );
