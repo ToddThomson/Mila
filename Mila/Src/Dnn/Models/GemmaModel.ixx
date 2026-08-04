@@ -34,6 +34,7 @@ import Dnn.Models.GemmaModelConfig;
 import Dnn.LanguageModel;
 import Dnn.LanguageModelConfig;
 import Dnn.LanguageNetwork;
+import Dnn.Models.QuantizationDispatch;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Quantization.KvCache.QuantPolicy;
@@ -86,6 +87,21 @@ namespace Mila::Dnn
     class GemmaModel : public LanguageModel<TDeviceType, TPrecision>
     {
     public:
+        /**
+         * @brief KV policy for Gemma's LOCAL (sliding) layers.
+         *
+         * Bounded sliding-window ring (SlidingWindowKvCache.md Phase 3): their cache is sized
+         * to the window working set instead of the full context. Strictly a memory
+         * optimization -- tokens are identical to the full cache. GLOBAL (full-attention)
+         * layers are always NoKvCompression, hardwired in GemmaTransformer. Flip this alias to
+         * NoKvCompression to A/B the footprint against the full-context sliding cache.
+         *
+         * Class scope rather than per-function so the load and footprint paths cannot be
+         * pointed at different policies -- that would make a model report a figure for a
+         * cache it does not build.
+         */
+        using GemmaSlidingKvPolicy = Quant::KvCache::SlidingWindowKvCache;
+
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using ModelBase = LanguageModel<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
@@ -137,70 +153,20 @@ namespace Mila::Dnn
                     "GemmaModel::fromPretrained: context_length must be greater than zero" );
             }
 
-            // Runtime -> compile-time bridge: dispatch on the ModelConfig quantization
-            // settings, mirroring LlamaModel. Gemma's Linear children (qkv/o/gate_up/down)
-            // pick up the weight-quant policy; quantized bodies additionally convert the
-            // tied embedding/lm_head table to per-vocab-row FP8 (D4 Design B -- see
-            // GemmaTransformer::TableQuantizationPolicy).
-            //
-            // Bounded sliding-window KV ring for Gemma's LOCAL (sliding) layers
-            // (SlidingWindowKvCache.md Phase 3): their cache is sized to the window
-            // working set instead of the full context. Strictly a memory optimization --
-            // tokens are identical to the full cache. Global (full-attention) layers are
-            // always NoKvCompression (hardwired in GemmaTransformer). Flip this alias to
-            // NoKvCompression to A/B the footprint against the full-context sliding cache.
-            using GemmaSlidingKvPolicy = SlidingWindowKvCache;
-
-            switch ( model_config.getWeightQuantization() )
-            {
-                case WeightQuantization::FP4:
-                    switch ( model_config.getKvCacheCompression() )
-                    {
-                        case KvCacheCompression::FP8:
-                        case KvCacheCompression::None:
-                            if constexpr ( TPrecision == TensorDataType::BF16 )
-                            {
-                                return fromPretrainedImpl<PerGroupFp4<128>, GemmaSlidingKvPolicy>( path, model_config, device_id );
-                            }
-                            else
-                            {
-                                throw std::runtime_error(
-                                    "GemmaModel::fromPretrained: FP4 weight quantization requires BF16 compute precision" );
-                            }
-                    }
-                    break;
-
-                case WeightQuantization::FP8:
-                    switch ( model_config.getKvCacheCompression() )
-                    {
-                        case KvCacheCompression::FP8:
-                        case KvCacheCompression::None:
-                            if constexpr ( TPrecision == TensorDataType::BF16 )
-                            {
-                                return fromPretrainedImpl<PerChannelFp8<>, GemmaSlidingKvPolicy>( path, model_config, device_id );
-                            }
-                            else
-                            {
-                                throw std::runtime_error(
-                                    "GemmaModel::fromPretrained: FP8 weight quantization requires BF16 compute precision" );
-                            }
-                    }
-                    break;
-
-                case WeightQuantization::None:
-                default:
-                    switch ( model_config.getKvCacheCompression() )
-                    {
-                        case KvCacheCompression::FP8:
-                            throw std::runtime_error(
-                                "GemmaModel::fromPretrained: FP8 KV cache compression is not yet supported" );
-                        case KvCacheCompression::None:
-                            return fromPretrainedImpl<NoWeightQuant, GemmaSlidingKvPolicy>( path, model_config, device_id );
-                    }
-                    break;
-            }
-
-            throw std::runtime_error( "GemmaModel::fromPretrained: unhandled quantization configuration" );
+            // Gemma's Linear children (qkv/o/gate_up/down) pick up the weight-quant policy;
+            // quantized bodies additionally convert the tied embedding/lm_head table to
+            // per-vocab-row FP8 (D4 Design B -- see GemmaTransformer::TableQuantizationPolicy).
+            return dispatchWeightQuantization<
+                    TPrecision, GemmaSlidingKvPolicy,
+                    std::unique_ptr<GemmaModel<TDeviceType, TPrecision>>>(
+                model_config.getWeightQuantization(),
+                model_config.getKvCacheCompression(),
+                "GemmaModel::fromPretrained",
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
+                {
+                    return fromPretrainedImpl<TWeightQuantization, TKvCachePolicy>(
+                        path, model_config, device_id );
+                } );
         }
 
         /**
@@ -238,50 +204,19 @@ namespace Mila::Dnn
                     "GemmaModel::getRequiredMemory: context_length must be greater than zero" );
             }
 
-            // REVIEW: this switch mirrors fromPretrained's above. Two copies today, four once
-            // Llama's footprint lands, and a quantization mode added to one and not the other
-            // is a silent divergence between what a model reports and what it allocates.
-            // Factoring both onto one dispatcher is filed in BACKLOG; not done here because it
-            // would rework the working load path for no functional gain in this phase.
-            using GemmaSlidingKvPolicy = SlidingWindowKvCache;
-
-            switch ( model_config.getWeightQuantization() )
-            {
-                case WeightQuantization::FP4:
-                    if constexpr ( TPrecision == TensorDataType::BF16 )
-                    {
-                        return requiredMemoryImpl<PerGroupFp4<128>, GemmaSlidingKvPolicy>(
-                            path, model_config, device_id );
-                    }
-                    else
-                    {
-                        throw std::runtime_error(
-                            "GemmaModel::getRequiredMemory: FP4 weight quantization requires BF16 compute precision" );
-                    }
-
-                case WeightQuantization::FP8:
-                    if constexpr ( TPrecision == TensorDataType::BF16 )
-                    {
-                        return requiredMemoryImpl<PerChannelFp8<>, GemmaSlidingKvPolicy>(
-                            path, model_config, device_id );
-                    }
-                    else
-                    {
-                        throw std::runtime_error(
-                            "GemmaModel::getRequiredMemory: FP8 weight quantization requires BF16 compute precision" );
-                    }
-
-                case WeightQuantization::None:
-                default:
-                    if ( model_config.getKvCacheCompression() == KvCacheCompression::FP8 )
-                    {
-                        throw std::runtime_error(
-                            "GemmaModel::getRequiredMemory: FP8 KV cache compression is not yet supported" );
-                    }
-
-                    return requiredMemoryImpl<NoWeightQuant, GemmaSlidingKvPolicy>(
+            // Same dispatcher as fromPretrained, and deliberately so: the footprint path and
+            // the load path must reach the identical template instantiation or a model reports
+            // a figure it does not allocate.
+            return dispatchWeightQuantization<
+                    TPrecision, GemmaSlidingKvPolicy, MemoryStats>(
+                model_config.getWeightQuantization(),
+                model_config.getKvCacheCompression(),
+                "GemmaModel::getRequiredMemory",
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
+                {
+                    return requiredMemoryImpl<TWeightQuantization, TKvCachePolicy>(
                         path, model_config, device_id );
-            }
+                } );
         }
 
         // ====================================================================

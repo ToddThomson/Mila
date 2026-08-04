@@ -3,6 +3,9 @@
  * @brief Minimal type-erased execution context interface.
  */
 
+module;
+#include <cstddef>
+
 export module Compute.IExecutionContext;
 
 import Compute.DeviceId;
@@ -39,6 +42,21 @@ namespace Mila::Dnn::Compute
          * For CPU contexts, this is typically a no-op.
          */
         virtual void synchronize() = 0;
+
+        /**
+         * @brief High-water mark of context-owned scratch device memory, in bytes.
+         *
+         * Scratch is allocated lazily during forward passes and grows without shrinking,
+         * so no build-time contract sees it -- it is the largest identified component of
+         * the gap between a reported footprint and what the driver says was consumed
+         * (Specifications/MemoryFootprint.md section 6.4).
+         *
+         * Zero for contexts that allocate no scratch, which includes every CPU context.
+         */
+        [[nodiscard]] virtual std::size_t getScratchHighWaterBytes() const noexcept
+        {
+            return 0;
+        }
 
     protected:
         IExecutionContext() = default;

@@ -270,12 +270,38 @@ Between `build()` and `loadParameters()` the two disagree and `getMemoryStats`
 double-counts ~2.0 GB on Gemma 4 12B. `getRequiredMemory` uses the config source,
 because that is the one available when the decision is actually made.
 
-### 6.4 The scratch buffer is not visible at build time
+### 6.4 The scratch buffer is not visible at build time -- and is not the residual
 
-`getDeviceScratchBuffer` grows on demand during `forward()`, freeing and
-re-allocating on each grow (`CudaExecutionContext.ixx:220`). No build-shaped
-contract sees it. This is the one term that stays outside the model; section 7
-quantifies it rather than predicting it.
+`getDeviceScratchBuffer` grows on demand and is never shrunk
+(`CudaExecutionContext.ixx:220`), so the current size is its high-water by
+construction. `IExecutionContext::getScratchHighWaterBytes()` exposes it and
+`Model::getScratchHighWaterBytes()` passes it through -- kept out of `MemoryStats`,
+which reports what *components* allocate, where this buffer belongs to the shared
+execution context.
+
+**Measured 2026-08-04, and it falsified the standing hypothesis.** Scratch was
+expected to be most of the residual, and to be larger for Gemma because Gemma
+quantizes its tied table to FP8 during load while Llama does not:
+
+```
+              residual    scratch          unattributed
+Llama 8B      0.667 GiB   0.219 (32.8%)    0.449 GiB
+Gemma 12B     1.265 GiB   0.250 (19.8%)    1.015 GiB
+```
+
+Scratch is ~230 MiB on both and essentially model-independent. It is a real term
+worth reporting, but it is not what makes Gemma's residual twice Llama's.
+
+**Leading explanation for the remainder: per-allocation rounding.** `cudaMalloc`
+rounds every request up, so the overhead scales with allocation *count*, not bytes.
+Gemma has roughly twice Llama's tensor count -- 48 layers with five norms and a
+five-way Linear set against 32 layers with two norms and four Linears -- and its
+unattributed remainder is roughly 2.3x Llama's. That correlation is suggestive rather
+than established; the cheap test is to read `MemoryAllocationStats::allocationCount`
+and divide.
+
+Note also the measurement noise floor: `consumed` moved 50-70 MiB between runs of the
+same configuration, so nothing below ~0.1 GiB should be read as signal.
 
 ### 6.5 On Windows, "fits" is not binary
 

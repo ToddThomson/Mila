@@ -203,6 +203,19 @@ namespace Mila::Tests::Dnn::Models
             toGiB( residual ),
             consumed > 0 ? ( 100.0 * static_cast<double>( residual ) / consumed ) : 0.0 );
 
+        // Attribute the residual. Scratch is the largest term a build-time contract cannot
+        // see: it is allocated lazily during forward passes, sized by whichever operation
+        // needed the most, and never shrunk. Whatever is left after subtracting it is
+        // allocator rounding plus anything the load path leaves behind.
+        const std::size_t scratch = model->getScratchHighWaterBytes();
+
+        std::cout << std::format(
+            "  of which scratch high-water   {:.3f} GiB  ({:.1f}% of the residual)\n"
+            "  unattributed remainder        {:.3f} GiB\n",
+            toGiB( scratch ),
+            residual > 0 ? ( 100.0 * static_cast<double>( scratch ) / residual ) : 0.0,
+            toGiB( residual > scratch ? residual - scratch : 0 ) );
+
         EXPECT_EQ( predicted.device_parameter_bytes, reported.device_parameter_bytes );
         EXPECT_EQ( predicted.device_state_bytes, reported.device_state_bytes );
 

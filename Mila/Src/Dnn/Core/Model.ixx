@@ -44,6 +44,7 @@
  */
 
 module;
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <stdexcept>
@@ -198,6 +199,23 @@ namespace Mila::Dnn
         MemoryStats getMemoryStats() const
         {
             return network_->getMemoryStats();
+        }
+
+        /**
+         * @brief Context-owned scratch device memory, in bytes, at its high-water mark.
+         *
+         * Deliberately NOT folded into getMemoryStats(): that reports what components
+         * allocate, and this buffer belongs to the shared execution context, is allocated
+         * lazily during forward passes, and is sized by whichever operation needed the most
+         * at any point. Callers wanting the true resident total add the two.
+         *
+         * Zero before the first forward pass, and on any backend that allocates no scratch.
+         */
+        std::size_t getScratchHighWaterBytes() const
+        {
+            // Not noexcept: getExecutionContext() throws on an unset context rather than
+            // returning null, and a throw through a noexcept accessor is a terminate.
+            return network_->getExecutionContext()->getScratchHighWaterBytes();
         }
 
         // ====================================================================

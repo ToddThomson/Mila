@@ -421,6 +421,8 @@ PUBLIC
         
         "Src/Dnn/Compute/Operations/IKVCacheLifecycle.ixx"
         
+        # The one runtime-to-compile-time quantization bridge, imported by the models below.
+        "Src/Dnn/Models/QuantizationDispatch.ixx"
         "Src/Dnn/Models/GptModel.ixx"
         "Src/Dnn/Models/LlamaModel.ixx"
         "Src/Dnn/Models/GemmaModel.ixx"

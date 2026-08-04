@@ -33,6 +33,7 @@ import Dnn.LanguageModelConfig;
 import Dnn.GenerateParams;
 import Dnn.GenerateStatus;
 import Dnn.LanguageNetwork;
+import Dnn.Models.QuantizationDispatch;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Quantization.KvCache.QuantPolicy;
@@ -83,6 +84,16 @@ namespace Mila::Dnn
     class LlamaModel : public LanguageModel<TDeviceType, TPrecision>
     {
     public:
+        /**
+         * @brief KV policy for the Llama chassis.
+         *
+         * Every Llama layer is full-attention, so there is no sliding window to bound a ring
+         * against and the cache spans the whole context. Class scope rather than per-function
+         * so the load and footprint paths cannot be pointed at different policies -- that
+         * would make a model report a figure for a cache it does not build.
+         */
+        using LlamaKvPolicy = Quant::KvCache::NoKvCompression;
+
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using ModelBase = LanguageModel<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
@@ -141,63 +152,21 @@ namespace Mila::Dnn
                     "LlamaModel::fromPretrained: context_length must be greater than zero" );
             }
 
-            // Runtime -> compile-time bridge: dispatch on ModelConfig quantization settings.
-            switch ( model_config.getWeightQuantization() )
-            {
-                case WeightQuantization::FP4:
-                    // PerGroupFp4<128>: BF16 weights quantized on-load to packed FP4 E2M1 nibbles
-                    // with per-group float32 scales. W4A16 kernel with E2M1 decode inline.
-                    // KV cache compression is not yet paired with FP4 weights.
-                    switch ( model_config.getKvCacheCompression() )
-                    {
-                        case KvCacheCompression::FP8:
-                            // FP8 KV cache with FP4 weights -- not yet supported.
-                        case KvCacheCompression::None:
-                            if constexpr ( TPrecision == TensorDataType::BF16 )
-                            {
-                                return fromPretrainedImpl<PerGroupFp4<128>, NoKvCompression>( path, model_config, device_id );
-                            }
-                            else
-                            {
-                                throw std::runtime_error(
-                                    "LlamaModel::fromPretrained: FP4 weight quantization requires BF16 compute precision" );
-                            }
-                    }
-                    break;
-
-                case WeightQuantization::FP8:
-                    switch ( model_config.getKvCacheCompression() )
-                    {
-                        case KvCacheCompression::FP8:
-                            // FP8 KV cache compression requires CudaGqaOp FP8 support -- not yet implemented.
-                        case KvCacheCompression::None:
-                            if constexpr ( TPrecision == TensorDataType::BF16 )
-                            {
-                                return fromPretrainedImpl<PerChannelFp8<>, NoKvCompression>( path, model_config, device_id );
-                            }
-                            else
-                            {
-                                throw std::runtime_error(
-                                    "LlamaModel::fromPretrained: FP8 weight quantization requires BF16 compute precision" );
-                            }
-                    }
-                    break;
-
-                case WeightQuantization::None:
-                default:
-                    switch ( model_config.getKvCacheCompression() )
-                    {
-                        case KvCacheCompression::FP8:
-                            throw std::runtime_error(
-                                "LlamaModel::fromPretrained: FP8 KV cache compression is not yet supported" );
-                        case KvCacheCompression::None:
-                            return fromPretrainedImpl<NoWeightQuant, NoKvCompression>( path, model_config, device_id );
-                    }
-                    break;
-            }
-
-            // Unreachable -- all enum cases handled above.
-            throw std::runtime_error( "LlamaModel::fromPretrained: unhandled quantization configuration" );
+            // Runtime -> compile-time bridge. PerGroupFp4<128> quantizes BF16 weights on load
+            // to packed FP4 E2M1 nibbles with per-group float32 scales, consumed by the W4A16
+            // kernel with E2M1 decode inline. Llama's chassis has no sliding-window layers, so
+            // its KV policy is NoKvCompression throughout.
+            return dispatchWeightQuantization<
+                    TPrecision, LlamaKvPolicy,
+                    std::unique_ptr<LlamaModel<TDeviceType, TPrecision>>>(
+                model_config.getWeightQuantization(),
+                model_config.getKvCacheCompression(),
+                "LlamaModel::fromPretrained",
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
+                {
+                    return fromPretrainedImpl<TWeightQuantization, TKvCachePolicy>(
+                        path, model_config, device_id );
+                } );
         }
 
         /**
@@ -230,47 +199,19 @@ namespace Mila::Dnn
                     "LlamaModel::getRequiredMemory: context_length must be greater than zero" );
             }
 
-            // REVIEW: fourth copy of this dispatch, as predicted when the second was written.
-            // A quantization mode added to a load path and not its footprint path is a silent
-            // divergence between what a model reports and what it allocates. Factoring all
-            // four onto one dispatcher is filed in BACKLOG, Production Hardening.
-            switch ( model_config.getWeightQuantization() )
-            {
-                case WeightQuantization::FP4:
-                    if constexpr ( TPrecision == TensorDataType::BF16 )
-                    {
-                        return requiredMemoryImpl<PerGroupFp4<128>, NoKvCompression>(
-                            path, model_config, device_id );
-                    }
-                    else
-                    {
-                        throw std::runtime_error(
-                            "LlamaModel::getRequiredMemory: FP4 weight quantization requires BF16 compute precision" );
-                    }
-
-                case WeightQuantization::FP8:
-                    if constexpr ( TPrecision == TensorDataType::BF16 )
-                    {
-                        return requiredMemoryImpl<PerChannelFp8<>, NoKvCompression>(
-                            path, model_config, device_id );
-                    }
-                    else
-                    {
-                        throw std::runtime_error(
-                            "LlamaModel::getRequiredMemory: FP8 weight quantization requires BF16 compute precision" );
-                    }
-
-                case WeightQuantization::None:
-                default:
-                    if ( model_config.getKvCacheCompression() == KvCacheCompression::FP8 )
-                    {
-                        throw std::runtime_error(
-                            "LlamaModel::getRequiredMemory: FP8 KV cache compression is not yet supported" );
-                    }
-
-                    return requiredMemoryImpl<NoWeightQuant, NoKvCompression>(
+            // Same dispatcher as fromPretrained, and deliberately so: the footprint path and
+            // the load path must reach the identical template instantiation or a model reports
+            // a figure it does not allocate.
+            return dispatchWeightQuantization<
+                    TPrecision, LlamaKvPolicy, MemoryStats>(
+                model_config.getWeightQuantization(),
+                model_config.getKvCacheCompression(),
+                "LlamaModel::getRequiredMemory",
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
+                {
+                    return requiredMemoryImpl<TWeightQuantization, TKvCachePolicy>(
                         path, model_config, device_id );
-            }
+                } );
         }
 
         // ====================================================================

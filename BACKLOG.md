@@ -60,6 +60,41 @@ good-first-issue.
     (spec §4.5). Gate A caught it as a per-layer double count — 2x on two layers, 2.9x on four —
     i.e. a ~2x overestimate on every Gemma model, which would have made the feature useless while
     erring in the "safe" direction. Check for this class first in every remaining component.
+  - [~] **Phase 3 — entry point + Gate B.** *Written 2026-08-04, unbuilt:*
+    `GemmaModel::getRequiredMemory( path, config, device_id )` with `requiredMemoryImpl` as the
+    footprint sibling of `fromPretrainedImpl` — same prologue (artifact quantization check,
+    `configFromMetadata`, context validation), stopping before `network->build()`. Reads only the
+    artifact header, so it answers before a download and for hardware the caller does not own.
+    New `Tests/Dnn/Models/GemmaModel.Footprint.Cuda.cpp`: allocates-nothing, grows-with-context,
+    and Gate B proper (predict, load, compare against `cudaMemGetInfo`, print the residual).
+    Skips without a real checkpoint so it never runs in CI.
+    **Green 2026-08-04, measured on Gemma 4 12B FP4 / 4070 (preset `x64-profile`):** at context
+    8192, predicted 8.649 GiB == reported 8.649 GiB (Gate A holds byte-exact on a real model),
+    consumed 9.972 GiB, **residual 1.323 GiB = 13.3%**. Weights flat at 6.33 GiB across contexts;
+    state 1.97 GiB at 4096 -> 2.49 GiB at 32768, i.e. **8x the context for +0.52 GiB — the bounded
+    sliding-window ring behaving as designed**, since only the global layers' KV grows.
+  - [~] **Phase 4 — Llama chassis.** *Written 2026-08-04, unbuilt:* `LlamaBlock` (extracted
+    `resolveBlockBuildContexts()` — four contexts, and the inference/training split is only the
+    sequence extent, so both fall out of one derivation), `LlamaTransformer` (chunk resolution,
+    blocks, shared GQA workspace), and `LlamaModel::getRequiredMemory` + `requiredMemoryImpl`.
+    **No installed-output correction and no tying correction — their absence is the finding, not
+    an omission:** Llama pools no per-block activations, so every block owns its prefill scratch
+    outright, and the embedding is not tied to the head, so the two largest tensors are counted
+    separately and in full. Its GQA `preatt`/`att` also span the full context rather than
+    collapsing to a ring width, because Llama has no flash-prefill reclaim — that term grows
+    linearly with context where Gemma's does not.
+    **Green 2026-08-04, measured on Llama 3.1 8B FP4 / 4070:** at context 8192, predicted
+    9.732 GiB == reported 9.732 GiB byte-exact, consumed 10.331 GiB, **residual 0.598 GiB (5.8%)**
+    — less than half Gemma's 13.3%, which is a hint for attributing it (Gemma quantizes its table
+    to FP8 at load; Llama does not, so Gemma's load-path staging is the larger suspect).
+    Context sweep: weights flat 5.41 GiB, state 3.54 GiB at 4096 -> 6.66 GiB at 32768.
+    **Gate B found two defects, and the byte-exact assertion is what separated them:** predicted
+    and reported disagreed by exactly 2.25 GiB, decomposing into 1.9375 GiB (31 duplicate RoPE
+    caches — the deduplication was applied to Gemma and *not* carried to Llama, my own bug, and it
+    also caused `predicted > consumed`, the dangerous direction) plus 0.3125 GiB (the
+    `getMemoryStats` prefill-scratch omission above). The two errors pointed in opposite
+    directions and would have partially cancelled under a looser tolerance.
+  - [ ] Phase 5 — Chat `/model` pre-flight, warn-and-proceed per §6.5, plus a context sweep.
 - [x] **`GemmaTransformer` decided weight tying from two sources that disagreed between `build()`
   and `loadParameters()`.** Fixed 2026-08-04 (unbuilt). `onBuilding` installs the shared table from
   `config_.getTieWordEmbeddings()`, but `getMemoryStats` subtracted the double-count using the
@@ -86,59 +121,41 @@ good-first-issue.
   summing naively would invent ~(layers-1) x cache of phantom VRAM. Same correction shape as weight
   tying. Also means leaf-level Gate A for `Rope` is registry-order dependent and must not be
   written as a naive predict-vs-build equality.
-  - [~] **Phase 3 — entry point + Gate B.** *Written 2026-08-04, unbuilt:*
-    `GemmaModel::getRequiredMemory( path, config, device_id )` with `requiredMemoryImpl` as the
-    footprint sibling of `fromPretrainedImpl` — same prologue (artifact quantization check,
-    `configFromMetadata`, context validation), stopping before `network->build()`. Reads only the
-    artifact header, so it answers before a download and for hardware the caller does not own.
-    New `Tests/Dnn/Models/GemmaModel.Footprint.Cuda.cpp`: allocates-nothing, grows-with-context,
-    and Gate B proper (predict, load, compare against `cudaMemGetInfo`, print the residual).
-    Skips without a real checkpoint so it never runs in CI.
-    **Green 2026-08-04, measured on Gemma 4 12B FP4 / 4070 (preset `x64-profile`):** at context
-    8192, predicted 8.649 GiB == reported 8.649 GiB (Gate A holds byte-exact on a real model),
-    consumed 9.972 GiB, **residual 1.323 GiB = 13.3%**. Weights flat at 6.33 GiB across contexts;
-    state 1.97 GiB at 4096 -> 2.49 GiB at 32768, i.e. **8x the context for +0.52 GiB — the bounded
-    sliding-window ring behaving as designed**, since only the global layers' KV grows.
-- [ ] **Attribute the 1.323 GiB Gate B residual.** Everything a build-time contract cannot see:
-  the grow-on-demand `getDeviceScratchBuffer` high-water (`CudaExecutionContext.ixx:220`), CUDA
-  allocator rounding, and any load-path staging that outlives the load. **On a 12 GB card this is
-  the margin between fits and does not**, so it matters for the verdict even though the estimate
-  itself is exact. First step is an execution-context scratch high-water accessor — that likely
-  accounts for most of it, since the FP8/FP4 dequant staging runs during quantize-on-load and the
-  buffer is never released until context teardown. Note the prior measurement in
-  `Gemma4InferenceReview` put the prefill scratch high-water near 470 MB, well under this figure,
-  so the load path is the likelier source.
-- [ ] **The quantization dispatch is about to exist in four copies.** `GemmaModel::fromPretrained`
-  and `GemmaModel::getRequiredMemory` each switch on `WeightQuantization` x `KvCacheCompression`
-  to reach a template instantiation, and Llama will add two more when its footprint lands. **A
-  mode added to the load path but not the footprint path is a silent divergence between what a
-  model reports and what it allocates** — exactly the class of defect this feature exists to
-  prevent. Factor both onto one dispatcher (a helper templated on a generic lambda taking the two
-  policy types). Deferred from Phase 3 because it reworks the working load path for no functional
-  gain; do it when Llama makes the shape obvious. `GemmaModel.ixx` carries a `REVIEW:` at the
-  duplicate switch.
-  - [~] **Phase 4 — Llama chassis.** *Written 2026-08-04, unbuilt:* `LlamaBlock` (extracted
-    `resolveBlockBuildContexts()` — four contexts, and the inference/training split is only the
-    sequence extent, so both fall out of one derivation), `LlamaTransformer` (chunk resolution,
-    blocks, shared GQA workspace), and `LlamaModel::getRequiredMemory` + `requiredMemoryImpl`.
-    **No installed-output correction and no tying correction — their absence is the finding, not
-    an omission:** Llama pools no per-block activations, so every block owns its prefill scratch
-    outright, and the embedding is not tied to the head, so the two largest tensors are counted
-    separately and in full. Its GQA `preatt`/`att` also span the full context rather than
-    collapsing to a ring width, because Llama has no flash-prefill reclaim — that term grows
-    linearly with context where Gemma's does not.
-    **Green 2026-08-04, measured on Llama 3.1 8B FP4 / 4070:** at context 8192, predicted
-    9.732 GiB == reported 9.732 GiB byte-exact, consumed 10.331 GiB, **residual 0.598 GiB (5.8%)**
-    — less than half Gemma's 13.3%, which is a hint for attributing it (Gemma quantizes its table
-    to FP8 at load; Llama does not, so Gemma's load-path staging is the larger suspect).
-    Context sweep: weights flat 5.41 GiB, state 3.54 GiB at 4096 -> 6.66 GiB at 32768.
-    **Gate B found two defects, and the byte-exact assertion is what separated them:** predicted
-    and reported disagreed by exactly 2.25 GiB, decomposing into 1.9375 GiB (31 duplicate RoPE
-    caches — the deduplication was applied to Gemma and *not* carried to Llama, my own bug, and it
-    also caused `predicted > consumed`, the dangerous direction) plus 0.3125 GiB (the
-    `getMemoryStats` prefill-scratch omission above). The two errors pointed in opposite
-    directions and would have partially cancelled under a looser tolerance.
-  - [ ] Phase 5 — Chat `/model` pre-flight, warn-and-proceed per §6.5, plus a context sweep.
+- [~] **Attribute the Gate B residual — scratch measured, and it is NOT the answer.** Done
+  2026-08-04: `IExecutionContext::getScratchHighWaterBytes()` (virtual, 0 by default),
+  `CudaExecutionContext` override returning `device_scratch_size_` (the high-water by
+  construction — grows, never shrinks), and `Model::getScratchHighWaterBytes()` as a public
+  passthrough. Kept **out** of `MemoryStats`, which reports component allocations while this
+  buffer belongs to the shared execution context.
+  **The hypothesis was that scratch dominated the residual and was larger for Gemma, which
+  quantizes its tied table to FP8 during load. Both halves were wrong:**
+  | | residual | scratch | unattributed |
+  |---|---|---|---|
+  | Llama 3.1 8B | 0.667 GiB | 0.219 (32.8%) | 0.449 GiB |
+  | Gemma 4 12B | 1.265 GiB | 0.250 (19.8%) | 1.015 GiB |
+
+  Scratch is ~230 MiB on both and essentially model-independent.
+  **Next, and cheap: test per-allocation rounding.** `cudaMalloc` rounds every request up, so
+  the overhead tracks allocation *count*, not bytes. Gemma has roughly twice Llama's tensor
+  count (48 layers, five norms, five-way Linear set vs 32 layers, two norms, four Linears) and
+  roughly 2.3x the unattributed remainder. Read `MemoryAllocationStats::allocationCount` and
+  divide — note the tracker is not reachable through `import Mila;` (`Mila.ixx:95` comments the
+  re-export out), so import `Compute.MemoryResourceTracker` directly.
+  **Measurement noise floor is ~50-70 MiB** — `consumed` moved that much between runs of the
+  same configuration, so nothing under ~0.1 GiB is signal.
+- [x] **The quantization dispatch existed in four copies; now one.** Factored 2026-08-04, green.
+  Verified by the Gemma HuggingFace parity test (`GreedyDecode_MatchesHuggingFaceTokenForToken`),
+  not just the footprint suites — the refactor touched both `fromPretrained` paths, and only
+  token-for-token generation proves those unchanged. Factored into
+  `Dnn.Models.QuantizationDispatch` —
+  `dispatchWeightQuantization<TPrecision, TKvCachePolicy, TResult>( weight_quantization,
+  kv_compression, caller, action )`, where `action` is a templated lambda invoked as
+  `action.template operator()<TWeightQuantization, TKvCachePolicy>()`. All four call sites route
+  through it. Behaviour preserved exactly: the per-mode inner `KvCacheCompression` switches were
+  collapsed because both enums are closed (None/FP8/FP4 and None/FP8) and the quantized paths
+  accepted either KV value already. The KV policy is now a **class-scope alias on each model** —
+  `GemmaModel::GemmaSlidingKvPolicy`, `LlamaModel::LlamaKvPolicy` — rather than a local in four
+  function bodies, so the load and footprint paths cannot be pointed at different policies.
 - [x] **The component lifecycle documentation stated the opposite of the truth.** Fixed 2026-08-04.
   `Component.MemoryStats.ixx` and `Component.ixx:567` both documented *"After construction —
   parameters only"*; parameters are allocated in `onBuilding`. Load-bearing: taken at face value it
