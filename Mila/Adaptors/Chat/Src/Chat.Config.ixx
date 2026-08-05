@@ -172,7 +172,6 @@ namespace Mila::ChatApp
         int                   top_k{ 40 };
         size_t                context_length{ 0 };
 
-        std::filesystem::path                 models_dir;
         std::optional<std::filesystem::path> config_path;
         std::optional<std::filesystem::path> system_prompt_path;
     };

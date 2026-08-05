@@ -59,9 +59,17 @@ static void printUsage( const char* prog_name )
         << "\n";
 
     // What is loadable is what is installed, so the list is read rather than compiled in.
-    for ( const auto& line : describeInstalledModels() )
+    // No budget: this runs before Mila::initialize(), so there is no device to cost against.
+    const ModelListing listing = describeInstalledModels();
+
+    for ( const auto& line : listing.table )
     {
         std::cerr << line << "\n";
+    }
+
+    for ( const auto& line : listing.notes )
+    {
+        std::cerr << "  " << line << "\n";
     }
 }
 
@@ -75,8 +83,6 @@ static void printUsage( const char* prog_name )
  */
 static ChatConfig buildConfig( int argc, char* argv[] )
 {
-    const std::filesystem::path models_dir = MODELS_DIR;
-
     std::filesystem::path config_path = "Data/session.json";
     bool explicit_config = false;
 
@@ -168,7 +174,6 @@ static ChatConfig buildConfig( int argc, char* argv[] )
     config.model_path        = resolved.weights;
     config.tokenizer_path    = resolved.tokenizer;
 
-    config.models_dir     = models_dir;
     config.config_path    = config_path;
 
     // Context length: explicit override, else the model's own default.

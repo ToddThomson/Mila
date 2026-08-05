@@ -44,6 +44,7 @@ export import Chat.MessageFormatter;
 export import Chat.SystemPrompt;
 export import Chat.ToolCallParser;
 import Chat.ChannelParser;
+import Chat.Footprint;
 import Chat.Json;
 import Chat.Renderer;
 import Chat.RichText;
@@ -318,59 +319,105 @@ namespace Mila::ChatApp
                                         : argument;
                                 };
 
-                            const auto lines = args.empty()
-                                ? describeInstalledModels()
-                                : describeHubModels( hub_owner() );
+                            // Costed at the session's own context, and against the card's
+                            // TOTAL memory rather than what is free.
+                            //
+                            // The listing answers "which of these could this machine run", and
+                            // that is a property of the card, not of this second. Free memory
+                            // was tried and is wrong here twice over: the resident model's own
+                            // report understates what releasing it returns (it excludes the
+                            // 6-13% residual Gate B measured), and whatever the desktop holds
+                            // gets charged to every candidate. Both push the same way, and a
+                            // 3B was marked as not fitting on a card with room for three.
+                            // The live picture belongs on /model, which measures it directly.
+                            const DeviceMemoryInfo memory = queryDeviceMemory();
 
-                            for ( const auto& line : lines )
+                            std::optional<FootprintBudget> budget;
+
+                            // No device to ask means no column: a listing claiming "0 MB"
+                            // would be stating a measurement it does not have.
+                            if ( memory.total_bytes > 0 )
                             {
-                                renderer_.printInfo( line );
+                                FootprintBudget costed;
+                                costed.context_length =
+                                    static_cast<dim_t>( config_.context_length );
+                                costed.available_bytes = memory.total_bytes;
+                                costed.resident_model =
+                                    modelIsResident() ? modelName() : std::string{};
+
+                                budget = std::move( costed );
                             }
 
                             if ( args.empty() )
                             {
+                                const ModelListing listing = describeInstalledModels( budget );
+
+                                // Plain, like /help and /model: a table is the content the
+                                // command was run to produce.
+                                for ( const auto& line : listing.table )
+                                {
+                                    std::cout << line << "\n";
+                                }
+
+                                std::cout << "\n";
+
+                                // Tinted, because these are commentary on the table rather than
+                                // part of it -- the same distinction printInfo already carries
+                                // for a system message.
+                                for ( const auto& line : listing.notes )
+                                {
+                                    renderer_.printInfo( "  " + line );
+                                }
+
                                 renderer_.printInfo(
-                                    "  /models --online lists what is available to pull" );
+                                    "  /models --online lists models available to install" );
+                            }
+                            else
+                            {
+                                for ( const auto& line : describeHubModels( hub_owner() ) )
+                                {
+                                    std::cout << line << "\n";
+                                }
                             }
                         }
                         catch ( const std::exception& error )
                         {
-                            renderer_.printInfo( std::format( "Could not list models: {}", error.what() ) );
+                            renderer_.printError( std::format( "Could not list models: {}", error.what() ) );
                         }
 
                         continue;
                     }
 
-                    if ( cmd.starts_with( "pull " ) )
+                    if ( cmd.starts_with( "install " ) )
                     {
-                        const std::vector<std::string_view> args = splitWhitespace( cmd.substr( 5 ) );
+                        const std::vector<std::string_view> args = splitWhitespace( cmd.substr( 8 ) );
 
                         if ( args.size() != 1 )
                         {
-                            renderer_.printInfo( "Usage: /pull <owner>/<repository>[:<variant>]" );
+                            renderer_.printInfo( "Usage: /install <name> -- one name, as /models --online lists it." );
                             continue;
                         }
 
                         try
                         {
-                            for ( const auto& line : pullModel( std::string( args.front() ) ) )
+                            for ( const auto& line : installModel( std::string( args.front() ) ) )
                             {
                                 renderer_.printInfo( line );
                             }
                         }
                         catch ( const std::exception& error )
                         {
-                            // A failed pull must leave the session on its working model, so
+                            // A failed install must leave the session on its working model, so
                             // this reports and returns to the prompt rather than propagating.
-                            renderer_.printInfo( std::format( "Pull failed: {}", error.what() ) );
+                            renderer_.printInfo( std::format( "Install failed: {}", error.what() ) );
                         }
 
                         continue;
                     }
 
-                    if ( cmd == "pull" )
+                    if ( cmd == "install" )
                     {
-                        renderer_.printInfo( "Usage: /pull <owner>/<repository>[:<variant>]" );
+                        renderer_.printInfo( "Usage: /install <name> -- one name, as /models --online lists it." );
                         continue;
                     }
 
@@ -380,7 +427,7 @@ namespace Mila::ChatApp
 
                         if ( args.size() != 1 )
                         {
-                            renderer_.printInfo( "Usage: /rm <owner>/<repository>[:<variant>]" );
+                            renderer_.printInfo( "Usage: /rm <name> -- one name, as /models lists it." );
                             continue;
                         }
 
@@ -401,7 +448,7 @@ namespace Mila::ChatApp
 
                     if ( cmd == "rm" )
                     {
-                        renderer_.printInfo( "Usage: /rm <owner>/<repository>[:<variant>]" );
+                        renderer_.printInfo( "Usage: /rm <name> -- one name, as /models lists it." );
                         continue;
                     }
 
@@ -508,9 +555,13 @@ namespace Mila::ChatApp
 
             std::string message = std::format( "Detail set to {}.", detailLevelName( level ) );
 
-            // The reasoning channel only exists when thinking mode is active.
+            // The reasoning channel only exists when thinking mode is active. Named from the
+            // resident model rather than a literal: model names come from the store, so any
+            // spelled-out example goes stale the moment the store holds something else.
             if ( level >= DetailLevel::Thoughts && !config_.show_thinking )
-                message += " (Thinking mode is off — enable it with /model gemma-12b thinking to see reasoning.)";
+                message += std::format(
+                    " (Thinking mode is off — enable it with /model {} thinking to see reasoning.)",
+                    modelName() );
 
             renderer_.printInfo( message );
         }
@@ -1248,104 +1299,94 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief Load the active tokenizer and model, under the progress spinner.
+         * @brief Warn before the load when this model will not fit, and say nothing when it will.
          *
-         * At detail level All the spinner is skipped so the INFO logging and the
-         * model / memory dumps remain readable; otherwise the multi-second weight
-         * load runs under the same braille spinner used for turns.
-         */
-        /**
-         * @brief Byte count in the units a person reads footprints in.
-         */
-        static std::string formatBytes( std::size_t bytes )
-        {
-            constexpr double kGiB = 1024.0 * 1024.0 * 1024.0;
-            constexpr double kMiB = 1024.0 * 1024.0;
-
-            if ( bytes >= static_cast<std::size_t>( kGiB ) )
-                return std::format( "{:.2f} GiB", static_cast<double>( bytes ) / kGiB );
-
-            return std::format( "{:.0f} MiB", static_cast<double>( bytes ) / kMiB );
-        }
-
-        /**
-         * @brief What this model would need, and whether the card has room.
+         * Silent on the fitting path deliberately: a load that is going to work needs no
+         * commentary, and this fires on every startup and every switch. What the model costs
+         * when it does fit is available on demand from /model.
          *
-         * Runs before the load and costs nothing on the device: the graph is constructed,
-         * asked, and discarded without a weight being read. See
-         * Specifications/MemoryFootprint.md.
+         * Costs nothing on the device: the graph is constructed, asked, and discarded without a
+         * weight being read. See Specifications/MemoryFootprint.md.
          *
-         * Warn-and-proceed, deliberately. On Windows the driver oversubscribes into shared
-         * host memory rather than failing, so "will not fit" is not a thing the runtime can
-         * assert -- an over-eager refusal blocks configurations that would have run. The one
-         * refusal is the case that cannot work at all: weights alone exceeding free memory.
+         * Warn-and-proceed, deliberately -- there is no refusal here. What not fitting means
+         * depends on the driver model and neither outcome can be asserted in advance, so an
+         * over-eager refusal would block configurations that would have run.
          */
         void reportFootprintBeforeLoad()
         {
             std::optional<MemoryStats> required =
-                predictFootprint( static_cast<dim_t>( config_.context_length ) );
+                predictActiveFootprint( static_cast<dim_t>( config_.context_length ) );
 
             if ( !required )
             {
                 return;
             }
 
-            const auto device = DeviceRegistry::instance().getDevice( Device::Cuda( 0 ) );
-            const DeviceMemoryInfo memory = device ? device->getMemoryInfo() : DeviceMemoryInfo{};
+            const std::size_t available =
+                availableDeviceBytes( queryDeviceMemory(), residentDeviceBytes() );
 
-            // Gate B measured the unmodelled remainder at 6-13% of what a load consumes --
-            // allocator rounding and lazily grown scratch, which scale with the model rather
-            // than being a fixed cost. A proportional allowance is closer to right than a
-            // constant, and erring high here only costs a warning.
-            const std::size_t practical =
-                required->totalDeviceBytes() + ( required->totalDeviceBytes() / 8 );
+            // The same grader /models uses, against a deliberately different budget: the
+            // listing asks what this card can run at all, where this asks whether one load
+            // succeeds on the machine as it stands. So a model the listing showed as fitting
+            // can still warn here, when something else is holding the memory -- which is the
+            // answer being asked for, not a disagreement.
+            const FootprintVerdict verdict = gradeFootprint( required, available );
 
+            if ( !isOverBudget( verdict ) )
+            {
+                return;
+            }
+
+            // The breakdown earns its place only here: weights against working memory is what
+            // says which lever applies.
             renderer_.printInfo( std::format(
                 "{} at context {}: weights {}, working memory {}, about {} in total.",
                 modelName(), config_.context_length,
                 formatBytes( required->device_parameter_bytes ),
                 formatBytes( required->device_state_bytes ),
-                formatBytes( practical ) ) );
+                formatBytes( practicalDeviceBytes( *required ) ) ) );
 
-            if ( memory.total_bytes == 0 )
+            // One explanation of what not fitting means, shared with the listing. What the two
+            // verdicts differ on is which lever helps, not what happens.
+            renderer_.printError( doesNotFitExplanation( formatBytes( available ) ) );
+
+            if ( verdict == FootprintVerdict::WeightsExceedAvailable )
             {
-                return;
-            }
-
-            if ( required->device_parameter_bytes > memory.free_bytes )
-            {
-                // Not "this will not run": it does. Measured at 3.1 tok/s against roughly 40
-                // for a model that fits -- the driver spills to system memory rather than
-                // failing. Context is not the lever when the weights alone overflow, since
-                // they do not shrink with it; quantization is.
-                renderer_.printError( std::format(
-                    "The weights alone need {} and only {} is free. It will load, but the "
-                    "driver will spill to system memory and generation will be many times "
-                    "slower -- and the first prompt after a pause slower still.",
-                    formatBytes( required->device_parameter_bytes ),
-                    formatBytes( memory.free_bytes ) ) );
-
+                // Context is not the lever when the weights alone overflow, since they do not
+                // shrink with it. Quantization is, and only while the artifact still permits it.
                 if ( config_.quantization_mode == QuantizationMode::None )
                 {
                     renderer_.printInfo( std::format(
-                        "Quantizing on load is the lever here -- try /model {} fp4.",
-                        modelName() ) );
+                        "A shorter context will not help -- the weights alone are over. "
+                        "Quantizing on load is the lever -- try /model {} fp4.", modelName() ) );
                 }
 
                 return;
             }
 
-            if ( practical > memory.free_bytes )
-            {
-                renderer_.printInfo( std::format(
-                    "This needs about {} and {} is free. It will still load -- the driver "
-                    "spills to system memory rather than failing -- but expect it to be slow.",
-                    formatBytes( practical ), formatBytes( memory.free_bytes ) ) );
+            // The weights fit, so trimming context can bring the working memory under the line.
+            suggestFittingContext( available );
+        }
 
-                // Worth suggesting only here: the weights fit, so trimming context can bring
-                // the working memory under the line.
-                suggestFittingContext( memory.free_bytes );
-            }
+        /**
+         * @brief Device memory the loaded model is holding, which a switch would give back.
+         *
+         * Asked of the model rather than predicted, since it is resident: a switch destroys it
+         * before allocating the replacement, so this is headroom a candidate can count on.
+         */
+        std::size_t residentDeviceBytes() const
+        {
+            return std::visit( []( const auto& model ) -> std::size_t
+                {
+                    return model ? model->getMemoryStats().totalDeviceBytes() : 0;
+                }, model_ );
+        }
+
+        /// True once weights are actually on the device, which the session config cannot say --
+        /// it names the model that will be loaded as readily as the one that is.
+        bool modelIsResident() const
+        {
+            return !std::visit( []( const auto& model ) { return model == nullptr; }, model_ );
         }
 
         /**
@@ -1365,26 +1406,22 @@ namespace Mila::ChatApp
                 const std::size_t midpoint = low + ( ( high - low ) / 2 / 512 ) * 512;
 
                 std::optional<MemoryStats> required =
-                    predictFootprint( static_cast<dim_t>( midpoint ) );
+                    predictActiveFootprint( static_cast<dim_t>( midpoint ) );
 
                 if ( !required )
                 {
                     return;
                 }
 
-                const std::size_t practical =
-                    required->totalDeviceBytes() + ( required->totalDeviceBytes() / 8 );
-
-                if ( practical <= free_bytes )
+                if ( practicalDeviceBytes( *required ) <= free_bytes )
                 {
                     best = midpoint;
                     low = midpoint + 512;
                 }
                 else
                 {
-                    if ( midpoint < 512 )
-                        break;
-
+                    // low never drops below the 512 floor, so midpoint >= 512 always and the
+                    // subtraction cannot wrap; the loop ends when high falls under low.
                     high = midpoint - 512;
                 }
             }
@@ -1397,6 +1434,13 @@ namespace Mila::ChatApp
             }
         }
 
+        /**
+         * @brief Load the active tokenizer and model, under the progress spinner.
+         *
+         * At detail level All the spinner is skipped so the INFO logging and the
+         * model / memory dumps remain readable; otherwise the multi-second weight
+         * load runs under the same braille spinner used for turns.
+         */
         void loadActiveModel()
         {
             reportFootprintBeforeLoad();
@@ -1470,6 +1514,7 @@ namespace Mila::ChatApp
                 "  Model:        {}\n"
                 "  Precision:    {}\n"
                 "  Quantization: {}\n"
+                "  Context:      {}\n"
                 "  Instruct:     {}\n"
                 "  Thinking:     {}\n"
                 "  Effort:       {} ({}, ~{} tokens)\n"
@@ -1477,10 +1522,22 @@ namespace Mila::ChatApp
                 modelName(),
                 (config_.precision == ModelPrecision::BF16) ? "bf16" : "fp32",
                 quantizationName( config_.quantization_mode ),
+                config_.context_length,
                 config_.is_instruct ? "yes" : "no",
                 config_.show_thinking ? "on" : "off",
                 config_.thinking_effort, effort.name, effort.budget,
                 detailLevelName( config_.detail ) );
+
+            // Measured off the device rather than taken from the model's own report: what is
+            // actually resident includes the allocator rounding and lazily grown scratch that
+            // a footprint cannot model, and that residual is the whole reason to look here.
+            const DeviceMemoryInfo memory = queryDeviceMemory();
+
+            if ( memory.total_bytes > 0 )
+            {
+                std::cout << std::format( "  VRAM:         {}\n",
+                    formatBytesOf( memory.total_bytes - memory.free_bytes, memory.total_bytes ) );
+            }
         }
 
         void initializeTokenizer()
@@ -1581,63 +1638,20 @@ namespace Mila::ChatApp
         }
 
         /**
-         * @brief Footprint for a context length, built from the same config loadModel() uses.
+         * @brief Footprint of the session's model at a context length.
          *
-         * Mirrors loadModel()'s config construction deliberately: a prediction made under
-         * different settings than the load would use describes a different model.
-         *
-         * Returns nullopt for GPT-2, which has no footprint entry point yet, and on any
-         * failure to read the artifact -- the load will report that properly, and a
-         * pre-flight should never be the thing that stops a model from being tried.
+         * The axes come from the session config rather than a store record, which is what
+         * makes this the load path's question: a prediction made under different settings
+         * than the load would use describes a different model.
          */
-        std::optional<MemoryStats> predictFootprint( dim_t context_length )
+        std::optional<MemoryStats> predictActiveFootprint( dim_t context_length ) const
         {
-            const DeviceId device{ DeviceType::Cuda, 0 };
-
-            try
-            {
-                switch ( config_.model_type )
-                {
-                    case ModelType::Llama:
-                    {
-                        if ( config_.precision != ModelPrecision::BF16 )
-                        {
-                            return std::nullopt;
-                        }
-
-                        LlamaModelConfig llama_config( context_length );
-
-                        if ( config_.quantization_mode == QuantizationMode::FP8 )
-                            llama_config.withFP8Quantization();
-                        else if ( config_.quantization_mode == QuantizationMode::FP4 )
-                            llama_config.withFP4Quantization();
-
-                        return LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::getRequiredMemory(
-                            config_.model_path, llama_config, device );
-                    }
-
-                    case ModelType::Gemma:
-                    {
-                        GemmaModelConfig gemma_config( context_length );
-
-                        if ( config_.quantization_mode == QuantizationMode::FP8 )
-                            gemma_config.withFP8Quantization();
-                        else if ( config_.quantization_mode == QuantizationMode::FP4 )
-                            gemma_config.withFP4Quantization();
-
-                        return GemmaModelBF16Type::getRequiredMemory(
-                            config_.model_path, gemma_config, device );
-                    }
-
-                    case ModelType::Gpt:
-                    default:
-                        return std::nullopt;
-                }
-            }
-            catch ( const std::exception& )
-            {
-                return std::nullopt;
-            }
+            return Mila::ChatApp::predictFootprint(
+                config_.model_path,
+                config_.model_type,
+                config_.precision,
+                config_.quantization_mode,
+                context_length );
         }
 
         void loadModel()
@@ -1836,9 +1850,9 @@ Available commands:
   /model                             Show current model and quantization
   /model <name> [quant] [thinking]   Switch model (clears history). quant quantizes an
                                      unquantized artifact on load: none, fp8, fp4.
-  /models                            List installed models and what they cost on disk
-  /models --online                   List what is available to pull
-  /pull <name>                       Download a published model into the local store
+  /models                            List installed models and what they cost in memory
+  /models --online                   List models available to install
+  /install <name>                    Download and install a published model
   /rm <name>                         Remove an installed model and reclaim its blobs
   /effort [1-5]                      Show or set the thinking token-budget level
   /verbose [off|thoughts|all]        Show or set display detail (reasoning, raw + logs)
@@ -1846,12 +1860,6 @@ Available commands:
   /seed <n>                          Reseed the sampler for reproducible generation
   /exit                              Exit the application
 
-Installed:      )";
-
-            for ( const auto& line : describeInstalledModels() )
-                std::cout << line << "\n";
-
-            std::cout << R"(
 Quantization:   a name ending -fp4/-fp8 is a pre-quantized artifact. For an unquantized
                 one, /model <name> fp4 quantizes it on load -- same weights, less VRAM,
                 but the full file is still read.
@@ -1862,8 +1870,15 @@ Detail:         tool calls always show as an agentic trace. /verbose thoughts ad
                 when detail is off.
 
 Examples:
-  /model gemma-12b fp4 thinking
-  /verbose thoughts
+)";
+
+            // Named from the resident model rather than spelled out: a model name is whatever
+            // the store holds, so a literal example stops resolving as soon as it holds
+            // something else. No quantization argument here -- the resident model may already
+            // be a pre-quantized artifact, which refuses one.
+            std::cout << std::format( "  /model {} thinking\n", modelName() );
+
+            std::cout << R"(  /verbose thoughts
   /effort 5
 )" << "\n";
         }

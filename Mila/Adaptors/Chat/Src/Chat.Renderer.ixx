@@ -17,6 +17,7 @@ module;
 
 export module Chat.Renderer;
 
+import Chat.Ansi;
 import Chat.RichText;
 
 namespace Mila::ChatApp
@@ -579,19 +580,7 @@ namespace Mila::ChatApp
             return stream_.thinking_style ? stream_.thinking_lines : stream_.answer_lines;
         }
 
-        // ── ANSI helpers ──────────────────────────────────────────────────────
-
-        static std::string bg( int r, int g, int b )
-        {
-            return std::format( "\x1b[48;2;{};{};{}m", r, g, b );
-        }
-
-        static std::string fg( int r, int g, int b )
-        {
-            return std::format( "\x1b[38;2;{};{};{}m", r, g, b );
-        }
-
-        static const char* reset() { return "\x1b[0m"; }
+        // ANSI helpers now live in Chat.Ansi, shared with the model table.
 
         // ── Console width ─────────────────────────────────────────────────────
 

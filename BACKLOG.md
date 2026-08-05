@@ -112,6 +112,193 @@ good-first-issue.
     configuration. Also fixed: the context sweep was being offered on that path, where it is
     useless — weights do not shrink with context — so it now runs only on the softer path, and
     the hard path names quantization as the lever with the concrete command.
+  - [x] **`/models` costs each row in VRAM instead of on disk. BUILT AND GREEN 2026-08-04**,
+    full suite passing and chat coherent.
+    The listing was denominated in the abundant resource: bytes on disk, in a tool whose scarce
+    resource is VRAM. **Disk size is not rank-order preserving for memory** — `llama-3.2-3b-it`
+    is *larger on disk* than the 12B Gemma, and `llama-3.1-8b-it` at FP4 costs more VRAM than it
+    (9.73 vs 8.65 GB at 8192, widening to 12.08 vs 8.83 at 32768, per the untied-tables item
+    above). As installed at BF16 it is 14.96 GB on disk and **~23.4 GB practical**, which the
+    listing presented identically to the rows that fit. The disk column trained the eye on the
+    number that inverts the ordering of the decision actually being made.
+    **Per-row disk was also the wrong number for its own use case.** `StoredModel::bytes_on_disk`
+    sums a model's declared files while `usage()` de-duplicates by digest, so rows over-sum the
+    footer whenever a blob is shared — and what a row shows is not what removing it returns,
+    which `/rm`'s "shared with another installed model" message exists to walk back. Disk now
+    appears only in the footer, where the aggregate is refcounted and correct.
+    **New `Chat.Footprint` module, because the grading must not be duplicated:** `predictFootprint`
+    (four explicit axes — the two callers hold them in different shapes, a session config on the
+    load path and a store record on the listing), `practicalDeviceBytes` (the `+1/8` Gate B
+    allowance), `queryDeviceMemory`, and `FootprintVerdict` + `gradeFootprint`. Both `/models`
+    and `reportFootprintBeforeLoad` now reach the same verdict through the same function — a
+    listing that graded a model differently from the load it precedes would be worse than one
+    that said nothing, and that is the defect class the two `formatBytes` had already produced
+    once. `Chat::predictFootprint` became the thin `predictActiveFootprint`.
+    **Costed at the session's own context**, named in the header, since a column of memory sizes
+    with no stated context is unactionable.
+    **The footprint column is opt-in and the record-only listing is still the default**, which is
+    not just a speed choice — `printUsage` renders this from the `--help` path at `main.cpp:250`,
+    *before* `Mila::initialize()`, so a device query or artifact read on the default path would
+    fire against an uninitialized runtime. The listing now queries no device at all: the session
+    assembles a `FootprintBudget` and passes it in, because both figures in it are facts about
+    the live session rather than about the store.
+    **Five display corrections from Todd's review, all applied:**
+    **(a) `origin` is gone from the rows.** There is one store and it is local, so the column was
+    a constant.
+    **(b) One explanation for not fitting, and the mechanism is platform-conditional.** The two
+    verdicts differ on which lever helps, not on what happens, so `doesNotFitExplanation()` says
+    it once for both and the listing prints it once under the table rather than per marked row.
+    **The shared-GPU-memory wording is Windows-only and was previously stated unconditionally —
+    a correctness bug, not a phrasing one:** WDDM oversubscribes and keeps going, while a Linux
+    driver has no such fallback and the allocation fails, so "it will still load, slowly" was
+    wrong off Windows. Detected via `kDriverOversubscribesToHostMemory`, the module's one
+    preprocessor test, confined to the global module fragment so the body stays free of it per
+    [[feedback_no_ifdef_in_modules]].
+    **(c) The listing grades against the card's TOTAL memory, not against what is free.**
+    Two wrong answers were tried first and both produced **false `!` markers on a model that
+    obviously fits** — a 3B flagged on a 12 GB card. Raw `free_bytes` charges every candidate
+    for whatever the desktop and the resident model are holding; `free + resident` (the second
+    attempt) is still wrong twice over, because the resident model's `getMemoryStats()`
+    *understates* what releasing it returns — it excludes the 6-13% residual Gate B measured —
+    and the desktop's share is still charged to everyone. Both errors push the same way, so a
+    12 GB card advertised 9.73 GB and rejected a 10.88 GB model.
+    **The question decides the denominator, and the two surfaces ask different questions:**
+    `/models` asks *which of these could this machine run*, which is a property of the card, so
+    it grades against capacity; `reportFootprintBeforeLoad` asks *will this one load succeed on
+    the machine as it stands*, so it keeps free-plus-resident. They still share one grader — a
+    model the listing showed as fitting can still warn at load when something else holds the
+    memory, and that is the answer being asked for rather than a disagreement. The live picture
+    belongs on `/model`, which measures it directly.
+    `availableDeviceBytes( memory, resident_bytes )` survives on the load path only. Resident is
+    always zero there (`switchModel` releases before allocating) but is passed rather than
+    assumed, since a caller that had not released would otherwise be misinformed silently.
+    The loaded row is marked with a leading `*`, keyed on an actually-resident model rather than
+    on `config_.model_name`, which names the model that *will* be loaded as readily as the one
+    that is.
+    **(d) The store path is out of every user-facing message** — the listing header, the empty
+    listing, and the three `resolveModel` errors. It is not something the user acts on; the
+    actions offered are `/pull` and `/rm`.
+    **(e) The table has column headers.**
+    **(f) The pre-flight is silent when the model fits.** It fired on every startup and every
+    switch to report a load that was going to work anyway. Now it prints only when a model is
+    over budget, and the weights-against-working-memory breakdown moved inside that branch,
+    where it earns its place by saying which lever applies. What a fitting model costs is
+    available on demand instead — see (g).
+    **(g) `/model` reports VRAM as used/total** (`9.25 / 11.99 GB`), alongside a context length
+    the display had never shown. **Measured off the device, not taken from the model's own
+    report:** what is resident includes the allocator rounding and lazily grown scratch that
+    Gate B measured at 6-13% and a footprint cannot model, and that residual is the whole reason
+    to look. New `formatBytesOf( part, whole )` picks the scale from the whole, so a pair cannot
+    end up straddling MB and GB — which is what makes a ratio unreadable.
+    **(h) The `Installed --` heading line is gone.** With the store path removed from it (d) and
+    the memory figure moved below the table, it carried nothing the table did not. What remains
+    under the table is the one input the column cannot be read without: *"Memory required at 8192
+    context size"*. The card's capacity is not repeated there — the marker says which rows exceed
+    it and the note under them carries the figure.
+    **(i) `/pull` is renamed `/install`, and "pull" is out of the prose with it.** Nobody outside
+    a version-control habit says pull for *get me that model*. `Chat::pullModel` became
+    `installModel`; `ModelResolver::pull` keeps its name, correctly — pulling from a hub is one
+    step of installing, and the library verb describes the transfer while the command describes
+    what the user gets.
+    **(l) `/models` printed blue where `/help` and `/model` print white.** It routed through
+    `ConsoleRenderer::printInfo`, which tints every line with the muted blue-grey reserved for
+    *system messages* ("Model switched."), while the other two write straight to `std::cout`.
+    The conflation came from the catalog returning `vector<string>` and the caller having to
+    pick a printer. **The rule now: a listing is content the command was run to produce and
+    prints plain; a report of something that just happened stays a system message.** So the two
+    `/models` forms went plain and the `/install` and `/rm` result lines did not. The failed
+    listing also moved from `printInfo` to `printError`, which is what it always was.
+    **(k) `/help` no longer prints the installed list mid-page.** Vestigial from the catalogue
+    era: when `/model` took aliases from a compiled table, that list *was* the argument
+    documentation, because anything else failed. Deleting the catalogue made model names a
+    runtime lookup and gave the job to `/models`; the help block was never removed with it. The
+    header row added here is what exposed it — a headed mini-table with no memory column, wedged
+    between the command list and the prose.
+    **(j) The over-budget note is one short sentence, and it says the right thing.** *"Needs more
+    than 11.99 GB. The model may use shared GPU memory, with slow performance."* The first
+    shortening read *"it may load into shared GPU memory"*, which describes something that does
+    not happen — the model loads, and what does not fit is what spills.
+    *Still unmeasured:* per-row cost is an artifact-header read plus a constructed graph (48
+    layers for the Gemma), now up to three per row. Zero device memory, and it is evidently not
+    slow enough to notice by hand, but no number has been taken — see the open item below.
+  - [x] **One memory column per deployment, so the table shows how to load. BUILT AND GREEN
+    2026-08-04.** A single MEMORY column plus a `!` said a model would not fit and stopped there, so
+    the fact that `llama-3.1-8b-it` runs in about 9.7 GB on the same card was reachable only by
+    already knowing to add an argument to `/model`. **Todd's call: NATIVE / FP8 / FP4 columns,
+    and the columns are the command forms** — `/model <name>`, `/model <name> fp8`,
+    `/model <name> fp4` — so reading across a row is reading the arguments that would work and
+    what each costs. **Tied together by superscript footnote marks on the two quantized
+    headers**, with a legend giving each its command and what it does (*"Load model with fp4
+    dynamic quantization"*); a single sentence naming the three forms was tried first and read
+    as a mouthful that explained nothing. **NATIVE carries no mark** — it is the command with no
+    argument, so there is nothing to footnote and a legend line for it would anchor to nothing.
+    **The listing returns two lists rather than one.** `ModelListing{ table, notes }`: the table
+    prints plain as content, the notes print through `printInfo` as commentary on it, separated
+    by a blank line. Legend last, because it is reference rather than reading — consulted once
+    and then skipped, where the figures above it are read every time. The marks are written as UTF-8 byte
+    escapes with the glyph in a trailing comment, matching `ConsoleRenderer` — the build sets no
+    execution charset, so a literal glyph would encode by the compiler's codepage.
+    **A footnote mark is two bytes and one display column, which `std::format` cannot pad
+    correctly**: `{:>9}` counts bytes, so the headers are padded by hand against display width.
+    Same class of hazard as embedding ANSI in a padded field, and worth remembering if colour
+    lands in these cells.
+    A footnote naming only the mildest quantization that fits was written first and rejected: it
+    answers "will something work" where the table answers "what are my options, at what price".
+    **`deploymentIsApplicable` is deliberately narrower than `applyRequestedQuantization`.** That
+    would accept `fp4` against an already-FP4 artifact, since the request agrees with the bytes —
+    but the column then repeats the native figure under a heading implying a choice, and nobody
+    types an argument asking for what they already have. **A pre-quantized artifact offers one
+    deployment and NATIVE is it**; FP32 offers nothing either, since quantized weights need BF16
+    compute. NATIVE carries the artifact's *own* quantization rather than none, since for a
+    pre-quantized model those differ and it is the former that `/model` with no argument loads.
+    **Cells are tinted by verdict** — red for over budget (matching `printError`, so a cell that
+    will not fit and the message saying so agree), green for fits, untinted for a cell that says
+    nothing. **Padded first, tinted second:** `std::format` counts an escape sequence's bytes as
+    width, so colouring before padding silently shortens the column — the same hazard as the
+    footnote marks. The `!` stays, because nothing may depend on colour alone: nothing here tests
+    for a terminal, so a redirected stream carries the escapes and a reader may not separate hues.
+    New `Chat.Ansi` holds `fg`/`bg`/`reset`, extracted from `ConsoleRenderer` rather than copied —
+    two modules colouring output must agree on how an escape is written.
+    **Three cell states, and the difference is load-bearing:** a figure, `-` for a form this
+    artifact refuses, `--` for one that would work but could not be predicted (GPT-2 today).
+    A link error on the way through, worth remembering: `Chat.Ansi`'s helpers were written
+    `export` without `inline`, giving an exported non-inline definition in a module interface and
+    leaving the consumer an external to resolve. Every other small free function in these modules
+    is `export inline`; breaking the pattern in a new file is what cost the round.
+  - [ ] **Time a `/models` footprint probe.** Each row costs an artifact-header read plus a
+    constructed graph, up to three of them now that the table has a column per deployment, and
+    the figure has never been taken — it simply is not slow enough to notice by hand on four
+    models. That is not the same as cheap, and it scales with both the store and the layer count:
+    a store of a dozen models on a 48-layer architecture is 36 constructions per keystroke. Get
+    the number; if it bites, the column set is the natural thing to put behind a flag.
+  - [ ] **A per-row disk figure, if one ever returns, should be reclaimable bytes** — the blobs
+    that model alone references. That is what the only real use of a byte count here wants
+    (deciding what to delete), it makes the rows sum to something meaningful, and prune's
+    mark-and-sweep already computes the refcount; it is simply not exposed as a per-model query.
+  - [ ] **A pre-flight that cannot answer says nothing at all.** `Chat::predictFootprint`
+    (`Chat.ixx`) catches every exception and returns `nullopt`, and `reportFootprintBeforeLoad`
+    then returns without printing. The policy is right — a pre-flight must never be the thing that
+    stops a model being tried — but silence is not the same as non-blocking: an unreadable artifact
+    header currently produces no line, then a confusing failure at load. One line at `verbose`
+    and above (or a `Logger::warning`) naming the reason costs nothing and turns an unexplained
+    absence into a fact. See [[feedback_absent_output_is_evidence]].
+  - [ ] **GPT-2 has no `getRequiredMemory`, so `gpt2-small` gets no pre-flight — silently**, via the
+    branch above. Either add the entry point for parity with Llama and Gemma (its footprint is the
+    simplest of the three: no quantization policy, no ring, learned positional embeddings sized
+    exactly `context_length`) or say once that this family has no forecast. Adding it is cheap and
+    would also give the crash item below a number to check the budget against.
+  - [ ] **`defaultContextFor()` is a compiled-in guess at the question the footprint API now
+    answers.** `Chat.ModelCatalog.ixx` hard-codes 512 for Gemma, 1024 for GPT-2, 4096 otherwise —
+    chosen as VRAM policy on a 12 GB card, i.e. a per-family constant standing in for a
+    measurement. `suggestFittingContext()` already binary-searches the largest fitting context in
+    milliseconds and no VRAM, so the default could be *derived* from live free memory rather than
+    guessed, with the constant kept only as the no-CUDA fallback. **Todd's call** — arguably
+    hardening of an existing behaviour rather than an addition, but it touches the freeze boundary.
+  - [ ] **The fitting-context suggestion cannot be acted on from inside the session.**
+    `suggestFittingContext()` says *set `"context_length": N` in the chat config*, which means
+    exiting, editing JSON and restarting — immediately after the pre-flight measured the answer.
+    A `/context <n>` command that reloads at the new length would close it; `switchModel` already
+    proves the release-then-reload is a solved operation.
 - [x] **`GemmaTransformer` decided weight tying from two sources that disagreed between `build()`
   and `loadParameters()`.** Fixed 2026-08-04 (unbuilt). `onBuilding` installs the shared table from
   `config_.getTieWordEmbeddings()`, but `getMemoryStats` subtracted the double-count using the
@@ -1462,17 +1649,67 @@ unified `mila` CLI is forward-looking only, gated on resolving the Python/C++ sp
   `.rejected`: **exactly 6799927760 bytes with a wrong digest means altered in flight; any other count
   means a length bug.** A distribution feature cannot ship on a leg that has never run clean.
 - [ ] The licensing story is per-family and must not be generalized: Gemma 4 is Apache 2.0 (public,
-  ungated, no token); Gemma 3 and earlier carry the Gemma Terms of Use; **Llama 3.1/3.2 are gated** and
-  their community license propagates. A family Mila cannot republish is not a hole in the catalogue —
-  it is a `local/` model, and `publish` refuses the hub destination with the reason rather than failing
-  at a 403. See [[project_gemma4_apache2_license]].
+  ungated, no token); Gemma 3 and earlier carry the Gemma Terms of Use; **Llama 3.1/3.2 may be
+  republished, but gated and attributed** — corrected 2026-08-04, having previously been recorded here
+  as a family Mila could not republish at all. The Llama Community License permits distributing a
+  quantized derivative provided a copy of the agreement ships with it, the repo card displays
+  *"Built with Llama"* and Meta's attribution line, the Acceptable Use Policy is passed along, and
+  **the model name begins with "Llama"** — which `llama-3.1-8b-it-fp4` already satisfies, alongside
+  the quantization-suffix rule. **Verified against the licenses themselves 2026-08-04**
+  (`meta-llama/llama-models`, `models/llama3_1/LICENSE` and `models/llama3_2/LICENSE`), both §1.b:
+  provide a copy of the Agreement; prominently display *"Built with Llama"*; begin the model name
+  with "Llama"; carry the notice *"Llama 3.x is licensed under the Llama 3.x Community License,
+  Copyright (c) Meta Platforms, Inc. All Rights Reserved."*
+  **Gating is NOT a licence requirement** — neither text obliges downstream recipients to accept
+  the agreement; the obligation falls on the distributor to ship a copy and attribute. Meta gates
+  its own repositories and HF's flow is the convention, so gating is available as a *policy*
+  choice, not a condition of republishing.
+  Consequences if it goes ahead: `describeHubModels`' `[gated]` marking and
+  `discoverHuggingFaceToken()` stop being scaffolding and become the live path for two of four
+  models, and the 8B stops being a row that does not fit. See [[project_gemma4_apache2_license]].
 - [ ] `Version::getMajor()`/`getMinor()`/`getPatch()` are non-const (`Src/Version.ixx`), so the
   version-skew comparison needs a mutable copy. Found during Phase 3, not fixed.
 - [ ] `publish_model.py` hashes each large file twice — once to validate, once to decide whether the
   hub already holds it.
-- [ ] Progress reporting is bytes-so-far and total, unthrottled by the library. The current
-  consumer-side gate (`Chat.ModelCatalog.ixx:160`) fires on every chunk whose running percentage is a
-  multiple of five, which at 6.33 GB is hundreds of redraws per step rather than one.
+- [ ] Progress reporting is bytes-so-far and total, unthrottled by the library. **The consumer-side
+  gate described here no longer exists** — `pullModel`'s progress lambda in `Chat.ModelCatalog.ixx`
+  now redraws on *every* chunk with no percentage test at all, so at 6.33 GB it is worse than the
+  hundreds-of-redraws it was filed for. Throttle on the printed percentage changing.
+- [x] **Chat's use of the store and footprint APIs reviewed, six defects fixed 2026-08-04**
+  (adaptor-only; no library change). Found by reading `Chat.ModelCatalog.ixx` / `Chat.ixx` against
+  `Distribution::ModelStore` and `ModelResolver` rather than by a failure.
+  **(1) `/pull` and `/rm` advertised a spec the API refuses.** Four usage strings read
+  `<owner>/<repository>[:<variant>]`, but `ModelResolver::pull` validates `owner + "/" + name`
+  through `parseCoordinate`, which rejects a second slash — and `:` is not in the permitted
+  character set. `/help` and `describeHubModels` said `<name>` correctly, so the wrong form fired
+  exactly when the user had already got the arguments wrong. `/rm` never reaches a hub at all.
+  **(2) An incomplete record produced a self-contradicting message.** `locate()` returns `nullopt`
+  when blobs are missing, while `resolveModel`'s not-found branch builds its "Installed:" list from
+  `list()`, which *includes* incomplete records — so `/model X` on a model whose blobs went missing
+  printed *"No model named 'X' is installed. Installed: …, X, …"*. It now names the real state and
+  points at a re-pull. `describeInstalledModels` already had the right vocabulary.
+  **(3) Two `formatBytes` disagreeing on units.** Both divided by 1024³, one labelled **GB** and
+  the other **GiB** — so a size on disk and a size in VRAM, the two numbers a user most wants to
+  compare, were quoted under different unit names. Now one exported helper in
+  `Chat.ModelCatalog`, and **Todd's call: GB/MB, not GiB/MiB** — the divisor stays 1024-based, so
+  no displayed number changed. See [[feedback_name_one_concept_one_way]].
+  **(4) Stale aliases in user-facing text.** The help's own example was `/model gemma-12b fp4
+  thinking` and `setDetailLevel` suggested `/model gemma-12b thinking` — pre-distribution aliases
+  that no longer resolve, and a quantization argument that an already-`-fp4` name refuses. Both now
+  name the resident model, since any spelled-out name goes stale the moment the store holds
+  something else.
+  **(5) An orphaned Doxygen block** left by the footprint insertion documented `formatBytes` with
+  `loadActiveModel`'s text, leaving `loadActiveModel` undocumented.
+  **(6) `MODELS_DIR` was vestigial** — defined in `Chat/CMakeLists.txt`, set in `main.cpp`, stored
+  in `ChatConfig::models_dir`, read by nothing since the catalogue was deleted. Retired. (The
+  `ProfileModel` target keeps its own, and still uses it.)
+  Also removed: a dead `midpoint < 512` guard in `suggestFittingContext`'s binary search, where
+  `low` never drops below the 512 floor.
+- [ ] **`main.cpp` re-checks what the store already guarantees.** After `resolveModel` succeeds it
+  tests `exists(model_path)` and `exists(tokenizer_path)`, but `locate()` refuses an incomplete
+  record, so the blobs are present by construction. Harmless duplication, except that `/model` has
+  no equivalent check — so the asymmetry only matters if the store's guarantee is doubted, in which
+  case the check belongs in the store and not in one of its two consumers.
 
 ### Product Family — Adaptor Validation
 
