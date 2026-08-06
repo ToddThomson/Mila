@@ -646,10 +646,20 @@ namespace Mila::ChatApp
     {
         std::vector<std::string> lines;
 
-#ifdef MILA_HAS_MODEL_DOWNLOAD
-        const Mila::Distribution::HuggingFaceHub hub;
+        // A build without a hub says so, rather than reporting an empty listing -- that would
+        // claim this publisher has nothing, when the truth is that nothing can be asked.
+        if constexpr ( !Mila::Distribution::kHttpTransportAvailable )
+        {
+            lines.push_back(
+                "This build has no HTTP transport (MILA_ENABLE_LIBCURL=OFF), so no publisher "
+                "can be listed. Models already installed are shown by /models." );
 
-        const auto models = hub.listModels( owner );
+            return lines;
+        }
+
+        const auto hub = Mila::Distribution::makeDefaultModelHub();
+
+        const auto models = hub->listModels( owner );
 
         if ( models.empty() )
         {
@@ -688,11 +698,6 @@ namespace Mila::ChatApp
         }
 
         lines.push_back( "  Install one with /install <name>" );
-#else
-        lines.push_back(
-            "This build was compiled without MILA_ENABLE_MODEL_DOWNLOAD, so no hub can be "
-            "listed. Installed models are still available with /models." );
-#endif
 
         return lines;
     }
@@ -704,7 +709,15 @@ namespace Mila::ChatApp
     {
         std::vector<std::string> lines;
 
-#ifdef MILA_HAS_MODEL_DOWNLOAD
+        if constexpr ( !Mila::Distribution::kHttpTransportAvailable )
+        {
+            lines.push_back( std::format(
+                "Cannot install '{}': this build has no HTTP transport "
+                "(MILA_ENABLE_LIBCURL=OFF).", spec ) );
+
+            return lines;
+        }
+
         Mila::Distribution::ModelStore store;
 
         bool reported = false;
@@ -726,10 +739,9 @@ namespace Mila::ChatApp
                 return true;
             };
 
-        const Mila::Distribution::HuggingFaceHub hub(
-            Mila::Distribution::discoverHuggingFaceToken(), progress );
+        const auto hub = Mila::Distribution::makeDefaultModelHub( progress );
 
-        Mila::Distribution::ModelResolver resolver( store, hub );
+        Mila::Distribution::ModelResolver resolver( store, *hub );
 
         const auto pulled = resolver.pull(
             spec, std::string( Mila::Distribution::kDefaultHubOwner ) );
@@ -743,11 +755,6 @@ namespace Mila::ChatApp
             pulled.record.name,
             pulled.record.architecture.empty() ? "unknown architecture" : pulled.record.architecture,
             formatBytes( pulled.bytes_on_disk ) ) );
-#else
-        lines.push_back( std::format(
-            "Cannot install '{}': this build was compiled without MILA_ENABLE_MODEL_DOWNLOAD.",
-            spec ) );
-#endif
 
         return lines;
     }

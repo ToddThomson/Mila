@@ -19,6 +19,7 @@ module;
 #include <memory>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <stop_token>
 #include <string>
 #include <unordered_map>
@@ -52,6 +53,239 @@ namespace Mila::Bindings
 
         auto sink = std::make_shared<Mila::Logging::ConsoleSink>( resolved );
         Mila::initialize( 0, std::move( sink ) );
+    }
+
+    // ---- Distribution -------------------------------------------------------
+
+    std::string defaultHubOwner()
+    {
+        return std::string( Mila::Distribution::kDefaultHubOwner );
+    }
+
+    namespace
+    {
+        StoredModelInfo describeStoredModel( const Mila::Distribution::StoredModel& model )
+        {
+            StoredModelInfo info;
+            info.name = model.record.name;
+            info.architecture = model.record.architecture;
+            info.variant = model.record.variant;
+            info.weight_quantization = model.record.weight_quantization;
+            info.instruct = model.record.instruct;
+            info.base_model = model.record.base_model;
+            info.license = model.record.license;
+            info.hub = model.record.hub;
+            info.owner = model.record.owner;
+            info.repository = model.record.repository;
+            info.revision = model.record.revision;
+            info.installed_at = model.record.installed_at;
+            info.weights_path = model.weights_path.string();
+            info.tokenizer_path = model.tokenizer_path.string();
+            info.complete = model.complete;
+            info.bytes_on_disk = model.bytes_on_disk;
+
+            return info;
+        }
+
+        /**
+         * @brief An IHttpTransport backed by one caller-supplied callable.
+         *
+         * Everything above this -- the URL, the redirect decision, the token rule, the
+         * manifest, the digest, the record -- stays in the library. The host language moves
+         * bytes and nothing else, and they reach the store's sink directly, so they are hashed
+         * once as they arrive rather than staged and re-read.
+         *
+         * The delegate is held by value: a copy of a std::function is cheap next to a transfer,
+         * and it removes any question of whether the caller's callable outlives the pull.
+         */
+        class DelegateHttpTransport : public Mila::Distribution::IHttpTransport
+        {
+        public:
+
+            explicit DelegateHttpTransport( HttpFetchDelegate perform )
+                : perform_( std::move( perform ) )
+            {}
+
+            std::string name() const override { return "delegate"; }
+
+            Mila::Distribution::HttpResponse fetch(
+                const Mila::Distribution::HttpFetch& request,
+                const Mila::Distribution::SinkCallback& sink,
+                const Mila::Distribution::HeadersCallback& on_headers ) const override
+            {
+                std::vector<HttpHeaderInfo> headers;
+
+                for ( const auto& header : request.headers )
+                {
+                    headers.push_back( { header.name, header.value } );
+                }
+
+                const HttpResponseInfo answer = perform_( request.url, headers, sink );
+
+                // The delegate reports what it saw only on return, so a caller watching
+                // progress learns the total after the body rather than before it. Reporting
+                // it here at least gets it into the result.
+                if ( on_headers )
+                {
+                    on_headers( answer.http_code, answer.content_length );
+                }
+
+                Mila::Distribution::HttpResponse response;
+                response.http_code = answer.http_code;
+                response.location = answer.location;
+                response.content_length = answer.content_length;
+                response.transport_failed = answer.transport_failed;
+                response.message = answer.message;
+
+                return response;
+            }
+
+        private:
+
+            HttpFetchDelegate perform_;
+        };
+
+        /// The caller's transport, or this build's own when they supplied none.
+        std::shared_ptr<const Mila::Distribution::IHttpTransport> transportFor(
+            const HttpFetchDelegate& delegate )
+        {
+            if ( !delegate )
+            {
+                return Mila::Distribution::makeDefaultHttpTransport();
+            }
+
+            return std::make_shared<const DelegateHttpTransport>( delegate );
+        }
+    }
+
+    struct ModelStoreHandle::Impl
+    {
+        explicit Impl( std::filesystem::path root ) : store( std::move( root ) )
+        {}
+
+        Mila::Distribution::ModelStore store;
+    };
+
+    // The root is resolved here rather than left to ModelStore's default argument, so the
+    // empty-string case costs one resolveStoreRoot() rather than one discarded and one kept.
+    ModelStoreHandle::ModelStoreHandle( const std::string& root )
+        : impl_( std::make_unique<Impl>( root.empty()
+            ? Mila::Distribution::resolveStoreRoot()
+            : std::filesystem::path( root ) ) )
+    {}
+
+    ModelStoreHandle::~ModelStoreHandle() = default;
+
+    std::string ModelStoreHandle::root() const
+    {
+        return impl_->store.root().string();
+    }
+
+    std::vector<StoredModelInfo> ModelStoreHandle::list() const
+    {
+        std::vector<StoredModelInfo> models;
+
+        for ( const auto& model : impl_->store.list() )
+        {
+            models.push_back( describeStoredModel( model ) );
+        }
+
+        return models;
+    }
+
+    std::optional<StoredModelInfo> ModelStoreHandle::locate( const std::string& name ) const
+    {
+        const auto model = impl_->store.locate( name );
+
+        if ( !model.has_value() )
+        {
+            return std::nullopt;
+        }
+
+        return describeStoredModel( *model );
+    }
+
+    RemovalReportInfo ModelStoreHandle::remove( const std::string& name )
+    {
+        const auto report = impl_->store.remove( name );
+
+        RemovalReportInfo info;
+        info.records_removed = report.records_removed;
+        info.blobs_removed = report.blobs_removed;
+        info.files_removed = report.files_removed;
+        info.bytes_reclaimed = report.bytes_reclaimed;
+        info.retained = report.retained;
+
+        return info;
+    }
+
+    StoreUsageInfo ModelStoreHandle::usage() const
+    {
+        const auto totals = impl_->store.usage();
+
+        StoreUsageInfo info;
+        info.blob_bytes = totals.blob_bytes;
+        info.reclaimable_bytes = totals.reclaimable_bytes;
+        info.partial_bytes = totals.partial_bytes;
+        info.model_count = totals.model_count;
+        info.blob_count = totals.blob_count;
+
+        return info;
+    }
+
+    StoredModelInfo ModelStoreHandle::install(
+        const std::string& package_directory,
+        const std::string& name,
+        bool replace,
+        bool move_files )
+    {
+        const auto package = Mila::Distribution::ModelPackage::open(
+            std::filesystem::path( package_directory ) );
+
+        Mila::Distribution::InstallOptions options;
+        options.name = name;
+        options.replace = replace;
+        options.move_files = move_files;
+
+        return describeStoredModel( impl_->store.install( package, options ) );
+    }
+
+    StoredModelInfo ModelStoreHandle::pull(
+        const std::string& name,
+        const std::string& owner,
+        const HttpFetchDelegate& transport )
+    {
+        const Mila::Distribution::HuggingFaceHub hub( transportFor( transport ) );
+
+        Mila::Distribution::ModelResolver resolver( impl_->store, hub );
+
+        return describeStoredModel( resolver.pull( name, owner ) );
+    }
+
+    std::vector<HubModelInfo> ModelStoreHandle::listHubModels(
+        const std::string& owner,
+        const HttpFetchDelegate& transport ) const
+    {
+        const Mila::Distribution::HuggingFaceHub hub( transportFor( transport ) );
+
+        std::vector<HubModelInfo> models;
+
+        for ( const auto& entry : hub.listModels( owner ) )
+        {
+            HubModelInfo model;
+            model.owner = entry.owner;
+            model.repository = entry.repository;
+            model.gated = entry.gated;
+            model.revision = entry.revision;
+            model.last_modified = entry.last_modified;
+            model.library = entry.library;
+            model.tags = entry.tags;
+            model.files = entry.files;
+
+            models.push_back( std::move( model ) );
+        }
+
+        return models;
     }
 
     // ---- Tokenizer ----------------------------------------------------------

@@ -156,23 +156,22 @@ add_executable( MilaTests
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
 )
 
-# The local store is always present, so its tests always compile. The store takes its
-# fetcher as a callable, so these run offline -- no network in the suite. Packaging and
-# installing are filesystem-only for the same reason.
+# Everything that does not move bytes, which is nearly all of distribution: the store, pull,
+# packaging, and HuggingFace's own parsing. Each takes its transport as an injected callable --
+# the store a fetcher, the resolver an IModelHub, the hub an IHttpTransport -- so these run
+# offline, and they compile whether or not this build has an HTTP client.
 target_sources( MilaTests PRIVATE
     "Distribution/ModelStore.Cpu.cpp"
     "Distribution/ModelPackage.Cpu.cpp"
+    "Distribution/ModelResolver.Cpu.cpp"
+    "Distribution/ModelHub.Cpu.cpp"
+    "Distribution/HttpClient.Cpu.cpp"
 )
 
-# Hub tests. Compiled only when the feature is on, since the modules under test do not
-# exist otherwise. Remote access is injected, so these run offline too.
-if(MILA_ENABLE_MODEL_DOWNLOAD)
-    target_sources( MilaTests PRIVATE
-        "Distribution/HttpClient.Cpu.cpp"
-        "Distribution/ModelHub.Cpu.cpp"
-        "Distribution/ModelResolver.Cpu.cpp"
-    )
-endif()
+# Nothing under Distribution is gated any more. HttpClient's policy -- redirect hops, the
+# cross-host token drop, Range and the 200-versus-206 rule -- runs against a scripted
+# transport, so the rules that matter are pinned in every build rather than only where
+# libcurl happens to be compiled.
 
 # CUDA-only test translation units. These exercise CUDA memory resources,
 # execution contexts, and kernels directly and have no CPU-only meaning, so they

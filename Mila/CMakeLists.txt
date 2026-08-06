@@ -796,12 +796,15 @@ if(MILA_HAS_METAL)
 endif()
 
 # ----------------------------------------------------------------------------
-# Model distribution -- the local store
+# Model distribution -- everything that does not move bytes
 #
-# Always compiled. The store is the only thing a load reads from, and listing,
-# locating and removing an installed model touch no network -- so a build without
-# the hub, including the manylinux wheel that cannot link libcurl, still manages
-# its models. See Specifications/ModelDistribution.md.
+# The split is by dependency, not by theme, and the only optional thing is the
+# transport. The store, schema, packaging and install are filesystem-only;
+# ModelResolver::pull composes an IModelHub with the store; and HuggingFaceHub is
+# here too, because URL shapes, the token file, the listing quirks and the meaning
+# of a 403 are knowledge, not I/O. A build with no libcurl therefore still knows
+# everything about HuggingFace and needs only bytes supplied from elsewhere -- which
+# is exactly what the Python wheel does. See Specifications/ModelDistribution.md.
 # ----------------------------------------------------------------------------
 target_sources(Mila
     PUBLIC
@@ -813,33 +816,47 @@ target_sources(Mila
             "Src/Distribution/ModelManifest.ixx"
             "Src/Distribution/ModelPackage.ixx"
             "Src/Distribution/ModelStore.ixx"
+            "Src/Distribution/ModelHub.ixx"
+            "Src/Distribution/ModelResolver.ixx"
+            "Src/Distribution/HttpTransport.ixx"
+            "Src/Distribution/HttpClient.ixx"
+            "Src/Distribution/HuggingFaceHub.ixx"
 )
 
 # ----------------------------------------------------------------------------
-# Model distribution -- the hub (HuggingFace retrieval)
+# Model distribution -- the HTTP transport
 #
-# Gated so a consumer that only loads from the store takes no network dependency,
-# and so the manylinux wheel can build without libcurl/libssl, which are not
-# whitelisted there. That wheel installs into the same store through Python's
-# huggingface_hub instead.
+# Distribution.HttpTransportBackend has two candidate source files and exactly one
+# is compiled. Selecting by source file rather than by #ifdef means the OFF path is
+# compiled code that a build actually checks, and `import Mila;` never varies by a
+# preprocessor define. This is the whole of what libcurl is needed for.
 # ----------------------------------------------------------------------------
-if(MILA_ENABLE_MODEL_DOWNLOAD)
+if(MILA_ENABLE_LIBCURL)
     target_sources(Mila
         PUBLIC
             FILE_SET module_files
             TYPE CXX_MODULES FILES
-                "Src/Distribution/HttpClient.ixx"
-                "Src/Distribution/ModelHub.ixx"
-                "Src/Distribution/ModelResolver.ixx"
+                "Src/Distribution/CurlHttpTransport.ixx"
+                "Src/Distribution/HttpTransportBackend.Curl.ixx"
     )
 
     # PRIVATE: libcurl is an implementation detail. Its headers appear only in a global
     # module fragment, so no consumer needs them.
     target_link_libraries(Mila PRIVATE CURL::libcurl)
 
-    target_compile_definitions(Mila PUBLIC MILA_HAS_MODEL_DOWNLOAD)
+    # No MILA_HAS_* define: a PUBLIC macro that decides what a module exports makes the BMI
+    # depend on the preprocessor. Consumers ask Distribution::kHttpTransportAvailable
+    # instead, which is an exported constant the compiler checks.
+    message(STATUS "Added HTTP transport: libcurl")
+else()
+    target_sources(Mila
+        PUBLIC
+            FILE_SET module_files
+            TYPE CXX_MODULES FILES
+                "Src/Distribution/HttpTransportBackend.Null.ixx"
+    )
 
-    message(STATUS "Added model distribution hub modules (libcurl)")
+    message(STATUS "Added HTTP transport: none (caller supplies one, or install from disk)")
 endif()
 
 # ----------------------------------------------------------------------------

@@ -194,7 +194,10 @@ not by the Release. See the note below.
    metadata **dropped**: `0.20.0-beta.2+7` becomes `0.20.0-beta.2`. A tag never carries build
    metadata, so this is what lets step 4's drift check pass. If the checkpoint is being renamed from
    its working placeholder (`beta.2` -> `rc.1`), this is the commit that does it. Reconcile
-   BACKLOG / ROADMAP / CHANGELOG in the same commit.
+   BACKLOG / ROADMAP in the same commit.
+   **CHANGELOG only at a production (unsuffixed) release** — generate one short entry from the
+   commit range since the previous production tag, and collapse that line's `alpha.N`/`beta.N`/`rc.N`
+   sections into it. A pre-release flip writes nothing to CHANGELOG.
 2. Open a `dev -> master` pull request. CI validates on the PR.
 3. Merge to `master`.
 4. **Drift check (by eye — this used to be an automated gate):** the tag you are about to

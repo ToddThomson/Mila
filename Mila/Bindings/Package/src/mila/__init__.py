@@ -32,6 +32,14 @@ __all__ = [
     "LlamaModel",
     "StopController",
     "cuda_library_directories",
+    # Distribution: the local store, shared with Chat and the Inference Server.
+    "ModelStore",
+    "StoredModel",
+    "StoreUsage",
+    "RemovalReport",
+    "HubModel",
+    "HttpResponse",
+    "default_hub_owner",
 ]
 
 
@@ -170,8 +178,15 @@ try:
     from ._mila import (
         BpeTokenizer,
         GemmaModel,
+        HttpResponse,
+        HubModel,
         LlamaModel,
+        ModelStore,
+        RemovalReport,
         StopController,
+        StoredModel,
+        StoreUsage,
+        default_hub_owner,
         initialize,
     )
 except ImportError as error:

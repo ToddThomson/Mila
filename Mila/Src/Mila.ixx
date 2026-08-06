@@ -287,7 +287,7 @@ export import Serialization.SafeTensors;
 export import Serialization.PretrainedReader;
 
 // ============================================================================
-// Distribution - the local store, always present; the hub is gated
+// Distribution - the store, pull, and HuggingFace itself, none of which move bytes
 // ============================================================================
 export import Distribution.Sha256;
 export import Distribution.Environment;
@@ -295,12 +295,17 @@ export import Distribution.ModelCoordinate;
 export import Distribution.ModelManifest;
 export import Distribution.ModelPackage;
 export import Distribution.ModelStore;
-
-#ifdef MILA_HAS_MODEL_DOWNLOAD
-export import Distribution.HttpClient;
 export import Distribution.ModelHub;
 export import Distribution.ModelResolver;
-#endif
+export import Distribution.HttpTransport;
+export import Distribution.HttpClient;
+export import Distribution.HuggingFaceHub;
+
+// The transport, chosen by CMake between two source files: the libcurl backend re-exports the
+// client with it, the null backend re-exports nothing. Selecting it here would take an #ifdef,
+// which would make this module's exported interface -- and its BMI -- depend on a preprocessor
+// define rather than on the build configuration.
+export import Distribution.HttpTransportBackend;
 
 // ============================================================================
 // Data - Core

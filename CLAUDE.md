@@ -80,8 +80,9 @@ Mila/
 Data/
   Models/             Binary weight files (llama32_3b_instruct_bf16.bin, llama31_8b_instruct_bf16.bin, etc.)
   Scripts/            Python dev/conversion scripts
-Dev/Scripts/          Python virtual environment and dev utilities
 ```
+
+`Dev/` is gitignored and is not part of the project. Do not read from it or reference it.
 
 ---
 
@@ -198,20 +199,27 @@ Module partition files (`:Cuda`, `:Cpu` suffixes) are used to separate backend s
 
 ## Work-Tracking Docs
 
-Four files at the repo root stay **mutually consistent**, updated in the **same commit** as the
-work they describe — never deferred to "later":
+**The git history is the record of what changed.** No work-tracking file duplicates it. The four
+files below stay **mutually consistent**, updated in the **same commit** as the work they describe —
+never deferred to "later":
 
 - **`ROADMAP.md`** — the durable **narrative + success criteria** of each release, organized by
   **theme** (not milestone). Shows the release in flight plus a single **Future** tail. **Narrative
   only — no task lists, checkboxes, or status** (they drift; point to BACKLOG). When a release ships,
   its section moves to CHANGELOG.
-- **`BACKLOG.md`** — the working task list. `## Current release` holds one **theme bucket** per
-  ROADMAP theme (matching names — the only join) with a 3-state gauge (`[ ]` open / `[~]` in progress /
-  `[x]` done); `## Future` is a flat, coarse parking list. `[x]` is pruned **only at a production
-  (unsuffixed) release**; open items carry forward. Detailed tasking is for the current release only.
-  Not GitHub Issues (a decoupled, requester-authored end-user layer — see RELEASING).
-- **`CHANGELOG.md`** — the permanent record, newest first. Each entry is the release notes for one
-  `dev -> master` PR, generated from its commit range (not hand-authored).
+- **`BACKLOG.md`** — the **open** task list, and nothing else. `## Current release` holds one **theme
+  bucket** per ROADMAP theme (matching names — the only join); `## Future` is a flat, coarse parking
+  list. Not GitHub Issues (a decoupled, requester-authored end-user layer — see RELEASING). Four
+  rules keep it usable:
+  - **An item is three lines** — what, why it matters, `file:line`. Five if genuinely complex.
+  - **Status lives in the checkbox**, `[ ]` open or `[~]` in progress, and never in the prose. No
+    dates, no "GREEN", no findings, no measurement tables.
+  - **Done means deleted**, in the same commit as the work. There is no `[x]` state. The commit that
+    landed the work is the record; a finding worth reusing goes to the owning spec or to memory.
+  - **Past ~300 lines it has stopped being a task list** and needs a prune.
+- **`CHANGELOG.md`** — one short entry per **production (unsuffixed) release**, generated from its
+  commit range at release time. Nothing is written to it during a cycle, and pre-release detail
+  (`alpha.N`/`beta.N`/`rc.N`) never earns its own entry.
 - **`Version.txt`** — `MAJOR.MINOR.PATCH-stage.N`, bumped **before committing** (see
   [RELEASING.md](RELEASING.md) for the scheme). GitHub Milestones/Issues/Labels are an end-user triage
   layer, decoupled from this workflow.

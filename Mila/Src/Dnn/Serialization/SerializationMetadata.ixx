@@ -15,6 +15,8 @@ module;
 #include <stdexcept>
 #include <format>
 #include <cstdint>
+// Required by every importer of nlohmann.json -- see Distribution/ModelStore.ixx.
+#include <memory>
 
 export module Serialization.Metadata;
 

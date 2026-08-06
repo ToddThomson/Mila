@@ -11,6 +11,8 @@ module;
 #include <vector>
 #include <stdexcept>
 #include <fstream>
+// Required by every importer of nlohmann.json -- see Distribution/ModelStore.ixx.
+#include <memory>
 
 export module Data.FileHeader;
 

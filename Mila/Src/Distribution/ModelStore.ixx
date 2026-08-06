@@ -17,6 +17,10 @@ module;
 #include <fstream>
 #include <functional>
 #include <ios>
+// Required by every importer of nlohmann.json: basic_json::create compares a unique_ptr
+// against nullptr at the point of instantiation, and those operators are not reachable
+// through the module.
+#include <memory>
 #include <optional>
 #include <set>
 #include <stdexcept>

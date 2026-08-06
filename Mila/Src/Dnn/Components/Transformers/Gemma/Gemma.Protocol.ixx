@@ -23,6 +23,10 @@ module;
 #include <vector>
 #include <cstdint>
 #include <cstdlib>
+// nlohmann::json::create instantiates here and compares a unique_ptr against nullptr, so this
+// TU needs <memory>'s operators by ordinary lookup. Importing nlohmann.json does not supply
+// them: they reach the BMI only as pruned global-module-fragment declarations.
+#include <memory>
 
 export module Dnn.Components.GemmaProtocol;
 

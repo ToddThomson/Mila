@@ -144,6 +144,13 @@
       "cacheVariables": { "MILA_ENABLE_COVERAGE": "ON" }
     },
     {
+      "name": "x64-debug-no-libcurl",
+      "displayName": "x64 Debug (no libcurl - the Linux wheel's configuration)",
+      "description": "x64-debug with MILA_ENABLE_LIBCURL=OFF: no HTTP client of Mila's own. Everything else is still compiled -- the store, packaging, install, ModelResolver::pull, and HuggingFaceHub itself, since URL shapes, the token file and the meaning of a 403 are knowledge rather than I/O. So this build still installs, lists, locates, removes and loads models, and can pull too when the caller supplies a transport. That is what the Linux mila-llm wheel does, where libcurl cannot be linked because curl's system OpenSSL is not on the manylinux whitelist. Build it and run the tests whenever anything under Src/Distribution changes.",
+      "inherits": "x64-debug",
+      "cacheVariables": { "MILA_ENABLE_LIBCURL": "OFF" }
+    },
+    {
       "name": "x64-validate",
       "displayName": "x64 Release (full validation - run before committing)",
       "description": "Pre-commit validation build. The default x64-release already builds the unit tests and samples; this adds the heavy network-free packaging gates (find_package + FetchContent install/embed consumers). Build, then run ctest. Does NOT enable the CPM release-access gate -- that needs a pushed tag; use x64-release-cpm-gate at release time.",

@@ -63,6 +63,24 @@ def _extension_name():
     return "_mila" + suffix
 
 
+def _extension_mtime(directory):
+    """
+    When the extension under <directory>/mila was last built. 0 if there is none.
+
+    Deliberately not the directory's own mtime: a rebuild rewrites the extension in
+    place and leaves every enclosing directory untouched, so a preset built minutes
+    ago can look older than one merely configured days ago -- and the sample then
+    imports the stale one and fails on a symbol that exists in the newer build.
+    """
+    stamps = [
+        path.stat().st_mtime
+        for path in (directory / "mila").glob("_mila*")
+        if path.is_file()
+    ]
+
+    return max(stamps, default=0.0)
+
+
 def _search_dirs():
     """Directories that may hold the mila package, most specific first."""
     override = os.environ.get("MILA_PYD_DIR")
@@ -74,7 +92,7 @@ def _search_dirs():
     # Mila/Bindings/CMakeLists.txt. Newest build wins when several presets exist.
     build_dirs = sorted(
         REPO_ROOT.glob("out/build/*/python"),
-        key=lambda path: path.stat().st_mtime,
+        key=_extension_mtime,
         reverse=True,
     )
     yield from build_dirs
@@ -106,7 +124,10 @@ def _find_extension_dir():
         mismatched.extend(sorted(package.glob("_mila*.pyd")) + sorted(package.glob("_mila*.so")))
 
     if mismatched:
-        found = "\n  ".join(str(path.name) for path in mismatched)
+        # Full paths, not names: every candidate carries the same ABI tag, so the
+        # filename alone says nothing about which build tree it came from.
+        found = "\n  ".join(str(path) for path in mismatched)
+
         raise ImportError(
             f"Found a mila extension, but not one this interpreter can load.\n"
             f"  This interpreter: Python {sys.version.split()[0]}, expects '{name}'\n"

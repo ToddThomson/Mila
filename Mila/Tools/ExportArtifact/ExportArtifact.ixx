@@ -133,12 +133,16 @@ namespace Mila::Tools
     }
 
     /**
-     * @brief Fetch one URL through Mila's own HTTP client and report what arrived.
+     * @brief Fetch one URL through Mila's own HTTP transport and report what arrived.
      *
      * Exists because a corrupted 6.33 GB download is an intolerable debugging loop. Pointed
      * at a small file from the same repository it reproduces the transport in seconds, and
      * reports the byte count and digest so the result can be diffed against a known-good
      * local copy.
+     *
+     * Works in URLs rather than coordinates deliberately: what it diagnoses is the transport,
+     * below the level at which a hub knows anything. In a build with no HTTP client the
+     * transport says so and this reports that, which is the honest answer.
      *
      * @return Process exit code.
      */
@@ -163,7 +167,12 @@ namespace Mila::Tools
 
         std::cout << std::format( "Fetching {}\n", url );
 
-        const auto result = Mila::Distribution::httpGet( request,
+        // A client, not a raw transport: --fetch is meant to reproduce what a real pull does,
+        // which includes following the CDN redirect and dropping the token on the way.
+        const Mila::Distribution::HttpClient client(
+            Mila::Distribution::makeDefaultHttpTransport() );
+
+        const auto result = client.get( request,
             [&]( const char* data, size_t length ) -> bool
             {
                 if ( std::fwrite( data, 1, length, output.get() ) != length )
@@ -179,6 +188,7 @@ namespace Mila::Tools
 
         output.reset();
 
+        std::cout << std::format( "  transport      {}\n", client.transportName() );
         std::cout << std::format( "  status         {}\n", toString( result.status ) );
         std::cout << std::format( "  http code      {}\n", result.http_code );
         std::cout << std::format( "  final url      {}\n", result.final_url );

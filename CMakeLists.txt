@@ -64,12 +64,18 @@ option(MILA_ENABLE_ADAPTORS "Build the first-class Mila adaptors (Chat CLI)." ${
 option(MILA_ENABLE_DOCS "Build Doxygen API documentation. Requires Doxygen and Graphviz." ON)
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
 
-# Model retrieval from HuggingFace. OFF drops the libcurl dependency and the Http/
-# Distribution modules; local-path loading is unaffected, since the resolver takes a path
-# or a coordinate. Turned OFF for the manylinux wheel, where libcurl and libssl are not
-# whitelisted and the Python layer uses huggingface_hub instead. See
-# Specifications/ModelDistribution.md.
-option(MILA_ENABLE_MODEL_DOWNLOAD "Enable HuggingFace model retrieval (requires libcurl)." ON)
+# Mila's own HTTP transport. OFF drops libcurl and nothing else: the store, packaging,
+# install, pull, and every HuggingFace URL, token rule and status meaning are still compiled,
+# so such a build knows everything about the hub except how to reach it -- and a caller that
+# supplies its own transport loses nothing at all.
+#
+# The reason is TLS, not the library: manylinux permits a wheel to vendor libcurl statically,
+# but curl links the system OpenSSL, which is not whitelisted. Vendoring OpenSSL instead means
+# owning its CVEs and shipping a CA bundle, losing the system trust store. So the Linux wheel
+# builds with this OFF and supplies the transport from Python, which already has one.
+# See Specifications/ModelDistribution.md.
+option(MILA_ENABLE_LIBCURL "Build Mila's libcurl HTTP transport." ON)
+
 # PARKED: find_package(Mila) is parked in favor of FetchContent. A C++23 module library is a
 # source distribution (BMIs are not portable -- a consumer recompiles the module graph either
 # way), so find_package's prebuilt-binary benefit is void while its install/export layout is
@@ -78,6 +84,7 @@ option(MILA_ENABLE_MODEL_DOWNLOAD "Enable HuggingFace model retrieval (requires 
 # -DMILA_INSTALL=ON only to exercise the parked find_package path. See Mila/Tests/Packaging/
 # CMakeLists.txt and RELEASING/BACKLOG.
 option(MILA_INSTALL "Generate Mila install/export rules (PARKED find_package consumption; default OFF -- FetchContent is the supported path)." OFF)
+
 option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
 
 # The Metal and ROCm backends are currently for internal testing only. Please leave them disabled.
@@ -232,7 +239,7 @@ CPMAddPackage(
 #        "SPM_BUILD_TEST OFF"
 #)
 
-if(MILA_ENABLE_MODEL_DOWNLOAD)
+if(MILA_ENABLE_LIBCURL)
     # Vendored and pinned on both platforms. Windows has no linkable OS libcurl, so it is
     # built there regardless; building it on Linux too buys one known version everywhere
     # rather than whatever the distribution shipped.

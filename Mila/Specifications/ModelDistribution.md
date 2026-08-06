@@ -527,20 +527,42 @@ them.
 
 ## Build gating
 
-The split is by dependency, not by theme.
+The split is by dependency, not by theme, and **the only optional thing is the transport.**
 
-- **`Distribution.ModelStore`**, with `Sha256`, `ModelCoordinate`, `ModelManifest` and
-  `ModelPackage` -- naming, the schema, layout, records, list, locate, remove, prune, package,
-  validate, install. Filesystem only, **always compiled**.
-- **`Distribution.ModelHub`**, with `HttpClient` and `HuggingFaceHub` -- listing, manifest fetch,
-  pull. Gated on `MILA_ENABLE_MODEL_DOWNLOAD`, keeps libcurl private.
+- **Always compiled** -- `Sha256`, `Environment`, `ModelCoordinate`, `ModelManifest`,
+  `ModelPackage`, `ModelStore`, `ModelHub`, `ModelResolver`, `HttpTransport` and
+  **`HuggingFaceHub`**: naming, the schema, layout, records, list, locate, remove, prune,
+  package, validate, install, `pull` itself, and every HuggingFace URL shape, token rule,
+  listing quirk and status meaning. None of it performs I/O. `HuggingFaceHub` holds an
+  `IHttpTransport` and asks it for bytes.
+- **`Distribution.HttpTransportBackend`** -- the transport, with two candidate source files and
+  exactly one compiled. `HttpTransportBackend.Curl.ixx` brings `CurlHttpTransport` and keeps
+  libcurl private; `HttpTransportBackend.Null.ixx` supplies one that refuses by name. Both
+  export `makeDefaultHttpTransport()` and `kHttpTransportAvailable`.
 
-`MILA_ENABLE_MODEL_DOWNLOAD` defaults ON, matching `MILA_ENABLE_CUDA` and
-`MILA_ENABLE_PYTHON_BINDINGS`, and exists for two reasons. **libcurl and libssl are not on the
-manylinux whitelist**, so a Linux `mila-llm` wheel cannot link them; Python already has
-`huggingface_hub`, so the wheel pulls in Python and installs into the same store. And a library whose
-entire third-party surface is two headers should not force a network dependency on a consumer that
-only loads from disk.
+**Why the seam is the transport and not the hub.** Gating `HuggingFaceHub` was tried and was
+wrong: URL construction, token discovery, the `gated: "auto"` quirk and the 401-vs-403 distinction
+are *knowledge*, and a host language that had to supply them would be reimplementing the library's
+policy rather than lending it a capability. With the seam one level down, a caller supplies
+`GET url -> bytes` and reimplements nothing.
+
+`MILA_ENABLE_LIBCURL` defaults ON, matching `MILA_ENABLE_CUDA` and
+`MILA_ENABLE_PYTHON_BINDINGS`.
+
+**The reason is TLS, not libcurl.** The manylinux policy constrains dynamic linking only, and
+Mila vendors libcurl statically -- `auditwheel` never sees it. What it does see is the system
+OpenSSL that curl links on Linux, which is not whitelisted. The alternatives are to vendor
+OpenSSL and own its CVEs, or to link it statically and ship a CA bundle; both give up the system
+trust store, which is the property that makes a corporate proxy with an injected root work
+untouched. Python has already solved this, so the wheel builds with the backend OFF and supplies
+the transport itself. Secondarily, a library whose entire third-party surface is two headers
+should not force a network dependency on a consumer that only loads from disk.
+
+**Selection is by source file, never by `#ifdef`.** A `PUBLIC` macro deciding what a module
+exports makes the BMI depend on the preprocessor, so `import Mila;` would no longer name one
+thing. Choosing the file instead keeps both alternatives compiled code and leaves the variation
+where it belongs: in the build configuration. A consumer that must say which build it is asks
+`Distribution::kHttpTransportAvailable`.
 
 ### The HTTP client
 
@@ -599,10 +621,10 @@ Phases 1 to 5 landed in `0.20.0-beta.2+21..+25`: the HTTP client, the content-ad
 coordinate resolver, the Chat catalog entry, and the published `mila-llm/gemma-4-12b-it` repository.
 What follows completes distribution as a managed system.
 
-**Phase 6 -- the store.** Split `ModelStore` out from behind `MILA_ENABLE_MODEL_DOWNLOAD`; add the
-record tree, and write a record on every successful pull.
-*Done when:* a pulled model appears in `list()`, and a build with `MILA_ENABLE_MODEL_DOWNLOAD=OFF`
-still lists and locates it.
+**Phase 6 -- the store.** Split `ModelStore` out from behind the hub option; add the record tree,
+and write a record on every successful pull.
+*Done when:* a pulled model appears in `list()`, and a build with no HTTP transport still lists
+and locates it.
 
 **Phase 7 -- management.** `remove`, `prune`, `diskUsage`, refcounted sweep, transfer lock.
 *Done when:* removing one of two variants sharing a tokenizer leaves the tokenizer blob in place;

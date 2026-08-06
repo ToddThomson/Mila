@@ -11,6 +11,8 @@ module;
 #include <charconv>
 #include <cstdint>
 #include <format>
+// Required by every importer of nlohmann.json -- see Distribution/ModelStore.ixx.
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
