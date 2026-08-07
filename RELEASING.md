@@ -27,7 +27,7 @@ Mila uses a repeating **release-cycle** model: `MAJOR.MINOR.PATCH-stage.X+build`
 **The whole string points forward.** `Version.txt` names *what is being built*, never what was last
 built — the git tag is the record of what shipped. So on `dev`, `0.20.0-beta.2+7` reads "the 0.20.0
 release, seven commits into the work toward the beta.2 checkpoint". The stage ordinal is bumped **at
-the moment a checkpoint is tagged**, not before the next one is cut (see step 8 of *Cutting a
+the moment a checkpoint is tagged**, not before the next one is cut (see step 9 of *Cutting a
 release*), so the working tree never reports a version that has already shipped.
 
 The next checkpoint's name is a **placeholder, not a commitment** — a tree that says `beta.2` may
@@ -215,9 +215,12 @@ not by the Release. See the note below.
    This git-clones Mila from GitHub at the tag and builds a consumer against it via CPM,
    proving the release is actually consumable downstream. The gate's tag defaults to the
    current `Version.txt`, so at this moment it lines up with the tag you just pushed — **run it
-   before step 8**, which moves `Version.txt` off the tag. (After that, point it explicitly:
+   before step 9**, which moves `Version.txt` off the tag. (After that, point it explicitly:
    `-DMILA_CPM_GIT_TAG=v0.20.0-beta.2`.)
-7. **(Optional, human-facing) Publish a GitHub Release** for a curated changelog:
+7. **Publish the wheels** — see [Publishing the wheels](#publishing-the-wheels) below. Like step 6
+   this must happen **before step 9**: the wheel version is derived from `Version.txt`, so a wheel
+   built after the next checkpoint opens carries the wrong version entirely.
+8. **(Optional, human-facing) Publish a GitHub Release** for a curated changelog:
    ```
    gh release create v0.13.46-alpha.5 --generate-notes --prerelease
    ```
@@ -226,12 +229,51 @@ not by the Release. See the note below.
    release" badge to a prerelease, so this is what keeps the last production release badged as Latest
    throughout the next cycle's pre-release ramp. Or draft it in the **Releases** web UI for full
    hand-curation. Nothing downstream depends on this, so do it on your own schedule.
-8. **Open the next checkpoint on `dev`** — bump `Version.txt` to the *next* stage ordinal with the
+9. **Open the next checkpoint on `dev`** — bump `Version.txt` to the *next* stage ordinal with the
    counter reset, e.g. having just tagged `v0.20.0-beta.2`, `dev` becomes `0.20.0-beta.3+1` (or
    `0.20.0-rc.1+1`, if that is the call). Its own `dev` commit, same sitting as the tag. Skipping it
    leaves the working tree reporting an already-shipped version — the failure mode this scheme exists
    to prevent. After a **production** tag, this is where the next cycle opens instead
    (`0.21.0-alpha.1+1`); never reopen a ladder on a shipped version.
+
+---
+
+## Publishing the wheels
+
+`mila-llm` on PyPI is a published release artifact, built from the tagged tree by two scripts and
+uploaded by hand. It sits at **step 7** for two reasons: the wheel version comes from `Version.txt`,
+which step 1 has already stripped of its `+build` metadata (`0.20.0-beta.2` -> `0.20.0b2`, a release
+rather than the `0.20.0b2.dev38` snapshot a working `+38` tree would produce), and step 9 moves
+`Version.txt` off the tag again.
+
+**A PyPI upload cannot be undone.** Release metadata is immutable and a filename can never be reused,
+so a wheel published before it was verified stays wrong until the *next* release — which is exactly
+how the live page came to advertise Linux while shipping only `win_amd64`. That is what the TestPyPI
+step below exists to prevent, and why it is not optional.
+
+1. **Build both wheels** from the tagged tree. Each script clears only its own platform's wheel from
+   `out/wheel`, because both land there and both are published from one glob.
+   - Windows: `scripts/build-wheel-windows.ps1` — enters the VS developer shell, configures the
+     `x64-wheel` preset against Python 3.13, and packages from a copy of the package tree.
+   - Linux: `scripts/build-wheel.ps1` — builds and runs the wheel container. It must be the **wheel**
+     container (Ubuntu 24.04), not the dev container: `auditwheel` derives the manylinux tag from the
+     build distro, so 26.04 would produce a wheel that locks out the current LTS.
+2. **Check what is actually in `out/wheel`** — exactly two files, both carrying the release version
+   and nothing else. A leftover wheel from an earlier build is published alongside the intended one by
+   the same glob, and that cannot be withdrawn.
+3. **Upload to TestPyPI**, never to PyPI first.
+4. **Dispatch the `Wheel clean room` workflow** (Actions -> Wheel clean room -> Run workflow) with the
+   exact version (`0.20.0b2`) and index `testpypi`. It installs the wheel on `windows-latest` and
+   `ubuntu-latest` — neither of which has a CUDA Toolkit — and runs
+   `scripts/verify_wheel_cleanroom.py`, which asserts that absence *before* it asserts anything else.
+   A developer machine cannot answer this question, because a wheel quietly leaning on a host Toolkit
+   passes there exactly the way a correct one does.
+   Both platforms must be green. The version is pinned exactly because PyPI carries an older
+   `mila-llm` that can outrank a TestPyPI build; the script re-asserts the version it actually got.
+5. **Upload to PyPI.** Only now, and only if step 4 was green on both platforms.
+
+The workflow is `workflow_dispatch`, so it is dispatchable only once `wheel-cleanroom.yml` is on the
+default branch (`master`) — the step 3 merge is what puts it there.
 
 ---
 

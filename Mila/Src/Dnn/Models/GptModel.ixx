@@ -311,6 +311,14 @@ namespace Mila::Dnn
                 if ( stop.stop_requested() )
                     return GenerateStatus::ClientCancelled;
 
+                // decode reads the learned positional embedding at `position`, and GPT-2 has
+                // exactly context_length_ of them -- so one step past the end is an
+                // out-of-bounds read, not a degraded answer. max_new defaults to the whole
+                // context without subtracting the prompt, so the default budget alone reaches
+                // here. Mirrors the cache_has_room guard in GemmaModel.
+                if ( position >= context_length_ )
+                    return GenerateStatus::ContextOverflow;
+
                 auto decode_input = makeTokenTensor( std::vector{ next_token } );
                 auto& decode_logits = this->getLanguageNetwork().decode( decode_input, position );
                 this->getLanguageNetwork().synchronize();

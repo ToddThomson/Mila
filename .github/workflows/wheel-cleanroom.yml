@@ -1,0 +1,102 @@
+name: Wheel clean room
+
+# Purpose: prove a PUBLISHED mila-llm wheel installs and loads on a machine with no
+# CUDA Toolkit -- the machine a wheel exists to serve, and the one configuration a
+# developer box can never be. GitHub's hosted runners ship no CUDA, which is what makes
+# them the right instrument here; scripts/verify_wheel_cleanroom.py asserts that
+# absence before it asserts anything else, so a runner image that gained a Toolkit
+# fails loudly instead of quietly reporting a pass it did not earn.
+#
+# No GPU is needed and none is claimed. The failure being gated is library resolution
+# at extension-load time, which happens before any device is touched. Loading WEIGHTS
+# on a GPU is a separate gate and needs real hardware.
+#
+# Manually triggered: it tests an artifact on an index, not the commit, so running it
+# per push would re-test the same wheel and make the result a function of TestPyPI's
+# availability rather than of the code.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Exact version to install (e.g. 0.20.0b2.dev39). Asserted after import."
+        required: true
+        type: string
+      index:
+        description: "Index to install from."
+        required: true
+        default: testpypi
+        type: choice
+        options: [testpypi, pypi]
+
+jobs:
+  clean-room:
+    name: ${{ matrix.os }} -- install and load
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Both platforms, independently: the Linux wheel and the Windows wheel resolve
+      # their CUDA libraries by different mechanisms (SONAME preload vs DLL directory
+      # registration), so one passing says nothing about the other. fail-fast off so a
+      # break on one platform still reports the other.
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+      # Only the verification script is needed; nothing here builds from source.
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts/verify_wheel_cleanroom.py
+          sparse-checkout-cone-mode: false
+
+      # 3.13 exactly: requires-python is >=3.13,<3.14 and the wheel is cp313, so any
+      # other interpreter fails at resolution rather than telling us anything.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Confirms the premise of the whole job before spending time on it. The script
+      # re-checks this properly; this step is here so the log names the reason if a
+      # runner image ever starts shipping CUDA.
+      - name: Show the environment has no CUDA Toolkit
+        shell: bash
+        run: |
+          echo "CUDA_PATH=${CUDA_PATH:-<unset>}"
+          if command -v nvcc >/dev/null 2>&1; then
+            echo "nvcc IS PRESENT -- this runner is not a clean room"
+            nvcc --version
+          else
+            echo "nvcc: not found"
+          fi
+
+      # An EXACT pin, and both indexes, for one reason each. TestPyPI does not carry
+      # the nvidia-* runtime wheels, so dependencies must resolve from real PyPI --
+      # hence extra-index-url. But PyPI also carries an older mila-llm that outranks a
+      # TestPyPI dev build, so only pinning the exact version guarantees which artifact
+      # is under test. The script asserts the version it actually got.
+      - name: Install mila-llm ${{ inputs.version }}
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+
+          if [ "${{ inputs.index }}" = "testpypi" ]; then
+            python -m pip install \
+              --index-url https://test.pypi.org/simple/ \
+              --extra-index-url https://pypi.org/simple/ \
+              "mila-llm==${{ inputs.version }}"
+          else
+            python -m pip install "mila-llm==${{ inputs.version }}"
+          fi
+
+      - name: Show what was installed
+        shell: bash
+        run: python -m pip list
+
+      # Run from the runner's home directory, not the checkout: `import mila` must find
+      # the installed distribution, and nothing else. The script asserts that too.
+      - name: Verify the wheel stands on its own
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          python "${GITHUB_WORKSPACE}/scripts/verify_wheel_cleanroom.py" \
+            --expect-version "${{ inputs.version }}"

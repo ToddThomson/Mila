@@ -1557,13 +1557,16 @@ namespace Mila::ChatApp
         /**
          * @brief Tokens this model may generate, bounded by the context the prompt leaves free.
          *
-         * The prompt already occupies context, so a budget measured from zero runs past the end
-         * of the position table. For GPT-2 that is a crash rather than a truncation: its
-         * positional embeddings are *learned*, exactly context_length of them, so position
-         * 1024 is an out-of-bounds lookup. Observed at 1005 generated tokens on a 1024 context.
+         * The prompt already occupies context, so a budget measured from zero would ask for
+         * more than can fit. This was once load-bearing: GPT-2's positional embeddings are
+         * *learned*, exactly context_length of them, so position 1024 was an out-of-bounds
+         * lookup -- observed at 1005 generated tokens on a 1024 context. The models now guard
+         * the decode position themselves and return GenerateStatus::ContextOverflow, so this
+         * is no longer what stands between a base model and a crash.
          *
-         * A base model is where this bites, because it has no stop token in ordinary text and
-         * simply generates until the budget runs out.
+         * It stays because asking for a budget that cannot fit is a worse question than asking
+         * for one that can: the round ends on `length` at a number the user chose, rather than
+         * on `context_limit` at one they did not.
          */
         std::size_t generationBudget( std::size_t prompt_tokens ) const
         {

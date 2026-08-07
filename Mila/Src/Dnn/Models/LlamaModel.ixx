@@ -328,6 +328,13 @@ namespace Mila::Dnn
                 if ( stop.stop_requested() )
                     return GenerateStatus::ClientCancelled;
 
+                // decode cannot write the KV cache at a position past the deployment context
+                // length. RoPE is computed rather than looked up, so there is no positional
+                // table to run off the end of and nothing crashes -- the cache is overrun
+                // quietly instead, which is the worse failure. Mirrors GemmaModel.
+                if ( position >= context_length_ )
+                    return GenerateStatus::ContextOverflow;
+
                 decode_token_staging_.data()[ 0 ] = next_token;
                 copy( decode_token_staging_, decode_token_device_ );
 

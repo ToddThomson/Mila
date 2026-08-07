@@ -31,7 +31,7 @@ import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.CpuMemoryResource;
-import Compute.CudaPinnedMemoryResource;
+import Compute.DeviceTypeTraits;
 import Compute.IExecutionContext;
 import Serialization.Tensor;
 import Serialization.ModelArchive;
@@ -161,6 +161,19 @@ namespace Mila::Dnn
 
         template<DeviceType, TensorDataType>
         friend class Network;
+
+    protected:
+
+        /**
+         * @brief Host memory a device-resident parameter stages through.
+         *
+         * Every serialization path here has to get device bytes somewhere the host can
+         * read them. Naming the CUDA pinned resource directly would put a CUDA import in
+         * an always-compiled core module, which a CPU-only build cannot satisfy -- the
+         * backend axis belongs in DeviceTypeTraits, which is itself backend-gated.
+         */
+        using HostStagingMemoryResource =
+            typename DeviceTypeTraits<TDeviceType>::host_staging_memory_resource;
 
     public:
 
@@ -492,7 +505,7 @@ namespace Mila::Dnn
                     // Pinned staging, matching saveParameterToArchive and the
                     // PretrainedReader load path: copyFromBlob issues a direct DMA
                     // from pinned host memory with no driver staging copy.
-                    auto blob = readTensorBlob<CudaPinnedMemoryResource>(
+                    auto blob = readTensorBlob<HostStagingMemoryResource>(
                         archive, prefix, getDeviceId().index );
 
                     loadParameter( parameter_name, blob );
@@ -1005,7 +1018,7 @@ namespace Mila::Dnn
                 // memory is both host- and device-accessible, so it satisfies the constraint
                 // while staying readable here -- and it is the same staging memory the load
                 // direction uses in PretrainedReader.
-                Tensor<TParameterPrecision, CudaPinnedMemoryResource> staged_parameter(
+                Tensor<TParameterPrecision, HostStagingMemoryResource> staged_parameter(
                     parameter.getDeviceId(), parameter.shape() );
 
                 // copy() synchronizes the D2H path itself, so the bytes are present before
@@ -1053,7 +1066,7 @@ namespace Mila::Dnn
             }
             else
             {
-                Tensor<TParameterPrecision, CudaPinnedMemoryResource> staged_parameter(
+                Tensor<TParameterPrecision, HostStagingMemoryResource> staged_parameter(
                     parameter.getDeviceId(), parameter.shape() );
 
                 // copy() synchronizes the D2H path itself, so the bytes are present before

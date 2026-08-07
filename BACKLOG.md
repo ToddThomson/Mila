@@ -84,13 +84,11 @@ being a task list and needs a prune.
 - [ ] `CudaMhaOp.ixx:433` initializes `active_max_seq_len_ = T_` with the reason unrecorded — confirm
   against the two-phase KV-cache contract (prefill full sequence, decode `outer_size == 1`).
 - [ ] `GptModel.ixx:386` hardcodes `eos_token_ = 50256` — should come from tokenizer metadata.
-- [ ] **[gate, crash] `generate()` walks off the end of the context instead of stopping.** Chat clamps
-  the budget, but that is a consumer working around a library defect. GPT-2 is where it shows because
-  its positional embeddings are learned — exactly `context_length` of them — so position 1024 is an
-  out-of-bounds lookup. `GptModel.ixx:307`'s own default has the same flaw:
-  `max_new_tokens.value_or( context_length_ )` never subtracts the prompt. `GenerateStatus::ContextLimit`
-  already exists and simply does not fire first. **Capture the crash output before fixing** — an
-  out-of-bounds LPE read and a KV-cache overrun look identical from outside.
+- [~] **[gate, crash] Verify the `generate()` context-overflow guard.** Gemma's bound check is now
+  ported to `GptModel.ixx` and `LlamaModel.ixx` — both return `GenerateStatus::ContextOverflow`
+  instead of decoding past `context_length_`. Unbuilt and unrun. Reproduce with `gpt2-small` (it is
+  in the store) at a 1024 context, generating past ~1005 tokens with Chat's clamp bypassed — the
+  number the original crash was observed at.
 - [ ] **[contributor]** Llama 3.2 1B/3B weight tying — the aliasing plumbing shipped; add
   `tie_word_embeddings_` + post-load aliasing + `getMemoryStats` correction to `LlamaTransformer`.
   See `Specifications/WeightTying.md` §6.
@@ -203,15 +201,14 @@ being a task list and needs a prune.
 - [ ] **If C1128 recurs** on `MilaTests`, `ProfileModel` or `ExportArtifact`, switch from the per-target
   `/bigobj` on `ChatApp` to one project-wide `add_compile_options`. **Todd's call** — it touches every
   target's flags, so it was deliberately not taken unilaterally.
-- [ ] **[gate] Linux CI cannot configure since libcurl landed** — curl's `find_package(OpenSSL)` fails
-  on the CUDA devel image, which installs no `libssl-dev` (`build-pipeline.yml:63`, `:145`). Both jobs
-  die at configure, so the clang portability gate and the CPU-only ratchet compile nothing. Under it sits
-  an older break the configure failure now masks: the CPU-only job failed on `Component.ixx:34`
-  importing `Compute.CudaPinnedMemoryResource` in a `MILA_ENABLE_CUDA=OFF` build.
-- [ ] **`MILA_ENABLE_LIBCURL=OFF` has no Linux coverage, and it is the Linux wheel's configuration.**
-  The only OFF preset is `x64-debug-no-libcurl`, a *Windows Debug* build whose own description names it
-  "the Linux wheel's configuration" (`CMakePresets.json:147`); every `linux-clang-*` preset leaves it
-  ON. Turning it OFF on the CPU-only CI job gives the wheel's configuration a gate for free.
+- [~] **[gate] Confirm both Linux CI jobs go green on the next push to `dev`.** The two causes are
+  fixed — `libssl-dev` for curl's `find_package(OpenSSL)` on the CUDA image, and the CPU-only break the
+  configure failure masked (`Component.ixx` imported `Compute.CudaPinnedMemoryResource` unguarded; the
+  staging resource is now `DeviceTypeTraits<TDeviceType>::host_staging_memory_resource`). A whole-graph
+  scan finds no remaining unguarded CUDA import, but that proves the import graph, not the compile.
+- [~] **`MILA_ENABLE_LIBCURL=OFF` now rides the CPU-only CI job** — the Linux wheel's configuration,
+  which had no Linux coverage anywhere (the only OFF preset is a *Windows* Debug build,
+  `CMakePresets.json:147`). Green on that job is what closes this; it has never run.
 - [ ] **`CMakeLists.txt:266` pins curl at 8.11.1 under a `REVIEW:` marker naming 8.21 as current.** A
   vendored TLS-adjacent dependency in a published binary is the one pin where staleness has a security
   cost. Decide the bump or record why 8.11.1 stands.
@@ -220,16 +217,11 @@ being a task list and needs a prune.
   `mila_llm-0.20.0b2.dev20-cp313-cp313-win_amd64.whl` — no Linux wheel, no sdist, so `pip install` on
   Linux fails with nothing to fall back to. Release metadata is immutable, so the live page stays wrong
   until the next release carries the Linux wheel below.
-- [ ] **[gate] The Windows wheel has never been tested without a CUDA Toolkit installed.** The Linux
-  wheel was missing `nvidia-cuda-runtime` for three environments before a CUDA-free image caught it —
-  every earlier test passed because the host had a toolkit. Windows links cudart statically so it
-  *should* not have the same hole, but that is the reasoning that hid it before. Needs a Windows
-  machine or container with no toolkit; `_toolkit_directories()` reads a fixed path that cannot be
-  hidden by unsetting an environment variable.
-- [ ] **[gate] Neither wheel has loaded weights.** `initialize()` now succeeds on Windows from a wheel
-  installed off TestPyPI, but no model has been loaded or run on either platform. WSL `Ubuntu-Dev` has
-  GPU passthrough and glibc 2.43 clears the 2.38 floor, but it ships **Python 3.14 only** against a
-  `>=3.13,<3.14` wheel — a 3.13 interpreter (deadsnakes or `uv`) is a precondition, not a given.
+- [~] **[gate] The WINDOWS wheel still has no clean-room run.** Linux is done — `python:3.13-slim`
+  under Docker with `--gpus all` is a genuine clean room (the driver is injected, the Toolkit is not),
+  and all six CUDA runtime libraries resolved from site-packages. Windows cannot be tested locally:
+  Windows 11 Home has no `Containers` or Hyper-V feature at all (measured, not assumed). Sequenced at
+  the beta.2 release — `workflow_dispatch` needs `wheel-cleanroom.yml` on `master` first.
 - [ ] **The `>=3.13,<3.14` wheel pin is an accident, not a floor** — `Docker/build-mis.sh:60` says it
   "exists to match the committed cp313 Windows binding". The binding uses no CPython API directly
   (pure pybind11, floor 3.8) and `__init__.py` needs only 3.9, so the real floor is **3.9**. cp312 is
@@ -251,6 +243,11 @@ being a task list and needs a prune.
   build against the bind-mounted tree, and have CI build `FROM` the image rather than apt-installing.
 - [~] **Dispatch error UX** — a missing `(Op, Device, Precision)` reads as one line, not a cascade.
   Core landed; the optional named kernel concepts and the `OperationDispatch.md` §12 reconcile remain.
+- [ ] **Five files still hand-roll the staging memory resource `DeviceTypeTraits` now carries.** Each
+  writes `#ifdef MILA_HAS_CUDA` plus a `conditional_t` (or a guarded `if constexpr`) that is exactly
+  `host_staging_memory_resource`: `Gemma.Block.ixx:820`, `Gemma.ixx:527`, `Llama.ixx:484`,
+  `GptTransformer.ixx:615`, `GemmaModel.ixx:110` (and `LlamaModel.ixx`). Converting them removes six
+  preprocessor blocks from module purviews — see [[feedback_no_ifdef_in_modules]].
 - [ ] **Module import hygiene** — Phase 0 exact-duplicate dedup, Phase 1 candidate report, Phase 2
   compiler-verified removal (Clang/GCC, not MSVC), plus domain-qualifying the generic single-segment
   module names (`Core`/`Utils`/`Components`/`Profiling` -> `Dnn.*`).
@@ -275,10 +272,11 @@ being a task list and needs a prune.
 
 ### Model Distribution
 
-- [~] **[gate] The Python side of distribution has still not touched a real server.** The C++ path is
-  proven end to end — a cold `/install` of Gemma 4 12B FP4 pulled 6.33 GB and both digests verify
-  independently. Remaining: re-run `Mila/Samples/Python/store.py`, which folds into the binding work
-  below. Design: `Specifications/HttpClient.md`.
+- [ ] **`Mila/Samples/Python` has no sample that pulls, and its README describes a retired world.**
+  The binding exposes seven store methods; the samples drive three. The README says "Two samples"
+  (there are three — `store.py` is unlisted), says a wheel is "post-v0.20 work" at line 96 while line
+  20 tells you to `pip install mila-llm`, claims "no weight download", and omits every distribution
+  type from its binding table.
 - [ ] **There is still no headless pull.** Chat now opens on an empty store, so a clean machine can
   reach `/install`, but the only thing in the product that pulls is an interactive command — which is
   why the cold download can only be exercised by hand. A `pull` verb on the tool would make the gate
@@ -298,15 +296,11 @@ being a task list and needs a prune.
   MIS's family branch and needs no transport; then `mila.store` / `mila.hub`; then MIS onto it,
   retiring `MILA_MODEL_PATH`/`MILA_TOKENIZER_PATH`. Watch: release the GIL inside the sink or the
   transfer serializes, and `py::bytes` copies where a `py::buffer` does not — at 6.35 GB that matters.
-- [ ] **`transport=None` means two different things depending on the platform.** The Windows wheel is
-  built with libcurl and pulls; the Linux wheel cannot link it (curl's system OpenSSL is not on the
-  manylinux whitelist), and nothing in `Package/src/mila/__init__.py` supplies a replacement — so the
-  same call returns `NullHttpTransport`'s refusal, quoting a CMake flag a pip user cannot act on. Ship
-  a stdlib transport in the package (`HttpClient` already drives redirects and `Range`), or say so.
-- [ ] **curl is missing from `NOTICE.md:33`** while the published Windows wheel statically links it into
-  `_mila.pyd`. The note below the table treats notice-carrying as an open question for "a binary
-  distribution that links them" — that binary now exists on PyPI, so it is an obligation. The same note
-  points at a *Project Hygiene & Contributor Readiness* bucket that no longer exists; fix both.
+- [ ] **`NOTICE.md:33` omits curl, and may no longer need to.** The note treats notice-carrying as open
+  for "a binary distribution that links them" — but **both** wheel presets are now
+  `MILA_ENABLE_LIBCURL=OFF`, so a wheel built today contains no curl at all. Establish whether the
+  *published* artifact predates that change before writing anything: the answer decides whether this is
+  an obligation or a non-issue. The same note points at a bucket that no longer exists; fix that either way.
 - [ ] **The published wheel still teaches the retired form.** Its README and `__init__.py` docstring
   instruct users to pair `gemma4_12b_it_bf16.bin` with `gemma_tokenizer.bin`, and
   `LlamaModel.from_pretrained` still takes a `quantize_fp8` **boolean** — FP8-only, no FP4 — where the
@@ -321,11 +315,6 @@ being a task list and needs a prune.
   still resolve through the `REVIEW:`-marked loose-file path. `.bin` leaves the catalogued set with the
   branch, **not the reader** — `PretrainedReader.ixx:229` sniffs the magic and would strand every
   `.bin` on disk. *Done when:* a clean machine pulls and runs Gemma 4 through named commands.
-- [ ] **A pre-quantized FP4 artifact loads but generates garbage** (endless thinking tokens). Reloading
-  the known-good `.bin` through the same `switchModel` path is coherent, so the switch machinery is
-  innocent and the artifact load is at fault. Note a SHA-256-identical re-export does **not** prove the
-  load correct — it proves data fidelity, not model correctness. Two forward-output CUDA tests are in
-  place at unit scale; the 12B FP8 A/B is not available (~12 GB on a 12 GB card).
 - [ ] **The licensing story is per-family and must not be generalized.** Gemma 4 is Apache 2.0 (public,
   ungated); Gemma 3 and earlier carry the Gemma Terms of Use; **Llama 3.1/3.2 may be republished, but
   attributed** — ship the agreement, display "Built with Llama" and Meta's notice, pass along the AUP,

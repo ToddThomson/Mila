@@ -57,12 +57,15 @@ jobs:
       # compiler for the (module-free) .cu files. Both ship with Ubuntu 26.04.
       # python3 is required by CUTLASS's configure (find_package(Python3 REQUIRED));
       # the bare CUDA devel image ships none. ccache caches the .cu compiles.
+      # libssl-dev is curl's: on Linux the vendored libcurl takes TLS from the system
+      # OpenSSL (CURL_USE_SCHANNEL is Windows-only), so its find_package(OpenSSL) is
+      # REQUIRED here and the CUDA devel image ships no headers for it.
       - name: Install toolchain
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
             build-essential git wget ca-certificates ninja-build ccache \
-            gcc-15 g++-15 clang-21 python3 python3-dev
+            gcc-15 g++-15 clang-21 python3 python3-dev libssl-dev
 
       - name: Install CMake 4.2.3
         run: |
@@ -156,6 +159,11 @@ jobs:
       # flags rather than --preset so the job is self-contained and pins clang-21 (the
       # preset uses the generic `clang` name, which is the dev's WSL default but not the
       # runner's).
+      #
+      # MILA_ENABLE_LIBCURL=OFF is the Linux mila-llm wheel's configuration, which had no
+      # Linux coverage anywhere -- the only OFF preset is a Windows Debug build. Taking it
+      # here gates the wheel's configuration for free and keeps this image free of
+      # libssl-dev, which the vendored curl would otherwise require.
       - name: Configure (CPU-only)
         run: |
           cmake -B build-cpu -G Ninja \
@@ -163,6 +171,7 @@ jobs:
             -DCMAKE_C_COMPILER=clang-21 \
             -DCMAKE_CXX_COMPILER=clang++-21 \
             -DMILA_ENABLE_CUDA=OFF \
+            -DMILA_ENABLE_LIBCURL=OFF \
             -DMILA_ENABLE_TESTING=ON \
             -DMILA_ENABLE_SAMPLES=OFF \
             -DMILA_ENABLE_ADAPTORS=OFF \

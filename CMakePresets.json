@@ -121,6 +121,22 @@
       "cacheVariables": { "MILA_ENABLE_LIBCURL": "OFF" }
     },
     {
+      "name": "x64-debug-cpu-only",
+      "displayName": "x64 Debug (CPU-only - the CUDA-off module graph)",
+      "description": "x64-debug with MILA_ENABLE_CUDA=OFF, mirroring the cpu-only-tests CI job on MSVC. A module import of an uncompiled module is a hard error, so this is the only build on Windows that can catch a core module reaching into the CUDA tree -- MSVC's transitive include resolution hides nothing here, because the CUDA modules are simply absent. Samples, adaptors, bindings, profiling and docs are off for the same reason CI turns them off: they are not what this build is checking. Build it whenever an always-compiled module under Src gains an import.",
+      "inherits": "x64-debug",
+      "cacheVariables": {
+        "MILA_ENABLE_CUDA": "OFF",
+        "MILA_ENABLE_LIBCURL": "OFF",
+        "MILA_ENABLE_TESTING": "ON",
+        "MILA_ENABLE_SAMPLES": "OFF",
+        "MILA_ENABLE_ADAPTORS": "OFF",
+        "MILA_ENABLE_PYTHON_BINDINGS": "OFF",
+        "MILA_ENABLE_PROFILING": "OFF",
+        "MILA_ENABLE_DOCS": "OFF"
+      }
+    },
+    {
       "name": "x64-validate",
       "displayName": "x64 Release (full validation - run before committing)",
       "description": "Pre-commit validation build. The default x64-release already builds the unit tests and samples; this adds the heavy network-free packaging gates (find_package + FetchContent install/embed consumers). Build, then run ctest. Does NOT enable the CPM release-access gate -- that needs a pushed tag; use x64-release-cpm-gate at release time.",

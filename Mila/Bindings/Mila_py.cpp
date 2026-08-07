@@ -313,14 +313,17 @@ static void bind_distribution( py::module_& m )
             py::arg( "transport" ) = py::none(),
             "Pull a published model, fetching every file its manifest declares and writing\n"
             "the record last, so a failed pull leaves nothing that looks installed.\n\n"
-            "The library builds the URLs, finds the token, parses the manifest and verifies\n"
-            "every digest. transport only moves bytes:\n\n"
-            "    transport(url, token, resume_from, sink) -> HttpResult\n\n"
-            "It calls sink(chunk) for each chunk from resume_from onward; those bytes are\n"
-            "hashed and written in one pass, so nothing is staged and re-read. Pass None to\n"
-            "use whichever transport this build was compiled with.\n\n"
-            "Two obligations: a Range answered 200 rather than 206 is RANGE_IGNORED, not OK;\n"
-            "and the token must not be forwarded across a change of host." )
+            "The library builds the URLs, finds the token, sets any Range, parses the\n"
+            "manifest and verifies every digest. transport only moves bytes:\n\n"
+            "    transport(url, headers, writer) -> HttpResponse\n\n"
+            "headers is a dict to send verbatim -- the token and any Range are already in\n"
+            "it. Call writer(chunk) for each chunk of a 2xx body; those bytes are hashed and\n"
+            "written in one pass, so nothing is staged and re-read, and a False return means\n"
+            "stop. Pass None for mila.http_transport, the standard-library implementation\n"
+            "the package ships.\n\n"
+            "Two obligations. Do NOT follow redirects: report location verbatim and stop, or\n"
+            "the token travels to whatever host the 302 names. And report the status without\n"
+            "interpreting it -- a Range answered 200 rather than 206 is the library's call." )
         .def( "list_hub_models",
             []( const Mila::Bindings::ModelStoreHandle& self, const std::string& owner,
                 py::object transport ) {
