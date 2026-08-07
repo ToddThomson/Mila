@@ -1,0 +1,26 @@
+{
+	"name": "Mila Wheel Container",
+	// Ubuntu 24.04, deliberately NOT the dev container's 26.04: auditwheel takes the
+	// manylinux tag from the glibc linked against, so the build distro is the floor.
+	// Select this container plus the "Linux Wheel" preset, build, then run
+	// mila-build-wheel to package and repair. See Docker/README.md.
+	"dockerComposeFile": [
+		"../../Docker/docker-compose.wheel.yml"
+	],
+	"service": "mila-wheel",
+	"workspaceFolder": "/mila",
+	"customizations": {
+		"vscode": {
+			"settings": {
+				// Same RAM guard as the dev container: the several-GB module TUs will
+				// exhaust the container VM if CMake Tools builds them unconstrained.
+				"cmake.parallelJobs": 4
+			},
+			"extensions": [
+				"ms-vscode.cpptools",
+				"ms-vscode.cmake-tools",
+				"llvm-vs-code-extensions.vscode-clangd"
+			]
+		}
+	}
+}

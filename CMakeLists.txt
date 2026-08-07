@@ -8,6 +8,14 @@ cmake_minimum_required (VERSION 4.0)
 # add_subdirectory'd by a consumer.
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MilaVersion.cmake")
 mila_read_version("${CMAKE_CURRENT_SOURCE_DIR}/Version.txt" MILA_VERSION_NUMERIC MILA_PRERELEASE_TAG)
+mila_pep440_version("${MILA_VERSION_NUMERIC}" "${MILA_PRERELEASE_TAG}" MILA_PEP440_VERSION)
+
+# Version.txt is read at configure time, which creates no dependency on it by itself --
+# so a version bump would otherwise leave the generated wheel version stale until
+# something else forced a reconfigure. That is the exact failure this derivation exists
+# to end, so make the bump itself trigger one.
+set_property(DIRECTORY APPEND PROPERTY
+    CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Version.txt")
 
 # CUDA is enabled on demand via enable_language(CUDA) in the backend-detection
 # block below, gated on MILA_ENABLE_CUDA + a found toolkit. Declaring it here would

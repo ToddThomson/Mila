@@ -57,6 +57,13 @@ target_link_libraries(MilaPy PRIVATE Mila pybind11::module)
 set(MILA_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Package")
 set(MILA_PACKAGE_INIT "${MILA_PACKAGE_SOURCE_DIR}/src/mila/__init__.py")
 
+# The wheel version, derived from Version.txt rather than hand-maintained in
+# pyproject.toml -- where it had already drifted 18 builds. Written into the package
+# tree (not the build tree) because setup.py reads it, and because the wheel build
+# copies that tree; generated, so it is gitignored and a `pip wheel` without a CMake
+# build fails loudly rather than publishing a stale number.
+file(WRITE "${MILA_PACKAGE_SOURCE_DIR}/VERSION" "${MILA_PEP440_VERSION}\n")
+
 # 1. Into the package source tree, so `pip wheel Mila/Bindings/Package` packages a
 #    freshly built extension. The wheel build is a packaging step over the CMake
 #    build, not a second build system; setuptools never compiles anything here.

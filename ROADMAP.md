@@ -147,10 +147,14 @@ The convergence workstream: prove the primary Llama and Gemma targets against th
 permanent regression tests, package Mila as a consumable source distribution (FetchContent is the
 supported path; `find_package` is parked), stand up the Linux/clang portability gates and the
 reproducible container build, and land the contributor-facing surface (coding standards, onboarding, a
-guided reading path through one token's journey). Engineering detail lives in [BACKLOG.md](BACKLOG.md)
+guided reading path through one token's journey). Python consumption is the other half of the same
+question and a different kind of artifact: a C++ consumer builds Mila from source, while `pip install
+mila-llm` hands over a compiled extension that has to carry its own CUDA and work on a machine that
+has none. Both platforms ship a wheel. Engineering detail lives in [BACKLOG.md](BACKLOG.md)
 under this bucket.
 
-**Success criteria:** an external consumer can build against Mila via FetchContent; the Linux/clang
+**Success criteria:** an external consumer can build against Mila via FetchContent; `pip install
+mila-llm` gives a working runtime on Windows and Linux with no CUDA Toolkit installed; the Linux/clang
 build is a first-class, CI-compiled + WSL-tested platform, with
 a reproducible container build; contributor onboarding (`CONTRIBUTING.md`, `getting-started.md`, a
 guided reading path) complete; the public export surface frozen at the narrowest defensible umbrella; a

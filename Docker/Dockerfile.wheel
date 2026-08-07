@@ -1,0 +1,89 @@
+# Mila PyPI wheel builder.
+#
+# Builds the `mila-llm` Linux wheel and nothing else. Separate from Docker/Dockerfile
+# because the two have genuinely different dependency sets, not just different flags:
+# that image is a dev/run container on the validated 26.04 matrix, while a published
+# wheel's glibc floor is decided by the distro it is compiled on.
+#
+# UBUNTU 24.04, DELIBERATELY. auditwheel derives the PEP 600 platform tag from the highest
+# versioned glibc symbol required across the wheel's dependency closure, so the build distro
+# sets the CEILING and the measured symbols set the actual floor. Building here measured
+# manylinux_2_38, which reaches the current LTS and older; on 26.04 it would land near 2_43
+# and lock out 24.04, where most CUDA users are. PyPI rejects a plain linux_x86_64 tag
+# outright, so there is no un-tagged option.
+#
+# No libssl-dev: the wheel is built MILA_ENABLE_LIBCURL=OFF because it supplies its own
+# transport from Python through the binding's HttpFetchDelegate. curl's system OpenSSL
+# is what the manylinux whitelist refuses, and this image never introduces it.
+#
+# Driven by scripts/build-wheel.{ps1,sh} -- see Docker/README.md.
+#
+# UNPROVEN: whether clang compiles Mila's C++23 module units against 24.04's libstdc++
+# 14 headers. That is the first thing this image exists to answer.
+FROM nvidia/cuda:13.3.0-devel-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Two third-party apt sources, both because 24.04's own versions are below Mila's floor:
+# clang 18 cannot compile the module units (19+ required), and the system Python is 3.12
+# where the wheel is cp313. gcc-14 is from the Ubuntu archive and fills two roles at once
+# -- nvcc's host compiler for the module-free .cu files, and the libstdc++ headers clang
+# compiles the module units against.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates gnupg software-properties-common wget \
+    && wget -qO /etc/apt/trusted.gpg.d/apt.llvm.org.asc https://apt.llvm.org/llvm-snapshot.gpg.key \
+    && echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" \
+        > /etc/apt/sources.list.d/llvm.list \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        git \
+        ninja-build \
+        ccache \
+        gcc-14 \
+        g++-14 \
+        clang-21 \
+        python3.13 \
+        python3.13-dev \
+        python3.13-venv \
+        patchelf \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# CMake 4.2.3 (the project requires 4.0+; the Ubuntu package predates it). Matches CI.
+RUN wget -q https://github.com/Kitware/CMake/releases/download/v4.2.3/cmake-4.2.3-linux-x86_64.tar.gz \
+    && tar --strip-components=1 -xz -C /usr/local -f cmake-4.2.3-linux-x86_64.tar.gz \
+    && rm -f cmake-4.2.3-linux-x86_64.tar.gz
+
+# Packaging tools in their own environment: 24.04 marks the system interpreter
+# externally-managed (PEP 668), so a plain `pip install` into it fails by design. The
+# venv is 3.13 so the wheel `pip wheel` tags matches the extension CMake builds.
+# setuptools is named explicitly: since 3.12 ensurepip no longer seeds it into a venv,
+# and pyproject.toml declares it as the build backend, so --no-build-isolation would
+# otherwise fail on a missing setuptools.build_meta.
+RUN python3.13 -m venv /opt/wheel \
+    && /opt/wheel/bin/pip install --no-cache-dir --upgrade \
+        pip "setuptools>=77" build wheel auditwheel
+
+ENV PATH=/opt/wheel/bin:/usr/local/cuda/bin:${PATH}
+ENV CUDA_HOME=/usr/local/cuda
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+ENV CCACHE_DIR=/ccache
+
+# Same RAM guard as the dev image: the module TUs are several GB each and an
+# unconstrained Ninja will starve a WSL2-hosted container and hang.
+ENV MILA_COMPILE_JOB_POOL_SIZE=4
+
+# A shim, not a copy of the script. Baking Docker/build-wheel.sh into the image means
+# every edit to it needs a 12 GB image rebuild before it takes effect -- and a stale
+# baked copy fails in ways that look like build errors. The repo is always mounted at
+# /mila here, so exec the script from there and the image never goes out of date.
+RUN printf '#!/bin/sh\nexec /bin/bash /mila/Docker/build-wheel.sh "$@"\n' \
+        > /usr/local/bin/mila-build-wheel \
+    && chmod +x /usr/local/bin/mila-build-wheel
+
+WORKDIR /mila
+
+CMD ["mila-build-wheel"]

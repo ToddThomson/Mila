@@ -14,7 +14,7 @@ worth reusing go to the owning spec or to memory, not here. Tags: **[gate]** blo
 
 **The size gate is lines per item, not total lines** — the failure mode is narrative, not item count.
 Divide the lines in `## Current release` by the number of items in it; past **four** it has stopped
-being a task list and needs a prune. It stands at 3.7 over 86 items.
+being a task list and needs a prune.
 
 ---
 
@@ -148,6 +148,11 @@ being a task list and needs a prune. It stands at 3.7 over 86 items.
   doc-drift break from a `Src/**` or `README.md` change is not caught on the commit that causes it —
   those paths deliberately do not trigger it. Add a non-deploying Doxygen check to
   `build-pipeline.yml` (no CUDA, no CMake).
+- [ ] **`Mila/Bindings/README.md:7` says the binding "knows nothing about HTTP, chat, or any wire
+  protocol"** — true before the store reached Python, wrong now: `Mila_py.cpp` exports `HttpResponse`,
+  `HubModel`, `ModelStore` and an `HttpFetchDelegate`. It is the one paragraph explaining why the
+  binding sits beside `Src` rather than under `Adaptors/`, so the stale sentence undermines the
+  boundary it exists to draw.
 
 ### Production Hardening
 
@@ -188,6 +193,18 @@ being a task list and needs a prune. It stands at 3.7 over 86 items.
 - [ ] **If C1128 recurs** on `MilaTests`, `ProfileModel` or `ExportArtifact`, switch from the per-target
   `/bigobj` on `ChatApp` to one project-wide `add_compile_options`. **Todd's call** — it touches every
   target's flags, so it was deliberately not taken unilaterally.
+- [ ] **Linux CI cannot configure since libcurl landed** — curl's `find_package(OpenSSL)` fails on the
+  CUDA devel image, which installs no `libssl-dev` (`build-pipeline.yml:63`, `:145`). Both jobs die at
+  configure, so the clang portability gate and the CPU-only ratchet compile nothing. Underneath it sits
+  an older break the configure failure now masks: the CPU-only job failed on `Component.ixx:34`
+  importing `Compute.CudaPinnedMemoryResource` in a `MILA_ENABLE_CUDA=OFF` build.
+- [ ] **`MILA_ENABLE_LIBCURL=OFF` has no Linux coverage, and it is the Linux wheel's configuration.**
+  The only OFF preset is `x64-debug-no-libcurl`, a *Windows Debug* build whose own description names it
+  "the Linux wheel's configuration" (`CMakePresets.json:147`); every `linux-clang-*` preset leaves it
+  ON. Turning it OFF on the CPU-only CI job gives the wheel's configuration a gate for free.
+- [ ] **`CMakeLists.txt:254` pins curl at 8.11.1 under a `REVIEW:` marker naming 8.21 as current.** A
+  vendored TLS-adjacent dependency in a published binary is the one pin where staleness has a security
+  cost. Decide the bump or record why 8.11.1 stands.
 - [~] **Linux/clang as a first-class platform** — WSL green, CI compiles under clang-21, the container
   builds and runs Gemma 4 FP4. The GCC 16 second oracle and the broadened matrix move to Future.
 - [~] **Reproducible container build** — validated on clang-21 + gcc-15 host, CUDA 13.3. Remaining:
@@ -223,10 +240,6 @@ being a task list and needs a prune. It stands at 3.7 over 86 items.
   `ExportArtifact --fetch <hf-lfs-url>` is the cheapest live exercise of exactly that path (it crosses
   the CDN redirect and reports status, final URL and digest); then `/models --online`, then
   `/install`, then re-run `Mila/Samples/Python/store.py`. Design: `Specifications/HttpClient.md`.
-- [ ] **Delete four files left unreferenced by CMake** by the relayering:
-  `Src/Distribution/ModelHubBackend.{HuggingFace,Null}.ixx` and
-  `Tools/ExportArtifact/ExportArtifact.Fetch.{Http,Null}.ixx`. Two pairs declare the same module names
-  as live files, so a stale build directory may hold a BMI for the wrong one.
 - [ ] **[gate] The cold download has never succeeded end-to-end.** The cache was seeded by hand from
   verified `--fetch` copies. One real Chat download failed its digest check while the same client
   fetched the exact digest through `--fetch`; leading explanation is a corrupt transfer the integrity
@@ -244,6 +257,15 @@ being a task list and needs a prune. It stands at 3.7 over 86 items.
   MIS's family branch and needs no transport; then `mila.store` / `mila.hub`; then MIS onto it,
   retiring `MILA_MODEL_PATH`/`MILA_TOKENIZER_PATH`. Watch: release the GIL inside the sink or the
   transfer serializes, and `py::bytes` copies where a `py::buffer` does not — at 6.35 GB that matters.
+- [ ] **`transport=None` means two different things depending on the platform.** The Windows wheel is
+  built with libcurl and pulls; the Linux wheel cannot link it (curl's system OpenSSL is not on the
+  manylinux whitelist), and nothing in `Package/src/mila/__init__.py` supplies a replacement — so the
+  same call returns `NullHttpTransport`'s refusal, quoting a CMake flag a pip user cannot act on. Ship
+  a stdlib transport in the package (`HttpClient` already drives redirects and `Range`), or say so.
+- [ ] **curl is missing from `NOTICE.md:33`** while the published Windows wheel statically links it into
+  `_mila.pyd`. The note below the table treats notice-carrying as an open question for "a binary
+  distribution that links them" — that binary now exists on PyPI, so it is an obligation. The same note
+  points at a *Project Hygiene & Contributor Readiness* bucket that no longer exists; fix both.
 - [ ] **The published wheel still teaches the retired form.** Its README and `__init__.py` docstring
   instruct users to pair `gemma4_12b_it_bf16.bin` with `gemma_tokenizer.bin`, and
   `LlamaModel.from_pretrained` still takes a `quantize_fp8` **boolean** — FP8-only, no FP4 — where the
@@ -328,12 +350,30 @@ being a task list and needs a prune. It stands at 3.7 over 86 items.
 - [ ] **In-turn thoughts dropped between tool calls** — Google's multi-turn rule is to strip
   prior-turn thoughts and keep the current turn's.
 - [ ] Buffer Gemma Anthropic streaming only when tools are present.
-- [~] **`mila-llm` wheel tails.** The version is hand-maintained in both `pyproject.toml` and
-  `Version.txt` and will drift at the next bump — derive it at build time. The Linux CUDA preload path
-  has never been exercised (needs a WSL build); the manylinux glibc floor is undecided (Ubuntu 26.04
-  yields ~`manylinux_2_43`, reaching almost nobody, and `manylinux_2_28` ships GCC 12, which cannot
-  compile C++23 modules); and `auditwheel` needs `--exclude` for the CUDA libraries or it vendors
-  400 MB of cuBLAS and defeats the dependency design.
+- [ ] **[gate] PyPI advertises Linux and ships only `win_amd64`.** `pyproject.toml:37` carries
+  `Operating System :: POSIX :: Linux` and the sole published file is
+  `mila_llm-0.20.0b2.dev20-cp313-cp313-win_amd64.whl` — no Linux wheel, no sdist, so `pip install` on
+  Linux fails with nothing to fall back to. Release metadata is immutable, so the live page stays wrong
+  until the next release carries the Linux wheel below.
+- [ ] **The Windows wheel has no preset-driven equivalent of the Linux one.** `x64-wheel` configures
+  correctly, but `pip wheel` over the staged package is still a manual step with no script, so the two
+  platforms' wheels are produced by different procedures. `Docker/build-wheel.sh` is the shape to
+  mirror — including emptying the output directory, which is what keeps a stale version from riding
+  along in the publish glob.
+- [ ] **[gate] The Windows wheel has never been tested without a CUDA Toolkit installed.** The Linux
+  wheel was missing `nvidia-cuda-runtime` for three environments before a CUDA-free image caught it —
+  every earlier test passed because the host had a toolkit. Windows links cudart statically so it
+  *should* not have the same hole, but that is the reasoning that hid it before. Needs a Windows
+  machine or container with no toolkit; `_toolkit_directories()` reads a fixed path that cannot be
+  hidden by unsetting an environment variable.
+- [ ] **Neither wheel has run a model.** Both import and reach the store on a CUDA-free host, but
+  nothing has called `initialize()` against a real GPU from an installed wheel, let alone loaded
+  weights. WSL Ubuntu has GPU passthrough via the Windows driver and can install the
+  `manylinux_2_38` wheel (glibc 2.43 clears the 2.38 floor), so it is the environment for this.
+- [ ] **`Mila/Tools` has no off switch** — gated on `PROJECT_IS_TOP_LEVEL` alone
+  (`Mila/CMakeLists.txt:1081`), so the wheel configure builds `tokenize` and `ExportArtifact`, neither
+  of which can go in a wheel. Every other subdirectory has a `MILA_ENABLE_*`; this one costs build time
+  on an artifact that discards it.
 
 ---
 

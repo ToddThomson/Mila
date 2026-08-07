@@ -4,18 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mila-llm"
-# PEP 440 mapping of Mila's own scheme. Version.txt is 0.20.0-beta.2+20, where
-# beta.2 is the RELEASE being worked toward and +20 is a development build of it:
-#
-#   0.20.0-beta.2+20  ->  0.20.0b2.dev20   a snapshot, sorts BEFORE the release
-#   0.20.0-beta.2     ->  0.20.0b2         the release itself, when it is tagged
-#
-# The build counter maps to .devN and not to .postN, because post-releases sort
-# AFTER: publishing a snapshot as plain 0.20.0b2 would permanently take the release's
-# own number, forcing the real beta.2 to ship as a post-release of a snapshot. A
-# published version can never be reused, so this is not a mistake that can be undone.
-# PyPI rejects local version labels (+20), which is why the counter has to move here.
-version = "0.20.0b2.dev20"
+# Derived from the repository's Version.txt by the CMake build, not written here: a
+# hand-maintained copy drifted 18 builds behind before this was fixed. The SemVer ->
+# PEP 440 mapping and the reasoning behind .devN (never .postN) live in
+# cmake/MilaVersion.cmake; setup.py reads the generated VERSION file.
+dynamic = ["version"]
 description = "The LLM stack you can read and understand: Gemma 4 and Llama on CUDA, built from explicit C++23 components."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -45,6 +38,13 @@ classifiers = [
 dependencies = [
     "nvidia-cublas>=13.0,<14.0",
     "nvidia-curand>=10.4,<11.0",
+    # Linux only, and the marker is not a guess: the extension's DT_NEEDED carries
+    # libcudart.so.13 there, while on Windows no cudart DLL is loaded at all -- nvcc
+    # links the runtime statically on one platform and dynamically on the other. Without
+    # this, a Linux install on a machine with no CUDA Toolkit resolves every other
+    # library from the wheels and then dies on `libcudart.so.13: cannot open shared
+    # object file`. Measured on a CUDA-free image, not inferred.
+    "nvidia-cuda-runtime>=13.0,<14.0; sys_platform == 'linux'",
 ]
 
 [project.urls]

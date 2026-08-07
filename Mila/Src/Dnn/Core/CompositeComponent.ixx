@@ -25,6 +25,7 @@ import Dnn.Component;
 import Dnn.ComponentFactory;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
+import Dnn.TensorTypes;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
