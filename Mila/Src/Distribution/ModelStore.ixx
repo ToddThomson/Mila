@@ -42,13 +42,19 @@ namespace Mila::Distribution
     /**
      * @brief What a fetch attempt reported back to the store.
      *
-     * Deliberately narrower than HttpResult: the store cares about three outcomes, and keeping it
+     * Deliberately narrower than HttpResult: the store cares about four outcomes, and keeping it
      * decoupled from the HTTP client is what makes it testable offline.
      */
     export enum class FetchOutcome
     {
         Complete,      ///< The requested byte range arrived in full.
         RangeIgnored,  ///< A resume was requested and the server sent the whole file.
+
+        /// A resume was requested from at or past the end, so nothing was sent and the partial
+        /// already holds every byte there is. Whether they are the right bytes is the digest's
+        /// question, not the transport's.
+        RangeNotSatisfiable,
+
         Failed         ///< Anything else; message carries the detail.
     };
 
@@ -409,7 +415,14 @@ namespace Mila::Distribution
                     "discarded the partial, retry from the start", description ) );
             }
 
-            if ( report.outcome != FetchOutcome::Complete )
+            // RangeNotSatisfiable is not a failure to recover from but a transfer that is already
+            // over: nothing was appended because there was nothing left to send. Falling through
+            // to the digest is what settles it -- a match publishes, and a partial longer than the
+            // file mismatches and is kept with its byte count, which is the evidence either way.
+            // Throwing here instead wedged the store forever, since every retry replayed to the
+            // same offset and drew the same 416 without the digest ever being consulted.
+            if ( report.outcome != FetchOutcome::Complete
+                && report.outcome != FetchOutcome::RangeNotSatisfiable )
             {
                 // Kept, not deleted: the bytes so far are good and a retry can resume onto them.
                 throw std::runtime_error( std::format(

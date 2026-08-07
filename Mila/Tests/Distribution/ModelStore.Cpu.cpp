@@ -292,6 +292,66 @@ namespace Mila::Tests::Distribution
         EXPECT_EQ( readWholeFile( path ), payload );
     }
 
+    TEST( ModelStore, PublishesACompletePartialWhenTheRangeIsNotSatisfiable )
+    {
+        // A process killed between the last write and the rename leaves a partial holding every
+        // byte. Resuming from its end draws a 416, and treating that as a failure wedged the
+        // store forever: the retry replayed to the same offset and never consulted the digest.
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        const std::string payload = "0123456789abcdef";
+        const std::string digest = sha256Hex( payload.data(), payload.size() );
+
+        const auto partial = scratch.path() / "tmp" / ( "sha256-" + digest + ".partial" );
+        writeWholeFile( partial, payload );
+
+        uint64_t observed_offset = 0;
+
+        auto fetcher = [&observed_offset]( uint64_t resume_from,
+            const std::function<bool( const char*, size_t )>& ) -> FetchReport
+            {
+                observed_offset = resume_from;
+
+                return { FetchOutcome::RangeNotSatisfiable, "offset is at or past the end" };
+            };
+
+        const auto path = store.ensureBlob( "model.safetensors", digest, fetcher );
+
+        EXPECT_EQ( observed_offset, payload.size() );
+        EXPECT_TRUE( store.contains( digest ) );
+        EXPECT_EQ( readWholeFile( path ), payload );
+        EXPECT_FALSE( std::filesystem::exists( partial ) );
+    }
+
+    TEST( ModelStore, RejectsAnOverlongPartialWhenTheRangeIsNotSatisfiable )
+    {
+        // The other half of 416: the offset can be past the end because the partial holds more
+        // bytes than the file does. Falling through to the digest is what catches that, and the
+        // rejected copy keeps the byte count that says which of the two happened.
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        const std::string payload = "0123456789abcdef";
+        const std::string digest = sha256Hex( payload.data(), payload.size() );
+
+        const auto partial = scratch.path() / "tmp" / ( "sha256-" + digest + ".partial" );
+        writeWholeFile( partial, payload + "trailing garbage" );
+
+        auto fetcher = []( uint64_t,
+            const std::function<bool( const char*, size_t )>& ) -> FetchReport
+            {
+                return { FetchOutcome::RangeNotSatisfiable, "offset is at or past the end" };
+            };
+
+        EXPECT_THROW(
+            store.ensureBlob( "model.safetensors", digest, fetcher ),
+            std::runtime_error );
+
+        EXPECT_FALSE( store.contains( digest ) );
+        EXPECT_TRUE( std::filesystem::exists( partial.string() + ".rejected" ) );
+    }
+
     TEST( ModelStore, DiscardsThePartialWhenTheServerIgnoresTheRange )
     {
         ScratchStoreRoot scratch;

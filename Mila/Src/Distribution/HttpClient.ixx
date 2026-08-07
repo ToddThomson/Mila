@@ -34,6 +34,7 @@ namespace Mila::Distribution
         Forbidden,        ///< 403 -- token valid, but the repository's terms are not accepted.
         NotFound,         ///< 404 -- wrong coordinate, revision or file path.
         RangeIgnored,     ///< A range request drew a 200; the partial must be discarded.
+        RangeNotSatisfiable, ///< 416 on a resume; the offset is at or past the end of the file.
         TransportError,   ///< Connection, TLS or I/O failure.
         ServerError       ///< 5xx.
     };
@@ -47,6 +48,7 @@ namespace Mila::Distribution
             case HttpStatus::Forbidden:      return "Forbidden";
             case HttpStatus::NotFound:       return "NotFound";
             case HttpStatus::RangeIgnored:   return "RangeIgnored";
+            case HttpStatus::RangeNotSatisfiable: return "RangeNotSatisfiable";
             case HttpStatus::TransportError: return "TransportError";
             case HttpStatus::ServerError:    return "ServerError";
             default:                         return "Unknown";
@@ -403,6 +405,19 @@ namespace Mila::Distribution
 
                 case 206:
                     result.status = HttpStatus::Ok;
+
+                    return result;
+
+                case 416:
+                    // Only meaningful for a resume, where it means the offset is at or past the
+                    // end and the partial already holds every byte the resource has -- a state
+                    // the caller can settle with a digest. Without a Range it is a plain error.
+                    result.status = ( request.resume_from > 0 )
+                        ? HttpStatus::RangeNotSatisfiable
+                        : HttpStatus::TransportError;
+                    result.message = ( request.resume_from > 0 )
+                        ? "416: the resume offset is at or past the end of the file"
+                        : "unexpected HTTP status 416";
 
                     return result;
 

@@ -300,12 +300,40 @@ namespace Mila::Tests::Distribution
         request.weight_quantization = "per_group_fp4_128";
         request.weights = scratch.path() / "package" / "model.safetensors";
         request.tokenizer = scratch.path() / "package" / "tokenizer.bin";
+        request.replace = true;
 
         const auto package = buildPackage( request );
 
         EXPECT_EQ( package.manifest().file( kWeightsRole )->sha256,
             sha256Hex( "re-exported bytes", 17 ) );
         EXPECT_TRUE( package.validate().ok() );
+    }
+
+    TEST( ModelPackageTests, RefusesToBuildOverADirectoryThatAlreadyDescribesAModel )
+    {
+        // The hazard is packaging a second model into a directory holding the first: the manifest
+        // is derived, not merged, so the description of whatever is still sitting there is lost.
+        ScratchDirectory scratch( "package" );
+
+        buildScratchPackage( scratch.path() );
+
+        writeWholeFile( scratch.path() / "package" / "fp8.safetensors", "fp8 weight bytes" );
+
+        PackageRequest request;
+        request.directory = scratch.path() / "package";
+        request.name = "gemma-4-12b-it-fp8";
+        request.architecture = "gemma";
+        request.variant = "fp8";
+        request.weight_quantization = "per_channel_fp8";
+        request.weights = scratch.path() / "package" / "fp8.safetensors";
+
+        EXPECT_THROW( buildPackage( request ), std::runtime_error );
+
+        // The refusal must leave the first model's manifest exactly as it was.
+        const auto still_there = ModelPackage::open( scratch.path() / "package" );
+
+        EXPECT_EQ( still_there.manifest().name, "gemma-4-12b-it-fp4" );
+        EXPECT_EQ( still_there.manifest().variant, "fp4" );
     }
 
     TEST( ModelPackageTests, TakesItsNameFromTheDirectoryWhenNoneIsGiven )

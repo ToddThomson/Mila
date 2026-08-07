@@ -255,6 +255,41 @@ namespace Mila::Tests::Distribution
         EXPECT_EQ( body, "TAIL" );
     }
 
+    TEST( HttpClientPolicy, Reports416OnAResumeAsRangeNotSatisfiable )
+    {
+        // A partial that is already complete resumes from its own end and draws a 416. Reported
+        // as a transport failure it wedged the store, because the retry repeated it forever.
+        auto transport = std::make_shared<ScriptedTransport>();
+
+        transport->script[ "https://example.com/blob" ] = { 416, {}, "", false };
+
+        HttpRequest request;
+        request.url = "https://example.com/blob";
+        request.resume_from = 1024;
+
+        std::string body;
+        const HttpResult result = clientOver( transport ).getString( request, body );
+
+        EXPECT_EQ( result.status, HttpStatus::RangeNotSatisfiable );
+    }
+
+    TEST( HttpClientPolicy, Reports416WithoutAResumeAsATransportError )
+    {
+        // Nothing asked for a range, so the server is contradicting the request rather than
+        // reporting a satisfied one. That is a plain error and must not read as a resume state.
+        auto transport = std::make_shared<ScriptedTransport>();
+
+        transport->script[ "https://example.com/blob" ] = { 416, {}, "", false };
+
+        HttpRequest request;
+        request.url = "https://example.com/blob";
+
+        std::string body;
+        const HttpResult result = clientOver( transport ).getString( request, body );
+
+        EXPECT_EQ( result.status, HttpStatus::TransportError );
+    }
+
     TEST( HttpClientPolicy, SendsNoRangeHeaderWithoutAResume )
     {
         auto transport = std::make_shared<ScriptedTransport>();

@@ -21,10 +21,12 @@ namespace
             "                                 (default: fp4)\n"
             "  --package <dir>                Assemble the package directory around the\n"
             "                                 artifact: mila.json with real digests, plus\n"
-            "                                 whatever supporting files are given. Merges into\n"
-            "                                 a manifest already there, so a second variant\n"
-            "                                 adds rather than replaces.\n"
+            "                                 whatever supporting files are given. One package is\n"
+            "                                 one model, so a directory that already describes\n"
+            "                                 one is refused unless --replace is given.\n"
             "  --emit-manifest                Package in place, beside the artifact.\n"
+            "  --replace                      Build over a package directory that already\n"
+            "                                 describes a model.\n"
             "  --tokenizer <path>             Tokenizer to declare in the manifest.\n"
             "  --license <path>               Source model's license text.\n"
             "  --model-card <path>            Model card (README.md).\n"
@@ -46,6 +48,8 @@ namespace
             "      --variant <name>           Override the derived variant name.\n"
             "      --base-model <id>          Lineage, published with the model.\n"
             "      --license-id <id>          License identifier, e.g. llama3.2.\n"
+            "      --replace                  Build over a directory that already describes a\n"
+            "                                 model. Refused without it.\n"
             "\n"
             "Packages:\n"
             "  ExportArtifact --validate <package-dir>\n"
@@ -67,7 +71,16 @@ namespace
             "                                 Load only, and print a logits fingerprint for a\n"
             "                                 fixed prompt. Run it against two files that\n"
             "                                 should hold the same model and diff the output.\n"
-            "  ExportArtifact --fetch <url> <destination>\n";
+            "  ExportArtifact --fetch <url> <destination> [--resume]\n"
+            "                                 Pull one URL through Mila's own HTTP client and\n"
+            "                                 report transport, status, final URL, byte counts\n"
+            "                                 and digest.\n"
+            "      --resume                   Resume from whatever <destination> already holds,\n"
+            "                                 replaying it into the digest and sending a Range\n"
+            "                                 header. The offset comes from the file, because\n"
+            "                                 that is the only offset the store can produce.\n"
+            "                                 Truncate a verified copy and re-run: the digest\n"
+            "                                 must come back identical.\n";
     }
 
     int runPackageCommand( int argc, char** argv )
@@ -121,6 +134,10 @@ namespace
             else if ( argument == "--instruct" )
             {
                 request.instruct = true;
+            }
+            else if ( argument == "--replace" )
+            {
+                request.replace = true;
             }
             else
             {
@@ -252,17 +269,33 @@ int main( int argc, char** argv )
         return Mila::Tools::runTranscode( argv[ 2 ], argv[ 3 ] );
     }
 
-    // Transport probe: ExportArtifact --fetch <url> <destination>
+    // Transport probe: ExportArtifact --fetch <url> <destination> [--resume]
     if ( first == "--fetch" )
     {
         if ( argc < 4 )
         {
-            std::cerr << "Usage: ExportArtifact --fetch <url> <destination>\n";
+            std::cerr << "Usage: ExportArtifact --fetch <url> <destination> [--resume]\n";
 
             return 2;
         }
 
-        return Mila::Tools::runFetch( argv[ 2 ], argv[ 3 ] );
+        bool resume = false;
+
+        for ( int index = 4; index < argc; ++index )
+        {
+            if ( std::string_view( argv[ index ] ) == "--resume" )
+            {
+                resume = true;
+            }
+            else
+            {
+                std::cerr << "Unknown option for --fetch: " << argv[ index ] << "\n";
+
+                return 2;
+            }
+        }
+
+        return Mila::Tools::runFetch( argv[ 2 ], argv[ 3 ], resume );
     }
 
     if ( argc < 3 )
@@ -325,6 +358,10 @@ int main( int argc, char** argv )
         else if ( argument == "--model-card" && index + 1 < argc )
         {
             options.model_card = argv[ ++index ];
+        }
+        else if ( argument == "--replace" )
+        {
+            options.replace_package = true;
         }
         else
         {

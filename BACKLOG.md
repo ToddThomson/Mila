@@ -10,7 +10,8 @@ Each `###` bucket is a v0.20 theme, its name matching the ROADMAP section (the o
 complex. **Status lives in the checkbox** — `[ ]` open, `[~]` in progress — and never in the prose;
 no dates, no "GREEN", no findings. **Done means deleted**, in the same commit as the work. Findings
 worth reusing go to the owning spec or to memory, not here. Tags: **[gate]** blocks the release ·
-**[deferred]** parked · **[contributor]** good-first-issue.
+**[deferred]** parked · **[contributor]** good-first-issue · **[crash]** reproduces as a crash ·
+**[net-new]** authored from scratch, not revived · **[decoupled]** off the critical path.
 
 **The size gate is lines per item, not total lines** — the failure mode is narrative, not item count.
 Divide the lines in `## Current release` by the number of items in it; past **four** it has stopped
@@ -51,20 +52,21 @@ being a task list and needs a prune.
 - [ ] **`defaultContextFor()` is a compiled-in guess at the question the footprint API now answers.**
   `Chat.ModelCatalog.ixx` hard-codes 512 for Gemma, 1024 for GPT-2, 4096 otherwise, while
   `suggestFittingContext()` derives the answer in milliseconds and no VRAM. Keep the constant only as
-  the no-CUDA fallback. **Todd's call** — it touches the freeze boundary.
+  the no-CUDA fallback.
 - [ ] **The fitting-context suggestion cannot be acted on from inside the session.** It advises editing
   the chat config JSON and restarting, immediately after measuring the answer. A `/context <n>` that
   reloads would close it; `switchModel` already proves release-then-reload works.
+- [ ] **`/models` prices every row at the resident model's context, not at each row's own.** The
+  header names the basis, but the same command answered 8192 before Gemma loaded and 512 after,
+  moving `llama-3.1-8b-it` from 21.69 to 20.04 GB. A row's cost then depends on what happens to be
+  loaded rather than on what loading *that* row would cost, which is the question the table exists
+  to answer. Either price each row at its own default context, or fix the basis and say so.
 - [ ] **Time a `/models` footprint probe.** Each row costs an artifact-header read plus a constructed
   graph, now up to three per row, and the number has never been taken. A dozen models on a 48-layer
   architecture is 36 constructions per keystroke; if it bites, put the column set behind a flag.
 - [ ] **A per-row disk figure, if one ever returns, should be reclaimable bytes** — the blobs that model
   alone references. That is what deciding-what-to-delete wants, and prune's mark-and-sweep already
   computes the refcount; it is simply not exposed as a per-model query.
-- [ ] **`getStorageSize` is implemented three times** — `Mila::Dnn::detail::getStorageSize`
-  (`Tensor.ixx:81`, carrying a `REVIEW:` that already asks why), `Detail::getStorageSize`
-  (`TensorBuffer.ixx:221`), and `Mila::Dnn::storageBytes` (`Component.MemoryStats.ixx`). The two
-  namespaces differ only in case. Blocker: `Tensor.ixx` cannot import `Dnn.Component` without a cycle.
 - [~] **Llama HF-parity regression test** — Gemma has `GemmaModel.Parity.Cuda.cpp`, Llama has none.
   Validate and record 3.1 8B FP8. Folds into Test Suite Revival's Llama-path backfill.
 - [ ] **RoPE scaling is disabled on the Llama load path** — `Llama.ixx:703` has
@@ -81,7 +83,14 @@ being a task list and needs a prune.
   fallback as needing a correctness review, with the shape derivation commented out beneath it.
 - [ ] `CudaMhaOp.ixx:433` initializes `active_max_seq_len_ = T_` with the reason unrecorded — confirm
   against the two-phase KV-cache contract (prefill full sequence, decode `outer_size == 1`).
-- [ ] `GptModel.ixx:330` hardcodes `eos_token_ = 50256` — should come from tokenizer metadata.
+- [ ] `GptModel.ixx:386` hardcodes `eos_token_ = 50256` — should come from tokenizer metadata.
+- [ ] **[gate, crash] `generate()` walks off the end of the context instead of stopping.** Chat clamps
+  the budget, but that is a consumer working around a library defect. GPT-2 is where it shows because
+  its positional embeddings are learned — exactly `context_length` of them — so position 1024 is an
+  out-of-bounds lookup. `GptModel.ixx:307`'s own default has the same flaw:
+  `max_new_tokens.value_or( context_length_ )` never subtracts the prompt. `GenerateStatus::ContextLimit`
+  already exists and simply does not fire first. **Capture the crash output before fixing** — an
+  out-of-bounds LPE read and a KV-cache overrun look identical from outside.
 - [ ] **[contributor]** Llama 3.2 1B/3B weight tying — the aliasing plumbing shipped; add
   `tie_word_embeddings_` + post-load aliasing + `getMemoryStats` correction to `LlamaTransformer`.
   See `Specifications/WeightTying.md` §6.
@@ -130,9 +139,6 @@ being a task list and needs a prune.
 - [ ] **[decoupled]** Revive the loss + backward path (CrossEntropy / SoftmaxCrossEntropy) — both
   samples compute loss host-side, so this is off the critical path to a converging sample.
 - [ ] **[net-new, training-only]** Revive the `Dropout` component.
-- [ ] **ProgressReporter** — an injected per-operation progress facility for long-lived ops (BPE vocab
-  training, `PretrainedReader` load, load-time quantization). `BpeVocabulary.ixx:624` is the concrete
-  call site: an every-100-merges elapsed-time print asking to become an async callback.
 - [ ] **Validation** — the **FP32** training path proven by the primitive suite (gradient checks,
   step-convergence, loader contracts, init-at-precision, the integration test), CI-gated; samples run
   as demos. BF16 and GQA training move to the Training (advanced) release.
@@ -162,6 +168,10 @@ being a task list and needs a prune.
   session. Rename to the majority spelling: 126 occurrences, 9 files, 0 in `Mila/Tests`. Not a blind
   sweep — `GroupedQueryAttention.ixx` and `CudaRopeOp.ixx` use *both* and need hand work. Related:
   CLAUDE.md mandates `TWeightQuantization` and the code says `TWeightQuant`.
+- [ ] **`getStorageSize` is implemented three times** — `Mila::Dnn::detail::getStorageSize`
+  (`Tensor.ixx:81`, carrying a `REVIEW:` that already asks why), `Detail::getStorageSize`
+  (`TensorBuffer.ixx:221`), and `Mila::Dnn::storageBytes` (`Component.MemoryStats.ixx`). The two
+  namespaces differ only in case. Blocker: `Tensor.ixx` cannot import `Dnn.Component` without a cycle.
 - [ ] **Isolate third-party warnings structurally** with `/external:I` + `/external:W0` (`-isystem` for
   Clang/GCC). The real target is warnings from third-party header text pulled into Mila's own TUs, not
   their sources (`/W4` at `Mila/CMakeLists.txt:87` is `PRIVATE` and never reached them). Precondition
@@ -171,7 +181,7 @@ being a task list and needs a prune.
   accessibility of one virtual then depends on the static type you hold, and a caller holding a
   concrete composite cannot invoke it (C2248, worked around with an `exposeSave()` forwarder in
   `Tests/Dnn/Core/CompositeComponent.cpp`). The trailing underscore suggests non-public is the intent,
-  making `Component.ixx:163` the declaration that is wrong.
+  making `Component.ixx:407` the declaration that is wrong.
 - [~] **GPT-2 and Llama 3 pre-tokenization silently runs the ASCII fallback on every MSVC build.** Both
   canonical patterns use `\p{L}`/`\p{N}` (`BpePreTokenizationMode.ixx:33`, `:57`), MSVC's `std::regex`
   does not implement them, so `BpeTokenizer.ixx:344` throws on **every** construction and takes the
@@ -193,18 +203,48 @@ being a task list and needs a prune.
 - [ ] **If C1128 recurs** on `MilaTests`, `ProfileModel` or `ExportArtifact`, switch from the per-target
   `/bigobj` on `ChatApp` to one project-wide `add_compile_options`. **Todd's call** — it touches every
   target's flags, so it was deliberately not taken unilaterally.
-- [ ] **Linux CI cannot configure since libcurl landed** — curl's `find_package(OpenSSL)` fails on the
-  CUDA devel image, which installs no `libssl-dev` (`build-pipeline.yml:63`, `:145`). Both jobs die at
-  configure, so the clang portability gate and the CPU-only ratchet compile nothing. Underneath it sits
+- [ ] **[gate] Linux CI cannot configure since libcurl landed** — curl's `find_package(OpenSSL)` fails
+  on the CUDA devel image, which installs no `libssl-dev` (`build-pipeline.yml:63`, `:145`). Both jobs
+  die at configure, so the clang portability gate and the CPU-only ratchet compile nothing. Under it sits
   an older break the configure failure now masks: the CPU-only job failed on `Component.ixx:34`
   importing `Compute.CudaPinnedMemoryResource` in a `MILA_ENABLE_CUDA=OFF` build.
 - [ ] **`MILA_ENABLE_LIBCURL=OFF` has no Linux coverage, and it is the Linux wheel's configuration.**
   The only OFF preset is `x64-debug-no-libcurl`, a *Windows Debug* build whose own description names it
   "the Linux wheel's configuration" (`CMakePresets.json:147`); every `linux-clang-*` preset leaves it
   ON. Turning it OFF on the CPU-only CI job gives the wheel's configuration a gate for free.
-- [ ] **`CMakeLists.txt:254` pins curl at 8.11.1 under a `REVIEW:` marker naming 8.21 as current.** A
+- [ ] **`CMakeLists.txt:266` pins curl at 8.11.1 under a `REVIEW:` marker naming 8.21 as current.** A
   vendored TLS-adjacent dependency in a published binary is the one pin where staleness has a security
   cost. Decide the bump or record why 8.11.1 stands.
+- [ ] **[gate] PyPI advertises Linux and ships only `win_amd64`.** `pyproject.toml:37` carries
+  `Operating System :: POSIX :: Linux` and the sole published file is
+  `mila_llm-0.20.0b2.dev20-cp313-cp313-win_amd64.whl` — no Linux wheel, no sdist, so `pip install` on
+  Linux fails with nothing to fall back to. Release metadata is immutable, so the live page stays wrong
+  until the next release carries the Linux wheel below.
+- [ ] **[gate] The Windows wheel has never been tested without a CUDA Toolkit installed.** The Linux
+  wheel was missing `nvidia-cuda-runtime` for three environments before a CUDA-free image caught it —
+  every earlier test passed because the host had a toolkit. Windows links cudart statically so it
+  *should* not have the same hole, but that is the reasoning that hid it before. Needs a Windows
+  machine or container with no toolkit; `_toolkit_directories()` reads a fixed path that cannot be
+  hidden by unsetting an environment variable.
+- [ ] **[gate] Neither wheel has loaded weights.** `initialize()` now succeeds on Windows from a wheel
+  installed off TestPyPI, but no model has been loaded or run on either platform. WSL `Ubuntu-Dev` has
+  GPU passthrough and glibc 2.43 clears the 2.38 floor, but it ships **Python 3.14 only** against a
+  `>=3.13,<3.14` wheel — a 3.13 interpreter (deadsnakes or `uv`) is a precondition, not a given.
+- [ ] **The `>=3.13,<3.14` wheel pin is an accident, not a floor** — `Docker/build-mis.sh:60` says it
+  "exists to match the committed cp313 Windows binding". The binding uses no CPython API directly
+  (pure pybind11, floor 3.8) and `__init__.py` needs only 3.9, so the real floor is **3.9**. cp312 is
+  ~28-31% of PyPI downloads against 3.13's ~13% and 3.14's ~4-6%. Widening means a range plus a second
+  interpreter in `pyproject.toml:14`, `CMakePresets.json:180`, `Dockerfile.wheel:48`,
+  `build-wheel-windows.ps1:21` — nothing has yet compiled against 3.12 or 3.14. Todd's call, pending.
+- [ ] **`Mila/Tools` has no off switch** — gated on `PROJECT_IS_TOP_LEVEL` alone
+  (`Mila/CMakeLists.txt:1081`), so the wheel configure builds `tokenize` and `ExportArtifact`, neither
+  of which can go in a wheel. Every other subdirectory has a `MILA_ENABLE_*`; this one costs build time
+  on an artifact that discards it.
+- [ ] **ProgressReporter** — an injected per-operation progress facility for long-lived ops (BPE vocab
+  training, `PretrainedReader` load, load-time quantization). `BpeVocabulary.ixx:624` is the concrete
+  call site: an every-100-merges elapsed-time print asking to become an async callback.
+- [ ] `Version::getMajor()`/`getMinor()`/`getPatch()` are non-const (`Src/Version.ixx`), so the
+  version-skew comparison needs a mutable copy.
 - [~] **Linux/clang as a first-class platform** — WSL green, CI compiles under clang-21, the container
   builds and runs Gemma 4 FP4. The GCC 16 second oracle and the broadened matrix move to Future.
 - [~] **Reproducible container build** — validated on clang-21 + gcc-15 host, CUDA 13.3. Remaining:
@@ -235,22 +275,23 @@ being a task list and needs a prune.
 
 ### Model Distribution
 
-- [~] **Nothing has touched a real server since the HTTP relayering — this is the priority.** Redirect
-  handling, header construction and status mapping were all rewritten and no test reaches the network.
-  `ExportArtifact --fetch <hf-lfs-url>` is the cheapest live exercise of exactly that path (it crosses
-  the CDN redirect and reports status, final URL and digest); then `/models --online`, then
-  `/install`, then re-run `Mila/Samples/Python/store.py`. Design: `Specifications/HttpClient.md`.
-- [ ] **[gate] The cold download has never succeeded end-to-end.** The cache was seeded by hand from
-  verified `--fetch` copies. One real Chat download failed its digest check while the same client
-  fetched the exact digest through `--fetch`; leading explanation is a corrupt transfer the integrity
-  check caught, but it is unproven and possibly intermittent. A mismatch now keeps the file as
-  `.rejected` and reports the byte count: exactly 6799927760 bytes with a wrong digest means altered
-  in flight, any other count means a length bug.
-- [ ] **[gate] The published `mila-llm/gemma-4-12b-it` repository is incompatible with this build.** Its
-  `mila.json` is the old `variants:{}` schema the new parser refuses, and its name lacks the `-fp4`
-  suffix the flat scheme requires — nothing can pull it. Rename and rewrite the manifest **before**
-  anyone else pulls; the model card needs the same pass (it still shows `makeHuggingFaceRemoteAccess()`
-  and a `/pull` line with a coordinate that no longer parses).
+- [~] **[gate] The Python side of distribution has still not touched a real server.** The C++ path is
+  proven end to end — a cold `/install` of Gemma 4 12B FP4 pulled 6.33 GB and both digests verify
+  independently. Remaining: re-run `Mila/Samples/Python/store.py`, which folds into the binding work
+  below. Design: `Specifications/HttpClient.md`.
+- [ ] **There is still no headless pull.** Chat now opens on an empty store, so a clean machine can
+  reach `/install`, but the only thing in the product that pulls is an interactive command — which is
+  why the cold download can only be exercised by hand. A `pull` verb on the tool would make the gate
+  below testable without a human at a prompt, and it is the one store verb `ExportArtifact` lacks.
+- [ ] **`/models --online` still cannot answer "will it run here".** Download size now comes from each
+  manifest, but the fit question — the one `/models` answers for installed rows, `!` marker and all —
+  needs a real footprint. Take it from a `Range` read of the safetensors header (8-byte length then
+  JSON, both at the file's start) so the online row uses the *same* code as the installed row and one
+  number means one thing; an estimate in that column would quietly cost the table its credibility.
+  The transport is proven; the blocker is that the footprint path takes a path, not a byte range —
+  a `Mila/Src` change, which is what makes this the one online-listing item that is not adaptor work.
+- [ ] **`/models --online` costs one GET per listed model.** Invisible at one model, N+1 requests at N.
+  Only worth revisiting if the published set grows; noted so the cause is known when it does.
 - [ ] **Project distribution into the Python binding — steps 2b-4.** Decided (option C): one `pull`,
   two transports; Python supplies bytes, not procedure. Step 2b is `from_store( name, context_length,
   device_index )` on both sessions plus `BpeTokenizer.from_store()`, which kills the path-pairing and
@@ -275,18 +316,11 @@ being a task list and needs a prune.
   `add_custom_command(TARGET MilaPy POST_BUILD)`, which runs only when `MilaPy` relinks — so editing
   only `__init__.py` leaves every staged copy stale and the sample fails with a missing attribute.
   Use `add_custom_command(OUTPUT ...)` with `DEPENDS` on the source.
-- [ ] **Migrate the remaining Llama and GPT-2 rows into the store, then delete the models-directory
+- [ ] **[gate] Migrate the remaining Llama and GPT-2 rows into the store, then delete the models-directory
   fallback branch.** The catalogue is gone and Gemma plus Llama 3.2 3B load from the store; seven rows
   still resolve through the `REVIEW:`-marked loose-file path. `.bin` leaves the catalogued set with the
   branch, **not the reader** — `PretrainedReader.ixx:229` sniffs the magic and would strand every
   `.bin` on disk. *Done when:* a clean machine pulls and runs Gemma 4 through named commands.
-- [ ] **[crash] `generate()` walks off the end of the context instead of stopping.** Chat clamps the
-  budget, but that is a consumer working around a library defect. GPT-2 is where it shows because its
-  positional embeddings are learned — exactly `context_length` of them — so position 1024 is an
-  out-of-bounds lookup. `GptModel.ixx:307`'s own default has the same flaw:
-  `max_new_tokens.value_or( context_length_ )` never subtracts the prompt. `GenerateStatus::ContextLimit`
-  already exists and simply does not fire first. **Capture the crash output before fixing** — an
-  out-of-bounds LPE read and a KV-cache overrun look identical from outside.
 - [ ] **A pre-quantized FP4 artifact loads but generates garbage** (endless thinking tokens). Reloading
   the known-good `.bin` through the same `switchModel` path is coherent, so the switch machinery is
   innocent and the artifact load is at fault. Note a SHA-256-identical re-export does **not** prove the
@@ -301,14 +335,15 @@ being a task list and needs a prune.
   following a coordinate, and it is currently HuggingFace's placeholder. Needs: what a Mila artifact
   is, that it is loadable only by Mila and deliberately not NVFP4/MXFP4, the coordinate form, and the
   link to mila.toddt.me. See [[project_positioning_reference_impl]] — never lead with throughput.
+- [ ] **`ExportArtifact` names one of its nine modes, and its verbs wear option syntax.** Rename the
+  binary to `modelmgr` and convert the modes to subcommands (`export`, `transcode`, `package`,
+  `validate`, `install`, `rename`, `compare`, `fingerprint`, `fetch`). `--package` is today both a mode
+  and an option of export mode, a collision the code has to comment on at `ExportArtifact.cpp:212`.
+  Sequence it **after** the gate chain — `--fetch` is load-bearing until the cold download is green.
 - [ ] **Packaging then installing hashes every file twice** — `buildPackage` hashes to derive the
   manifest digests and `install` hashes again to verify adoption (~50 s of the ~60 s Llama 3B
   migration, ~2 minutes on the 8B). Neither check is wrong alone, so the fix is a combined verb.
   `publish_model.py` has the same defect for its own reason.
-- [ ] **Progress reporting is unthrottled, and is now worse than when it was filed.** `pullModel`'s
-  progress lambda in `Chat.ModelCatalog.ixx` redraws on *every* chunk with no percentage test at all —
-  at 6.33 GB that is far past the hundreds of redraws originally reported. Throttle on the printed
-  percentage changing.
 - [ ] **`prune()` is destructive on a store that predates records.** Every pre-record blob is by
   definition unreferenced, so a first sweep on an upgraded store reclaims all of it — 6.33 GB in the
   case actually observed. Blobs-with-zero-records is a recognizable state and should be reported
@@ -321,14 +356,6 @@ being a task list and needs a prune.
   **`PretrainedReader.ixx` is not**: it deliberately uses positioned `ReadFile`/`pread` alongside the
   mapping because faulting a large model through the mapped view throttles below disk bandwidth — that
   one needs the exemption. Clearing the first two unblocks the warnings-as-errors ratchet.
-- [ ] **Chat reports "Thinking: balanced" for models that have no thinking mode.** `show_thinking` is a
-  session-config flag, but only Gemma routes a reasoning channel — the welcome banner and `/model`
-  show an effort level for Llama and GPT-2 regardless, reading as a capability they lack.
-- [ ] **`main.cpp` re-checks what the store already guarantees** — after `resolveModel` succeeds it
-  tests `exists()` on both paths, but `locate()` refuses an incomplete record. Harmless duplication,
-  except `/model` has no equivalent check; if the guarantee is doubted, the check belongs in the store.
-- [ ] `Version::getMajor()`/`getMinor()`/`getPatch()` are non-const (`Src/Version.ixx`), so the
-  version-skew comparison needs a mutable copy.
 
 ### Product Family — Adaptor Validation
 
@@ -350,30 +377,13 @@ being a task list and needs a prune.
 - [ ] **In-turn thoughts dropped between tool calls** — Google's multi-turn rule is to strip
   prior-turn thoughts and keep the current turn's.
 - [ ] Buffer Gemma Anthropic streaming only when tools are present.
-- [ ] **[gate] PyPI advertises Linux and ships only `win_amd64`.** `pyproject.toml:37` carries
-  `Operating System :: POSIX :: Linux` and the sole published file is
-  `mila_llm-0.20.0b2.dev20-cp313-cp313-win_amd64.whl` — no Linux wheel, no sdist, so `pip install` on
-  Linux fails with nothing to fall back to. Release metadata is immutable, so the live page stays wrong
-  until the next release carries the Linux wheel below.
-- [ ] **The Windows wheel has no preset-driven equivalent of the Linux one.** `x64-wheel` configures
-  correctly, but `pip wheel` over the staged package is still a manual step with no script, so the two
-  platforms' wheels are produced by different procedures. `Docker/build-wheel.sh` is the shape to
-  mirror — including emptying the output directory, which is what keeps a stale version from riding
-  along in the publish glob.
-- [ ] **[gate] The Windows wheel has never been tested without a CUDA Toolkit installed.** The Linux
-  wheel was missing `nvidia-cuda-runtime` for three environments before a CUDA-free image caught it —
-  every earlier test passed because the host had a toolkit. Windows links cudart statically so it
-  *should* not have the same hole, but that is the reasoning that hid it before. Needs a Windows
-  machine or container with no toolkit; `_toolkit_directories()` reads a fixed path that cannot be
-  hidden by unsetting an environment variable.
-- [ ] **Neither wheel has run a model.** Both import and reach the store on a CUDA-free host, but
-  nothing has called `initialize()` against a real GPU from an installed wheel, let alone loaded
-  weights. WSL Ubuntu has GPU passthrough via the Windows driver and can install the
-  `manylinux_2_38` wheel (glibc 2.43 clears the 2.38 floor), so it is the environment for this.
-- [ ] **`Mila/Tools` has no off switch** — gated on `PROJECT_IS_TOP_LEVEL` alone
-  (`Mila/CMakeLists.txt:1081`), so the wheel configure builds `tokenize` and `ExportArtifact`, neither
-  of which can go in a wheel. Every other subdirectory has a `MILA_ENABLE_*`; this one costs build time
-  on an artifact that discards it.
+- [ ] **Chat reports "Thinking: balanced" for models that have no thinking mode.** `show_thinking` is a
+  session-config flag, but only Gemma routes a reasoning channel — the welcome banner and `/model`
+  show an effort level for Llama and GPT-2 regardless, reading as a capability they lack. The banner
+  prints it beside `Model: none` too, which is an effort level for a model that does not exist.
+- [ ] **`main.cpp` re-checks what the store already guarantees** — after `resolveModel` succeeds it
+  tests `exists()` on both paths, but `locate()` refuses an incomplete record. Harmless duplication,
+  except `/model` has no equivalent check; if the guarantee is doubted, the check belongs in the store.
 
 ---
 
@@ -389,10 +399,10 @@ Next-cycle work. Coarse by design — detailed tasking happens only when an item
 - **Gemma 4 MTP** — the self-speculative drafter, sequenced ahead of MoE.
 - **Ministral** — SWA transformer; reuses the Llama foundation, Qwen 3 tool calling, and the Gemma 4
   SWA mask + bounded-KV ring.
-- **v0.20 feature-frozen tails** — the Generation API surface tail (`SamplerConfig` rename, Llama/Gpt
+- **v0.20 library-frozen tails** — the Generation API surface tail (`SamplerConfig` rename, Llama/Gpt
   seedable sampling, eager sampler, config-accessor propagation, `contextLength()` hoist), the
-  Sample-API device-sampler migration for Llama/Gpt, the Optimizer-dispatch migration onto
-  `OperationTraits`, and the unspecced **Chat** feature milestone.
+  Sample-API device-sampler migration for Llama/Gpt, and the Optimizer-dispatch migration onto
+  `OperationTraits`. All `Mila/Src`, which is why they wait. Adaptor work does not.
 - **Model serialization** — the remaining checkpoint round-trip and distribution-artifact phases.
   Design, defect analysis and the phase plan are in `Specifications/ModelSerialization.md`.
 - **API Coherence** — the pre-1.0 consistency pass, and the precursor to any API-stability promise.
@@ -401,11 +411,10 @@ Next-cycle work. Coarse by design — detailed tasking happens only when an item
   zero; **MSVC first**, since `/WX` across three compilers means the union of three opinions must be
   zero; and dormant-but-retained code warns by nature — suppress per-file in CMake pointing at the
   owning task, never with `#pragma warning` in module code. Land it **after** v0.20 ships.
-- **Parallel range downloads for model retrieval** — N concurrent `Range` requests into one staging
-  file; content addressing means correctness rests on the final digest, not arrival order. **Measure
-  first, and the evidence is against it:** LM Studio took ~2 hours for a comparable Gemma 4 12B on the
-  same connection, which suggests the ceiling is HuggingFace's edge rather than per-connection TCP. If
-  the two clients land within a factor of each other, close this rather than implement it.
+- **Parallel range downloads for model retrieval — MEASURED, and closed.** One connection pulled 6.33
+  GB in 10-15 minutes on a 100 Mbps line, against a 9.1-minute theoretical floor: the single stream
+  already saturates the link, so there is no headroom for concurrency to recover. The earlier LM Studio
+  comparison (~2 hours, same connection) was measuring that client, not the ceiling. Do not implement.
 - **Training (advanced)** — Llama fine-tuning, loss-function GPU migration, gradient checkpointing,
   and BF16/GQA training.
 - **Performance** — the Gemma 4 competitiveness levers: the fused W4A16 prefill GEMM and

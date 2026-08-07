@@ -9,6 +9,7 @@
 
 module;
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -49,6 +50,10 @@ namespace Mila::ChatApp
 
         bool instruct{ false };
         bool streaming_capable{ false };
+
+        /// True when the quantization is a load-time choice rather than what the artifact already
+        /// is. Both land in the same field, but only this one is a fact the model's name omits.
+        bool quantization_applied_at_load{ false };
 
         std::size_t default_context{ 4096 };
     };
@@ -184,6 +189,7 @@ namespace Mila::ChatApp
         }
 
         resolved.quantization = requested;
+        resolved.quantization_applied_at_load = true;
     }
 
     /**
@@ -224,6 +230,34 @@ namespace Mila::ChatApp
             static_cast<double>( part ) / scale,
             static_cast<double>( whole ) / scale,
             gigabytes ? "GB" : "MB" );
+    }
+
+    /**
+     * @brief Render a remaining time the way someone waiting reads it.
+     *
+     * Coarse above a minute on purpose: a multi-gigabyte transfer over a domestic connection
+     * does not hold a rate steady enough to justify quoting seconds, and a figure that jitters
+     * every redraw reads as less trustworthy than one that does not.
+     */
+    export inline std::string formatDuration( double seconds )
+    {
+        const auto total = static_cast<std::uint64_t>(
+            seconds > 0.0 ? seconds + 0.5 : 0.0 );
+
+        const std::uint64_t hours = total / 3600;
+        const std::uint64_t minutes = ( total % 3600 ) / 60;
+
+        if ( hours > 0 )
+        {
+            return std::format( "{}h {:02}m", hours, minutes );
+        }
+
+        if ( minutes > 0 )
+        {
+            return std::format( "{}m", minutes );
+        }
+
+        return std::format( "{}s", total );
     }
 
     /**
@@ -685,19 +719,68 @@ namespace Mila::ChatApp
                 return false;
             };
 
-        lines.push_back( "Available to install:" );
+        struct OnlineDetail
+        {
+            std::uint64_t bytes{ 0 };
+            std::string architecture;
+        };
+
+        // What the transfer costs and what the model is -- both the manifest's answer, and the
+        // repository listing knows neither. The size in particular is not the repo's size: a repo
+        // also holds README, LICENSE and .gitattributes, and Mila fetches none of them. One small
+        // GET per row, on a command the user asked for by name.
+        const auto describe =
+            [&hub, &owner]( const Mila::Distribution::HubModel& model ) -> OnlineDetail
+            {
+                if ( !model.hasManifest() )
+                {
+                    return {};
+                }
+
+                try
+                {
+                    const Mila::Distribution::ModelCoordinate coordinate{
+                        owner, model.repository };
+
+                    const auto manifest = Mila::Distribution::parseModelManifest(
+                        hub->fetchManifest( coordinate ), model.repository );
+
+                    OnlineDetail detail;
+                    detail.architecture = manifest.architecture;
+
+                    for ( const auto& file : manifest.files )
+                    {
+                        detail.bytes += file.bytes;
+                    }
+
+                    return detail;
+                }
+                catch ( const std::exception& )
+                {
+                    // A repository whose manifest cannot be read is still worth listing by name.
+                    // Losing one row's detail must not cost the whole listing.
+                    return {};
+                }
+            };
+
+        // STATUS last because it is the only variable-width column: the gated text is a sentence,
+        // and anything placed after it would lose its alignment on exactly the rows that matter.
+        lines.push_back( std::format( "  {:<40} {:>10}  {:<14}{}",
+            "MODEL", "DOWNLOAD", "ARCHITECTURE", "STATUS" ) );
 
         for ( const auto& model : models )
         {
+            const OnlineDetail detail = describe( model );
+
             // Gating is known from the listing, so a repository behind terms says so here
             // instead of surfacing as a 403 partway through a multi-gigabyte transfer.
-            lines.push_back( std::format( "  {:<40} {}{}",
+            lines.push_back( std::format( "  {:<40} {:>10}  {:<14}{}{}",
                 model.repository,
-                isInstalled( model ) ? "[installed] " : "",
-                model.gated ? "[gated - accept terms on huggingface.co]" : "" ) );
+                detail.bytes > 0 ? formatBytes( detail.bytes ) : std::string( "--" ),
+                detail.architecture.empty() ? "--" : detail.architecture,
+                isInstalled( model ) ? "installed " : "",
+                model.gated ? "gated - accept terms on huggingface.co" : "" ) );
         }
-
-        lines.push_back( "  Install one with /install <name>" );
 
         return lines;
     }
@@ -722,17 +805,72 @@ namespace Mila::ChatApp
 
         bool reported = false;
 
-        auto progress = [&reported]( std::uint64_t received, std::uint64_t total ) -> bool
+        // One callback serves every file in a pull, so this tracks which transfer is running as
+        // well as how far along it is: a changed total, or a count that goes backwards, is the
+        // next file starting rather than progress on this one.
+        struct TransferProgress
+        {
+            std::uint64_t total{ 0 };
+            std::uint64_t first_received{ 0 };
+            std::chrono::steady_clock::time_point started{};
+            int last_percent{ -1 };
+            bool active{ false };
+        };
+
+        TransferProgress transfer;
+
+        auto progress = [&reported, &transfer](
+            std::uint64_t received, std::uint64_t total ) -> bool
             {
                 if ( total == 0 )
                 {
                     return true;
                 }
 
+                const auto now = std::chrono::steady_clock::now();
+
+                if ( !transfer.active || total != transfer.total
+                    || received < transfer.first_received )
+                {
+                    transfer = { total, received, now, -1, true };
+                }
+
                 const int percent = static_cast<int>( ( received * 100 ) / total );
 
-                std::cout << std::format( "\r  {:>3}%  {} / {}", percent,
-                    formatBytes( received ), formatBytes( total ) ) << std::flush;
+                // One redraw per whole percent. Unthrottled this fired on every chunk, which at
+                // 6.33 GB is tens of thousands of writes to a line that has 101 distinct states.
+                if ( percent == transfer.last_percent && received < total )
+                {
+                    return true;
+                }
+
+                transfer.last_percent = percent;
+
+                // Rate over what this run actually moved. A resumed transfer opens holding a
+                // prefix it spent no time on, and counting those bytes makes the estimate a lie.
+                const double elapsed =
+                    std::chrono::duration<double>( now - transfer.started ).count();
+                const std::uint64_t moved = received - transfer.first_received;
+
+                std::string remaining;
+
+                if ( elapsed > 2.0 && moved > 0 && received < total )
+                {
+                    const double rate = static_cast<double>( moved ) / elapsed;
+
+                    remaining = std::format( "  {} left", formatDuration(
+                        static_cast<double>( total - received ) / rate ) );
+                }
+
+                const std::string line = std::format( "  {:>3}%  {}{}",
+                    percent, formatBytesOf( received, total ), remaining );
+
+                // Erase to end of line rather than padding out to a fixed width. Padding writes
+                // past the content, so on a terminal narrower than the pad the line wraps -- and
+                // once it has wrapped, \r returns to the start of the last visual row, leaving
+                // the earlier rows on screen for the next redraw to sit beside. That is what a
+                // resize turned into fragments. Same idiom the renderer uses for the spinner.
+                std::cout << "\r" << line << "\x1b[K" << std::flush;
 
                 reported = true;
 

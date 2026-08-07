@@ -23,31 +23,37 @@ load, so a Mila session starts near-instantly rather than quantizing 12 billion 
 |---|---|
 | `gemma4_12b_it_fp4.safetensors` | Weights: packed FP4 E2M1 with per-group FP32 scales |
 | `gemma_tokenizer.bin` | Mila tokenizer |
-| `mila.json` | Manifest: variants, file digests, minimum Mila version |
+| `mila.json` | Manifest: file digests, quantization, minimum Mila version |
 
 ## Use
 
+From the Mila chat harness:
+
 ```
-/pull mila-llm/gemma-4-12b-it:fp4
-/model gemma-12b
+/install gemma-4-12b-it-fp4
+/model gemma-4-12b-it-fp4
 ```
 
-Mila pulls this repository on first use into a content-addressed local store, verifies each
-file against the digest in `mila.json`, and loads from the store afterwards. Nothing needs to
-be downloaded by hand.
+Installing is a deliberate step, and it is the only one that touches the network. It verifies
+each file against the digest in `mila.json` and leaves it in a content-addressed local store;
+every load afterwards reads the store and nothing else. `/models --online` lists what is
+published, and `/models` lists what is already installed.
 
 From the library:
 
 ```cpp
 ModelStore store;
 
-// Pull once. This is the only step that touches the network.
-ModelResolver resolver( store, makeHuggingFaceRemoteAccess() );
-resolver.pull( "mila-llm/gemma-4-12b-it:fp4" );
+// Pull once. This is the only thing here that touches the network.
+const auto hub = makeDefaultModelHub();
+ModelResolver resolver( store, *hub );
+resolver.pull( "gemma-4-12b-it-fp4", std::string( kDefaultHubOwner ) );
 
 // Load from the store thereafter -- no network, and no manifest fetch.
-const auto model = store.locate( "mila-llm", "gemma-4-12b-it", "fp4" );
+const auto model = store.locate( "gemma-4-12b-it-fp4" );
 ```
+
+The quantization travels in the name rather than in a variant suffix: one name is one model.
 
 No token is required — this repository is public and ungated.
 

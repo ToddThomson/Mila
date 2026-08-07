@@ -42,10 +42,16 @@ Pre-1.0, "production" means validated and polished, not API-frozen — breaking 
 acceptable. The release is reached through the themed workstreams below, in dependency order: the test
 suite is revived to become the correctness oracle; training is resurrected against green tests;
 documentation describes the stabilized surface; hardening validates and packages it for the public;
-and the MIS adaptor proves the product definition end-to-end. At `beta.1` the feature set is
-**frozen** — what remains is hardening, not new capability. **Model Distribution is the one deliberate
+and the MIS adaptor proves the product definition end-to-end. At `beta.1` **the library is frozen** —
+`Mila/Src` gains no new capability, only hardening. **Model Distribution is the one deliberate
 carve-in**, added during `beta.2` because a release nobody can get a model for is not an onboarding
-story; the freeze holds for everything else.
+story, and because it was an alpha omission rather than a new idea.
+
+The freeze is drawn around the library, not the release. Everything that *consumes* Mila — the Chat
+and MIS adaptors, the Python binding, the samples and the tools — is polish and hardening by nature:
+it adds no capability to the runtime, it exposes and demonstrates what the runtime already has. Those
+surfaces are expected to improve up to the release, and a gap between what Mila can do and what its
+own adaptors reach is a defect in the demonstration rather than a feature request.
 
 ### Models
 
@@ -141,7 +147,7 @@ Doxygen's own warnings gated as errors so doc drift fails the build.
 
 ### Production Hardening
 
-*Validate, package, and distribute for external contributors. No new features beyond the frozen set.*
+*Validate, package, and distribute for external contributors. No new library capability.*
 
 The convergence workstream: prove the primary Llama and Gemma targets against the HuggingFace oracle as
 permanent regression tests, package Mila as a consumable source distribution (FetchContent is the
@@ -199,9 +205,9 @@ names a `.bin`; and a build without the hub still lists, locates and removes.
 *Prove the locked product definition's central claim: the whole path is demonstrable end-to-end.*
 
 The [MilaProductFamily.md](Mila/Specifications/MilaProductFamily.md) definition ships two adaptors with
-v0.20 — Chat (human gate) and MIS (Python wire) — distinguished by who closes the generation loop. The
-Chat surface is validated; net-new Chat feature work is **deferred to Future** under the feature freeze,
-so this workstream closes **MIS**. The Agentic adaptor stays explicitly post-release.
+v0.20 — Chat (human gate) and MIS (Python wire) — distinguished by who closes the generation loop.
+Both are consumers of a frozen library, so both stay open to change: where an adaptor cannot reach
+something Mila already does, that gap is the work. The Agentic adaptor stays explicitly post-release.
 
 **Success criteria:** a foreign harness (Codex CLI and Claude Code CLI over the OpenAI/Anthropic wire
 shapes) drives Gemma 4 12B FP4 through MIS across plain-chat, single-tool, and tool-result-resume flows
@@ -221,11 +227,11 @@ own version, date, and tag, when it is scheduled.
   template, `ToolCallParser`, thinking-mode suppression) and FP8 KV cache (`PerChannelKvFp8<>`).
   Success bar: greedy decode at BF16 and FP8 each match HuggingFace token-for-token; tool calling
   validated end-to-end; thinking-mode suppression confirmed; FP8 KV cache quality acceptable vs. BF16.
-- **v0.20 feature-frozen tails** — the Generation API surface tail (SamplerConfig rename, Llama/Gpt
+- **v0.20 library-frozen tails** — the Generation API surface tail (SamplerConfig rename, Llama/Gpt
   seedable sampling, eager sampler, accessor propagation), the Sample-API device-sampler migration for
-  Llama/Gpt, the unspecced **Chat** feature milestone, a second module-compiler oracle (GCC 16) with a
-  broadened Linux compiler matrix, and the ungated GPT-2 zero-auth quick-start (a first-run HTTPS
-  weights fetch).
+  Llama/Gpt, a second module-compiler oracle (GCC 16) with a broadened Linux compiler matrix, and the
+  ungated GPT-2 zero-auth quick-start (a first-run HTTPS weights fetch). These are library-side, which
+  is why they wait; adaptor work does not.
 - **Ministral** — Ministral transformer with Sliding Window Attention; 3B Instruct (BF16) and 8B
   Instruct (FP8). Builds on the Llama foundation and the Qwen 3 tool-calling pipeline, reusing the SWA
   mask + bounded-KV ring cache from Gemma 4.

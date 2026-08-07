@@ -109,8 +109,26 @@ namespace Mila::ChatApp
 
         void run()
         {
-            printWelcome();
-            loadActiveModel();
+            printBanner();
+
+            if ( config_.model_name.empty() )
+            {
+                // Said once, here: which model was configured and what the store does hold is a
+                // startup fact, and it stops being true as soon as anything is installed.
+                if ( !config_.no_model_reason.empty() )
+                {
+                    renderer_.printInfo( config_.no_model_reason );
+                }
+
+                reportNoModel();
+            }
+            else
+            {
+                loadActiveModel();
+            }
+
+            printSessionStatus();
+
             clearHistory();
 
             std::string user_input;
@@ -163,6 +181,14 @@ namespace Mila::ChatApp
                         if ( result.ec != std::errc{} )
                         {
                             renderer_.printInfo( "Usage: /seed <n>  (n = non-negative integer)." );
+                            continue;
+                        }
+
+                        // The sampler belongs to the model, so there is nothing to seed until
+                        // one is resident.
+                        if ( !modelIsResident() )
+                        {
+                            reportNoModel();
                             continue;
                         }
 
@@ -398,18 +424,39 @@ namespace Mila::ChatApp
                             continue;
                         }
 
+                        bool installed = false;
+
                         try
                         {
                             for ( const auto& line : installModel( std::string( args.front() ) ) )
                             {
                                 renderer_.printInfo( line );
                             }
+
+                            installed = true;
                         }
                         catch ( const std::exception& error )
                         {
                             // A failed install must leave the session on its working model, so
                             // this reports and returns to the prompt rather than propagating.
                             renderer_.printInfo( std::format( "Install failed: {}", error.what() ) );
+                        }
+
+                        // Bootstrap: a session that opened with nothing resident wants the model
+                        // it just installed. Reported separately from the install because a load
+                        // that fails here has not failed the install, and saying so would send
+                        // the user to fix the wrong thing.
+                        if ( installed && !modelIsResident() )
+                        {
+                            try
+                            {
+                                switchModel( std::string( args.front() ) );
+                            }
+                            catch ( const std::exception& error )
+                            {
+                                renderer_.printInfo( std::format(
+                                    "Installed, but loading it failed: {}", error.what() ) );
+                            }
                         }
 
                         continue;
@@ -454,6 +501,14 @@ namespace Mila::ChatApp
 
                     renderer_.printInfo( std::format(
                         "Unknown command: {}. Type /help for available commands.", user_input ) );
+                    continue;
+                }
+
+                // Every generation path dereferences model_, so a turn with nothing resident is
+                // a crash rather than an empty answer. The commands that fix it still work.
+                if ( !modelIsResident() )
+                {
+                    reportNoModel();
                     continue;
                 }
 
@@ -1268,6 +1323,10 @@ namespace Mila::ChatApp
         {
             const ModelType prev_type = config_.model_type;
 
+            // A session that opened with nothing resident is loading, not switching, and the
+            // closing message is the only part that can tell the difference.
+            const bool had_model = modelIsResident();
+
             // Resolved before the current model is released, so a name that is not installed
             // leaves the session on its working model.
             const ResolvedModel resolved = resolveModel( name, requested_quantization );
@@ -1278,6 +1337,7 @@ namespace Mila::ChatApp
             config_.is_instruct       = resolved.instruct;
             config_.streaming_capable = resolved.streaming_capable;
             config_.quantization_mode = resolved.quantization;
+            config_.quantization_applied_at_load = resolved.quantization_applied_at_load;
             config_.model_path        = resolved.weights;
             config_.tokenizer_path    = resolved.tokenizer;
 
@@ -1295,7 +1355,9 @@ namespace Mila::ChatApp
             loadActiveModel();
             clearHistory();
 
-            renderer_.printInfo( "Model switched. Conversation history cleared." );
+            renderer_.printInfo( had_model
+                ? "Model switched. Conversation history cleared."
+                : "Model loaded." );
         }
 
         /**
@@ -1441,6 +1503,28 @@ namespace Mila::ChatApp
          * model / memory dumps remain readable; otherwise the multi-second weight
          * load runs under the same braille spinner used for turns.
          */
+        /**
+         * @brief Say what is missing and what to type, without ending the session.
+         *
+         * A store with nothing in it is the state every new user starts in, so this is the first
+         * thing Mila says to them rather than an error. The reason from resolveModel is carried
+         * through because it distinguishes an empty store from a name that is merely misspelled,
+         * and those want different next commands.
+         */
+        /**
+         * @brief Say what to type next. Carries no reason: startup already gave it.
+         *
+         * The reason names the configured model and lists the store, which is worth saying once.
+         * Repeating it on every prompt buries the one line that changes anything -- and it goes
+         * stale the moment something is installed, while this does not.
+         */
+        void reportNoModel() const
+        {
+            renderer_.printInfo(
+                "No model is loaded. /models --online lists what can be installed, "
+                "/install <name> installs one, and /models lists what is already here." );
+        }
+
         void loadActiveModel()
         {
             reportFootprintBeforeLoad();
@@ -1455,8 +1539,12 @@ namespace Mila::ChatApp
                 return;
             }
 
-            renderer_.startSpinner( std::format( "Loading {} ({})",
-                modelName(), quantizationName( config_.quantization_mode ) ) );
+            // The quantization is quoted only when it was chosen at load. A pre-quantized model
+            // already carries it in its name, and "gemma-4-12b-it-fp4 (fp4)" says one fact twice.
+            renderer_.startSpinner( config_.quantization_applied_at_load
+                ? std::format( "Loading {} ({})",
+                    modelName(), quantizationName( config_.quantization_mode ) )
+                : std::format( "Loading {}", modelName() ) );
 
             initializeTokenizer();
             loadModel();
@@ -1508,6 +1596,15 @@ namespace Mila::ChatApp
 
         void printModelInfo() const
         {
+            // Without a model the fields below are defaults, not facts -- printing them would
+            // report a precision and a context for weights that are not there.
+            if ( config_.model_name.empty() )
+            {
+                reportNoModel();
+
+                return;
+            }
+
             const ThinkingEffort& effort = thinkingEffort( config_.thinking_effort );
 
             std::cout << std::format(
@@ -1829,15 +1926,31 @@ namespace Mila::ChatApp
 
         const std::string& modelName() const { return config_.model_name; }
 
-        void printWelcome() const
+        void printBanner() const
         {
-            const std::string thinking_display = config_.show_thinking
-                ? std::string( thinkingEffort( config_.thinking_effort ).name )
-                : "off";
-
             renderer_.printWelcomeBox( std::format( "Mila Chat {}", kVersion ) );
-            renderer_.printInfo( std::format( "  Model: {}  ·  Thinking: {}",
-                modelName(), thinking_display ) );
+        }
+
+        /**
+         * @brief What the session actually ended up with, printed after the load rather than before.
+         *
+         * The config names the model that *will* be loaded as readily as the one that is, so a
+         * status line printed ahead of the load asserts as fact what the spinner on the next line
+         * then shows to be still in progress -- and spends the model's name twice to do it.
+         * Printed here it is a statement about weights that are on the device.
+         */
+        void printSessionStatus() const
+        {
+            if ( modelIsResident() )
+            {
+                const std::string thinking_display = config_.show_thinking
+                    ? std::string( thinkingEffort( config_.thinking_effort ).name )
+                    : "off";
+
+                renderer_.printInfo( std::format( "  Model: {}  ·  Thinking: {}",
+                    modelName(), thinking_display ) );
+            }
+
             std::cout << "  Type /help for commands, /exit to quit.\n\n";
         }
 

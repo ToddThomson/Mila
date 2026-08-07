@@ -229,7 +229,7 @@ for a good one. That is the failure the design is chosen to make impossible rath
 ### Removal is refcounted
 
 Deduplication stops being free the moment removal exists: deleting `gemma-4-12b-it-fp4` must not
-delete the tokenizer blob that `:fp8` also references.
+delete the tokenizer blob that `gemma-4-12b-it-fp8` also references.
 
 Removal unlinks the record, then sweeps blobs that no surviving record names. Mark-and-sweep over the
 record tree is exact and cheap -- records are kilobytes -- and it makes `remove` and `prune` the same
@@ -289,7 +289,7 @@ to recommend it.
 Measured against the live API on 2026-08-01, `?author=<owner>&full=true` returns per repository:
 
 ```json
-{ "id": "mila-llm/gemma-4-12b-it",
+{ "id": "mila-llm/gemma-4-12b-it-fp4",
   "gated": false,
   "sha": "570dbe0e5778c4a1ab96fb8ec2dcc626da828e37",
   "lastModified": "2026-07-30T03:14:20.000Z",
@@ -310,10 +310,10 @@ files, and the resolved commit. Three consequences worth naming:
   parameterized on an owner rather than hardcoded to `mila-llm`: the same query filtered on the
   library finds a Mila model published by anyone.
 
-What the API does *not* report is variants -- their quantization, their files, their minimum version.
-Only `mila.json` knows that, so a caller asking a repository for detail costs one further small GET.
-The `tags` do happen to carry `fp4`, but tags are hand-authored card metadata and drift; they are for
-display, and the manifest is the truth.
+What the API does *not* report is what the model actually is -- its quantization, its files, their
+digests, the minimum Mila version. Only `mila.json` knows that, so a caller asking a repository for
+detail costs one further small GET. The `tags` do happen to carry `fp4`, but tags are hand-authored
+card metadata and drift; they are for display, and the manifest is the truth.
 
 **A listing is untrusted remote text.** Repository names, descriptions and card data are authored by
 whoever owns the repository. They are rendered as data -- never interpreted as markup, never as
@@ -359,16 +359,20 @@ would double the I/O for no additional confidence.
 Retrieval, loading and publishing are separate verbs, and the separation is the design.
 
 ```
-pull(coordinate)    hub -> store      network, explicit, resumable
-locate(coordinate)  store -> paths    filesystem only, never network
+pull(name, owner)   hub -> store      network, explicit, resumable
+locate(name)        store -> paths    filesystem only, never network
 publish(package)    build -> store or a hub-ready directory
 ```
+
+A coordinate names a repository and a store name names an installed model, and the two are spelled the
+same on purpose: quantization travels in the name (`gemma-4-12b-it-fp4`), so one name is one model and
+`pull` needs only the owner to complete it. There is no variant axis to carry separately.
 
 ### The load boundary
 
 **Only a model in the store can be loaded.** `locate()` consults records and blobs and returns nothing
 when the model is not installed. It never falls back to a hub, and it never accepts a path in place of
-a coordinate.
+a name.
 
 The store is the standard, and arrangements that predate it are obsolete: a models directory holding
 loose files, a catalogue row naming a relative path, a `.bin` in either role. Anything a consumer
@@ -391,13 +395,14 @@ run it on a yes -- an explicit user gate, not an implicit download. The inferenc
 
 1. Parse the coordinate; reject anything that is not one. A path here is a mistake worth naming, since
    installing is the operation that takes one.
-2. Fetch `mila.json`, select the variant, check `minimum_mila_version`.
+2. Fetch `mila.json` and check `minimum_mila_version`. One repository describes one model, so there is
+   nothing to select.
 3. For each declared file: if `blobs/sha256-<digest>` exists, it is done. Otherwise take the transfer
    lock, download into `tmp/` while hashing, verify, rename into `blobs/`.
 4. Write the record, including the resolved revision.
 
-A pull of a variant already installed at a different revision **replaces** the record. The blobs it
-referenced become unreferenced and the next sweep reclaims them. Holding two revisions of one variant
+A pull of a model already installed at a different revision **replaces** the record. The blobs it
+referenced become unreferenced and the next sweep reclaims them. Holding two revisions of one model
 side by side is not supported: a store that silently keeps two copies of a 6.33 GB model is a disk
 trap, and a user who wants both can say so with two coordinates today only by choosing.
 
@@ -418,8 +423,14 @@ A published model is a directory, and the same directory is what installs locall
 
 `Distribution.ModelPackage` is that directory: `buildPackage` assembles it and derives every digest
 from the bytes, and `validate` reads each declared file back and reports whether the package agrees
-with its own manifest. A repository manifest covers every variant it publishes, so packaging FP8 into
-a directory that already holds FP4 merges into the manifest rather than replacing it.
+with its own manifest. One package is one model, so an FP8 build of the same weights is its own
+directory and its own repository (`...-fp8`) rather than a second entry beside the FP4 one.
+
+Because the manifest is derived rather than merged, `buildPackage` **refuses a directory that already
+describes a model** and names both in the refusal. Writing one manifest over another would discard the
+description of bytes that may still be sitting beside it, and a rebuild the caller meant looks exactly
+like a directory they misremembered -- the same reason `install` refuses a name already in the store.
+`replace` forces either one.
 
 `Tools/ExportArtifact` drives it: `--package <dir>` after an export, `--validate <dir>` on its own,
 and `--install <dir>` to publish to the local store.
@@ -460,23 +471,32 @@ hand a few times per release, in a language that already has a maintained client
 ```
 ModelStore                     filesystem only, always available
   list()                    -> [StoredModel]     every installed record
-  locate(coordinate)        -> StoredModel?      paths, or nothing
-  describe(coordinate)      -> Manifest?
-  remove(coordinate)        -> RemovalReport     record, then sweep
+  locate(name)              -> StoredModel?      paths, or nothing
+  describe(record)          -> StoredModel       a record plus its resolved blob paths
+  remove(name)              -> RemovalReport     record, then sweep
   prune()                   -> RemovalReport     unreferenced blobs, rejects, stale partials
   diskUsage()               -> StoreUsage        by model and in total
   install(package, options) -> StoredModel       verify, adopt, record
+  ensureBlob(what, digest, fetcher) -> path      resumable, verified, published on match
 
 ModelPackage                   filesystem only, always available
   open(directory)           -> ModelPackage      reads the manifest, hashes nothing
-  validate(variant)         -> PackageValidation problems and warnings
-  buildPackage(request)     -> ModelPackage      assemble, merging into what is there
+  validate()                -> PackageValidation problems and warnings
+  buildPackage(request)     -> ModelPackage      assemble; refuses an occupied directory
 
-ModelHub                       network, gated
+IModelHub                      network, gated
+  name()                    -> string            recorded in the store record
   listModels(owner)         -> [HubModel]
-  describe(coordinate)      -> Manifest
-  pull(coordinate, store, progress) -> StoredModel
+  fetchManifest(coordinate) -> string            the raw mila.json text
+  fetchFile(coordinate, path, resume_from, sink) -> FetchReport
+
+ModelResolver                  the one thing that joins a hub to a store
+  pull(name, owner)         -> StoredModel
+  pull(coordinate)          -> StoredModel
 ```
+
+`pull` lives on the resolver rather than on the hub, so a hub only ever moves bytes and never learns
+what a store is.
 
 Progress is a callback taking bytes-so-far and total, and the library does not rate-limit it. Deciding
 how often to redraw is the consumer's problem, because a console line, a TUI and a server log want
@@ -486,17 +506,17 @@ three different answers.
 
 ## Consumers
 
-**Chat.** The catalog stops being a table of file paths and becomes a table of aliases over
-coordinates. Quantization stops being part of the alias and becomes the variant, which the coordinate
-grammar already expresses:
+**Chat.** The catalog stops being a table of file paths and becomes a table of store names. Quantization
+stays part of the name rather than becoming a second axis: one name is one model, which is what makes a
+name sufficient to install, load, describe and remove.
 
 | Before | After |
 |---|---|
-| `gemma-12b`, `gemma-12b-packed`, `gemma-12b-hub` | `gemma-12b` -> `mila-llm/gemma-4-12b-it`, variants `fp4`, `fp8` |
-| `llama-3b`, `llama-3b-fp32` | `llama-3.2-3b-instruct-bf16`, `llama-3.2-3b-instruct-fp32` |
+| `gemma-12b`, `gemma-12b-packed`, `gemma-12b-hub` | `gemma-4-12b-it-fp4` |
+| `llama-3b`, `llama-3b-fp32` | `llama-3.2-3b-it`, `llama-3.2-3b-it-fp32` |
 
-`/model <alias|coordinate> [variant]` selects; `/models` lists what is installed and what the hub
-offers; `/pull` and `/rm` manage. Three aliases naming one model, distinguished by a provenance nobody
+`/model <name>` selects; `/models` lists what is installed and `/models --online` what the hub offers;
+`/install` and `/rm` manage. Three aliases naming one model, distinguished by a provenance nobody
 outside the codebase can decode, go away.
 
 **The inference server.** Consumes the same store through the Python binding, in a separate process
@@ -603,7 +623,7 @@ destination with the reason rather than failing at a 403.
 ## Decisions closed
 
 1. **Revision pinning.** A coordinate accepts `@<revision>` and a record stores the resolved commit.
-   One installed revision per variant; a pull at a different revision replaces the record and the old
+   One installed revision per model; a pull at a different revision replaces the record and the old
    blobs become sweepable. Side-by-side revisions are not supported, because the disk cost is
    invisible at the point where a user would incur it.
 2. **Manifest caching.** Records are persisted, so `list`, `describe` and `locate` are offline
@@ -618,7 +638,7 @@ destination with the reason rather than failing at a 403.
 ## Build plan
 
 Phases 1 to 5 landed in `0.20.0-beta.2+21..+25`: the HTTP client, the content-addressed cache, the
-coordinate resolver, the Chat catalog entry, and the published `mila-llm/gemma-4-12b-it` repository.
+coordinate resolver, the Chat catalog entry, and the published `mila-llm/gemma-4-12b-it-fp4` repository.
 What follows completes distribution as a managed system.
 
 **Phase 6 -- the store.** Split `ModelStore` out from behind the hub option; add the record tree,
@@ -627,7 +647,7 @@ and write a record on every successful pull.
 and locates it.
 
 **Phase 7 -- management.** `remove`, `prune`, `diskUsage`, refcounted sweep, transfer lock.
-*Done when:* removing one of two variants sharing a tokenizer leaves the tokenizer blob in place;
+*Done when:* removing one of two models sharing a tokenizer leaves the tokenizer blob in place;
 prune reclaims a `.rejected` file and a stale partial; two processes pulling one blob do not corrupt
 each other.
 

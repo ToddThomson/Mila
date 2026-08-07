@@ -162,22 +162,41 @@ static ChatConfig buildConfig( int argc, char* argv[] )
         requested_quantization = *parsed;
     }
 
-    ResolvedModel resolved = resolveModel( name, requested_quantization );
+    // A name that does not resolve is reported into the session rather than out of it. The
+    // commands that fix it -- /install, /models, /model -- are all inside the session, so
+    // exiting here is precisely what left a clean machine with no way to get its first model.
+    std::optional<ResolvedModel> resolved;
+    std::string no_model_reason;
+
+    try
+    {
+        resolved = resolveModel( name, requested_quantization );
+    }
+    catch ( const std::exception& e )
+    {
+        no_model_reason = e.what();
+    }
 
     ChatConfig config;
-    config.model_name        = resolved.name;
-    config.model_type        = resolved.family;
-    config.precision         = resolved.precision;
-    config.is_instruct       = resolved.instruct;
-    config.streaming_capable = resolved.streaming_capable;
-    config.quantization_mode = resolved.quantization;
-    config.model_path        = resolved.weights;
-    config.tokenizer_path    = resolved.tokenizer;
+    config.no_model_reason = no_model_reason;
+
+    if ( resolved )
+    {
+        config.model_name        = resolved->name;
+        config.model_type        = resolved->family;
+        config.precision         = resolved->precision;
+        config.is_instruct       = resolved->instruct;
+        config.streaming_capable = resolved->streaming_capable;
+        config.quantization_mode = resolved->quantization;
+        config.quantization_applied_at_load = resolved->quantization_applied_at_load;
+        config.model_path        = resolved->weights;
+        config.tokenizer_path    = resolved->tokenizer;
+
+        // Context length: explicit override, else the model's own default.
+        config.context_length = resolved->default_context;
+    }
 
     config.config_path    = config_path;
-
-    // Context length: explicit override, else the model's own default.
-    config.context_length = resolved.default_context;
 
     if ( j.contains( "context_length" ) && j[ "context_length" ].is_number_unsigned() )
         config.context_length = j[ "context_length" ].get<std::size_t>();
@@ -275,18 +294,23 @@ int main( int argc, char* argv[] )
         if ( config.detail == DetailLevel::All )
             Mila::Logging::Logger::defaultLogger().setLevel( Mila::Logging::LogLevel::Info );
 
-        if ( !std::filesystem::exists( config.model_path ) )
+        // Only when a model resolved: with nothing selected there are no paths to check, and
+        // the session opens anyway so /install can be reached.
+        if ( !config.model_name.empty() )
         {
-            std::cerr << "Error: Model file not found: " << config.model_path << "\n";
-            printUsage( argv[ 0 ] );
-            return 1;
-        }
+            if ( !std::filesystem::exists( config.model_path ) )
+            {
+                std::cerr << "Error: Model file not found: " << config.model_path << "\n";
+                printUsage( argv[ 0 ] );
+                return 1;
+            }
 
-        if ( !std::filesystem::exists( config.tokenizer_path ) )
-        {
-            std::cerr << "Error: Tokenizer file not found: " << config.tokenizer_path << "\n";
-            printUsage( argv[ 0 ] );
-            return 1;
+            if ( !std::filesystem::exists( config.tokenizer_path ) )
+            {
+                std::cerr << "Error: Tokenizer file not found: " << config.tokenizer_path << "\n";
+                printUsage( argv[ 0 ] );
+                return 1;
+            }
         }
 
         if ( config.system_prompt_path.has_value() &&

@@ -58,6 +58,9 @@ namespace Mila::Tools
 
         /// Model card, carrying the statement that the weights were modified.
         std::filesystem::path model_card;
+
+        /// Build over a package directory that already describes a model.
+        bool replace_package{ false };
     };
 
     /**
@@ -133,6 +136,43 @@ namespace Mila::Tools
     }
 
     /**
+     * @brief Replay bytes already on disk into the hash, and report how many there were.
+     *
+     * SHA-256 is sequential and cannot be restored from a byte offset alone, so a resumed
+     * transfer has to re-read what it already holds. Mirrors ModelStore's own replay so the
+     * probe exercises the real protocol rather than an approximation of it.
+     */
+    uint64_t replayIntoHash(
+        const std::filesystem::path& path, Mila::Distribution::Sha256& hash )
+    {
+        std::unique_ptr<std::FILE, int( * )( std::FILE* )> input(
+            std::fopen( path.string().c_str(), "rb" ), &std::fclose );
+
+        if ( input == nullptr )
+        {
+            return 0;
+        }
+
+        std::vector<char> buffer( 1u << 20 );
+        uint64_t total = 0;
+
+        for ( ;; )
+        {
+            const size_t read = std::fread( buffer.data(), 1, buffer.size(), input.get() );
+
+            if ( read == 0 )
+            {
+                break;
+            }
+
+            hash.update( buffer.data(), read );
+            total += read;
+        }
+
+        return total;
+    }
+
+    /**
      * @brief Fetch one URL through Mila's own HTTP transport and report what arrived.
      *
      * Exists because a corrupted 6.33 GB download is an intolerable debugging loop. Pointed
@@ -144,12 +184,36 @@ namespace Mila::Tools
      * below the level at which a hub knows anything. In a build with no HTTP client the
      * transport says so and this reports that, which is the honest answer.
      *
+     * With resume set, the offset comes from the destination's own size rather than from an
+     * argument: that is the only offset the store can ever produce, so an arbitrary one would
+     * exercise a path the real code cannot reach. Truncate a verified copy and re-run to drive
+     * the Range branch, and point it at a server that ignores Range to drive the other one.
+     *
      * @return Process exit code.
      */
-    export int runFetch( const std::string& url, const std::filesystem::path& destination )
+    export int runFetch(
+        const std::string& url, const std::filesystem::path& destination, bool resume )
     {
+        Mila::Distribution::Sha256 hash;
+        uint64_t resume_from = 0;
+
+        if ( resume )
+        {
+            resume_from = replayIntoHash( destination, hash );
+
+            if ( resume_from == 0 )
+            {
+                std::cerr << std::format(
+                    "Nothing to resume from: {} is missing or empty\n", destination.string() );
+
+                return 2;
+            }
+        }
+
+        // Append so a resumed transfer extends the prefix rather than truncating it.
         std::unique_ptr<std::FILE, int( * )( std::FILE* )> output(
-            std::fopen( destination.string().c_str(), "wb" ), &std::fclose );
+            std::fopen( destination.string().c_str(), resume_from > 0 ? "ab" : "wb" ),
+            &std::fclose );
 
         if ( output == nullptr )
         {
@@ -158,14 +222,21 @@ namespace Mila::Tools
             return 2;
         }
 
-        Mila::Distribution::Sha256 hash;
         uint64_t written = 0;
 
         Mila::Distribution::HttpRequest request;
         request.url = url;
         request.token = Mila::Distribution::discoverHuggingFaceToken();
+        request.resume_from = resume_from;
 
-        std::cout << std::format( "Fetching {}\n", url );
+        if ( resume_from > 0 )
+        {
+            std::cout << std::format( "Resuming {} from byte {}\n", url, resume_from );
+        }
+        else
+        {
+            std::cout << std::format( "Fetching {}\n", url );
+        }
 
         // A client, not a raw transport: --fetch is meant to reproduce what a real pull does,
         // which includes following the CDN redirect and dropping the token on the way.
@@ -193,12 +264,34 @@ namespace Mila::Tools
         std::cout << std::format( "  http code      {}\n", result.http_code );
         std::cout << std::format( "  final url      {}\n", result.final_url );
         std::cout << std::format( "  content-length {}\n", result.content_length );
-        std::cout << std::format( "  bytes written  {}\n", written );
+
+        if ( resume_from > 0 )
+        {
+            std::cout << std::format( "  resumed from   {}\n", resume_from );
+            std::cout << std::format( "  bytes appended {}\n", written );
+            std::cout << std::format( "  total bytes    {}\n", resume_from + written );
+        }
+        else
+        {
+            std::cout << std::format( "  bytes written  {}\n", written );
+        }
+
         std::cout << std::format( "  sha256         {}\n", hash.finish() );
 
         if ( !result.message.empty() )
         {
             std::cout << std::format( "  message        {}\n", result.message );
+        }
+
+        // The store discards the partial here, because a prefix followed by a second copy from
+        // byte zero is not salvageable. The probe keeps it: inspecting the wreck is the point.
+        if ( result.status == Mila::Distribution::HttpStatus::RangeIgnored )
+        {
+            std::cout << std::format(
+                "\n  The server ignored the Range header and sent the whole file, so {} now holds\n"
+                "  a prefix followed by a full copy and the digest above means nothing. ModelStore\n"
+                "  deletes the partial at this point and restarts; this kept it for inspection.\n",
+                destination.string() );
         }
 
         return result.ok() ? 0 : 1;
@@ -233,6 +326,7 @@ namespace Mila::Tools
         request.tokenizer = options.tokenizer;
         request.license = options.license;
         request.model_card = options.model_card;
+        request.replace = options.replace_package;
 
         const auto package = Mila::Distribution::buildPackage( request );
 
@@ -700,6 +794,9 @@ namespace Mila::Tools
 
         /// Instruction-tuned. Decides the prompt template a consumer applies.
         bool instruct{ false };
+
+        /// Build over a package directory that already describes a model.
+        bool replace{ false };
     };
 
     /**
@@ -791,6 +888,7 @@ namespace Mila::Tools
             package_request.tokenizer = request.tokenizer;
             package_request.license = request.license;
             package_request.model_card = request.model_card;
+            package_request.replace = request.replace;
 
             const auto package = Mila::Distribution::buildPackage( package_request );
 

@@ -243,6 +243,11 @@ namespace Mila::Distribution
                 return { FetchOutcome::RangeIgnored, result.message };
             }
 
+            if ( result.status == HttpStatus::RangeNotSatisfiable )
+            {
+                return { FetchOutcome::RangeNotSatisfiable, result.message };
+            }
+
             return { FetchOutcome::Failed,
                 std::format( "{} ({})", result.message, toString( result.status ) ) };
         }

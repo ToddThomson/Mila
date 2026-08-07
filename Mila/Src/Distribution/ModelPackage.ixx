@@ -315,10 +315,64 @@ namespace Mila::Distribution
 
         std::filesystem::path license;
         std::filesystem::path model_card;
+
+        /**
+         * @brief Build over a directory that already describes a model.
+         *
+         * Off by default. One package is one model, so a manifest already there is either a
+         * rebuild the caller meant or a directory they have forgotten holds something else, and
+         * buildPackage cannot tell which -- the same reason InstallOptions::replace exists.
+         */
+        bool replace{ false };
     };
 
     namespace
     {
+        /**
+         * @brief Refuse to build over a directory that already describes a model.
+         *
+         * The manifest is the package's identity, and buildPackage derives it fresh rather than
+         * merging: writing one over another silently discards a description of bytes that may
+         * still be sitting beside it. Naming both models is the useful part of the refusal --
+         * it separates the rebuild the caller meant from the directory they misremembered.
+         */
+        void requireDirectoryIsFree(
+            const std::filesystem::path& directory,
+            const std::string& incoming_name,
+            bool replace )
+        {
+            if ( replace )
+            {
+                return;
+            }
+
+            std::error_code ignored;
+            const auto manifest_path = directory / kManifestFileName;
+
+            if ( !std::filesystem::exists( manifest_path, ignored ) )
+            {
+                return;
+            }
+
+            std::string existing = "an unreadable manifest";
+
+            try
+            {
+                existing = std::format(
+                    "\"{}\"", ModelPackage::open( directory ).manifest().name );
+            }
+            catch ( const std::exception& )
+            {
+                // Unreadable is still a manifest, and still not this call's to destroy.
+            }
+
+            throw std::runtime_error( std::format(
+                "ModelPackage: {} already describes {}\n"
+                "  packaging \"{}\" here would overwrite it, and one package is one model.\n"
+                "  Use a separate directory, or set replace to rebuild over it deliberately.",
+                manifest_path.string(), existing, incoming_name ) );
+        }
+
         /**
          * @brief Bring a file into the package if it is not already there, and describe it.
          */
@@ -426,6 +480,11 @@ namespace Mila::Distribution
         ModelManifest manifest;
         manifest.name = request.name.empty()
             ? request.directory.filename().string() : request.name;
+
+        // Refused before anything is adopted: adoptIntoPackage moves multi-gigabyte weights in,
+        // and a refusal that fires after that has already rearranged the caller's disk.
+        requireDirectoryIsFree( request.directory, manifest.name, request.replace );
+
         manifest.architecture = request.architecture;
         manifest.variant = request.variant;
         manifest.weight_quantization = request.weight_quantization;

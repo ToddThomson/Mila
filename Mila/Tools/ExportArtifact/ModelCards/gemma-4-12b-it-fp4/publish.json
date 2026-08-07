@@ -1,5 +1,5 @@
 {
-  "repo_id": "mila-llm/gemma-4-12b-it",
+  "repo_id": "mila-llm/gemma-4-12b-it-fp4",
   "repo_type": "model",
 
   "//": "Large files live outside the repository (gitignored, multi-gigabyte). Keys are the",
