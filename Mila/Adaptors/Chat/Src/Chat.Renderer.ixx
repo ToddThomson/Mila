@@ -33,6 +33,18 @@ namespace Mila::ChatApp
             std::cout << '\n' << fg( 80, 100, 140 ) << " > " << reset();
         }
 
+        /**
+         * @brief Close the prompt line when input ends without a typed newline.
+         *
+         * printUserPrompt() deliberately leaves the cursor on the prompt line; a typed
+         * turn ends it with the user's own newline. End-of-input supplies none, so the
+         * shell would resume mid-line. The renderer owns that line, so it closes it.
+         */
+        void endUserPrompt() const
+        {
+            std::cout << '\n';
+        }
+
         // ── Progress spinner (turns and model loading) ────────────────────────
 
         /**

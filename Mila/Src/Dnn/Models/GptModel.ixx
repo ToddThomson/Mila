@@ -242,7 +242,12 @@ namespace Mila::Dnn
             std::ostringstream oss;
             oss << "GptModel\n";
             oss << "Vocabulary: " << config_.getVocabSize() << " tokens\n";
-            oss << "Max sequence length: " << config_.getMaxSequenceLength() << "\n";
+
+            // Two different numbers, and only the first bounds generation: the session was
+            // built for context_length_, while config_ carries the maximum the checkpoint
+            // declares. Reporting only the latter overstates the usable window.
+            oss << "Context length: " << context_length_ << " tokens\n";
+            oss << "Architectural maximum: " << config_.getMaxSequenceLength() << " tokens\n";
             oss << "Embedding dim: " << config_.getEmbeddingSize() << "\n";
             oss << "Layers: " << config_.getNumLayers() << "\n";
             oss << "Heads: " << config_.getNumHeads() << "\n";

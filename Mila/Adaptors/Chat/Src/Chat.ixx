@@ -136,7 +136,15 @@ namespace Mila::ChatApp
             while ( true )
             {
                 renderer_.printUserPrompt();
-                std::getline( std::cin, user_input );
+
+                // End of input ends the session, exactly as /exit does. getline clears the
+                // string and sets failbit on EOF, so without this the empty-input continue
+                // below spins the loop forever against a stream that will never yield again.
+                if ( !std::getline( std::cin, user_input ) )
+                {
+                    renderer_.endUserPrompt();
+                    break;
+                }
 
                 if ( user_input.empty() )
                     continue;

@@ -197,10 +197,16 @@ being a task list and needs a prune.
   `std::bad_alloc`**, discarding it; `CudaPinnedMemoryResource.ixx:101` throws with no message at all.
   `CudaDeviceMemoryResource` gets this right — align both on `CudaBadAlloc` so an OOM says which
   device, which size, which resource.
-- [ ] **`GroupedQueryAttention.ixx:216` C4702 is left deliberately** — the one warning in the tree. It
-  self-clears when the GQA training path is built, where a suppression would have to be remembered.
+- [ ] **`GroupedQueryAttention.ixx:216` C4702 is left deliberately** — one of the two warnings in the
+  tree. It self-clears when the GQA training path is built, where a suppression would have to be
+  remembered.
   **Note for the warnings-as-errors decision:** a blanket `/WX` would force it silent; escalating only
   the defect-class codes leaves it visible.
+- [ ] **`Chat.Footprint.ixx:23` defines a variable in the global module fragment** — C5202, the
+  tree's second warning. The comment says the preprocessor test is "confined to the fragment so the
+  module body stays free of it", but a GMF admits only preprocessor directives and the two
+  `inline constexpr bool` definitions are not that. The `#ifdef` cannot simply move to the body
+  either — see [[feedback_no_ifdef_in_modules]]; a CMake-supplied definition is the shape that fits.
 - [ ] **`IExecutionContext` is exported but unreachable in practice.** `Mila.ixx` re-exports it and
   `ExecutionContextFactory` as public API, but no model factory accepts one (`GemmaModel.ixx:119`
   takes a `DeviceId`) and `Component` holds a non-owning pointer owned by its parent. Decide: a
@@ -331,10 +337,13 @@ being a task list and needs a prune.
   `MILA_ENABLE_LIBCURL=OFF`, so a wheel built today contains no curl at all. Establish whether the
   *published* artifact predates that change before writing anything: the answer decides whether this is
   an obligation or a non-issue. The same note points at a bucket that no longer exists; fix that either way.
-- [ ] **The published wheel still teaches the retired form.** Its README and `__init__.py` docstring
-  instruct users to pair `gemma4_12b_it_bf16.bin` with `gemma_tokenizer.bin`, and
-  `LlamaModel.from_pretrained` still takes a `quantize_fp8` **boolean** — FP8-only, no FP4 — where the
-  store carries quantization in the name. Fix with step 2b, not before.
+- [ ] **The binding cannot load a published Llama FP4 artifact at all** — not a vocabulary wart, a
+  hard failure. `LlamaSession::fromPretrained` (`Mila_py.Wrappers.cpp:373`) offers only a
+  `quantize_fp8` bool and otherwise builds `NoWeightQuant`, so `Llama-3.2-3B-Instruct-fp4` throws
+  `Parameter 'weight' dtype mismatch. Expected BF16, got UINT8` (measured on the published wheel).
+  Gemma survives only because `:461` hardcodes `.withFP4Quantization()`. Every model Mila publishes is
+  FP4, so the binding reaches exactly one of them. Its README and `__init__.py` docstring still pair
+  `gemma4_12b_it_bf16.bin` with `gemma_tokenizer.bin` besides. Fix with step 2b.
 - [ ] **`mila/__init__.py` is copied by a `POST_BUILD` step of a target it is not a source of.**
   `Mila/Bindings/CMakeLists.txt:63,83,101` stage it with `copy_if_different` off
   `add_custom_command(TARGET MilaPy POST_BUILD)`, which runs only when `MilaPy` relinks — so editing
@@ -342,13 +351,11 @@ being a task list and needs a prune.
   Use `add_custom_command(OUTPUT ...)` with `DEPENDS` on the source.
 - [ ] **[gate] Publish the remaining Llama and GPT-2 rows.** Code, licences and cards are all in
   place — `resolveModel` reads the store alone, `Licenses/llama3.{1,2}/` carry the agreements and
-  notices, `--notice` plumbs them into a package, and both Llama cards are drafted. What is left is
+  notices, `--notice` plumbs them into a package, and both Llama cards are drafted. Both Llama
+  packages are built, installed and **confirmed coherent** through Chat at greedy. What is left is
   artifacts on the hub: only `gemma-4-12b-it-fp4` is published, so a clean machine can reach a Gemma
-  but not a Llama or a GPT-2 through `/install`. Both Llama packages are now **built and validated**
-  under `Data/Models/Packages/` (2.86 and 5.41 GiB, tensor sets reconciled) and neither has been
-  uploaded or loaded — structural validity is not coherence, and Llama FP4 has no parity test. Run
-  one before publishing. Published set is FP4 only: a dense row prices above a 12 GB card and its
-  audience already holds the upstream checkpoint. GPT-2 still has no package.
+  but not a Llama or a GPT-2 through `/install`. Published set is FP4 only: a dense row prices above
+  a 12 GB card and its audience already holds the upstream checkpoint. GPT-2 still has no package.
 - [ ] **The README implies FP8 and BF16 are reachable, and after an FP4-only publishing decision they
   are not.** `applyRequestedQuantization` refuses to reload a pre-quantized artifact as anything
   else, so every published model is FP4-at-runtime and the FP8 rows at `README.md:163,165` are
@@ -361,7 +368,7 @@ being a task list and needs a prune.
 - [ ] **The licensing story is per-family and must not be generalized.** Gemma 4 is Apache 2.0 (public,
   ungated); Gemma 3 and earlier carry the Gemma Terms of Use; **Llama 3.1/3.2 may be republished, but
   attributed** — ship the agreement, display "Built with Llama" and Meta's notice, pass along the AUP,
-  and begin the model name with "Llama" (`llama-3.1-8b-it-fp4` already does). Gating is a *policy*
+  and begin the model name with "Llama" (`Llama-3.1-8B-Instruct-fp4` does). Gating is a *policy*
   choice, not a licence condition. See [[project_gemma4_apache2_license]].
 - [ ] **The `mila-llm` organization has no organization card** — it is the landing page for anyone
   following a coordinate, and it is currently HuggingFace's placeholder. Needs: what a Mila artifact
