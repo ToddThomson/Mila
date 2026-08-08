@@ -84,11 +84,11 @@ being a task list and needs a prune.
 - [ ] `CudaMhaOp.ixx:433` initializes `active_max_seq_len_ = T_` with the reason unrecorded — confirm
   against the two-phase KV-cache contract (prefill full sequence, decode `outer_size == 1`).
 - [ ] `GptModel.ixx:386` hardcodes `eos_token_ = 50256` — should come from tokenizer metadata.
-- [~] **[gate, crash] Verify the `generate()` context-overflow guard.** Gemma's bound check is now
-  ported to `GptModel.ixx` and `LlamaModel.ixx` — both return `GenerateStatus::ContextOverflow`
-  instead of decoding past `context_length_`. Unbuilt and unrun. Reproduce with `gpt2-small` (it is
-  in the store) at a 1024 context, generating past ~1005 tokens with Chat's clamp bypassed — the
-  number the original crash was observed at.
+- [ ] **`LlamaModel`'s context-overflow guard has no test.** GPT-2's is pinned by three cases in
+  `Tests/Dnn/Models/GptModel.Cuda.cpp`; `LlamaModel.ixx:336` carries the identical bound and nothing
+  exercises it. Llama's overrun is the quiet one — it walks the KV cache rather than crashing — so
+  absence of a report is not evidence. The GPT-2 fixture is the template: a weightless checkpoint at
+  a small deployment context reaches the boundary in single digits.
 - [ ] **[contributor]** Llama 3.2 1B/3B weight tying — the aliasing plumbing shipped; add
   `tie_word_embeddings_` + post-load aliasing + `getMemoryStats` correction to `LlamaTransformer`.
   See `Specifications/WeightTying.md` §6.
@@ -113,6 +113,16 @@ being a task list and needs a prune.
   backward coverage — and sweep the *unmarked* backward kernels too, per-precision twin by twin: the
   RoPE FP32 backward was arithmetically wrong while its BF16 sibling was correct, in a file carrying
   no marker at all.
+- [ ] **[crash] Bring the GPT-2 CPU path up to current standards — its own session.** The CPU
+  operation layer treats build-time extents as runtime extents, so CPU inference has never run a
+  prompt shorter than its built context, which is every real generation. Components pass a max-sized
+  buffer and view the result down (`Lpe.ixx:154`, `LayerNorm.ixx:132-146`); the ops loop to what
+  `build()` cached. Remaining after the encoder and LayerNorm fixes: `CpuLinearOp:259,264`,
+  `CpuSoftmaxOp`, `CpuSoftmaxCrossEntropyOp`, and `CpuAttentionOp` — the last is not mechanical, since
+  `B_`/`T_` size its `{B,NH,T,T}` score buffer at `:269` as well as every loop. `CudaLpeOp:192-196` is
+  the reference pattern, and note that `CpuEncoderOp::build` calls its own shape validator before
+  setting those members, so a bound cannot live in the shared one. The CPU reference code is why this
+  matters; GPT-2 itself ranks below Llama and Gemma.
 - [ ] **`ResidualConfig` advertises a scaling factor that no backward implements and the two devices
   disagree about in forward.** CUDA forward honours it, CUDA backward takes no scale, and the CPU op
   ignores it entirely; the only guard is a **debug-only** assert at `CudaResidualOp.ixx:106`, so
@@ -145,10 +155,7 @@ being a task list and needs a prune.
 
 - [ ] **Tier 3 — semantic staleness** (retired-world prose). Folded into Test Suite Revival: fix a
   file's prose while it is already open for re-greening.
-- [~] **Confirm the docs-CI run green on GitHub Actions** (Pages publish + pinned-Doxygen download).
-  The beta.1 publish died on the `WARN_AS_ERROR` ratchet, so the live site is the 2026-06-09 output
-  and `/Mila/blog/` + `/Mila/api/` — both advertised at `README.md:339-342` — are 404.
-- [~] **Docs publish gate.** `docs.yml` publishes from `dev` behind a validation gate, but a Doxygen
+- [ ] **Docs publish gate.** `docs.yml` publishes from `dev` behind a validation gate, but a Doxygen
   doc-drift break from a `Src/**` or `README.md` change is not caught on the commit that causes it —
   those paths deliberately do not trigger it. Add a non-deploying Doxygen check to
   `build-pipeline.yml` (no CUDA, no CMake).
@@ -201,14 +208,24 @@ being a task list and needs a prune.
 - [ ] **If C1128 recurs** on `MilaTests`, `ProfileModel` or `ExportArtifact`, switch from the per-target
   `/bigobj` on `ChatApp` to one project-wide `add_compile_options`. **Todd's call** — it touches every
   target's flags, so it was deliberately not taken unilaterally.
-- [~] **[gate] Confirm both Linux CI jobs go green on the next push to `dev`.** The two causes are
-  fixed — `libssl-dev` for curl's `find_package(OpenSSL)` on the CUDA image, and the CPU-only break the
-  configure failure masked (`Component.ixx` imported `Compute.CudaPinnedMemoryResource` unguarded; the
-  staging resource is now `DeviceTypeTraits<TDeviceType>::host_staging_memory_resource`). A whole-graph
-  scan finds no remaining unguarded CUDA import, but that proves the import graph, not the compile.
-- [~] **`MILA_ENABLE_LIBCURL=OFF` now rides the CPU-only CI job** — the Linux wheel's configuration,
-  which had no Linux coverage anywhere (the only OFF preset is a *Windows* Debug build,
-  `CMakePresets.json:147`). Green on that job is what closes this; it has never run.
+- [ ] **The README's six CI badges are decorative fiction.** `README.md:18-21` builds a Branch x
+  (Build/Test/Docs) table by passing `job=build`/`test`/`docs` to the badge endpoint, which has no
+  such parameter — all six fetch identically (verified: `job=build` and `job=test` both return
+  `Mila CI - passing`). `build-pipeline.yml`'s real jobs are `compile-and-gate` and `cpu-only-tests`,
+  and it has no docs job at all — docs are `docs.yml`. Two honest badges beat six that cannot fail
+  independently.
+- [ ] **Three different GCC floors are stated in the tree, and only one is measured.** `README.md:250`
+  says GCC 16, `README.md:267` says "GCC 15.2 and earlier cannot" (implying 15.3 works), and
+  `CLAUDE.md` says GCC 15.3+. What was actually validated is 16 works / 15.2 fails; 15.3 has never
+  been built. State the measured floor in one place and stop implying the untested one.
+- [ ] **`CLAUDE.md` documents the retired Chat alias set** — "Model aliases: `gpt2`, `llama-1b`,
+  `llama-3b`, `llama-8b`" plus the `llama31`/`llama32` filename-prefix rule. There is no catalogue and
+  no filename construction; `/model` takes a store name. It is agent-facing rather than user-facing,
+  which is why it rotted unnoticed, but it actively misdirects work.
+- [ ] **`RELEASING.md` step 1 never says to bump the README's version strings.** `README.md:11` and
+  `:132` both name the stage in prose ("public beta (`0.20.0-beta.1`)", "Current Status — Beta.1"),
+  and nothing in the release procedure updates them — so `master`'s front page will keep saying
+  beta.1 after beta.2 tags. Add them to step 1 beside the BACKLOG/ROADMAP reconcile.
 - [ ] **`CMakeLists.txt:266` pins curl at 8.11.1 under a `REVIEW:` marker naming 8.21 as current.** A
   vendored TLS-adjacent dependency in a published binary is the one pin where staleness has a security
   cost. Decide the bump or record why 8.11.1 stands.
@@ -272,6 +289,19 @@ being a task list and needs a prune.
 
 ### Model Distribution
 
+- [ ] **`getting-started.md` §5-§6 teach the retired onboarding, and it is the doc the README sends
+  new users to.** §5 is titled "Get model weights (**required for inference**)" and makes a PyTorch
+  venv, HuggingFace auth, Meta's licence and a ~16 GB conversion the precondition for running
+  anything — the exact barrier distribution removed. Also wrong within it: the Chat default is named
+  as Llama 3.1 8B FP4 (`:303`, `:340`) when it is `gemma-4-12b-it-fp4`; the `/model llama-8b` alias
+  set (`:338-345`) is retired; and `:316` promises weights resolve from `Data/Models/`, which no
+  longer has a code path. Restructure so `/install` is the path and conversion is the gated-family
+  fallback.
+- [ ] **The README still teaches conversion as the way to get a model.** `:328` tells container users
+  their weights come from `Mila/Tools/Converters/` over the bind mount, `:363` sells getting-started
+  on "model weight conversion", and `:209` advertises `/model <alias>` after the catalogue was
+  deleted. The Validated Capabilities table (`:158-188`) omits the store, the hub and `/install`
+  entirely, so the newest feature set is absent from the list that claims to be the complete surface.
 - [ ] **`Mila/Samples/Python` has no sample that pulls, and its README describes a retired world.**
   The binding exposes seven store methods; the samples drive three. The README says "Two samples"
   (there are three — `store.py` is unlisted), says a wheel is "post-v0.20 work" at line 96 while line
@@ -310,11 +340,24 @@ being a task list and needs a prune.
   `add_custom_command(TARGET MilaPy POST_BUILD)`, which runs only when `MilaPy` relinks — so editing
   only `__init__.py` leaves every staged copy stale and the sample fails with a missing attribute.
   Use `add_custom_command(OUTPUT ...)` with `DEPENDS` on the source.
-- [ ] **[gate] Migrate the remaining Llama and GPT-2 rows into the store, then delete the models-directory
-  fallback branch.** The catalogue is gone and Gemma plus Llama 3.2 3B load from the store; seven rows
-  still resolve through the `REVIEW:`-marked loose-file path. `.bin` leaves the catalogued set with the
-  branch, **not the reader** — `PretrainedReader.ixx:229` sniffs the magic and would strand every
-  `.bin` on disk. *Done when:* a clean machine pulls and runs Gemma 4 through named commands.
+- [ ] **[gate] Publish the remaining Llama and GPT-2 rows.** Code, licences and cards are all in
+  place — `resolveModel` reads the store alone, `Licenses/llama3.{1,2}/` carry the agreements and
+  notices, `--notice` plumbs them into a package, and both Llama cards are drafted. What is left is
+  artifacts on the hub: only `gemma-4-12b-it-fp4` is published, so a clean machine can reach a Gemma
+  but not a Llama or a GPT-2 through `/install`. Both Llama packages are now **built and validated**
+  under `Data/Models/Packages/` (2.86 and 5.41 GiB, tensor sets reconciled) and neither has been
+  uploaded or loaded — structural validity is not coherence, and Llama FP4 has no parity test. Run
+  one before publishing. Published set is FP4 only: a dense row prices above a 12 GB card and its
+  audience already holds the upstream checkpoint. GPT-2 still has no package.
+- [ ] **The README implies FP8 and BF16 are reachable, and after an FP4-only publishing decision they
+  are not.** `applyRequestedQuantization` refuses to reload a pre-quantized artifact as anything
+  else, so every published model is FP4-at-runtime and the FP8 rows at `README.md:163,165` are
+  converter-only capabilities. Say so, or the table promises a deployment nobody can reach.
+- [ ] **Llama FP4 is not parity-tested, and the README's own wording admits it.** The BF16 and FP32
+  rows say "Validated against HuggingFace"; the FP4 rows say "coherent generation"
+  (`README.md:162-165`). `GemmaModel.Parity.Cuda.cpp` is the only parity test in the tree. Publishing
+  FP4 only makes this the claim the whole catalogue now rests on — see the Llama HF-parity item under
+  Models.
 - [ ] **The licensing story is per-family and must not be generalized.** Gemma 4 is Apache 2.0 (public,
   ungated); Gemma 3 and earlier carry the Gemma Terms of Use; **Llama 3.1/3.2 may be republished, but
   attributed** — ship the agreement, display "Built with Llama" and Meta's notice, pass along the AUP,
@@ -395,6 +438,20 @@ Next-cycle work. Coarse by design — detailed tasking happens only when an item
 - **Model serialization** — the remaining checkpoint round-trip and distribution-artifact phases.
   Design, defect analysis and the phase plan are in `Specifications/ModelSerialization.md`.
 - **API Coherence** — the pre-1.0 consistency pass, and the precursor to any API-stability promise.
+  Its first named item: **`loadModel`/`saveModel` and `loadCheckpoint`/`saveCheckpoint` — verb plus
+  what you get, both directions.** Two words go: "pretrained" is relative to a fine-tuning stage Mila
+  does not have and is doubly wrong on the write side, where the bytes are ones Mila quantized;
+  "artifact" is build-tooling vocabulary for a file that is simply a model. `from` goes with them --
+  it names the *source* form, which only informs when the source differs from what you get, so
+  `fromCheckpoint` earns it and `fromModel` cannot. `saveCheckpoint` already has the target shape and
+  becomes the template rather than the exception. Distinction to document: a checkpoint carries epoch
+  and train/val loss as one of a series (`Dev/Training` drew this); a model is terminal. One wrinkle:
+  `Network::load( archive, mode )` restores into an existing graph, so a static `loadModel` uses the
+  verb differently -- the suffix and the static call site are what separate them. **The methods are
+  the small half:** `kArtifactMinimumMilaVersion`, `ModelDistribution.md`, both model cards, the
+  binding's `from_pretrained`, MIS and the samples all speak the old vocabulary, and changing it
+  piecemeal is how one concept ends up with three names. Sequence with the `ExportArtifact` ->
+  `modelmgr` rename, which it makes more coherent, and the binding's `quantize_fp8` fix.
 - **Warnings-as-errors ratchet.** Constraints worth keeping: it requires the `/external:W0` isolation
   first; enforce in **CI only**, never locally; ratchet on the count *not increasing* before demanding
   zero; **MSVC first**, since `/WX` across three compilers means the union of three opinions must be

@@ -289,9 +289,38 @@ namespace Mila::Distribution
             return root_ / "blobs" / ( "sha256-" + sha256_hex );
         }
 
+        /**
+         * @brief The case-folded form of a model name, which is what keys the store.
+         *
+         * A name is a filename, so without folding the store inherits the filesystem's opinion
+         * of case: `/install Llama-3.1-8B` resolves on Windows and fails on Linux, and the
+         * developer's platform is the forgiving one -- so the failure only ever appears for
+         * someone else. Folding makes one name mean one model on both.
+         *
+         * ASCII by hand rather than std::tolower, which is locale-dependent (a Turkish locale
+         * maps 'I' to a dotless form and would key the same model two ways). requireUsableName
+         * already restricts names to [A-Za-z0-9._-], so ASCII is the whole domain.
+         *
+         * The record keeps the name as it was published -- this folds the key, never the label.
+         */
+        static std::string foldName( std::string_view name )
+        {
+            std::string folded( name );
+
+            for ( char& character : folded )
+            {
+                if ( character >= 'A' && character <= 'Z' )
+                {
+                    character = static_cast<char>( character - 'A' + 'a' );
+                }
+            }
+
+            return folded;
+        }
+
         std::filesystem::path recordPath( const std::string& name ) const
         {
-            return root_ / "models" / ( name + ".json" );
+            return root_ / "models" / ( foldName( name ) + ".json" );
         }
 
         bool contains( const std::string& sha256_hex ) const
@@ -679,7 +708,10 @@ namespace Mila::Distribution
 
             const std::string text = toJson( record ).dump( 2 );
 
-            const auto staging = root_ / "tmp" / std::format( "record-{}.json", record.name );
+            // Folded like the destination, so two casings of one name contend for the same
+            // staging file rather than both appearing to succeed into the same record.
+            const auto staging =
+                root_ / "tmp" / std::format( "record-{}.json", foldName( record.name ) );
 
             {
                 std::ofstream output( staging, std::ios::binary | std::ios::trunc );
@@ -858,7 +890,13 @@ namespace Mila::Distribution
                 return true;
             }
 
-            if ( readRecord( to ).has_value() )
+            // A change of case alone is the same record under a new label: it keys to the same
+            // file, so it is neither a collision with itself nor something to delete afterwards.
+            // Without this the write below would land on recordPath( from ) and the removal
+            // would then take the model with it.
+            const bool relabel_in_place = ( foldName( from ) == foldName( to ) );
+
+            if ( !relabel_in_place && readRecord( to ).has_value() )
             {
                 throw std::runtime_error( std::format(
                     "ModelStore: a model named '{}' is already installed. One name is one model.",
@@ -869,8 +907,11 @@ namespace Mila::Distribution
 
             writeRecord( *record );
 
-            std::error_code ignored;
-            std::filesystem::remove( recordPath( from ), ignored );
+            if ( !relabel_in_place )
+            {
+                std::error_code ignored;
+                std::filesystem::remove( recordPath( from ), ignored );
+            }
 
             return true;
         }

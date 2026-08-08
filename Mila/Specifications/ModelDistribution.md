@@ -56,22 +56,51 @@ A model has one name, and it is the only string a user types:
 
 ```
 gemma-4-12b-it-fp4
-llama-3.2-3b-instruct-bf16
+Llama-3.2-3B-Instruct
 ```
 
 **The name is flat, and unique across the store.** No two models may share one, and nothing is
 namespaced by where it came from -- a store in which one name can mean two things is the state this
 design exists to make impossible.
 
-**Precision is part of the name**, because one repository is one model at one precision. That is the
-platform's own convention (`-GGUF`, `-AWQ`, `-bnb-4bit`), and it is what lets a hub listing show every
-variant without fetching a manifest per repository. A `:variant` sub-grammar was tried and dropped:
-its benefits accrued in the store, which nobody looks at, and its costs landed on the hub page, which
-is the only place the naming is ever visible.
+**A suffix names what Mila did to the weights, not what precision they are.** A bare name is a
+faithful conversion at the model's own precision; `-fp4`, `-fp8` and `-fp32` mark weights Mila
+transformed. The platform's conventions say the same thing -- `-GGUF`, `-AWQ` and `-bnb-4bit` all
+mark a transformation, and nothing upstream is published as `-bf16`.
+
+The suffix is a label in both cases. A loader reads the manifest's `variant` field
+(`axesFromVariant`), never the name, so dropping a suffix loses nothing a caller depends on.
+
+One repository is still one model at one precision, which is what lets a hub listing show every
+variant without fetching a manifest per repository. The rule has one boundary worth knowing: it
+reads a bare name as both "the model's own precision" and "untransformed", which are the same thing
+only while every family Mila publishes has a single native precision. A family shipping two would
+need both suffixed.
+
+A `:variant` sub-grammar was tried and dropped: its benefits accrued in the store, which nobody looks
+at, and its costs landed on the hub page, which is the only place the naming is ever visible.
 
 Variants sharing a tokenizer costs nothing under this scheme. **Deduplication is content addressing's
 doing, not the naming's** -- two repositories whose tokenizers are byte-identical collapse to one
 blob, because the path is the digest.
+
+### Case, and whose convention the name follows
+
+**The name is matched case-insensitively, and the store keys on the case-folded form.** A name is a
+filename, so without folding the store inherits the filesystem's opinion of case: `Llama-3.1-8B`
+resolves on Windows and fails on Linux, and the platform that resolves it is the one development
+happens on. Folding is ASCII by hand -- `std::tolower` is locale-dependent, and the name grammar
+admits only `[A-Za-z0-9._-]` anyway. The record keeps the name as published: the fold keys the
+model, it does not relabel it. Two casings of one name are therefore one model, and a rename that
+changes only case is a relabel in place.
+
+**The name echoes the upstream repository, per family.** Meta capitalizes
+(`meta-llama/Llama-3.2-3B-Instruct`); Google does not (`google/gemma-4-12b-it`). One Mila house
+style would have to contradict one of them, so there is no house style: the coordinate mirrors
+`base_model`. **The suffix is Mila's own and stays lowercase** whatever the name does, matching the
+vocabulary it names -- `variant` in the manifest, and the argument to `/model <name> fp4`. Hence
+`Llama-3.1-8B-Instruct-fp4`. This also satisfies the Llama Community License, which requires "Llama" at the
+beginning of a derivative model's name.
 
 ### The hub coordinate
 
@@ -418,8 +447,15 @@ A published model is a directory, and the same directory is what installs locall
   <weights>.safetensors  the artifact
   <tokenizer>.bin
   LICENSE                the source model's license text
+  NOTICE                 attribution a license requires be carried in a file of its own
   README.md              model card, including the statement that changes were made
 ```
+
+`NOTICE` is present only where the source license asks for it. Llama requires its attribution to be
+retained "within a 'Notice' text file distributed as a part of such copies", which `LICENSE` does not
+satisfy; Apache 2.0 asks for nothing beyond the license text. `validate` warns about a missing
+`NOTICE` only for licenses that require one, because a warning raised on every package is one nobody
+reads.
 
 `Distribution.ModelPackage` is that directory: `buildPackage` assembles it and derives every digest
 from the bytes, and `validate` reads each declared file back and reports whether the package agrees

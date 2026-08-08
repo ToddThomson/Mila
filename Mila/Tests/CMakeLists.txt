@@ -214,6 +214,10 @@ if(MILA_ENABLE_CUDA)
         # checkpoint, so neither runs in CI -- see Specifications/MemoryFootprint.md 7.
         "Dnn/Models/GemmaModel.Footprint.Cuda.cpp"
         "Dnn/Models/LlamaModel.Footprint.Cuda.cpp"
+        # The generation context bound. CUDA rather than CPU because the CPU operation
+        # layer takes its extents from build(), so a CPU model cannot run a prompt
+        # shorter than its built context and never reaches the loop under test.
+        "Dnn/Models/GptModel.Cuda.cpp"
         # Net-new: the FP32 master-parameter path has no coverage in AdamW.Cuda.cpp.
         "Dnn/Optimizers/AdamW.MixedPrecision.Cuda.cpp"
         "Dnn/Samplers/Sampling.Cuda.cpp"

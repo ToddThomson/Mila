@@ -265,14 +265,25 @@ namespace Mila::Dnn::Compute
             }
 
             validateInputShape( input );
+            validateFitsBuild( input.shape() );
 
             // Get data pointers (input is INT32)
             const int32_t* X = static_cast<const int32_t*>(input.rawData());
             float* Y = static_cast<float*>(output.rawData());
 
-            const int64_t B = batch_size_;
-            const int64_t T = seq_length_;
+            // The positions to encode come from the input, never from the build geometry:
+            // Lpe hands this op the whole max-sized output buffer and only afterwards
+            // views the result down to the actual shape (Lpe.ixx:154), so a prompt shorter
+            // than the built context is the normal case, not an error. Taking the bound
+            // from seq_length_ read past the end of the prompt and embedded whatever
+            // happened to follow it.
+            const int64_t B = input.shape()[ 0 ];
+            const int64_t T = input.shape()[ 1 ];
             const int64_t C = embedding_dim_;
+
+            // Two strides, because the two tensors are not the same width: the prompt is
+            // dense at T, the destination row is the build-time maximum.
+            const int64_t output_stride = output.shape()[ 1 ];
 
             // Parallel over batch and sequence dimensions
         #pragma omp parallel for collapse(2)
@@ -294,7 +305,7 @@ namespace Mila::Dnn::Compute
                     }
 
                     // Output pointer for this position
-                    float* out_bt = Y + b * T * C + t * C;
+                    float* out_bt = Y + b * output_stride * C + t * C;
 
                     // Token embedding pointer
                     const float* wte_ix = wte_ + token_idx * C;
@@ -346,12 +357,18 @@ namespace Mila::Dnn::Compute
                 throw std::runtime_error( "CpuEncoderOp: parameter gradients not set via setParameterGradients()" );
             }
 
+            validateInputShape( input );
+            validateFitsBuild( input.shape() );
+
             // Input is INT32 token indices
             const int32_t* X = static_cast<const int32_t*>(input.rawData());
             const float* dY = static_cast<const float*>(output_grad.rawData());
 
-            const int64_t B = batch_size_;
-            const int64_t T = seq_length_;
+            // Same rule as forward: the input carries the extent. Unlike forward there is
+            // one stride, because Lpe.ixx:219 hands backward the incoming gradient itself
+            // rather than a max-sized buffer, so it is already dense at T.
+            const int64_t B = input.shape()[ 0 ];
+            const int64_t T = input.shape()[ 1 ];
             const int64_t C = embedding_dim_;
 
             // Accumulate gradients
@@ -447,6 +464,31 @@ namespace Mila::Dnn::Compute
             {
                 throw std::invalid_argument(
                     "CpuEncoderOp: sequence length exceeds configured maximum" );
+            }
+        }
+
+        /**
+         * @brief Bound a runtime input against the geometry build() actually sized for.
+         *
+         * Separate from validateInputShape because build() calls that one to check the
+         * shape it is about to build from, before batch_size_/seq_length_ hold anything --
+         * so these two comparisons cannot live there. forward() and backward() take their
+         * loop bounds from the input, which is what makes these the guards that keep them
+         * inside the buffers. Shorter than the build is the supported case; wider is what
+         * has nowhere to land.
+         */
+        void validateFitsBuild( const shape_t& input_shape ) const
+        {
+            if ( input_shape[ 0 ] > batch_size_ )
+            {
+                throw std::invalid_argument(
+                    "CpuEncoderOp: batch size exceeds the built maximum" );
+            }
+
+            if ( input_shape[ 1 ] > seq_length_ )
+            {
+                throw std::invalid_argument(
+                    "CpuEncoderOp: sequence length exceeds the built maximum" );
             }
         }
     };

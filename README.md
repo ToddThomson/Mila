@@ -341,7 +341,8 @@ Site: https://mila.toddt.me — including the
 
 API reference: https://mila.toddt.me/api/
 
-Both are rebuilt automatically on every push to master.
+Both are rebuilt automatically on every push to `dev`, so the API reference tracks the code rather
+than the last release.
 
 ---
 

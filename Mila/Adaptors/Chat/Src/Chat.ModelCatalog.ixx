@@ -558,13 +558,14 @@ namespace Mila::ChatApp
             };
 
         listing.table.push_back( budget.has_value()
-            ? std::format( "  {:<30}{}{}{}{}",
+            ? std::format( "  {:<30}{}{}{}{:<13}{}",
                 "MODEL",
                 headerCell( "NATIVE", kColumnMarks[ 0 ] ),
                 headerCell( "FP8", kColumnMarks[ 1 ] ),
                 headerCell( "FP4", kColumnMarks[ 2 ] ),
-                "ARCHITECTURE" )
-            : std::format( "  {:<30} {}", "MODEL", "ARCHITECTURE" ) );
+                "ARCHITECTURE",
+                "LICENSE" )
+            : std::format( "  {:<30} {:<13}{}", "MODEL", "ARCHITECTURE", "LICENSE" ) );
 
         bool any_over_budget = false;
 
@@ -610,12 +611,17 @@ namespace Mila::ChatApp
 
             // A record whose blobs went missing is shown rather than hidden: a store that
             // silently omits a broken entry cannot be repaired by the person who owns it.
-            listing.table.push_back( std::format( "{}{:<30}{}{:<13}{}",
+            //
+            // The license is here because a model can carry terms and nothing else in the
+            // product ever says so. It is the identifier only -- the text travels with the
+            // model on its hub page, which is the copy the license itself governs.
+            listing.table.push_back( std::format( "{}{:<30}{}{:<13}{:<12}{}",
                 ( budget.has_value() && budget->resident_model == model.record.name )
                     ? "* " : "  ",
                 model.record.name,
                 memory_fields.empty() ? std::string( " " ) : memory_fields,
                 model.record.architecture.empty() ? "-" : model.record.architecture,
+                model.record.license.empty() ? "-" : model.record.license,
                 model.complete ? "" : "  [INCOMPLETE - blobs missing]" ) );
         }
 
@@ -723,6 +729,11 @@ namespace Mila::ChatApp
         {
             std::uint64_t bytes{ 0 };
             std::string architecture;
+
+            // From the manifest rather than the listing's `license:` tag, which is the model
+            // card's claim. The manifest is what governs once installed, so this column means
+            // the same thing as the one /models shows.
+            std::string license;
         };
 
         // What the transfer costs and what the model is -- both the manifest's answer, and the
@@ -747,6 +758,7 @@ namespace Mila::ChatApp
 
                     OnlineDetail detail;
                     detail.architecture = manifest.architecture;
+                    detail.license = manifest.license;
 
                     for ( const auto& file : manifest.files )
                     {
@@ -765,8 +777,12 @@ namespace Mila::ChatApp
 
         // STATUS last because it is the only variable-width column: the gated text is a sentence,
         // and anything placed after it would lose its alignment on exactly the rows that matter.
-        lines.push_back( std::format( "  {:<40} {:>10}  {:<14}{}",
-            "MODEL", "DOWNLOAD", "ARCHITECTURE", "STATUS" ) );
+        //
+        // LICENSE earns a place here more than it does in /models: by the time a model is
+        // installed its terms have already been taken on, and this is the listing a user reads
+        // while deciding whether to pull it.
+        lines.push_back( std::format( "  {:<40} {:>10}  {:<14}{:<12}{}",
+            "MODEL", "DOWNLOAD", "ARCHITECTURE", "LICENSE", "STATUS" ) );
 
         for ( const auto& model : models )
         {
@@ -774,10 +790,11 @@ namespace Mila::ChatApp
 
             // Gating is known from the listing, so a repository behind terms says so here
             // instead of surfacing as a 403 partway through a multi-gigabyte transfer.
-            lines.push_back( std::format( "  {:<40} {:>10}  {:<14}{}{}",
+            lines.push_back( std::format( "  {:<40} {:>10}  {:<14}{:<12}{}{}",
                 model.repository,
                 detail.bytes > 0 ? formatBytes( detail.bytes ) : std::string( "--" ),
                 detail.architecture.empty() ? "--" : detail.architecture,
+                detail.license.empty() ? "--" : detail.license,
                 isInstalled( model ) ? "installed " : "",
                 model.gated ? "gated - accept terms on huggingface.co" : "" ) );
         }
@@ -893,6 +910,16 @@ namespace Mila::ChatApp
             pulled.record.name,
             pulled.record.architecture.empty() ? "unknown architecture" : pulled.record.architecture,
             formatBytes( pulled.bytes_on_disk ) ) );
+
+        // Said at the one moment the user is certain to be reading: a model can carry terms,
+        // and until now nothing in the product mentioned it. The identifier only -- the text is
+        // published with the model, which is the copy the license actually governs.
+        if ( !pulled.record.license.empty() )
+        {
+            lines.push_back( std::format(
+                "License: {}. The terms are published with the model.",
+                pulled.record.license ) );
+        }
 
         return lines;
     }

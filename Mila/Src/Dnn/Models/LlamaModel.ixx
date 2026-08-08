@@ -387,8 +387,11 @@ namespace Mila::Dnn
             std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
             const LlamaConfig& config,
             int64_t context_length,
-            RuntimeMode runtime_mode )
-            : ModelBase( std::move( network ), runtime_mode )
+            RuntimeMode runtime_mode,
+            Serialization::PretrainedMetadata source_metadata = {},
+            WeightQuantization weight_quantization = WeightQuantization::None )
+            : ModelBase( std::move( network ), runtime_mode,
+                std::move( source_metadata ), weight_quantization )
             , config_( config ), context_length_( context_length )
             , decode_token_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1 } )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
@@ -433,7 +436,8 @@ namespace Mila::Dnn
             return std::unique_ptr<LlamaModel<TDeviceType, TPrecision>>(
                 new LlamaModel<TDeviceType, TPrecision>(
                     std::move( network ), network_config,
-                    static_cast<int64_t>( context_length ), RuntimeMode::Inference ) );
+                    static_cast<int64_t>( context_length ), RuntimeMode::Inference,
+                    metadata, model_config.getWeightQuantization() ) );
         }
 
         /**

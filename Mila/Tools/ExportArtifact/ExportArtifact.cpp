@@ -29,6 +29,8 @@ namespace
             "                                 describes a model.\n"
             "  --tokenizer <path>             Tokenizer to declare in the manifest.\n"
             "  --license <path>               Source model's license text.\n"
+            "  --notice <path>                Attribution the license requires be carried in a\n"
+            "                                 file of its own (Llama names a 'Notice' file).\n"
             "  --model-card <path>            Model card (README.md).\n"
             "\n"
             "Artifacts that already exist (no GPU, no model load):\n"
@@ -43,6 +45,8 @@ namespace
             "                                 from the artifact itself.\n"
             "      --tokenizer <path>         Tokenizer to declare.\n"
             "      --license <path>           Source model's license text.\n"
+            "      --notice <path>            Attribution the license requires be carried in a\n"
+            "                                 file of its own (Llama names a 'Notice' file).\n"
             "      --model-card <path>        Model card (README.md).\n"
             "      --as <name>                Model name. Defaults to the directory name.\n"
             "      --variant <name>           Override the derived variant name.\n"
@@ -110,6 +114,10 @@ namespace
             else if ( argument == "--license" && index + 1 < argc )
             {
                 request.license = argv[ ++index ];
+            }
+            else if ( argument == "--notice" && index + 1 < argc )
+            {
+                request.notice = argv[ ++index ];
             }
             else if ( argument == "--model-card" && index + 1 < argc )
             {
@@ -354,6 +362,10 @@ int main( int argc, char** argv )
         else if ( argument == "--license" && index + 1 < argc )
         {
             options.license = argv[ ++index ];
+        }
+        else if ( argument == "--notice" && index + 1 < argc )
+        {
+            options.notice = argv[ ++index ];
         }
         else if ( argument == "--model-card" && index + 1 < argc )
         {

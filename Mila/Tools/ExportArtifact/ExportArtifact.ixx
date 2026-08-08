@@ -56,6 +56,10 @@ namespace Mila::Tools
         /// Source model's license text, required by every license Mila republishes.
         std::filesystem::path license;
 
+        /// Attribution the source license requires be carried in a file of its own -- Llama
+        /// names a "Notice" file specifically. Optional; most licenses ask for nothing here.
+        std::filesystem::path notice;
+
         /// Model card, carrying the statement that the weights were modified.
         std::filesystem::path model_card;
 
@@ -83,16 +87,6 @@ namespace Mila::Tools
     /**
      * @brief Policy name as recorded in the artifact metadata.
      */
-    std::string weightQuantizationName( WeightQuantization quantization )
-    {
-        switch ( quantization )
-        {
-            case WeightQuantization::FP4: return "per_group_fp4_128";
-            case WeightQuantization::FP8: return "per_channel_fp8_e4m3";
-            default:                      return "none";
-        }
-    }
-
     /**
      * @brief Short variant key used in a coordinate and as the manifest variant name.
      */
@@ -325,6 +319,7 @@ namespace Mila::Tools
         request.weights = options.destination;
         request.tokenizer = options.tokenizer;
         request.license = options.license;
+        request.notice = options.notice;
         request.model_card = options.model_card;
         request.replace = options.replace_package;
 
@@ -780,6 +775,7 @@ namespace Mila::Tools
         std::filesystem::path weights;
         std::filesystem::path tokenizer;
         std::filesystem::path license;
+        std::filesystem::path notice;
         std::filesystem::path model_card;
 
         /// Empty takes the package directory's name.
@@ -887,6 +883,7 @@ namespace Mila::Tools
             package_request.weights = request.weights;
             package_request.tokenizer = request.tokenizer;
             package_request.license = request.license;
+            package_request.notice = request.notice;
             package_request.model_card = request.model_card;
             package_request.replace = request.replace;
 
@@ -933,6 +930,54 @@ namespace Mila::Tools
      *
      * @return Process exit code.
      */
+    /**
+     * @brief Load one family at the requested quantization and write the artifact.
+     *
+     * Templated rather than branched inline because the two chassis differ only in the pair
+     * of types: everything after the load is the same operation on the same base-class method.
+     */
+    template<typename TModel, typename TModelConfig>
+    int loadAndWriteArtifact( const ExportOptions& options )
+    {
+        // Built in place rather than chained off a temporary: the fluent setters
+        // return an lvalue reference to *this.
+        TModelConfig model_config;
+        model_config.withContextLength( kExportContextLength )
+            .withWeightQuantization( options.quantization )
+            .withKvCacheCompression( KvCacheCompression::None );
+
+        auto model = TModel::fromPretrained(
+            options.source, model_config, DeviceId{ DeviceType::Cuda, 0 } );
+
+        if ( options.fingerprint_only )
+        {
+            if constexpr ( requires { model->fingerprintPrefill( std::vector<int32_t>{} ); } )
+            {
+                // Fixed, arbitrary token ids: no tokenizer is involved, so two runs over
+                // different files are comparable by construction. Their meaning is irrelevant
+                // -- only that both loads see the same input.
+                const std::vector<int32_t> probe{ 2, 1000, 2000, 3000, 4000, 5000, 6000, 7000 };
+
+                std::cout << std::format( "Fingerprint of {}\n", options.source.string() );
+                std::cout << "  " << model->fingerprintPrefill( probe ) << "\n";
+
+                return 0;
+            }
+            else
+            {
+                std::cerr << "--fingerprint is implemented on the Gemma chassis only.\n";
+
+                return 2;
+            }
+        }
+
+        std::cout << std::format( "Writing {}\n", options.destination.string() );
+
+        model->savePretrained( options.destination );
+
+        return 0;
+    }
+
     export int runExport( const ExportOptions& options )
     {
         if ( !std::filesystem::exists( options.source ) )
@@ -948,35 +993,43 @@ namespace Mila::Tools
             // this the load throws before reading a byte.
             Mila::initialize();
 
-            // Built in place rather than chained off a temporary: the fluent setters
-            // return an lvalue reference to *this.
-            GemmaModelConfig model_config;
-            model_config.withContextLength( kExportContextLength )
-                .withWeightQuantization( options.quantization )
-                .withKvCacheCompression( KvCacheCompression::None );
+            // Which chassis can load this is the source's own answer, and reading it costs a
+            // header rather than a load. Without this the export built a Gemma config for
+            // every file and a Llama failed inside GemmaConfig's validation, naming a field
+            // rather than the mismatch.
+            const std::string architecture = Serialization::PretrainedModelReader(
+                options.source ).getPretrainedMetadata().architecture;
 
-            std::cout << std::format( "Loading {}\n", options.source.string() );
+            std::cout << std::format( "Loading {} ({})\n",
+                options.source.string(), architecture );
 
-            auto model = GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::fromPretrained(
-                options.source, model_config, DeviceId{ DeviceType::Cuda, 0 } );
+            int written = 0;
 
-            if ( options.fingerprint_only )
+            if ( architecture == "gemma" )
             {
-                // Fixed, arbitrary token ids: no tokenizer is involved, so two runs over
-                // different files are comparable by construction. Values are within any
-                // Gemma vocabulary and their meaning is irrelevant -- only that both loads
-                // see the same input.
-                const std::vector<int32_t> probe{ 2, 1000, 2000, 3000, 4000, 5000, 6000, 7000 };
+                written = loadAndWriteArtifact<
+                    GemmaModel<DeviceType::Cuda, TensorDataType::BF16>, GemmaModelConfig>(
+                        options );
+            }
+            else if ( architecture == "llama" )
+            {
+                written = loadAndWriteArtifact<
+                    LlamaModel<DeviceType::Cuda, TensorDataType::BF16>, LlamaModelConfig>(
+                        options );
+            }
+            else
+            {
+                std::cerr << std::format(
+                    "No chassis exports architecture '{}'. Supported: gemma, llama.\n",
+                    architecture.empty() ? "<unnamed>" : architecture );
 
-                std::cout << std::format( "Fingerprint of {}\n", options.source.string() );
-                std::cout << "  " << model->fingerprintPrefill( probe ) << "\n";
-
-                return 0;
+                return 2;
             }
 
-            std::cout << std::format( "Writing {}\n", options.destination.string() );
-
-            model->saveArtifact( options.destination );
+            if ( written != 0 || options.fingerprint_only )
+            {
+                return written;
+            }
 
             const auto bytes = std::filesystem::file_size( options.destination );
 

@@ -18,6 +18,10 @@
  * for blob. That uses only the public API and is a stronger statement than reading
  * parameters would be, since it covers both legs of the trip.
  *
+ * The generation context bound is covered in GptModel.Cuda.cpp instead: the CPU
+ * operation layer takes its extents from build() rather than from the input, so CPU
+ * inference cannot run a prompt shorter than the built context at all.
+ *
  * CPU device, so this rides the MILA_ENABLE_CUDA=OFF CI gate.
  */
 

@@ -34,7 +34,12 @@ except ImportError:
 
 # Files in the card directory that are published verbatim, in upload order. Small, so
 # they go first: a mistake in them is then visible before a multi-gigabyte transfer.
-CARD_FILES = ["mila.json", "README.md", "LICENSE"]
+#
+# NOTICE is here because a license can require its attribution to travel in a file of that
+# name rather than inside LICENSE -- Llama does. Absent from this list it would sit in the
+# card directory and never be uploaded, which is the shape of failure this script exists to
+# prevent: a repository that looks published and is not compliant.
+CARD_FILES = ["mila.json", "README.md", "LICENSE", "NOTICE"]
 
 # publish.json describes the upload; it is not itself published.
 EXCLUDED_FROM_CARD = {"publish.json"}
@@ -56,10 +61,17 @@ def load_manifest(card_dir: Path) -> dict:
 
 
 def declared_files(manifest: dict) -> dict:
-    """Hub path -> (sha256, bytes) for every file any variant declares."""
+    """Hub path -> (sha256, bytes) for every file the manifest declares.
+
+    The shape is a top-level "files" object keyed by role (weights, tokenizer), which is
+    what ModelManifest.ixx both reads and writes. An empty result is treated as fatal by
+    the caller: every guard in this script is derived from this set, so a manifest that
+    yields nothing would validate nothing, upload nothing, and verify nothing -- and
+    report success for all three.
+    """
     out = {}
-    for variant in manifest.get("variants", {}).values():
-        for entry in variant.get("files", {}).values():
+    for entry in manifest.get("files", {}).values():
+        if "path" in entry:
             out[entry["path"]] = (entry.get("sha256"), entry.get("bytes"))
     return out
 
@@ -73,7 +85,16 @@ def validate(card_dir: Path, repo_root: Path, manifest: dict, sources: dict) -> 
     problems = []
     resolved = []
 
-    for hub_path, (expected_sha, expected_bytes) in declared_files(manifest).items():
+    declared = declared_files(manifest)
+
+    if not declared:
+        problems.append(
+            "mila.json declares no files. Nothing would be uploaded and every check "
+            "below would pass vacuously."
+        )
+        return problems, resolved
+
+    for hub_path, (expected_sha, expected_bytes) in declared.items():
         local = card_dir / hub_path
         if not local.is_file():
             mapped = sources.get(hub_path)
@@ -182,7 +203,15 @@ def main() -> int:
         if (card_dir / name).is_file() and name not in EXCLUDED_FROM_CARD
     ]
 
-    missing_card = [n for n in CARD_FILES if not (card_dir / n).is_file()]
+    # NOTICE is absent legitimately for most licenses, so noting it every time would train
+    # the reader to skip notes. It is only worth saying when the license asks for one.
+    license_id = manifest.get("license", "")
+    optional_card = set() if license_id.startswith("llama") else {"NOTICE"}
+
+    missing_card = [
+        n for n in CARD_FILES
+        if not (card_dir / n).is_file() and n not in optional_card
+    ]
     for name in missing_card:
         print(f"  note: {name} absent from the card directory, skipping")
 

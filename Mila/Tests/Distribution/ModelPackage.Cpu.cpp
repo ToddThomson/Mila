@@ -418,6 +418,47 @@ namespace Mila::Tests::Distribution
         EXPECT_EQ( validation.warnings.size(), 2u );
     }
 
+    // Llama requires its attribution to travel "within a 'Notice' text file distributed as a
+    // part of such copies", which LICENSE does not satisfy. The warning is keyed on the license
+    // rather than raised for every package, so a Gemma package must stay silent about it.
+    TEST( ModelPackageTests, WarnsAboutAMissingNoticeOnlyWhenTheLicenseRequiresOne )
+    {
+        ScratchDirectory scratch( "package" );
+
+        PackageRequest request;
+        request.directory = scratch.path() / "package";
+        request.name = "Llama-3.2-3B-Instruct";
+        request.architecture = "llama";
+        request.variant = "bf16";
+        request.minimum_mila_version = "0.20.0";
+        request.license_id = "llama3.2";
+        request.weights = scratch.path() / "sources" / "model.safetensors";
+        request.license = scratch.path() / "sources" / "LICENSE";
+        request.model_card = scratch.path() / "sources" / "CARD.md";
+
+        writeWholeFile( request.weights, kWeightsPayload );
+        writeWholeFile( request.license, "Llama 3.2 Community License Agreement" );
+        writeWholeFile( request.model_card, "# A model\nBuilt with Llama" );
+
+        const auto without_notice = buildPackage( request );
+
+        ASSERT_EQ( without_notice.validate().warnings.size(), 1u );
+        EXPECT_NE( without_notice.validate().warnings.front().find( "NOTICE" ),
+            std::string::npos );
+
+        // Supplying one clears it, and the file lands under the name the license names.
+        request.notice = scratch.path() / "sources" / "NOTICE";
+        request.replace = true;
+        writeWholeFile( request.notice,
+            "Llama 3.2 is licensed under the Llama 3.2 Community License, "
+            "Copyright (c) Meta Platforms, Inc. All Rights Reserved." );
+
+        const auto with_notice = buildPackage( request );
+
+        EXPECT_TRUE( std::filesystem::exists( with_notice.directory() / "NOTICE" ) );
+        EXPECT_TRUE( with_notice.validate().warnings.empty() );
+    }
+
     TEST( ModelPackageTests, RefusesADeclaredPathThatEscapesThePackage )
     {
         ScratchDirectory scratch( "package" );

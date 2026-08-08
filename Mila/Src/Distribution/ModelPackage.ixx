@@ -94,6 +94,7 @@ namespace Mila::Distribution
      *   <weights>.safetensors  the artifact
      *   <tokenizer>.bin
      *   LICENSE                the source model's license text
+     *   NOTICE                 attribution the source license requires be carried verbatim
      *   README.md              model card, including the statement that changes were made
      * ```
      */
@@ -184,6 +185,18 @@ namespace Mila::Distribution
                 validation.warnings.push_back(
                     "no LICENSE -- every source license Mila republishes requires the text to "
                     "travel with the model" );
+            }
+
+            // Keyed on the license rather than warned unconditionally: most licenses ask for
+            // nothing beyond LICENSE, and a warning that fires on every package is one nobody
+            // reads. The Llama Community License is explicit that the attribution is retained
+            // "within a 'Notice' text file distributed as a part of such copies".
+            if ( manifest_.license.starts_with( "llama" )
+                && !std::filesystem::exists( directory_ / "NOTICE", ignored ) )
+            {
+                validation.warnings.push_back( std::format(
+                    "no NOTICE -- the {} license requires its attribution to travel in a file of "
+                    "that name", manifest_.license ) );
             }
 
             if ( !std::filesystem::exists( directory_ / "README.md", ignored ) )
@@ -314,6 +327,12 @@ namespace Mila::Distribution
         std::filesystem::path tokenizer;
 
         std::filesystem::path license;
+
+        /// Some licenses require their attribution to travel in a file of its own rather than
+        /// inside the license text -- Llama names a "Notice" file specifically. Empty when the
+        /// source license asks for nothing beyond LICENSE.
+        std::filesystem::path notice;
+
         std::filesystem::path model_card;
 
         /**
@@ -509,6 +528,7 @@ namespace Mila::Distribution
         }
 
         copyIfOutside( request.directory, request.license, "LICENSE" );
+        copyIfOutside( request.directory, request.notice, "NOTICE" );
         copyIfOutside( request.directory, request.model_card, "README.md" );
 
         writeWholeFile( request.directory / kManifestFileName, toJsonText( manifest ) );

@@ -525,6 +525,86 @@ namespace Mila::Tests::Distribution
         EXPECT_FALSE( read_back->installed_at.empty() );
     }
 
+    // A model name is a filename, so before folding the store inherited the filesystem's
+    // opinion of case: this resolved on Windows and failed on Linux, and the platform that
+    // resolved it is the one development happens on -- so the failure only ever reached
+    // someone else. The published Llama coordinates are mixed case, which is what makes it live.
+    TEST( ModelStore, LocatesAModelWhateverCaseTheNameIsTypedIn )
+    {
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        ModelRecord record;
+        record.name = "Llama-3.1-8B-Instruct-fp4";
+        record.architecture = "llama";
+        record.minimum_mila_version = "0.20.0";
+        record.files.push_back( makeFile( "weights", "llama.safetensors", "aaaa", 42 ) );
+
+        store.writeRecord( record );
+
+        for ( const char* typed : { "Llama-3.1-8B-Instruct-fp4",
+                                    "llama-3.1-8b-instruct-fp4",
+                                    "LLAMA-3.1-8B-INSTRUCT-FP4" } )
+        {
+            const auto read_back = store.readRecord( typed );
+
+            ASSERT_TRUE( read_back.has_value() ) << typed;
+
+            // Folding keys the record, it does not rewrite the label: what comes back is the
+            // name as published, whatever the caller typed to reach it.
+            EXPECT_EQ( read_back->name, "Llama-3.1-8B-Instruct-fp4" ) << typed;
+        }
+    }
+
+    TEST( ModelStore, TreatsTwoCasingsOfOneNameAsOneModel )
+    {
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        ModelRecord record;
+        record.name = "Llama-3.2-3B-Instruct";
+        record.architecture = "llama";
+        record.minimum_mila_version = "0.20.0";
+        record.files.push_back( makeFile( "weights", "llama.safetensors", "aaaa", 42 ) );
+
+        store.writeRecord( record );
+
+        ModelRecord shouting = record;
+        shouting.name = "LLAMA-3.2-3B-INSTRUCT";
+
+        store.writeRecord( shouting );
+
+        // One record on disk, not two: the store's own invariant is that one name is one
+        // model, and case was the one way to get around it.
+        EXPECT_EQ( store.list().size(), 1u );
+    }
+
+    // The guard on rename's removal step. A change of case alone keys to the same file, so
+    // writing the new record and then removing the old path is writing and deleting the same
+    // thing -- the model would be gone.
+    TEST( ModelStore, RenamingByCaseAloneRelabelsWithoutDestroyingTheModel )
+    {
+        ScratchStoreRoot scratch;
+        ModelStore store( scratch.path() );
+
+        ModelRecord record;
+        record.name = "llama-3.2-3b-instruct";
+        record.architecture = "llama";
+        record.minimum_mila_version = "0.20.0";
+        record.files.push_back( makeFile( "weights", "llama.safetensors", "aaaa", 42 ) );
+
+        store.writeRecord( record );
+
+        EXPECT_TRUE( store.rename( "llama-3.2-3b-instruct", "Llama-3.2-3B-Instruct" ) );
+
+        const auto read_back = store.readRecord( "llama-3.2-3b-instruct" );
+
+        ASSERT_TRUE( read_back.has_value() );
+        EXPECT_EQ( read_back->name, "Llama-3.2-3B-Instruct" );
+        ASSERT_EQ( read_back->files.size(), 1u );
+        EXPECT_EQ( store.list().size(), 1u );
+    }
+
     TEST( ModelStore, ListsEveryInstalledModel )
     {
         ScratchStoreRoot scratch;
