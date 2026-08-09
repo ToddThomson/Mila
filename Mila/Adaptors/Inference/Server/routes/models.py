@@ -8,7 +8,7 @@ router = APIRouter()
 
 
 class ModelInfo(BaseModel):
-    id: str = settings.model_name
+    id: str = settings.model
     object: str = "model"
     config: dict
 

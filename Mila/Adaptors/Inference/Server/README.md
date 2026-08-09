@@ -4,43 +4,30 @@ A FastAPI-based HTTP inference server for [Mila](https://github.com/ToddT/Mila).
 *wire adaptor* over the Mila runtime: it imports the `mila` Python binding and exposes it over
 HTTP under a selectable API protocol (Mila native, OpenAI, or Anthropic Messages).
 
-The default target is **Gemma 4 12B Instruct (FP4)**; the Llama 3.x family (BF16) is also supported.
+The default model is **`gemma-4-12b-it-fp4`**; any installed Llama 3.x model is served too. MIS
+loads by store name, so what it can serve is whatever is installed — not a list compiled into it.
 
 ---
 
 ## Requirements
 
 - Windows or Linux
-- **Python 3.13** — the `mila` binding is a version-locked CPython extension (`mila.cp313-win_amd64.pyd`).
-  It loads *only* under the exact CPython minor version it was built against. A different interpreter
-  (3.11, 3.12, 3.14, or an unrelated venv) yields `ModuleNotFoundError: No module named 'mila'`.
+- **Python 3.13** — the `mila` binding is a version-locked CPython extension
+  (`_mila.cp313-win_amd64.pyd`). It loads *only* under the exact CPython minor version it was built
+  against. A different interpreter (3.11, 3.12, 3.14, or an unrelated venv) yields
+  `ModuleNotFoundError: No module named 'mila'`.
 - CUDA-capable GPU (tested on RTX 4070 12GB)
-- A Mila pretrained model artifact (`.bin`)
-- A Mila tokenizer binary (`.bin`)
+- **A model installed in the local Mila store.** MIS loads by name and never downloads — see
+  [Getting a model](#getting-a-model).
 
 ---
 
 ## Installation
 
-Installation has two independent halves: the **`mila` binding** (a compiled C++ extension, built by
-the Mila build) and the **Python server dependencies** (FastAPI etc., installed into an isolated
-virtual environment). Do the steps in order.
+MIS depends on the `mila` runtime like any other Python package. Where that package comes from is
+the only choice: the published wheel, or the one your own build produced. Do the steps in order.
 
-### 1. Build the `mila` binding
-
-`import mila` does **not** come from pip. It is the `MilaPy` CMake target. Build it in Visual Studio
-2026 (or via CMake). A post-build step copies the extension into this directory automatically
-(`Mila/Bindings/CMakeLists.txt`):
-
-```
-Copying mila extension module to Server directory
--> Mila/Adaptors/Inference/Server/mila.cp313-win_amd64.pyd
-```
-
-The `.pyd` is gitignored, so it exists only after a successful build. If you cloned fresh, moved the
-server, or changed the binding, (re)build `MilaPy` so the current `.pyd` sits beside `main.py`.
-
-### 2. Create and activate a Python 3.13 virtual environment
+### 1. Create and activate a Python 3.13 virtual environment
 
 **Do this from this directory** (`Mila/Adaptors/Inference/Server`). A virtual environment is
 required, not optional: the binding is locked to CPython 3.13, but a bare `python`/`pip` on your PATH
@@ -78,6 +65,39 @@ Your prompt now shows `(.venv)`, and `python --version` reports 3.13.x. Verify:
 python --version        # -> Python 3.13.x
 ```
 
+### 2. Install the `mila` runtime
+
+**From a release** — nothing else is needed; the wheel carries the extension and pulls its own CUDA
+libraries (`nvidia-cublas`, `nvidia-curand`), so no CUDA Toolkit install is involved:
+
+```
+pip install mila-llm
+```
+
+**From your own build** — install the package tree in editable mode. The Mila build stages the
+freshly built extension into it (`Mila/Bindings/CMakeLists.txt`), so this is done **once**: every
+later rebuild of `MilaPy` is picked up with no reinstall.
+
+```
+pip install -e ../../../Bindings/Package
+```
+
+Build `MilaPy` first, or the tree has no extension in it yet. It is a normal target of the standard
+presets — nothing MIS-specific.
+
+Confirm the chain resolves before continuing:
+
+```
+python -c "import mila; print('mila', mila.__version__, mila.cuda_library_directories)"
+```
+
+An empty directory list is the thing to look at when the import fails. Since Python 3.8, Windows
+does **not** search `PATH` when resolving an extension module's DLL dependencies — only system
+directories, the extension's own directory, and directories registered with `os.add_dll_directory`.
+The package's `__init__` handles that for you (it loads the pinned CUDA libraries before the
+extension, on both platforms); an empty list means it found neither NVIDIA's CUDA wheels nor a local
+CUDA Toolkit.
+
 ### 3. Install the server dependencies
 
 With the venv **active**, from this directory:
@@ -86,28 +106,30 @@ With the venv **active**, from this directory:
 pip install -e .
 ```
 
-For development extras (pytest, httpx):
+For development extras (pytest, httpx, jinja2):
 
 ```
 pip install -e ".[dev]"
 ```
 
-Confirm the whole chain resolves (binding + CUDA DLLs) before continuing:
+### Getting a model
 
-```
-python -c "import cuda_runtime, mila; print('mila OK', cuda_runtime.CUDA_DLL_DIRECTORIES)"
+MIS loads a model **by name** out of the local Mila store, the same store the chat harness uses. It
+never downloads: pull and load are separate verbs, and a server that fetched 6 GB because a name was
+misspelled would be a worse failure than refusing to start. If the name is not installed, startup
+fails with a message listing what is.
+
+Install one with the chat harness (`/install gemma-4-12b-it-fp4`), with `ExportArtifact --install`
+from a package you built, or from Python:
+
+```python
+import mila
+store = mila.ModelStore()
+store.pull("gemma-4-12b-it-fp4", mila.default_hub_owner())
+print([model.name for model in store.list()])
 ```
 
-`cuda_runtime` must come first, and this is not a formality. Since Python 3.8,
-Windows does **not** search `PATH` when resolving an extension module's DLL
-dependencies — only system directories, the extension's own directory, and
-directories registered with `os.add_dll_directory`. The binding links `cublasLt`
-and `curand` from the CUDA Toolkit, so a bare `import mila` fails with
-`DLL load failed while importing mila` on a machine whose CUDA install is
-perfectly good. Importing `cuda_runtime` registers the toolkit directories; every
-MIS module that imports the binding does the same. If the import still fails, the
-printed directory list is the first thing to look at — an empty list means no CUDA
-Toolkit was found at `CUDA_PATH` or the default install root.
+`Mila/Samples/Python/store.py` does the same from the command line.
 
 ---
 
@@ -116,21 +138,13 @@ Toolkit was found at `CUDA_PATH` or the default install root.
 Configured via environment variables or a `.env` file in this directory. All variables use the
 `MILA_` prefix.
 
-### Required
-
-| Variable | Description |
-|---|---|
-| `MILA_MODEL_PATH` | Absolute path to the Mila pretrained model artifact (`.bin`) |
-| `MILA_TOKENIZER_PATH` | Absolute path to the Mila tokenizer binary (Llama BPE or Gemma SentencePiece) |
-
-### Optional
+Every variable has a default, so a store holding `gemma-4-12b-it-fp4` needs no configuration at all.
 
 | Variable | Default | Description |
 |---|---|---|
+| `MILA_MODEL` | `gemma-4-12b-it-fp4` | Name of an installed model in the local store. Also the identifier returned in API responses |
 | `MILA_PROTOCOL` | `openai` | API protocol to expose: `mila`, `openai`, or `anthropic` (one per launch) |
-| `MILA_MODEL_FAMILY` | `gemma` | Model family: `gemma` (Gemma 4, FP4) or `llama` (Llama 3.x, BF16) |
-| `MILA_MODEL_NAME` | `gemma-4-12b-it` | Model identifier returned in API responses |
-| `MILA_CONTEXT_LENGTH` | `4096` | Maximum sequence length passed to `fromPretrained()` |
+| `MILA_CONTEXT_LENGTH` | `4096` | Maximum sequence length passed to `from_store()` |
 | `MILA_DEVICE_INDEX` | `0` | CUDA device ordinal |
 | `MILA_DEFAULT_MAX_NEW_TOKENS` | `1024` | Default token budget for generation |
 | `MILA_DEFAULT_TEMPERATURE` | `0.6` | Default sampling temperature |
@@ -142,16 +156,17 @@ Configured via environment variables or a `.env` file in this directory. All var
 | `MILA_PORT` | `8000` | Server port |
 | `MILA_LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warning`, `error`) |
 
+There is no family, path or quantization setting. All three are properties of the artifact, which
+the store record already states — `gemma-4-12b-it-fp4` *is* FP4 weights, and a variable that said
+otherwise could only ever be wrong.
+
 ### Example `.env` (Gemma 4 12B, Anthropic protocol)
 
-The checkpoint is stored BF16 (`..._bf16.bin`); the Gemma family is quantized to FP4 at load time,
-so the on-disk artifact is the BF16 file. `MILA_CONTEXT_LENGTH=16384` is validated on the 12 GB 4070.
+`MILA_CONTEXT_LENGTH=16384` is validated on the 12 GB 4070.
 
 ```env
 MILA_PROTOCOL=anthropic
-MILA_MODEL_FAMILY=gemma
-MILA_MODEL_PATH=D:\Repos\Mila\Data\Models\Gemma\gemma4_12b_it_bf16.bin
-MILA_TOKENIZER_PATH=D:\Repos\Mila\Data\Models\Gemma\gemma_tokenizer.bin
+MILA_MODEL=gemma-4-12b-it-fp4
 MILA_CONTEXT_LENGTH=16384
 MILA_DEVICE_INDEX=0
 ```
@@ -176,7 +191,7 @@ path. On `/v1/messages`, tool_use is currently supported for **non-streaming** r
 
 ## Starting the Server
 
-With the venv **active** (step 2 above — every new terminal needs to activate it again), from this
+With the venv **active** (step 1 above — every new terminal needs to activate it again), from this
 directory:
 
 ```bash
@@ -214,7 +229,7 @@ explore endpoints without a client.
 
 ### Python Environments
 
-MIS runs from its own `.venv` (Python 3.13), created in step 2. The `mila` binding is locked to that
+MIS runs from its own `.venv` (Python 3.13), created in step 1. The `mila` binding is locked to that
 same 3.13 interpreter. Keep this venv isolated from any other Python environment on the machine —
 notably a uv- or conda-managed interpreter, or a separate venv for Mila's HuggingFace conversion
 scripts. If a different environment is active when you run `python main.py`, it shadows the MIS venv

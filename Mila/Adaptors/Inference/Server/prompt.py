@@ -14,7 +14,7 @@ https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4
 
 import json
 
-from config import settings, ModelFamily
+from config import loaded, ModelFamily
 
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 
@@ -45,7 +45,7 @@ def build_instruct_prompt(
     system) and 'content'. The returned string ends with the assistant/model primer
     so the model generates the response turn directly.
     """
-    if settings.model_family == ModelFamily.gemma:
+    if loaded.family == ModelFamily.gemma:
         return _build_gemma_prompt(user_message, system_prompt, history, tools)
 
     return _build_llama_prompt(user_message, system_prompt, history, tools)

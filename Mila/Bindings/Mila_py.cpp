@@ -71,6 +71,15 @@ static void bind_tokenizer( py::module_& m )
             },
             py::arg( "path" ),
             "Load a Gemma 4 SentencePiece tokenizer from a Mila binary vocabulary file." )
+        .def_static( "from_store",
+            []( const std::string& name ) {
+                return Tokenizer::fromStore( name );
+            },
+            py::arg( "name" ),
+            "Load the tokenizer of an installed model, by store name.\n\n"
+            "The record says which loader the artifact needs, so nothing pairs a\n"
+            "tokenizer path with a weights path by hand.\n\n"
+            "Raises RuntimeError if the model is not installed or its files are missing." )
         .def( "encode",
             []( Tokenizer& self, const std::string& text ) -> std::vector<int32_t> {
                 py::gil_scoped_release _;
@@ -353,25 +362,47 @@ static void bind_llama_model( py::module_& m )
             []( const std::string& path,
                 int64_t context_length,
                 int device_index,
-                bool quantize_fp8 ) -> std::unique_ptr<LlamaSession>
+                const std::string& quantization ) -> std::unique_ptr<LlamaSession>
             {
                 py::gil_scoped_release _;
 
                 return LlamaSession::fromPretrained(
-                    path, context_length, device_index, quantize_fp8 );
+                    path, context_length, device_index, quantization );
             },
             py::arg( "path" ),
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
-            py::arg( "quantize_fp8" ) = false,
-            "Load Llama 3.x Instruct pretrained weights from a Mila artifact.\n\n"
+            py::arg( "quantization" ) = "bf16",
+            "Load Llama 3.x Instruct weights from an unquantized Mila artifact.\n\n"
             "Args:\n"
             "    path:           Path to the Mila pretrained artifact.\n"
             "    context_length: Maximum sequence length to build for.\n"
             "    device_index:   CUDA device index (default: 0).\n"
-            "    quantize_fp8:   Quantize Linear weights to FP8_E4M3 at load time\n"
-            "                    (default: False). The KV cache stays uncompressed.\n"
-            "                    Requires SM >= 8.9 (RTX 40xx / Ada Lovelace)." )
+            "    quantization:   'bf16', 'fp8' or 'fp4', applied at load time\n"
+            "                    (default: 'bf16'). FP8 and FP4 require SM >= 8.9\n"
+            "                    (RTX 40xx / Ada Lovelace).\n\n"
+            "A PRE-quantized artifact cannot be loaded here -- its bytes are already\n"
+            "FP4 or FP8, and only its store record says which. Use from_store()." )
+        .def_static( "from_store",
+            []( const std::string& name,
+                int64_t context_length,
+                int device_index ) -> std::unique_ptr<LlamaSession>
+            {
+                py::gil_scoped_release _;
+
+                return LlamaSession::fromStore( name, context_length, device_index );
+            },
+            py::arg( "name" ),
+            py::arg( "context_length" ),
+            py::arg( "device_index" ) = 0,
+            "Load an installed Llama model by store name, as the artifact itself is.\n\n"
+            "The record settles the quantization, so a published FP4 or FP8 artifact\n"
+            "loads without the caller knowing what it is. Nothing is downloaded: an\n"
+            "uninstalled name raises RuntimeError.\n\n"
+            "Args:\n"
+            "    name:           Store name, e.g. 'Llama-3.2-3B-Instruct-fp4'.\n"
+            "    context_length: Maximum sequence length to build for.\n"
+            "    device_index:   CUDA device index (default: 0)." )
         .def( "generate",
             []( LlamaSession& self,
                 const std::vector<int32_t>& prompt_tokens,
@@ -452,18 +483,42 @@ static void bind_gemma_model( py::module_& m )
         .def_static( "from_pretrained",
             []( const std::string& path,
                 int64_t context_length,
-                int device_index ) -> std::unique_ptr<GemmaSession>
+                int device_index,
+                const std::string& quantization ) -> std::unique_ptr<GemmaSession>
             {
                 py::gil_scoped_release _;
 
-                return GemmaSession::fromPretrained( path, context_length, device_index );
+                return GemmaSession::fromPretrained(
+                    path, context_length, device_index, quantization );
             },
             py::arg( "path" ),
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
-            "Load Gemma 4 pretrained weights from a Mila artifact.\n\n"
+            py::arg( "quantization" ) = "fp4",
+            "Load Gemma 4 weights from an unquantized Mila artifact.\n\n"
             "Args:\n"
             "    path:           Path to the Mila pretrained artifact.\n"
+            "    context_length: Maximum sequence length to build for.\n"
+            "    device_index:   CUDA device index (default: 0).\n"
+            "    quantization:   'bf16', 'fp8' or 'fp4', applied at load time\n"
+            "                    (default: 'fp4' -- a BF16 Gemma 4 12B needs ~24 GB\n"
+            "                    and OOMs at load on the cards this targets).\n\n"
+            "A PRE-quantized artifact cannot be loaded here. Use from_store()." )
+        .def_static( "from_store",
+            []( const std::string& name,
+                int64_t context_length,
+                int device_index ) -> std::unique_ptr<GemmaSession>
+            {
+                py::gil_scoped_release _;
+
+                return GemmaSession::fromStore( name, context_length, device_index );
+            },
+            py::arg( "name" ),
+            py::arg( "context_length" ),
+            py::arg( "device_index" ) = 0,
+            "Load an installed Gemma model by store name, as the artifact itself is.\n\n"
+            "Args:\n"
+            "    name:           Store name, e.g. 'gemma-4-12b-it-fp4'.\n"
             "    context_length: Maximum sequence length to build for.\n"
             "    device_index:   CUDA device index (default: 0)." )
         .def( "generate",
@@ -568,10 +623,14 @@ PYBIND11_MODULE( _mila, m )
         "Mila inference bindings for CUDA.\n\n"
         "Models:\n"
         "    GemmaModel  Gemma 4 Instruct, BF16 compute with FP4 weights (the flagship).\n"
-        "    LlamaModel  Llama 3.x Instruct, BF16 compute, optional FP8 weights.\n\n"
-        "Both are loaded from a Mila binary artifact with from_pretrained() and paired\n"
-        "with a BpeTokenizer. The GIL is released around generation, so streaming\n"
-        "callbacks, a StopController and Ctrl-C all work from Python.\n\n"
+        "    LlamaModel  Llama 3.x Instruct, BF16 compute, optional FP8 or FP4 weights.\n\n"
+        "Load an installed model by name with from_store(), which reads the store record\n"
+        "and so knows what the artifact already is -- a published model is pre-quantized,\n"
+        "and only its record says to what. from_pretrained() remains for a loose artifact\n"
+        "file, where the quantization is the caller's choice. BpeTokenizer.from_store()\n"
+        "takes the same name, so nothing pairs two paths by hand. The GIL is released\n"
+        "around generation, so streaming callbacks, a StopController and Ctrl-C all work\n"
+        "from Python.\n\n"
         "Distribution:\n"
         "    ModelStore  The local store Chat and the Mila Inference Server share:\n"
         "                list, locate, remove, usage, install, pull.\n\n"

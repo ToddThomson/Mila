@@ -15,6 +15,7 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <format>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -85,6 +86,94 @@ namespace Mila::Bindings
             info.bytes_on_disk = model.bytes_on_disk;
 
             return info;
+        }
+
+        /**
+         * @brief The record for an installed model, or a failure that names the alternatives.
+         *
+         * The store is the only source consulted. A name that is not installed is an error
+         * rather than a download: pull and load are separate verbs, and a load that reached
+         * the network would turn an ordinary call into a multi-gigabyte transfer.
+         */
+        Mila::Distribution::StoredModel requireInstalledModel( const std::string& name )
+        {
+            Mila::Distribution::ModelStore store;
+
+            const auto installed = store.locate( name );
+
+            if ( installed.has_value() )
+            {
+                return *installed;
+            }
+
+            // locate() refuses a record whose blobs are gone, so a name that is listed and
+            // still not loadable needs its own message -- otherwise this would report a
+            // model as absent while the store's own listing shows it.
+            std::string available;
+
+            for ( const auto& model : store.list() )
+            {
+                if ( model.record.name == name && !model.complete )
+                {
+                    throw std::runtime_error( std::format(
+                        "'{}' is installed but its files are missing, so it cannot be loaded.",
+                        name ) );
+                }
+
+                available += available.empty() ? "" : ", ";
+                available += model.record.name;
+            }
+
+            throw std::runtime_error( std::format(
+                "No model named '{}' is installed. Installed: {}",
+                name, available.empty() ? "nothing" : available ) );
+        }
+
+        /**
+         * @brief Settle a model config's quantization axes from a variant name.
+         *
+         * One mapping for both entry points, so "fp4" means the same thing whether it came
+         * from a store record or from a caller. The presets are used rather than the
+         * individual setters, matching what the chat harness loads.
+         */
+        template<typename TModelConfig>
+        void applyQuantizationVariant(
+            TModelConfig& model_config, const std::string& variant, const std::string& subject )
+        {
+            if ( variant == "fp4" )
+            {
+                model_config.withFP4Quantization();
+            }
+            else if ( variant == "fp8" )
+            {
+                model_config.withFP8Quantization();
+            }
+            else if ( variant == "bf16" || variant == "none" )
+            {
+                model_config.withFullPrecision();
+            }
+            else
+            {
+                throw std::runtime_error( std::format(
+                    "{}: '{}' is not a variant this binding can load. Expected bf16, fp8 or fp4."
+                    "{}",
+                    subject, variant,
+                    variant == "fp32" ? " These sessions are BF16 instantiations." : "" ) );
+            }
+        }
+
+        /// The record's architecture, checked against the session class loading it.
+        void requireArchitecture(
+            const Mila::Distribution::StoredModel& model, const std::string& expected )
+        {
+            if ( model.record.architecture != expected )
+            {
+                throw std::runtime_error( std::format(
+                    "'{}' has architecture '{}', which this session does not load. "
+                    "Read ModelStore.locate(name).architecture and pick the matching session.",
+                    model.record.name,
+                    model.record.architecture.empty() ? "unknown" : model.record.architecture ) );
+            }
         }
 
         /**
@@ -314,6 +403,28 @@ namespace Mila::Bindings
         return std::shared_ptr<Tokenizer>( new Tokenizer( std::move( impl ) ) );
     }
 
+    std::shared_ptr<Tokenizer> Tokenizer::fromStore( const std::string& name )
+    {
+        const auto model = requireInstalledModel( name );
+
+        const std::string& architecture = model.record.architecture;
+        const std::string path = model.tokenizer_path.string();
+
+        if ( architecture == "gemma" )
+        {
+            return loadGemma( path );
+        }
+
+        if ( architecture == "llama" )
+        {
+            return loadLlama32( path );
+        }
+
+        throw std::runtime_error( std::format(
+            "'{}' has architecture '{}', which has no tokenizer in this binding.",
+            name, architecture.empty() ? "unknown" : architecture ) );
+    }
+
     std::vector<int32_t> Tokenizer::encode( const std::string& text )
     {
         return impl_->tokenizer->encode( text );
@@ -372,19 +483,35 @@ namespace Mila::Bindings
 
     std::unique_ptr<LlamaSession> LlamaSession::fromPretrained(
         const std::string& path, int64_t context_length, int device_index,
-        bool quantize_fp8 )
+        const std::string& quantization )
     {
         DeviceId device_id{ DeviceType::Cuda, device_index };
         LlamaModelConfig model_config( static_cast<dim_t>( context_length ) );
 
-        // Weights only: withFP8Quantization() would also request an FP8 KV cache,
-        // which LlamaModel::fromPretrained does not yet implement.
-        if ( quantize_fp8 )
-            model_config.withWeightQuantization( WeightQuantization::FP8 );
+        applyQuantizationVariant( model_config, quantization, "LlamaModel.from_pretrained" );
 
         auto impl = std::make_unique<Impl>();
         impl->model = LlamaCudaBf16::fromPretrained(
             std::filesystem::path( path ), model_config, device_id );
+
+        return std::unique_ptr<LlamaSession>( new LlamaSession( std::move( impl ) ) );
+    }
+
+    std::unique_ptr<LlamaSession> LlamaSession::fromStore(
+        const std::string& name, int64_t context_length, int device_index )
+    {
+        const auto model = requireInstalledModel( name );
+
+        requireArchitecture( model, "llama" );
+
+        DeviceId device_id{ DeviceType::Cuda, device_index };
+        LlamaModelConfig model_config( static_cast<dim_t>( context_length ) );
+
+        applyQuantizationVariant( model_config, model.record.variant, name );
+
+        auto impl = std::make_unique<Impl>();
+        impl->model = LlamaCudaBf16::fromPretrained(
+            model.weights_path, model_config, device_id );
 
         return std::unique_ptr<LlamaSession>( new LlamaSession( std::move( impl ) ) );
     }
@@ -459,19 +586,36 @@ namespace Mila::Bindings
     GemmaSession::~GemmaSession() = default;
 
     std::unique_ptr<GemmaSession> GemmaSession::fromPretrained(
-        const std::string& path, int64_t context_length, int device_index )
+        const std::string& path, int64_t context_length, int device_index,
+        const std::string& quantization )
     {
         DeviceId device_id{ DeviceType::Cuda, device_index };
+        GemmaModelConfig model_config( static_cast<dim_t>( context_length ) );
 
-        // Hardcode FP4 (PerGroupFp4<128> weights + sliding-window KV ring): Gemma 4 12B
-        // only fits the 12 GB target under FP4 -- the default None (BF16) weights would
-        // need ~24 GB and OOM at load. Mirrors the chat catalog's gemma-12b default.
-        GemmaModelConfig model_config = GemmaModelConfig( static_cast<dim_t>( context_length ) )
-            .withFP4Quantization();
+        applyQuantizationVariant( model_config, quantization, "GemmaModel.from_pretrained" );
 
         auto impl = std::make_unique<Impl>();
         impl->model = GemmaCudaBf16::fromPretrained(
             std::filesystem::path( path ), model_config, device_id );
+
+        return std::unique_ptr<GemmaSession>( new GemmaSession( std::move( impl ) ) );
+    }
+
+    std::unique_ptr<GemmaSession> GemmaSession::fromStore(
+        const std::string& name, int64_t context_length, int device_index )
+    {
+        const auto model = requireInstalledModel( name );
+
+        requireArchitecture( model, "gemma" );
+
+        DeviceId device_id{ DeviceType::Cuda, device_index };
+        GemmaModelConfig model_config( static_cast<dim_t>( context_length ) );
+
+        applyQuantizationVariant( model_config, model.record.variant, name );
+
+        auto impl = std::make_unique<Impl>();
+        impl->model = GemmaCudaBf16::fromPretrained(
+            model.weights_path, model_config, device_id );
 
         return std::unique_ptr<GemmaSession>( new GemmaSession( std::move( impl ) ) );
     }

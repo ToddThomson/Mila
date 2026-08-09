@@ -99,20 +99,9 @@ add_custom_command(TARGET MilaPy POST_BUILD
     VERBATIM
 )
 
-# 3. Convenience: the MIS server directory, so its `python main.py` imports the
-#    binding without PYTHONPATH setup. Retained because MIS's documented run
-#    instructions depend on it. Once mila-llm is installed from a wheel, MIS should
-#    depend on it like any other package and this copy can go.
-set(MILA_SERVER_DIR "${CMAKE_SOURCE_DIR}/Mila/Adaptors/Inference/Server")
-
-add_custom_command(TARGET MilaPy POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${MILA_SERVER_DIR}/mila"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        $<TARGET_FILE:MilaPy>
-        "${MILA_SERVER_DIR}/mila/$<TARGET_FILE_NAME:MilaPy>"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${MILA_PACKAGE_INIT}"
-        "${MILA_SERVER_DIR}/mila/__init__.py"
-    COMMENT "Copying the mila package to the Server directory"
-    VERBATIM
-)
+# There is deliberately no third destination. MIS used to receive its own copy of the
+# package beside main.py, which shadowed any installed mila-llm -- the server directory
+# is first on sys.path, so a stale copy always won over a correct install. MIS now
+# declares mila-llm as an ordinary dependency and a development checkout satisfies it
+# with an editable install of Package above, which picks up destination 1 on every
+# build. See Mila/Adaptors/Inference/Server/README.md.

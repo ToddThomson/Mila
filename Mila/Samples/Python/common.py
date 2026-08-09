@@ -197,20 +197,52 @@ def resolve_paths(family, weights=None, tokenizer=None):
 # Loading
 # ---------------------------------------------------------------------------
 
-def load(mila, family, weights, tokenizer, context_length, device_index=0, quantize_fp8=False):
+def load(mila, family, weights, tokenizer, context_length, device_index=0, quantization=None):
     """
-    Load a tokenizer and model pair for the given family.
+    Load a tokenizer and model pair for the given family, from loose artifact files.
 
-    Gemma is loaded with FP4 weights (the binding hardcodes that -- 12B only fits a
-    12 GB card quantized); Llama is BF16 unless quantize_fp8 is set.
+    Quantization is a load-time choice here because the artifact is unquantized: "bf16",
+    "fp8" or "fp4". Gemma defaults to FP4 -- a BF16 12B needs ~24 GB and OOMs on a 12 GB
+    card -- and Llama to BF16.
+
+    Prefer load_from_store() for an installed model: a published artifact is already
+    quantized and only its store record says to what.
     """
     if family == "gemma":
         return (
             mila.BpeTokenizer.load_gemma(str(tokenizer)),
-            mila.GemmaModel.from_pretrained(str(weights), context_length, device_index),
+            mila.GemmaModel.from_pretrained(
+                str(weights), context_length, device_index, quantization or "fp4"),
         )
 
     return (
         mila.BpeTokenizer.load_llama32(str(tokenizer)),
-        mila.LlamaModel.from_pretrained(str(weights), context_length, device_index, quantize_fp8),
+        mila.LlamaModel.from_pretrained(
+            str(weights), context_length, device_index, quantization or "bf16"),
+    )
+
+
+def load_from_store(mila, name, context_length, device_index=0):
+    """
+    Load an installed model by store name -- as the artifact itself is.
+
+    Returns (tokenizer, model, record). The record carries the architecture, the variant
+    and whether the model is instruction-tuned, so a caller needs to know nothing about
+    the model in advance. Nothing is downloaded: an uninstalled name raises.
+    """
+    record = mila.ModelStore().locate(name)
+
+    if record is None:
+        installed = ", ".join(model.name for model in mila.ModelStore().list())
+        raise FileNotFoundError(
+            f"No model named '{name}' is installed. Installed: {installed or 'nothing'}.\n"
+            "Install one with store.py --pull, or with /install in the chat harness."
+        )
+
+    session = mila.GemmaModel if record.architecture == "gemma" else mila.LlamaModel
+
+    return (
+        mila.BpeTokenizer.from_store(name),
+        session.from_store(name, context_length, device_index),
+        record,
     )

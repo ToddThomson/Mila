@@ -1,16 +1,17 @@
 """
-Owns the LlamaModel and BpeTokenizer instances and serializes inference
-requests through a single worker thread, honoring the model's non-thread-safe
-contract. All public methods are async-safe and may be called from any
-asyncio task.
+Owns the loaded model and its BpeTokenizer and serializes inference requests
+through a single worker thread, honoring the model's non-thread-safe contract.
+All public methods are async-safe and may be called from any asyncio task.
+
+The model is named, not pathed: MILA_MODEL is a name in the local Mila store,
+which Chat shares. Load never downloads -- see _load().
 """
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
-import cuda_runtime  # noqa: F401  -- must precede `import mila`; see the module docstring
 import mila
-from config import settings, ModelFamily
+from config import settings, loaded, ModelFamily
 from gemma_protocol import (
     strip_control_tokens as _strip_gemma_control_tokens,
     TOOL_CALL_CLOSE,
@@ -28,10 +29,27 @@ _MAX_REASONING_CHANNELS = 24
 _MAX_TOKEN_REPEATS = 48
 
 
+def _family_of(record: "mila.StoredModel") -> ModelFamily:
+    """
+    The architecture the record declares, as the family the protocol layer branches on.
+
+    An architecture MIS cannot serve is refused at load rather than at the first request:
+    the store's vocabulary is wider than the binding's (gpt2 has a record shape and no
+    session), and a server that started on one would fail every request instead.
+    """
+    try:
+        return ModelFamily(record.architecture)
+    except ValueError:
+        raise RuntimeError(
+            f"'{record.name}' has architecture '{record.architecture}', which MIS does not "
+            f"serve. Supported: {', '.join(family.value for family in ModelFamily)}."
+        ) from None
+
+
 class ModelWorker:
     """
-    Wraps LlamaModel and BpeTokenizer behind a single-thread executor so that
-    FastAPI's async handlers can await inference without blocking the event loop
+    Wraps the loaded model and its BpeTokenizer behind a single-thread executor so
+    that FastAPI's async handlers can await inference without blocking the event loop
     or violating the model's single-threaded contract.
     """
 
@@ -49,24 +67,48 @@ class ModelWorker:
         self._executor.shutdown(wait=True)
 
     def _load(self) -> None:
-        if settings.model_family == ModelFamily.gemma:
-            self._tokenizer = mila.BpeTokenizer.load_gemma(settings.tokenizer_path)
-            self._model = mila.GemmaModel.from_pretrained(
-                settings.model_path,
-                settings.context_length,
-                settings.device_index,
+        """
+        Resolve the configured name against the local store and load what it names.
+
+        MIS never pulls. A model arrives in the store through a deliberate act -- Chat's
+        /install, or ExportArtifact --install -- and a server that downloaded 6 GB because
+        a name was misspelled would be a worse failure than refusing to start.
+        """
+        store = mila.ModelStore()
+        record = store.locate(settings.model)
+
+        if record is None:
+            installed = ", ".join(model.name for model in store.list())
+
+            raise RuntimeError(
+                f"No model named '{settings.model}' is installed in the Mila store "
+                f"({store.root}). Installed: {installed or 'nothing'}.\n"
+                "MIS loads only what is already installed -- install it with the chat "
+                "harness (/install <name>) or ExportArtifact --install, then start again."
             )
-        else:
-            self._tokenizer = mila.BpeTokenizer.load_llama32(settings.tokenizer_path)
-            self._model = mila.LlamaModel.from_pretrained(
-                settings.model_path,
-                settings.context_length,
-                settings.device_index,
-            )
+
+        loaded.name = record.name
+        loaded.variant = record.variant
+        loaded.instruct = record.instruct
+        loaded.family = _family_of(record)
+
+        # One call for either family: the record says which loader the artifact needs, so
+        # there is no longer a tokenizer path to pair with a weights path by hand.
+        self._tokenizer = mila.BpeTokenizer.from_store(record.name)
+
+        session = mila.GemmaModel if loaded.family == ModelFamily.gemma else mila.LlamaModel
+
+        # from_store, not from_pretrained: every published artifact is already quantized,
+        # and only the record knows to what.
+        self._model = session.from_store(
+            record.name,
+            settings.context_length,
+            settings.device_index,
+        )
 
     @property
     def _is_gemma(self) -> bool:
-        return settings.model_family == ModelFamily.gemma
+        return loaded.family == ModelFamily.gemma
 
     # ------------------------------------------------------------------
     # Tokenizer helpers (cheap; run on the worker thread for consistency)

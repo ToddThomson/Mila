@@ -78,8 +78,8 @@ the same prompt so the knobs are visible side by side.
 |---|---|
 | `mila.initialize` | `log_level` = `trace \| info \| warning \| error` |
 | `mila.BpeTokenizer` | `load_llama32`, `load_gemma`, `encode`, `decode`, `token_to_string`, `is_valid_token`, `vocab_size`, `bos_token_id`, `eos_token_id`, `pad_token_id` |
-| `mila.GemmaModel` | `from_pretrained(path, context_length, device_index=0)`, `generate`, `generate_streaming`, `get_config`, `__repr__` |
-| `mila.LlamaModel` | `from_pretrained(path, context_length, device_index=0, quantize_fp8=False)`, `generate`, `generate_streaming`, `get_config`, `__repr__` |
+| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="fp4")`, `generate`, `generate_streaming`, `get_config`, `__repr__` |
+| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="bf16")`, `generate`, `generate_streaming`, `get_config`, `__repr__` |
 | `mila.StopController` | `request_stop`, `stop_requested` |
 
 The GIL is released around generation, so a streaming callback runs on a live

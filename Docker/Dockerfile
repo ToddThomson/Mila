@@ -61,6 +61,12 @@ ENV PATH=${CUDA_HOME}/bin:${PATH}
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
 ENV CCACHE_DIR=/ccache
 
+# The Mila model store, on the bind mount rather than in the container's own home. Chat
+# and MIS both read it and neither downloads on load, so a store on a container-local
+# layer would be lost on `run --rm` and have to be re-pulled -- gigabytes each time. Here
+# it is the same directory the host sees under Data/Models/Store.
+ENV MILA_CACHE_DIR=/mila/Data/Models/Store
+
 # Cap concurrent compile jobs so an IDE-driven build (VS 2026 / VSCode CMake Tools,
 # which do not read the mila-build-* scripts' -j) cannot starve this container's RAM on
 # the several-GB module TUs (OperationTraits.ixx et al.) and hang. The root CMakeLists

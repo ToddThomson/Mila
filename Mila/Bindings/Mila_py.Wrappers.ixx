@@ -68,6 +68,19 @@ namespace Mila::Bindings
         static std::shared_ptr<Tokenizer> loadLlama32( const std::string& path );
         static std::shared_ptr<Tokenizer> loadGemma( const std::string& path );
 
+        /**
+         * @brief The tokenizer of an installed model, by store name.
+         *
+         * Which loader to use is a property of the artifact, not of the caller, so the
+         * record decides it. That is what removes the pairing a consumer previously had to
+         * keep correct by hand: a tokenizer path and a weights path that had to describe
+         * the same model, with nothing checking that they did.
+         *
+         * @throws std::runtime_error if no such model is installed, its files are missing,
+         *         or its architecture has no tokenizer in this binding.
+         */
+        static std::shared_ptr<Tokenizer> fromStore( const std::string& name );
+
         std::vector<int32_t> encode( const std::string& text );
         std::string decode( const std::vector<int32_t>& ids );
         std::string tokenToString( int32_t token_id ) const;
@@ -86,12 +99,37 @@ namespace Mila::Bindings
         std::unique_ptr<Impl> impl_;
     };
 
+    // Quantization is named the way the store names it -- "bf16", "fp8", "fp4" -- by both
+    // session entry points, so a variant means the same thing whether it came from a record
+    // or from a caller. "fp32" is rejected rather than ignored: these sessions are BF16
+    // instantiations, and loading an FP32 artifact at BF16 is a different model than the
+    // one asked for.
+
     export class LlamaSession
     {
     public:
+        /**
+         * @param quantization Applied on the way in, against an unquantized artifact. A
+         *        pre-quantized artifact must be loaded through fromStore, which reads what
+         *        its bytes already are.
+         */
         static std::unique_ptr<LlamaSession> fromPretrained(
             const std::string& path, int64_t context_length, int device_index,
-            bool quantize_fp8 );
+            const std::string& quantization );
+
+        /**
+         * @brief Load an installed model by store name, as the artifact itself is.
+         *
+         * The record decides the quantization, which is the whole point: a published
+         * artifact is already FP4 or FP8 bytes, and a caller-supplied flag could only agree
+         * with them by luck. Nothing here reaches a network -- an uninstalled name is an
+         * error, never a download.
+         *
+         * @throws std::runtime_error if no such model is installed, its files are missing,
+         *         or its architecture or variant is not one this session can load.
+         */
+        static std::unique_ptr<LlamaSession> fromStore(
+            const std::string& name, int64_t context_length, int device_index );
 
         std::vector<int32_t> generate(
             const std::vector<int32_t>& prompt_tokens,
@@ -308,8 +346,18 @@ namespace Mila::Bindings
     export class GemmaSession
     {
     public:
+        /**
+         * @param quantization Applied on the way in, against an unquantized artifact.
+         *        Defaults to FP4 at the binding layer rather than to none: a BF16 Gemma 4
+         *        12B needs ~24 GB and would OOM at load on the cards this targets.
+         */
         static std::unique_ptr<GemmaSession> fromPretrained(
-            const std::string& path, int64_t context_length, int device_index );
+            const std::string& path, int64_t context_length, int device_index,
+            const std::string& quantization );
+
+        /// As LlamaSession::fromStore -- the record decides the quantization.
+        static std::unique_ptr<GemmaSession> fromStore(
+            const std::string& name, int64_t context_length, int device_index );
 
         std::vector<int32_t> generate(
             const std::vector<int32_t>& prompt_tokens,

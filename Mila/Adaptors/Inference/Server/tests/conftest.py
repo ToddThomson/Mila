@@ -4,15 +4,14 @@ modules are not importable from a tests/ subdirectory by default. Put the server
 directory on sys.path so `import gemma_protocol` resolves the same module the
 running server uses.
 """
-import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# Importing an adapter pulls in config.settings, which requires the model paths and
-# would otherwise only resolve from a .env in the working directory -- making the
-# suite pass or fail depending on where pytest was invoked from. These are never
-# loaded: no test touches a model. Real values in the environment still win.
-os.environ.setdefault("MILA_MODEL_PATH", "unused-by-tests.bin")
-os.environ.setdefault("MILA_TOKENIZER_PATH", "unused-by-tests.bin")
+# Every setting now has a default, so nothing has to be faked here for config to
+# import. What the suite does rely on is config.loaded, which ModelWorker fills in at
+# startup from the store record -- no test starts a worker, so the adapters read its
+# defaults (Gemma, instruct). A test that needs another family sets config.loaded.family
+# directly rather than an environment variable: the family is a fact about the artifact,
+# and there is no longer an env var that can claim otherwise.

@@ -8,10 +8,14 @@ This package is the Python projection of that runtime.
     import mila
 
     mila.initialize("warning")
-    tokenizer = mila.BpeTokenizer.load_gemma("gemma_tokenizer.bin")
-    model = mila.GemmaModel.from_pretrained("gemma4_12b_it_bf16.bin", 4096)
+    tokenizer = mila.BpeTokenizer.from_store("gemma-4-12b-it-fp4")
+    model = mila.GemmaModel.from_store("gemma-4-12b-it-fp4", 4096)
 
     model.generate_streaming(tokenizer.encode(prompt), print)
+
+A model is named, not pathed: from_store() reads the local store's record, which
+is what knows the artifact is already FP4. Install one first -- ModelStore().pull()
+here, or `/install` in the chat harness -- because a load never downloads.
 
 The GIL is released around generation, so a streaming callback runs on a live
 interpreter and StopController cancels a decode loop already in flight.

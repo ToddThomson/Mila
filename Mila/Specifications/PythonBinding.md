@@ -23,20 +23,23 @@ library, locating a built artifact, converting weights, and knowing where everyt
 
 ## Current surface
 
-Complete as of `0.20.0-beta.2+16`. Source: `Mila/Bindings/Mila_py.cpp`.
+Complete as of `0.20.0-beta.2+45`. Source: `Mila/Bindings/Mila_py.cpp`.
 
 | Symbol | Members |
 |---|---|
 | `mila.initialize` | `log_level` = `trace \| info \| warning \| error` |
-| `mila.BpeTokenizer` | `load_llama32`, `load_gemma`, `encode`, `decode`, `token_to_string`, `is_valid_token`, `vocab_size`, `bos_token_id`, `eos_token_id`, `pad_token_id` |
-| `mila.LlamaModel` | `from_pretrained(path, context_length, device_index=0, quantize_fp8=False)`, `generate`, `generate_streaming`, `get_config`, `__repr__` |
-| `mila.GemmaModel` | `from_pretrained(path, context_length, device_index=0)`, `generate`, `generate_streaming`, `get_config`, `__repr__` |
+| `mila.BpeTokenizer` | `from_store(name)`, `load_llama32`, `load_gemma`, `encode`, `decode`, `token_to_string`, `is_valid_token`, `vocab_size`, `bos_token_id`, `eos_token_id`, `pad_token_id` |
+| `mila.LlamaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="bf16")`, `generate`, `generate_streaming`, `get_config`, `__repr__` |
+| `mila.GemmaModel` | `from_store(name, context_length, device_index=0)`, `from_pretrained(path, context_length, device_index=0, quantization="fp4")`, `generate`, `generate_streaming`, `get_config`, `__repr__` |
+| `mila.ModelStore` | `root`, `list`, `locate`, `remove`, `usage`, `install`, `pull`, `list_hub_models` |
 | `mila.StopController` | `request_stop`, `stop_requested` |
 
 Two properties worth stating because they make a real sample possible: **the GIL is released around
 generation** (`py::gil_scoped_release`), so streaming callbacks and a Ctrl-C handler both work; and
-**`GemmaModel` hardcodes FP4** (`.withFP4Quantization()`, with the 12 GB reasoning recorded at the
-call site), so the 12B flagship loads on a consumer card rather than OOM-ing at BF16.
+**`from_store` takes the quantization from the store record**, so a published artifact — which is
+already FP4 bytes — loads without the caller knowing what it is. `from_pretrained` keeps a
+quantization argument because a loose artifact is unquantized and the choice is then real; Gemma
+defaults it to FP4 so the 12B flagship loads on a consumer card rather than OOM-ing at BF16.
 
 **Not exposed:** `GptModel`. This matters more than it looks — see *Weights* below.
 
@@ -46,22 +49,21 @@ call site), so the 12B flagship loads on a consumer card rather than OOM-ing at 
 
 Found while scoping, 2026-07-28. Tracked in BACKLOG.
 
-- ~~**`quantize_fp8` is accepted and silently ignored.**~~ **Fixed 2026-07-28.** The argument reached
-  a lambda body of `(void)quantize_fp8;`, so a caller asking for FP8 received BF16 with no error and
-  no warning. It now applies `WeightQuantization::FP8` to the Linear weights. Weights only:
-  `withFP8Quantization()` would also request an FP8 KV cache, which `LlamaModel::fromPretrained` does
-  not implement.
+- ~~**`quantize_fp8` is accepted and silently ignored.**~~ **Fixed 2026-07-28**, and the boolean
+  itself **retired 2026-08-08**: a two-valued flag could not name FP4, so the binding could not load
+  any published Llama artifact at all (`Parameter 'weight' dtype mismatch. Expected BF16, got
+  UINT8`). Both sessions now take a variant string, and `from_store` takes it from the record.
 - ~~**The module docstring is stale**~~ — **Fixed 2026-07-28.** It said *"Mila inference bindings —
   Llama 3.2 3B Instruct on CUDA BF16"* while Gemma was bound and is the flagship, and it is the first
   thing `help(mila)` prints. It now names both models and states the GIL-release property.
 - ~~**`mila.pyd` is copied only into `Mila/Adaptors/Inference/Server/`.**~~ **Fixed 2026-07-28.**
   `MilaPy` publishes to `<build dir>/python/` — a directory holding nothing but the extension, so a
   consumer can put it on `sys.path` without dragging that consumer's sources along. Exported as the
-  `MilaPy_PYTHON_DIR` cache variable. The MIS copy is retained, since its documented run instructions
-  depend on it; it is simply no longer the only place the extension lands.
-- **No precision control for Gemma.** Reasonable today (FP4 is the only configuration that fits the
-  target card) but it means the Python API cannot express a choice the C++ API can. Still open —
-  adding the parameter is a feature addition the v0.20 freeze excludes.
+  `MilaPy_PYTHON_DIR` cache variable. The MIS copy was **removed 2026-08-08**: the server directory
+  is first on `sys.path`, so that copy shadowed any installed `mila-llm` — a stale copy always beat a
+  correct install. MIS now depends on the package like any other consumer.
+- ~~**No precision control for Gemma.**~~ **Fixed 2026-08-08.** `GemmaModel.from_pretrained` takes a
+  quantization variant, defaulting to FP4 for the reason recorded at the call site.
 
 ---
 
@@ -93,6 +95,11 @@ a stale `CUDA_PATH`. Hoisted 2026-07-28 into `Server/cuda_runtime.py`, imported 
 five modules that touch the binding. **Any future consumer of the binding needs the same three lines**
 — which is an argument for Tier 3 (a wheel) doing it once in a package `__init__`, rather than each
 consumer rediscovering it.
+
+That argument was taken: `mila/__init__.py` now *loads* the pinned CUDA libraries before importing
+the extension, on both platforms, and does it better than the per-consumer version ever could —
+registration alone lost to a machine's own toolkit, because added directories are searched in an
+unspecified order. `Server/cuda_runtime.py` was **retired 2026-08-08** as redundant with it.
 
 ### Tier 2 — zero-auth weights, fetched on first run
 

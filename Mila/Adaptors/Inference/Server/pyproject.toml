@@ -6,10 +6,16 @@ build-backend = "setuptools.build_meta"
 name = "mila-inference-server"
 version = "0.1.0"
 # Pinned to 3.13.x: the mila binding is a version-locked CPython extension
-# (mila.cp313-win_amd64.pyd) that loads only under the interpreter it was built
+# (_mila.cp313-win_amd64.pyd) that loads only under the interpreter it was built
 # for. A wider range lets pip install under a Python that cannot import mila.
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    # The runtime, as an ordinary dependency rather than a file the build copies in.
+    # The floor is the build that introduced from_store(); .devN sorts BEFORE the
+    # release, so both a locally built snapshot and the published 0.20.0b2 satisfy it.
+    # A development checkout satisfies this with an editable install of
+    # Mila/Bindings/Package, whose extension the CMake build stages -- see the README.
+    "mila-llm>=0.20.0b2.dev45",
     "fastapi>=0.136.0",
     "uvicorn[standard]>=0.44.0",
     "pydantic>=2.13.3",

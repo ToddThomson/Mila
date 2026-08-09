@@ -6,7 +6,7 @@ what is on show here is the small stuff you actually poke at: how text becomes
 tokens and back, and what temperature / top_k / top_p do to the same prompt.
 
     python generate.py --sweep
-    python generate.py --family llama --fp8
+    python generate.py --family llama --quantization fp8
     python generate.py --raw --prompt "The three laws of robotics are"
 
 The prompt is wrapped in the model's instruct template. Pass --raw to skip that and
@@ -90,12 +90,10 @@ def run(model, tokenizer, prompt_tokens, max_new_tokens, temperature, top_k, top
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
-    parser.add_argument("--family", default="gemma", choices=("gemma", "llama"),
-                        help="gemma loads FP4 (the binding's only Gemma configuration); "
-                             "llama loads BF16, or FP8 with --fp8.")
-    parser.add_argument("--fp8", action="store_true",
-                        help="Quantize Llama Linear weights to FP8_E4M3 at load time. "
-                             "Requires SM >= 8.9. Ignored for gemma.")
+    parser.add_argument("--family", default="gemma", choices=("gemma", "llama"))
+    parser.add_argument("--quantization", choices=("bf16", "fp8", "fp4"),
+                        help="Quantize Linear weights at load time. FP8 and FP4 require "
+                             "SM >= 8.9. Default: fp4 for gemma, bf16 for llama.")
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--weights", help="Path to the Mila .bin weights.")
     parser.add_argument("--tokenizer", help="Path to the tokenizer .bin.")
@@ -119,9 +117,6 @@ def main():
 
     common.configure_console()
 
-    if args.fp8 and args.family == "gemma":
-        print("note: --fp8 applies to llama only; gemma is loaded FP4.\n")
-
     mila = common.import_mila(args.log_level)
     weights, tokenizer_path = common.resolve_paths(args.family, args.weights, args.tokenizer)
 
@@ -129,7 +124,7 @@ def main():
     load_started = time.perf_counter()
     tokenizer, model = common.load(
         mila, args.family, weights, tokenizer_path,
-        args.context_length, args.device_index, args.fp8)
+        args.context_length, args.device_index, args.quantization)
     print(f"Loaded in {time.perf_counter() - load_started:.1f}s\n")
 
     config = model.get_config()

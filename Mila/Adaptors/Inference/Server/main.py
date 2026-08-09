@@ -6,7 +6,6 @@ Protocol is selected via MILA_PROTOCOL env var: mila | openai | anthropic
 import logging
 from contextlib import asynccontextmanager
 
-import cuda_runtime  # noqa: F401  -- must precede `import mila`; see the module docstring
 import mila
 import uvicorn
 from fastapi import FastAPI

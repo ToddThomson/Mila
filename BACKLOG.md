@@ -159,11 +159,6 @@ being a task list and needs a prune.
   doc-drift break from a `Src/**` or `README.md` change is not caught on the commit that causes it —
   those paths deliberately do not trigger it. Add a non-deploying Doxygen check to
   `build-pipeline.yml` (no CUDA, no CMake).
-- [ ] **`Mila/Bindings/README.md:7` says the binding "knows nothing about HTTP, chat, or any wire
-  protocol"** — true before the store reached Python, wrong now: `Mila_py.cpp` exports `HttpResponse`,
-  `HubModel`, `ModelStore` and an `HttpFetchDelegate`. It is the one paragraph explaining why the
-  binding sits beside `Src` rather than under `Adaptors/`, so the stale sentence undermines the
-  boundary it exists to draw.
 
 ### Production Hardening
 
@@ -308,11 +303,16 @@ being a task list and needs a prune.
   on "model weight conversion", and `:209` advertises `/model <alias>` after the catalogue was
   deleted. The Validated Capabilities table (`:158-188`) omits the store, the hub and `/install`
   entirely, so the newest feature set is absent from the list that claims to be the complete surface.
-- [ ] **`Mila/Samples/Python` has no sample that pulls, and its README describes a retired world.**
-  The binding exposes seven store methods; the samples drive three. The README says "Two samples"
+- [ ] **`Mila/Samples/Python` still runs off paths, and its README describes a retired world.**
+  `common.load_from_store()` exists and nothing calls it: `chat.py` and `generate.py` still take
+  `--weights`/`--tokenizer` and cannot open a published FP4 artifact. The README says "Two samples"
   (there are three — `store.py` is unlisted), says a wheel is "post-v0.20 work" at line 96 while line
-  20 tells you to `pip install mila-llm`, claims "no weight download", and omits every distribution
-  type from its binding table.
+  20 tells you to `pip install mila-llm`, and claims "no weight download".
+- [ ] **The MIS blog post teaches the retired configuration.**
+  `Web/content/blog/mis-with-claude-code-and-codex.md:46-47` sets `MILA_MODEL_PATH` /
+  `MILA_TOKENIZER_PATH`, neither of which exists now — MIS takes a store name. It is the one page
+  that walks a reader through pointing a coding agent at Mila, so a `.env` that cannot work is the
+  first thing they hit.
 - [ ] **There is still no headless pull.** Chat now opens on an empty store, so a clean machine can
   reach `/install`, but the only thing in the product that pulls is an interactive command — which is
   why the cold download can only be exercised by hand. A `pull` verb on the tool would make the gate
@@ -326,29 +326,23 @@ being a task list and needs a prune.
   a `Mila/Src` change, which is what makes this the one online-listing item that is not adaptor work.
 - [ ] **`/models --online` costs one GET per listed model.** Invisible at one model, N+1 requests at N.
   Only worth revisiting if the published set grows; noted so the cause is known when it does.
-- [ ] **Project distribution into the Python binding — steps 2b-4.** Decided (option C): one `pull`,
-  two transports; Python supplies bytes, not procedure. Step 2b is `from_store( name, context_length,
-  device_index )` on both sessions plus `BpeTokenizer.from_store()`, which kills the path-pairing and
-  MIS's family branch and needs no transport; then `mila.store` / `mila.hub`; then MIS onto it,
-  retiring `MILA_MODEL_PATH`/`MILA_TOKENIZER_PATH`. Watch: release the GIL inside the sink or the
-  transfer serializes, and `py::bytes` copies where a `py::buffer` does not — at 6.35 GB that matters.
 - [ ] **`NOTICE.md:33` omits curl, and may no longer need to.** The note treats notice-carrying as open
   for "a binary distribution that links them" — but **both** wheel presets are now
   `MILA_ENABLE_LIBCURL=OFF`, so a wheel built today contains no curl at all. Establish whether the
   *published* artifact predates that change before writing anything: the answer decides whether this is
   an obligation or a non-issue. The same note points at a bucket that no longer exists; fix that either way.
-- [ ] **The binding cannot load a published Llama FP4 artifact at all** — not a vocabulary wart, a
-  hard failure. `LlamaSession::fromPretrained` (`Mila_py.Wrappers.cpp:373`) offers only a
-  `quantize_fp8` bool and otherwise builds `NoWeightQuant`, so `Llama-3.2-3B-Instruct-fp4` throws
-  `Parameter 'weight' dtype mismatch. Expected BF16, got UINT8` (measured on the published wheel).
-  Gemma survives only because `:461` hardcodes `.withFP4Quantization()`. Every model Mila publishes is
-  FP4, so the binding reaches exactly one of them. Its README and `__init__.py` docstring still pair
-  `gemma4_12b_it_bf16.bin` with `gemma_tokenizer.bin` besides. Fix with step 2b.
 - [ ] **`mila/__init__.py` is copied by a `POST_BUILD` step of a target it is not a source of.**
-  `Mila/Bindings/CMakeLists.txt:63,83,101` stage it with `copy_if_different` off
+  `Mila/Bindings/CMakeLists.txt:95` stages it with `copy_if_different` off
   `add_custom_command(TARGET MilaPy POST_BUILD)`, which runs only when `MilaPy` relinks — so editing
-  only `__init__.py` leaves every staged copy stale and the sample fails with a missing attribute.
-  Use `add_custom_command(OUTPUT ...)` with `DEPENDS` on the source.
+  only `__init__.py` leaves `<build dir>/python/mila/` stale and a sample fails with a missing
+  attribute. Use `add_custom_command(OUTPUT ...)` with `DEPENDS` on the source.
+- [ ] **MIS's `mila-llm>=0.20.0b2.dev45` floor is unsatisfiable from PyPI until beta.2 publishes.**
+  `Mila/Adaptors/Inference/Server/pyproject.toml:16` — a clean machine cannot `pip install -e .`
+  without first installing the package tree editable, which is the documented development path but
+  not an obvious one. Re-read the floor at release: once `0.20.0b2` is on PyPI it resolves normally.
+- [ ] **`Docker/build-mis.sh:60` restates MIS's dependency list instead of installing it.** It now has
+  to track four packages plus the editable `mila` install, and it exists only to dodge the
+  `>=3.13,<3.14` pin below. Fixing the pin retires the duplication.
 - [ ] **[gate] Publish the remaining Llama and GPT-2 rows.** Code, licences and cards are all in
   place — `resolveModel` reads the store alone, `Licenses/llama3.{1,2}/` carry the agreements and
   notices, `--notice` plumbs them into a package, and both Llama cards are drafted. Both Llama
@@ -360,6 +354,11 @@ being a task list and needs a prune.
   are not.** `applyRequestedQuantization` refuses to reload a pre-quantized artifact as anything
   else, so every published model is FP4-at-runtime and the FP8 rows at `README.md:163,165` are
   converter-only capabilities. Say so, or the table promises a deployment nobody can reach.
+- [ ] **`gemma_greedy_parity.py` diffs an FP4 Mila against a BF16 HuggingFace reference and does not
+  say so.** `Mila/Tools/Converters/Gemma/gemma_4_BF16/gemma_greedy_parity.py:70` loads through the
+  binding's FP4 default, so any divergence it reports mixes quantization error with a real defect.
+  `from_pretrained` now takes `quantization=`, so the honest comparison is one argument away — on a
+  card that can hold a BF16 12B. State which it ran either way.
 - [ ] **Llama FP4 is not parity-tested, and the README's own wording admits it.** The BF16 and FP32
   rows say "Validated against HuggingFace"; the FP4 rows say "coherent generation"
   (`README.md:162-165`). `GemmaModel.Parity.Cuda.cpp` is the only parity test in the tree. Publishing
@@ -420,6 +419,11 @@ being a task list and needs a prune.
   session-config flag, but only Gemma routes a reasoning channel — the welcome banner and `/model`
   show an effort level for Llama and GPT-2 regardless, reading as a capability they lack. The banner
   prints it beside `Model: none` too, which is an effort level for a model that does not exist.
+- [ ] **Nothing tests MIS's model resolution.** The 31 tests cover the Gemma grammar and the prompt
+  builder; `ModelWorker._load` — store lookup, the refuse-to-pull message, `_family_of` rejecting an
+  architecture MIS cannot serve — has no coverage at all, and it is now the only place a startup can
+  fail (`Mila/Adaptors/Inference/Server/model_worker.py:34`). A fake store object makes all three
+  testable without a GPU.
 - [ ] **`main.cpp` re-checks what the store already guarantees** — after `resolveModel` succeeds it
   tests `exists()` on both paths, but `locate()` refuses an incomplete record. Harmless duplication,
   except `/model` has no equivalent check; if the guarantee is doubted, the check belongs in the store.
