@@ -91,6 +91,19 @@ namespace Mila::Distribution
     export inline constexpr std::string_view kTokenizerRole = "tokenizer";
 
     /**
+     * @brief The source model's license text, and any attribution file the license names.
+     *
+     * Declared rather than merely shipped in the package, because only a declared file is
+     * fetched: every license Mila redistributes under requires its copy travel with the work,
+     * and a pull that delivered weights alone would leave the recipient holding a copy that
+     * carries neither. Llama 3.x 1.b.iii is the strictest of them -- the notice must sit in a
+     * file distributed *as part of* the copy -- and Apache 2.0 4(a) and MIT ask the same of the
+     * license text.
+     */
+    export inline constexpr std::string_view kLicenseRole = "license";
+    export inline constexpr std::string_view kNoticeRole = "notice";
+
+    /**
      * @brief Parse a manifest, refusing anything a consumer would have to guess about.
      *
      * @param source What is being parsed, for messages only -- a name or a package path.

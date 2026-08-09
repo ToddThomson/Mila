@@ -170,6 +170,12 @@ namespace Mila::ChatApp
         /// store, and a converted .bin still awaiting migration.
         std::string           model_name;
 
+        /// Lineage of the loaded model, from its store record. `license` is the identifier the
+        /// manifest declares (llama3.1, apache-2.0), not the text; the text ships with the
+        /// artifact on the hub. Both are empty for a model whose record declares neither.
+        std::string           base_model;
+        std::string           license;
+
         /// Why nothing is selected, when model_name is empty. A store with no usable model is a
         /// working session rather than a fatal condition -- /install and /models live inside the
         /// session, so exiting here is what left a clean machine unable to get its first model.

@@ -5,8 +5,13 @@ digest, a path that differed between the manifest and the upload, a file quietly
 So this validates before it uploads and verifies after, and it is safe to re-run --
 anything already correct on the Hub is skipped.
 
+The repository does not have to exist. One that does not is created private, filled, verified,
+and only then made public -- so a partly uploaded model is never reachable. One that already
+exists keeps whatever visibility it has: taking a live model private to replace a small file
+would be an outage caused by the tool meant to maintain it.
+
 Usage:
-    python publish_model.py <card-directory> [--dry-run]
+    python publish_model.py <directory> [--repo <owner>/<name>] [--dry-run]
 
 The card directory holds the files published verbatim (README.md, mila.json, LICENSE)
 plus publish.json, which names the repository and maps Hub paths to local sources for
@@ -197,10 +202,17 @@ def main() -> int:
             print(f"  ! {problem}", file=sys.stderr)
         return 2
 
+    # A manifest that declares LICENSE and NOTICE has already put them in `resolved`, digest
+    # checked. Uploading them again from the card list would be a second round trip for the same
+    # bytes, so the declaration wins wherever both describe a file.
+    declared_paths = set(declared_files(manifest))
+
     card_uploads = [
         (name, card_dir / name)
         for name in CARD_FILES
-        if (card_dir / name).is_file() and name not in EXCLUDED_FROM_CARD
+        if (card_dir / name).is_file()
+        and name not in EXCLUDED_FROM_CARD
+        and name not in declared_paths
     ]
 
     # NOTICE is absent legitimately for most licenses, so noting it every time would train
@@ -214,6 +226,8 @@ def main() -> int:
     ]
     for name in missing_card:
         print(f"  note: {name} absent from the card directory, skipping")
+
+    repo_type = publish.get("repo_type", "model")
 
     if args.dry_run:
         print("\nDry run. Would upload:")
@@ -232,6 +246,22 @@ def main() -> int:
 
     print(f"\nAuthenticated as {whoami.get('name', '<unknown>')}")
 
+    # A repository is created private and published only after verification passes, so a
+    # half-uploaded model is never reachable. The window this closes is real: the weights are
+    # the last and longest upload, so a public-from-the-start repo advertises a model that
+    # cannot be loaded for as long as the transfer takes.
+    #
+    # Visibility is touched ONLY for a repository this run created. An existing public repo is
+    # left alone -- taking a live model private to re-upload one small file would be an outage
+    # caused by the tool meant to maintain it.
+    created_here = not api.repo_exists(repo_id=repo_id, repo_type=repo_type)
+
+    if created_here:
+        print(f"  create  {repo_id} (private until verified)")
+        api.create_repo(repo_id=repo_id, repo_type=repo_type, private=True, exist_ok=True)
+    else:
+        print(f"  exists  {repo_id}")
+
     # Card files first: small, and a mistake in them is visible before a long transfer.
     for hub_path, local in card_uploads + resolved:
         if already_current(api, repo_id, hub_path, local):
@@ -244,7 +274,7 @@ def main() -> int:
             path_or_fileobj=str(local),
             path_in_repo=hub_path,
             repo_id=repo_id,
-            repo_type=publish.get("repo_type", "model"),
+            repo_type=repo_type,
             commit_message=f"Publish {hub_path}",
         )
 
@@ -258,9 +288,19 @@ def main() -> int:
         print("  ! missing from the repository after upload:", file=sys.stderr)
         for name in missing:
             print(f"      {name}", file=sys.stderr)
+
+        if created_here:
+            print(f"      {repo_id} stays private; re-run to finish it.", file=sys.stderr)
+
         return 4
 
     print(f"  {len(expected)} file(s) present")
+
+    # Only now, with every declared file verified present, does the model become reachable.
+    if created_here:
+        print(f"  publish {repo_id} (private -> public)")
+        api.update_repo_settings(repo_id=repo_id, repo_type=repo_type, private=False)
+
     print(f"\nhttps://huggingface.co/{repo_id}")
     return 0
 

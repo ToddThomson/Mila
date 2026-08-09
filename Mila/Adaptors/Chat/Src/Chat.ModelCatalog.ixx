@@ -48,6 +48,11 @@ namespace Mila::ChatApp
         ModelPrecision precision{ ModelPrecision::BF16 };
         QuantizationMode quantization{ QuantizationMode::None };
 
+        /// Lineage from the record. Carried because a license that requires attribution requires
+        /// it wherever the model is presented, and the session is one of those places.
+        std::string base_model;
+        std::string license;
+
         bool instruct{ false };
         bool streaming_capable{ false };
 
@@ -60,6 +65,24 @@ namespace Mila::ChatApp
 
     /// The model a session loads when its config names none.
     export inline constexpr std::string_view kDefaultModelName = "gemma-4-12b-it-fp4";
+
+    /**
+     * @brief The attribution a license requires be displayed wherever the model is presented.
+     *
+     * Llama 3.1 and 3.2 sections 1.b.i require "Built with Llama" on a related website, user
+     * interface, blogpost, about page or product documentation. A user interface is named there,
+     * so a session that identifies the model owes the line -- the model card on the hub discharges
+     * the same duty for the download, not for the running product.
+     *
+     * Empty for licenses that impose no display duty. Apache 2.0 requires the notice travel with
+     * the artifact; it does not require a UI to render one.
+     */
+    export std::string_view requiredAttributionFor( std::string_view license )
+    {
+        return license.starts_with( "llama" )
+            ? std::string_view{ "Built with Llama" }
+            : std::string_view{};
+    }
 
     /**
      * @brief Architecture string from the record to the family Chat dispatches on.
@@ -324,6 +347,8 @@ namespace Mila::ChatApp
         resolved.tokenizer = installed->tokenizer_path;
         resolved.family = familyFromArchitecture( record.architecture );
         resolved.instruct = record.instruct;
+        resolved.base_model = record.base_model;
+        resolved.license = record.license;
 
         axesFromVariant( record.variant, resolved.precision, resolved.quantization );
 

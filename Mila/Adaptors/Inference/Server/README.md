@@ -187,6 +187,17 @@ Native tool calling (Gemma family) is wired on the OpenAI Responses path and the
 path. On `/v1/messages`, tool_use is currently supported for **non-streaming** requests; streaming
 `tool_use` is a work-in-progress (see `BACKLOG.md`).
 
+### Lineage and attribution
+
+`/v1/models` carries `base_model`, `license` and `attribution` alongside OpenAI's fields. The first
+two come from the store record; `attribution` is the text the license requires be displayed wherever
+the model is presented, and is empty for licenses that require none.
+
+For the Llama families this is not optional — section 1.b.i of the Llama 3.1 and 3.2 Community
+Licenses requires "Built with Llama" on a user interface or product documentation. A server has no
+interface of its own, so MIS discharges it in the two places it presents the model: the startup log,
+and this endpoint. **A client that renders a model list should render the attribution with it.**
+
 ---
 
 ## Starting the Server

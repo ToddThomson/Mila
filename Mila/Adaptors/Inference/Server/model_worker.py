@@ -7,6 +7,7 @@ The model is named, not pathed: MILA_MODEL is a name in the local Mila store,
 which Chat shares. Load never downloads -- see _load().
 """
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
@@ -27,6 +28,8 @@ from gemma_protocol import (
 # once killed tool calls mid-reasoning).
 _MAX_REASONING_CHANNELS = 24
 _MAX_TOKEN_REPEATS = 48
+
+_log = logging.getLogger(__name__)
 
 
 def _family_of(record: "mila.StoredModel") -> ModelFamily:
@@ -91,6 +94,20 @@ class ModelWorker:
         loaded.variant = record.variant
         loaded.instruct = record.instruct
         loaded.family = _family_of(record)
+        loaded.base_model = record.base_model
+        loaded.license = record.license
+
+        # A server presents its model in its log and in /v1/models, and nowhere else. Logged
+        # before the weights load so the attribution survives a load that fails.
+        _log.info(
+            "Loading %s (base model %s, license %s)",
+            record.name,
+            record.base_model or "unknown",
+            record.license or "unstated",
+        )
+
+        if loaded.attribution:
+            _log.info("%s", loaded.attribution)
 
         # One call for either family: the record says which loader the artifact needs, so
         # there is no longer a tokenizer path to pair with a weights path by hand.

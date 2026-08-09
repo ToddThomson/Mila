@@ -393,14 +393,19 @@ namespace Mila::Distribution
         }
 
         /**
-         * @brief Bring a file into the package if it is not already there, and describe it.
+         * @brief Bring a file into the package under a given name, and describe it.
+         *
+         * The name is separate from the source's own because the legal files have conventional
+         * ones: a recipient looks for LICENSE and NOTICE, not for whatever the file was called
+         * where it came from.
          */
-        ModelFile adoptIntoPackage(
+        ModelFile adoptIntoPackageAs(
             const std::filesystem::path& directory,
             const std::filesystem::path& source,
+            const std::filesystem::path& name,
             std::string role )
         {
-            const auto destination = directory / source.filename();
+            const auto destination = directory / name;
 
             std::error_code ignored;
 
@@ -417,6 +422,17 @@ namespace Mila::Distribution
             file.sha256 = sha256OfFile( destination );
 
             return file;
+        }
+
+        /**
+         * @brief Bring a file into the package if it is not already there, and describe it.
+         */
+        ModelFile adoptIntoPackage(
+            const std::filesystem::path& directory,
+            const std::filesystem::path& source,
+            std::string role )
+        {
+            return adoptIntoPackageAs( directory, source, source.filename(), std::move( role ) );
         }
 
         /**
@@ -527,8 +543,35 @@ namespace Mila::Distribution
                 request.directory, request.tokenizer, std::string( kTokenizerRole ) ) );
         }
 
-        copyIfOutside( request.directory, request.license, "LICENSE" );
-        copyIfOutside( request.directory, request.notice, "NOTICE" );
+        // Declared, not merely copied. A pull fetches what the manifest declares and nothing
+        // else, so a license left undeclared reaches the hub repository and never reaches the
+        // recipient's disk -- which is precisely the copy the license travels with. See
+        // kLicenseRole. The model card is not declared: its duty is to be read where the model
+        // is presented, which the hub page and the chat harness both discharge.
+        if ( !request.license.empty() )
+        {
+            if ( !std::filesystem::exists( request.license, ignored ) )
+            {
+                throw std::runtime_error( std::format(
+                    "license not found: {}", request.license.string() ) );
+            }
+
+            manifest.files.push_back( adoptIntoPackageAs(
+                request.directory, request.license, "LICENSE", std::string( kLicenseRole ) ) );
+        }
+
+        if ( !request.notice.empty() )
+        {
+            if ( !std::filesystem::exists( request.notice, ignored ) )
+            {
+                throw std::runtime_error( std::format(
+                    "notice not found: {}", request.notice.string() ) );
+            }
+
+            manifest.files.push_back( adoptIntoPackageAs(
+                request.directory, request.notice, "NOTICE", std::string( kNoticeRole ) ) );
+        }
+
         copyIfOutside( request.directory, request.model_card, "README.md" );
 
         writeWholeFile( request.directory / kManifestFileName, toJsonText( manifest ) );

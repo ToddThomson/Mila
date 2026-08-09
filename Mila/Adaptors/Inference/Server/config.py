@@ -55,6 +55,21 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+def required_attribution_for(license_id: str) -> str:
+    """
+    The attribution a license requires be displayed wherever the model is presented.
+
+    Llama 3.1 and 3.2 section 1.b.i require "Built with Llama" on a related website, user
+    interface, blogpost, about page or product documentation. A server has no interface of
+    its own, so the duty lands on the two places it does present the model: what it logs at
+    startup, and what /v1/models returns.
+
+    Empty for licenses with no display duty -- Apache 2.0 and MIT require the notice travel
+    with the artifact, not that a consumer render one.
+    """
+    return "Built with Llama" if license_id.startswith("llama") else ""
+
+
 @dataclass
 class LoadedModel:
     """
@@ -74,6 +89,15 @@ class LoadedModel:
     family: ModelFamily = ModelFamily.gemma
     variant: str = ""
     instruct: bool = True
+
+    # Lineage. Carried because a license that requires attribution requires it of whoever
+    # presents the model, and serving it over an API is presenting it.
+    base_model: str = ""
+    license: str = ""
+
+    @property
+    def attribution(self) -> str:
+        return required_attribution_for(self.license)
 
 
 loaded = LoadedModel()

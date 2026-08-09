@@ -186,6 +186,8 @@ static ChatConfig buildConfig( int argc, char* argv[] )
         config.model_type        = resolved->family;
         config.precision         = resolved->precision;
         config.is_instruct       = resolved->instruct;
+        config.base_model        = resolved->base_model;
+        config.license           = resolved->license;
         config.streaming_capable = resolved->streaming_capable;
         config.quantization_mode = resolved->quantization;
         config.quantization_applied_at_load = resolved->quantization_applied_at_load;

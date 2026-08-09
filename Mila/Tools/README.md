@@ -65,11 +65,12 @@ uploads.
 
 ## Publishing
 
-`publish_model.py <card-directory> [--dry-run]` validates before it uploads and verifies after, and
-is safe to re-run — anything already correct on the Hub is skipped. The card directory holds the
-files published verbatim plus a `publish.json` naming the repository and mapping Hub paths to local
-sources for the large files kept outside the repository. Authenticates from `HF_TOKEN`,
-`MILA_HF_TOKEN`, or a stored `hf auth login` token.
+`publish_model.py <directory> [--repo <owner>/<name>] [--dry-run]` validates before it uploads and
+verifies after, and is safe to re-run — anything already correct on the Hub is skipped. It takes
+either a package directory built by `ExportArtifact --package`, or a card directory carrying a
+`publish.json` that maps Hub paths to large files kept outside the repository.
+
+`Publishing/README.md` is the process end to end: convert, quantize, card, package, install, publish.
 
 ## Tokenize
 

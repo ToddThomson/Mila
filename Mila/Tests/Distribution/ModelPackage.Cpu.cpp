@@ -277,10 +277,21 @@ namespace Mila::Tests::Distribution
         EXPECT_TRUE( std::filesystem::exists( package.directory() / "LICENSE" ) );
         EXPECT_TRUE( std::filesystem::exists( package.directory() / "README.md" ) );
 
+        // The license is DECLARED, not merely present. Only a declared file is fetched by a
+        // pull, so an undeclared license reaches the hub and never reaches the recipient --
+        // the copy the license is required to travel with. Renamed from CARD.md's sibling
+        // "LICENSE" at the source, which is why the path is asserted rather than assumed.
+        const ModelFile* license = package.manifest().file( kLicenseRole );
+        ASSERT_NE( license, nullptr );
+        EXPECT_EQ( license->path, "LICENSE" );
+
+        // The model card is not declared: its duty is to be read where the model is presented.
+        EXPECT_EQ( package.manifest().file( "model_card" ), nullptr );
+
         const auto validation = package.validate();
         EXPECT_TRUE( validation.ok() ) << validation.problems.front();
         EXPECT_TRUE( validation.warnings.empty() );
-        EXPECT_EQ( validation.files_verified, 2 );
+        EXPECT_EQ( validation.files_verified, 3 );
     }
 
     TEST( ModelPackageTests, RepackagingReplacesTheManifestRatherThanAccumulating )

@@ -1343,6 +1343,8 @@ namespace Mila::ChatApp
             config_.model_type        = resolved.family;
             config_.precision         = resolved.precision;
             config_.is_instruct       = resolved.instruct;
+            config_.base_model        = resolved.base_model;
+            config_.license           = resolved.license;
             config_.streaming_capable = resolved.streaming_capable;
             config_.quantization_mode = resolved.quantization;
             config_.quantization_applied_at_load = resolved.quantization_applied_at_load;
@@ -1618,8 +1620,28 @@ namespace Mila::ChatApp
 
             const ThinkingEffort& effort = thinkingEffort( config_.thinking_effort );
 
+            std::cout << std::format( "  Model:        {}\n", modelName() );
+
+            // Lineage before the deployment axes: a redistributed model's attribution belongs
+            // beside its identity, not below its settings.
+            if ( !config_.base_model.empty() )
+            {
+                std::cout << std::format( "  Base model:   {}\n", config_.base_model );
+            }
+
+            if ( !config_.license.empty() )
+            {
+                std::cout << std::format( "  License:      {}\n", config_.license );
+            }
+
+            const std::string_view attribution = requiredAttributionFor( config_.license );
+
+            if ( !attribution.empty() )
+            {
+                std::cout << std::format( "  Attribution:  {}\n", attribution );
+            }
+
             std::cout << std::format(
-                "  Model:        {}\n"
                 "  Precision:    {}\n"
                 "  Quantization: {}\n"
                 "  Context:      {}\n"
@@ -1627,7 +1649,6 @@ namespace Mila::ChatApp
                 "  Thinking:     {}\n"
                 "  Effort:       {} ({}, ~{} tokens)\n"
                 "  Detail:       {}\n",
-                modelName(),
                 (config_.precision == ModelPrecision::BF16) ? "bf16" : "fp32",
                 quantizationName( config_.quantization_mode ),
                 config_.context_length,

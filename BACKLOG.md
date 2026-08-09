@@ -343,13 +343,21 @@ being a task list and needs a prune.
 - [ ] **`Docker/build-mis.sh:60` restates MIS's dependency list instead of installing it.** It now has
   to track four packages plus the editable `mila` install, and it exists only to dodge the
   `>=3.13,<3.14` pin below. Fixing the pin retires the duplication.
-- [ ] **[gate] Publish the remaining Llama and GPT-2 rows.** Code, licences and cards are all in
-  place — `resolveModel` reads the store alone, `Licenses/llama3.{1,2}/` carry the agreements and
-  notices, `--notice` plumbs them into a package, and both Llama cards are drafted. Both Llama
-  packages are built, installed and **confirmed coherent** through Chat at greedy. What is left is
-  artifacts on the hub: only `gemma-4-12b-it-fp4` is published, so a clean machine can reach a Gemma
-  but not a Llama or a GPT-2 through `/install`. Published set is FP4 only: a dense row prices above
-  a 12 GB card and its audience already holds the upstream checkpoint. GPT-2 still has no package.
+- [ ] **[gate] Publish the GPT-2 row.** Both Llamas and Gemma are live on `mila-llm`; GPT-2 is the
+  only architecture a clean machine still cannot reach through `/install`, and it has no package at
+  all. Published set is FP4 only, which GPT-2 sits outside — decide whether it ships BF16 or is
+  dropped from the catalogue and left to the converters.
+- [ ] **`--instruct` is undocumented in `--package` mode, and its absence is silent.** The flag is
+  parsed (`ExportArtifact.cpp:142`) but missing from the package-mode option list in the usage text
+  (`:42-56`), so omitting it writes `instruct: false` into the manifest with no warning — changing
+  the prompt template every consumer applies. Caught only by diffing a rebuilt manifest against the
+  previous one. Document it, and consider refusing an instruct-named model that declares otherwise.
+- [ ] **`gemma-4-12b-it-fp4` now has two manifests.** The package directory carries the current one;
+  `ModelCards/gemma-4-12b-it-fp4/mila.json` is the pre-package copy and no longer matches. One of
+  them has to go, and the card directory's `publish.json` flow goes with it.
+- [ ] **The "which licenses require a displayed attribution" rule is written twice in two languages** —
+  `requiredAttributionFor` in `Chat.ModelCatalog.ixx` and `license_id.startswith("llama")` in
+  `publish_model.py:209`. They agree today. A third family with a display duty is what separates them.
 - [ ] **The README implies FP8 and BF16 are reachable, and after an FP4-only publishing decision they
   are not.** `applyRequestedQuantization` refuses to reload a pre-quantized artifact as anything
   else, so every published model is FP4-at-runtime and the FP8 rows at `README.md:163,165` are
@@ -369,10 +377,10 @@ being a task list and needs a prune.
   attributed** — ship the agreement, display "Built with Llama" and Meta's notice, pass along the AUP,
   and begin the model name with "Llama" (`Llama-3.1-8B-Instruct-fp4` does). Gating is a *policy*
   choice, not a licence condition. See [[project_gemma4_apache2_license]].
-- [ ] **The `mila-llm` organization has no organization card** — it is the landing page for anyone
-  following a coordinate, and it is currently HuggingFace's placeholder. Needs: what a Mila artifact
-  is, that it is loadable only by Mila and deliberately not NVFP4/MXFP4, the coordinate form, and the
-  link to mila.toddt.me. See [[project_positioning_reference_impl]] — never lead with throughput.
+- [~] **The `mila-llm` organization card is drafted but not published.** Text is at
+  `Tools/Publishing/OrganizationCard/README.md`; the org page still shows HuggingFace's placeholder.
+  Blocking the automation: which repo type the API expects for an org card is unverified, and the
+  UI's "Create organization card" is the only path known to work.
 - [ ] **`ExportArtifact` names one of its nine modes, and its verbs wear option syntax.** Rename the
   binary to `modelmgr` and convert the modes to subcommands (`export`, `transcode`, `package`,
   `validate`, `install`, `rename`, `compare`, `fingerprint`, `fetch`). `--package` is today both a mode
@@ -431,6 +439,11 @@ being a task list and needs a prune.
   session-config flag, but only Gemma routes a reasoning channel — the welcome banner and `/model`
   show an effort level for Llama and GPT-2 regardless, reading as a capability they lack. The banner
   prints it beside `Model: none` too, which is an effort level for a model that does not exist.
+- [ ] **`/v1/models` reports the configured name, not the loaded one.** `ModelInfo.id` defaults to
+  `settings.model` (`routes/models.py:11`) while the record's own name sits in `loaded.name`. The
+  store matches case-insensitively, so `MILA_MODEL=llama-3.1-8b-instruct-fp4` serves
+  `Llama-3.1-8B-Instruct-fp4` and reports the lowercase spelling — against the field's own stated
+  intent that "what a client sees is what is loaded".
 - [ ] **Nothing tests MIS's model resolution.** The 31 tests cover the Gemma grammar and the prompt
   builder; `ModelWorker._load` — store lookup, the refuse-to-pull message, `_family_of` rejecting an
   architecture MIS cannot serve — has no coverage at all, and it is now the only place a startup can
@@ -460,6 +473,11 @@ Next-cycle work. Coarse by design — detailed tasking happens only when an item
   `OperationTraits`. All `Mila/Src`, which is why they wait. Adaptor work does not.
 - **Model serialization** — the remaining checkpoint round-trip and distribution-artifact phases.
   Design, defect analysis and the phase plan are in `Specifications/ModelSerialization.md`.
+- **Python binding — numeric access, not component access.** Add a session-level `forward()` returning
+  logits, plus final hidden states, to `LlamaSession`/`GemmaSession`; from Python a parity run can
+  compare token ids and nothing else today. Component, tensor and training bindings are ruled out:
+  `TDeviceType x TPrecision x TWeightQuantization` is erased only at the session PIMPL, so each
+  component would multiply the wrapper. `Mila/Bindings/Mila_py.Wrappers.ixx:362`
 - **API Coherence** — the pre-1.0 consistency pass, and the precursor to any API-stability promise.
   Its first named item: **`loadModel`/`saveModel` and `loadCheckpoint`/`saveCheckpoint` — verb plus
   what you get, both directions.** Two words go: "pretrained" is relative to a fine-tuning stage Mila
