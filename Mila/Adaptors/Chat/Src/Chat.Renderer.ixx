@@ -153,20 +153,40 @@ namespace Mila::ChatApp
         {
             // Total displayed width per line = max_width + 5 (1 margin + 2 left pad + text + 2 right pad).
             const int max_width = std::max( 20, std::min( consoleWidth() - 6, 80 ) );
-            const auto lines    = RichText::wordWrap( RichText::formatRich( text ), max_width );
+            const auto lines    = RichText::wordWrap( RichText::formatRichStyled( text ), max_width );
 
             int text_width = 4;
             for ( const auto& line : lines )
-                text_width = std::max( text_width, static_cast<int>( line.size() ) );
+                text_width = std::max( text_width, static_cast<int>( line.text.size() ) );
 
             std::cout << '\n';
             for ( const auto& line : lines )
             {
-                const int right_pad = text_width - static_cast<int>( line.size() ) + 2;
-                std::cout << ' '
-                          << bg( 40, 44, 60 ) << fg( 200, 215, 240 )
-                          << "  " << line << std::string( right_pad, ' ' )
-                          << reset() << '\n';
+                const int right_pad = text_width - static_cast<int>( line.text.size() ) + 2;
+
+                std::cout << ' ' << bg( 40, 44, 60 ) << fg( 200, 215, 240 ) << "  ";
+
+                unsigned char painted = StyleNone;
+
+                for ( size_t at = 0; at < line.text.size(); ++at )
+                {
+                    const auto style = static_cast<unsigned char>( line.attributes[ at ] );
+
+                    if ( style != painted )
+                    {
+                        std::cout << reset() << styleEscape( style, false );
+                        painted = style;
+                    }
+
+                    std::cout << line.text[ at ];
+                }
+
+                // Back to the block base so the right padding paints as background
+                // rather than trailing a heading's brighter colour to the margin.
+                if ( painted != StyleNone )
+                    std::cout << reset() << bg( 40, 44, 60 ) << fg( 200, 215, 240 );
+
+                std::cout << std::string( right_pad, ' ' ) << reset() << '\n';
             }
             std::cout << '\n';
         }
@@ -217,9 +237,9 @@ namespace Mila::ChatApp
          * @param thinking Selects the dim reasoning style vs the answer block style.
          * @param text     Formatted text (RichText output) to display.
          */
-        void streamText( bool thinking, std::string_view text )
+        void streamText( bool thinking, const StyledText& run )
         {
-            if ( !stream_.active || text.empty() )
+            if ( !stream_.active || run.empty() )
                 return;
 
             if ( stream_.block_open && stream_.thinking_style != thinking )
@@ -227,7 +247,7 @@ namespace Mila::ChatApp
                 // Whitespace-only cross-style text never displays (the leading
                 // trim after a switch discards it): drop it rather than churning
                 // the block visuals between adjacent channel cycles.
-                if ( text.find_first_not_of( " \t\n\r" ) == std::string_view::npos )
+                if ( run.text.find_first_not_of( " \t\n\r" ) == std::string::npos )
                     return;
 
                 switchStreamBlock( thinking );
@@ -237,17 +257,20 @@ namespace Mila::ChatApp
                 stream_.thinking_style = thinking;
             }
 
-            for ( const char c : text )
+            for ( size_t at = 0; at < run.text.size(); ++at )
             {
+                const char c = run.text[ at ];
+                const auto style = static_cast<unsigned char>( run.attributes[ at ] );
+
                 if ( c == '\t' )
                 {
                     // Mirror wordWrap's tab expansion so column accounting matches.
                     for ( int k = 0; k < 4; ++k )
-                        streamCharacter( ' ' );
+                        streamCharacter( ' ', style );
                 }
                 else
                 {
-                    streamCharacter( c );
+                    streamCharacter( c, style );
                 }
             }
 
@@ -418,9 +441,20 @@ namespace Mila::ChatApp
             bool thinking_style = false;  // style of the open (or next) block
             bool block_open = false;
             bool line_open = false;
-            std::string current_line;
-            std::string pending_word;
+
+            // Styled, because the console needs the attributes and the transcript
+            // needs the text: closeStreamLine records .text alone, so the stream
+            // validator keeps comparing plain text and painting stays outside it.
+            StyledText current_line;
+            StyledText pending_word;
+
+            // Whitespace carries no style of its own -- indentation is unstyled, and
+            // the separator space takes the style of the word it precedes.
             std::string pending_whitespace;
+
+            /// Attribute last written to the console, so escapes are emitted only on
+            /// a transition rather than per character.
+            unsigned char painted_style = StyleNone;
             bool drop_leading_whitespace = true;
             bool any_output = false;
             bool forced_break = false;
@@ -431,7 +465,7 @@ namespace Mila::ChatApp
 
         StreamState stream_;
 
-        void streamCharacter( char c )
+        void streamCharacter( char c, unsigned char style )
         {
             if ( c == '\n' || c == ' ' )
             {
@@ -444,7 +478,7 @@ namespace Mila::ChatApp
             }
 
             stream_.drop_leading_whitespace = false;
-            stream_.pending_word += c;
+            stream_.pending_word.append( c, style );
         }
 
         /// Commit the pending word: materialize buffered whitespace, then apply
@@ -456,27 +490,40 @@ namespace Mila::ChatApp
 
             materializePendingWhitespace();
 
-            std::string word = std::move( stream_.pending_word );
+            StyledText word = std::move( stream_.pending_word );
             stream_.pending_word.clear();
 
             // Oversized words hard-break at the wrap width, as wordWrap does.
-            while ( static_cast<int>( word.size() ) > stream_.wrap_width )
+            while ( static_cast<int>( word.text.size() ) > stream_.wrap_width )
             {
                 if ( !stream_.current_line.empty() )
                     closeStreamLine();
 
-                appendToStreamLine( std::string_view( word ).substr( 0, static_cast<size_t>( stream_.wrap_width ) ) );
+                const auto count = static_cast<size_t>( stream_.wrap_width );
+
+                StyledText head;
+                head.text = word.text.substr( 0, count );
+                head.attributes = word.attributes.substr( 0, count );
+
+                appendToStreamLine( head );
                 closeStreamLine();
-                word.erase( 0, static_cast<size_t>( stream_.wrap_width ) );
+
+                word.text = word.text.substr( count );
+                word.attributes = word.attributes.substr( count );
             }
 
-            if ( stream_.current_line.empty() || stream_.current_line.back() == ' ' )
+            if ( stream_.current_line.empty() || stream_.current_line.text.back() == ' ' )
             {
                 appendToStreamLine( word );
             }
-            else if ( static_cast<int>( stream_.current_line.size() ) + 1 + static_cast<int>( word.size() ) <= stream_.wrap_width )
+            else if ( static_cast<int>( stream_.current_line.text.size() ) + 1
+                + static_cast<int>( word.text.size() ) <= stream_.wrap_width )
             {
-                appendToStreamLine( " " );
+                // Separator takes the following word's style, matching wordWrap.
+                StyledText separator;
+                separator.append( ' ', word.leadingStyle() );
+
+                appendToStreamLine( separator );
                 appendToStreamLine( word );
             }
             else
@@ -506,7 +553,10 @@ namespace Mila::ChatApp
                 }
                 else if ( at_line_start )
                 {
-                    appendToStreamLine( " " );
+                    StyledText indent;
+                    indent.append( ' ', StyleNone );
+
+                    appendToStreamLine( indent );
                 }
             }
 
@@ -562,16 +612,55 @@ namespace Mila::ChatApp
             stream_.line_open = true;
         }
 
-        void appendToStreamLine( std::string_view text )
+        /**
+         * @brief The escape prefix for a run, given the open block's base style.
+         *
+         * Emitted whole on every transition rather than differentially: a bold-off
+         * or colour-restore sequence has to know what to go back to, and re-stating
+         * the base is both shorter to reason about and immune to a run that ends at
+         * a line boundary. Painting is invisible to the stream validator, which
+         * compares the recorded text.
+         */
+        std::string styleEscape( unsigned char style, bool thinking ) const
         {
-            if ( text.empty() )
+            if ( thinking )
+                return std::string( "\x1b[2m" ) + fg( 120, 132, 165 );
+
+            std::string escape = bg( 40, 44, 60 );
+
+            // A heading is carried by weight and a brighter foreground, with no glyph
+            // and no rule: the model's own blank line does the separating.
+            if ( style & StyleHeading )
+                return escape + "\x1b[1m" + fg( 240, 246, 255 );
+
+            if ( style & StyleBold )
+                return escape + "\x1b[1m" + fg( 228, 238, 255 );
+
+            return escape + fg( 200, 215, 240 );
+        }
+
+        void appendToStreamLine( const StyledText& run )
+        {
+            if ( run.empty() )
                 return;
 
             if ( !stream_.line_open )
                 openStreamLine();
 
-            std::cout << text;
-            stream_.current_line += text;
+            for ( size_t at = 0; at < run.text.size(); ++at )
+            {
+                const auto style = static_cast<unsigned char>( run.attributes[ at ] );
+
+                if ( style != stream_.painted_style )
+                {
+                    std::cout << reset() << styleEscape( style, stream_.thinking_style );
+                    stream_.painted_style = style;
+                }
+
+                std::cout << run.text[ at ];
+            }
+
+            stream_.current_line.append( run );
             stream_.any_output = true;
         }
 
@@ -583,7 +672,10 @@ namespace Mila::ChatApp
             std::cout << ( stream_.thinking_style ? "" : "  " ) << reset() << '\n';
             stream_.line_open = false;
 
-            currentStreamLines().push_back( std::move( stream_.current_line ) );
+            // Style does not carry across a line: the next line reopens from its base.
+            stream_.painted_style = StyleNone;
+
+            currentStreamLines().push_back( std::move( stream_.current_line.text ) );
             stream_.current_line.clear();
         }
 

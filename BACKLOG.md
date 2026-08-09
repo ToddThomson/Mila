@@ -406,6 +406,18 @@ being a task list and needs a prune.
 - [ ] **The logger writes over the spinner** — `Logging` writes to the console independently of
   `ConsoleRenderer`, which owns that line, so a model switch renders the warning on top of the spinner.
   Cosmetic, but it is the first thing a user sees on every switch that logs.
+- [ ] **`printThinking` still takes the plain-text path.** The answer block paints style spans; the
+  reasoning block does not, so a heading or bold label inside a thought renders unstyled
+  (`Chat.Renderer.ixx:176`). Harmless today — the whole block is dim by design — but it is now the
+  one renderer entry point that ignores attributes, which is exactly how a second convention starts.
+- [ ] **Wrapped list items do not hang-indent.** A continuation line starts at the bullet's own
+  indent rather than under the item text (`• Protostar: ...` / `material inward.`), so a wrapped
+  item reads as a new paragraph. `wordWrap` preserves a line's leading indent but has no notion of a
+  continuation indent (`Chat.RichText.ixx:99`).
+- [ ] **`Chat.StreamingDisplay` has no tests.** `RichText` now has 18 (`Mila/Tests/Adaptors/Chat/`),
+  but `holdPoint` and the chunk-boundary behaviour that produced the nested-bullet defect are still
+  unpinned. Harder than RichText: the module imports `Chat.Renderer` and `Chat.Config`, so it needs
+  either a seam or those modules in the test target.
 - [~] **MIS Gemma 4 tool-calling validated end-to-end** — Codex and Claude Code CLI round-trips are
   live and the native grammar is reconciled to Google's canonical template, pinned by an oracle.
   Remaining: N sequential distinct tool calls in one turn, channel-content parser polish, and
