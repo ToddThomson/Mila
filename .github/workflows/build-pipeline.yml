@@ -179,9 +179,15 @@ jobs:
             -DMILA_ENABLE_PROFILING=OFF \
             -DMILA_ENABLE_DOCS=OFF
 
+      # Every test executable ctest will run, not just MilaTests: gtest_discover_tests
+      # registers a <target>_NOT_BUILT placeholder that FAILS when the binary is absent,
+      # so building a subset and then running the whole suite reports a red that is about
+      # the build command, not the code. ChatRichTextTests links no Mila and no CUDA --
+      # it is the cheapest surface in the tree and belongs in the CPU-only gate.
+      #
       # -k 0: one run surfaces the full clang error list (not one file per ~push).
-      - name: Build MilaTests
-        run: cmake --build build-cpu --target MilaTests -- -k 0 -j $(nproc)
+      - name: Build the test executables
+        run: cmake --build build-cpu --target MilaTests ChatRichTextTests -- -k 0 -j $(nproc)
 
       # The ratchet: a CPU regression fails the build. Skips (GPU/data absent) pass.
       - name: Run CPU test suite
