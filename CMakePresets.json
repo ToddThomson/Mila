@@ -162,6 +162,7 @@
       "cacheVariables": {
         "CMAKE_CUDA_ARCHITECTURES": "75;80;86;89;90",
         "MILA_LIBRARY_CUDA_ARCHITECTURES": "75;80;86;89;90",
+        "PYBIND11_FINDPYTHON": "NEW",
         "MILA_ENABLE_LIBCURL": "OFF",
         "MILA_ENABLE_PYTHON_BINDINGS": "ON",
         "MILA_ENABLE_TESTING": "OFF",
@@ -193,6 +194,8 @@
         "CMAKE_CUDA_ARCHITECTURES": "75;80;86;89;90",
         "MILA_LIBRARY_CUDA_ARCHITECTURES": "75;80;86;89;90",
         "CMAKE_MODULE_LINKER_FLAGS": "-static-libstdc++",
+        "PYBIND11_FINDPYTHON": "NEW",
+        "Python_EXECUTABLE": "/usr/bin/python3.13",
         "Python3_EXECUTABLE": "/usr/bin/python3.13",
         "MILA_ENABLE_LIBCURL": "OFF",
         "MILA_ENABLE_PYTHON_BINDINGS": "ON",

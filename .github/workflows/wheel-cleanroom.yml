@@ -31,7 +31,7 @@ on:
 
 jobs:
   clean-room:
-    name: ${{ matrix.os }} -- install and load
+    name: ${{ matrix.os }} py${{ matrix.python-version }} -- install and load
     runs-on: ${{ matrix.os }}
     strategy:
       # Both platforms, independently: the Linux wheel and the Windows wheel resolve
@@ -41,6 +41,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
+        # One wheel exists per interpreter (pybind11 cannot use Py_LIMITED_API, so there
+        # is no abi3 file covering a range), and each is a separately compiled extension.
+        # A cp312 wheel passing says nothing about cp313. Keep in step with
+        # requires-python and with the build scripts' interpreter lists.
+        python-version: ["3.12", "3.13"]
 
     steps:
       # Only the verification script is needed; nothing here builds from source.
@@ -49,11 +54,12 @@ jobs:
           sparse-checkout: scripts/verify_wheel_cleanroom.py
           sparse-checkout-cone-mode: false
 
-      # 3.13 exactly: requires-python is >=3.13,<3.14 and the wheel is cp313, so any
-      # other interpreter fails at resolution rather than telling us anything.
+      # Exactly the matrix version, never a range: each wheel is cp-tagged, so an
+      # interpreter outside requires-python fails at resolution and tells us nothing
+      # about the artifact.
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
 
       # Confirms the premise of the whole job before spending time on it. The script
       # re-checks this properly; this step is here so the log names the reason if a

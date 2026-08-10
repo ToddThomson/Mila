@@ -301,7 +301,7 @@ if(MILA_ENABLE_PYTHON_BINDINGS)
     CPMAddPackage(
         NAME pybind11
         GITHUB_REPOSITORY pybind/pybind11
-        GIT_TAG v3.0.4
+        GIT_TAG v3.1.0
         OPTIONS
             "PYBIND11_INSTALL OFF"
             "PYBIND11_TEST OFF"

@@ -58,8 +58,11 @@ cmake --build "${BUILD}" --target MilaPy -- -j "${MILA_BUILD_JOBS}"
 # built against, so `import mila` matches by construction. Deps are installed EXPLICITLY
 # (mirroring the runtime deps in Server/pyproject.toml) rather than `pip install -e .`,
 # so whatever Python minor Ubuntu 26.04 ships does not trip the pyproject's
-# Windows-oriented ">=3.13,<3.14" requires-python pin (that pin exists to match the
-# committed cp313 Windows binding; in the container the binding is freshly built to fit).
+# ">=3.12,<3.14" requires-python pin. That pin bounds the interpreters wheels are BUILT
+# for, which is a different question from what this container can run: here the binding
+# is compiled against the local python3 and fits it by construction. Ubuntu 26.04 ships
+# 3.14, above the ceiling, so widening the range to 3.12+3.13 did not retire this
+# duplication -- only publishing a 3.14 wheel would.
 if [ ! -d "${VENV}" ]; then
     python3 -m venv "${VENV}"
 fi

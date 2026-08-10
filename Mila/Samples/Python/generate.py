@@ -6,8 +6,12 @@ what is on show here is the small stuff you actually poke at: how text becomes
 tokens and back, and what temperature / top_k / top_p do to the same prompt.
 
     python generate.py --sweep
-    python generate.py --family llama --quantization fp8
+    python generate.py --model Llama-3.2-3B-Instruct-fp4
     python generate.py --raw --prompt "The three laws of robotics are"
+
+The model comes from the local store by name, and its record says which instruct
+template to use. Pass --weights/--tokenizer (with --family) instead to open a
+locally converted .bin pair, where --quantization is still a load-time choice.
 
 The prompt is wrapped in the model's instruct template. Pass --raw to skip that and
 feed the text through untouched -- worth doing once, to see what an instruct-tuned
@@ -90,13 +94,18 @@ def run(model, tokenizer, prompt_tokens, max_new_tokens, temperature, top_k, top
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
-    parser.add_argument("--family", default="gemma", choices=("gemma", "llama"))
+    parser.add_argument("--model", default=common.DEFAULT_MODEL,
+                        help=f"Installed model to load by store name (default: {common.DEFAULT_MODEL}).")
+    parser.add_argument("--family", default="gemma", choices=("gemma", "llama"),
+                        help="Which instruct template the --weights artifact wants. Ignored "
+                             "for --model, where the store record answers it.")
     parser.add_argument("--quantization", choices=("bf16", "fp8", "fp4"),
-                        help="Quantize Linear weights at load time. FP8 and FP4 require "
+                        help="Quantize Linear weights at load time, for --weights only: a "
+                             "published artifact is already quantized. FP8 and FP4 require "
                              "SM >= 8.9. Default: fp4 for gemma, bf16 for llama.")
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
-    parser.add_argument("--weights", help="Path to the Mila .bin weights.")
-    parser.add_argument("--tokenizer", help="Path to the tokenizer .bin.")
+    parser.add_argument("--weights", help="Path to a locally converted .bin, instead of --model.")
+    parser.add_argument("--tokenizer", help="Path to the tokenizer .bin, with --weights.")
     parser.add_argument("--context-length", type=int, default=2048)
     parser.add_argument("--device-index", type=int, default=0)
     parser.add_argument("--max-new-tokens", type=int, default=128)
@@ -118,17 +127,29 @@ def main():
     common.configure_console()
 
     mila = common.import_mila(args.log_level)
-    weights, tokenizer_path = common.resolve_paths(args.family, args.weights, args.tokenizer)
 
-    print(f"Loading {weights.name} (context {args.context_length}) ...", flush=True)
     load_started = time.perf_counter()
-    tokenizer, model = common.load(
-        mila, args.family, weights, tokenizer_path,
-        args.context_length, args.device_index, args.quantization)
+
+    if args.weights or args.tokenizer:
+        family = args.family
+        weights, tokenizer_path = common.resolve_paths(family, args.weights, args.tokenizer)
+        print(f"Loading {weights.name} (context {args.context_length}) ...", flush=True)
+        tokenizer, model = common.load(
+            mila, family, weights, tokenizer_path,
+            args.context_length, args.device_index, args.quantization)
+    else:
+        print(f"Loading {args.model} (context {args.context_length}) ...", flush=True)
+        tokenizer, model, record = common.load_from_store(
+            mila, args.model, args.context_length, args.device_index)
+
+        # The record is what makes --family unnecessary: a store name carries its
+        # own architecture, so the template is chosen rather than declared.
+        family = record.architecture
+
     print(f"Loaded in {time.perf_counter() - load_started:.1f}s\n")
 
     config = model.get_config()
-    print(f"{args.family}: {config['num_layers']} layers, model dim {config['model_dim']}, "
+    print(f"{family}: {config['num_layers']} layers, model dim {config['model_dim']}, "
           f"{config['num_heads']} heads / {config['num_kv_heads']} kv heads, "
           f"vocab {config['vocab_size']}\n")
 
@@ -136,7 +157,7 @@ def main():
     # Generation runs on the templated form unless --raw.
     show_round_trip(tokenizer, args.prompt)
 
-    prompt = args.prompt if args.raw else TEMPLATES[args.family].format(args.prompt)
+    prompt = args.prompt if args.raw else TEMPLATES[family].format(args.prompt)
     prompt_tokens = tokenizer.encode(prompt)
 
     settings = SWEEP if args.sweep else (

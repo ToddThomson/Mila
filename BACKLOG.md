@@ -105,8 +105,9 @@ being a task list and needs a prune.
 - [~] **Backfill inference-drought coverage.** `OperationTraits` dispatch is done; remaining are the
   load-time quantization white-box (`PerChannelFp8`/`PerGroupFp4`, the decode matvec kernels — the one
   legitimate op-layer test, unreachable through the public component) and the Llama path.
-- [~] **Re-green in sample-revival order** — MNIST spine mostly landed. Remaining: the
-  `Core/Network.cpp` delta, the GPU companions (`Network.Cuda`/`AdamW.Cuda`), then the Bard GPT-2 tail.
+- [~] **Test coverage behind the samples.** Both MNIST and Bard run; what is missing is the suite
+  under them — the `Core/Network.cpp` delta and the GPU companions (`Network.Cuda`/`AdamW.Cuda`).
+  Sample-independent, so a green sample is not evidence the primitives are pinned.
 - [ ] **Backward-path kernels disabled or unverified.** `CudaSoftmaxOp.ixx:73` and `:103` throw
   `"needs review"` with the real calls commented out; `Gelu.Fp32.cu:65` records that the shipped
   backward is not the numerically stable `sech^2` form. Gradient-check these before the suite claims
@@ -137,8 +138,9 @@ being a task list and needs a prune.
 - [~] **Re-enable the AdamW path** — `AdamW.Cpu.cpp` is active with a convergence case. Remaining: the
   `AdamW.Cuda.cpp` companion, plus strip-vs-gate the debug `printf`s in `CudaAdamW.cu` and
   `CudaAdamWOptimizer.ixx:270` in the same pass.
-- [~] **[net-new]** Training-loop integration test (sample-independent) — MNIST spine is covered by
-  `Network.Cpu.cpp`; remaining is a GPT-2-stack analogue for the Bard spine.
+- [~] **[net-new]** Training-loop integration test (sample-independent) — the MNIST spine is covered
+  by `Network.Cpu.cpp`; remaining is a GPT-2-stack analogue for the Bard spine. Bard itself runs;
+  this is the test that would catch a regression in it.
 - [ ] **[net-new]** Optimizer step-convergence test — minimize a known convex objective in N steps, so
   the update direction and bias correction are proven rather than just that `step()` runs.
 - [ ] **[net-new]** TrainingMode / RuntimeMode coverage — assert that mode transitions allocate and skip
@@ -223,10 +225,6 @@ being a task list and needs a prune.
   `llama-3b`, `llama-8b`" plus the `llama31`/`llama32` filename-prefix rule. There is no catalogue and
   no filename construction; `/model` takes a store name. It is agent-facing rather than user-facing,
   which is why it rotted unnoticed, but it actively misdirects work.
-- [ ] **`RELEASING.md` step 1 never says to bump the README's version strings.** `README.md:11` and
-  `:132` both name the stage in prose ("public beta (`0.20.0-beta.1`)", "Current Status — Beta.1"),
-  and nothing in the release procedure updates them — so `master`'s front page will keep saying
-  beta.1 after beta.2 tags. Add them to step 1 beside the BACKLOG/ROADMAP reconcile.
 - [ ] **`CMakeLists.txt:266` pins curl at 8.11.1 under a `REVIEW:` marker naming 8.21 as current.** A
   vendored TLS-adjacent dependency in a published binary is the one pin where staleness has a security
   cost. Decide the bump or record why 8.11.1 stands.
@@ -240,12 +238,16 @@ being a task list and needs a prune.
   and all six CUDA runtime libraries resolved from site-packages. Windows cannot be tested locally:
   Windows 11 Home has no `Containers` or Hyper-V feature at all (measured, not assumed). Sequenced at
   the beta.2 release — `workflow_dispatch` needs `wheel-cleanroom.yml` on `master` first.
-- [ ] **The `>=3.13,<3.14` wheel pin is an accident, not a floor** — `Docker/build-mis.sh:60` says it
-  "exists to match the committed cp313 Windows binding". The binding uses no CPython API directly
-  (pure pybind11, floor 3.8) and `__init__.py` needs only 3.9, so the real floor is **3.9**. cp312 is
-  ~28-31% of PyPI downloads against 3.13's ~13% and 3.14's ~4-6%. Widening means a range plus a second
-  interpreter in `pyproject.toml:14`, `CMakePresets.json:180`, `Dockerfile.wheel:48`,
-  `build-wheel-windows.ps1:21` — nothing has yet compiled against 3.12 or 3.14. Todd's call, pending.
+- [~] **Clean-room the four wheels.** All four are built at one version, each carrying only its own
+  extension and no vendored CUDA, and the Windows cp312 wheel installs into a clean 3.12 venv and
+  generates. What no developer machine can answer is whether they load with no CUDA Toolkit present —
+  that is the `Wheel clean room` workflow, now a 4-leg matrix, and it has never run on any wheel.
+  Dispatching it needs `wheel-cleanroom.yml` on the default branch.
+- [ ] **Add 3.14 once 3.12 is proven.** It is the interpreter Ubuntu 26.04 ships, so it is what the
+  dev container's `python3` is — which is why `Docker/build-mis.sh:56` still has to restate MIS's
+  dependency list rather than `pip install -e .`. Widening to 3.12+3.13 did not retire that
+  duplication; only a 3.14 wheel will. Needs `uv python install 3.14` on Windows and one deadsnakes
+  line in `Dockerfile.wheel`.
 - [ ] **`Mila/Tools` has no off switch** — gated on `PROJECT_IS_TOP_LEVEL` alone
   (`Mila/CMakeLists.txt:1081`), so the wheel configure builds `tokenize` and `ExportArtifact`, neither
   of which can go in a wheel. Every other subdirectory has a `MILA_ENABLE_*`; this one costs build time
@@ -272,9 +274,6 @@ being a task list and needs a prune.
 - [ ] **Delete the 16 `REVIEW:` markers whose disposition is already recorded** — no analysis left, only
   removal: the 12 in `CudaGqa.Dispatch.ixx` answered by that file's own banner at `:36`, plus
   `CudaOps.h:30`, `Linear.cuh:83`, `Component.ixx:299`, `CudaDeviceMemoryResource.ixx:139`.
-- [ ] **`Mila/Samples/QuickStart/main.cpp:23` prints "framework initialized via find_package(Mila)"** —
-  wrong twice over, in the one sample whose job is to demonstrate consumption. Mila is a library, and
-  `find_package` is parked with FetchContent as the supported path. One-line copy fix.
 - [ ] **Guided reading path** — one token's journey (embed -> attend -> sample -> decode) through the
   real source, readable by a strong C++ dev unaided.
 - [ ] Add the Samples build to CI (only tests build today).
@@ -290,33 +289,32 @@ being a task list and needs a prune.
 
 ### Model Distribution
 
-- [ ] **`getting-started.md` §5-§6 teach the retired onboarding, and it is the doc the README sends
-  new users to.** §5 is titled "Get model weights (**required for inference**)" and makes a PyTorch
-  venv, HuggingFace auth, Meta's licence and a ~16 GB conversion the precondition for running
-  anything — the exact barrier distribution removed. Also wrong within it: the Chat default is named
-  as Llama 3.1 8B FP4 (`:303`, `:340`) when it is `gemma-4-12b-it-fp4`; the `/model llama-8b` alias
-  set (`:338-345`) is retired; and `:316` promises weights resolve from `Data/Models/`, which no
-  longer has a code path. Restructure so `/install` is the path and conversion is the gated-family
-  fallback.
-- [ ] **The README still teaches conversion as the way to get a model.** `:328` tells container users
-  their weights come from `Mila/Tools/Converters/` over the bind mount, `:363` sells getting-started
-  on "model weight conversion", and `:209` advertises `/model <alias>` after the catalogue was
-  deleted. The Validated Capabilities table (`:158-188`) omits the store, the hub and `/install`
-  entirely, so the newest feature set is absent from the list that claims to be the complete surface.
-- [ ] **`Mila/Samples/Python` still runs off paths, and its README describes a retired world.**
-  `common.load_from_store()` exists and nothing calls it: `chat.py` and `generate.py` still take
-  `--weights`/`--tokenizer` and cannot open a published FP4 artifact. The README says "Two samples"
-  (there are three — `store.py` is unlisted), says a wheel is "post-v0.20 work" at line 96 while line
-  20 tells you to `pip install mila-llm`, and claims "no weight download".
+- [ ] **`Web/content/start.md` §3 "Get model weights" is retired in every sentence** — conversion as
+  the path, "there is no separate quantized checkpoint to manage" (mila-llm is exactly that), and
+  "GPT-2 is the easiest first target: it is ungated... Llama and Gemma are gated and require auth",
+  which is now backwards: all three published models are ungated and need no account, and GPT-2 is
+  the one family *not* published. The page's front-matter description also sells "convert model
+  weights". This is the getting-started path on the primary marketing site.
+- [ ] **`Web/content/docs.md:28` states "quantization has no checkpoint format."** True when written,
+  false now — every published model is a quantized checkpoint. The surrounding point (the type
+  chooses the reduced-precision path) still stands and should survive the correction.
+- [ ] **The site links GitHub and nothing else.** No HuggingFace, no PyPI, so the primary marketing
+  site does not point at the model store or the package. See [[project_four_channel_roles]] —
+  four channels, four jobs, and the site is the hub.
+- [ ] **Two Validated Capabilities rows are deliberately withheld pending evidence, and will be
+  forgotten otherwise.** `pip install mila-llm` goes in once the Windows clean-room gate is green and
+  beta.2's wheels are on PyPI; the footprint pre-flight goes in once GPT-2 has `getRequiredMemory` and
+  Gate B has covered `NoWeightQuant` — until then it can only be claimed for Gemma 4 and Llama.
 - [ ] **The MIS blog post teaches the retired configuration.**
   `Web/content/blog/mis-with-claude-code-and-codex.md:46-47` sets `MILA_MODEL_PATH` /
   `MILA_TOKENIZER_PATH`, neither of which exists now — MIS takes a store name. It is the one page
   that walks a reader through pointing a coding agent at Mila, so a `.env` that cannot work is the
   first thing they hit.
-- [ ] **There is still no headless pull.** Chat now opens on an empty store, so a clean machine can
-  reach `/install`, but the only thing in the product that pulls is an interactive command — which is
-  why the cold download can only be exercised by hand. A `pull` verb on the tool would make the gate
-  below testable without a human at a prompt, and it is the one store verb `ExportArtifact` lacks.
+- [ ] **`ExportArtifact` has no `pull` verb** — it is the one store verb the tool lacks, so the cold
+  download cannot be exercised from a C++-only machine without a human at the `/install` prompt.
+  Python is already covered: `ModelStore.pull(name, owner, transport=None)` is bound
+  (`Mila_py.cpp:309`) and is what pulled 6.33 GB in the Linux clean room, so this is a gap in the
+  tool, not in the product.
 - [ ] **`/models --online` still cannot answer "will it run here".** Download size now comes from each
   manifest, but the fit question — the one `/models` answers for installed rows, `!` marker and all —
   needs a real footprint. Take it from a `Range` read of the safetensors header (8-byte length then
@@ -340,13 +338,18 @@ being a task list and needs a prune.
   `Mila/Adaptors/Inference/Server/pyproject.toml:16` — a clean machine cannot `pip install -e .`
   without first installing the package tree editable, which is the documented development path but
   not an obvious one. Re-read the floor at release: once `0.20.0b2` is on PyPI it resolves normally.
-- [ ] **`Docker/build-mis.sh:60` restates MIS's dependency list instead of installing it.** It now has
-  to track four packages plus the editable `mila` install, and it exists only to dodge the
-  `>=3.13,<3.14` pin below. Fixing the pin retires the duplication.
-- [ ] **[gate] Publish the GPT-2 row.** Both Llamas and Gemma are live on `mila-llm`; GPT-2 is the
-  only architecture a clean machine still cannot reach through `/install`, and it has no package at
-  all. Published set is FP4 only, which GPT-2 sits outside — decide whether it ships BF16 or is
-  dropped from the catalogue and left to the converters.
+- [ ] **Publish GPT-2 as the reference model, not a fourth chat row.** It is a base model with no
+  chat template and MIS refuses the architecture outright, so it belongs to Bard and the training
+  path — and its ~250 MB is the point: it is the only artifact small enough to exercise the whole
+  distribution path (resolve, pull, verify, adopt, load) inside CI, which is what the headless-pull
+  item below is really blocked on. MIT, so no gating or attribution duty. Decide the precision
+  (training is FP32-validated, reading is fine at BF16) and whether it is one row or two.
+- [ ] **A GPT-2 row is the first published artifact with no quantization suffix**, so it lands on the
+  `NoWeightQuant` path that Gate B has never checked, and on GPT-2's missing `getRequiredMemory` —
+  Chat's pre-flight says nothing for it. Both are open above; publishing is what forces them.
+- [ ] **The org card defines an artifact as "already quantized", which a GPT-2 row makes false.**
+  The catalogue becomes pre-quantized deployment artifacts *plus* a reference model for reading and
+  training. Say there that MIS does not serve GPT-2, so nobody files it as a bug.
 - [ ] **`--instruct` is undocumented in `--package` mode, and its absence is silent.** The flag is
   parsed (`ExportArtifact.cpp:142`) but missing from the package-mode option list in the usage text
   (`:42-56`), so omitting it writes `instruct: false` into the manifest with no warning — changing
@@ -377,10 +380,6 @@ being a task list and needs a prune.
   attributed** — ship the agreement, display "Built with Llama" and Meta's notice, pass along the AUP,
   and begin the model name with "Llama" (`Llama-3.1-8B-Instruct-fp4` does). Gating is a *policy*
   choice, not a licence condition. See [[project_gemma4_apache2_license]].
-- [~] **The `mila-llm` organization card is drafted but not published.** Text is at
-  `Tools/Publishing/OrganizationCard/README.md`; the org page still shows HuggingFace's placeholder.
-  Blocking the automation: which repo type the API expects for an org card is unverified, and the
-  UI's "Create organization card" is the only path known to work.
 - [ ] **`ExportArtifact` names one of its nine modes, and its verbs wear option syntax.** Rename the
   binary to `modelmgr` and convert the modes to subcommands (`export`, `transcode`, `package`,
   `validate`, `install`, `rename`, `compare`, `fingerprint`, `fetch`). `--package` is today both a mode

@@ -11,7 +11,14 @@ name = "mila-llm"
 dynamic = ["version"]
 description = "The LLM stack you can read and understand: Gemma 4 and Llama on CUDA, built from explicit C++23 components."
 readme = "README.md"
-requires-python = ">=3.13,<3.14"
+# One wheel per interpreter, because pybind11 cannot use Py_LIMITED_API -- there is no
+# abi3 build that would cover a range with a single file. The floor is 3.12 (Ubuntu
+# 24.04 LTS's system Python, so the version a user is most likely to have without
+# choosing it); the ceiling excludes 3.14 only because nothing has been built against it
+# yet. Widening means building the wheels first: this range must never promise an
+# interpreter out/wheel does not carry, or pip reports "no matching distribution"
+# instead of naming the supported versions.
+requires-python = ">=3.12,<3.14"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Todd Thomson" }]
@@ -22,6 +29,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "Programming Language :: C++",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: Implementation :: CPython",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",

@@ -7,7 +7,12 @@ turn to the model again. Everything Mila's C++ chat harness does around a bare
 model, done here in one readable file.
 
     python chat.py
+    python chat.py --model gemma-4-12b-it-fp4
     python chat.py --temperature 0.6 --max-new-tokens 512
+
+The model comes from the local store by name; fetch one first with
+mila.ModelStore().pull(...) or /install in the chat harness. Pass
+--weights/--tokenizer instead to open a locally converted .bin pair.
 
 Ctrl-C stops generation without leaving the chat; /exit leaves.
 """
@@ -231,8 +236,10 @@ def stream_turn(mila, model, tokenizer, prompt, args):
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
-    parser.add_argument("--weights", help="Path to the Mila .bin weights (default: Data/Models/Gemma).")
-    parser.add_argument("--tokenizer", help="Path to the Gemma tokenizer .bin.")
+    parser.add_argument("--model", default=common.DEFAULT_MODEL,
+                        help=f"Installed model to load by store name (default: {common.DEFAULT_MODEL}).")
+    parser.add_argument("--weights", help="Path to a locally converted Gemma .bin, instead of --model.")
+    parser.add_argument("--tokenizer", help="Path to the Gemma tokenizer .bin, with --weights.")
     parser.add_argument("--context-length", type=int, default=4096,
                         help="KV-cache depth to build for. Larger costs VRAM (default: 4096).")
     parser.add_argument("--device-index", type=int, default=0, help="CUDA device ordinal.")
@@ -252,12 +259,27 @@ def main():
 
     common.configure_console()
     mila = common.import_mila(args.log_level)
-    weights, tokenizer_path = common.resolve_paths("gemma", args.weights, args.tokenizer)
 
-    print(f"Loading {weights.name} (FP4, context {args.context_length}) ...", flush=True)
     load_started = time.perf_counter()
-    tokenizer, model = common.load(
-        mila, "gemma", weights, tokenizer_path, args.context_length, args.device_index)
+
+    if args.weights or args.tokenizer:
+        weights, tokenizer_path = common.resolve_paths("gemma", args.weights, args.tokenizer)
+        print(f"Loading {weights.name} (FP4, context {args.context_length}) ...", flush=True)
+        tokenizer, model = common.load(
+            mila, "gemma", weights, tokenizer_path, args.context_length, args.device_index)
+    else:
+        print(f"Loading {args.model} (context {args.context_length}) ...", flush=True)
+        tokenizer, model, record = common.load_from_store(
+            mila, args.model, args.context_length, args.device_index)
+
+        # The whole file is Gemma's turn/channel grammar, so another architecture
+        # would load and then answer through the wrong template.
+        if record.architecture != "gemma":
+            raise SystemExit(
+                f"'{record.name}' is a {record.architecture} model; chat.py implements "
+                "the Gemma instruct template only. generate.py handles both."
+            )
+
     print(f"Ready in {time.perf_counter() - load_started:.1f}s. "
           f"Ctrl-C stops a response, /exit quits, /clear forgets the conversation.\n")
 

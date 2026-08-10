@@ -37,7 +37,8 @@ interpreter and `StopController` cancels a decode loop already in flight.
 ## Requirements
 
 An NVIDIA GPU. The CUDA runtime libraries arrive as dependencies
-(`nvidia-cublas`, `nvidia-curand`) — **no CUDA Toolkit installation is required**.
+(`nvidia-cublas`, `nvidia-curand`, and `nvidia-cuda-runtime` on Linux, where the
+extension links cudart dynamically) — **no CUDA Toolkit installation is required**.
 An installed Toolkit is used as a fallback if those are absent.
 
 `gemma-4-12b-it-fp4` wants roughly 12 GB of VRAM at a 4096 context; a Llama 3.2 3B
@@ -76,3 +77,4 @@ Stated because the limits are documentation, not an omission from it.
 
 - Documentation: <https://mila.toddt.me>
 - Source: <https://github.com/toddthomson/Mila>
+- Models: <https://huggingface.co/mila-llm> — what `pull` fetches from

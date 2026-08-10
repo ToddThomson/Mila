@@ -25,8 +25,10 @@ FROM nvidia/cuda:13.3.0-devel-ubuntu24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Two third-party apt sources, both because 24.04's own versions are below Mila's floor:
-# clang 18 cannot compile the module units (19+ required), and the system Python is 3.12
-# where the wheel is cp313. gcc-14 is from the Ubuntu archive and fills two roles at once
+# clang 18 cannot compile the module units (19+ required), and 3.13 is not in the archive
+# at all. 3.12 IS the system interpreter, so only its -dev and -venv are pulled in; one
+# wheel is built per interpreter because pybind11 cannot use Py_LIMITED_API and there is
+# no abi3 build covering a range. gcc-14 is from the Ubuntu archive and fills two roles at once
 # -- nvcc's host compiler for the module-free .cu files, and the libstdc++ headers clang
 # compiles the module units against.
 RUN apt-get update \
@@ -45,6 +47,9 @@ RUN apt-get update \
         gcc-14 \
         g++-14 \
         clang-21 \
+        python3.12 \
+        python3.12-dev \
+        python3.12-venv \
         python3.13 \
         python3.13-dev \
         python3.13-venv \

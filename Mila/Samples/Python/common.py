@@ -1,10 +1,15 @@
 """
-Shared plumbing for the Mila Python samples: find the built extension, find the
-weights, load a model.
+Shared plumbing for the Mila Python samples: find the built extension, resolve a
+model, load it.
 
 Nothing here is inference. It exists so chat.py and generate.py can open with the
 part you came to read. Standard library only -- there is no requirements.txt for
 these samples, and that is deliberate.
+
+There are two ways to name a model, and they are not equivalent. A store name
+(load_from_store) is the normal one: the artifact is already quantized and its
+record says to what. Loose .bin paths (resolve_paths + load) are the fallback for
+a checkpoint converted locally from a family Mila does not publish.
 """
 
 import os
@@ -14,6 +19,10 @@ from pathlib import Path
 
 # .../Mila/Samples/Python/common.py -> the repository root.
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# The published model the samples open by default. Fetch it with ModelStore.pull or
+# /install; nothing in these samples downloads anything.
+DEFAULT_MODEL = "gemma-4-12b-it-fp4"
 
 # Where the converter writes Mila binary artifacts. Both files are produced by
 # Tools/Converters (see Data/Models/README.md); neither is redistributed here.
@@ -185,9 +194,12 @@ def resolve_paths(family, weights=None, tokenizer=None):
         if not path.is_file():
             raise FileNotFoundError(
                 f"Mila {family} {label} not found at {path}.\n"
-                "Mila does not ship model weights. Convert a checkpoint with "
-                "Tools/Converters (see Data/Models/README.md), then pass --weights / "
-                "--tokenizer or set MILA_MODEL_PATH / MILA_TOKENIZER_PATH."
+                "Loose .bin files are the fallback path. For a published model, drop "
+                "--weights/--tokenizer and pass --model <store name> instead (install "
+                "one with /install in the chat harness). To keep using a locally "
+                "converted checkpoint, convert it with Tools/Converters (see "
+                "Data/Models/README.md), then pass --weights / --tokenizer or set "
+                "MILA_MODEL_PATH / MILA_TOKENIZER_PATH."
             )
 
     return weights_path, tokenizer_path
@@ -236,7 +248,8 @@ def load_from_store(mila, name, context_length, device_index=0):
         installed = ", ".join(model.name for model in mila.ModelStore().list())
         raise FileNotFoundError(
             f"No model named '{name}' is installed. Installed: {installed or 'nothing'}.\n"
-            "Install one with store.py --pull, or with /install in the chat harness."
+            "Fetch one with mila.ModelStore().pull(name, mila.default_hub_owner()), "
+            "or with /install in the chat harness. Loading never downloads."
         )
 
     session = mila.GemmaModel if record.architecture == "gemma" else mila.LlamaModel
