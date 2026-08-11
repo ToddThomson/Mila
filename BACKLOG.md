@@ -161,6 +161,43 @@ being a task list and needs a prune.
   doc-drift break from a `Src/**` or `README.md` change is not caught on the commit that causes it —
   those paths deliberately do not trigger it. Add a non-deploying Doxygen check to
   `build-pipeline.yml` (no CUDA, no CMake).
+- [ ] **The CPM gate silently validates the PREVIOUS release, and reports success.**
+  `MILA_CPM_GIT_TAG` is set with `CACHE STRING`, which never overwrites an existing entry, so a build
+  directory reused across releases keeps the tag it was first configured with. At beta.2 the gate ran in
+  a July build dir, tested `v0.20.0-beta.1`, and passed in 134s off a warm cache — proving nothing about
+  the release it was run for. The failure is silent in both directions: nothing prints the tag under
+  test, and a cached pass looks identical to a real one. Fix: derive the tag with `FORCE`, or key the
+  gate's work directory on the tag, or `message(STATUS ...)` the tag at configure and print it in the
+  test output so a stale run is visible. RELEASING's "stale CPM cache" note only mentions deleting
+  `cpm-cache` for *misbehaviour* — it does not warn that a passing run may be the wrong tag; step 6
+  should say to pass `-DMILA_CPM_GIT_TAG=` explicitly, not rely on the default.
+  `Mila/Tests/Packaging/CMakeLists.txt:81`
+- [ ] **Wheel validation is ordered backwards: move it before the PR, onto `dev`.** RELEASING puts
+  publishing at step 7, after the tag, justified by the wheel version needing `Version.txt` stripped of
+  `+build` — but that happens at **step 1, the release-prep commit on `dev`**, so from that commit
+  onward `dev` already produces the release wheels. The tag contributes nothing to a wheel (verified at
+  beta.2: the merge commit's tree is byte-identical to `dev`'s head tree). Only the **CPM gate** is
+  genuinely post-tag, because it clones from GitHub at the tag. New order: 1, then build + TestPyPI +
+  clean room, then PR, merge, tag, CPM gate, PyPI. At beta.2 we tagged, published a Release and a
+  Discussion, and only then found the wheels could not be validated at all — under this order that
+  lands while nothing is immutable.
+- [ ] **Rule to add with it: TestPyPI takes only `.devN` snapshots; the plain release version goes only
+  to PyPI.** A filename is burned permanently on first upload, so validating at `0.20.0b2` leaves no
+  second attempt if a fix is needed — and a stray `0.20.0b2` upload on 2026-07-28 poisoned that
+  release's `Requires-Python` at `>=3.13` (PyPI fixes it at the release level from the first file and
+  never updates it), which broke both 3.12 legs of the beta.2 clean room three weeks later and could
+  not be repaired: delete does not free filenames, and yank changes neither metadata nor an exact pin.
+  The rule falls out for free — the last `dev` commit before the prep commit already produces a unique
+  `0.20.0b2.devN`, the same binaries under a disposable version. `RELEASING.md:247`
+- [ ] **RELEASING step 8 recommends `--generate-notes`, which cannot work here.** GitHub builds those
+  notes from the pull requests merged between two tags; Mila lands all work as direct commits on `dev`
+  and opens exactly one PR per release, so beta.2 would have produced a one-line release for 48 commits
+  of work. The substance lives only in the commit messages. State instead that the body is authored from
+  the commit range and passed with `--notes-file`, matching what beta.1 actually did (its release body
+  is hand-written; only the trailing `Full Changelog` footer is generated). `--prerelease` stays — it is
+  load-bearing for the Latest-release badge. Same source feeds both destinations: the commit range
+  produces one authored summary, which becomes the GitHub Release body at any tag and distils into the
+  CHANGELOG entry at a production release. `RELEASING.md:229`
 
 ### Production Hardening
 
@@ -282,11 +319,69 @@ being a task list and needs a prune.
   class as the POST_BUILD staging now behind `PROJECT_IS_TOP_LEVEL`. Harmless today (same content,
   gitignored) and left alone mid-release, but the two belong under one guard.
 - [ ] **CI jobs have no `timeout-minutes`, so a hang costs six hours.** Both jobs at `beta.2+47` hit
-  GitHub's 6h ceiling, the CPU one stalled in `Run CPU test suite` after a clean configure and build,
-  and it has not recurred. Against a normal ~45-minute round trip, a bound near 60 turns a repeat into
+  GitHub's 6h ceiling, the CPU one stalled in `Run CPU test suite` after a clean configure and build.
+  **It HAS now recurred, twice in one day, in two different jobs** — so it is runner-level, not one
+  flaky step. (a) PR run 31512756287 job 93850377071 stalled in `Run CPU test suite`, 75+ min against a
+  14m29s baseline; cancelled and re-run, then passed in 15m6s. (b) Push run 31512752392 job 93850364582
+  stalled in `Build` on target `[993/1135] Mila_py.Wrappers.cpp.o` — the pybind11 wrapper TU, which
+  compiled in **3m43s** on the identical tree in the parallel PR run — for over an hour. A re-run is the
+  only remedy available, and without a bound each stall costs six hours of runner time.
+  Against a normal ~45-minute round trip, a bound near 60 turns a repeat into
   a legible failure instead of a day of runner time. `.github/workflows/build-pipeline.yml`
+- [ ] **Split the packaging gate into its own job that configures but does not build.** VERIFIED: the
+  gate does not consume the parent build at all — `add_test` passes `MILA_SOURCE_DIR=${CMAKE_SOURCE_DIR}`
+  (the source tree) and `drive_fetchcontent.cmake` configures and builds a consumer in its own
+  `WORK_DIR`, compiling Mila from scratch under `_deps/mila-build/`. It needs only that CMake has
+  *configured*, so the test is registered. Today the release PR built Mila for ~45 min and then the gate
+  built it again: 45 + 20 in series. As two parallel jobs the critical path is the compile alone, with
+  the gate finishing inside it — same coverage, same total compute, ~20 min off every release PR, and no
+  assumption that the merge tree equals the head tree. `Mila/Tests/Packaging/CMakeLists.txt:43`
+- [ ] **A `dev` push and an open PR for the same SHA run the whole pipeline twice, and the redundant
+  one blocks the merge.** The PR run is a strict superset — same tree (merge and head tree hashes
+  verified identical), plus the packaging gates that `build-pipeline.yml:114` skips on a `dev` push. Both
+  report the same check names on the same SHA, so the pending push run gates the merge while adding no
+  information. Suppress the push run when a PR for that SHA is open. Write it carefully and comment
+  exactly when each job runs: an `if:` in this same file hid a broken packaging gate for 32 commits, and
+  a first pass at this idea proposed suppressing the PR run — the wrong one, since it is the only run
+  that gates packaging.
+- [ ] **Two orphaned brand assets still carry the old Achilles mark.** `icon.png` at the repo root
+  (tracked, dated 2025-01-09) and `Web/static/achilles.png` (retired from the templates at
+  `beta.2+10`, file left behind). Neither is referenced by any page, template, README or the
+  Doxyfile, which sets no `PROJECT_LOGO` at all. Delete rather than replace: `Brand/generate.py`
+  emits the current mark into `Web/static/` only, so a root copy would be a second source to drift.
+- [ ] **`actions/setup-python@v5` still declares Node 20, which GitHub has deprecated** — it warns on
+  every clean-room run (the runner already substitutes Node 24, so this is a notice, not a break).
+  Every other action in the tree is already on `@v5` and clean; this is the only straggler. Bump it and
+  re-check the rest at the same time, since the deprecation applies by action version, not by workflow.
+  `.github/workflows/wheel-cleanroom.yml`
 - [ ] Add the Samples build to CI (only tests build today).
-- [ ] Published Docker runtime image — slim multi-stage GPU runtime, release-tagged, weights never baked in.
+- [ ] **Published Docker runtime image** — slim multi-stage GPU runtime, release-tagged, weights never
+  baked in. Model distribution is what makes it publishable: the image carries no weights and the user
+  installs one by name. Class 4 is the only user class with a README, a Dockerfile, three compose files
+  and no artifact — every path today builds from source.
+- [ ] **ONE image holding all of Mila, with two entry points** — not one per adaptor. Chat and MIS are
+  two interfaces onto the same runtime: same `libMila`, same binding, same store on the same mount, so
+  splitting them would duplicate the library and make the user choose an artifact before they know which
+  interface they want. Chat is the default `CMD`; MIS is a second entry point (`... mila-llm serve`,
+  publishing its port). `build-all.sh` already builds exactly this set and its own comment calls the
+  binding "part of the full product" — the chat/mis/all scripts are three CMake configurations of one
+  image, not three images. Accepted cost: a Chat-only user carries Python, the binding and FastAPI,
+  which is a couple of hundred MB against a multi-GB CUDA base.
+- [ ] **The real split is devel vs runtime, and only the runtime half is published.** Stage 1 is
+  today's `nvidia/cuda:*-devel` base building everything; stage 2 is a `*-runtime` base carrying only
+  the built binaries, the binding, MIS and the store tooling — no compilers, toolkit or headers. That is
+  where the size saving is, far more than any adaptor split. `Docker/Dockerfile` stays as it is: the
+  contributor build environment, built from the repo and never published.
+- [ ] **Publish the image to BOTH Docker Hub and GHCR**, as one build with two pushes that fail
+  together; a partial push leaves the discovery channel serving the previous release. Docker Hub is the
+  registry user-facing docs cite (discovery); GHCR serves CI and GitHub-native users and needs no
+  credential beyond `GITHUB_TOKEN`. The image tag drops the `+build` metadata, which OCI forbids —
+  already noted in RELEASING's versioning section. Name decided: **`toddthomson/mila-llm`** — a Docker
+  namespace admits only lowercase letters and digits, so `mila-llm` can only be the repository half,
+  which is where the name shared with HF and PyPI lands.
+- [ ] **Docker Hub Overview page is an authored surface, so give it a source in the repo.** It is what
+  search shows and it carries the container-distribution message; hand-editing it in the browser is how
+  the HF org card came to need a rewrite. See [[project_four_channel_roles]] — five channels, five jobs.
 - [ ] Broaden CI compiler coverage toward the supported matrix (adds MSVC + GCC 16 to clang-21).
 - [ ] Stage model weights off the Windows bind mount for the container (native disk speed).
 - [ ] **[contributor]** Llama-lineage CPU ops (`RmsNormOp`, `SwigluOp`, `RopeOp`, `TokenEmbeddingOp`,
@@ -298,6 +393,14 @@ being a task list and needs a prune.
 
 ### Model Distribution
 
+- [ ] **Refactor `Web/content/start.md` around tabs: C++, Python, Docker** — the user picks a starting
+  position rather than reading past two they do not want. The tabs match the user classes the QA sweep
+  already uses. Two design constraints: tabs must be **selectable by URL fragment** (`/start/#docker`),
+  because each of the five channels links to its own path and a non-addressable tab strands every
+  inbound link on C++; and tabs cover **only the install step**, with "install a model by name" and
+  "run your first prompt" shared below them — distribution collapsed that part of the funnel, and three
+  copies would drift the way §3 already has. Keep all panes in the DOM (CSS-hidden) for crawlers.
+  **Supersedes the §3 item below** — do not fix that section separately, the refactor owns it.
 - [ ] **`Web/content/start.md` §3 "Get model weights" is retired in every sentence** — conversion as
   the path, "there is no separate quantized checkpoint to manage" (mila-llm is exactly that), and
   "GPT-2 is the easiest first target: it is ungated... Llama and Gemma are gated and require auth",
