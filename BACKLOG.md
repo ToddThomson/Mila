@@ -310,6 +310,15 @@ being a task list and needs a prune.
 - [ ] **The site links GitHub and nothing else.** No HuggingFace, no PyPI, so the primary marketing
   site does not point at the model store or the package. See [[project_four_channel_roles]] —
   four channels, four jobs, and the site is the hub.
+- [ ] **Mila is a library, never a "runtime."** The noun names an engine you hand a model to, so it
+  argues with "no hidden execution engine" in the same breath. Four user-facing sites:
+  `Web/content/sponsor.md:3` (a page description, so it is what search results show),
+  `Web/content/docs.md:38`, `Web/content/blog/implementing-gemma-4.md:4` and
+  `Web/content/blog/gemma-4-docker-openai-api.md:4`. Not a sweep: "at runtime", "runtime dispatch"
+  and the two places naming what Mila is *not* (`flashattention-prefill-kernel.md:98`,
+  `docs.md:8`) are correct as written. Whether "the runtime" as the name for `Mila/Src` versus its
+  adaptors also changes is a separate, open call — it would rename a design term across
+  `MilaProductFamily.md`, `CLAUDE.md` and four READMEs.
 - [ ] **Two Validated Capabilities rows are deliberately withheld pending evidence, and will be
   forgotten otherwise.** `pip install mila-llm` goes in once the Windows clean-room gate is green and
   beta.2's wheels are on PyPI; the footprint pre-flight goes in once GPT-2 has `getRequiredMemory` and

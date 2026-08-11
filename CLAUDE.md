@@ -6,7 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. It is in public beta (currently **`0.20.0-beta.1`** — feature-frozen, hardening toward the v0.20 first production release). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
+Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. It is in public beta (currently **`0.20.0-beta.2`**, hardening toward the v0.20 first production release). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
+
+### Two different "freezes" — do not conflate them
+
+- **The feature freeze covers `Mila/Src` only.** Everything outside it — `Mila/Adaptors` (Chat, MIS), `Mila/Bindings`, `Mila/Samples`, `Mila/Tools`, `Web/`, and every document — is polish and hardening by definition and is **in** v0.20 scope. Never cite the freeze at work outside `Mila/Src`. An adaptor adds no capability to the library, it only exposes what the library already has, so a gap between what Mila can do and what Chat or MIS reaches is a defect in the demonstration, not a feature request. When such work genuinely is blocked, the blocker is the new `Mila/Src` capability it needs — name that, never the freeze. Model Distribution is a deliberate carve-in and is pre-beta code, so changes to it inside `Mila/Src` are justified rather than exceptions.
+- **A release-window hold is not the feature freeze.** During a release the user may close `dev` to *all* commits so that built artifacts (wheels, tagged trees) stay valid. That is temporary, covers the whole tree regardless of scope, and lifts when the tag is pushed. Say which one is blocking a change; "the tree is frozen" is ambiguous and has caused this exact error more than once.
 
 Primary validated targets: Llama 3.2 3B Instruct (BF16, FP8, FP4), Llama 3.1 8B Instruct (FP4 default, FP8 alternative), and Gemma 4 12B Instruct (FP4). The chat CLI default is Gemma 4 12B FP4.
 
