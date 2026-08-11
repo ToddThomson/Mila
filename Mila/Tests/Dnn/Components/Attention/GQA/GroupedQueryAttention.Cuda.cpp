@@ -30,11 +30,6 @@
 
 import Mila;
 import Compute.ExecutionContext;
-// The KV-cache policy structs (NoKvCompression / SlidingWindowKvCache) are not
-// re-exported through the Mila umbrella -- consumers import the policy module directly
-// (as GroupedQueryAttention.ixx and the models do). MSVC surfaced them transitively via
-// import Mila; clang does not (non-export imports are not transitive), so import them here.
-import Dnn.Quantization.KvCache.Policy;
 
 namespace Mila::Tests::Dnn::Components::Attention::GQA
 {
@@ -180,7 +175,7 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA
     {
         typename TestFixture::GqaType gqa( "gqa", this->config(), Device::Cuda( 0 ) );
 
-        EXPECT_EQ( gqa.parameterCount(), 0u );
+        EXPECT_EQ( gqa.parameterCount(), 0 );
         EXPECT_TRUE( gqa.getParameters().empty() );
         EXPECT_TRUE( gqa.getGradients().empty() );
     }

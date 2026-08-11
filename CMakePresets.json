@@ -2,21 +2,6 @@
   "version": 3,
   "configurePresets": [
     {
-      "name": "linux-debug",
-      "displayName": "Linux Debug",
-      "description": "Target the Windows Subsystem for Linux (WSL) or a remote system.",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "installDir": "${sourceDir}/out/install/${presetName}",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Linux"
-      },
-      "vendor": { "microsoft.com/VisualStudioRemoteSettings/CMake/2.0": { "remoteSourceRootDir": "$env{HOME}/.vs/$ms{projectDirName}" } }
-    },
-    {
       "name": "linux-clang-base",
       "hidden": true,
       "description": "Linux/WSL build: Clang for the C++23 module units, nvcc (CUDA 13) with a GCC host compiler for .cu files (gcc-15 is nvcc 13.0's max supported host and the Ubuntu 26.04 default).",
@@ -80,21 +65,6 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     },
     {
-      "name": "macos-debug",
-      "displayName": "macOS Debug",
-      "description": "Target a remote macOS system.",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "installDir": "${sourceDir}/out/install/${presetName}",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Darwin"
-      },
-      "vendor": { "microsoft.com/VisualStudioRemoteSettings/CMake/1.0": { "sourceDir": "$env{HOME}/.vs/$ms{projectDirName}" } }
-    },
-    {
       "name": "windows-base",
       "description": "Target Windows with the Visual Studio development environment.",
       "hidden": true,
@@ -144,6 +114,29 @@
       "cacheVariables": { "MILA_ENABLE_COVERAGE": "ON" }
     },
     {
+      "name": "x64-debug-no-libcurl",
+      "displayName": "x64 Debug (no libcurl - the Linux wheel's configuration)",
+      "description": "x64-debug with MILA_ENABLE_LIBCURL=OFF: no HTTP client of Mila's own. Everything else is still compiled -- the store, packaging, install, ModelResolver::pull, and HuggingFaceHub itself, since URL shapes, the token file and the meaning of a 403 are knowledge rather than I/O. So this build still installs, lists, locates, removes and loads models, and can pull too when the caller supplies a transport. That is what the Linux mila-llm wheel does, where libcurl cannot be linked because curl's system OpenSSL is not on the manylinux whitelist. Build it and run the tests whenever anything under Src/Distribution changes.",
+      "inherits": "x64-debug",
+      "cacheVariables": { "MILA_ENABLE_LIBCURL": "OFF" }
+    },
+    {
+      "name": "x64-debug-cpu-only",
+      "displayName": "x64 Debug (CPU-only - the CUDA-off module graph)",
+      "description": "x64-debug with MILA_ENABLE_CUDA=OFF, mirroring the cpu-only-tests CI job on MSVC. A module import of an uncompiled module is a hard error, so this is the only build on Windows that can catch a core module reaching into the CUDA tree -- MSVC's transitive include resolution hides nothing here, because the CUDA modules are simply absent. Samples, adaptors, bindings, profiling and docs are off for the same reason CI turns them off: they are not what this build is checking. Build it whenever an always-compiled module under Src gains an import.",
+      "inherits": "x64-debug",
+      "cacheVariables": {
+        "MILA_ENABLE_CUDA": "OFF",
+        "MILA_ENABLE_LIBCURL": "OFF",
+        "MILA_ENABLE_TESTING": "ON",
+        "MILA_ENABLE_SAMPLES": "OFF",
+        "MILA_ENABLE_ADAPTORS": "OFF",
+        "MILA_ENABLE_PYTHON_BINDINGS": "OFF",
+        "MILA_ENABLE_PROFILING": "OFF",
+        "MILA_ENABLE_DOCS": "OFF"
+      }
+    },
+    {
       "name": "x64-validate",
       "displayName": "x64 Release (full validation - run before committing)",
       "description": "Pre-commit validation build. The default x64-release already builds the unit tests and samples; this adds the heavy network-free packaging gates (find_package + FetchContent install/embed consumers). Build, then run ctest. Does NOT enable the CPM release-access gate -- that needs a pushed tag; use x64-release-cpm-gate at release time.",
@@ -162,22 +155,63 @@
       "cacheVariables": { "MILA_ENABLE_CPM_GATE": "ON" }
     },
     {
-      "name": "x86-debug",
-      "displayName": "x86 Debug",
-      "description": "Target Windows (32-bit) with the Visual Studio development environment. (Debug)",
-      "inherits": "windows-base",
-      "architecture": {
-        "value": "x86",
-        "strategy": "external"
-      },
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+      "name": "x64-wheel",
+      "displayName": "x64 Wheel (build the mila-llm wheel for PyPI)",
+      "description": "The Windows mila-llm wheel. Release, the Mila library and the MilaPy extension and nothing else -- no tests, samples, adaptors, profiling or docs, none of which go in a wheel. MILA_ENABLE_LIBCURL=OFF because the wheel is Python end to end: it supplies its own transport through the binding's HttpFetchDelegate, so no C++ HTTP client belongs in the .pyd. Build this, then `pip wheel Mila/Bindings/Package` over the staged extension.",
+      "inherits": "x64-release",
+      "cacheVariables": {
+        "CMAKE_CUDA_ARCHITECTURES": "75;80;86;89;90",
+        "MILA_LIBRARY_CUDA_ARCHITECTURES": "75;80;86;89;90",
+        "PYBIND11_FINDPYTHON": "NEW",
+        "MILA_ENABLE_LIBCURL": "OFF",
+        "MILA_ENABLE_PYTHON_BINDINGS": "ON",
+        "MILA_ENABLE_TESTING": "OFF",
+        "MILA_ENABLE_SAMPLES": "OFF",
+        "MILA_ENABLE_ADAPTORS": "OFF",
+        "MILA_ENABLE_PROFILING": "OFF",
+        "MILA_ENABLE_DOCS": "OFF"
+      }
     },
     {
-      "name": "x86-release",
-      "displayName": "x86 Release",
-      "description": "Target Windows (32-bit) with the Visual Studio development environment. (RelWithDebInfo)",
-      "inherits": "x86-debug",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+      "name": "linux-wheel",
+      "displayName": "Linux Wheel (mila-llm for PyPI - select the Wheel Container)",
+      "description": "The Linux mila-llm wheel. Runs in the WHEEL container (Ubuntu 24.04), not the dev container (26.04) and not WSL: auditwheel derives the manylinux tag from the highest versioned glibc symbol anything in the wheel's dependency closure requires, so the build distro sets the CEILING and the measured symbols set the actual floor. Building on 24.04 measured manylinux_2_38 -- reaching the current LTS and older; on 26.04 it would land near 2_43 and lock out 24.04. clang-21 compiles the module units, gcc-14 is nvcc's host compiler and supplies the libstdc++ headers. -static-libstdc++ goes in CMAKE_MODULE_LINKER_FLAGS, not SHARED: pybind11_add_module creates a MODULE library, so a SHARED flag is silently ignored and the extension keeps a GLIBCXX symbol-version floor nobody asked for. binaryDir is the container volume /build, NOT under the bind-mounted source: CUTLASS's clone step cannot remove directories across the Windows bind mount and the configure fails there. Same reason build-all.sh uses /build. After building, run mila-build-wheel to package and repair.",
+      "generator": "Ninja",
+      "binaryDir": "/build/linux-wheel",
+      "installDir": "/build/install",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "clang-21",
+        "CMAKE_CXX_COMPILER": "clang++-21",
+        "CMAKE_CXX_STANDARD": "23",
+        "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+        "CMAKE_CXX_EXTENSIONS": "OFF",
+        "CMAKE_CUDA_COMPILER": "/usr/local/cuda/bin/nvcc",
+        "CUDAToolkit_ROOT": "/usr/local/cuda",
+        "CMAKE_CUDA_HOST_COMPILER": "gcc-14",
+        "CMAKE_CUDA_FLAGS": "--allow-unsupported-compiler",
+        "CMAKE_CUDA_COMPILER_LAUNCHER": "ccache",
+        "CMAKE_CUDA_ARCHITECTURES": "75;80;86;89;90",
+        "MILA_LIBRARY_CUDA_ARCHITECTURES": "75;80;86;89;90",
+        "CMAKE_MODULE_LINKER_FLAGS": "-static-libstdc++",
+        "PYBIND11_FINDPYTHON": "NEW",
+        "Python_EXECUTABLE": "/usr/bin/python3.13",
+        "Python3_EXECUTABLE": "/usr/bin/python3.13",
+        "MILA_ENABLE_LIBCURL": "OFF",
+        "MILA_ENABLE_PYTHON_BINDINGS": "ON",
+        "MILA_ENABLE_CUDA": "ON",
+        "MILA_ENABLE_TESTING": "OFF",
+        "MILA_ENABLE_SAMPLES": "OFF",
+        "MILA_ENABLE_ADAPTORS": "OFF",
+        "MILA_ENABLE_PROFILING": "OFF",
+        "MILA_ENABLE_DOCS": "OFF",
+        "MILA_INSTALL": "OFF"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
     }
   ]
 }

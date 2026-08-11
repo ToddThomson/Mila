@@ -47,7 +47,7 @@ namespace Mila::Tests::Dnn::Components::FFN
         {
             const auto* data = t.data();
 
-            for ( size_t i = 0; i < t.size(); ++i )
+            for ( dim_t i = 0; i < t.size(); ++i )
             {
                 if ( !std::isfinite( data[ i ] ) )
                 {
@@ -62,7 +62,7 @@ namespace Mila::Tests::Dnn::Components::FFN
         {
             const auto* data = t.data();
 
-            for ( size_t i = 0; i < t.size(); ++i )
+            for ( dim_t i = 0; i < t.size(); ++i )
             {
                 if ( data[ i ] != 0.0f )
                 {
@@ -128,7 +128,7 @@ namespace Mila::Tests::Dnn::Components::FFN
         {
             HostTensor host( Device::Cpu(), shape );
 
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = static_cast<float>( i ) / host.size() * 2.0f - 1.0f;
             }
@@ -155,7 +155,7 @@ namespace Mila::Tests::Dnn::Components::FFN
         {
             HostTensor host( Device::Cpu(), param->shape() );
 
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = 0.01f * ( static_cast<float>( i % modulus ) - center );
             }
@@ -168,7 +168,7 @@ namespace Mila::Tests::Dnn::Components::FFN
         {
             HostTensor host( Device::Cpu(), param->shape() );
 
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = 0.0f;
             }
@@ -373,7 +373,7 @@ namespace Mila::Tests::Dnn::Components::FFN
         auto input = spreadInput( shape );
 
         HostTensor host_grad( Device::Cpu(), shape );
-        for ( size_t i = 0; i < host_grad.size(); ++i )
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
         {
             host_grad.data()[ i ] = 0.1f * static_cast<float>( ( i % 7 ) + 1 );
         }

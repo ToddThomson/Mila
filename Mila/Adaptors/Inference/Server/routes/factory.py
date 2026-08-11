@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from model_worker import worker
 from protocols.base import ProtocolAdapter, ResponsesCapable, ModelsCapable
 from schemas.internal import InferenceRequest, InferenceResponse
-from config import settings, ModelFamily
+from config import settings, loaded, ModelFamily
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ async def _dispatch(
     # primitive to supply both. Non-gemma families and tool-blind adapters keep
     # the original stripped blocking path.
     tool_capable = (
-        settings.model_family == ModelFamily.gemma
+        loaded.family == ModelFamily.gemma
         and hasattr(adapter, "parse_tool_call_from_text")
     )
 
@@ -391,7 +391,7 @@ async def _stream_responses(
     # Gemma emits native <|tool_call>/<|channel> protocol tokens; the responses
     # path parses them from the accumulated text, so it needs the raw (unstripped)
     # decode. The worker still stops generation at <tool_call|> either way.
-    strip_control_tokens = settings.model_family != ModelFamily.gemma
+    strip_control_tokens = loaded.family != ModelFamily.gemma
 
     generation = asyncio.create_task(
         worker.generate_streaming(

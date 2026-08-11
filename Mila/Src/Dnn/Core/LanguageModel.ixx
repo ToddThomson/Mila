@@ -18,12 +18,14 @@ module;
 #include <stop_token>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 
 export module Dnn.LanguageModel;
 
 import Dnn.Model;
 import Dnn.LanguageNetwork;
 import Dnn.Tensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.RuntimeMode;
@@ -34,6 +36,9 @@ import Dnn.Samplers.TokenSampler;
 import Dnn.Samplers.SamplingConfig;
 import Compute.DeviceType;
 import Compute.DeviceTypeTraits;
+import Dnn.LanguageModelConfig;
+import Serialization.SafeTensors;
+import Serialization.PretrainedReader;
 
 namespace Mila::Dnn
 {
@@ -85,6 +90,63 @@ namespace Mila::Dnn
         }
 
         /**
+         * @brief Write this model's live weights as a safetensors artifact.
+         *
+         * The inverse of fromPretrained, and named for it: what this writes is what that
+         * reads. Weights go out as they currently sit on the device, so a model loaded under
+         * FP4 or FP8 produces a PRE-QUANTIZED artifact -- packed storage plus its scale
+         * companions. That is the point of the operation: quantization is a load-time policy,
+         * so the quantized bytes exist nowhere until a model has been built with one.
+         *
+         * The source artifact's metadata is written back verbatim, so the result loads by the
+         * same path that loaded the original and is readable by any safetensors reader without
+         * Mila.
+         *
+         * Family-agnostic by construction: the tensor vocabulary comes from the network's own
+         * flat-save traversal, so a family is covered as soon as every composite that owns a
+         * parameter drives both halves of it. A composite that only recurses and silently drops
+         * its own tensors is the failure this cannot see -- the export tool's source
+         * reconciliation is what catches that.
+         *
+         * @param path Destination artifact path; parent directories are created.
+         *
+         * @throws std::runtime_error if the model carries no pretrained provenance (it was
+         *         reconstructed from a checkpoint), or if the file cannot be written.
+         */
+        void savePretrained( const std::filesystem::path& path ) const
+        {
+            if ( source_metadata_.architecture.empty() )
+            {
+                throw std::runtime_error(
+                    "LanguageModel::savePretrained: this model carries no pretrained metadata, so "
+                    "the artifact would declare no architecture and could not be loaded back. "
+                    "Only a model built by fromPretrained can be written as an artifact." );
+            }
+
+            Serialization::SafeTensorsWriter writer( path );
+
+            writer.setMetadata(
+                Serialization::kMilaConfigMetadataKey,
+                Serialization::toMetadataJSON( source_metadata_ ) );
+
+            writer.setMetadata(
+                Serialization::kMilaQuantizationMetadataKey,
+                weightQuantizationName( weight_quantization_ ) );
+
+            const auto& network = this->getLanguageNetwork();
+
+            // Empty prefix: the root's own name is dropped so tensors land under
+            // "tf_layer_0.qkv_proj.weight", the vocabulary loadParameters() reads back.
+            network.saveFlatTensors( writer, "", Serialization::TensorSavePass::Declare );
+
+            writer.beginData();
+
+            network.saveFlatTensors( writer, "", Serialization::TensorSavePass::Write );
+
+            writer.close();
+        }
+
+        /**
          * @brief Seed the sampler's RNG for reproducible generation.
          *
          * Reproducibility is a property of the RNG stream, not of a single call: seed
@@ -104,10 +166,24 @@ namespace Mila::Dnn
         using TensorType = Tensor<TPrecision, MR>;
         using TokenTensor = Tensor<TensorDataType::INT32, MR>;
 
+        /**
+         * @param source_metadata      The loaded artifact's metadata, written back verbatim by
+         *                             savePretrained so the result loads by the same path.
+         * @param weight_quantization  What the live weights actually are, which is a load-time
+         *                             policy rather than a property of the source file.
+         *
+         * Both default, because a model reconstructed from a checkpoint has no pretrained
+         * provenance to carry; savePretrained refuses rather than writing an artifact that
+         * declares nothing.
+         */
         explicit LanguageModel(
             std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
-            RuntimeMode runtime_mode )
+            RuntimeMode runtime_mode,
+            Serialization::PretrainedMetadata source_metadata = {},
+            WeightQuantization weight_quantization = WeightQuantization::None )
             : Base( std::move( network ), runtime_mode )
+            , source_metadata_( std::move( source_metadata ) )
+            , weight_quantization_( weight_quantization )
         {}
 
         // ====================================================================
@@ -222,8 +298,15 @@ namespace Mila::Dnn
             return { eosToken() };
         }
 
-        virtual int64_t maxSequenceLength() const noexcept = 0;
-        virtual int64_t vocabSize() const noexcept = 0;
+        virtual dim_t maxSequenceLength() const noexcept = 0;
+        virtual dim_t vocabSize() const noexcept = 0;
+
+        /// The loaded artifact's metadata, carried so savePretrained can write it back verbatim.
+        /// Empty for a model reconstructed from a checkpoint, which savePretrained refuses.
+        Serialization::PretrainedMetadata source_metadata_;
+
+        /// What the live weights are, not what the source file was.
+        WeightQuantization weight_quantization_{ WeightQuantization::None };
 
     private:
 

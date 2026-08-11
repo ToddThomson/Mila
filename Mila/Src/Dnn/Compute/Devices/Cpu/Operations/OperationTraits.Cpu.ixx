@@ -16,8 +16,15 @@
  *   SoftmaxOp             complete
  *   MultiHeadAttentionOp  complete
  *   LpeOp                 complete
+ *   ElementwiseActivationOp complete (registers op_for, not type)
+ *   SamplingOp            complete
  *   CrossEntropyOp        pending (CpuSoftmaxCrossEntropyOp not yet wired into CMake)
- *   SamplingOp            pending
+ *
+ * Not registered at all, by decision rather than oversight: the Llama-lineage ops
+ * (RmsNormOp, SwigluOp, RopeOp, TokenEmbeddingOp) and GroupedQueryAttentionOp. Full
+ * CPU parity is not a gate; absence is zero-cost on the GPU path. The dispatch
+ * contract tests in Tests/Dnn/Compute/Operations/OperationTraits.cpp pin both the
+ * registered rows and these deliberate gaps.
  */
 export module Compute.OperationTraits:Cpu;
 

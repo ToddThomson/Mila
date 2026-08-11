@@ -33,6 +33,7 @@ import Dnn.LanguageModelConfig;
 import Dnn.GenerateParams;
 import Dnn.GenerateStatus;
 import Dnn.LanguageNetwork;
+import Dnn.Models.QuantizationDispatch;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Quantization.KvCache.QuantPolicy;
@@ -83,6 +84,16 @@ namespace Mila::Dnn
     class LlamaModel : public LanguageModel<TDeviceType, TPrecision>
     {
     public:
+        /**
+         * @brief KV policy for the Llama chassis.
+         *
+         * Every Llama layer is full-attention, so there is no sliding window to bound a ring
+         * against and the cache spans the whole context. Class scope rather than per-function
+         * so the load and footprint paths cannot be pointed at different policies -- that
+         * would make a model report a figure for a cache it does not build.
+         */
+        using LlamaKvPolicy = Quant::KvCache::NoKvCompression;
+
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using ModelBase = LanguageModel<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
@@ -141,63 +152,66 @@ namespace Mila::Dnn
                     "LlamaModel::fromPretrained: context_length must be greater than zero" );
             }
 
-            // Runtime -> compile-time bridge: dispatch on ModelConfig quantization settings.
-            switch ( model_config.getWeightQuantization() )
+            // Runtime -> compile-time bridge. PerGroupFp4<128> quantizes BF16 weights on load
+            // to packed FP4 E2M1 nibbles with per-group float32 scales, consumed by the W4A16
+            // kernel with E2M1 decode inline. Llama's chassis has no sliding-window layers, so
+            // its KV policy is NoKvCompression throughout.
+            return dispatchWeightQuantization<
+                    TPrecision, LlamaKvPolicy,
+                    std::unique_ptr<LlamaModel<TDeviceType, TPrecision>>>(
+                model_config.getWeightQuantization(),
+                model_config.getKvCacheCompression(),
+                "LlamaModel::fromPretrained",
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
+                {
+                    return fromPretrainedImpl<TWeightQuantization, TKvCachePolicy>(
+                        path, model_config, device_id );
+                } );
+        }
+
+        /**
+         * @brief What loading this checkpoint at this context length would cost in VRAM.
+         *
+         * Reads the artifact header for geometry and constructs the graph, then reports what
+         * build() would allocate -- without building it and without reading a weight.
+         * Returns measurements only; the fits/does-not verdict is adaptor policy.
+         * See Specifications/MemoryFootprint.md.
+         *
+         * @throws std::invalid_argument on device type mismatch or zero context length.
+         * @throws std::runtime_error    on an unreadable artifact or unsupported quantization.
+         */
+        static MemoryStats getRequiredMemory(
+            const std::filesystem::path& path,
+            const LlamaModelConfig& model_config,
+            DeviceId device_id = DeviceId{ TDeviceType, 0 } )
+        {
+            if ( device_id.type != TDeviceType )
             {
-                case WeightQuantization::FP4:
-                    // PerGroupFp4<128>: BF16 weights quantized on-load to packed FP4 E2M1 nibbles
-                    // with per-group float32 scales. W4A16 kernel with E2M1 decode inline.
-                    // KV cache compression is not yet paired with FP4 weights.
-                    switch ( model_config.getKvCacheCompression() )
-                    {
-                        case KvCacheCompression::FP8:
-                            // FP8 KV cache with FP4 weights -- not yet supported.
-                        case KvCacheCompression::None:
-                            if constexpr ( TPrecision == TensorDataType::BF16 )
-                            {
-                                return fromPretrainedImpl<PerGroupFp4<128>, NoKvCompression>( path, model_config, device_id );
-                            }
-                            else
-                            {
-                                throw std::runtime_error(
-                                    "LlamaModel::fromPretrained: FP4 weight quantization requires BF16 compute precision" );
-                            }
-                    }
-                    break;
-
-                case WeightQuantization::FP8:
-                    switch ( model_config.getKvCacheCompression() )
-                    {
-                        case KvCacheCompression::FP8:
-                            // FP8 KV cache compression requires CudaGqaOp FP8 support -- not yet implemented.
-                        case KvCacheCompression::None:
-                            if constexpr ( TPrecision == TensorDataType::BF16 )
-                            {
-                                return fromPretrainedImpl<PerChannelFp8<>, NoKvCompression>( path, model_config, device_id );
-                            }
-                            else
-                            {
-                                throw std::runtime_error(
-                                    "LlamaModel::fromPretrained: FP8 weight quantization requires BF16 compute precision" );
-                            }
-                    }
-                    break;
-
-                case WeightQuantization::None:
-                default:
-                    switch ( model_config.getKvCacheCompression() )
-                    {
-                        case KvCacheCompression::FP8:
-                            throw std::runtime_error(
-                                "LlamaModel::fromPretrained: FP8 KV cache compression is not yet supported" );
-                        case KvCacheCompression::None:
-                            return fromPretrainedImpl<NoWeightQuant, NoKvCompression>( path, model_config, device_id );
-                    }
-                    break;
+                throw std::invalid_argument( std::format(
+                    "LlamaModel::getRequiredMemory: device type mismatch: expected {}, got {}",
+                    deviceTypeToString( TDeviceType ),
+                    deviceTypeToString( device_id.type ) ) );
             }
 
-            // Unreachable -- all enum cases handled above.
-            throw std::runtime_error( "LlamaModel::fromPretrained: unhandled quantization configuration" );
+            if ( model_config.getContextLength() == 0 )
+            {
+                throw std::invalid_argument(
+                    "LlamaModel::getRequiredMemory: context_length must be greater than zero" );
+            }
+
+            // Same dispatcher as fromPretrained, and deliberately so: the footprint path and
+            // the load path must reach the identical template instantiation or a model reports
+            // a figure it does not allocate.
+            return dispatchWeightQuantization<
+                    TPrecision, LlamaKvPolicy, MemoryStats>(
+                model_config.getWeightQuantization(),
+                model_config.getKvCacheCompression(),
+                "LlamaModel::getRequiredMemory",
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
+                {
+                    return requiredMemoryImpl<TWeightQuantization, TKvCachePolicy>(
+                        path, model_config, device_id );
+                } );
         }
 
         // ====================================================================
@@ -219,7 +233,12 @@ namespace Mila::Dnn
             oss << "LlamaModel\n";
             oss << "Device: " << this->getDeviceId().toString() << "\n";
             oss << "Vocabulary: " << config_.getVocabSize() << " tokens\n";
-            oss << "Max sequence length: " << config_.getMaxSequenceLength() << "\n";
+
+            // Two different numbers, and only the first bounds generation: the session was
+            // built for context_length_, while config_ carries the maximum the checkpoint
+            // declares. Reporting only the latter overstates the usable window.
+            oss << "Context length: " << context_length_ << " tokens\n";
+            oss << "Architectural maximum: " << config_.getMaxSequenceLength() << " tokens\n";
             oss << "Embedding dim: " << config_.getModelDim() << "\n";
             oss << "Layers: " << config_.getNumLayers() << "\n";
             oss << "Heads: " << config_.getNumHeads() << "\n";
@@ -306,13 +325,20 @@ namespace Mila::Dnn
 
             on_token( next_token );
 
-            int position = static_cast<int>( seq_len );
+            dim_t position = seq_len;
             const int max_new = params.max_new_tokens.value_or( static_cast<int>( context_length_ ) );
 
             for ( int step = 1; step < max_new; ++step )
             {
                 if ( stop.stop_requested() )
                     return GenerateStatus::ClientCancelled;
+
+                // decode cannot write the KV cache at a position past the deployment context
+                // length. RoPE is computed rather than looked up, so there is no positional
+                // table to run off the end of and nothing crashes -- the cache is overrun
+                // quietly instead, which is the worse failure. Mirrors GemmaModel.
+                if ( position >= context_length_ )
+                    return GenerateStatus::ContextOverflow;
 
                 decode_token_staging_.data()[ 0 ] = next_token;
                 copy( decode_token_staging_, decode_token_device_ );
@@ -347,17 +373,17 @@ namespace Mila::Dnn
         /**
          * @brief Maximum sequence length from LLaMA config.
          */
-        int64_t maxSequenceLength() const noexcept override
+        dim_t maxSequenceLength() const noexcept override
         {
-            return static_cast<int64_t>(config_.getMaxSequenceLength());
+            return config_.getMaxSequenceLength();
         }
 
         /**
          * @brief Vocabulary size from LLaMA config.
          */
-        int64_t vocabSize() const noexcept override
+        dim_t vocabSize() const noexcept override
         {
-            return static_cast<int64_t>(config_.getVocabSize());
+            return config_.getVocabSize();
         }
 
     private:
@@ -366,8 +392,11 @@ namespace Mila::Dnn
             std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
             const LlamaConfig& config,
             int64_t context_length,
-            RuntimeMode runtime_mode )
-            : ModelBase( std::move( network ), runtime_mode )
+            RuntimeMode runtime_mode,
+            Serialization::PretrainedMetadata source_metadata = {},
+            WeightQuantization weight_quantization = WeightQuantization::None )
+            : ModelBase( std::move( network ), runtime_mode,
+                std::move( source_metadata ), weight_quantization )
             , config_( config ), context_length_( context_length )
             , decode_token_staging_( TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1, 1 } )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
@@ -412,7 +441,45 @@ namespace Mila::Dnn
             return std::unique_ptr<LlamaModel<TDeviceType, TPrecision>>(
                 new LlamaModel<TDeviceType, TPrecision>(
                     std::move( network ), network_config,
-                    static_cast<int64_t>( context_length ), RuntimeMode::Inference ) );
+                    static_cast<int64_t>( context_length ), RuntimeMode::Inference,
+                    metadata, model_config.getWeightQuantization() ) );
+        }
+
+        /**
+         * @brief The footprint sibling of fromPretrainedImpl: same prologue, stops before build().
+         */
+        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
+        static MemoryStats requiredMemoryImpl(
+            const std::filesystem::path& path,
+            const LlamaModelConfig& model_config,
+            DeviceId device_id )
+        {
+            PretrainedModelReader reader( path );
+            const auto& metadata = reader.getPretrainedMetadata();
+
+            LlamaConfig network_config = configFromMetadata( metadata );
+
+            if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
+            {
+                throw std::invalid_argument( std::format(
+                    "LlamaModel::getRequiredMemory: context_length {} exceeds max_seq_len {}",
+                    model_config.getContextLength(),
+                    network_config.getMaxSequenceLength() ) );
+            }
+
+            using ConcreteTransformerType =
+                LlamaTransformer<TDeviceType, TPrecision, TWeightQuantization, TKvCachePolicy>;
+
+            // Construction commits no device memory -- the graph exists and is asked, not built.
+            auto network = std::make_unique<ConcreteTransformerType>(
+                metadata.model_name, network_config, device_id );
+
+            BuildContext build_context(
+                shape_t{ 1, model_config.getContextLength() },
+                RuntimeMode::Inference,
+                false );
+
+            return network->getRequiredMemory( build_context );
         }
 
         LlamaConfig config_;
@@ -462,15 +529,14 @@ namespace Mila::Dnn
 
         int32_t sampleFromLogits(
             const TensorType& logits,
-            int64_t position,
+            dim_t position,
             float temperature,
             int top_k,
             std::mt19937& rng )
         {
             copy( logits, logits_staging_ );
 
-            const float* row = logits_staging_.data()
-                + static_cast<size_t>(position) * static_cast<size_t>(config_.getVocabSize());
+            const float* row = logits_staging_.data() + position * config_.getVocabSize();
 
             return sampleToken(
                 row,

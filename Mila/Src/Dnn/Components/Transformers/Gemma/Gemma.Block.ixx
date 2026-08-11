@@ -75,6 +75,7 @@ import Dnn.Components.Swiglu;
 import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Tensor;
+import Serialization.SafeTensors;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 
@@ -193,7 +194,7 @@ namespace Mila::Dnn
         // IDecoderLayer -- inference path
         // ====================================================================
 
-        TensorType& prefill( const TensorType& input, int position_offset ) override
+        TensorType& prefill( const TensorType& input, dim_t position_offset ) override
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GemmaBlock::prefill: must be built before prefill()." );
@@ -283,13 +284,12 @@ namespace Mila::Dnn
             return res2;
         }
 
-        TensorType& decode( const TensorType& input, int position ) override
+        TensorType& decode( const TensorType& input, dim_t position ) override
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "GemmaBlock::decode: must be built before decode()." );
 
             const int64_t B = input.shape()[ 0 ];
-            const dim_t model_dim = config_.getModelDim();
             const dim_t NH = config_.getNumHeads();
             const dim_t NKV = numKVHeads();
             const dim_t HD = headDim();
@@ -392,7 +392,7 @@ namespace Mila::Dnn
                 attn_->resetKVCache();
         }
 
-        bool rewindKvCache( int position ) override
+        bool rewindKvCache( dim_t position ) override
         {
             return attn_ && attn_->rewindKvCache( position );
         }
@@ -452,10 +452,147 @@ namespace Mila::Dnn
             return stats;
         }
 
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * Children are named rather than walked, because each is built with its OWN context
+         * and a generic recursion over getComponents() would size every one of them against
+         * the block's shape. Children are fetched by name rather than read from the member
+         * pointers, which onBuilding() assigns and are therefore null before a build.
+         * See Specifications/MemoryFootprint.md section 4.4.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            validateBuildContext( context );
+
+            const BlockBuildContexts contexts = resolveBlockBuildContexts( context );
+            const std::string n = this->getName();
+
+            // workspace_installed_ is set by installSharedWorkspace(), which the transformer
+            // calls between constructing this block and building it -- so it is still false
+            // here. The transformer states its intent through the context instead. Without
+            // this every pooled slot is counted twice: once by the child that would have
+            // self-allocated it, and once by the transformer that actually owns it.
+            const bool pooled = workspace_installed_ || context.hasInstalledOutput();
+
+            auto required = [&]( const auto& component, const BuildContext& child_context )
+            {
+                return component->getRequiredMemory( child_context.withInstalledOutput( pooled ) );
+            };
+
+            MemoryStats stats;
+
+            stats += required( this->template getComponentAs<RmsNormType>( n + ".input_norm" ), contexts.stream );
+            stats += required( this->template getComponentAs<LinearType>( n + ".qkv_proj" ), contexts.stream );
+            stats += required( this->template getComponentAs<RmsNormType>( n + ".q_norm" ), contexts.qknorm );
+            stats += required( this->template getComponentAs<RmsNormType>( n + ".k_norm" ), contexts.kknorm );
+            stats += required( this->template getComponentAs<RmsNormType>( n + ".v_norm" ), contexts.kknorm );
+            stats += required( this->template getComponentAs<RopeType>( n + ".rope" ), contexts.qproj );
+            stats += required( this->template getComponentAs<AttentionType>( n + ".gqa" ), contexts.qkv );
+            stats += required( this->template getComponentAs<LinearType>( n + ".o_proj" ), contexts.qproj );
+            stats += required( this->template getComponentAs<RmsNormType>( n + ".post_attn_norm" ), contexts.stream );
+            stats += required( this->template getComponentAs<ResidualType>( n + ".res_1" ), contexts.stream );
+            stats += required( this->template getComponentAs<RmsNormType>( n + ".pre_ffn_norm" ), contexts.stream );
+            stats += required( this->template getComponentAs<LinearType>( n + ".fc_gate_up" ), contexts.stream );
+            stats += required( this->template getComponentAs<GeGLUType>( n + ".geglu" ), contexts.gate_up );
+            stats += required( this->template getComponentAs<LinearType>( n + ".fc_down" ), contexts.hidden );
+            stats += required( this->template getComponentAs<RmsNormType>( n + ".post_ffn_norm" ), contexts.stream );
+            stats += required( this->template getComponentAs<ResidualType>( n + ".res_2" ), contexts.stream );
+
+            // No entry for layer_scalar: it is a host float member, not a device tensor, so
+            // it costs no VRAM -- which is why getMemoryStats() omits it too.
+
+            // Split scratch. An installed workspace is owned and counted by the transformer.
+            if ( !pooled )
+            {
+                stats.device_state_bytes += storageBytes<TPrecision>( contexts.splitQElements() );
+                stats.device_state_bytes += storageBytes<TPrecision>( contexts.splitKvElements() );
+
+                if constexpr ( !kGlobal )
+                {
+                    stats.device_state_bytes += storageBytes<TPrecision>( contexts.splitKvElements() );
+                }
+            }
+
+            return stats;
+        }
+
+        std::vector<std::string> getParameterNames() const override
+        {
+            return { "layer_scalar" };
+        }
+
+        /**
+         * @brief Children through the base traversal, plus the block's own layer_scalar.
+         *
+         * This block is the one composite in the tree that owns a parameter itself, so it
+         * needs both halves. The hand-rolled version this replaces did neither correctly:
+         * it re-implemented the base recursion **without pushing a scope per child**, so
+         * every child collided on one path, and it never wrote `layer_scalar` at all --
+         * a Gemma archive silently lost the per-layer output scales, which is a numerics
+         * change, not a missing extra.
+         */
+        /**
+         * @brief Children through the base recursion, then this block's own layer_scalar.
+         *
+         * CompositeComponent::saveFlatTensors only recurses -- the own-parameter half is
+         * Component's default, which a composite overrides away -- so a composite owning a
+         * parameter must drive both halves explicitly. Omitting this dropped all 48
+         * layer_scalar tensors from a Gemma export while every structural check passed;
+         * they are in the converted .bin, so they are part of the flat vocabulary.
+         *
+         * Order is identical across both passes, which the writer requires.
+         */
+        void saveFlatTensors(
+            Serialization::SafeTensorsWriter& writer,
+            const std::string& prefix,
+            Serialization::TensorSavePass pass ) const override
+        {
+            CompositeComponentBase::saveFlatTensors( writer, prefix, pass );
+
+            // Materialize the host float as the [1] FP32 tensor loadParameter expects back.
+            Tensor<TensorDataType::FP32, HostStagingMR> scalar(
+                TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1 } );
+
+            scalar.data()[ 0 ] = layer_scalar_;
+
+            this->saveParameterToWriter( writer, prefix + ".layer_scalar", scalar, pass );
+        }
+
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
-            for ( const auto& child : this->getComponents() )
-                child->save_( archive, mode );
+            CompositeComponentBase::save_( archive, mode );
+
+            // Materialize the host float as the [1] FP32 tensor loadParameter expects back.
+            Tensor<TensorDataType::FP32, HostStagingMR> scalar(
+                TDeviceType == DeviceType::Cuda ? this->getDeviceId() : Device::Cpu(), shape_t{ 1 } );
+
+            scalar.data()[ 0 ] = layer_scalar_;
+
+            this->saveParameterToArchive( archive, "layer_scalar", scalar );
+        }
+
+        /**
+         * @brief Children through the base traversal, then this block's own layer_scalar.
+         *
+         * CompositeComponent::load_ only recurses -- the own-parameter half is Component's
+         * default, which a composite does not inherit -- so both are driven explicitly.
+         */
+        void load_( ModelArchive& archive, SerializationMode mode ) override
+        {
+            CompositeComponentBase::load_( archive, mode );
+
+            const std::string prefix = "tensors/layer_scalar";
+
+            if ( !archive.hasFile( prefix + "/data.bin" ) )
+            {
+                throw std::runtime_error( std::format(
+                    "GemmaBlock '{}': archive has no blob for 'layer_scalar'", this->getName() ) );
+            }
+
+            auto blob = readTensorBlob<HostStagingMR>( archive, prefix, this->getDeviceId().index );
+
+            loadParameter( "layer_scalar", blob );
         }
 
         /**
@@ -487,41 +624,83 @@ namespace Mila::Dnn
 
     protected:
 
+        /**
+         * @brief The per-child build contexts and split-scratch geometry this block implies.
+         *
+         * A block does NOT cascade one context to its children: the QK-norms see per-head
+         * rows, the gate/up projection is double width, and the attention layer is built at
+         * the FULL context length so it sizes the KV cache while everything else is built at
+         * the prefill chunk. Derived once here so onBuilding() and getRequiredMemory() cannot
+         * disagree about any of it -- see Specifications/MemoryFootprint.md section 4.4.
+         */
+        struct BlockBuildContexts
+        {
+            BuildContext stream;
+            BuildContext qproj;
+            BuildContext qknorm;
+            BuildContext kknorm;
+            BuildContext gate_up;
+            BuildContext hidden;
+            BuildContext qkv;
+
+            dim_t batch{ 0 };
+            dim_t chunk{ 0 };
+            dim_t num_heads{ 0 };
+            dim_t num_kv_heads{ 0 };
+            dim_t head_dim{ 0 };
+
+            dim_t splitQElements() const noexcept { return batch * chunk * num_heads * head_dim; }
+            dim_t splitKvElements() const noexcept { return batch * chunk * num_kv_heads * head_dim; }
+        };
+
+        BlockBuildContexts resolveBlockBuildContexts( const BuildContext& context ) const
+        {
+            const auto& input_shape = context.inputShape();
+
+            BlockBuildContexts contexts;
+            contexts.batch = input_shape[ 0 ];
+            contexts.num_heads = config_.getNumHeads();
+            contexts.num_kv_heads = numKVHeads();
+            contexts.head_dim = headDim();
+            contexts.chunk = context.getPrefillSize();
+
+            const dim_t model_dim = config_.getModelDim();
+            const dim_t hidden_dim = config_.getHiddenDimension();
+            const dim_t B = contexts.batch;
+            const dim_t chunk = contexts.chunk;
+            const dim_t NH = contexts.num_heads;
+            const dim_t NKV = contexts.num_kv_heads;
+            const dim_t HD = contexts.head_dim;
+
+            contexts.stream = context.withShape( shape_t{ B, chunk, model_dim } );
+            contexts.qproj = context.withShape( shape_t{ B, chunk, NH * HD } );
+            contexts.qknorm = context.withShape( shape_t{ B, chunk * NH, HD } );   // per-head rows
+            contexts.kknorm = context.withShape( shape_t{ B, chunk * NKV, HD } );
+            contexts.gate_up = context.withShape( shape_t{ B, chunk, 2 * hidden_dim } );
+            contexts.hidden = context.withShape( shape_t{ B, chunk, hidden_dim } );
+
+            // The GQA op only reads B/T here (its geometry comes from GqaConfig) and validates
+            // the trailing dim as the STANDARD (NH + 2*NKV)*HD packing -- not the K=V-aware
+            // block packing -- so use that here regardless of kGlobal.
+            contexts.qkv = context.withShape(
+                shape_t{ B, input_shape[ 1 ], ( NH + 2 * NKV ) * HD } );
+
+            return contexts;
+        }
+
         void onBuilding( const BuildContext& context ) override
         {
             validateBuildContext( context );
 
-            const auto& input_shape = context.inputShape();
-            const int64_t B = input_shape[ 0 ];
-            const dim_t model_dim = config_.getModelDim();
-            const dim_t hidden_dim = config_.getHiddenDimension();
-            const dim_t NH = config_.getNumHeads();
-            const dim_t NKV = numKVHeads();
-            const dim_t HD = headDim();
+            const BlockBuildContexts contexts = resolveBlockBuildContexts( context );
 
-            // Inference: non-attention components are built at the prefill chunk size;
-            // the GQA layer is built at full context length so it sizes the KV cache.
-            const int64_t chunk = context.getPrefillSize();
-
-            const shape_t stream_shape = { B, chunk, model_dim };
-            const shape_t qproj_shape = { B, chunk, NH * HD };
-            const shape_t qknorm_shape = { B, chunk * NH, HD };   // QK-norm sees per-head rows
-            const shape_t kknorm_shape = { B, chunk * NKV, HD };
-            const shape_t gate_up_shape = { B, chunk, 2 * hidden_dim };
-            const shape_t hidden_shape = { B, chunk, hidden_dim };
-            // GQA build context: the op only reads B/T here (its geometry comes from
-            // GqaConfig) and validates the trailing dim as the STANDARD (NH + 2*NKV)*HD
-            // packing -- not the K=V-aware block packing -- so use that here regardless of kGlobal.
-            const shape_t qkv_ctx_shape =
-                { B, input_shape[ 1 ], (config_.getNumHeads() + 2 * NKV) * HD };
-
-            BuildContext stream_ctx = context.withShape( stream_shape );
-            BuildContext qproj_ctx = context.withShape( qproj_shape );
-            BuildContext qknorm_ctx = context.withShape( qknorm_shape );
-            BuildContext kknorm_ctx = context.withShape( kknorm_shape );
-            BuildContext gate_up_ctx = context.withShape( gate_up_shape );
-            BuildContext hidden_ctx = context.withShape( hidden_shape );
-            BuildContext qkv_ctx = context.withShape( qkv_ctx_shape );
+            const BuildContext& stream_ctx = contexts.stream;
+            const BuildContext& qproj_ctx = contexts.qproj;
+            const BuildContext& qknorm_ctx = contexts.qknorm;
+            const BuildContext& kknorm_ctx = contexts.kknorm;
+            const BuildContext& gate_up_ctx = contexts.gate_up;
+            const BuildContext& hidden_ctx = contexts.hidden;
+            const BuildContext& qkv_ctx = contexts.qkv;
 
             const std::string n = this->getName();
 
@@ -562,7 +741,7 @@ namespace Mila::Dnn
 
             o_proj_ = this->template getComponentAs<LinearType>( n + ".o_proj" );
             install( o_proj_, workspace_.o );
-            o_proj_->build( context.withShape( qproj_shape ) );
+            o_proj_->build( qproj_ctx );
 
             post_attn_norm_ = this->template getComponentAs<RmsNormType>( n + ".post_attn_norm" );
             install( post_attn_norm_, workspace_.o_normed );
@@ -601,8 +780,8 @@ namespace Mila::Dnn
             // prefixes instead of self-allocating.
             if ( workspace_installed_ )
             {
-                const int64_t q_needed = B * chunk * NH * HD;
-                const int64_t kv_needed = B * chunk * NKV * HD;
+                const int64_t q_needed = contexts.splitQElements();
+                const int64_t kv_needed = contexts.splitKvElements();
 
                 if ( !q_ || q_->size() < q_needed || !k_ || k_->size() < kv_needed
                      || ( !kGlobal && ( !v_ || v_->size() < kv_needed ) ) )
@@ -612,11 +791,14 @@ namespace Mila::Dnn
             else
             {
                 auto device = this->getExecutionContext()->getDeviceId();
-                q_ = std::make_shared<TensorType>( device, qproj_shape, n + ".q" );
-                k_ = std::make_shared<TensorType>( device, shape_t{ B, chunk, NKV * HD }, n + ".k" );
+                const shape_t kv_split_shape{
+                    contexts.batch, contexts.chunk, contexts.num_kv_heads * contexts.head_dim };
+
+                q_ = std::make_shared<TensorType>( device, contexts.qproj.inputShape(), n + ".q" );
+                k_ = std::make_shared<TensorType>( device, kv_split_shape, n + ".k" );
 
                 if constexpr ( !kGlobal )
-                    v_ = std::make_shared<TensorType>( device, shape_t{ B, chunk, NKV * HD }, n + ".v" );
+                    v_ = std::make_shared<TensorType>( device, kv_split_shape, n + ".v" );
             }
         }
 
@@ -746,7 +928,7 @@ namespace Mila::Dnn
                 throw std::invalid_argument( std::format(
                     "GemmaBlock: input must be rank 3 [B, T, model_dim], got rank {}", s.size() ) );
 
-            if ( s.back() != static_cast<int64_t>( config_.getModelDim() ) )
+            if ( s.back() != config_.getModelDim() )
                 throw std::invalid_argument( std::format(
                     "GemmaBlock: model_dim mismatch -- expected {}, got {}", config_.getModelDim(), s.back() ) );
         }

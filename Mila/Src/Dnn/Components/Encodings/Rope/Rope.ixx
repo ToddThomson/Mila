@@ -12,6 +12,8 @@ module;
 #include <stdexcept>
 #include <cstdint>
 #include <optional>
+#include <tuple>
+#include <utility>
 
 export module Dnn.Components.Rope;
 export import Dnn.Components.RopeConfig;
@@ -155,7 +157,7 @@ namespace Mila::Dnn
          * @param K               Key tensor   [B, T, n_kv_heads * head_dim]. Mutated in-place.
          * @param position_offset Absolute position of the first token in this chunk.
          */
-        void prefill( TensorType& Q, TensorType& K, int position_offset )
+        void prefill( TensorType& Q, TensorType& K, dim_t position_offset )
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "Rope must be built before calling prefill()." );
@@ -176,7 +178,7 @@ namespace Mila::Dnn
          * @param K        Key tensor   [B, 1, n_kv_heads * head_dim]. Mutated in-place.
          * @param position Absolute position of the token in the full sequence.
          */
-        void decode( TensorType& Q, TensorType& K, int position )
+        void decode( TensorType& Q, TensorType& K, dim_t position )
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "Rope must be built before calling decode()." );
@@ -194,9 +196,10 @@ namespace Mila::Dnn
         void zeroGradients() override
         {}
 
-        void save_( ModelArchive& archive, SerializationMode mode ) const override
+        void save_( ModelArchive&, SerializationMode ) const override
         {
-            (void)archive; (void)mode;
+            // Deliberately empty: parameterCount() is 0, so there is nothing to serialize.
+            // The RoPE frequency tables are derived from config at build time, not trained.
         }
 
         std::vector<ITensor*> getParameters() const override
@@ -209,7 +212,7 @@ namespace Mila::Dnn
             return {};
         }
 
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             return 0;
         }
@@ -244,6 +247,31 @@ namespace Mila::Dnn
             return stats;
         }
 
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * NOT additive across layers. The cos/sin caches are process-wide and shared
+         * through RopeCacheRegistry, so the operation reports what one owner pays and a
+         * transformer summing its layers must deduplicate by cache key. See
+         * CudaRopeOp::getRequiredStateMemorySize and MemoryFootprint.md section 6.2.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            MemoryStats stats;
+
+            stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
+
+            if ( context.isTrainingMode() )
+            {
+                const auto [q_shape, k_shape] = resolveRotatedShapes( context );
+
+                stats.device_gradient_bytes += storageBytes<TPrecision>( elementCount( q_shape ) );
+                stats.device_gradient_bytes += storageBytes<TPrecision>( elementCount( k_shape ) );
+            }
+
+            return stats;
+        }
+
         std::string toString() const override
         {
             std::ostringstream oss;
@@ -261,13 +289,26 @@ namespace Mila::Dnn
             createOperation();
         }
 
+        /**
+         * @brief The Q and K shapes this context implies.
+         *
+         * Shared with getRequiredMemory(), which runs before onBuilding() has assigned
+         * q_shape_/k_shape_ and would otherwise read them unset.
+         */
+        std::pair<shape_t, shape_t> resolveRotatedShapes( const BuildContext& build_context ) const
+        {
+            const auto& input_shape = build_context.inputShape();
+
+            return {
+                shape_t{ input_shape[ 0 ], input_shape[ 1 ], config_.getNumHeads() * config_.getHeadDim() },
+                shape_t{ input_shape[ 0 ], input_shape[ 1 ], config_.getNumKVHeads() * config_.getHeadDim() } };
+        }
+
         void onBuilding( const BuildContext& build_context ) override
         {
             validateBuildContext( build_context );
-            const auto& input_shape = build_context.inputShape();
 
-            q_shape_ = shape_t{ input_shape[ 0 ], input_shape[ 1 ], static_cast<dim_t>( config_.getNumHeads() * config_.getHeadDim() ) };
-            k_shape_ = shape_t{ input_shape[ 0 ], input_shape[ 1 ], static_cast<dim_t>( config_.getNumKVHeads() * config_.getHeadDim() ) };
+            std::tie( q_shape_, k_shape_ ) = resolveRotatedShapes( build_context );
 
             if ( build_context.isTrainingMode() )
             {
@@ -283,9 +324,10 @@ namespace Mila::Dnn
             operation_->build( build_context );
         }
 
-        void onTrainingModeChanging( TrainingMode training_mode ) override
+        void onTrainingModeChanging( TrainingMode /*training_mode*/ ) override
         {
-
+            // RoPE has no mode-dependent state: the cos/sin tables and the gradient
+            // buffers allocated in onBuilding() are valid in both Training and Eval.
         }
 
     private:

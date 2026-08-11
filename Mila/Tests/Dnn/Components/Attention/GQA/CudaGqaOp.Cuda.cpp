@@ -186,7 +186,7 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
                 DeviceTensor v = toDevice( vs[ t ] );
                 DeviceTensor out( Device::Cuda( 0 ), shape_t{ kBatch, 1, kModelDim } );
 
-                op.decode( q, k, v, out, static_cast<int>( t ) );
+                op.decode( q, k, v, out, static_cast<dim_t>( t ) );
 
                 HostFp32 host = toFloat( out );
                 outputs.emplace_back( host.data(), host.data() + host.size() );
@@ -267,7 +267,7 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
             const std::vector<HostFp32>& qChunks, const std::vector<HostFp32>& kChunks,
             const std::vector<HostFp32>& vChunks, const std::vector<int>& offsets,
             const std::vector<HostFp32>& qDec, const std::vector<HostFp32>& kDec,
-            const std::vector<HostFp32>& vDec, int decodeStart )
+            const std::vector<HostFp32>& vDec, dim_t decodeStart )
         {
             DeviceTensor q_permute( Device::Cuda( 0 ), shape_t{ kBatch, kNumHeads, kPrefillChunk, kHeadDim } );
             DeviceTensor preatt( Device::Cuda( 0 ), shape_t{ kBatch, kNumHeads, kPrefillChunk, kContext } );
@@ -311,7 +311,7 @@ namespace Mila::Tests::Dnn::Components::Attention::GQA::Op
                 DeviceTensor v = toDevice( vDec[ d ] );
                 DeviceTensor out( Device::Cuda( 0 ), shape_t{ kBatch, 1, kModelDim } );
 
-                op.decode( q, k, v, out, decodeStart + static_cast<int>( d ) );
+                op.decode( q, k, v, out, decodeStart + static_cast<dim_t>( d ) );
 
                 HostFp32 host = toFloat( out );
                 outputs.emplace_back( host.data(), host.data() + host.size() );

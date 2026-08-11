@@ -125,7 +125,7 @@ namespace Mila::ChatApp
      *
      * ## model selection
      *
-     * model_type / model_size / precision / is_instruct / quantization_mode /
+     * model_type / precision / is_instruct / quantization_mode /
      * model_path / tokenizer_path are all resolved from a single model alias via
      * the ModelEntry catalog (see Chat.ModelCatalog), either at startup (the
      * session config "model" key) or by the /model command. They are not set
@@ -152,14 +152,35 @@ namespace Mila::ChatApp
     export struct ChatConfig
     {
         ModelType             model_type{ ModelType::Llama };
-        ModelSize             model_size{ ModelSize::B3 };
         ModelPrecision        precision{ ModelPrecision::BF16 };
         QuantizationMode      quantization_mode{ QuantizationMode::None };
+
+        /// True when quantization_mode is a load-time choice rather than what the artifact
+        /// already is. A pre-quantized model carries it in its name; a dynamic one does not,
+        /// and that is the only case where quoting it tells the reader something.
+        bool                  quantization_applied_at_load{ false };
         bool                  is_instruct{ false };
         bool                  streaming_capable{ false };  ///< Live token-streaming display (from the model catalog).
         bool                  show_thinking{ false };  ///< Thinking mode: activate the model's reasoning (<|think|>).
         int                   thinking_effort{ 3 };    ///< 1..5 token-budget scale for the reasoning (when thinking on).
         DetailLevel           detail{ DetailLevel::Off };  ///< Display verbosity: thoughts / tool calls / all.
+        /// Catalog alias the current model came from. This, not the family/size/precision
+        /// triple, is what identifies a model: two entries can share an architecture and
+        /// quantization while pointing at different weights -- a coordinate resolved from the
+        /// store, and a converted .bin still awaiting migration.
+        std::string           model_name;
+
+        /// Lineage of the loaded model, from its store record. `license` is the identifier the
+        /// manifest declares (llama3.1, apache-2.0), not the text; the text ships with the
+        /// artifact on the hub. Both are empty for a model whose record declares neither.
+        std::string           base_model;
+        std::string           license;
+
+        /// Why nothing is selected, when model_name is empty. A store with no usable model is a
+        /// working session rather than a fatal condition -- /install and /models live inside the
+        /// session, so exiting here is what left a clean machine unable to get its first model.
+        std::string           no_model_reason;
+
         std::filesystem::path model_path;
         std::filesystem::path tokenizer_path;
         size_t                max_new_tokens{ 2048 };
@@ -167,7 +188,6 @@ namespace Mila::ChatApp
         int                   top_k{ 40 };
         size_t                context_length{ 0 };
 
-        std::filesystem::path                 models_dir;
         std::optional<std::filesystem::path> config_path;
         std::optional<std::filesystem::path> system_prompt_path;
     };

@@ -26,6 +26,7 @@ module;
 #include <cstring>
 #include <type_traits>
 #include <cmath>
+#include <limits>
 
 export module Dnn.Models.GemmaModel;
 
@@ -33,6 +34,7 @@ import Dnn.Models.GemmaModelConfig;
 import Dnn.LanguageModel;
 import Dnn.LanguageModelConfig;
 import Dnn.LanguageNetwork;
+import Dnn.Models.QuantizationDispatch;
 import Dnn.Quantization.Weight.Policies;
 import Dnn.Quantization.KvCache.Policy;
 import Dnn.Quantization.KvCache.QuantPolicy;
@@ -59,6 +61,7 @@ import Compute.CudaPinnedMemoryResource;
 #endif
 import Compute.ExecutionContextFactory;
 import Serialization.PretrainedReader;
+import Serialization.SafeTensors;
 import Serialization.Mode;
 import Logging.Logger;
 
@@ -84,6 +87,21 @@ namespace Mila::Dnn
     class GemmaModel : public LanguageModel<TDeviceType, TPrecision>
     {
     public:
+        /**
+         * @brief KV policy for Gemma's LOCAL (sliding) layers.
+         *
+         * Bounded sliding-window ring (SlidingWindowKvCache.md Phase 3): their cache is sized
+         * to the window working set instead of the full context. Strictly a memory
+         * optimization -- tokens are identical to the full cache. GLOBAL (full-attention)
+         * layers are always NoKvCompression, hardwired in GemmaTransformer. Flip this alias to
+         * NoKvCompression to A/B the footprint against the full-context sliding cache.
+         *
+         * Class scope rather than per-function so the load and footprint paths cannot be
+         * pointed at different policies -- that would make a model report a figure for a
+         * cache it does not build.
+         */
+        using GemmaSlidingKvPolicy = Quant::KvCache::SlidingWindowKvCache;
+
         using MR = typename DeviceTypeTraits<TDeviceType>::memory_resource;
         using ModelBase = LanguageModel<TDeviceType, TPrecision>;
         using TensorType = Tensor<TPrecision, MR>;
@@ -135,70 +153,70 @@ namespace Mila::Dnn
                     "GemmaModel::fromPretrained: context_length must be greater than zero" );
             }
 
-            // Runtime -> compile-time bridge: dispatch on the ModelConfig quantization
-            // settings, mirroring LlamaModel. Gemma's Linear children (qkv/o/gate_up/down)
-            // pick up the weight-quant policy; quantized bodies additionally convert the
-            // tied embedding/lm_head table to per-vocab-row FP8 (D4 Design B -- see
-            // GemmaTransformer::TableQuantizationPolicy).
-            //
-            // Bounded sliding-window KV ring for Gemma's LOCAL (sliding) layers
-            // (SlidingWindowKvCache.md Phase 3): their cache is sized to the window
-            // working set instead of the full context. Strictly a memory optimization --
-            // tokens are identical to the full cache. Global (full-attention) layers are
-            // always NoKvCompression (hardwired in GemmaTransformer). Flip this alias to
-            // NoKvCompression to A/B the footprint against the full-context sliding cache.
-            using GemmaSlidingKvPolicy = SlidingWindowKvCache;
+            // Gemma's Linear children (qkv/o/gate_up/down) pick up the weight-quant policy;
+            // quantized bodies additionally convert the tied embedding/lm_head table to
+            // per-vocab-row FP8 (D4 Design B -- see GemmaTransformer::TableQuantizationPolicy).
+            return dispatchWeightQuantization<
+                    TPrecision, GemmaSlidingKvPolicy,
+                    std::unique_ptr<GemmaModel<TDeviceType, TPrecision>>>(
+                model_config.getWeightQuantization(),
+                model_config.getKvCacheCompression(),
+                "GemmaModel::fromPretrained",
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
+                {
+                    return fromPretrainedImpl<TWeightQuantization, TKvCachePolicy>(
+                        path, model_config, device_id );
+                } );
+        }
 
-            switch ( model_config.getWeightQuantization() )
+        /**
+         * @brief What loading this checkpoint at this context length would cost in VRAM.
+         *
+         * Reads the artifact header for geometry and constructs the graph, then reports what
+         * build() would allocate -- without building it, without reading a weight, and
+         * therefore without needing the device to have room. Answers before a multi-gigabyte
+         * download and for hardware the caller does not own.
+         *
+         * Returns measurements only. Whether a given headroom is too tight is a deployment
+         * policy and belongs to the adaptor, not here; on Windows in particular WDDM
+         * oversubscribes rather than failing, so "fits" is not a property the runtime can
+         * decide. See Specifications/MemoryFootprint.md.
+         *
+         * @throws std::invalid_argument on device type mismatch or zero context length.
+         * @throws std::runtime_error    on an unreadable artifact or unsupported quantization.
+         */
+        static MemoryStats getRequiredMemory(
+            const std::filesystem::path& path,
+            const GemmaModelConfig& model_config,
+            DeviceId device_id = DeviceId{ TDeviceType, 0 } )
+        {
+            if ( device_id.type != TDeviceType )
             {
-                case WeightQuantization::FP4:
-                    switch ( model_config.getKvCacheCompression() )
-                    {
-                        case KvCacheCompression::FP8:
-                        case KvCacheCompression::None:
-                            if constexpr ( TPrecision == TensorDataType::BF16 )
-                            {
-                                return fromPretrainedImpl<PerGroupFp4<128>, GemmaSlidingKvPolicy>( path, model_config, device_id );
-                            }
-                            else
-                            {
-                                throw std::runtime_error(
-                                    "GemmaModel::fromPretrained: FP4 weight quantization requires BF16 compute precision" );
-                            }
-                    }
-                    break;
-
-                case WeightQuantization::FP8:
-                    switch ( model_config.getKvCacheCompression() )
-                    {
-                        case KvCacheCompression::FP8:
-                        case KvCacheCompression::None:
-                            if constexpr ( TPrecision == TensorDataType::BF16 )
-                            {
-                                return fromPretrainedImpl<PerChannelFp8<>, GemmaSlidingKvPolicy>( path, model_config, device_id );
-                            }
-                            else
-                            {
-                                throw std::runtime_error(
-                                    "GemmaModel::fromPretrained: FP8 weight quantization requires BF16 compute precision" );
-                            }
-                    }
-                    break;
-
-                case WeightQuantization::None:
-                default:
-                    switch ( model_config.getKvCacheCompression() )
-                    {
-                        case KvCacheCompression::FP8:
-                            throw std::runtime_error(
-                                "GemmaModel::fromPretrained: FP8 KV cache compression is not yet supported" );
-                        case KvCacheCompression::None:
-                            return fromPretrainedImpl<NoWeightQuant, GemmaSlidingKvPolicy>( path, model_config, device_id );
-                    }
-                    break;
+                throw std::invalid_argument( std::format(
+                    "GemmaModel::getRequiredMemory: device type mismatch: expected {}, got {}",
+                    deviceTypeToString( TDeviceType ),
+                    deviceTypeToString( device_id.type ) ) );
             }
 
-            throw std::runtime_error( "GemmaModel::fromPretrained: unhandled quantization configuration" );
+            if ( model_config.getContextLength() == 0 )
+            {
+                throw std::invalid_argument(
+                    "GemmaModel::getRequiredMemory: context_length must be greater than zero" );
+            }
+
+            // Same dispatcher as fromPretrained, and deliberately so: the footprint path and
+            // the load path must reach the identical template instantiation or a model reports
+            // a figure it does not allocate.
+            return dispatchWeightQuantization<
+                    TPrecision, GemmaSlidingKvPolicy, MemoryStats>(
+                model_config.getWeightQuantization(),
+                model_config.getKvCacheCompression(),
+                "GemmaModel::getRequiredMemory",
+                [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
+                {
+                    return requiredMemoryImpl<TWeightQuantization, TKvCachePolicy>(
+                        path, model_config, device_id );
+                } );
         }
 
         // ====================================================================
@@ -218,7 +236,7 @@ namespace Mila::Dnn
         }
 
         /// Deployment context length: the KV-cache depth the network was built with.
-        int64_t contextLength() const noexcept
+        dim_t contextLength() const noexcept
         {
             return static_cast<int64_t>( model_config_.getContextLength() );
         }
@@ -247,6 +265,173 @@ namespace Mila::Dnn
             auto input = makeTokenTensor( token_ids );
             this->getLanguageNetwork().prefill( input );
             this->getLanguageNetwork().synchronize();
+        }
+
+        /**
+         * @brief Logits fingerprint for a fixed prompt, for comparing two loads of one model.
+         *
+         * Diagnostic. Parameters and config can be proven byte-identical between a
+         * quantize-on-load and a pre-quantized load while the models still behave
+         * differently, and nothing upstream of inference can see that. This runs one prefill
+         * and reports what the model actually computed.
+         *
+         * Raw token ids rather than text so no tokenizer is involved and two runs are
+         * comparable by construction.
+         *
+         * @return Digest of the last-position logits, the argmax token, and its value.
+         */
+        std::string fingerprintPrefill( const std::vector<int32_t>& token_ids )
+        {
+            auto input = makeTokenTensor( token_ids );
+
+            // Per-stage summary on the real prefill path. Logits are computed last, so a NaN
+            // there says nothing about where it entered; the first stage reporting a NaN
+            // does.
+            std::string stages;
+
+            this->getLanguageNetwork().setStageProbe(
+                [&]( std::string_view stage, const TensorType& value )
+                {
+                    const auto summary = summarizeActivation( value );
+
+                    // Only the transition matters, so report every stage until the first
+                    // NaN and then stop adding noise.
+                    if ( stages.empty() || summary.nan_count > 0 )
+                    {
+                        stages += std::format( "  {:<12} {}\n", stage, summary.text );
+                    }
+
+                    if ( summary.nan_count > 0 && !first_nan_stage_.has_value() )
+                    {
+                        first_nan_stage_ = std::string( stage );
+                    }
+                } );
+
+            auto& logits = this->getLanguageNetwork().prefill( input );
+            this->getLanguageNetwork().synchronize();
+
+            this->getLanguageNetwork().setStageProbe( {} );
+
+            // StagingMR is the class alias: pinned on CUDA, because every reduced precision
+            // Mila serves in is is_device_only and a CpuMemoryResource tensor of TPrecision
+            // is not a valid template-id.
+            Tensor<TPrecision, StagingMR> staged( this->getDeviceId(), logits.shape() );
+            copy( logits, staged );
+            this->getLanguageNetwork().synchronize();
+
+            const auto* bytes = static_cast<const uint8_t*>( staged.rawData() );
+            const size_t total_bytes = staged.getStorageSize();
+
+            // FNV-1a rather than a real digest: this only has to distinguish two runs, and
+            // a model diagnostic should not depend on the model-download feature being
+            // compiled in.
+            uint64_t digest = 1469598103934665603ull;
+
+            for ( size_t i = 0; i < total_bytes; ++i )
+            {
+                digest ^= bytes[ i ];
+                digest *= 1099511628211ull;
+            }
+
+            // Argmax over the last position, decoded straight from the stored bits so this
+            // works for BF16 without a conversion pass. BF16 is the high half of an FP32,
+            // and FP32 falls out of the same read.
+            const dim_t count = staged.size();
+            float best_value = -std::numeric_limits<float>::infinity();
+            dim_t best_index = 0;
+
+            for ( dim_t i = 0; i < count; ++i )
+            {
+                float value = 0.0f;
+
+                if constexpr ( TPrecision == TensorDataType::FP32 )
+                {
+                    value = reinterpret_cast<const float*>( bytes )[ i ];
+                }
+                else
+                {
+                    const uint32_t widened =
+                        static_cast<uint32_t>( reinterpret_cast<const uint16_t*>( bytes )[ i ] ) << 16;
+                    std::memcpy( &value, &widened, sizeof( value ) );
+                }
+
+                if ( value > best_value )
+                {
+                    best_value = value;
+                    best_index = i;
+                }
+            }
+
+            const std::string origin = first_nan_stage_.has_value()
+                ? std::format( "  FIRST NaN AT: {}\n", *first_nan_stage_ )
+                : std::string( "  no NaN in any prefill stage\n" );
+
+            first_nan_stage_.reset();
+
+            return std::format(
+                "\n{}{}  logits      fnv1a {:016x} | elements {} | argmax {} = {:.6f}",
+                stages, origin, digest, count, best_index, best_value );
+        }
+
+    private:
+
+        /// Set by the stage probe; names the earliest activation containing a NaN.
+        std::optional<std::string> first_nan_stage_;
+
+        struct ActivationSummary
+        {
+            int64_t nan_count{ 0 };
+            std::string text;
+        };
+
+        /**
+         * @brief Count NaNs and bound the finite range of an activation.
+         *
+         * Bits are decoded directly rather than converted, so BF16 needs no extra pass:
+         * BF16 is the high half of an FP32.
+         */
+        ActivationSummary summarizeActivation( const TensorType& value )
+        {
+            Tensor<TPrecision, StagingMR> staged( this->getDeviceId(), value.shape() );
+            copy( value, staged );
+            this->getLanguageNetwork().synchronize();
+
+            const auto* bytes = static_cast<const uint8_t*>( staged.rawData() );
+            const dim_t count = staged.size();
+
+            ActivationSummary summary;
+            float lowest = std::numeric_limits<float>::infinity();
+            float highest = -std::numeric_limits<float>::infinity();
+
+            for ( dim_t i = 0; i < count; ++i )
+            {
+                float element = 0.0f;
+
+                if constexpr ( TPrecision == TensorDataType::FP32 )
+                {
+                    element = reinterpret_cast<const float*>( bytes )[ i ];
+                }
+                else
+                {
+                    const uint32_t widened =
+                        static_cast<uint32_t>( reinterpret_cast<const uint16_t*>( bytes )[ i ] ) << 16;
+                    std::memcpy( &element, &widened, sizeof( element ) );
+                }
+
+                if ( std::isnan( element ) )
+                {
+                    ++summary.nan_count;
+                    continue;
+                }
+
+                lowest = std::min( lowest, element );
+                highest = std::max( highest, element );
+            }
+
+            summary.text = std::format( "elements {:>8} | NaN {:>8} | range [{:.4f}, {:.4f}]",
+                count, summary.nan_count, lowest, highest );
+
+            return summary;
         }
 
     protected:
@@ -296,7 +481,7 @@ namespace Mila::Dnn
             const int64_t reuse = std::min( common, seq_len - 1 );
 
             const bool reused = reuse > 0
-                && this->getLanguageNetwork().rewindKvCache( static_cast<int>( reuse ) );
+                && this->getLanguageNetwork().rewindKvCache( reuse );
 
             auto& logits = reused
                 ? this->getLanguageNetwork().prefillFrom( prefill_input, reuse )
@@ -323,7 +508,7 @@ namespace Mila::Dnn
             // reusable, since the next turn's chat template starts with it.
             this->enqueueSampleNext( logits, decode_token_device_, params.sampling );
 
-            int position = static_cast<int>( seq_len );
+            dim_t position = seq_len;
             int emitted = 0;
 
             // nullopt max_new_tokens => run to EOS / the context bound (the guard below).
@@ -390,15 +575,14 @@ namespace Mila::Dnn
                 "GemmaModel::onTraining: Gemma is inference-only" );
         }
 
-        int64_t maxSequenceLength() const noexcept override
+        dim_t maxSequenceLength() const noexcept override
         {
-            // REVIEW: Settle this once and for all: int64_t vs dim_t. These static_casts are a code smell.
-            return static_cast<int64_t>( config_.getMaxSequenceLength() );
+            return config_.getMaxSequenceLength();
         }
 
-        int64_t vocabSize() const noexcept override
+        dim_t vocabSize() const noexcept override
         {
-            return static_cast<int64_t>(config_.getVocabSize());
+            return config_.getVocabSize();
         }
 
     private:
@@ -407,8 +591,10 @@ namespace Mila::Dnn
             std::unique_ptr<LanguageNetwork<TDeviceType, TPrecision>> network,
             const GemmaConfig& config,
             const GemmaModelConfig& model_config,
+            const PretrainedMetadata& source_metadata,
             RuntimeMode runtime_mode )
-            : ModelBase( std::move( network ), runtime_mode )
+            : ModelBase( std::move( network ), runtime_mode,
+                source_metadata, model_config.getWeightQuantization() )
             , config_( config )
             , model_config_( model_config )
             , decode_token_device_( this->getDeviceId(), shape_t{ 1, 1 } )
@@ -422,6 +608,27 @@ namespace Mila::Dnn
         {
             PretrainedModelReader reader( path );
             const auto& metadata = reader.getPretrainedMetadata();
+
+            // A pre-quantized artifact declares the policy its bytes were packed with. The
+            // storage dtype alone cannot tell FP4 at group 128 from group 64 -- both are
+            // U8 -- so loading one into a build expecting the other would reinterpret the
+            // nibble layout and produce a model that runs and is wrong. An empty
+            // declaration is a full-precision source and any policy may quantize it on load.
+            const std::string& artifact_quantization = reader.getWeightQuantization();
+
+            if ( !artifact_quantization.empty() )
+            {
+                const std::string requested =
+                    weightQuantizationName( model_config.getWeightQuantization() );
+
+                if ( artifact_quantization != requested )
+                {
+                    throw std::runtime_error( std::format(
+                        "GemmaModel::fromPretrained: artifact '{}' is pre-quantized as '{}' "
+                        "but this load requested '{}'",
+                        path.string(), artifact_quantization, requested ) );
+                }
+            }
 
             GemmaConfig network_config = configFromMetadata( metadata );
 
@@ -452,11 +659,70 @@ namespace Mila::Dnn
             return std::unique_ptr<GemmaModel<TDeviceType, TPrecision>>(
                 new GemmaModel<TDeviceType, TPrecision>(
                     std::move( network ), network_config,
-                    model_config, RuntimeMode::Inference ) );
+                    model_config, metadata, RuntimeMode::Inference ) );
+        }
+
+        /**
+         * @brief The footprint sibling of fromPretrainedImpl: same prologue, stops before build().
+         *
+         * Everything above network->build() is shared with the load path deliberately -- the
+         * artifact check, the geometry, and the context-length validation must be the ones a
+         * real load would apply, or the reported figure describes a model that would not load.
+         */
+        template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
+        static MemoryStats requiredMemoryImpl(
+            const std::filesystem::path& path,
+            const GemmaModelConfig& model_config,
+            DeviceId device_id )
+        {
+            PretrainedModelReader reader( path );
+            const auto& metadata = reader.getPretrainedMetadata();
+
+            const std::string& artifact_quantization = reader.getWeightQuantization();
+
+            if ( !artifact_quantization.empty() )
+            {
+                const std::string requested =
+                    weightQuantizationName( model_config.getWeightQuantization() );
+
+                if ( artifact_quantization != requested )
+                {
+                    throw std::runtime_error( std::format(
+                        "GemmaModel::getRequiredMemory: artifact '{}' is pre-quantized as '{}' "
+                        "but this query requested '{}'",
+                        path.string(), artifact_quantization, requested ) );
+                }
+            }
+
+            GemmaConfig network_config = configFromMetadata( metadata );
+
+            if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
+            {
+                throw std::invalid_argument( std::format(
+                    "GemmaModel::getRequiredMemory: context_length {} exceeds trained max_seq_len {}",
+                    model_config.getContextLength(),
+                    network_config.getMaxSequenceLength() ) );
+            }
+
+            using ConcreteTransformerType =
+                GemmaTransformer<TDeviceType, TPrecision, TWeightQuantization, TKvCachePolicy>;
+
+            // Construction commits no device memory -- that is the whole premise. The graph
+            // exists, correctly shaped, and is then asked rather than built.
+            auto network = std::make_unique<ConcreteTransformerType>(
+                metadata.model_name, network_config, device_id );
+
+            BuildContext build_context(
+                shape_t{ 1, model_config.getContextLength() },
+                RuntimeMode::Inference,
+                false );
+
+            return network->getRequiredMemory( build_context );
         }
 
         // Architecture config (from checkpoint metadata): the trained network geometry.
         GemmaConfig config_;
+
 
         // Deployment config this model was loaded with. The deployment context length
         // (model_config_.getContextLength(), exposed via contextLength()) is the KV-cache depth the

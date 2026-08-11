@@ -26,11 +26,10 @@ CUDA 13.3 (not 13.0) is required on Ubuntu 26.04 / glibc 2.43. No cuDNN is insta
   Docker Desktop on the WSL 2 backend with an NVIDIA driver.
 - An NVIDIA GPU. The build defaults to **`sm_89` (Ada / RTX 4070)** — override
   `MILA_CUDA_ARCH` for another card (e.g. `120` for Blackwell / RTX 5060 Ti).
-- **Model weights**, converted offline (`Mila/Tools/Converters`) and present under the
-  repo's `Data/Models/`. The bind mount exposes them to the container; they are **never
-  baked into the image**. The default model (`gemma-12b`) needs:
-  - `Data/Models/gemma/gemma4_12b_it_bf16.bin`
-  - `Data/Models/gemma/gemma_tokenizer.bin`
+- **Nothing else.** Models are pulled into the local store at first use (`/install
+  gemma-4-12b-it-fp4` at the Chat prompt), which the image points at
+  `Data/Models/Store` on the bind mount — so the download survives `run --rm` and the
+  host shares it. Weights are **never baked into the image**.
 
 ## Quick start
 
@@ -115,11 +114,13 @@ or Claude Code at the Anthropic `/v1/messages` path (launch with `MILA_PROTOCOL=
   a phone keypad), deliberately not the crowded generic-HTTP `8000`.
 - **Protocol:** `MILA_PROTOCOL` selects one adapter per launch (`openai` default, or
   `anthropic` / `mila`). Only that protocol's routes are registered.
-- **Model:** defaults to the Gemma 4 12B artifacts under the bind-mounted
-  `/mila/Data/Models`; override with `MILA_MODEL_PATH` / `MILA_TOKENIZER_PATH` /
-  `MILA_MODEL_FAMILY`. These are exported by `mila-mis` so they win over the committed
-  `Server/.env` (whose Windows paths don't exist in the container); the tuned
-  `MILA_CONTEXT_LENGTH` and generation defaults in that `.env` still apply.
+- **Model:** a NAME in the local Mila store (`MILA_MODEL`, default `gemma-4-12b-it-fp4`),
+  not a path. The store is `MILA_CACHE_DIR=/mila/Data/Models/Store`, set in the image so
+  Chat and MIS share one — and it is on the bind mount, so it survives `run --rm` and the
+  host sees the same models. **MIS never downloads**: install the model first, or it
+  refuses to start and lists what is installed. `mila-mis` exports these so they win over
+  the committed `Server/.env`; the tuned `MILA_CONTEXT_LENGTH` and generation defaults in
+  that `.env` still apply.
 
 See `Mila/Adaptors/Inference/Server/README.md` for the full protocol/endpoint and
 configuration reference.
@@ -132,8 +133,9 @@ build with `mila-build-chat` from the integrated terminal.
 
 ## Troubleshooting
 
-- **`Model file not found: /mila/Data/Models/gemma/...`** — the weights aren't on the host
-  under `Data/Models/`, or you're running from a different repo checkout than the mount.
+- **`Not installed in /mila/Data/Models/Store: <name>`** — nothing has been installed into
+  the shared store yet, or you're running from a different repo checkout than the mount.
+  Install with the chat harness's `/install <name>`; MIS itself never downloads.
 - **No GPU in the container / CUDA init fails** — the NVIDIA Container Toolkit isn't active.
   Verify with `docker compose -f Docker/docker-compose.yml run --rm mila-dev nvidia-smi`.
   If `run` doesn't attach the GPU on your Docker version, use `up -d` + `exec` instead.

@@ -66,7 +66,7 @@ namespace Mila::Dnn
          *
          * @return Product of all dimension sizes. Scalars return 1; empty tensors return 0.
          */
-        virtual size_t size() const = 0;
+        virtual dim_t size() const = 0;
 
         /**
          * @brief Get the size in bytes of a single tensor element.

@@ -23,8 +23,10 @@
 
 module;
 #include <cstdint>
+#include <functional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 export module Dnn.LanguageNetwork;
 
@@ -82,13 +84,33 @@ namespace Mila::Dnn
         virtual TensorType& prefill( const TokenIndexType& input ) = 0;
 
         /**
+         * @brief Observer called with each intermediate activation during prefill.
+         *
+         * Diagnostic. Two loads of one model can hold byte-identical parameters and still
+         * compute differently, and only the activations show where they diverge. A probe on
+         * the real prefill path rather than a parallel diagnostic one, because a second
+         * implementation is free to not reproduce the bug.
+         */
+        using StageProbe = std::function<void( std::string_view stage, const TensorType& value )>;
+
+        /**
+         * @brief Install a stage probe, or clear it by passing an empty function.
+         *
+         * Default is a no-op so a network that has no instrumentation is unaffected.
+         */
+        virtual void setStageProbe( StageProbe probe )
+        {
+            (void)probe;
+        }
+
+        /**
          * @brief Inference decode -- single-token autoregressive step.
          *
          * @param input    Single token index [B, 1].
          * @param position Current sequence position (0-based).
          * @return         Logits [B, 1, vocab_size].
          */
-        virtual TensorType& decode( const TokenIndexType& input, int position ) = 0;
+        virtual TensorType& decode( const TokenIndexType& input, dim_t position ) = 0;
 
         /**
          * @brief Chunked prefill starting at an absolute position (prompt-prefix reuse).
@@ -103,7 +125,7 @@ namespace Mila::Dnn
          * override both this and rewindKvCache; callers only reach prefillFrom
          * after a successful rewind, so the default is never hit in practice.
          */
-        virtual TensorType& prefillFrom( const TokenIndexType& input, int64_t start_offset )
+        virtual TensorType& prefillFrom( const TokenIndexType& input, dim_t start_offset )
         {
             ( void )input;
             ( void )start_offset;
@@ -119,7 +141,7 @@ namespace Mila::Dnn
          * reuse capability); a full prefill positionally overwrites regardless,
          * so a refused or partial rewind never needs cleanup.
          */
-        virtual bool rewindKvCache( int position )
+        virtual bool rewindKvCache( dim_t position )
         {
             ( void )position;
             return false;

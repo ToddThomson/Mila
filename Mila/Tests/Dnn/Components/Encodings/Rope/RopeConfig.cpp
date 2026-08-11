@@ -35,10 +35,10 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
     {
         RopeConfig config( 64, 8, 4, 128 );
 
-        EXPECT_EQ( config.getEmbeddingDim(), 64u );
-        EXPECT_EQ( config.getNumHeads(), 8u );
-        EXPECT_EQ( config.getNumKVHeads(), 4u );
-        EXPECT_EQ( config.getMaxSequenceLength(), 128u );
+        EXPECT_EQ( config.getEmbeddingDim(), 64 );
+        EXPECT_EQ( config.getNumHeads(), 8 );
+        EXPECT_EQ( config.getNumKVHeads(), 4 );
+        EXPECT_EQ( config.getMaxSequenceLength(), 128 );
     }
 
     TEST_F( RopeConfigTests, Defaults_BaseTenThousandFullRotary )
@@ -46,14 +46,14 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
         RopeConfig config( 64, 8, 4, 128 );
 
         EXPECT_FLOAT_EQ( config.getBase(), 10000.0f );
-        EXPECT_EQ( config.getRotaryDim(), 0u );
+        EXPECT_EQ( config.getRotaryDim(), 0 );
     }
 
     TEST_F( RopeConfigTests, HeadDim_DerivedFromChannelsAndHeads )
     {
         RopeConfig config( 64, 8, 4, 128 );
 
-        EXPECT_EQ( config.getHeadDim(), 8u );
+        EXPECT_EQ( config.getHeadDim(), 8 );
     }
 
     // ====================================================================
@@ -71,7 +71,7 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
     {
         auto config = RopeConfig( 64, 8, 4, 128 ).withRotaryDim( 4 );
 
-        EXPECT_EQ( config.getRotaryDim(), 4u );
+        EXPECT_EQ( config.getRotaryDim(), 4 );
     }
 
     // ====================================================================
@@ -139,12 +139,12 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
         RopeConfig loaded( 1, 1, 1, 1 );
         loaded.fromMetadata( meta );
 
-        EXPECT_EQ( loaded.getEmbeddingDim(), 64u );
-        EXPECT_EQ( loaded.getNumHeads(), 8u );
-        EXPECT_EQ( loaded.getNumKVHeads(), 4u );
-        EXPECT_EQ( loaded.getMaxSequenceLength(), 128u );
+        EXPECT_EQ( loaded.getEmbeddingDim(), 64 );
+        EXPECT_EQ( loaded.getNumHeads(), 8 );
+        EXPECT_EQ( loaded.getNumKVHeads(), 4 );
+        EXPECT_EQ( loaded.getMaxSequenceLength(), 128 );
         EXPECT_FLOAT_EQ( loaded.getBase(), 500000.0f );
-        EXPECT_EQ( loaded.getRotaryDim(), 4u );
+        EXPECT_EQ( loaded.getRotaryDim(), 4 );
     }
 
     // ====================================================================

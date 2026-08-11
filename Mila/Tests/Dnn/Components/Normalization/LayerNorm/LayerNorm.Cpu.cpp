@@ -127,7 +127,7 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
 
         static void fillSpread( TensorFp32& t )
         {
-            for ( size_t i = 0; i < t.size(); ++i )
+            for ( dim_t i = 0; i < t.size(); ++i )
             {
                 t.data()[ i ] = static_cast<float>( i ) / t.size() * 4.0f - 2.0f;
             }
@@ -224,7 +224,7 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
 
         ASSERT_EQ( output.size(), expected.size() );
 
-        for ( size_t i = 0; i < output.size(); ++i )
+        for ( dim_t i = 0; i < output.size(); ++i )
         {
             EXPECT_NEAR( output.data()[ i ], expected[ i ], 1e-4f ) << "forward mismatch at index " << i;
         }
@@ -250,7 +250,7 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
         std::vector<float> expected;
         referenceForward( input.data(), weight.data(), nullptr, 2 * 3, kChannels, kEpsilon, expected );
 
-        for ( size_t i = 0; i < output.size(); ++i )
+        for ( dim_t i = 0; i < output.size(); ++i )
         {
             EXPECT_NEAR( output.data()[ i ], expected[ i ], 1e-4f ) << "no-bias forward mismatch at index " << i;
         }
@@ -270,7 +270,7 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
         TensorFp32 input( Device::Cpu(), shape );
         TensorFp32 output_grad( Device::Cpu(), shape );
         fillSpread( input );
-        for ( size_t i = 0; i < output_grad.size(); ++i )
+        for ( dim_t i = 0; i < output_grad.size(); ++i )
         {
             output_grad.data()[ i ] = 0.1f * static_cast<float>( ( i % 7 ) + 1 );
         }
@@ -326,7 +326,7 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
         }
 
         ASSERT_EQ( input_grad.size(), expected_dx.size() );
-        for ( size_t i = 0; i < input_grad.size(); ++i )
+        for ( dim_t i = 0; i < input_grad.size(); ++i )
         {
             EXPECT_NEAR( input_grad.data()[ i ], expected_dx[ i ], 1e-3f ) << "dX mismatch at index " << i;
         }
@@ -356,7 +356,7 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
         TensorFp32 input( Device::Cpu(), shape );
         TensorFp32 output_grad( Device::Cpu(), shape );
         fillSpread( input );
-        for ( size_t i = 0; i < output_grad.size(); ++i )
+        for ( dim_t i = 0; i < output_grad.size(); ++i )
         {
             output_grad.data()[ i ] = 0.1f * static_cast<float>( ( i % 7 ) + 1 );
         }
@@ -444,7 +444,7 @@ namespace Mila::Tests::Dnn::Components::Normalization::LayerNorm
         std::vector<float> expected;
         referenceForward( input.data(), weight.data(), bias.data(), 2, kChannels, kEpsilon, expected );
 
-        for ( size_t i = 0; i < output.size(); ++i )
+        for ( dim_t i = 0; i < output.size(); ++i )
         {
             EXPECT_NEAR( output.data()[ i ], expected[ i ], 1e-4f ) << "loaded-weight forward mismatch at index " << i;
         }

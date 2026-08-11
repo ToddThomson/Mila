@@ -172,7 +172,7 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
         HostFp32 spreadHost( const shape_t& shape, float phase )
         {
             HostFp32 host( Device::Cpu(), shape );
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = std::sin( 0.3f * static_cast<float>( i ) + phase );
             }
@@ -201,7 +201,7 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
         {
             ASSERT_EQ( actual.size(), expected.size() );
 
-            for ( size_t i = 0; i < actual.size(); ++i )
+            for ( dim_t i = 0; i < actual.size(); ++i )
             {
                 const float tolerance = TPrecisionTag::atol + TPrecisionTag::rtol * std::fabs( expected[ i ] );
                 EXPECT_NEAR( actual.data()[ i ], expected[ i ], tolerance )
@@ -419,7 +419,7 @@ namespace Mila::Tests::Dnn::Components::Encodings::Rope
     {
         auto rope = this->builtRope( shape_t{ 2, 4 }, RuntimeMode::Inference );
 
-        EXPECT_EQ( rope->parameterCount(), 0u );
+        EXPECT_EQ( rope->parameterCount(), 0 );
         EXPECT_TRUE( rope->getParameters().empty() );
         EXPECT_TRUE( rope->getGradients().empty() );
     }

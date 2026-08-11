@@ -71,8 +71,10 @@ namespace Mila::Dnn
             return meta;
         }
 
-        void fromMetadata( const SerializationMetadata& meta ) override
+        void fromMetadata( const SerializationMetadata& /*meta*/ ) override
         {
+            // SwigluConfig carries no serialized state -- the gate shape is derived
+            // from the surrounding MLP, not stored on the config.
         }
 
         std::string toString() const override

@@ -154,18 +154,65 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Load GptTransformer from archive.
+         * @brief Reconstruct the GptConfig that produced an archive.
          *
-         * Reads metadata, constructs network, builds with saved shape and loads weights.
+         * Reads the config block save_() wrote and hands it to GptConfig::fromMetadata,
+         * which owns the key names and their fallbacks. The caller then constructs and
+         * builds the network before calling Network::load() to restore weights -- the
+         * config must exist before the network can, which is why this is separate from
+         * the load traversal rather than a step inside it.
+         *
+         * Note the scope: save_() runs at the archive root (Network::save calls it after
+         * saveComponentGraph has popped its scopes), so "transformer_meta.json" is a
+         * root-level entry.
+         *
+         * @param archive Archive opened for reading.
+         * @return Config equivalent to the one the archive was saved from.
+         *
+         * @throws std::runtime_error if the archive carries no transformer metadata.
          */
-        /*static std::unique_ptr<GptTransformer> Load( ModelArchive& archive, DeviceId device_id )
+        static GptConfig configFromArchive( const ModelArchive& archive )
         {
-            auto scope = ModelArchive::ScopedScope( archive, "network" );
+            if ( !archive.hasFile( "transformer_meta.json" ) )
+            {
+                throw std::runtime_error( std::format(
+                    "GptTransformer::configFromArchive: '{}' has no transformer_meta.json; "
+                    "it was not written by GptTransformer::save()", archive.getFilepath() ) );
+            }
 
-            SerializationMetadata meta = archive.readMetadata( "transformer_meta.json" );
-          
-            return transformer;
-        }*/
+            const SerializationMetadata meta = archive.readMetadata( "transformer_meta.json" );
+
+            // Placeholders: fromMetadata overwrites both, and the constructor only
+            // initializes members (validation runs separately).
+            GptConfig config( 1, 1 );
+            config.fromMetadata( meta );
+
+            return config;
+        }
+
+        /**
+         * @brief Sequence length the archive was built with, or 0 if it recorded none.
+         *
+         * save_() writes the build geometry only when the network was built, so a caller
+         * restoring a checkpoint uses this to rebuild at the same geometry rather than
+         * guessing.
+         */
+        static dim_t buildSequenceLengthFromArchive( const ModelArchive& archive )
+        {
+            if ( !archive.hasFile( "transformer_meta.json" ) )
+            {
+                return 0;
+            }
+
+            const SerializationMetadata meta = archive.readMetadata( "transformer_meta.json" );
+
+            if ( auto seq_length = meta.tryGetInt( "seq_length" ) )
+            {
+                return static_cast<dim_t>( *seq_length );
+            }
+
+            return 0;
+        }
 
         // ====================================================================
         // Compute API (component-owned outputs)
@@ -315,8 +362,7 @@ namespace Mila::Dnn
             // 3. Extract only the last token's representation for LN + LM head.
             //    This avoids writing T=seq_len into the T=1 inference output buffers
             //    allocated by LayerNorm and lm_head.
-            size_t last_pos_offset = static_cast<size_t>(
-                (T_prompt - 1) * config_.getEmbeddingSize());
+            dim_t last_pos_offset = (T_prompt - 1) * config_.getEmbeddingSize();
 
             auto last_pos = block_output_ptrs_.back()->view(
                 shape_t{ input.shape()[ 0 ], 1, config_.getEmbeddingSize() },
@@ -354,7 +400,7 @@ namespace Mila::Dnn
          * @param position Current sequence position (0-based).
          * @return         Reference to logits tensor [B, 1, vocab_size].
          */
-        TensorType& decode( const TokenIndexType& input, int position ) override
+        TensorType& decode( const TokenIndexType& input, dim_t position ) override
         {
             if ( !this->isBuilt() )
             {
@@ -579,16 +625,17 @@ namespace Mila::Dnn
         
         void save_( ModelArchive& archive, SerializationMode /*mode*/ ) const override
         {
-            SerializationMetadata meta;
+            // config_.toMetadata() rather than a hand-rolled field list: GptConfig owns the
+            // key names its own fromMetadata() reads, so writing them here twice let them
+            // drift. They had -- this wrote "mlp_hidden_dim" where fromMetadata looks for
+            // "hidden_dim", and omitted use_bias entirely, so a round trip silently rebuilt
+            // the config with a defaulted bias flag and a hidden size guessed as 4x the
+            // embedding.
+            SerializationMetadata meta = config_.toMetadata();
+
             meta.set( "type", "GptTransformer" )
                 .set( "version", int64_t( 1 ) )
-                .set( "name", this->getName() )
-                .set( "vocab_size", config_.getVocabSize() )
-                .set( "max_seq_length", config_.getMaxSequenceLength() )
-                .set( "embedding_dim", config_.getEmbeddingSize() )
-                .set( "num_heads", config_.getNumHeads() )
-                .set( "num_layers", config_.getNumLayers()  )
-                .set( "mlp_hidden_dim", config_.getHiddenSize() );
+                .set( "name", this->getName() );
 
             if ( this->isBuilt() )
             {
@@ -600,6 +647,42 @@ namespace Mila::Dnn
             }
 
             archive.writeMetadata( "transformer_meta.json", meta );
+        }
+
+        /**
+         * @brief Validate that the archive describes the network that was built.
+         *
+         * The config was consumed by the factory before construction, so there is nothing
+         * to restore here -- only to check. A mismatch means the caller built from a
+         * different config than the one that produced the archive, which would otherwise
+         * surface as a shape error deep inside a component's loadParameter.
+         */
+        void load_( ModelArchive& archive, SerializationMode /*mode*/ ) override
+        {
+            if ( !archive.hasFile( "transformer_meta.json" ) )
+            {
+                return;
+            }
+
+            const SerializationMetadata meta = archive.readMetadata( "transformer_meta.json" );
+
+            const auto expect = [&]( const char* key, dim_t actual )
+                {
+                    if ( auto recorded = meta.tryGetInt( key ) )
+                    {
+                        if ( static_cast<dim_t>( *recorded ) != actual )
+                        {
+                            throw std::runtime_error( std::format(
+                                "GptTransformer '{}': archive {} is {} but this network was built with {}",
+                                this->getName(), key, *recorded, actual ) );
+                        }
+                    }
+                };
+
+            expect( "vocab_size", config_.getVocabSize() );
+            expect( "num_layers", config_.getNumLayers() );
+            expect( "embedding_dim", config_.getEmbeddingSize() );
+            expect( "num_heads", config_.getNumHeads() );
         }
 
         void onTrainingModeChanging( TrainingMode training_mode ) override
@@ -739,8 +822,8 @@ namespace Mila::Dnn
         void createGraph()
         {
             LpeConfig enc_cfg;
-            enc_cfg.withVocabularyLength( static_cast<size_t>(config_.getVocabSize() ))
-                .withMaxSequenceLength( static_cast<size_t>(config_.getMaxSequenceLength() ))
+            enc_cfg.withVocabularyLength( config_.getVocabSize() )
+                .withMaxSequenceLength( config_.getMaxSequenceLength() )
                 .withEmbeddingDim( static_cast<size_t>(config_.getEmbeddingSize()));
 
             enc_cfg.validate();
@@ -751,10 +834,10 @@ namespace Mila::Dnn
             for ( int64_t i = 0; i < config_.getNumLayers(); ++i )
             {
                 GptBlockConfig block_cfg( 
-                    static_cast<dim_t>( config_.getEmbeddingSize() ),
-                    static_cast<dim_t>( config_.getNumHeads() ));
+                    config_.getEmbeddingSize(),
+                    config_.getNumHeads());
 
-                block_cfg.withHiddenSize( static_cast<dim_t>( config_.getHiddenSize() ))
+                block_cfg.withHiddenSize( config_.getHiddenSize())
                     .withBias( config_.getUseBias() )
                     .withActivation( ActivationType::Gelu )
                     .withResidualScale( 1.0f );

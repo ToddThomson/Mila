@@ -174,12 +174,9 @@ namespace Mila::Dnn
             fc_down_->zeroGradients();
         }
 
-        void save_( ModelArchive& archive, SerializationMode mode ) const override
-        {
-            fc_gate_up_->save_( archive, mode );
-            gate_->save_( archive, mode );
-            fc_down_->save_( archive, mode );
-        }
+        // save_ is deliberately NOT overridden -- see the note in GptBlock. All three
+        // members are resolved out of the child registry by name, so the base traversal
+        // covers them and gives each its own scope.
 
         // ====================================================================
         // Identification and Description

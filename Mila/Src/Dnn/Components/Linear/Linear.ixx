@@ -43,6 +43,7 @@ import Serialization.ModelArchive;
 import Serialization.Mode;
 import Serialization.Tensor;
 import Serialization.Metadata;
+import Serialization.SafeTensors;
 import nlohmann.json;
 
 import Dnn.TensorOps;
@@ -218,13 +219,32 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Linear::backward: must be in training mode" );
             }
 
-            // Zero before backward: backend ops use accumulation semantics (+=) and
-            // require pre-zeroed buffers to prevent gradient buildup across calls.
-            zero( *input_grad_ );
+            // Fail at the component boundary rather than deep in the backend: the
+            // quantized operation throws unconditionally, which also left everything
+            // below unreachable in that instantiation.
+            if constexpr ( kIsQuantized )
+            {
+                throw std::logic_error( "Linear::backward: not supported on quantized weight paths" );
+            }
+            else
+            {
+                // Only the INPUT gradient is zeroed here, and the two kinds of gradient
+                // buffer are why. Parameter gradients (weight, bias) deliberately
+                // accumulate ACROSS backward calls -- that is what makes gradient
+                // accumulation over micro-batches work -- and are cleared separately by
+                // zeroGradients() between optimizer steps. The input gradient is per-call
+                // and flows upstream, so it is cleared every time.
+                //
+                // CudaLinearOp matches that split: the weight-gradient GEMM runs with
+                // beta = 1.0 (accumulate) while the input-gradient GEMM runs with
+                // beta = 0.0 (assign), which makes this zeroing redundant on CUDA and
+                // required on CPU.
+                zero( *input_grad_ );
 
-            operation_->backward( input, output_grad, *input_grad_ );
+                operation_->backward( input, output_grad, *input_grad_ );
 
-            return *input_grad_;
+                return *input_grad_;
+            }
         }
 
         void zeroGradients() override
@@ -250,15 +270,28 @@ namespace Mila::Dnn
         // ====================================================================
 
         /**
+         * @brief Canonical parameter names, in the order save_() and loadParameter() use.
+         */
+        std::vector<std::string> getParameterNames() const override
+        {
+            if ( hasBias() )
+            {
+                return { "weight", "bias" };
+            }
+
+            return { "weight" };
+        }
+
+        /**
          * @brief Save component state to a ModelArchive.
          *
          * Writes a "meta.json" blob with component type and name, a "config.json"
          * blob with input/output feature dimensions and bias flag, and raw tensor
-         * blobs for the weight and (if present) bias parameters under "tensors/".
+         * blobs for each name in getParameterNames() under "tensors/".
          *
-         * On CUDA devices, each tensor is copied to a temporary host buffer before
-         * writing. Weight is serialized at its storage dtype (kWeightDtype), which
-         * equals kWeightDtype = TWeightQuant::kStorageDtype on the quantized path.
+         * On CUDA devices each tensor is staged through a host buffer of the same dtype,
+         * so the blob carries the parameter's own storage bytes. Refuses outright on the
+         * quantized path -- see the body.
          *
          * @param archive ModelArchive to write to (scoped by caller).
          * @param mode    Serialization mode (currently unused; reserved for future use).
@@ -267,66 +300,102 @@ namespace Mila::Dnn
         {
             (void)mode;
 
-            SerializationMetadata meta;
-            meta.set( "type", "Linear" )
-                .set( "version", int64_t( 1 ) )
-                .set( "name", this->getName() );
-
-            archive.writeMetadata( "meta.json", meta );
-
-            SerializationMetadata cfg;
-            cfg.set( "input_features", config_.getInputFeatures() )
-                .set( "output_features", config_.getOutputFeatures() )
-                .set( "has_bias", config_.hasBias() );
-
-            archive.writeMetadata( "config.json", cfg );
-
-            if ( weight_ )
+            // Quantized weights are packed storage plus a scale companion, and the archive
+            // has no representation for that pairing. Quantization is applied on load for
+            // inference; a checkpoint is written from the unquantized training path.
+            if constexpr ( kIsQuantized )
             {
-                TensorMetadata tmeta;
-                tmeta.dtype = weight_->getDataType();
-                tmeta.shape = weight_->shape();
-                tmeta.total_bytes = static_cast<size_t>(weight_->size()) * weight_->elementSize();
+                throw std::runtime_error(
+                    std::format( "Linear '{}': cannot serialize a quantized weight ({}); "
+                        "checkpoints are written from the unquantized path",
+                        this->getName(), tensorDataTypeToString( kWeightDtype ) ) );
+            }
+            else
+            {
+                SerializationMetadata meta;
+                meta.set( "type", "Linear" )
+                    .set( "version", int64_t( 1 ) )
+                    .set( "name", this->getName() );
 
-                if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
+                archive.writeMetadata( "meta.json", meta );
+
+                SerializationMetadata cfg;
+                cfg.set( "input_features", config_.getInputFeatures() )
+                    .set( "output_features", config_.getOutputFeatures() )
+                    .set( "has_bias", config_.hasBias() );
+
+                archive.writeMetadata( "config.json", cfg );
+
+                for ( const auto& parameter_name : getParameterNames() )
                 {
-                    const void* data_ptr = weight_->rawData();
-                    writeTensorBlob( archive, "tensors/weight", tmeta, data_ptr, tmeta.total_bytes );
+                    if ( parameter_name == "weight" && weight_ )
+                    {
+                        this->saveParameterToArchive( archive, parameter_name, *weight_ );
+                    }
+                    else if ( parameter_name == "bias" && bias_ )
+                    {
+                        this->saveParameterToArchive( archive, parameter_name, *bias_ );
+                    }
                 }
-                else
+            }
+        }
+
+        /**
+         * @brief Drive this Linear's tensors through one pass of a flat safetensors save.
+         *
+         * This is the path the archive cannot serve. A quantized weight is packed storage
+         * plus a scale companion, and save_() refuses it outright because ModelArchive has
+         * no representation for that pairing; the flat artifact expresses it as two sibling
+         * tensors, which is what the ecosystem does and what the reader already handles.
+         *
+         * Declare and write share one ordered body because the writer requires bodies in
+         * declaration order. Two separate walks could drift with no diagnostic until the
+         * file failed to read back.
+         *
+         * The scales are emitted as "<prefix>.weight_scale" -- an underscore, not a dot.
+         * parseParameterPath() splits a flat name on its LAST dot, so a dotted
+         * "weight.scales" would resolve to a component named "<prefix>.weight", which does
+         * not exist, and the artifact could be written but never read back. The underscore
+         * also matches the compressed-tensors spelling, so the name is conventional as well
+         * as loadable.
+         *
+         * They are deliberately absent from getParameterNames(): that vector is the join
+         * between the archive's save_ and load_, and widening it would break the blob-count
+         * invariant those rest on.
+         *
+         * @param writer Writer being driven.
+         * @param prefix Fully qualified component path, e.g. "tf_layer_0.qkv_proj".
+         * @param pass   Declare reserves byte ranges; Write streams bytes.
+         */
+        void saveFlatTensors(
+            Serialization::SafeTensorsWriter& writer,
+            const std::string& prefix,
+            Serialization::TensorSavePass pass ) const override
+        {
+            // An installed weight is borrowed, not owned -- a tied lm_head shares the token
+            // embedding table through a shared_ptr. Emitting it would write a byte-identical
+            // second copy of the table (0.94 GB on Gemma 4 12B) and, on load, hand the head
+            // its own storage instead of the donor's, re-allocating exactly what weight tying
+            // exists to save. The source .bin omits a tied head for the same reason.
+            const bool owns_weight = weight_ && !weight_installed_;
+
+            if ( owns_weight )
+            {
+                this->saveParameterToWriter( writer, prefix + ".weight", *weight_, pass );
+            }
+
+            if constexpr ( kIsQuantized )
+            {
+                if ( owns_weight && weight_scales_ )
                 {
-                    using HostTensorType = Tensor<dtype_t::FP32, CpuMemoryResource>;
-                    HostTensorType host_weight( Device::Cpu(), weight_->shape() );
-
-                    copy( *weight_, host_weight );
-
-                    const void* host_ptr = host_weight.rawData();
-                    writeTensorBlob( archive, "tensors/weight", tmeta, host_ptr, tmeta.total_bytes );
+                    this->saveParameterToWriter(
+                        writer, prefix + ".weight_scale", *weight_scales_, pass );
                 }
             }
 
-            if ( config_.hasBias() && bias_ )
+            if ( bias_ )
             {
-                TensorMetadata bmeta;
-                bmeta.dtype = bias_->getDataType();
-                bmeta.shape = bias_->shape();
-                bmeta.total_bytes = static_cast<size_t>(bias_->size()) * bias_->elementSize();
-
-                if constexpr ( std::is_same_v<MR, CpuMemoryResource> )
-                {
-                    const void* data_ptr = bias_->rawData();
-                    writeTensorBlob( archive, "tensors/bias", bmeta, data_ptr, bmeta.total_bytes );
-                }
-                else
-                {
-                    using HostTensorType = Tensor<dtype_t::FP32, CpuMemoryResource>;
-                    HostTensorType host_bias( Device::Cpu(), bias_->shape() );
-
-                    copy( *bias_, host_bias );
-
-                    const void* host_ptr = host_bias.rawData();
-                    writeTensorBlob( archive, "tensors/bias", bmeta, host_ptr, bmeta.total_bytes );
-                }
+                this->saveParameterToWriter( writer, prefix + ".bias", *bias_, pass );
             }
         }
 
@@ -334,9 +403,9 @@ namespace Mila::Dnn
         // Parameters and Gradients
         // ====================================================================
 
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
-            size_t count = 0;
+            dim_t count = 0;
 
             if ( weight_ )
             {
@@ -465,11 +534,50 @@ namespace Mila::Dnn
 
                 if constexpr ( kIsQuantized )
                 {
-                    operation_->quantize( blob, *weight_, *weight_scales_, expected_shape );
+                    // The blob says which kind of source this is, so no external flag is
+                    // needed: storage dtype means the weights are already packed and the
+                    // scales arrive as their own tensor; compute precision means a
+                    // full-precision source that must be quantized here. Re-quantizing
+                    // packed bytes would read nibbles as BF16 and produce a model that runs
+                    // and is wrong, so the two must never be confused.
+                    if ( blob.getMetadata().dtype == kWeightDtype )
+                    {
+                        // weight_->shape() and not expected_shape: a packed FP4 weight is
+                        // physically [out, in/2], which is what the artifact recorded.
+                        this->loadParameterFromBlob( "weight", blob, *weight_, weight_->shape() );
+                    }
+                    else
+                    {
+                        operation_->quantize( blob, *weight_, *weight_scales_, expected_shape );
+                    }
                 }
                 else
                 {
                     this->loadParameterFromBlob( "weight", blob, *weight_, expected_shape );
+                }
+            }
+            else if ( name == "weight_scale" )
+            {
+                // Only a pre-quantized artifact carries this; quantize-on-load computes the
+                // scales itself and never routes one here.
+                if constexpr ( kIsQuantized )
+                {
+                    this->loadParameterFromBlob(
+                        "weight_scale", blob, *weight_scales_, weight_scales_->shape() );
+
+                    // quantize() derives further scalars from these scales (the FP8 sB
+                    // reduction on the FP4 activation-prefill path). A pre-quantized load
+                    // skips quantize(), so nothing else would ever compute them, and the
+                    // dequant would divide by uninitialized device memory. The weights
+                    // arrive before the scales, so both are present by now.
+                    operation_->onQuantizedWeightsLoaded();
+                }
+                else
+                {
+                    throw std::invalid_argument( std::format(
+                        "Linear '{}': received 'weight_scale' but this build is unquantized; "
+                        "the artifact was written with weight quantization",
+                        this->getName() ) );
                 }
             }
             else if ( name == "bias" )
@@ -485,7 +593,8 @@ namespace Mila::Dnn
             else
             {
                 throw std::invalid_argument( std::format(
-                    "Linear '{}': unknown parameter '{}' (expected 'weight' or 'bias')",
+                    "Linear '{}': unknown parameter '{}' "
+                    "(expected 'weight', 'weight_scale' or 'bias')",
                     this->getName(), name ) );
             }
         }
@@ -623,6 +732,106 @@ namespace Mila::Dnn
             return stats;
         }
 
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * Mirrors initializeParameters() and onBuilding() below. The two must agree; the
+         * drift gate in the test suite compares this against getMemoryStats() after a real
+         * build. See Specifications/MemoryFootprint.md section 7.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            validateBuildContext( context );
+
+            MemoryStats stats;
+
+            const dim_t input_features = config_.getInputFeatures();
+            const dim_t output_features = config_.getOutputFeatures();
+
+            // An installed weight is REPORTED here, not skipped, even though
+            // initializeParameters() will not allocate it. That matches getMemoryStats(),
+            // which also reports it, and leaves the tying composite to subtract it exactly
+            // once (Gemma.ixx). Hiding it at both levels would make a tied table vanish
+            // from the model total instead of being counted a single time.
+            if ( weight_installed_ && weight_ )
+            {
+                stats.device_parameter_bytes += weight_->getStorageSize();
+
+                if ( weight_scales_ )
+                {
+                    stats.device_parameter_bytes += weight_scales_->getStorageSize();
+                }
+            }
+            else
+            {
+                // Packed nibble formats store 2 elements per byte, so the physical column
+                // count is halved here exactly as initializeParameters() halves it. The
+                // storage dtype is UINT8 for those formats, so the halving must happen on
+                // the extent and not a second time on the dtype.
+                const dim_t weight_cols = ( kIsQuantized && !TWeightQuant::kPerChannel )
+                    ? input_features / 2
+                    : input_features;
+
+                stats.device_parameter_bytes +=
+                    storageBytes<kWeightDtype>( output_features * weight_cols );
+
+                if constexpr ( kIsQuantized )
+                {
+                    if constexpr ( TWeightQuant::kPerChannel )
+                    {
+                        stats.device_parameter_bytes +=
+                            storageBytes<TWeightQuant::kScaleDtype>( output_features );
+                    }
+                    else
+                    {
+                        const dim_t num_groups =
+                            input_features / TWeightQuant::kQuantizationGroupSize;
+
+                        stats.device_parameter_bytes +=
+                            storageBytes<TWeightQuant::kScaleDtype>( output_features * num_groups );
+                    }
+                }
+            }
+
+            if ( config_.hasBias() )
+            {
+                stats.device_parameter_bytes +=
+                    storageBytes<TComputePrecision>( output_features );
+            }
+
+            // An installed shared output slot is owned and counted by the installer.
+            if ( !output_installed_ && !context.hasInstalledOutput() )
+            {
+                shape_t output_shape = context.inputShape();
+                output_shape.back() = output_features;
+
+                stats.device_state_bytes +=
+                    storageBytes<TComputePrecision>( elementCount( output_shape ) );
+            }
+
+            if ( operation_ )
+            {
+                stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
+            }
+
+            if ( context.isTrainingMode() )
+            {
+                stats.device_gradient_bytes +=
+                    storageBytes<TComputePrecision>( elementCount( context.inputShape() ) );
+
+                stats.device_gradient_bytes +=
+                    storageBytes<TComputePrecision>( output_features * input_features );
+
+                if ( config_.hasBias() )
+                {
+                    stats.device_gradient_bytes +=
+                        storageBytes<TComputePrecision>( output_features );
+                }
+            }
+
+            return stats;
+        }
+
     protected:
 
         void onExecutionContextSet() override
@@ -654,7 +863,7 @@ namespace Mila::Dnn
 
             if ( output_installed_ )
             {
-                int64_t needed = 1;
+                dim_t needed = 1;
                 for ( auto d : output_shape )
                     needed *= d;
 
@@ -848,10 +1057,7 @@ namespace Mila::Dnn
             {
                 if ( context.shouldInitializeParameters() )
                 {
-                    // REVIEW: Let's get rid of these ugly static_casts. we should be using dim_t everywhere for shape dimensions,
-                    // and the config should be updated to reflect that.
-
-                    xavier( *weight_, static_cast<size_t>( input_features ), static_cast<size_t>( output_features ), this->getExecutionContext() );
+                    xavier( *weight_, input_features, output_features, this->getExecutionContext() );
                 }
             }
 

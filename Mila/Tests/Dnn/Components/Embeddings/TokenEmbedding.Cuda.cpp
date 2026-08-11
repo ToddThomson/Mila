@@ -30,16 +30,18 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
+#include <system_error>
 #include <vector>
 
 import Mila;
 import Compute.ExecutionContext;
-// Weight-quant policy structs and the serialization metadata type are not re-exported
-// through the Mila umbrella; import their modules directly (as the Src consumers do).
-// MSVC surfaced them transitively via import Mila, clang does not.
-import Dnn.Quantization.Weight.Policies;
+// The serialization metadata type is not re-exported through the Mila umbrella; import
+// its module directly (as the Src consumers do). MSVC surfaced it transitively via
+// import Mila, clang does not. The weight-quant policies used to need the same treatment
+// and no longer do -- Mila.ixx exports them.
 import Serialization.Tensor;
 
 namespace Mila::Tests::Dnn::Components::Embeddings
@@ -162,7 +164,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
         HostIndex rampTokens( const shape_t& token_shape )
         {
             HostIndex host( Device::Cpu(), token_shape );
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = tokenAt( static_cast<int64_t>( i ) );
             }
@@ -287,7 +289,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
 
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float tolerance = TypeParam::atol + TypeParam::rtol * std::fabs( expected[ i ] );
 
@@ -325,7 +327,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
 
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float tolerance = TypeParam::atol + TypeParam::rtol * std::fabs( expected[ i ] );
 
@@ -365,7 +367,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
 
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float scaled = kScale * expected[ i ];
             const float tolerance = TypeParam::atol + TypeParam::rtol * std::fabs( scaled );
@@ -524,7 +526,7 @@ namespace Mila::Tests::Dnn::Components::Embeddings
         HostIndex rampTokens( const shape_t& token_shape )
         {
             HostIndex host( Device::Cpu(), token_shape );
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = tokenAt( static_cast<int64_t>( i ) );
             }
@@ -579,6 +581,77 @@ namespace Mila::Tests::Dnn::Components::Embeddings
 
         std::unique_ptr<IExecutionContext> cuda_context_;
     };
+
+    /**
+     * @brief A table reloaded from a pre-quantized artifact must gather identically.
+     *
+     * The existing pre-quantized coverage asserts that the stored BYTES round-trip, which a
+     * device-to-host-to-device copy satisfies whether or not the result is usable. What was
+     * never asserted is that a component rebuilt from those bytes computes the same thing --
+     * and a 12B model loaded this way generated endless thinking tokens while every byte-level
+     * check passed. Comparing forward output is the check that has teeth.
+     *
+     * Bit-identical is the right bar here, not approximate: both components hold the same FP8
+     * table and the same scales, and run the same kernel.
+     */
+    TEST_F( TokenEmbeddingCudaFp8Tests, PreQuantizedReload_GathersIdenticallyToQuantizeOnLoad )
+    {
+        const shape_t token_shape{ 2, 3 };
+
+        auto quantize_on_load = builtEmbedding( token_shape, RuntimeMode::Inference );
+        loadTable( *quantize_on_load, bf16Table() );
+
+        const auto artifact = std::filesystem::temp_directory_path()
+            / "mila_tokenembedding_prequant.safetensors";
+
+        {
+            Serialization::SafeTensorsWriter writer( artifact );
+            quantize_on_load->saveFlatTensors( writer, "temb",
+                Serialization::TensorSavePass::Declare );
+            writer.beginData();
+            quantize_on_load->saveFlatTensors( writer, "temb",
+                Serialization::TensorSavePass::Write );
+            writer.close();
+        }
+
+        auto from_artifact = builtEmbedding( token_shape, RuntimeMode::Inference );
+
+        {
+            Serialization::PretrainedModelReader reader( artifact );
+
+            ASSERT_TRUE( reader.hasTensor( "temb.wte" ) );
+            ASSERT_TRUE( reader.hasTensor( "temb.wte_scale" ) );
+
+            auto table = reader.readTensorBlob<CpuMemoryResource>( "temb.wte" );
+            auto scales = reader.readTensorBlob<CpuMemoryResource>( "temb.wte_scale" );
+
+            from_artifact->loadParameter( "wte", table );
+            from_artifact->loadParameter( "wte_scale", scales );
+            cuda_context_->synchronize();
+        }
+
+        auto host_tokens = rampTokens( token_shape );
+        auto device_tokens = toDevice( host_tokens );
+
+        auto& expected_device = quantize_on_load->forward( device_tokens );
+        quantize_on_load->synchronize();
+        auto expected = toFloat( expected_device );
+
+        auto& actual_device = from_artifact->forward( device_tokens );
+        from_artifact->synchronize();
+        auto actual = toFloat( actual_device );
+
+        ASSERT_EQ( expected.size(), actual.size() );
+
+        for ( dim_t i = 0; i < expected.size(); ++i )
+        {
+            EXPECT_EQ( expected.data()[ i ], actual.data()[ i ] )
+                << "pre-quantized reload diverges at element " << i;
+        }
+
+        std::error_code ignored;
+        std::filesystem::remove( artifact, ignored );
+    }
 
     TEST_F( TokenEmbeddingCudaFp8Tests, Forward_MatchesDequantizedReference )
     {

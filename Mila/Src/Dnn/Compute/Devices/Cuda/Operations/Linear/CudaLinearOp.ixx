@@ -303,6 +303,32 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          * @param scales_out     Device Float32 tensor [out_features].
          * @param expected_shape Expected weight shape for validation.
          */
+        /**
+         * @brief Recompute scales derived from the per-group scales, after a direct upload.
+         *
+         * A pre-quantized artifact carries the weights and their per-group scales, so
+         * quantize() is skipped -- and with it the sB reduction below, which nothing else
+         * performs. ensureFp8ScaleScalarsAllocated() only allocates weight_fp8_scale_; it
+         * never writes it. Leaving it uninitialized reproduces the +98/+99 incident exactly:
+         * the FP4->FP8 dequant divides by garbage and every activation becomes NaN.
+         *
+         * Must be called after BOTH the weights and the scales have landed.
+         */
+        void onQuantizedWeightsLoaded() requires kIsQuantized
+        {
+            if constexpr ( kUseFp8ActivationPrefillPath )
+            {
+                ensureFp8ScaleScalarsAllocated();
+
+                const int64_t num_scales =
+                    ( static_cast<int64_t>( out_features_ ) * static_cast<int64_t>( weight_in_features_ ) )
+                    / TWeightQuant::kQuantizationGroupSize;
+
+                cuda_compute_fp8_weight_scale(
+                    weight_fp8_scale_, weight_scales_, num_scales, context_->getStream() );
+            }
+        }
+
         void quantize(
             const ITensorBlob& blob,
             ITensor& weight_out,
@@ -367,40 +393,44 @@ namespace Mila::Dnn::Compute::Cuda::Linear
 
         void setGradients( ITensor* weight_grad, ITensor* bias_grad ) override
         {
+            // The remainder sits in the else branch so it is discarded rather than
+            // merely unreachable in the quantized instantiation.
             if constexpr ( kIsQuantized )
             {
                 throw std::logic_error( "CudaLinearOp: gradient computation is not supported on quantized paths" );
             }
-
-            if ( !weight_grad )
-            {
-                throw std::invalid_argument( "CudaLinearOp::setGradients - weight gradient is required" );
-            }
-
-            if ( weight_grad->getDeviceType() != DeviceType::Cuda )
-            {
-                throw std::invalid_argument( "CudaLinearOp::setGradients - weight gradient must be a CUDA tensor" );
-            }
-
-            weight_grad_ = static_cast<ComputeType*>(weight_grad->rawData());
-
-            if ( config_.hasBias() )
-            {
-                if ( !bias_grad )
-                {
-                    throw std::invalid_argument( "CudaLinearOp::setGradients - bias gradient expected but null" );
-                }
-
-                if ( bias_grad->getDeviceType() != DeviceType::Cuda )
-                {
-                    throw std::invalid_argument( "CudaLinearOp::setGradients - bias gradient must be a CUDA tensor" );
-                }
-
-                bias_grad_ = static_cast<ComputeType*>(bias_grad->rawData());
-            }
             else
             {
-                bias_grad_ = nullptr;
+                if ( !weight_grad )
+                {
+                    throw std::invalid_argument( "CudaLinearOp::setGradients - weight gradient is required" );
+                }
+
+                if ( weight_grad->getDeviceType() != DeviceType::Cuda )
+                {
+                    throw std::invalid_argument( "CudaLinearOp::setGradients - weight gradient must be a CUDA tensor" );
+                }
+
+                weight_grad_ = static_cast<ComputeType*>(weight_grad->rawData());
+
+                if ( config_.hasBias() )
+                {
+                    if ( !bias_grad )
+                    {
+                        throw std::invalid_argument( "CudaLinearOp::setGradients - bias gradient expected but null" );
+                    }
+
+                    if ( bias_grad->getDeviceType() != DeviceType::Cuda )
+                    {
+                        throw std::invalid_argument( "CudaLinearOp::setGradients - bias gradient must be a CUDA tensor" );
+                    }
+
+                    bias_grad_ = static_cast<ComputeType*>(bias_grad->rawData());
+                }
+                else
+                {
+                    bias_grad_ = nullptr;
+                }
             }
         }
 
@@ -504,7 +534,7 @@ namespace Mila::Dnn::Compute::Cuda::Linear
          */
         void forward( const TensorType& input, TensorType& output ) const
         {
-            const int outer_size = static_cast<int>(input.size()) / cached_in_features_;
+            const int outer_size = narrowToKernelIndex( input.size() / cached_in_features_ );
 
             const ComputeType* input_ptr = static_cast<const ComputeType*>(input.rawData());
             ComputeType* output_ptr = static_cast<ComputeType*>(output.rawData());

@@ -44,8 +44,10 @@ import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Serialization.ModelArchive;
+import Serialization.Metadata;
 import Serialization.Mode;
 import Serialization.Tensor;
+import Serialization.SafeTensors;
 
 import Dnn.TensorOps;
 import Dnn.TensorHelpers;
@@ -166,7 +168,7 @@ namespace Mila::Dnn
 
             operation_->forward( input, *output_ );
 
-            shape_t actual_out_shape = { B, T, static_cast<dim_t>(config_.getEmbeddingDim()) };
+            shape_t actual_out_shape = { B, T, config_.getEmbeddingDim() };
             current_output_view_ = std::make_unique<EmbeddingTensorType>(
                 output_->view( actual_out_shape ) );
 
@@ -247,17 +249,74 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
+        std::vector<std::string> getParameterNames() const override
+        {
+            return { "wte" };
+        }
+
+        /**
+         * @brief Emit the table, and its per-row scales when the table is quantized.
+         *
+         * The scales ride as a sibling name rather than joining getParameterNames(), for the
+         * same reason as Linear: that vector is the archive's save/load join. Underscore, not
+         * dot -- parseParameterPath() splits on the last dot, so "wte.scales" would resolve to
+         * a component named "<prefix>.wte" and the artifact could never be read back.
+         */
+        void saveFlatTensors(
+            Serialization::SafeTensorsWriter& writer,
+            const std::string& prefix,
+            Serialization::TensorSavePass pass ) const override
+        {
+            if ( wte_ )
+            {
+                this->saveParameterToWriter( writer, prefix + ".wte", *wte_, pass );
+            }
+
+            if constexpr ( kIsQuantized )
+            {
+                if ( wte_scales_ )
+                {
+                    this->saveParameterToWriter(
+                        writer, prefix + ".wte_scale", *wte_scales_, pass );
+                }
+            }
+        }
+
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
-            (void)archive;
             (void)mode;
+
+            // A quantized table is packed storage plus a per-row scale companion, and the
+            // archive has no representation for that pairing. Quantization is applied on
+            // load for inference; a checkpoint is written from the unquantized path.
+            if constexpr ( kIsQuantized )
+            {
+                throw std::runtime_error(
+                    std::format( "TokenEmbedding '{}': cannot serialize a quantized table ({}); "
+                        "checkpoints are written from the unquantized path",
+                        this->getName(), tensorDataTypeToString( kTableDtype ) ) );
+            }
+            else
+            {
+                SerializationMetadata meta;
+                meta.set( "type", "TokenEmbedding" )
+                    .set( "version", int64_t( 1 ) )
+                    .set( "name", this->getName() );
+
+                archive.writeMetadata( "meta.json", meta );
+
+                if ( wte_ )
+                {
+                    this->saveParameterToArchive( archive, "wte", *wte_ );
+                }
+            }
         }
 
         // ====================================================================
         // Parameters and Gradients
         // ====================================================================
 
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             return wte_ ? wte_->size() : 0;
         }
@@ -293,13 +352,38 @@ namespace Mila::Dnn
             {
                 if constexpr ( kIsQuantized )
                 {
-                    // Quantize-on-load: the BF16 blob never lands on device at full
-                    // precision -- absmax scales and FP8 rows are produced in one pass.
-                    operation_->quantize( blob, *wte_, *wte_scales_, wte_->shape() );
+                    // The blob's dtype says which source this is: storage dtype means a
+                    // pre-quantized artifact whose scales arrive separately, compute
+                    // precision means quantize-on-load, where the BF16 blob never lands on
+                    // device at full precision -- absmax scales and FP8 rows are produced in
+                    // one pass. Same discrimination as Linear.
+                    if ( blob.getMetadata().dtype == kTableDtype )
+                    {
+                        this->loadParameterFromBlob( "wte", blob, *wte_, wte_->shape() );
+                    }
+                    else
+                    {
+                        operation_->quantize( blob, *wte_, *wte_scales_, wte_->shape() );
+                    }
                 }
                 else
                 {
                     this->loadParameterFromBlob( "wte", blob, *wte_, wte_->shape() );
+                }
+            }
+            else if ( name == "wte_scale" )
+            {
+                if constexpr ( kIsQuantized )
+                {
+                    this->loadParameterFromBlob(
+                        "wte_scale", blob, *wte_scales_, wte_scales_->shape() );
+                }
+                else
+                {
+                    throw std::invalid_argument( std::format(
+                        "TokenEmbedding '{}': received 'wte_scale' but this build is "
+                        "unquantized; the artifact was written with weight quantization",
+                        this->getName() ) );
                 }
             }
             else
@@ -358,11 +442,11 @@ namespace Mila::Dnn
 
         int64_t getVocabSize()    const noexcept
         {
-            return static_cast<int64_t>(config_.getVocabSize());
+            return config_.getVocabSize();
         }
         int64_t getEmbeddingDim() const noexcept
         {
-            return static_cast<int64_t>(config_.getEmbeddingDim());
+            return config_.getEmbeddingDim();
         }
 
         MemoryStats getMemoryStats() const override
@@ -392,6 +476,60 @@ namespace Mila::Dnn
             if ( input_grad_ != nullptr )
             {
                 stats.device_gradient_bytes += input_grad_->getStorageSize();
+            }
+
+            return stats;
+        }
+
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * Mirrors initializeParameters() and onBuilding(). The table dominates every other
+         * allocation in this component, which is what makes an unquantized table in a
+         * quantized model visible here without running anything.
+         * See Specifications/MemoryFootprint.md.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            validateBuildContext( context );
+
+            const auto& input_shape = context.inputShape();
+
+            const dim_t batch_size = input_shape[ 0 ];
+            const dim_t sequence_length = input_shape[ 1 ];
+            const dim_t vocabulary_size = config_.getVocabSize();
+            const dim_t embedding_dim = config_.getEmbeddingDim();
+
+            MemoryStats stats;
+
+            stats.device_parameter_bytes +=
+                storageBytes<kTableDtype>( vocabulary_size * embedding_dim );
+
+            if constexpr ( kIsQuantized )
+            {
+                // One scale per vocabulary row.
+                stats.device_parameter_bytes +=
+                    storageBytes<TTableQuantization::kScaleDtype>( vocabulary_size );
+            }
+
+            stats.device_state_bytes +=
+                storageBytes<TPrecision>( batch_size * sequence_length * embedding_dim );
+
+            if ( operation_ )
+            {
+                stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
+            }
+
+            if ( context.isTrainingMode() )
+            {
+                if constexpr ( !kIsQuantized )
+                {
+                    stats.device_gradient_bytes +=
+                        storageBytes<TPrecision>( vocabulary_size * embedding_dim );
+
+                    stats.device_gradient_bytes +=
+                        storageBytes<TIndex>( batch_size * sequence_length );
+                }
             }
 
             return stats;
@@ -434,7 +572,7 @@ namespace Mila::Dnn
             shape_t output_shape = {
                 max_batch_size_,
                 max_seq_len_,
-                static_cast<dim_t>(config_.getEmbeddingDim())
+                config_.getEmbeddingDim()
             };
 
             output_ = std::make_unique<EmbeddingTensorType>( device, output_shape, this->getName() + ".output" );
@@ -451,8 +589,6 @@ namespace Mila::Dnn
                     initializeParameterGradients();
 
                     operation_->setGradients( wte_grad_.get(), nullptr );
-
-                    auto device = this->getExecutionContext()->getDeviceId();
 
                     input_grad_ = std::make_unique<TokenIndexType>( device, shape_t{ max_batch_size_, max_seq_len_ },
                         this->getName() + ".input.grad" );
@@ -516,9 +652,7 @@ namespace Mila::Dnn
         {
             auto device_id = this->getExecutionContext()->getDeviceId();
 
-            // REVIEW: static cast to dim_t is a band-aid for the fact that config_ uses int for vocab and embedding sizes,
-            // but Tensor shapes use dim_t (int64_t).  The API needs work to unify these types and avoid this kind of cast.
-            auto wte_shape = shape_t{ static_cast<dim_t>(config_.getVocabSize()), static_cast<dim_t>(config_.getEmbeddingDim()) };
+            auto wte_shape = shape_t{ config_.getVocabSize(), config_.getEmbeddingDim() };
 
             wte_ = std::make_shared<TableTensorType>( device_id, wte_shape, this->getName() + ".wte" );
 
@@ -527,7 +661,7 @@ namespace Mila::Dnn
                 // One scale per vocabulary row. Filled by operation_->quantize() at
                 // load time; the quantized path has no random-initialization mode.
                 wte_scales_ = std::make_shared<TableScaleTensorType>(
-                    device_id, shape_t{ static_cast<dim_t>(config_.getVocabSize()) }, this->getName() + ".wte.scales" );
+                    device_id, shape_t{ config_.getVocabSize() }, this->getName() + ".wte.scales" );
             }
             else
             {

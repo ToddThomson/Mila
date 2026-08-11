@@ -79,11 +79,18 @@ add_executable( MilaTests
     "Dnn/Components/Transformers/Llama/Llama.Presets.cpp"
     "Dnn/Components/Transformers/Gemma/Gemma.Config.cpp"
     "Dnn/Components/Transformers/Gemma/Gemma.Protocol.cpp"
+    "Dnn/Compute/Operations/OperationTraits.cpp"
     "Dnn/Core/Component.cpp"
     "Dnn/Core/ComponentConfig.cpp"
     "Dnn/Core/CompositeComponent.cpp"
+    # The only GptModel factory reachable without a converted .bin: a checkpoint
+    # carries its own config, so fromCheckpoint needs nothing but an archive.
+    "Dnn/Models/GptModel.Cpu.cpp"
     "Dnn/Modeling/Network.Cpu.cpp"
     "Dnn/Optimizers/AdamW.Cpu.cpp"
+    # Covers both containers PretrainedModelReader accepts, including a hand-built
+    # MILA file that guards the legacy .bin path no fixture-free test could reach.
+    "Dnn/Serialization/SafeTensors.Cpu.cpp"
     "Dnn/Tensors/Tensor.Constructors.cpp"
     "Dnn/Tensors/Tensor.DataAccess.cpp"
     "Dnn/Tensors/Tensor.DataPointers.cpp"
@@ -149,6 +156,23 @@ add_executable( MilaTests
     #"Dnn/Tensors/TensorBuffer.Tracking.cpp"
 )
 
+# Everything that does not move bytes, which is nearly all of distribution: the store, pull,
+# packaging, and HuggingFace's own parsing. Each takes its transport as an injected callable --
+# the store a fetcher, the resolver an IModelHub, the hub an IHttpTransport -- so these run
+# offline, and they compile whether or not this build has an HTTP client.
+target_sources( MilaTests PRIVATE
+    "Distribution/ModelStore.Cpu.cpp"
+    "Distribution/ModelPackage.Cpu.cpp"
+    "Distribution/ModelResolver.Cpu.cpp"
+    "Distribution/ModelHub.Cpu.cpp"
+    "Distribution/HttpClient.Cpu.cpp"
+)
+
+# Nothing under Distribution is gated any more. HttpClient's policy -- redirect hops, the
+# cross-host token drop, Range and the 200-versus-206 rule -- runs against a scripted
+# transport, so the rules that matter are pinned in every build rather than only where
+# libcurl happens to be compiled.
+
 # CUDA-only test translation units. These exercise CUDA memory resources,
 # execution contexts, and kernels directly and have no CPU-only meaning, so they
 # are compiled only when the CUDA backend is enabled. New *.Cuda.cpp / Cuda*.cpp
@@ -181,7 +205,21 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Transformers/Llama/Llama.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.Block.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.Cuda.cpp"
+        "Dnn/Compute/Operations/OperationTraits.Cuda.cpp"
+        # The saveParameterToArchive staging branch needs a device-only dtype (BF16),
+        # so it is unreachable from the CPU companion in Dnn/Core/Component.cpp.
+        "Dnn/Core/Component.Cuda.cpp"
         "Dnn/Models/GemmaModel.Parity.Cuda.cpp"
+        # Gate B: the reported footprint against cudaMemGetInfo. Both skip without a real
+        # checkpoint, so neither runs in CI -- see Specifications/MemoryFootprint.md 7.
+        "Dnn/Models/GemmaModel.Footprint.Cuda.cpp"
+        "Dnn/Models/LlamaModel.Footprint.Cuda.cpp"
+        # The generation context bound. CUDA rather than CPU because the CPU operation
+        # layer takes its extents from build(), so a CPU model cannot run a prompt
+        # shorter than its built context and never reaches the loop under test.
+        "Dnn/Models/GptModel.Cuda.cpp"
+        # Net-new: the FP32 master-parameter path has no coverage in AdamW.Cuda.cpp.
+        "Dnn/Optimizers/AdamW.MixedPrecision.Cuda.cpp"
         "Dnn/Samplers/Sampling.Cuda.cpp"
         "Dnn/Tensors/Tensor.Constructors.Cuda.cpp"
         "Dnn/Tensors/Tensor.DataAccess.Cuda.cpp"
@@ -189,6 +227,9 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Tensors/Tensor.ShapeTransform.Cuda.cpp"
         "Dnn/Tensors/TensorOps/Fill.Cuda.cpp"
         "Dnn/Tensors/TensorOps/Math.Cuda.cpp"
+        "Dnn/Tensors/TensorOps/Random.Cuda.cpp"
+        # split() is CUDA-only (no CpuTensorOps::split), so there is no .Cpu.cpp peer.
+        "Dnn/Tensors/TensorOps/Structural.Cuda.cpp"
         "Dnn/Tensors/TensorOps/Zero.Cuda.cpp"
 
         # ----------------------------------------------------------
@@ -229,6 +270,15 @@ target_include_directories( MilaTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" )
 
 target_compile_features( MilaTests PUBLIC cxx_std_23 )
 
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+  # Test translation units cannot use <fstream>: MSVC C++23 raises C2079 on
+  # basic_istream::sentry when stream I/O meets `import Mila;` in a .cpp, so the four test
+  # files doing file I/O are on std::fopen by necessity rather than by choice. The library
+  # itself needs no such exemption -- its module units use <fstream>. Revisit when the
+  # C2079 defect is fixed; the test files can then follow.
+  target_compile_definitions( MilaTests PRIVATE _CRT_SECURE_NO_WARNINGS )
+endif()
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   target_compile_options(MilaTests PRIVATE
     -fno-implicit-modules
@@ -261,6 +311,46 @@ gtest_discover_tests(MilaTests
         VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
+# ---------------------------------------------------------------------------
+# Chat adaptor: the rich-text formatter.
+#
+# Its own executable rather than a file in MilaTests, because Chat.RichText imports
+# nothing -- no Mila, no CUDA -- and linking it against the library would give the
+# cheapest test surface in the tree the slowest build in the tree. It runs anywhere,
+# including a CPU-only configure.
+#
+# The target lives here rather than under Adaptors/Chat because add_subdirectory(Tests)
+# runs after Adaptors, so the GoogleTest targets do not exist yet at that point.
+# ---------------------------------------------------------------------------
+add_executable( ChatRichTextTests
+    "Adaptors/Chat/RichText.Cpu.cpp"
+)
+
+# BASE_DIRS is explicit because a module file set otherwise roots itself at this
+# directory, and the module being tested lives in the adaptor it belongs to.
+target_sources( ChatRichTextTests
+PUBLIC
+    FILE_SET module_files
+    TYPE CXX_MODULES
+    BASE_DIRS "${CMAKE_SOURCE_DIR}/Mila/Adaptors/Chat/Src"
+    FILES
+        "${CMAKE_SOURCE_DIR}/Mila/Adaptors/Chat/Src/Chat.RichText.ixx"
+)
+
+set_target_properties( ChatRichTextTests PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+target_link_libraries( ChatRichTextTests PRIVATE gtest gtest_main )
+
+gtest_discover_tests( ChatRichTextTests
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    PROPERTIES
+        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
 # Packaging gates: the find_package(Mila) consumer (installs Mila, builds
 # Samples/QuickStart against the install) and the FetchContent subproject consumer.
 # Defined here, with the tests, rather than at the root: it is meaningful only when
@@ -268,7 +358,7 @@ gtest_discover_tests(MilaTests
 # reached only through the MILA_ENABLE_TESTING-gated add_subdirectory(Tests). Default
 # OFF because each gate is a full install/subproject reconfigure + rebuild (900-1800s);
 # unit-test runs should not pay that. The x64-validate preset (and CI) turns it on.
-option(MILA_ENABLE_PACKAGING_TEST "Build the find_package + FetchContent packaging gates (install/embed Mila and build a consumer against it)." OFF)
+option(MILA_ENABLE_PACKAGING_TEST "Build the packaging gates (embed Mila via FetchContent and build a consumer against it; the find_package gate is retired in place and does not run)." OFF)
 
 if(MILA_ENABLE_PACKAGING_TEST)
     add_subdirectory(Packaging)

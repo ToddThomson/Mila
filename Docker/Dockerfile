@@ -30,6 +30,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 #                 interpreter the mila binding is built against + MIS runs under
 #   python3-venv -- so mila-build-mis can create the MIS server venv (Debian/Ubuntu
 #                 split venv/ensurepip out of the base python3 package)
+#   libssl-dev -- curl's configure does find_package(OpenSSL) and fails the whole build
+#                 without it. This image builds Chat at the MILA_ENABLE_LIBCURL default
+#                 (ON), unlike Dockerfile.wheel which omits OpenSSL deliberately because
+#                 the wheel forces it OFF. Chat in the container needs a real transport:
+#                 /install pulls into the store on the bind mount.
 # gdb/less are dev-shell niceties. Dependencies (GoogleTest, nlohmann_json, miniz,
 # CUTLASS) are fetched by CPM/FetchContent at configure time and are not installed.
 RUN apt-get update \
@@ -43,6 +48,7 @@ RUN apt-get update \
         gcc-15 \
         g++-15 \
         clang-21 \
+        libssl-dev \
         python3 \
         python3-dev \
         python3-venv \
@@ -60,6 +66,12 @@ ENV CUDA_HOME=/usr/local/cuda
 ENV PATH=${CUDA_HOME}/bin:${PATH}
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
 ENV CCACHE_DIR=/ccache
+
+# The Mila model store, on the bind mount rather than in the container's own home. Chat
+# and MIS both read it and neither downloads on load, so a store on a container-local
+# layer would be lost on `run --rm` and have to be re-pulled -- gigabytes each time. Here
+# it is the same directory the host sees under Data/Models/Store.
+ENV MILA_CACHE_DIR=/mila/Data/Models/Store
 
 # Cap concurrent compile jobs so an IDE-driven build (VS 2026 / VSCode CMake Tools,
 # which do not read the mila-build-* scripts' -j) cannot starve this container's RAM on

@@ -1,0 +1,9 @@
+{
+  "model": "Llama-3.1-8B-Instruct-fp4",
+  "context_length": 4096,
+  "max_new_tokens": 512,
+  "temperature": 0.0,
+  "top_k": 0,
+  "thinking": false,
+  "verbose": "off"
+}

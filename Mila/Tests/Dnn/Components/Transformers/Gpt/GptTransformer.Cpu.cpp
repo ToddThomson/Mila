@@ -22,11 +22,16 @@
  */
 
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <format>
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <system_error>
 
 import Mila;
 
@@ -34,6 +39,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Serialization;
 
     namespace
     {
@@ -282,7 +288,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
     {
         auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
 
-        EXPECT_GT( net->parameterCount(), 0u );
+        EXPECT_GT( net->parameterCount(), 0 );
     }
 
     // ====================================================================
@@ -310,5 +316,165 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
         // Structural kind is Network; the GPT-2 architecture identity is ModelType.
         EXPECT_EQ( net.getType(), ComponentType::Network );
         EXPECT_EQ( net.getModelType(), ModelType::Gpt2 );
+    }
+
+    // ====================================================================
+    // K. Serialization round trip
+    // ====================================================================
+    //
+    // The coverage the doubles in Core/CompositeComponent.cpp cannot provide. That
+    // suite proves CompositeComponent's scoped traversal works; this proves the real
+    // composites USE it. They did not: GptBlock and MLP each overrode save_ with an
+    // unscoped hand-rolled walk, so every child of every block wrote its tensors to
+    // one path and overwrote the last. A mock composite that does not override save_
+    // is structurally incapable of catching that -- only a real network is.
+
+    namespace
+    {
+        std::filesystem::path makeTempArchivePath( const std::string& tag )
+        {
+            const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
+            return std::filesystem::temp_directory_path()
+                / std::format( "mila_test_gpt_{}_{}.mila", tag, stamp );
+        }
+
+        void fillParametersDistinctly( GptCpu& net, float first, float step )
+        {
+            float value = first;
+
+            for ( auto* parameter : net.getParameters() )
+            {
+                fill( *static_cast<LogitsTensor*>( parameter ), value );
+                value += step;
+            }
+        }
+    }
+
+    TEST_F( GptTransformerCpuTests, SaveThenLoad_RestoresEveryParameterAcrossNestedBlocks )
+    {
+        const auto path = makeTempArchivePath( "roundtrip" );
+        std::error_code ec;
+        std::filesystem::remove( path, ec );
+
+        auto source = builtNet( batch_, seq_, RuntimeMode::Inference );
+
+        // A distinct value per tensor: with two blocks, each holding an attention, two
+        // LayerNorms, two projections and an MLP, a collision or a cross-wired restore
+        // shows up as a specific parameter holding another's value rather than as a
+        // uniform pass.
+        fillParametersDistinctly( *source, 0.5f, 0.25f );
+
+        const auto parameter_count = source->getParameters().size();
+        ASSERT_GT( parameter_count, 8u ) << "fixture too small to exercise nesting";
+
+        {
+            ModelArchive archive( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Write );
+            source->save( archive, SerializationMode::Checkpoint );
+        }
+
+        ModelArchive reader( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Read );
+
+        // One blob per parameter. This is the assertion the unscoped walk fails outright:
+        // it produced a single blob no matter how many parameters the network held.
+        const auto files = reader.listFiles();
+        const auto blob_count = std::count_if( files.begin(), files.end(),
+            []( const std::string& name )
+            {
+                return name.ends_with( "/data.bin" );
+            } );
+
+        EXPECT_EQ( static_cast<size_t>( blob_count ), parameter_count );
+
+        // A separately built network, poisoned so "restored" cannot be confused with
+        // "happened to already match".
+        auto target = builtNet( batch_, seq_, RuntimeMode::Inference );
+        fillParametersDistinctly( *target, -1.0f, 0.0f );
+
+        target->load( reader, SerializationMode::Checkpoint );
+
+        const auto source_parameters = source->getParameters();
+        const auto target_parameters = target->getParameters();
+
+        ASSERT_EQ( source_parameters.size(), target_parameters.size() );
+
+        for ( size_t i = 0; i < source_parameters.size(); ++i )
+        {
+            const auto* expected = static_cast<const LogitsTensor*>( source_parameters[ i ] );
+            const auto* actual = static_cast<const LogitsTensor*>( target_parameters[ i ] );
+
+            ASSERT_EQ( expected->size(), actual->size() ) << "parameter " << i;
+
+            const float* expected_data = static_cast<const float*>( expected->rawData() );
+            const float* actual_data = static_cast<const float*>( actual->rawData() );
+
+            for ( dim_t element = 0; element < expected->size(); ++element )
+            {
+                ASSERT_EQ( expected_data[ element ], actual_data[ element ] )
+                    << "parameter " << i << " element " << element;
+            }
+        }
+
+        std::filesystem::remove( path, ec );
+    }
+
+    TEST_F( GptTransformerCpuTests, SaveThenLoad_RecoversTheConfigThatWroteIt )
+    {
+        const auto path = makeTempArchivePath( "config" );
+        std::error_code ec;
+        std::filesystem::remove( path, ec );
+
+        auto source = builtNet( batch_, seq_, RuntimeMode::Inference );
+
+        {
+            ModelArchive archive( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Write );
+            source->save( archive, SerializationMode::Checkpoint );
+        }
+
+        ModelArchive reader( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Read );
+        const GptConfig recovered = GptCpu::configFromArchive( reader );
+        const GptConfig expected = smallConfig();
+
+        EXPECT_EQ( recovered.getVocabSize(), expected.getVocabSize() );
+        EXPECT_EQ( recovered.getNumLayers(), expected.getNumLayers() );
+        EXPECT_EQ( recovered.getEmbeddingSize(), expected.getEmbeddingSize() );
+        EXPECT_EQ( recovered.getNumHeads(), expected.getNumHeads() );
+        EXPECT_EQ( recovered.getMaxSequenceLength(), expected.getMaxSequenceLength() );
+
+        // The two fields the hand-rolled metadata block got wrong: hidden size was written
+        // under a key fromMetadata does not read (so it fell back to 4x embedding, right
+        // for GPT-2 by coincidence), and use_bias was never written at all.
+        EXPECT_EQ( recovered.getHiddenSize(), expected.getHiddenSize() );
+        EXPECT_EQ( recovered.getUseBias(), expected.getUseBias() );
+
+        EXPECT_EQ( GptCpu::buildSequenceLengthFromArchive( reader ), seq_ );
+
+        std::filesystem::remove( path, ec );
+    }
+
+    TEST_F( GptTransformerCpuTests, Load_ThrowsWhenTheArchiveDescribesADifferentNetwork )
+    {
+        const auto path = makeTempArchivePath( "mismatch" );
+        std::error_code ec;
+        std::filesystem::remove( path, ec );
+
+        auto source = builtNet( batch_, seq_, RuntimeMode::Inference );
+
+        {
+            ModelArchive archive( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Write );
+            source->save( archive, SerializationMode::Checkpoint );
+        }
+
+        GptConfig wider = smallConfig();
+        wider.withVocabSize( kVocab * 2 );
+
+        auto target = std::make_unique<GptCpu>( "gpt", wider, Device::Cpu() );
+        target->build( BuildContext( shape_t{ batch_, seq_ }, RuntimeMode::Inference ) );
+
+        ModelArchive reader( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Read );
+
+        EXPECT_THROW( target->load( reader, SerializationMode::Checkpoint ), std::runtime_error );
+
+        std::filesystem::remove( path, ec );
     }
 }

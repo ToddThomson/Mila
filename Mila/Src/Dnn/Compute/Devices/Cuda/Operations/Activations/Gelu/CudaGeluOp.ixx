@@ -16,6 +16,7 @@ import :Dispatch;
 import Dnn.Components.GeluConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.ComponentConfig;
@@ -103,7 +104,7 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
 
             auto X = static_cast<const NativeType*>(input.rawData());
             auto Y = static_cast<NativeType*>(output.rawData());
-            int N = static_cast<int>(input.size());
+            const int N = narrowToKernelIndex( input.size() );
 
             impl_.forward( Y, X, N, stream );
         }
@@ -135,7 +136,7 @@ namespace Mila::Dnn::Compute::Cuda::Gelu
             const NativeType* dY = static_cast<const NativeType*>(output_gradient.rawData());
             NativeType* dX = static_cast<NativeType*>(input_gradient.rawData());
             
-            int N = static_cast<int>(input.size());
+            const int N = narrowToKernelIndex( input.size() );
 
             // REVIEW: Cast and store during construction?
             auto* cuda_context = static_cast<CudaExecutionContext*>(context_);

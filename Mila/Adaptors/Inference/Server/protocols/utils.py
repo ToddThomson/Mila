@@ -2,7 +2,10 @@
 from config import settings
 
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
-MODEL_NAME = settings.model_name
+
+# The store name MIS was configured with, which is also the identifier reported to
+# clients: one name, so what a client sees in /v1/models is what it can install.
+MODEL_NAME = settings.model
 
 def extract_content(content: str | list) -> str:
     if isinstance(content, str):

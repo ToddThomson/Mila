@@ -227,7 +227,7 @@ namespace Mila::Dnn
         // Parameters and Gradients (stateless)
         // ====================================================================
 
-        size_t parameterCount() const override { return 0; }
+        dim_t parameterCount() const override { return 0; }
         std::vector<ITensor*> getParameters() const override { return {}; }
         std::vector<ITensor*> getGradients() const override { return {}; }
 

@@ -14,6 +14,7 @@ module;
 export module Compute.CpuTensorOps:Random;
 
 import Dnn.Tensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.ExecutionContext;
@@ -50,7 +51,7 @@ namespace Mila::Dnn::Compute::Cpu
             float stddev,
             [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
-            const size_t n = tensor.size();
+            const dim_t n = tensor.size();
             if ( n == 0 )
                 return;
 
@@ -60,7 +61,7 @@ namespace Mila::Dnn::Compute::Cpu
             std::mt19937 generator = Core::RandomGenerator::getInstance().getGenerator();
             std::normal_distribution<float> distribution( mean, stddev );
 
-            for ( size_t i = 0; i < n; ++i )
+            for ( dim_t i = 0; i < n; ++i )
             {
                 dst[ i ] = static_cast<NativeType>( distribution( generator ) );
             }
@@ -77,7 +78,7 @@ namespace Mila::Dnn::Compute::Cpu
             float max_val,
             [[maybe_unused]] IExecutionContext* exec_context = nullptr )
         {
-            const size_t n = tensor.size();
+            const dim_t n = tensor.size();
             if ( n == 0 )
                 return;
 
@@ -87,7 +88,7 @@ namespace Mila::Dnn::Compute::Cpu
             std::mt19937 generator = Core::RandomGenerator::getInstance().getGenerator();
             std::uniform_real_distribution<float> distribution( min_val, max_val );
 
-            for ( size_t i = 0; i < n; ++i )
+            for ( dim_t i = 0; i < n; ++i )
             {
                 dst[ i ] = static_cast<NativeType>( distribution( generator ) );
             }

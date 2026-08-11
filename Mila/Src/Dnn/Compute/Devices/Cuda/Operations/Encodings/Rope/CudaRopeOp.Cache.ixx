@@ -16,6 +16,7 @@ module;
 export module Compute.CudaRopeOp:Cache;
 
 import Dnn.TensorDataType;
+import Dnn.TensorTypes;
 import Cuda.Error;
 
 namespace Mila::Dnn::Compute::Cuda::Rope
@@ -40,9 +41,9 @@ namespace Mila::Dnn::Compute::Cuda::Rope
         struct CacheKey
         {
             int                    device_id;
-            std::size_t            max_seq_len;
-            std::size_t            head_dim;
-            std::size_t            rotary_dim;   ///< 0 = full rotation; > 0 = proportional partial-rotary
+            dim_t                  max_seq_len;
+            dim_t                  head_dim;
+            dim_t                  rotary_dim;   ///< 0 = full rotation; > 0 = proportional partial-rotary
             float                  base;
             Dnn::TensorDataType    precision;
 
@@ -59,9 +60,9 @@ namespace Mila::Dnn::Compute::Cuda::Rope
                 };
 
                 std::size_t seed = std::hash<int>{}( k.device_id );
-                seed = mix( seed, std::hash<std::size_t>{}( k.max_seq_len ) );
-                seed = mix( seed, std::hash<std::size_t>{}( k.head_dim ) );
-                seed = mix( seed, std::hash<std::size_t>{}( k.rotary_dim ) );
+                seed = mix( seed, std::hash<dim_t>{}( k.max_seq_len ) );
+                seed = mix( seed, std::hash<dim_t>{}( k.head_dim ) );
+                seed = mix( seed, std::hash<dim_t>{}( k.rotary_dim ) );
                 seed = mix( seed, std::hash<uint32_t>{}( std::bit_cast<uint32_t>( k.base ) ) );
                 seed = mix( seed, std::hash<int>{}( static_cast<int>( k.precision ) ) );
                 return seed;

@@ -4,6 +4,7 @@
  */
 
 module;
+#include <cstddef>
 #include <string>
 
 export module Compute.Device;
@@ -13,6 +14,19 @@ import Compute.DeviceId;
 
 namespace Mila::Dnn::Compute
 {
+    /**
+     * @brief What a device currently has free, and what it has in total.
+     *
+     * Free memory is read, never modeled: it already accounts for the display compositor,
+     * other processes, and anything else resident, none of which a library can predict.
+     * See Specifications/MemoryFootprint.md section 2.
+     */
+    export struct DeviceMemoryInfo
+    {
+        std::size_t free_bytes{ 0 };
+        std::size_t total_bytes{ 0 };
+    };
+
     /**
      * @brief Abstract interface for compute device implementations.
      *
@@ -48,6 +62,23 @@ namespace Mila::Dnn::Compute
          * @return std::string Device name (e.g., "CPU:0", "CUDA:0", "Metal:1").
          */
         virtual std::string getDeviceName() const = 0;
+
+        /**
+         * @brief Current free and total device memory.
+         *
+         * Answers "will this model fit" together with a footprint from
+         * Model::getRequiredMemory. Zeroed by default for devices with no distinct memory
+         * pool to report; a caller seeing total_bytes == 0 should treat the figure as
+         * unavailable rather than as a device with no memory.
+         *
+         * NOTE on Windows: WDDM oversubscribes into shared host memory rather than failing,
+         * so free_bytes running out does not produce an allocation error -- it produces a
+         * model that runs pathologically slowly. Callers should warn rather than refuse.
+         */
+        virtual DeviceMemoryInfo getMemoryInfo() const
+        {
+            return {};
+        }
 
         // ====================================================================
         // Static Factory Methods - Primary API for Device Identification

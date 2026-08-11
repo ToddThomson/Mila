@@ -82,7 +82,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
             HostTokenTensor host( Device::Cpu(), shape_t{ batch, seq } );
             auto* data = host.data();
 
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 data[ i ] = static_cast<int32_t>( i % static_cast<size_t>( kVocab ) );
             }
@@ -228,7 +228,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
         net->synchronize();
 
         const auto* data = host_logits.data();
-        for ( size_t i = 0; i < host_logits.size(); ++i )
+        for ( dim_t i = 0; i < host_logits.size(); ++i )
         {
             ASSERT_TRUE( std::isfinite( data[ i ] ) ) << "non-finite logit at index " << i;
         }
@@ -245,7 +245,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
         auto input = makeTokens( batch_, seq_ );
 
         HostLogitsTensor host_grad( Device::Cpu(), shape_t{ batch_, seq_, kVocab } );
-        for ( size_t i = 0; i < host_grad.size(); ++i )
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
         {
             host_grad.data()[ i ] = 0.01f * static_cast<float>( i + 1 );
         }
@@ -274,7 +274,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gpt
     {
         auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
 
-        EXPECT_GT( net->parameterCount(), 0u );
+        EXPECT_GT( net->parameterCount(), 0 );
     }
 
     // ====================================================================

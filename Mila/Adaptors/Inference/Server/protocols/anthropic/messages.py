@@ -18,7 +18,7 @@ from schemas.internal import InferenceRequest, InferenceResponse
 from protocols.base import ProtocolAdapter
 from protocols.utils import DEFAULT_SYSTEM_PROMPT, MODEL_NAME, extract_content
 from prompt import build_instruct_prompt
-from config import settings, ModelFamily
+from config import settings, loaded, ModelFamily
 import gemma_protocol
 
 logger = logging.getLogger(__name__)
@@ -107,7 +107,7 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
             "anthropic /v1/messages: %d msgs, %d tools; %s",
             len(messages), len(tools), _summarize_messages(messages))
 
-        if settings.model_family == ModelFamily.gemma:
+        if loaded.family == ModelFamily.gemma:
             prompt_str = self._build_gemma_prompt(messages, system_prompt, tools)
         else:
             prompt_str = self._build_llama_prompt(messages, system_prompt)
@@ -259,13 +259,13 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
 
     def parse_tool_call_from_text(self, text: str) -> dict | None:
         """Detect a native Gemma tool call in the raw model output (family-aware)."""
-        if settings.model_family == ModelFamily.gemma:
+        if loaded.family == ModelFamily.gemma:
             return gemma_protocol.parse_tool_call(text)
         return None
 
     def clean_response_text(self, text: str) -> str:
         """Reduce raw model output to the user-facing answer (Gemma channel-aware)."""
-        if settings.model_family == ModelFamily.gemma:
+        if loaded.family == ModelFamily.gemma:
             return gemma_protocol.extract_answer(text)
         return text
 

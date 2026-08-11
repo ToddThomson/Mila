@@ -18,12 +18,21 @@ Mila uses a repeating **release-cycle** model: `MAJOR.MINOR.PATCH-stage.X+build`
 - **minor** — feature-set era.
 - **patch** — part of the target release (usually `.0`).
 - **stage** — the codebase's maturity: `alpha.X -> beta.X -> rc.X ->` unsuffixed stable. `X` is the
-  stage **checkpoint ordinal** — it ticks each time a checkpoint is tagged within a stage. It is a
-  pure release-provenance count: it does not name, count, or correspond to any unit of planned work.
+  stage **checkpoint ordinal**. It is a pure release-provenance count: it does not name, count, or
+  correspond to any unit of planned work.
 - **build** — a per-commit counter carried as **semver build metadata** (after `+`). It counts the
-  `dev` commits accumulated toward the next checkpoint and **resets at every checkpoint tag**, so it
-  reads as "commits since the last release" — not a repo-lifetime counter. It is **ignored for
-  version precedence** by the spec.
+  `dev` commits accumulated toward the checkpoint named in the stage field, and **resets to `+1` when
+  that checkpoint is tagged**. It is **ignored for version precedence** by the spec.
+
+**The whole string points forward.** `Version.txt` names *what is being built*, never what was last
+built — the git tag is the record of what shipped. So on `dev`, `0.20.0-beta.2+7` reads "the 0.20.0
+release, seven commits into the work toward the beta.2 checkpoint". The stage ordinal is bumped **at
+the moment a checkpoint is tagged**, not before the next one is cut (see step 9 of *Cutting a
+release*), so the working tree never reports a version that has already shipped.
+
+The next checkpoint's name is a **placeholder, not a commitment** — a tree that says `beta.2` may
+well be tagged `rc.1` instead. Nothing downstream reads the interim value; if the call changes, edit
+`Version.txt` in the same commit that prepares the tag.
 
 Each feature set opens a new minor and runs its own ladder; features never land inside a hardening
 ladder — a stabilizing release takes only patch-level fixes. Mila is pre-1.0, so any release may
@@ -34,10 +43,12 @@ releases land on `master` and ramp through the stage ladder is the **Branching**
 **Why the build counter sits in build metadata.** Everything before the dash is the *target
 release*, which must not move every commit, so a free-running counter cannot live in the patch slot.
 Putting it after `+` makes it **build metadata**, which semver compares as equal regardless of value
-(`alpha.6+56` and `alpha.6+57` have the same precedence). That is safe here for two reasons: tag
+(`alpha.6+56` and `alpha.6+57` have the same precedence). That is safe here for three reasons: tag
 resolution is by **exact tag string** (the CPM gate pins an explicit `GIT_TAG`, never a semver
-range), so precedence is never used to pick a build; and every tagged checkpoint **ticks `stage.X`**,
-so no two checkpoints ever differ by build metadata alone. The build counter is therefore pure
+range), so precedence is never used to pick a build; every tagged checkpoint **ticks `stage.X`**,
+so no two checkpoints ever differ by build metadata alone; and because the stage points at the *next*
+checkpoint, the version a dev tree compares equal to is one that has not been released — so the
+equality can never be mistaken for an already-published tag. The build counter is therefore pure
 provenance — it distinguishes dev commits between checkpoints, never two releases. (Caveat: OCI/Docker
 image tags forbid `+`, so the optional runtime-image tag must sanitize it — drop the metadata or map
 `+` to `-`.)
@@ -51,9 +62,11 @@ sort *below* what is already released).
 | Stage | Meaning | Example |
 |---|---|---|
 | `alpha.X` | features still landing; unstable | `0.20.0-alpha.6+119` |
-| `beta.X` | feature-frozen; hardening only | `0.20.0-beta.1` (now) |
+| `beta.X` | feature-frozen; hardening only | `0.20.0-beta.N+M` (the stage `dev` is in now) |
 | `rc.X` | release candidate | `0.20.0-rc.1+N` |
 | _(none)_ | production-tagged | `0.20.0` |
+
+Last checkpoint tagged: **`v0.20.0-beta.2`** (model distribution, and both wheels on PyPI).
 
 **`Version.txt`** at the repo root is the single source of truth. It feeds `project(VERSION ...)`
 (the numeric triple) and the prerelease label separately; see `cmake/MilaVersion.cmake` — which
@@ -163,7 +176,9 @@ The division that matters:
    ```
    ctest --test-dir out/build/x64-validate --output-on-failure
    ```
-   Expect: unit tests + `packaging_find_package_consumer` + `packaging_fetchcontent_consumer` green.
+   Expect: unit tests + `packaging_fetchcontent_consumer` green. FetchContent is the supported
+   consumption path; the `find_package` gate is retired in place (present on disk, behind a disabled
+   option) and does not run. `packaging_cpm_consumer` is a separate preset, at step 6.
 4. Commit and push to `dev`.
 
 `dev` is the CI-gated trunk; releases reach `master` only through a `dev -> master` PR (see
@@ -177,16 +192,41 @@ Releases are **manual** — there is no release workflow. The GitHub Release obj
 human-facing only (a curated changelog and download link); consumers resolve by git **tag**,
 not by the Release. See the note below.
 
-1. Open a `dev -> master` pull request. CI validates on the PR.
-2. Merge to `master`.
-3. **Drift check (by eye — this used to be an automated gate):** the tag you are about to
+1. **Release-prep commit on `dev`** — set `Version.txt` to the checkpoint string with the `+build`
+   metadata **dropped**: `0.20.0-beta.2+7` becomes `0.20.0-beta.2`. A tag never carries build
+   metadata, so this is what lets step 4's drift check pass. If the checkpoint is being renamed from
+   its working placeholder (`beta.2` -> `rc.1`), this is the commit that does it. Reconcile
+   BACKLOG / ROADMAP in the same commit, and **bump every stage string written in prose**: the
+   `README.md` status callout and its *Current Status* heading, and **this document's own
+   "Last checkpoint tagged" line** above. `master` is the branch a visitor lands on, so a missed bump
+   leaves the front page advertising the previous checkpoint for the whole next cycle — and a
+   procedure that misreports the last release is worse than one that says nothing.
+   **CHANGELOG only at a production (unsuffixed) release** — generate one short entry from the
+   commit range since the previous production tag, and collapse that line's `alpha.N`/`beta.N`/`rc.N`
+   sections into it. A pre-release flip writes nothing to CHANGELOG.
+2. Open a `dev -> master` pull request. CI validates on the PR.
+3. Merge to `master`.
+4. **Drift check (by eye — this used to be an automated gate):** the tag you are about to
    create must be exactly `v` + the contents of `Version.txt`, e.g. a `Version.txt` of
    `0.13.46-alpha.5` -> tag `v0.13.46-alpha.5`. A tag that disagrees with `Version.txt` makes a
    semver consumer fetch a tree that reports a different version.
-4. Tag `master` and push the tag. **Tagging `master` is the release** — CPM/FetchContent fetch
+5. Tag `master` and push the tag. **Tagging `master` is the release** — CPM/FetchContent fetch
    this git tag directly, and GitHub auto-generates the source archives at it. Nothing else is
    required for the library to be consumable downstream.
-5. **(Optional, human-facing) Publish a GitHub Release** for a curated changelog:
+6. **Post-tag smoke test:** select the preset shown as **"x64 Release (CPM release-access gate)"**
+   (CMake `name` `x64-release-cpm-gate`) and run:
+   ```
+   ctest --test-dir out/build/x64-release-cpm-gate -R packaging_cpm_consumer --output-on-failure
+   ```
+   This git-clones Mila from GitHub at the tag and builds a consumer against it via CPM,
+   proving the release is actually consumable downstream. The gate's tag defaults to the
+   current `Version.txt`, so at this moment it lines up with the tag you just pushed — **run it
+   before step 9**, which moves `Version.txt` off the tag. (After that, point it explicitly:
+   `-DMILA_CPM_GIT_TAG=v0.20.0-beta.2`.)
+7. **Publish the wheels** — see [Publishing the wheels](#publishing-the-wheels) below. Like step 6
+   this must happen **before step 9**: the wheel version is derived from `Version.txt`, so a wheel
+   built after the next checkpoint opens carries the wrong version entirely.
+8. **(Optional, human-facing) Publish a GitHub Release** for a curated changelog:
    ```
    gh release create v0.13.46-alpha.5 --generate-notes --prerelease
    ```
@@ -195,14 +235,56 @@ not by the Release. See the note below.
    release" badge to a prerelease, so this is what keeps the last production release badged as Latest
    throughout the next cycle's pre-release ramp. Or draft it in the **Releases** web UI for full
    hand-curation. Nothing downstream depends on this, so do it on your own schedule.
-6. **Post-tag smoke test:** select the preset shown as **"x64 Release (CPM release-access gate)"**
-   (CMake `name` `x64-release-cpm-gate`) and run:
-   ```
-   ctest --test-dir out/build/x64-release-cpm-gate -R packaging_cpm_consumer --output-on-failure
-   ```
-   This git-clones Mila from GitHub at the tag and builds a consumer against it via CPM,
-   proving the release is actually consumable downstream. The gate's tag defaults to the
-   current `Version.txt`, so at this moment it lines up with the tag you just pushed.
+9. **Open the next checkpoint on `dev`** — bump `Version.txt` to the *next* stage ordinal with the
+   counter reset, e.g. having just tagged `v0.20.0-beta.2`, `dev` becomes `0.20.0-beta.3+1` (or
+   `0.20.0-rc.1+1`, if that is the call). Its own `dev` commit, same sitting as the tag. Skipping it
+   leaves the working tree reporting an already-shipped version — the failure mode this scheme exists
+   to prevent. After a **production** tag, this is where the next cycle opens instead
+   (`0.21.0-alpha.1+1`); never reopen a ladder on a shipped version.
+
+---
+
+## Publishing the wheels
+
+`mila-llm` on PyPI is a published release artifact, built from the tagged tree by two scripts and
+uploaded by hand. It sits at **step 7** for two reasons: the wheel version comes from `Version.txt`,
+which step 1 has already stripped of its `+build` metadata (`0.20.0-beta.2` -> `0.20.0b2`, a release
+rather than the `0.20.0b2.dev38` snapshot a working `+38` tree would produce), and step 9 moves
+`Version.txt` off the tag again.
+
+**A PyPI upload cannot be undone.** Release metadata is immutable and a filename can never be reused,
+so a wheel published before it was verified stays wrong until the *next* release — which is exactly
+how the live page came to advertise Linux while shipping only `win_amd64`. That is what the TestPyPI
+step below exists to prevent, and why it is not optional.
+
+1. **Build all four wheels** from the tagged tree — one per interpreter (3.12, 3.13) per platform.
+   Each script clears only its own platform's wheels from `out/wheel`, because all four land there
+   and all four are published from one glob.
+   - Windows: `scripts/build-wheel-windows.ps1` — enters the VS developer shell, then configures the
+     `x64-wheel` preset once per interpreter and packages from a copy of the package tree. The
+     interpreter list is `$interpreters` at the top of the script and must match `requires-python`
+     in `pyproject.toml`.
+   - Linux: `scripts/build-wheel.ps1` — builds and runs the wheel container. It must be the **wheel**
+     container (Ubuntu 24.04), not the dev container: `auditwheel` derives the manylinux tag from the
+     build distro, so 26.04 would produce a wheel that locks out the current LTS.
+2. **Check what is actually in `out/wheel`** — exactly four files, all carrying the release version
+   and nothing else. A leftover wheel from an earlier build is published alongside the intended one by
+   the same glob, and that cannot be withdrawn. Expect the directory to hold the previous
+   checkpoint's `.devN` wheels when you arrive here: each script clears only its own platform's, so a
+   stale wheel survives whenever the interpreter list or the platform set has changed.
+3. **Upload to TestPyPI**, never to PyPI first.
+4. **Dispatch the `Wheel clean room` workflow** (Actions -> Wheel clean room -> Run workflow) with the
+   exact version (`0.20.0b2`) and index `testpypi`. It runs a four-leg matrix — `windows-latest` and
+   `ubuntu-latest` x Python 3.12 and 3.13, one leg per published wheel, none of them carrying a CUDA
+   Toolkit — and runs `scripts/verify_wheel_cleanroom.py`, which asserts that absence *before* it
+   asserts anything else. A developer machine cannot answer this question, because a wheel quietly
+   leaning on a host Toolkit passes there exactly the way a correct one does.
+   All four legs must be green. The version is pinned exactly because PyPI carries an older
+   `mila-llm` that can outrank a TestPyPI build; the script re-asserts the version it actually got.
+5. **Upload to PyPI.** Only now, and only if step 4 was green on both platforms.
+
+The workflow is `workflow_dispatch`, so it is dispatchable only once `wheel-cleanroom.yml` is on the
+default branch (`master`) — the step 3 merge is what puts it there.
 
 ---
 
@@ -212,7 +294,7 @@ not by the Release. See the note below.
   only — CPM and FetchContent resolve by git **tag**, and GitHub serves source archives from the
   tag regardless — so the Release object is curated manually (`gh release create` or the web UI)
   rather than auto-cut on tag push by a third-party action. This keeps release timing and content
-  under explicit control, and the drift check (tag == `Version.txt`) moves to step 3 above. A
+  under explicit control, and the drift check (tag == `Version.txt`) moves to step 4 above. A
   tag-triggered workflow (`release.yml`, `softprops/action-gh-release`) previously did this; it
   was removed deliberately.
 - **Tag format:** `vX.Y.Z` or `vX.Y.Z-PRERELEASE`. The CPM gate uses an explicit `GIT_TAG`

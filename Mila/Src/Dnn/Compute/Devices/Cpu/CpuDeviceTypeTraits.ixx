@@ -30,5 +30,9 @@ namespace Mila::Dnn::Compute
     template <>
     struct DeviceTypeTraits<DeviceType::Cpu> {
         using memory_resource = CpuMemoryResource;
+
+        // A CPU tensor is already host memory, so staging is the identity. The alias
+        // exists so a device-agnostic caller never has to name a CUDA type.
+        using host_staging_memory_resource = CpuMemoryResource;
     };
 }

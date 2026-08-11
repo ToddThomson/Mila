@@ -47,22 +47,29 @@ static void printUsage( const char* prog_name )
         << "  --help, -h        Show this message.\n"
         << "\n"
         << "Session config keys:\n"
-        << "  model              Model alias (see below). Default: " << kDefaultModelAlias << ".\n"
-        << "  quantization       none | fp8 | fp4. Default: the model's own default.\n"
+        << "  model              Installed model name. Default: " << kDefaultModelName << ".\n"
         << "  context_length     Maximum sequence length. Default: the model's own default.\n"
         << "  thinking           true to surface Gemma's reasoning channel.\n"
         << "  thinking_effort    1-5 token-budget scale for reasoning (default 3 = balanced).\n"
         << "  verbose            display detail: off | thoughts | all (default off).\n"
         << "  temperature, top_k, max_new_tokens, system_prompt_path.\n"
         << "\n"
-        << "Model aliases:\n";
+        << "  quantization       none | fp8 | fp4. Quantizes an unquantized artifact on load;\n"
+        << "                     a name ending -fp4/-fp8 is already quantized and refuses it.\n"
+        << "\n";
 
-    for ( const auto& entry : kModelCatalog )
+    // What is loadable is what is installed, so the list is read rather than compiled in.
+    // No budget: this runs before Mila::initialize(), so there is no device to cost against.
+    const ModelListing listing = describeInstalledModels();
+
+    for ( const auto& line : listing.table )
     {
-        std::cerr << std::format( "  {:<14} {} weights{}\n",
-            entry.alias,
-            entry.precision == ModelPrecision::BF16 ? "BF16" : "FP32",
-            entry.default_quantization == QuantizationMode::FP4 ? ", FP4 default" : "" );
+        std::cerr << line << "\n";
+    }
+
+    for ( const auto& line : listing.notes )
+    {
+        std::cerr << "  " << line << "\n";
     }
 }
 
@@ -76,8 +83,6 @@ static void printUsage( const char* prog_name )
  */
 static ChatConfig buildConfig( int argc, char* argv[] )
 {
-    const std::filesystem::path models_dir = MODELS_DIR;
-
     std::filesystem::path config_path = "Data/session.json";
     bool explicit_config = false;
 
@@ -134,31 +139,16 @@ static ChatConfig buildConfig( int argc, char* argv[] )
             << " — using defaults.\n";
     }
 
-    // Resolve the model alias against the catalog.
-    std::string alias( kDefaultModelAlias );
+    // Resolve the model name against the store. There is no catalogue: what can be loaded is
+    // what is installed, which is why this is a lookup rather than a table.
+    std::string name( kDefaultModelName );
 
     if ( j.contains( "model" ) && j[ "model" ].is_string() )
-        alias = j[ "model" ].get<std::string>();
+        name = j[ "model" ].get<std::string>();
 
-    const ModelEntry* entry = findModel( alias );
-
-    if ( entry == nullptr )
-        throw std::invalid_argument( std::format(
-            "Unknown model alias '{}' in session config. Run with --help for the list.", alias ) );
-
-    ChatConfig config;
-    config.model_type        = entry->family;
-    config.model_size        = entry->size;
-    config.precision         = entry->precision;
-    config.is_instruct       = entry->is_instruct;
-    config.streaming_capable = entry->streaming_capable;
-    config.models_dir     = models_dir;
-    config.model_path     = models_dir / entry->weights_file;
-    config.tokenizer_path = models_dir / entry->tokenizer_file;
-    config.config_path    = config_path;
-
-    // Quantization: explicit config override, else the model's own default.
-    config.quantization_mode = entry->default_quantization;
+    // Quantization is a deployment choice against an unquantized artifact, so it is settled
+    // before the model resolves rather than being part of the name.
+    std::optional<QuantizationMode> requested_quantization;
 
     if ( j.contains( "quantization" ) && j[ "quantization" ].is_string() )
     {
@@ -169,11 +159,46 @@ static ChatConfig buildConfig( int argc, char* argv[] )
             throw std::invalid_argument( std::format(
                 "Unknown quantization '{}'. Use none, fp8, or fp4.", value ) );
 
-        config.quantization_mode = *parsed;
+        requested_quantization = *parsed;
     }
 
-    // Context length: explicit override, else the model's own default.
-    config.context_length = entry->default_context;
+    // A name that does not resolve is reported into the session rather than out of it. The
+    // commands that fix it -- /install, /models, /model -- are all inside the session, so
+    // exiting here is precisely what left a clean machine with no way to get its first model.
+    std::optional<ResolvedModel> resolved;
+    std::string no_model_reason;
+
+    try
+    {
+        resolved = resolveModel( name, requested_quantization );
+    }
+    catch ( const std::exception& e )
+    {
+        no_model_reason = e.what();
+    }
+
+    ChatConfig config;
+    config.no_model_reason = no_model_reason;
+
+    if ( resolved )
+    {
+        config.model_name        = resolved->name;
+        config.model_type        = resolved->family;
+        config.precision         = resolved->precision;
+        config.is_instruct       = resolved->instruct;
+        config.base_model        = resolved->base_model;
+        config.license           = resolved->license;
+        config.streaming_capable = resolved->streaming_capable;
+        config.quantization_mode = resolved->quantization;
+        config.quantization_applied_at_load = resolved->quantization_applied_at_load;
+        config.model_path        = resolved->weights;
+        config.tokenizer_path    = resolved->tokenizer;
+
+        // Context length: explicit override, else the model's own default.
+        config.context_length = resolved->default_context;
+    }
+
+    config.config_path    = config_path;
 
     if ( j.contains( "context_length" ) && j[ "context_length" ].is_number_unsigned() )
         config.context_length = j[ "context_length" ].get<std::size_t>();
@@ -271,18 +296,23 @@ int main( int argc, char* argv[] )
         if ( config.detail == DetailLevel::All )
             Mila::Logging::Logger::defaultLogger().setLevel( Mila::Logging::LogLevel::Info );
 
-        if ( !std::filesystem::exists( config.model_path ) )
+        // Only when a model resolved: with nothing selected there are no paths to check, and
+        // the session opens anyway so /install can be reached.
+        if ( !config.model_name.empty() )
         {
-            std::cerr << "Error: Model file not found: " << config.model_path << "\n";
-            printUsage( argv[ 0 ] );
-            return 1;
-        }
+            if ( !std::filesystem::exists( config.model_path ) )
+            {
+                std::cerr << "Error: Model file not found: " << config.model_path << "\n";
+                printUsage( argv[ 0 ] );
+                return 1;
+            }
 
-        if ( !std::filesystem::exists( config.tokenizer_path ) )
-        {
-            std::cerr << "Error: Tokenizer file not found: " << config.tokenizer_path << "\n";
-            printUsage( argv[ 0 ] );
-            return 1;
+            if ( !std::filesystem::exists( config.tokenizer_path ) )
+            {
+                std::cerr << "Error: Tokenizer file not found: " << config.tokenizer_path << "\n";
+                printUsage( argv[ 0 ] );
+                return 1;
+            }
         }
 
         if ( config.system_prompt_path.has_value() &&

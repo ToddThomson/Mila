@@ -22,6 +22,7 @@ module;
 export module Compute.CpuTensorOps:Fill;
 
 import Dnn.Tensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeMap;
 import Dnn.TensorDataTypeTraits;
@@ -90,7 +91,7 @@ namespace Mila::Dnn::Compute::Cpu
             using HostValueType = host_value_t<TDataType>;
             using NativeType = typename CpuTensorDataTypeTraits::template native_type<TDataType>;
 
-            const size_t count = std::min( tensor.size(), host_values.size() );
+            const dim_t count = std::min( tensor.size(), static_cast<dim_t>( host_values.size() ) );
             NativeType* typed_dst = static_cast<NativeType*>(tensor.data());
 
             // Optimization: Direct copy when types match

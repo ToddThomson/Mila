@@ -106,7 +106,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
         void setGradients( ITensor* /*unused1*/, ITensor* /*unused2*/ ) override
         {}
 
-        void initializeKvCache( int batch_size, int max_seq_length ) override
+        void initializeKvCache( dim_t batch_size, dim_t max_sequence_length ) override
         {
             if ( !this->isBuilt() )
             {
@@ -118,19 +118,19 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 throw std::invalid_argument( "CudaAttentionOp::initializeKVCache batch size mismatch" );
             }
 
-            if ( max_seq_length <= 0 || max_seq_length > T_ )
+            if ( max_sequence_length <= 0 || max_sequence_length > T_ )
             {
-                throw std::invalid_argument( "CudaAttentionOp::initializeKVCache max_seq_length out of range" );
+                throw std::invalid_argument( "CudaAttentionOp::initializeKVCache max_sequence_length out of range" );
             }
 
             //// DEBUG: start
             //// Dump batch_size and max_seq_length
             //Logging::Logger::debug( std::format(
             //    "initializeKVCache(): B={} max_seq_length={}",
-            //    batch_size, max_seq_length ) );
+            //    batch_size, max_sequence_length ) );
             //// DEBUG: end
 
-            active_max_seq_len_ = max_seq_length;
+            active_max_seq_len_ = narrowToKernelIndex( max_sequence_length );
             cached_seq_len_ = 0;
             kv_cache_enabled_ = true;
         }
@@ -142,12 +142,12 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
 
         // Interface parity with CudaGqaOp (PromptCaching.md 4.3): the full cache is
         // purely positional, so any rewind within the current fill is valid.
-        bool rewindKvCache( int position ) override
+        bool rewindKvCache( dim_t position ) override
         {
             if ( position < 0 || position > cached_seq_len_ )
                 return false;
 
-            cached_seq_len_ = position;
+            cached_seq_len_ = narrowToKernelIndex( position );
 
             return true;
         }
@@ -233,7 +233,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             cached_seq_len_ = actual_seq_len;
         }
 
-        void decode( const ITensor& input, ITensor& output, int position ) override
+        void decode( const ITensor& input, ITensor& output, dim_t position ) override
         {
             const auto& input_shape = input.shape();
 
@@ -246,7 +246,9 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
                 throw std::invalid_argument( "CudaAttentionOp::forwardDecode position out of range" );
             }
 
-            int actual_len = position + 1;
+            const int kernel_position = narrowToKernelIndex( position );
+
+            int actual_len = kernel_position + 1;
 
             const NativeType* X = static_cast<const NativeType*>( input.rawData() );
             NativeType* Y = static_cast<NativeType*>( output.rawData() );
@@ -260,7 +262,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             Detail::cuda_mha_kernels<NativeType>::permute_qkv_decode(
                 q_, k_, v_,
                 X,
-                B_, position, T_, NH_, HS_,
+                B_, kernel_position, T_, NH_, HS_,
                 stream );
 
             context_->synchronize();
@@ -287,7 +289,7 @@ namespace Mila::Dnn::Compute::Cuda::MultiHeadAttention
             //    Logging::Logger::info( this->getName() + ": dbg.v_ (device dump):\n" + v_dump );
             //}
 
-            const NativeType* q_decode = q_ + static_cast<int64_t>(position) * HS_;
+            const NativeType* q_decode = q_ + static_cast<int64_t>(kernel_position) * HS_;
 
             execute_plan<NativeType>(
                 cublaslt_handle_,

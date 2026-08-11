@@ -10,6 +10,7 @@
  */
 
 #include <pybind11/pybind11.h>
+#include <pybind11/functional.h>
 #include <pybind11/stl.h>
 
 #include <cstddef>
@@ -70,6 +71,15 @@ static void bind_tokenizer( py::module_& m )
             },
             py::arg( "path" ),
             "Load a Gemma 4 SentencePiece tokenizer from a Mila binary vocabulary file." )
+        .def_static( "from_store",
+            []( const std::string& name ) {
+                return Tokenizer::fromStore( name );
+            },
+            py::arg( "name" ),
+            "Load the tokenizer of an installed model, by store name.\n\n"
+            "The record says which loader the artifact needs, so nothing pairs a\n"
+            "tokenizer path with a weights path by hand.\n\n"
+            "Raises RuntimeError if the model is not installed or its files are missing." )
         .def( "encode",
             []( Tokenizer& self, const std::string& text ) -> std::vector<int32_t> {
                 py::gil_scoped_release _;
@@ -114,6 +124,234 @@ static void bind_tokenizer( py::module_& m )
 }
 
 // ============================================================================
+// Distribution bindings — the model store, and a hub driven from Python
+// ============================================================================
+
+/**
+ * @brief The store's byte sink, presented to Python as a callable.
+ *
+ * A transport implemented in Python hands chunks here as they arrive. The bytes go straight
+ * into the store's hash-and-write pass, so they are touched once: there is no staging file to
+ * re-read and no second digest. The GIL is released around that pass, or a 6 GB transfer would
+ * serialize against the interpreter.
+ *
+ * The buffer must not be mutated while the call is in flight. `bytes` -- what every Python HTTP
+ * library yields -- is immutable, so this is only a caution for a caller passing a bytearray.
+ */
+class ChunkWriter
+{
+public:
+    explicit ChunkWriter( const Mila::Bindings::ChunkSink& sink ) : sink_( sink ) {}
+
+    bool write( py::buffer data ) const
+    {
+        const py::buffer_info info = data.request();
+
+        const char* bytes = static_cast<const char*>( info.ptr );
+        const std::size_t length =
+            static_cast<std::size_t>( info.size ) * static_cast<std::size_t>( info.itemsize );
+
+        py::gil_scoped_release release;
+
+        return sink_( bytes, length );
+    }
+
+private:
+    const Mila::Bindings::ChunkSink& sink_;
+};
+
+/**
+ * @brief Wrap a Python callable as the library's HTTP fetch delegate.
+ *
+ * None means "use whatever transport this build has", which is an empty delegate rather than
+ * one that fails -- the library decides, not this shim.
+ */
+static Mila::Bindings::HttpFetchDelegate makeHttpFetchDelegate( py::object transport )
+{
+    if ( transport.is_none() )
+    {
+        return {};
+    }
+
+    return [transport](
+        const std::string& url,
+        const std::vector<Mila::Bindings::HttpHeaderInfo>& headers,
+        const Mila::Bindings::ChunkSink& sink ) -> Mila::Bindings::HttpResponseInfo
+        {
+            py::gil_scoped_acquire acquire;
+
+            // Headers as a plain dict: order carries no meaning here and a mapping is what a
+            // Python HTTP library wants.
+            py::dict header_map;
+
+            for ( const auto& header : headers )
+            {
+                header_map[ py::str( header.name ) ] = py::str( header.value );
+            }
+
+            // Scoped to this call: the writer borrows a sink valid only while the store is
+            // inside ensureBlob. Reference policy so Python never takes ownership of
+            // something with a shorter life than itself.
+            ChunkWriter writer( sink );
+
+            return transport(
+                url, header_map,
+                py::cast( &writer, py::return_value_policy::reference ) )
+                .cast<Mila::Bindings::HttpResponseInfo>();
+        };
+}
+
+static void bind_distribution( py::module_& m )
+{
+    py::class_<Mila::Bindings::HttpResponseInfo>( m, "HttpResponse" )
+        .def( py::init<>() )
+        .def( py::init( []( long http_code, std::string location, std::uint64_t content_length,
+                bool transport_failed, std::string message ) {
+                return Mila::Bindings::HttpResponseInfo{
+                    http_code, std::move( location ), content_length,
+                    transport_failed, std::move( message ) };
+            } ),
+            py::arg( "http_code" ) = 0,
+            py::arg( "location" ) = std::string{},
+            py::arg( "content_length" ) = 0,
+            py::arg( "transport_failed" ) = false,
+            py::arg( "message" ) = std::string{} )
+        .def_readwrite( "http_code", &Mila::Bindings::HttpResponseInfo::http_code )
+        .def_readwrite( "location", &Mila::Bindings::HttpResponseInfo::location,
+            "The Location header verbatim. Do not follow it -- report it and stop." )
+        .def_readwrite( "content_length", &Mila::Bindings::HttpResponseInfo::content_length )
+        .def_readwrite( "transport_failed", &Mila::Bindings::HttpResponseInfo::transport_failed,
+            "A connection, TLS or I/O failure, as distinct from any HTTP status." )
+        .def_readwrite( "message", &Mila::Bindings::HttpResponseInfo::message );
+
+    py::class_<ChunkWriter>( m, "ChunkWriter" )
+        .def( "__call__", &ChunkWriter::write, py::arg( "data" ),
+            "Hand one chunk to the store. Returns False to abort the transfer." );
+
+    py::class_<Mila::Bindings::HubModelInfo>( m, "HubModel" )
+        .def( py::init<>() )
+        .def_readwrite( "owner", &Mila::Bindings::HubModelInfo::owner )
+        .def_readwrite( "repository", &Mila::Bindings::HubModelInfo::repository )
+        .def_readwrite( "gated", &Mila::Bindings::HubModelInfo::gated )
+        .def_readwrite( "revision", &Mila::Bindings::HubModelInfo::revision )
+        .def_readwrite( "last_modified", &Mila::Bindings::HubModelInfo::last_modified )
+        .def_readwrite( "library", &Mila::Bindings::HubModelInfo::library )
+        .def_readwrite( "tags", &Mila::Bindings::HubModelInfo::tags )
+        .def_readwrite( "files", &Mila::Bindings::HubModelInfo::files );
+
+    py::class_<Mila::Bindings::StoredModelInfo>( m, "StoredModel" )
+        .def_readonly( "name", &Mila::Bindings::StoredModelInfo::name )
+        .def_readonly( "architecture", &Mila::Bindings::StoredModelInfo::architecture )
+        .def_readonly( "variant", &Mila::Bindings::StoredModelInfo::variant )
+        .def_readonly( "weight_quantization",
+            &Mila::Bindings::StoredModelInfo::weight_quantization )
+        .def_readonly( "instruct", &Mila::Bindings::StoredModelInfo::instruct,
+            "Instruction-tuned. Decides the prompt template a consumer applies." )
+        .def_readonly( "base_model", &Mila::Bindings::StoredModelInfo::base_model )
+        .def_readonly( "license", &Mila::Bindings::StoredModelInfo::license )
+        .def_readonly( "hub", &Mila::Bindings::StoredModelInfo::hub,
+            "Empty when the model was published from this machine." )
+        .def_readonly( "owner", &Mila::Bindings::StoredModelInfo::owner )
+        .def_readonly( "repository", &Mila::Bindings::StoredModelInfo::repository )
+        .def_readonly( "revision", &Mila::Bindings::StoredModelInfo::revision )
+        .def_readonly( "installed_at", &Mila::Bindings::StoredModelInfo::installed_at )
+        .def_readonly( "weights_path", &Mila::Bindings::StoredModelInfo::weights_path )
+        .def_readonly( "tokenizer_path", &Mila::Bindings::StoredModelInfo::tokenizer_path )
+        .def_readonly( "complete", &Mila::Bindings::StoredModelInfo::complete )
+        .def_readonly( "bytes_on_disk", &Mila::Bindings::StoredModelInfo::bytes_on_disk )
+        .def( "__repr__",
+            []( const Mila::Bindings::StoredModelInfo& self ) {
+                return "<StoredModel " + self.name + " (" + self.architecture + ")>";
+            } );
+
+    py::class_<Mila::Bindings::StoreUsageInfo>( m, "StoreUsage" )
+        .def_readonly( "blob_bytes", &Mila::Bindings::StoreUsageInfo::blob_bytes )
+        .def_readonly( "reclaimable_bytes", &Mila::Bindings::StoreUsageInfo::reclaimable_bytes )
+        .def_readonly( "partial_bytes", &Mila::Bindings::StoreUsageInfo::partial_bytes )
+        .def_readonly( "model_count", &Mila::Bindings::StoreUsageInfo::model_count )
+        .def_readonly( "blob_count", &Mila::Bindings::StoreUsageInfo::blob_count );
+
+    py::class_<Mila::Bindings::RemovalReportInfo>( m, "RemovalReport" )
+        .def_readonly( "records_removed", &Mila::Bindings::RemovalReportInfo::records_removed )
+        .def_readonly( "blobs_removed", &Mila::Bindings::RemovalReportInfo::blobs_removed )
+        .def_readonly( "files_removed", &Mila::Bindings::RemovalReportInfo::files_removed )
+        .def_readonly( "bytes_reclaimed", &Mila::Bindings::RemovalReportInfo::bytes_reclaimed )
+        .def_readonly( "retained", &Mila::Bindings::RemovalReportInfo::retained,
+            "Paths the platform refused to delete, most often a blob a live process maps." );
+
+    py::class_<Mila::Bindings::ModelStoreHandle>( m, "ModelStore" )
+        .def( py::init<const std::string&>(), py::arg( "root" ) = std::string{},
+            "Open the local store. An empty root takes MILA_CACHE_DIR, then the platform "
+            "user cache -- the same store Chat and the Mila Inference Server use." )
+        .def_property_readonly( "root",
+            []( const Mila::Bindings::ModelStoreHandle& self ) { return self.root(); } )
+        .def( "list", &Mila::Bindings::ModelStoreHandle::list,
+            "Every installed model, complete or not." )
+        .def( "locate", &Mila::Bindings::ModelStoreHandle::locate, py::arg( "name" ),
+            "The model under this name, or None when it is absent or a blob is missing." )
+        .def( "remove", &Mila::Bindings::ModelStoreHandle::remove, py::arg( "name" ),
+            "Remove a model, reclaiming only blobs no surviving record references." )
+        .def( "usage", &Mila::Bindings::ModelStoreHandle::usage,
+            "What the store holds and what could be reclaimed." )
+        .def( "install",
+            []( Mila::Bindings::ModelStoreHandle& self, const std::string& package_directory,
+                const std::string& name, bool replace, bool move_files ) {
+                py::gil_scoped_release _;
+
+                return self.install( package_directory, name, replace, move_files );
+            },
+            py::arg( "package_directory" ),
+            py::arg( "name" ) = std::string{},
+            py::arg( "replace" ) = false,
+            py::arg( "move_files" ) = true,
+            "Install a package directory into the store. Every file is hashed as it is\n"
+            "adopted, so a blob is trusted only after its digest matches the manifest." )
+        .def( "pull",
+            []( Mila::Bindings::ModelStoreHandle& self, const std::string& name,
+                const std::string& owner, py::object transport ) {
+                auto delegate = makeHttpFetchDelegate( transport );
+
+                // Released for the whole pull; the delegate reacquires per request, and
+                // ChunkWriter drops it again for each hash-and-write.
+                py::gil_scoped_release release;
+
+                return self.pull( name, owner, delegate );
+            },
+            py::arg( "name" ),
+            py::arg( "owner" ),
+            py::arg( "transport" ) = py::none(),
+            "Pull a published model, fetching every file its manifest declares and writing\n"
+            "the record last, so a failed pull leaves nothing that looks installed.\n\n"
+            "The library builds the URLs, finds the token, sets any Range, parses the\n"
+            "manifest and verifies every digest. transport only moves bytes:\n\n"
+            "    transport(url, headers, writer) -> HttpResponse\n\n"
+            "headers is a dict to send verbatim -- the token and any Range are already in\n"
+            "it. Call writer(chunk) for each chunk of a 2xx body; those bytes are hashed and\n"
+            "written in one pass, so nothing is staged and re-read, and a False return means\n"
+            "stop. Pass None for mila.http_transport, the standard-library implementation\n"
+            "the package ships.\n\n"
+            "Two obligations. Do NOT follow redirects: report location verbatim and stop, or\n"
+            "the token travels to whatever host the 302 names. And report the status without\n"
+            "interpreting it -- a Range answered 200 rather than 206 is the library's call." )
+        .def( "list_hub_models",
+            []( const Mila::Bindings::ModelStoreHandle& self, const std::string& owner,
+                py::object transport ) {
+                auto delegate = makeHttpFetchDelegate( transport );
+
+                py::gil_scoped_release release;
+
+                return self.listHubModels( owner, delegate );
+            },
+            py::arg( "owner" ),
+            py::arg( "transport" ) = py::none(),
+            "Every repository the owner publishes that Mila can load. Same transport\n"
+            "contract as pull(); the listing is parsed by the library." );
+
+    m.def( "default_hub_owner", &Mila::Bindings::defaultHubOwner,
+        "The hub owner Mila publishes under." );
+}
+
+// ============================================================================
 // LlamaModel bindings — Llama 3.2 3B Instruct, CUDA BF16
 // ============================================================================
 
@@ -124,25 +362,47 @@ static void bind_llama_model( py::module_& m )
             []( const std::string& path,
                 int64_t context_length,
                 int device_index,
-                bool quantize_fp8 ) -> std::unique_ptr<LlamaSession>
+                const std::string& quantization ) -> std::unique_ptr<LlamaSession>
             {
-                (void)quantize_fp8;
-
                 py::gil_scoped_release _;
 
-                return LlamaSession::fromPretrained( path, context_length, device_index );
+                return LlamaSession::fromPretrained(
+                    path, context_length, device_index, quantization );
             },
             py::arg( "path" ),
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
-            py::arg( "quantize_fp8" ) = false,
-            "Load Llama 3.2 3B Instruct pretrained weights from a Mila artifact.\n\n"
+            py::arg( "quantization" ) = "bf16",
+            "Load Llama 3.x Instruct weights from an unquantized Mila artifact.\n\n"
             "Args:\n"
-            "    path:          Path to the Mila pretrained artifact.\n"
+            "    path:           Path to the Mila pretrained artifact.\n"
             "    context_length: Maximum sequence length to build for.\n"
-            "    device_index:  CUDA device index (default: 0).\n"
-            "    quantize_fp8:  Quantize weights to FP8_E4M3 at load time (default: False).\n"
-            "                   Requires SM >= 8.9 (RTX 40xx / Ada Lovelace)." )
+            "    device_index:   CUDA device index (default: 0).\n"
+            "    quantization:   'bf16', 'fp8' or 'fp4', applied at load time\n"
+            "                    (default: 'bf16'). FP8 and FP4 require SM >= 8.9\n"
+            "                    (RTX 40xx / Ada Lovelace).\n\n"
+            "A PRE-quantized artifact cannot be loaded here -- its bytes are already\n"
+            "FP4 or FP8, and only its store record says which. Use from_store()." )
+        .def_static( "from_store",
+            []( const std::string& name,
+                int64_t context_length,
+                int device_index ) -> std::unique_ptr<LlamaSession>
+            {
+                py::gil_scoped_release _;
+
+                return LlamaSession::fromStore( name, context_length, device_index );
+            },
+            py::arg( "name" ),
+            py::arg( "context_length" ),
+            py::arg( "device_index" ) = 0,
+            "Load an installed Llama model by store name, as the artifact itself is.\n\n"
+            "The record settles the quantization, so a published FP4 or FP8 artifact\n"
+            "loads without the caller knowing what it is. Nothing is downloaded: an\n"
+            "uninstalled name raises RuntimeError.\n\n"
+            "Args:\n"
+            "    name:           Store name, e.g. 'Llama-3.2-3B-Instruct-fp4'.\n"
+            "    context_length: Maximum sequence length to build for.\n"
+            "    device_index:   CUDA device index (default: 0)." )
         .def( "generate",
             []( LlamaSession& self,
                 const std::vector<int32_t>& prompt_tokens,
@@ -223,18 +483,42 @@ static void bind_gemma_model( py::module_& m )
         .def_static( "from_pretrained",
             []( const std::string& path,
                 int64_t context_length,
-                int device_index ) -> std::unique_ptr<GemmaSession>
+                int device_index,
+                const std::string& quantization ) -> std::unique_ptr<GemmaSession>
             {
                 py::gil_scoped_release _;
 
-                return GemmaSession::fromPretrained( path, context_length, device_index );
+                return GemmaSession::fromPretrained(
+                    path, context_length, device_index, quantization );
             },
             py::arg( "path" ),
             py::arg( "context_length" ),
             py::arg( "device_index" ) = 0,
-            "Load Gemma 4 pretrained weights from a Mila artifact.\n\n"
+            py::arg( "quantization" ) = "fp4",
+            "Load Gemma 4 weights from an unquantized Mila artifact.\n\n"
             "Args:\n"
             "    path:           Path to the Mila pretrained artifact.\n"
+            "    context_length: Maximum sequence length to build for.\n"
+            "    device_index:   CUDA device index (default: 0).\n"
+            "    quantization:   'bf16', 'fp8' or 'fp4', applied at load time\n"
+            "                    (default: 'fp4' -- a BF16 Gemma 4 12B needs ~24 GB\n"
+            "                    and OOMs at load on the cards this targets).\n\n"
+            "A PRE-quantized artifact cannot be loaded here. Use from_store()." )
+        .def_static( "from_store",
+            []( const std::string& name,
+                int64_t context_length,
+                int device_index ) -> std::unique_ptr<GemmaSession>
+            {
+                py::gil_scoped_release _;
+
+                return GemmaSession::fromStore( name, context_length, device_index );
+            },
+            py::arg( "name" ),
+            py::arg( "context_length" ),
+            py::arg( "device_index" ) = 0,
+            "Load an installed Gemma model by store name, as the artifact itself is.\n\n"
+            "Args:\n"
+            "    name:           Store name, e.g. 'gemma-4-12b-it-fp4'.\n"
             "    context_length: Maximum sequence length to build for.\n"
             "    device_index:   CUDA device index (default: 0)." )
         .def( "generate",
@@ -329,9 +613,29 @@ static void bind_stop_controller( py::module_& m )
 // Module entry point
 // ============================================================================
 
-PYBIND11_MODULE( mila, m )
+// The extension is the PRIVATE half of the `mila` package: users import `mila`,
+// whose __init__ registers the CUDA DLL directories and then re-exports from here.
+// A bare top-level `mila` extension cannot do that -- there is no __init__ to run
+// before the DLL load -- which is why the module is named _mila.
+PYBIND11_MODULE( _mila, m )
 {
-    m.doc() = "Mila inference bindings — Llama 3.2 3B Instruct on CUDA BF16.";
+    m.doc() =
+        "Mila inference bindings for CUDA.\n\n"
+        "Models:\n"
+        "    GemmaModel  Gemma 4 Instruct, BF16 compute with FP4 weights (the flagship).\n"
+        "    LlamaModel  Llama 3.x Instruct, BF16 compute, optional FP8 or FP4 weights.\n\n"
+        "Load an installed model by name with from_store(), which reads the store record\n"
+        "and so knows what the artifact already is -- a published model is pre-quantized,\n"
+        "and only its record says to what. from_pretrained() remains for a loose artifact\n"
+        "file, where the quantization is the caller's choice. BpeTokenizer.from_store()\n"
+        "takes the same name, so nothing pairs two paths by hand. The GIL is released\n"
+        "around generation, so streaming callbacks, a StopController and Ctrl-C all work\n"
+        "from Python.\n\n"
+        "Distribution:\n"
+        "    ModelStore  The local store Chat and the Mila Inference Server share:\n"
+        "                list, locate, remove, usage, install, pull.\n\n"
+        "Pull and load are separate verbs and only the store is loadable. pull() takes the\n"
+        "transport as an argument, so this build needs no HTTP client of its own.";
 
     m.def( "initialize",
         []( const std::string& level ) {
@@ -341,6 +645,7 @@ PYBIND11_MODULE( mila, m )
         "Initialize the Mila framework. log_level: trace | info | warning | error." );
 
     bind_stop_controller( m );
+    bind_distribution( m );
     bind_tokenizer( m );
     bind_llama_model( m );
     bind_gemma_model( m );

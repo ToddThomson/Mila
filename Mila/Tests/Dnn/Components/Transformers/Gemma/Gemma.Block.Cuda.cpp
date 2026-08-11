@@ -23,10 +23,15 @@
  */
 
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <chrono>
 #include <cstdint>
+#include <filesystem>
+#include <format>
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <system_error>
 
 import Mila;
 
@@ -34,6 +39,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Serialization;
 
     namespace
     {
@@ -166,14 +172,14 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
     {
         auto block = builtBlock<LocalBlock>( RuntimeMode::Inference );
 
-        EXPECT_GT( block->parameterCount(), 0u );
+        EXPECT_GT( block->parameterCount(), 0 );
     }
 
     TEST_F( GemmaBlockCudaTests, BuildGlobal_AllocatesParameters )
     {
         auto block = builtBlock<GlobalBlock>( RuntimeMode::Inference );
 
-        EXPECT_GT( block->parameterCount(), 0u );
+        EXPECT_GT( block->parameterCount(), 0 );
     }
 
     TEST_F( GemmaBlockCudaTests, Build_ThrowsOnNonRank3Input )
@@ -263,4 +269,134 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 
         EXPECT_EQ( block.getType(), ComponentType::Transformer );
     }
+
+    // ====================================================================
+    // Serialization
+    // ====================================================================
+    //
+    // GemmaBlock is the only composite in the tree that owns a parameter of its
+    // own -- layer_scalar, the Gemma 4 Unified per-layer output scale. Every other
+    // composite is a pure container whose state lives entirely in its children, so
+    // this is the one place where "recurse into children" is not the whole job.
+    // The hand-rolled save_ this replaces did neither half correctly: it recursed
+    // without pushing a scope per child, and it never wrote layer_scalar at all --
+    // so a Gemma archive silently dropped the per-layer scales, a numerics change
+    // rather than a missing extra.
+
+    namespace
+    {
+        std::filesystem::path makeTempArchivePath( const std::string& tag )
+        {
+            const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
+            return std::filesystem::temp_directory_path()
+                / std::format( "mila_test_gemma_block_{}_{}.mila", tag, stamp );
+        }
+
+        // layer_scalar has no accessor, so it is set the only way the block exposes --
+        // through loadParameter, with the [1] FP32 blob the load path expects.
+        void setLayerScalar( LocalBlock& block, float value )
+        {
+            TensorMetadata meta;
+            meta.dtype = TensorDataType::FP32;
+            meta.shape = shape_t{ 1 };
+            meta.total_bytes = sizeof( float );
+
+            TensorBlobView blob( meta, &value, sizeof( float ) );
+
+            block.loadParameter( "layer_scalar", blob );
+        }
+
+        // ...and read back only through an archive, which is the stronger oracle
+        // anyway: it asserts what a checkpoint actually contains.
+        float readLayerScalarFrom( const ModelArchive& archive )
+        {
+            float value = 0.0f;
+            const size_t bytes = archive.readBlobInto( "tensors/layer_scalar/data.bin", &value, sizeof( float ) );
+
+            EXPECT_EQ( bytes, sizeof( float ) );
+
+            return value;
+        }
+    }
+
+    TEST_F( GemmaBlockCudaTests, Save_WritesLayerScalarAndScopesEveryChild )
+    {
+        const auto path = makeTempArchivePath( "scalar" );
+        std::error_code ec;
+        std::filesystem::remove( path, ec );
+
+        auto block = builtBlock<LocalBlock>( RuntimeMode::Inference );
+        setLayerScalar( *block, 2.5f );
+
+        {
+            ModelArchive archive( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Write );
+            block->save_( archive, SerializationMode::Checkpoint );
+        }
+
+        ModelArchive reader( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Read );
+
+        // The block's own parameter, which the previous implementation never wrote.
+        ASSERT_TRUE( reader.hasFile( "tensors/layer_scalar/data.bin" ) );
+        EXPECT_FLOAT_EQ( readLayerScalarFrom( reader ), 2.5f );
+
+        // And the children, each under its own scope. Sixteen children with several
+        // parameter-owning norms and projections must not collapse onto one path.
+        const auto files = reader.listFiles();
+        const auto blob_count = std::count_if( files.begin(), files.end(),
+            []( const std::string& name )
+            {
+                return name.ends_with( "/data.bin" );
+            } );
+
+        EXPECT_GT( blob_count, 5 ) << "children collapsed onto a single scope";
+
+        std::filesystem::remove( path, ec );
+    }
+
+    TEST_F( GemmaBlockCudaTests, SaveThenLoad_RestoresLayerScalar )
+    {
+        const auto source_path = makeTempArchivePath( "src" );
+        const auto target_path = makeTempArchivePath( "dst" );
+        std::error_code ec;
+        std::filesystem::remove( source_path, ec );
+        std::filesystem::remove( target_path, ec );
+
+        auto source = builtBlock<LocalBlock>( RuntimeMode::Inference );
+        setLayerScalar( *source, 2.5f );
+
+        {
+            ModelArchive archive( source_path.string(), std::make_unique<ZipSerializer>(), OpenMode::Write );
+            source->save_( archive, SerializationMode::Checkpoint );
+        }
+
+        // A fresh block: layer_scalar defaults to 1.0f, so a load_ that silently skips
+        // the block's own parameter is distinguishable from one that restores it.
+        auto target = builtBlock<LocalBlock>( RuntimeMode::Inference );
+
+        {
+            ModelArchive archive( source_path.string(), std::make_unique<ZipSerializer>(), OpenMode::Read );
+            target->load_( archive, SerializationMode::Checkpoint );
+        }
+
+        // Re-save the target and inspect: 2.5 means restored, 1.0 means the default
+        // survived and load_ did nothing.
+        {
+            ModelArchive archive( target_path.string(), std::make_unique<ZipSerializer>(), OpenMode::Write );
+            target->save_( archive, SerializationMode::Checkpoint );
+        }
+
+        ModelArchive reader( target_path.string(), std::make_unique<ZipSerializer>(), OpenMode::Read );
+
+        EXPECT_FLOAT_EQ( readLayerScalarFrom( reader ), 2.5f );
+
+        std::filesystem::remove( source_path, ec );
+        std::filesystem::remove( target_path, ec );
+    }
+
+    // NOTE: the "archive is missing a named parameter throws" contract is covered
+    // generically in Core/CompositeComponent.cpp. Reproducing it here would mean
+    // building a children-only archive, which requires calling CompositeComponent's
+    // protected save_ from outside the class -- so the Gemma-specific value stays in
+    // the two tests above.
 }

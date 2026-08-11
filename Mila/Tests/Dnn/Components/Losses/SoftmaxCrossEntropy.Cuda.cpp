@@ -254,7 +254,7 @@ namespace Modules::Losses::Tests
         HostLogitsTensorType host_output = toHost<TensorDataType::FP32>( device_output );
         EXPECT_EQ( host_output.size(), device_output.size() );
 
-        for (size_t i = 0; i < host_output.size(); ++i)
+        for (dim_t i = 0; i < host_output.size(); ++i)
         {
             EXPECT_GE( host_output.data()[i], 0.0f ) << "Loss should be non-negative";
         }
@@ -308,7 +308,7 @@ namespace Modules::Losses::Tests
         EXPECT_EQ( host_input_grad.size(), device_input_grad.size() );
 
         bool has_nonzero_grad = false;
-        for (size_t i = 0; i < host_input_grad.size(); ++i)
+        for (dim_t i = 0; i < host_input_grad.size(); ++i)
         {
             if (std::abs( host_input_grad.data()[i] ) > 1e-6f)
             {

@@ -27,6 +27,42 @@ namespace Mila::Dnn::Optimizers
 {
     using namespace Mila::Dnn::Compute;
 
+    namespace Detail
+    {
+        /**
+         * @brief Selects the device-specific AdamW implementation for (device, precision).
+         *
+         * Deliberately NOT std::conditional_t. That names both branches, so selecting the
+         * CUDA implementation still required CpuAdamWOptimizer<TPrecision> to be a valid
+         * template-id -- and CpuAdamWOptimizer is constrained by
+         * PrecisionSupportedOnDevice<TPrecision, Cpu>, which BF16 and FP16 do not satisfy
+         * (BF16 has supported_on_cpu == false). The unselected branch therefore failed its
+         * own constraints and AdamWOptimizer<Cuda, BF16> could not be instantiated at all:
+         * the device-agnostic wrapper was unusable for exactly the mixed-precision case its
+         * master-parameter path exists to serve.
+         *
+         * A trait specialized per device names only the branch actually chosen. A missing
+         * specialization is a hard compile error naming the pair, matching the
+         * OperationTraits convention used elsewhere.
+         */
+        template<DeviceType TDeviceType, TensorDataType TPrecision>
+        struct AdamWImplFor;
+
+        template<TensorDataType TPrecision>
+        struct AdamWImplFor<DeviceType::Cpu, TPrecision>
+        {
+            using type = CpuAdamWOptimizer<TPrecision>;
+        };
+
+#ifdef MILA_HAS_CUDA
+        template<TensorDataType TPrecision>
+        struct AdamWImplFor<DeviceType::Cuda, TPrecision>
+        {
+            using type = CudaAdamWOptimizer<TPrecision>;
+        };
+#endif
+    }
+
     /**
      * @brief Device-agnostic AdamW optimizer.
      *
@@ -44,11 +80,7 @@ namespace Mila::Dnn::Optimizers
     public:
         
         using ExecutionContextType = ExecutionContext<TDeviceType>;
-#ifdef MILA_HAS_CUDA
-        using OptimizerType = std::conditional_t<TDeviceType == DeviceType::Cuda, CudaAdamWOptimizer<TPrecision>, CpuAdamWOptimizer<TPrecision>>;
-#else
-        using OptimizerType = CpuAdamWOptimizer<TPrecision>;
-#endif
+        using OptimizerType = typename Detail::AdamWImplFor<TDeviceType, TPrecision>::type;
 
         /**
          * @brief Construct AdamW optimizer from fluent `AdamWConfig`.

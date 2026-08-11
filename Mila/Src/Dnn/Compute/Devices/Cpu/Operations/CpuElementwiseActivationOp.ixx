@@ -84,7 +84,7 @@ namespace Mila::Dnn::Compute
                 throw std::runtime_error( "CpuElementwiseActivationOp::forward - null tensor data pointer" );
             }
 
-            const size_t N = input.size();
+            const dim_t N = input.size();
 
 #pragma omp parallel for if(N > 1000)
             for ( int i = 0; i < static_cast<int>( N ); i++ )
@@ -104,7 +104,7 @@ namespace Mila::Dnn::Compute
                 throw std::runtime_error( "CpuElementwiseActivationOp::backward - null tensor data pointer" );
             }
 
-            const size_t N = input.size();
+            const dim_t N = input.size();
 
             // Accumulate into a pre-zeroed buffer (the component zeroes input_grad
             // before each backward), matching the CpuGeluOp accumulation contract.

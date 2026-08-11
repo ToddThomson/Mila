@@ -34,8 +34,13 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <filesystem>
+#include <format>
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <system_error>
 #include <vector>
 
 import Mila;
@@ -43,10 +48,10 @@ import Mila;
 // concrete ExecutionContext<Cuda> methods (getCublasLtHandle, etc.). The Mila
 // umbrella does not complete that type for a consumer TU, so import it directly.
 import Compute.ExecutionContext;
-// Same reason: the weight-quant policy structs (PerChannelFp8 / PerGroupFp4) and the
-// serialization blob types (TensorMetadata / TensorBlobView) are not re-exported through
-// the Mila umbrella, so import their modules directly (clang requires it; MSVC did not).
-import Dnn.Quantization.Weight.Policies;
+// Same reason: the serialization blob types (TensorMetadata / TensorBlobView) are not
+// re-exported through the Mila umbrella, so import that module directly (clang requires
+// it; MSVC did not). The weight-quant policies used to need this too and no longer do --
+// Mila.ixx exports them.
 import Serialization.Tensor;
 
 namespace Mila::Tests::Dnn::Components::Linear
@@ -210,7 +215,7 @@ namespace Mila::Tests::Dnn::Components::Linear
         {
             HostFp32 host( Device::Cpu(), shape );
 
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = static_cast<float>( i ) / host.size() * 2.0f - 1.0f;
             }
@@ -288,7 +293,7 @@ namespace Mila::Tests::Dnn::Components::Linear
 
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float tolerance = TypeParam::forward_atol + TypeParam::forward_rtol * std::fabs( expected[ i ] );
 
@@ -331,7 +336,7 @@ namespace Mila::Tests::Dnn::Components::Linear
 
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float tolerance = TypeParam::forward_atol + TypeParam::forward_rtol * std::fabs( expected[ i ] );
 
@@ -360,7 +365,7 @@ namespace Mila::Tests::Dnn::Components::Linear
         auto device_in = this->toDevice( host_in );
 
         typename TestFixture::HostFp32 host_grad( Device::Cpu(), output_shape );
-        for ( size_t i = 0; i < host_grad.size(); ++i )
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
         {
             host_grad.data()[ i ] = 0.01f * static_cast<float>( ( i % 13 ) + 1 );
         }
@@ -398,7 +403,7 @@ namespace Mila::Tests::Dnn::Components::Linear
 
         ASSERT_EQ( input_grad.size(), expected_dx.size() );
 
-        for ( size_t i = 0; i < input_grad.size(); ++i )
+        for ( dim_t i = 0; i < input_grad.size(); ++i )
         {
             const float tolerance = TypeParam::backward_atol + TypeParam::backward_rtol * std::fabs( expected_dx[ i ] );
 
@@ -461,6 +466,86 @@ namespace Mila::Tests::Dnn::Components::Linear
     }
 
     // ====================================================================
+    // G2. Required-memory contract (MemoryFootprint.md section 7, Gate A)
+    // ====================================================================
+
+    // The premise the whole footprint mechanism rests on: construction commits no
+    // device memory, so a constructed-but-unbuilt graph can be asked what building
+    // would cost. Asserted directly so it cannot regress silently -- the lifecycle
+    // comment claiming otherwise survived in two files until 2026-08-04.
+    TYPED_TEST( LinearCudaTests, Construct_AllocatesNoDeviceMemory )
+    {
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( true );
+
+        typename TestFixture::LinearType unbuilt( "linear", config, Device::Cuda( 0 ) );
+
+        const MemoryStats stats = unbuilt.getMemoryStats();
+
+        EXPECT_EQ( stats.totalBytes(), 0u );
+    }
+
+    // Gate A: what an unbuilt component predicts must equal what a built one reports.
+    // Category-by-category, so a disagreement names parameters, state or gradients
+    // rather than handing back a total that is merely wrong.
+    TYPED_TEST( LinearCudaTests, RequiredMemory_MatchesBuiltFootprint )
+    {
+        for ( bool has_bias : { false, true } )
+        {
+            for ( RuntimeMode mode : { RuntimeMode::Inference, RuntimeMode::Training } )
+            {
+                LinearConfig config( kInFeatures, kOutFeatures );
+                config.withBias( has_bias );
+
+                const shape_t shape{ 2, kInFeatures };
+                const BuildContext context( shape, mode, false );
+
+                typename TestFixture::LinearType predictor( "linear", config, Device::Cuda( 0 ) );
+                const MemoryStats predicted = predictor.getRequiredMemory( context );
+
+                typename TestFixture::LinearType built( "linear", config, Device::Cuda( 0 ) );
+                built.build( context );
+                const MemoryStats actual = built.getMemoryStats();
+
+                EXPECT_EQ( predicted.device_parameter_bytes, actual.device_parameter_bytes )
+                    << "parameters, bias=" << has_bias;
+                EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes )
+                    << "state, bias=" << has_bias;
+                EXPECT_EQ( predicted.device_gradient_bytes, actual.device_gradient_bytes )
+                    << "gradients, bias=" << has_bias;
+            }
+        }
+    }
+
+    // A tied lm_head adopting the embedding table. getRequiredMemory must follow
+    // getMemoryStats's convention exactly -- both REPORT the installed weight, and the
+    // tying composite subtracts it once -- or the two disagree precisely on the largest
+    // tensor in the model.
+    TYPED_TEST( LinearCudaTests, RequiredMemory_MatchesBuiltFootprintWithInstalledWeight )
+    {
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( false );
+
+        const shape_t shape{ 2, kInFeatures };
+        const BuildContext context( shape, RuntimeMode::Inference, false );
+
+        auto shared_weight = std::make_shared<typename TestFixture::DeviceTensor>(
+            Device::Cuda( 0 ), shape_t{ kOutFeatures, kInFeatures }, "shared.weight" );
+
+        typename TestFixture::LinearType predictor( "linear", config, Device::Cuda( 0 ) );
+        predictor.installSharedWeight( shared_weight );
+        const MemoryStats predicted = predictor.getRequiredMemory( context );
+
+        typename TestFixture::LinearType built( "linear", config, Device::Cuda( 0 ) );
+        built.installSharedWeight( shared_weight );
+        built.build( context );
+        const MemoryStats actual = built.getMemoryStats();
+
+        EXPECT_EQ( predicted.device_parameter_bytes, actual.device_parameter_bytes );
+        EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes );
+    }
+
+    // ====================================================================
     // H. Shared weight installation (weight tying — WeightTying.md)
     // ====================================================================
 
@@ -514,7 +599,7 @@ namespace Mila::Tests::Dnn::Components::Linear
 
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float tolerance = TypeParam::forward_atol + TypeParam::forward_rtol * std::fabs( expected[ i ] );
 
@@ -654,7 +739,7 @@ namespace Mila::Tests::Dnn::Components::Linear
 
         ASSERT_EQ( direct_host.size(), tied_host.size() );
 
-        for ( size_t i = 0; i < direct_host.size(); ++i )
+        for ( dim_t i = 0; i < direct_host.size(); ++i )
         {
             EXPECT_EQ( tied_host.data()[ i ], direct_host.data()[ i ] )
                 << "tied FP8 head diverged from direct quantized load at index " << i;
@@ -671,6 +756,20 @@ namespace Mila::Tests::Dnn::Components::Linear
     // relative to each token's own scale. The test stays valid with
     // kUseFp8ActivationPrefill=false (BF16 staging GEMM vs matvec, passes with
     // margin), so it does not depend on the toggle state.
+    //
+    // Budget: 1e-1 * row_absmax. Derived, not guessed -- a bit-faithful CPU model of
+    // both paths on this exact fixture (FP4 group quantize, FP4->FP8 upcast with the
+    // per-tensor sB, per-token BF16->FP8 activation quantize, FP32 accumulate, BF16
+    // epilogue) puts the worst correct-path deviation at 0.061 * row_absmax, spread
+    // 2.5x across rows. The original 5e-2 was calibrated against the BF16 staging path
+    // (worst 0.0073, a 7x margin) and was never re-derived when W4A8-FP8 shipped ON,
+    // where FP8 weights and FP8 activations contribute error in roughly equal shares
+    // and neither dominates. 1e-1 keeps ~1.6x headroom over the modelled worst while
+    // staying far tighter than any real regression: per-tensor activation scaling,
+    // a stale/degenerate sB, and a swapped nibble packing order overshoot it by
+    // 10x, 10x and 32x respectively. Anchoring the budget on the row's L1 reference
+    // mass instead of its absmax was measured and rejected -- same 2.6x row spread,
+    // so it buys nothing for a less obvious quantity.
     TEST( LinearCudaQuantizedTests, Forward_Fp4PrefillMatchesDecodeAcrossTokenMagnitudes )
     {
         using QuantizedLinear =
@@ -772,7 +871,7 @@ namespace Mila::Tests::Dnn::Components::Linear
                 row_absmax = std::max( row_absmax, std::fabs( decode_host.data()[ n ] ) );
             }
 
-            const float tolerance = 5e-2f * row_absmax;
+            const float tolerance = 1e-1f * row_absmax;
 
             for ( int64_t n = 0; n < kFp8OutFeatures; ++n )
             {
@@ -793,5 +892,618 @@ namespace Mila::Tests::Dnn::Components::Linear
         typename TestFixture::LinearType linear( "linear", config, Device::Cuda( 0 ) );
 
         EXPECT_EQ( linear.getType(), ComponentType::Linear );
+    }
+
+    // ================================================================
+    // Flat safetensors save -- the path the archive cannot serve
+    // ================================================================
+    //
+    // save_() refuses a quantized weight outright: it is packed storage plus a scale
+    // companion and ModelArchive has no representation for the pairing. The flat
+    // artifact expresses it as two sibling tensors. These tests assert that the pairing
+    // survives the trip, because a weight whose scales went missing or landed against
+    // the wrong tensor still loads, still runs, and produces garbage.
+
+    namespace
+    {
+        std::filesystem::path makeScratchPath( const std::string& stem )
+        {
+            static int counter = 0;
+
+            return std::filesystem::temp_directory_path()
+                / std::format( "mila_linear_flat_{}_{}.safetensors", stem, counter++ );
+        }
+
+        // C stdio, not fstream: MSVC C++23 raises C2079 on basic_istream::sentry when
+        // stream I/O meets `import Mila;` in a .cpp.
+        using FilePointer = std::unique_ptr<std::FILE, int( * )( std::FILE* )>;
+
+        FilePointer openFile( const std::filesystem::path& path, const char* mode )
+        {
+            return FilePointer( std::fopen( path.string().c_str(), mode ), &std::fclose );
+        }
+
+        /**
+         * @brief Decode one FP8 E4M3 byte to float. Bias 7, 3 mantissa bits, no infinities.
+         */
+        float decodeFp8E4M3( uint8_t byte )
+        {
+            const uint32_t sign = ( byte >> 7 ) & 0x1;
+            const uint32_t exponent = ( byte >> 3 ) & 0xF;
+            const uint32_t mantissa = byte & 0x7;
+
+            float magnitude;
+
+            if ( exponent == 0 )
+            {
+                magnitude = std::ldexp( static_cast<float>( mantissa ), -9 );
+            }
+            else
+            {
+                magnitude = std::ldexp(
+                    1.0f + static_cast<float>( mantissa ) / 8.0f,
+                    static_cast<int>( exponent ) - 7 );
+            }
+
+            return sign ? -magnitude : magnitude;
+        }
+    }
+
+    TEST( LinearCudaFlatSaveTests, PerChannelFp8_EmitsWeightAndScalesThatReconstructTheWeight )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerChannelFp8<>>;
+
+        std::unique_ptr<IExecutionContext> context;
+        try
+        {
+            context = createExecutionContext( Device::Cuda( 0 ) );
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "CUDA device not available";
+        }
+
+        std::vector<uint16_t> weight_bits( static_cast<size_t>( kOutFeatures * kInFeatures ) );
+        for ( int64_t o = 0; o < kOutFeatures; ++o )
+        {
+            for ( int64_t i = 0; i < kInFeatures; ++i )
+            {
+                const uint32_t bits = std::bit_cast<uint32_t>( weightValue( o, i ) );
+                const uint32_t rounding = 0x7FFF + ( ( bits >> 16 ) & 1 );
+                weight_bits[ o * kInFeatures + i ] = static_cast<uint16_t>( ( bits + rounding ) >> 16 );
+            }
+        }
+
+        const size_t blob_bytes = weight_bits.size() * sizeof( uint16_t );
+
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( false );
+
+        QuantizedLinear linear( "qkv_proj", config, Device::Cuda( 0 ) );
+        linear.build( BuildContext( shape_t{ 1, kInFeatures }, RuntimeMode::Inference, false ) );
+
+        Serialization::TensorMetadata weight_meta{
+            TensorDataType::BF16, shape_t{ kOutFeatures, kInFeatures }, blob_bytes };
+        Serialization::TensorBlobView weight_blob( weight_meta, weight_bits.data(), blob_bytes );
+        linear.loadParameter( "weight", weight_blob );
+        context->synchronize();
+
+        const auto path = makeScratchPath( "fp8" );
+
+        {
+            Serialization::SafeTensorsWriter writer( path );
+            linear.saveFlatTensors( writer, "tf_layer_0.qkv_proj",
+                Serialization::TensorSavePass::Declare );
+            writer.beginData();
+            linear.saveFlatTensors( writer, "tf_layer_0.qkv_proj",
+                Serialization::TensorSavePass::Write );
+            writer.close();
+        }
+
+        Serialization::PretrainedModelReader reader( path );
+
+        ASSERT_TRUE( reader.hasTensor( "tf_layer_0.qkv_proj.weight" ) );
+        ASSERT_TRUE( reader.hasTensor( "tf_layer_0.qkv_proj.weight_scale" ) );
+        EXPECT_FALSE( reader.hasTensor( "tf_layer_0.qkv_proj.bias" ) );
+
+        auto packed = reader.readTensorBlob<CpuMemoryResource>( "tf_layer_0.qkv_proj.weight" );
+        auto scales = reader.readTensorBlob<CpuMemoryResource>( "tf_layer_0.qkv_proj.weight_scale" );
+
+        // FP8 stores one element per byte, so the logical shape survives intact.
+        EXPECT_EQ( packed.getMetadata().dtype, TensorDataType::FP8_E4M3 );
+        ASSERT_EQ( packed.getMetadata().shape.ndim, 2 );
+        EXPECT_EQ( packed.getMetadata().shape[ 0 ], kOutFeatures );
+        EXPECT_EQ( packed.getMetadata().shape[ 1 ], kInFeatures );
+        ASSERT_EQ( packed.sizeBytes(), static_cast<size_t>( kOutFeatures * kInFeatures ) );
+
+        // Per-channel: exactly one scale per output row.
+        EXPECT_EQ( scales.getMetadata().dtype, TensorDataType::FP32 );
+        ASSERT_EQ( scales.getMetadata().shape.ndim, 1 );
+        EXPECT_EQ( scales.getMetadata().shape[ 0 ], kOutFeatures );
+        ASSERT_EQ( scales.sizeBytes(), static_cast<size_t>( kOutFeatures ) * sizeof( float ) );
+
+        const auto* quantized = static_cast<const uint8_t*>( packed.data() );
+        const auto* scale_values = static_cast<const float*>( scales.data() );
+
+        // The dequantization contract is w ~= float(fp8) * scale[row], matching the
+        // inline dequant the FP8 GEMM and the embedding gather both perform. Checking it
+        // here is what proves the scales landed against the right rows rather than merely
+        // being present -- a transposed or off-by-one scale vector passes every structural
+        // assertion above and fails this one.
+        for ( int64_t o = 0; o < kOutFeatures; ++o )
+        {
+            EXPECT_GT( scale_values[ o ], 0.0f ) << "row " << o;
+
+            for ( int64_t i = 0; i < kInFeatures; ++i )
+            {
+                const float expected = weightValue( o, i );
+                const float actual =
+                    decodeFp8E4M3( quantized[ o * kInFeatures + i ] ) * scale_values[ o ];
+
+                // E4M3 carries 3 mantissa bits, so relative error runs to ~6%; the
+                // absolute floor covers rows whose absmax is small.
+                EXPECT_NEAR( actual, expected, 0.08f * std::abs( expected ) + 1e-3f )
+                    << "at [" << o << ", " << i << "]";
+            }
+        }
+
+        std::error_code ignored;
+        std::filesystem::remove( path, ignored );
+    }
+
+    TEST( LinearCudaFlatSaveTests, PerGroupFp4_EmitsNibblePackedWeightAndPerGroupScales )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerGroupFp4<128>>;
+
+        constexpr int64_t kFp4InFeatures = 512;
+        constexpr int64_t kFp4OutFeatures = 256;
+        constexpr int64_t kGroupSize = 128;
+
+        std::unique_ptr<IExecutionContext> context;
+        try
+        {
+            context = createExecutionContext( Device::Cuda( 0 ) );
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "CUDA device not available";
+        }
+
+        std::vector<uint16_t> weight_bits( static_cast<size_t>( kFp4OutFeatures * kFp4InFeatures ) );
+        for ( int64_t o = 0; o < kFp4OutFeatures; ++o )
+        {
+            for ( int64_t i = 0; i < kFp4InFeatures; ++i )
+            {
+                const uint32_t bits = std::bit_cast<uint32_t>( weightValue( o, i ) );
+                const uint32_t rounding = 0x7FFF + ( ( bits >> 16 ) & 1 );
+                weight_bits[ o * kFp4InFeatures + i ] = static_cast<uint16_t>( ( bits + rounding ) >> 16 );
+            }
+        }
+
+        const size_t blob_bytes = weight_bits.size() * sizeof( uint16_t );
+
+        LinearConfig config( kFp4InFeatures, kFp4OutFeatures );
+        config.withBias( false );
+
+        QuantizedLinear linear( "down_proj", config, Device::Cuda( 0 ) );
+        linear.build( BuildContext( shape_t{ 1, kFp4InFeatures }, RuntimeMode::Inference, false ) );
+
+        Serialization::TensorMetadata weight_meta{
+            TensorDataType::BF16, shape_t{ kFp4OutFeatures, kFp4InFeatures }, blob_bytes };
+        Serialization::TensorBlobView weight_blob( weight_meta, weight_bits.data(), blob_bytes );
+        linear.loadParameter( "weight", weight_blob );
+        context->synchronize();
+
+        const auto path = makeScratchPath( "fp4" );
+
+        {
+            Serialization::SafeTensorsWriter writer( path );
+            linear.saveFlatTensors( writer, "tf_layer_3.down_proj",
+                Serialization::TensorSavePass::Declare );
+            writer.beginData();
+            linear.saveFlatTensors( writer, "tf_layer_3.down_proj",
+                Serialization::TensorSavePass::Write );
+            writer.close();
+        }
+
+        Serialization::PretrainedModelReader reader( path );
+
+        auto packed = reader.readTensorBlob<CpuMemoryResource>( "tf_layer_3.down_proj.weight" );
+        auto scales = reader.readTensorBlob<CpuMemoryResource>( "tf_layer_3.down_proj.weight_scale" );
+
+        // Two nibbles per byte: the recorded shape is PHYSICAL, so the column count is
+        // halved. A reader that assumed logical columns would allocate twice the bytes.
+        EXPECT_EQ( packed.getMetadata().dtype, TensorDataType::UINT8 );
+        ASSERT_EQ( packed.getMetadata().shape.ndim, 2 );
+        EXPECT_EQ( packed.getMetadata().shape[ 0 ], kFp4OutFeatures );
+        EXPECT_EQ( packed.getMetadata().shape[ 1 ], kFp4InFeatures / 2 );
+        ASSERT_EQ( packed.sizeBytes(),
+            static_cast<size_t>( kFp4OutFeatures * kFp4InFeatures / 2 ) );
+
+        // Per-group: one scale per (output row, K-group).
+        EXPECT_EQ( scales.getMetadata().dtype, TensorDataType::FP32 );
+        ASSERT_EQ( scales.getMetadata().shape.ndim, 2 );
+        EXPECT_EQ( scales.getMetadata().shape[ 0 ], kFp4OutFeatures );
+        EXPECT_EQ( scales.getMetadata().shape[ 1 ], kFp4InFeatures / kGroupSize );
+
+        const auto* scale_values = static_cast<const float*>( scales.data() );
+        const size_t scale_count =
+            static_cast<size_t>( kFp4OutFeatures * ( kFp4InFeatures / kGroupSize ) );
+
+        for ( size_t s = 0; s < scale_count; ++s )
+        {
+            EXPECT_TRUE( std::isfinite( scale_values[ s ] ) ) << "scale " << s;
+            EXPECT_GT( scale_values[ s ], 0.0f ) << "scale " << s;
+        }
+
+        std::error_code ignored;
+        std::filesystem::remove( path, ignored );
+    }
+
+    TEST( LinearCudaFlatSaveTests, PreQuantizedArtifactLoadsBackWithoutRequantizing )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerChannelFp8<>>;
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+        using DeviceBf16 = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+
+        std::unique_ptr<IExecutionContext> context;
+        try
+        {
+            context = createExecutionContext( Device::Cuda( 0 ) );
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "CUDA device not available";
+        }
+
+        std::vector<uint16_t> weight_bits( static_cast<size_t>( kOutFeatures * kInFeatures ) );
+        for ( int64_t o = 0; o < kOutFeatures; ++o )
+        {
+            for ( int64_t i = 0; i < kInFeatures; ++i )
+            {
+                const uint32_t bits = std::bit_cast<uint32_t>( weightValue( o, i ) );
+                const uint32_t rounding = 0x7FFF + ( ( bits >> 16 ) & 1 );
+                weight_bits[ o * kInFeatures + i ] = static_cast<uint16_t>( ( bits + rounding ) >> 16 );
+            }
+        }
+
+        const size_t blob_bytes = weight_bits.size() * sizeof( uint16_t );
+
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( false );
+
+        const shape_t decode_shape{ 1, kInFeatures };
+        Serialization::TensorMetadata weight_meta{
+            TensorDataType::BF16, shape_t{ kOutFeatures, kInFeatures }, blob_bytes };
+
+        // First leg: quantize on load from BF16, then export.
+        const auto first_path = makeScratchPath( "prequant_a" );
+
+        QuantizedLinear quantize_on_load( "proj", config, Device::Cuda( 0 ) );
+        quantize_on_load.build( BuildContext( decode_shape, RuntimeMode::Inference, false ) );
+
+        Serialization::TensorBlobView source_blob( weight_meta, weight_bits.data(), blob_bytes );
+        quantize_on_load.loadParameter( "weight", source_blob );
+        context->synchronize();
+
+        {
+            Serialization::SafeTensorsWriter writer( first_path );
+            quantize_on_load.saveFlatTensors( writer, "proj", Serialization::TensorSavePass::Declare );
+            writer.beginData();
+            quantize_on_load.saveFlatTensors( writer, "proj", Serialization::TensorSavePass::Write );
+            writer.close();
+        }
+
+        // Second leg: load those packed bytes and scales into a fresh component. The
+        // dtype on the blob is what tells loadParameter not to quantize again; feeding
+        // packed nibbles through quantize() would read them as BF16 and silently produce a
+        // model that runs and is wrong.
+        QuantizedLinear from_artifact( "proj", config, Device::Cuda( 0 ) );
+        from_artifact.build( BuildContext( decode_shape, RuntimeMode::Inference, false ) );
+
+        {
+            Serialization::PretrainedModelReader reader( first_path );
+
+            auto packed = reader.readTensorBlob<CpuMemoryResource>( "proj.weight" );
+            auto scales = reader.readTensorBlob<CpuMemoryResource>( "proj.weight_scale" );
+
+            from_artifact.loadParameter( "weight", packed );
+            from_artifact.loadParameter( "weight_scale", scales );
+            context->synchronize();
+        }
+
+        // Re-export and require the two artifacts to agree byte for byte. Comparing files
+        // rather than tensors keeps the assertion on the public API and covers both legs.
+        const auto second_path = makeScratchPath( "prequant_b" );
+
+        {
+            Serialization::SafeTensorsWriter writer( second_path );
+            from_artifact.saveFlatTensors( writer, "proj", Serialization::TensorSavePass::Declare );
+            writer.beginData();
+            from_artifact.saveFlatTensors( writer, "proj", Serialization::TensorSavePass::Write );
+            writer.close();
+        }
+
+        const auto first_size = std::filesystem::file_size( first_path );
+        const auto second_size = std::filesystem::file_size( second_path );
+
+        ASSERT_EQ( first_size, second_size );
+
+        std::vector<char> first_bytes( static_cast<size_t>( first_size ) );
+        std::vector<char> second_bytes( static_cast<size_t>( second_size ) );
+
+        {
+            auto first_file = openFile( first_path, "rb" );
+            auto second_file = openFile( second_path, "rb" );
+            ASSERT_NE( first_file.get(), nullptr );
+            ASSERT_NE( second_file.get(), nullptr );
+
+            ASSERT_EQ( std::fread( first_bytes.data(), 1, first_bytes.size(), first_file.get() ),
+                first_bytes.size() );
+            ASSERT_EQ( std::fread( second_bytes.data(), 1, second_bytes.size(), second_file.get() ),
+                second_bytes.size() );
+        }
+
+        EXPECT_EQ( first_bytes, second_bytes );
+
+        // Byte equality only says the storage survived a copy. Whether the reloaded
+        // component COMPUTES the same thing is a separate question, and the one that
+        // matters -- see PreQuantizedReload_ForwardMatchesQuantizeOnLoad below.
+        const shape_t input_shape{ 1, kInFeatures };
+
+        HostFp32 host_input( Device::Cpu(), input_shape );
+        for ( int64_t i = 0; i < kInFeatures; ++i )
+        {
+            host_input.data()[ i ] = 0.25f * weightValue( i % kOutFeatures, i );
+        }
+
+        DeviceBf16 device_input( Device::Cuda( 0 ), input_shape );
+        copy( host_input, device_input, context.get() );
+        context->synchronize();
+
+        auto& expected_device = quantize_on_load.forward( device_input );
+        context->synchronize();
+        HostFp32 expected( Device::Cpu(), expected_device.shape() );
+        copy( expected_device, expected, context.get() );
+        context->synchronize();
+
+        auto& actual_device = from_artifact.forward( device_input );
+        context->synchronize();
+        HostFp32 actual( Device::Cpu(), actual_device.shape() );
+        copy( actual_device, actual, context.get() );
+        context->synchronize();
+
+        ASSERT_EQ( expected.size(), actual.size() );
+
+        for ( dim_t i = 0; i < expected.size(); ++i )
+        {
+            EXPECT_EQ( expected.data()[ i ], actual.data()[ i ] )
+                << "pre-quantized reload diverges at output " << i;
+        }
+
+        std::error_code ignored;
+        std::filesystem::remove( first_path, ignored );
+        std::filesystem::remove( second_path, ignored );
+    }
+
+    /**
+     * @brief The FP4 reload must compute identically, not merely store identically.
+     *
+     * The FP8 sibling of this test passed while a 12B FP4 model loaded from an artifact
+     * produced NaN at the first block: quantize() derives an FP8 sB scalar from the
+     * per-group scales, and a pre-quantized load skipped it, leaving the dequant dividing by
+     * uninitialized memory. Nothing byte-level could see that -- the weights and scales were
+     * bit-identical.
+     *
+     * A PREFILL shape (outer_size > 1) on purpose: the decode matvec does not go through the
+     * FP8 activation path, so a decode-shaped test would pass with the scalar still garbage.
+     */
+    TEST( LinearCudaFlatSaveTests, PreQuantizedFp4Reload_ForwardMatchesQuantizeOnLoad )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerGroupFp4<128>>;
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+        using DeviceBf16 = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+
+        constexpr int64_t kRows = 16;
+        constexpr int64_t kIn = 512;
+        constexpr int64_t kOut = 256;
+
+        std::unique_ptr<IExecutionContext> context;
+        try
+        {
+            context = createExecutionContext( Device::Cuda( 0 ) );
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "CUDA device not available";
+        }
+
+        std::vector<uint16_t> weight_bits( static_cast<size_t>( kOut * kIn ) );
+        for ( int64_t o = 0; o < kOut; ++o )
+        {
+            for ( int64_t i = 0; i < kIn; ++i )
+            {
+                const uint32_t bits = std::bit_cast<uint32_t>( weightValue( o, i ) );
+                const uint32_t rounding = 0x7FFF + ( ( bits >> 16 ) & 1 );
+                weight_bits[ o * kIn + i ] = static_cast<uint16_t>( ( bits + rounding ) >> 16 );
+            }
+        }
+
+        const size_t blob_bytes = weight_bits.size() * sizeof( uint16_t );
+        const shape_t prefill_shape{ kRows, kIn };
+
+        LinearConfig config( kIn, kOut );
+        config.withBias( false );
+
+        Serialization::TensorMetadata weight_meta{
+            TensorDataType::BF16, shape_t{ kOut, kIn }, blob_bytes };
+
+        QuantizedLinear quantize_on_load( "proj", config, Device::Cuda( 0 ) );
+        quantize_on_load.build( BuildContext( prefill_shape, RuntimeMode::Inference, false ) );
+
+        Serialization::TensorBlobView source_blob( weight_meta, weight_bits.data(), blob_bytes );
+        quantize_on_load.loadParameter( "weight", source_blob );
+        context->synchronize();
+
+        const auto artifact = makeScratchPath( "fp4_forward" );
+
+        {
+            Serialization::SafeTensorsWriter writer( artifact );
+            quantize_on_load.saveFlatTensors( writer, "proj", Serialization::TensorSavePass::Declare );
+            writer.beginData();
+            quantize_on_load.saveFlatTensors( writer, "proj", Serialization::TensorSavePass::Write );
+            writer.close();
+        }
+
+        QuantizedLinear from_artifact( "proj", config, Device::Cuda( 0 ) );
+        from_artifact.build( BuildContext( prefill_shape, RuntimeMode::Inference, false ) );
+
+        {
+            Serialization::PretrainedModelReader reader( artifact );
+
+            auto packed = reader.readTensorBlob<CpuMemoryResource>( "proj.weight" );
+            auto scales = reader.readTensorBlob<CpuMemoryResource>( "proj.weight_scale" );
+
+            from_artifact.loadParameter( "weight", packed );
+            from_artifact.loadParameter( "weight_scale", scales );
+            context->synchronize();
+        }
+
+        HostFp32 host_input( Device::Cpu(), prefill_shape );
+        for ( int64_t r = 0; r < kRows; ++r )
+        {
+            for ( int64_t i = 0; i < kIn; ++i )
+            {
+                host_input.data()[ r * kIn + i ] = 0.25f * weightValue( r, i );
+            }
+        }
+
+        DeviceBf16 device_input( Device::Cuda( 0 ), prefill_shape );
+        copy( host_input, device_input, context.get() );
+        context->synchronize();
+
+        auto& expected_device = quantize_on_load.forward( device_input );
+        context->synchronize();
+        HostFp32 expected( Device::Cpu(), expected_device.shape() );
+        copy( expected_device, expected, context.get() );
+        context->synchronize();
+
+        auto& actual_device = from_artifact.forward( device_input );
+        context->synchronize();
+        HostFp32 actual( Device::Cpu(), actual_device.shape() );
+        copy( actual_device, actual, context.get() );
+        context->synchronize();
+
+        ASSERT_EQ( expected.size(), actual.size() );
+
+        int64_t nan_count = 0;
+
+        for ( dim_t i = 0; i < actual.size(); ++i )
+        {
+            if ( std::isnan( actual.data()[ i ] ) )
+            {
+                ++nan_count;
+            }
+        }
+
+        // Called out separately: NaN is the shape this defect took, and "0 NaN" is a
+        // clearer failure message than a value mismatch on element 0.
+        EXPECT_EQ( nan_count, 0 ) << "pre-quantized FP4 reload produced NaN activations";
+
+        for ( dim_t i = 0; i < expected.size(); ++i )
+        {
+            EXPECT_EQ( expected.data()[ i ], actual.data()[ i ] )
+                << "pre-quantized FP4 reload diverges at output " << i;
+        }
+
+        std::error_code ignored;
+        std::filesystem::remove( artifact, ignored );
+    }
+
+    TEST( LinearCudaFlatSaveTests, RejectsScalesOnAnUnquantizedBuild )
+    {
+        using PlainLinear = Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16>;
+
+        std::unique_ptr<IExecutionContext> context;
+        try
+        {
+            context = createExecutionContext( Device::Cuda( 0 ) );
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "CUDA device not available";
+        }
+
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( false );
+
+        PlainLinear linear( "fc", config, Device::Cuda( 0 ) );
+        linear.build( BuildContext( shape_t{ 1, kInFeatures }, RuntimeMode::Inference, true ) );
+
+        std::vector<float> scales( static_cast<size_t>( kOutFeatures ), 1.0f );
+        Serialization::TensorMetadata scale_meta{
+            TensorDataType::FP32, shape_t{ kOutFeatures }, scales.size() * sizeof( float ) };
+        Serialization::TensorBlobView scale_blob(
+            scale_meta, scales.data(), scales.size() * sizeof( float ) );
+
+        // A quantized artifact reaching an unquantized build must fail loudly rather than
+        // drop the scales and leave the weights silently unscaled.
+        EXPECT_THROW( linear.loadParameter( "weight_scale", scale_blob ), std::invalid_argument );
+    }
+
+    TEST( LinearCudaFlatSaveTests, UnquantizedPathEmitsWeightAndBiasAndNoScales )
+    {
+        using PlainLinear = Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16>;
+
+        std::unique_ptr<IExecutionContext> context;
+        try
+        {
+            context = createExecutionContext( Device::Cuda( 0 ) );
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "CUDA device not available";
+        }
+
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( true );
+
+        PlainLinear linear( "fc", config, Device::Cuda( 0 ) );
+        linear.build( BuildContext( shape_t{ 1, kInFeatures }, RuntimeMode::Inference, true ) );
+        context->synchronize();
+
+        const auto path = makeScratchPath( "plain" );
+
+        {
+            Serialization::SafeTensorsWriter writer( path );
+            linear.saveFlatTensors( writer, "fc", Serialization::TensorSavePass::Declare );
+
+            // Weight and bias, and nothing else -- a scales tensor on the unquantized
+            // path would mean the policy branch leaked.
+            EXPECT_EQ( writer.getTensorCount(), 2u );
+
+            writer.beginData();
+            linear.saveFlatTensors( writer, "fc", Serialization::TensorSavePass::Write );
+            writer.close();
+        }
+
+        Serialization::PretrainedModelReader reader( path );
+
+        EXPECT_TRUE( reader.hasTensor( "fc.weight" ) );
+        EXPECT_TRUE( reader.hasTensor( "fc.bias" ) );
+        EXPECT_FALSE( reader.hasTensor( "fc.weight_scale" ) );
+
+        auto weight = reader.readTensorBlob<CpuMemoryResource>( "fc.weight" );
+
+        EXPECT_EQ( weight.getMetadata().dtype, TensorDataType::BF16 );
+        ASSERT_EQ( weight.sizeBytes(),
+            static_cast<size_t>( kOutFeatures * kInFeatures ) * sizeof( uint16_t ) );
+
+        std::error_code ignored;
+        std::filesystem::remove( path, ignored );
     }
 }

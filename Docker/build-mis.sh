@@ -9,8 +9,9 @@
 # It has two halves, like the MIS README describes -- but the container collapses the
 # painful one:
 #   Half 1  the `mila` binding: a version-locked CPython extension built by the MilaPy
-#           CMake target. Its POST_BUILD step (Mila/Bindings/CMakeLists.txt) drops the
-#           built .so next to main.py automatically.
+#           CMake target. Its POST_BUILD step (Mila/Bindings/CMakeLists.txt) stages the
+#           built .so into Mila/Bindings/Package, which the venv installs editable -- so
+#           a later rebuild is picked up with no reinstall.
 #   Half 2  the Python server deps (fastapi/uvicorn/pydantic), installed into a venv.
 # On the host these must be reconciled by hand (an isolated 3.13 venv, PATH-shadow
 # hazards, ModuleNotFoundError). In the container there is exactly ONE Python -- the
@@ -57,13 +58,22 @@ cmake --build "${BUILD}" --target MilaPy -- -j "${MILA_BUILD_JOBS}"
 # built against, so `import mila` matches by construction. Deps are installed EXPLICITLY
 # (mirroring the runtime deps in Server/pyproject.toml) rather than `pip install -e .`,
 # so whatever Python minor Ubuntu 26.04 ships does not trip the pyproject's
-# Windows-oriented ">=3.13,<3.14" requires-python pin (that pin exists to match the
-# committed cp313 Windows binding; in the container the binding is freshly built to fit).
+# ">=3.12,<3.14" requires-python pin. That pin bounds the interpreters wheels are BUILT
+# for, which is a different question from what this container can run: here the binding
+# is compiled against the local python3 and fits it by construction. Ubuntu 26.04 ships
+# 3.14, above the ceiling, so widening the range to 3.12+3.13 did not retire this
+# duplication -- only publishing a 3.14 wheel would.
 if [ ! -d "${VENV}" ]; then
     python3 -m venv "${VENV}"
 fi
 "${VENV}/bin/pip" install --upgrade pip
 "${VENV}/bin/pip" install fastapi "uvicorn[standard]" pydantic pydantic-settings
+
+# The runtime, editable off the package tree MilaPy stages into -- NOT from PyPI. A
+# published wheel is cp313/x86_64 and would not match this container's interpreter, and
+# the whole point of building here is to serve the binding just built. --no-deps because
+# the CUDA libraries come from the container's toolkit, not from NVIDIA's wheels.
+"${VENV}/bin/pip" install --no-deps -e "${SRC}/Mila/Bindings/Package"
 
 echo "MIS built: mila binding (arch ${MILA_CUDA_ARCH}) + server venv at ${VENV}."
 echo "Run it with: mila-mis"

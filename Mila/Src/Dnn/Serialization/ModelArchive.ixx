@@ -151,16 +151,16 @@ namespace Mila::Dnn::Serialization
                 return;
             }
 
-            try
-            {
-                serializer_->close();
-                closed_ = true;
-            }
-            catch ( const std::exception& e )
+            // ArchiveSerializer::close() reports failure by return value, not by
+            // throwing -- a discarded result here silently turned a failed archive
+            // finalize (short write, I/O error on flush) into a reported success.
+            if ( !serializer_->close() )
             {
                 throw std::runtime_error(
-                    std::format( "ModelArchive::close failed for '{}': {}", filepath_, e.what() ) );
+                    std::format( "ModelArchive::close failed for '{}'", filepath_ ) );
             }
+
+            closed_ = true;
         }
 
         // ====================================================================
@@ -459,7 +459,11 @@ namespace Mila::Dnn::Serialization
          */
         void addMetadata( const std::string& key, const std::string& value )
         {
-            serializer_->addMetadata( key, value );
+            if ( !serializer_->addMetadata( key, value ) )
+            {
+                throw std::runtime_error(
+                    std::format( "ModelArchive::addMetadata failed for key '{}' in '{}'", key, filepath_ ) );
+            }
         }
 
         /**

@@ -58,7 +58,7 @@ namespace Mila::Dnn::Compute
             float r ) const
         {
             const int64_t vocab = config_.getVocabularySize();
-            const int64_t offset = static_cast<int64_t>( logits.size() ) - vocab;
+            const dim_t offset = logits.size() - vocab;
 
             const float* row = static_cast<const float*>( logits.rawData() ) + offset;
             int32_t* out = static_cast<int32_t*>( token_out.rawData() );

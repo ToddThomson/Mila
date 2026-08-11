@@ -8,6 +8,7 @@ module;
 export module Compute.IKvInference;
 
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Compute.IKvCacheLifecycle;
 
 namespace Mila::Dnn::Compute
@@ -41,7 +42,7 @@ namespace Mila::Dnn::Compute
         virtual void prefill(
             const ITensor& q, const ITensor& k, const ITensor& v,
             ITensor& output,
-            int position_offset ) = 0;
+            dim_t position_offset ) = 0;
 
         /**
          * @brief Process a single token at an explicit KV cache position.
@@ -55,7 +56,7 @@ namespace Mila::Dnn::Compute
         virtual void decode(
             const ITensor& q, const ITensor& k, const ITensor& v,
             ITensor& output,
-            int position ) = 0;
+            dim_t position ) = 0;
 
         ~IKvInference() override = default;
     };

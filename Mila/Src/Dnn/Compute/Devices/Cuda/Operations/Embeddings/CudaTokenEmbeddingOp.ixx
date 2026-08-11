@@ -114,12 +114,12 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
             if ( shape.size() != 2 )
                 throw std::invalid_argument( "CudaTokenEmbeddingOp::setParameters - wte must be a 2D tensor [vocab_size, C]" );
 
-            if ( static_cast<int>(shape[ 0 ]) != config_.getVocabSize() )
+            if ( shape[ 0 ] != config_.getVocabSize() )
                 throw std::invalid_argument( std::format(
                     "CudaTokenEmbeddingOp::setParameters - wte vocab_size {} does not match config {}",
                     shape[ 0 ], config_.getVocabSize() ) );
 
-            if ( static_cast<int>(shape[ 1 ]) != config_.getEmbeddingDim() )
+            if ( shape[ 1 ] != config_.getEmbeddingDim() )
                 throw std::invalid_argument( std::format(
                     "CudaTokenEmbeddingOp::setParameters - wte embedding_dim {} does not match config {}",
                     shape[ 1 ], config_.getEmbeddingDim() ) );
@@ -295,7 +295,7 @@ namespace Mila::Dnn::Compute::Cuda::TokenEmbedding
         void backward(
             const ITensor& input,
             const ITensor& output_grad,
-            ITensor& input_grad ) const
+            ITensor& /*input_grad*/ ) const
         {
             if constexpr ( kIsQuantized )
             {

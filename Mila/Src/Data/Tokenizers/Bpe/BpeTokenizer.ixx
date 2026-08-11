@@ -30,6 +30,7 @@ module;
 #include <memory>
 #include <optional>
 #include <filesystem>
+#include <mutex>
 #include <regex>
 #include <limits>
 #include <stdexcept>
@@ -364,10 +365,23 @@ namespace Mila::Data
                         "and no ASCII fallback is defined for this mode: " + pattern );
                 }
 
-                Logging::Logger::warning(
-                    "Unicode regex not supported by std::regex; using ASCII fallback "
-                    "for pre-tokenization. Non-ASCII text may tokenize differently from "
-                    "the HuggingFace reference." );
+                // Once per process, not once per tokenizer. This fires on EVERY
+                // construction -- MSVC's std::regex has no \p{...}, so the Unicode
+                // pattern never compiles there -- and a warning repeated that often
+                // reads as background noise rather than as the standing limitation it
+                // describes. Measured at 52 of 416 first-chance exceptions across the
+                // test suite, a 100% hit rate.
+                static std::once_flag fallback_warning_flag;
+
+                std::call_once( fallback_warning_flag, []
+                    {
+                        Logging::Logger::warning(
+                            "Unicode regex not supported by std::regex; using the ASCII fallback "
+                            "for BPE pre-tokenization. On this toolchain that is permanent, not "
+                            "occasional: non-ASCII text WILL tokenize differently from the "
+                            "HuggingFace reference. Affects GPT-2 and Llama 3; SentencePiece "
+                            "models (Gemma) do not use this path." );
+                    } );
 
                 pre_tokenization_regex_ = std::regex( fallback, std::regex::ECMAScript );
             }

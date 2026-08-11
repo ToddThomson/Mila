@@ -30,7 +30,7 @@ changes are still expected — backward compatibility is not yet a goal.
 | Doxygen | latest | Optional — only needed to build the API docs (`-DMILA_ENABLE_DOCS=ON`) |
 | Graphviz (dot) | latest | Optional — renders the call/caller graphs in the generated docs |
 | C++ Standard | C++23 | Modules, deducing-this, concepts |
-| Python | 3.10+ | Only needed to convert model weights (Section 5); validated on 3.14.5 |
+| Python | 3.10+ | Only needed to convert a checkpoint Mila does not publish (Section 5b); validated on 3.14.5 |
 
 Mila requires CUDA Toolkit 13.0 or newer. It is CI-tested on 13.0 and developed on 13.3;
 newer 13.x releases are expected to work but are not exhaustively validated.
@@ -131,9 +131,14 @@ the C++23 modules, so on an older distro use Clang. The steps below target a rec
 3. **Install the build tools and a C++ compiler.**
    ```bash
    sudo apt-get update
-   sudo apt-get install -y build-essential ninja-build git wget ca-certificates cmake
+   sudo apt-get install -y build-essential ninja-build git wget ca-certificates cmake libssl-dev
    gcc --version                        # need GCC >= 15.3 (see the compiler matrix above)
    ```
+   `libssl-dev` is curl's, not Mila's: `MILA_ENABLE_LIBCURL` defaults ON, and on Linux the
+   vendored libcurl takes TLS from the system OpenSSL (`CURL_USE_SCHANNEL` is Windows-only),
+   so its `find_package(OpenSSL)` fails the whole configure without it. Omit it only if you
+   also configure with `-DMILA_ENABLE_LIBCURL=OFF`, which builds a Mila that can still list,
+   install, locate and load models but cannot pull one without a caller-supplied transport.
    `build-essential` installs the distro's default GCC. Mila needs **GCC ≥ 15.3** — Ubuntu
    26.04 currently ships 15.2, which is too old, so install a newer one and select it at
    configure time:
@@ -248,25 +253,58 @@ ctest --test-dir out/build/linux-release
 VS Code users can **Reopen in Container** — `.devcontainer/` wires up the compose service,
 GPU access, the repo mount, and the C/C++ / CMake Tools / clangd extensions.
 
-Model weights are converted offline on the host (Section 5); the repo bind mount makes the
-converted `.bin` files available inside the container automatically.
+The image sets `MILA_CACHE_DIR=/mila/Data/Models/Store`, which sits on the repo bind mount, so
+a model installed (Section 5) from either side is the same store — install it once.
 
 > A slim, published runtime image — `docker run … mila` for users who only want to run
-> inference without building — is planned for the beta release. See [ROADMAP.md](ROADMAP.md).
+> inference without building — is planned for the v0.20 release. See [ROADMAP.md](ROADMAP.md).
 
 ---
 
-## 5. Get model weights (required for inference)
+## 5. Get a model
 
-**Model weight files are not stored in git.** Everything under `Data/Models/` is gitignored
-(covered by the global `*.bin` rule), so a fresh clone has the directory scaffold but no
-weights. You generate them locally by converting HuggingFace checkpoints with the Python
-converters in `Mila/Tools/Converters/`.
+**Model files are not stored in git**, so a fresh clone has no weights. There are two ways to
+get one, and the first is the normal one.
+
+### 5a. Install a published model
+
+Mila publishes pre-quantized models under [`mila-llm`](https://huggingface.co/mila-llm). They
+are ungated — no account, no access request, no token. From the chat harness:
+
+```
+/models --online          # what is published
+/install gemma-4-12b-it-fp4
+/models                   # what is installed, and what each costs in VRAM
+```
+
+Published today: `gemma-4-12b-it-fp4` (~6.3 GB, the chat default),
+`Llama-3.2-3B-Instruct-fp4`, and `Llama-3.1-8B-Instruct-fp4`. The download lands in the local
+store — `MILA_CACHE_DIR`, else the platform user cache — which Chat, the inference server and
+the Python binding all share, so a model installed once is loadable by all of them.
+
+The same thing from Python, with no C++ build involved:
+
+```python
+import mila
+mila.initialize("warning")
+mila.ModelStore().pull("gemma-4-12b-it-fp4", mila.default_hub_owner())
+```
+
+**Pull and load are separate verbs.** Loading never downloads, so a multi-gigabyte transfer
+can never begin inside a chat prompt or an inference request — an uninstalled name is an
+error, not a surprise.
+
+### 5b. Convert a checkpoint (for families Mila does not publish)
+
+Everything below is the fallback path: a family whose licence prevents republication, a
+variant Mila has not published, or your own fine-tune. It needs a PyTorch environment,
+HuggingFace authentication for a gated family, and enough disk for the source checkpoint.
+Skip it entirely if 5a gave you what you need.
 
 > Quantized variants (FP8, FP4) are produced by Mila at model load time — you only ever
 > convert and store the **BF16** source files.
 
-### 5a. Set up the converter environment
+#### Set up the converter environment
 
 Run once from the `Mila/Tools/Converters/` directory:
 
@@ -285,22 +323,23 @@ Use Python 3.10 or newer (validated on 3.14.5). PyTorch and Transformers publish
 Python minor version and can lag brand-new releases — if `pip install` cannot find a torch
 wheel for your interpreter, create the venv with a slightly older minor (e.g. 3.12).
 
-### 5b. GPT-2 (ungated, easiest first target)
+#### GPT-2 (ungated)
 
 ```powershell
 python Gpt2/convert_weights.py --model gpt2 --output ../../../Data/Models/Gpt2/gpt2_small_fp32.bin
 ```
 
-### 5c. Llama (gated — requires HuggingFace auth)
+#### Llama (upstream is gated — requires HuggingFace auth)
 
-Llama checkpoints are gated. Accept Meta's license on the model page, then authenticate:
+Meta's own repositories are gated, so converting from them means accepting the licence on the
+model page and authenticating. (Mila's published Llama artifacts are not gated — 5a needs
+none of this.)
 
 ```powershell
 hf auth login
 ```
 
-Convert the tokenizer once (shared across all Llama 3.x variants), then the weights you want.
-The chat CLI's default model is **Llama 3.1 8B FP4**, which needs `llama31_8b_instruct_bf16.bin`:
+Convert the tokenizer once (shared across all Llama 3.x variants), then the weights you want:
 
 ```powershell
 # Tokenizer (shared)
@@ -309,13 +348,29 @@ python Llama/convert_tokenizer.py --model meta-llama/Llama-3.2-3B-Instruct --out
 # Smallest model — good for a first run
 python Llama/convert_weights.py --model meta-llama/Llama-3.2-1B-Instruct --output ../../../Data/Models/Llama/llama32_1b_instruct_bf16.bin
 
-# Chat CLI default (large — ~16 GB host RAM to convert)
+# Larger (~16 GB host RAM to convert)
 python Llama/convert_weights.py --model meta-llama/Llama-3.1-8B-Instruct --output ../../../Data/Models/Llama/llama31_8b_instruct_bf16.bin
 ```
 
-The chat app resolves weights relative to the repo's `Data/Models/` directory, so place
-the `.bin` files there (under `Gpt2/` and `Llama/`) and they will be found automatically.
 Model files are large — make sure you have adequate disk space before converting.
+
+#### Put the converted model in the store
+
+A loose `.bin` is not a model Mila can name. `ExportArtifact` turns one into a store entry —
+export to safetensors, wrap it in a package with a manifest, then install:
+
+```powershell
+ExportArtifact Data/Models/Llama/llama32_1b_instruct_bf16.bin out/llama32-1b.safetensors
+ExportArtifact --package out/llama32-1b-package --weights out/llama32-1b.safetensors --instruct
+ExportArtifact --install out/llama32-1b-package
+```
+
+Every file is hashed as it is adopted, so a blob is trusted only after its digest matches the
+manifest. Afterwards the model is listed by `/models` and loaded by name exactly like a
+published one — that is the point of one manifest describing every model, whatever its origin.
+
+> `--instruct` is not implied by the model's name. Omitting it writes `instruct: false` and
+> every consumer then applies the wrong prompt template.
 
 See [Mila/Tools/Converters/README.md](Mila/Tools/Converters/README.md) for the full option
 tables and per-model notes.
@@ -331,18 +386,19 @@ The chat sample builds as the `ChatApp` target. Its executable is written to the
 ./out/build/x64-release/ChatApp.exe
 ```
 
-From Visual Studio, set **ChatApp** as the startup item and run. Once you have the smaller
-weights converted, switch models at runtime:
+From Visual Studio, set **ChatApp** as the startup item and run. Chat opens on an empty store,
+so a first run with nothing installed still reaches `/install`.
+
+A model is named, not aliased — what `/models` shows is what you type:
 
 ```
-/model llama-1b        # Llama 3.2 1B
-/model llama-3b        # Llama 3.2 3B
-/model llama-8b fp4    # Llama 3.1 8B, FP4 quantized (the default)
-/model gpt2
+/models                            # installed, with what each costs in VRAM
+/model Llama-3.2-3B-Instruct-fp4   # switch (clears history)
+/model                             # current model and quantization
+/help
 ```
 
-Model aliases: `gpt2`, `llama-1b`, `llama-3b`, `llama-8b`, with `-fp32` variants. The
-`llama-8b` alias uses the `llama31` family prefix; 1B/3B use `llama32`.
+The default is `gemma-4-12b-it-fp4`.
 
 The MNIST training sample (`Samples/MNIST`) is another good way to exercise a full
 forward + backward + AdamW loop.
@@ -471,7 +527,7 @@ coverage, and new encoding strategies under `Mila/Src/Dnn/Components/Encodings/`
   [OperationDispatch.md](Mila/Specifications/OperationDispatch.md),
   [Quantization.V2.md](Mila/Specifications/Quantization.V2.md), and the planned-feature
   specs (PromptCaching, TokenSampling, ToolCalling).
-- API reference: https://toddthomson.github.io/Mila (regenerated on every push to master).
+- API reference: https://mila.toddt.me/api/ (regenerated on every push to master).
 
 ---
 
@@ -479,7 +535,7 @@ coverage, and new encoding strategies under `Mila/Src/Dnn/Components/Encodings/`
 
 | Symptom | Likely cause |
 |---|---|
-| Chat app reports a missing `.bin` file | Weights not converted yet — see Section 5. They are not in git. |
+| Chat reports a model is not installed | Nothing in the store yet — `/models --online` then `/install <name>`, see Section 5a. Weights are not in git. |
 | `hf auth login` fails or model 403s | You have not accepted Meta's license on the HuggingFace model page. |
 | Module / incremental build errors with MSBuild | Use the **Ninja** generator — MSBuild does not handle C++23 modules well. |
 | Out-of-memory converting Llama 3.1 8B | Conversion needs ~16 GB host RAM; convert in BF16 (the default). |

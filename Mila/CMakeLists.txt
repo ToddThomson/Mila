@@ -83,10 +83,11 @@ target_include_directories( Mila
 )
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-  target_compile_options(Mila PRIVATE 
+  target_compile_options(Mila PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:/std:c++latest /permissive- /Zc:preprocessor /W4>
     $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>
   )
+
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   target_compile_options(Mila PRIVATE 
     $<$<COMPILE_LANGUAGE:CXX>:-fmodules-ts -std=c++23>
@@ -414,11 +415,14 @@ PUBLIC
         "Src/Dnn/Components/Transformers/SamplingParams.ixx"
         "Src/Dnn/Components/Transformers/GenerateParams.ixx"
         "Src/Data/Tokenizers/SpecialTokens.ixx"
+        "Src/Dnn/Serialization/SafeTensors.ixx"
         "Src/Dnn/Serialization/PretrainedReader.ixx"
         "Src/Dnn/Serialization/Serializer.ixx"
         
         "Src/Dnn/Compute/Operations/IKVCacheLifecycle.ixx"
         
+        # The one runtime-to-compile-time quantization bridge, imported by the models below.
+        "Src/Dnn/Models/QuantizationDispatch.ixx"
         "Src/Dnn/Models/GptModel.ixx"
         "Src/Dnn/Models/LlamaModel.ixx"
         "Src/Dnn/Models/GemmaModel.ixx"
@@ -789,6 +793,70 @@ if(MILA_HAS_METAL)
     list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET metal_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
     message(STATUS "Added Metal backend module partition (STUB)")
+endif()
+
+# ----------------------------------------------------------------------------
+# Model distribution -- everything that does not move bytes
+#
+# The split is by dependency, not by theme, and the only optional thing is the
+# transport. The store, schema, packaging and install are filesystem-only;
+# ModelResolver::pull composes an IModelHub with the store; and HuggingFaceHub is
+# here too, because URL shapes, the token file, the listing quirks and the meaning
+# of a 403 are knowledge, not I/O. A build with no libcurl therefore still knows
+# everything about HuggingFace and needs only bytes supplied from elsewhere -- which
+# is exactly what the Python wheel does. See Specifications/ModelDistribution.md.
+# ----------------------------------------------------------------------------
+target_sources(Mila
+    PUBLIC
+        FILE_SET module_files
+        TYPE CXX_MODULES FILES
+            "Src/Distribution/Sha256.ixx"
+            "Src/Distribution/Environment.ixx"
+            "Src/Distribution/ModelCoordinate.ixx"
+            "Src/Distribution/ModelManifest.ixx"
+            "Src/Distribution/ModelPackage.ixx"
+            "Src/Distribution/ModelStore.ixx"
+            "Src/Distribution/ModelHub.ixx"
+            "Src/Distribution/ModelResolver.ixx"
+            "Src/Distribution/HttpTransport.ixx"
+            "Src/Distribution/HttpClient.ixx"
+            "Src/Distribution/HuggingFaceHub.ixx"
+)
+
+# ----------------------------------------------------------------------------
+# Model distribution -- the HTTP transport
+#
+# Distribution.HttpTransportBackend has two candidate source files and exactly one
+# is compiled. Selecting by source file rather than by #ifdef means the OFF path is
+# compiled code that a build actually checks, and `import Mila;` never varies by a
+# preprocessor define. This is the whole of what libcurl is needed for.
+# ----------------------------------------------------------------------------
+if(MILA_ENABLE_LIBCURL)
+    target_sources(Mila
+        PUBLIC
+            FILE_SET module_files
+            TYPE CXX_MODULES FILES
+                "Src/Distribution/CurlHttpTransport.ixx"
+                "Src/Distribution/HttpTransportBackend.Curl.ixx"
+    )
+
+    # PRIVATE: libcurl is an implementation detail. Its headers appear only in a global
+    # module fragment, so no consumer needs them.
+    target_link_libraries(Mila PRIVATE CURL::libcurl)
+
+    # No MILA_HAS_* define: a PUBLIC macro that decides what a module exports makes the BMI
+    # depend on the preprocessor. Consumers ask Distribution::kHttpTransportAvailable
+    # instead, which is an exported constant the compiler checks.
+    message(STATUS "Added HTTP transport: libcurl")
+else()
+    target_sources(Mila
+        PUBLIC
+            FILE_SET module_files
+            TYPE CXX_MODULES FILES
+                "Src/Distribution/HttpTransportBackend.Null.ixx"
+    )
+
+    message(STATUS "Added HTTP transport: none (caller supplies one, or install from disk)")
 endif()
 
 # ----------------------------------------------------------------------------

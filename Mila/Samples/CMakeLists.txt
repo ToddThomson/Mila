@@ -22,6 +22,10 @@ endif()
 # packaging_fetchcontent_consumer gate validates the same mechanism against the local
 # tree. See QuickStart/README.md.
 
+# Python is not add_subdirectory()'d either: Samples/Python holds scripts over the
+# MilaPy extension, with nothing to build. They locate the extension at run time in
+# the neutral output directory MilaPy publishes to (see Bindings/CMakeLists.txt).
+
 if(WIN32)
   #add_subdirectory(Viz)
 else()

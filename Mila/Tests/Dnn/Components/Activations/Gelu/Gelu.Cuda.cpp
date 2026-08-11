@@ -91,7 +91,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
             HostTensor host( cpu_context_->getDeviceId(), shape );
             auto* data = host.data();
 
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 data[ i ] = static_cast<float>( i ) / host.size() * 4.0f - 2.0f;
             }
@@ -147,7 +147,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
 
         constexpr float tolerance = 1e-4f;
 
-        for ( size_t i = 0; i < host_out.size(); ++i )
+        for ( dim_t i = 0; i < host_out.size(); ++i )
         {
             const float expected = geluReference( host_in.data()[ i ] );
 
@@ -167,7 +167,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
         auto host_in = makeSpreadHost( shape );
 
         HostTensor host_grad( cpu_context_->getDeviceId(), shape );
-        for ( size_t i = 0; i < host_grad.size(); ++i )
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
         {
             host_grad.data()[ i ] = 1.0f;
         }
@@ -189,7 +189,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
 
         constexpr float tolerance = 1e-3f;
 
-        for ( size_t i = 0; i < host_in_grad.size(); ++i )
+        for ( dim_t i = 0; i < host_in_grad.size(); ++i )
         {
             const float expected = geluGradientReference( host_in.data()[ i ] ) * host_grad.data()[ i ];
 
@@ -207,7 +207,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
         GeluCuda gelu( "gelu", GeluConfig(), Device::Cuda( 0 ) );
         gelu.build( BuildContext( shape_t{ 2, 4 }, RuntimeMode::Inference ) );
 
-        EXPECT_EQ( gelu.parameterCount(), 0u );
+        EXPECT_EQ( gelu.parameterCount(), 0 );
         EXPECT_TRUE( gelu.getParameters().empty() );
         EXPECT_TRUE( gelu.getGradients().empty() );
     }

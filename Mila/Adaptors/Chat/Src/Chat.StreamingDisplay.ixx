@@ -107,14 +107,14 @@ namespace Mila::ChatApp
     {
     public:
 
-        std::string feed( std::string_view text )
+        StyledText feed( std::string_view text )
         {
             pending_.append( text );
 
             return drain( false );
         }
 
-        std::string flush()
+        StyledText flush()
         {
             return drain( true );
         }
@@ -123,9 +123,9 @@ namespace Mila::ChatApp
 
         static constexpr size_t kMaximumHoldLength = 512;
 
-        std::string drain( bool force )
+        StyledText drain( bool force )
         {
-            std::string out;
+            StyledText out;
 
             while ( !pending_.empty() )
             {
@@ -133,7 +133,7 @@ namespace Mila::ChatApp
 
                 if ( hold == std::string::npos )
                 {
-                    out += formatChunk( pending_ );
+                    out.append( formatChunk( pending_ ) );
                     pending_.clear();
                     break;
                 }
@@ -144,21 +144,21 @@ namespace Mila::ChatApp
 
                 if ( newline != std::string::npos )
                 {
-                    out += formatChunk( pending_.substr( 0, newline + 1 ) );
+                    out.append( formatChunk( pending_.substr( 0, newline + 1 ) ) );
                     pending_.erase( 0, newline + 1 );
                     continue;
                 }
 
                 if ( pending_.size() - hold > kMaximumHoldLength )
                 {
-                    out += formatChunk( pending_ );
+                    out.append( formatChunk( pending_ ) );
                     pending_.clear();
                     break;
                 }
 
                 if ( hold > 0 )
                 {
-                    out += formatChunk( pending_.substr( 0, hold ) );
+                    out.append( formatChunk( pending_.substr( 0, hold ) ) );
                     pending_.erase( 0, hold );
                 }
 
@@ -168,14 +168,14 @@ namespace Mila::ChatApp
             return out;
         }
 
-        std::string formatChunk( const std::string& chunk )
+        StyledText formatChunk( const std::string& chunk )
         {
-            const std::string formatted = RichText::formatRich( chunk, at_line_start_ );
+            const StyledText formatted = RichText::formatRichStyled( chunk, at_line_start_ );
 
             // Track line-start context on the emitted text: transforms can create
             // newlines (\\ -> line break) that the raw input does not show.
             if ( !formatted.empty() )
-                at_line_start_ = formatted.back() == '\n';
+                at_line_start_ = formatted.text.back() == '\n';
             else if ( !chunk.empty() )
                 at_line_start_ = chunk.back() == '\n';
 
@@ -189,6 +189,11 @@ namespace Mila::ChatApp
         static size_t holdPoint( std::string_view s, bool at_line_start )
         {
             bool line_start_run = at_line_start;  // only indent seen so far on this line
+
+            // Where that run began, so it can be held whole. A leading indent is part
+            // of the list-marker construct, not text preceding it: emitting the indent
+            // alone leaves the next chunk believing it starts mid-line.
+            size_t indent_start = at_line_start ? 0 : std::string_view::npos;
             size_t i = 0;
 
             while ( i < s.size() )
@@ -199,6 +204,7 @@ namespace Mila::ChatApp
                 {
                     line_start_run = true;
                     ++i;
+                    indent_start = i;
                     continue;
                 }
 
@@ -209,9 +215,30 @@ namespace Mila::ChatApp
                 }
 
                 // A leading *, -, + may be a list marker: the decision needs the
-                // next character (marker iff followed by a space).
+                // next character (marker iff followed by a space). Held from the start
+                // of the indent, not from the marker -- releasing the indent alone would
+                // clear at_line_start_ and cost the marker its bullet on the next chunk.
                 if ( line_start_run && (c == '*' || c == '-' || c == '+') && i + 1 == s.size() )
-                    return i;
+                    return indent_start;
+
+                // A leading # run may be an ATX heading, decided by the character after
+                // the run. Hold the whole construct until that character arrives: half a
+                // marker formats as literal hashes, which is what the buffered render
+                // would never produce.
+                if ( line_start_run && c == '#' )
+                {
+                    size_t hashes = i;
+
+                    while ( hashes < s.size() && s[ hashes ] == '#' )
+                        ++hashes;
+
+                    if ( hashes == s.size() )
+                        return indent_start;
+
+                    line_start_run = false;
+                    i = hashes;
+                    continue;
+                }
 
                 line_start_run = false;
 
@@ -293,11 +320,23 @@ namespace Mila::ChatApp
                     continue;
                 }
 
-                if ( c == '~' && i + 1 == s.size() )
-                    return i;  // a following ~ would make a removed ~~ pair
+                // A following twin would make an emphasis pair: ~~ is removed, ** toggles
+                // bold. Splitting the pair across chunks would drop the toggle and leave
+                // the run unstyled where the buffered render bolds it.
+                if ( (c == '~' || c == '*') && i + 1 == s.size() )
+                    return i;
 
                 ++i;
             }
+
+            // The buffer ended inside a line's leading indent, so the character that
+            // decides whether this is a list item has not arrived. Hold the indent with
+            // it: releasing it would emit a run of spaces, leave at_line_start_ false,
+            // and cost the next chunk's marker its bullet. Only indented markers can
+            // split this way -- a column-zero marker is caught by the i + 1 == s.size()
+            // test above -- which is why nested items were the ones that lost the glyph.
+            if ( line_start_run && indent_start < s.size() )
+                return indent_start;
 
             return std::string_view::npos;
         }
@@ -444,13 +483,13 @@ namespace Mila::ChatApp
 
             if ( showThoughts() )
             {
-                const std::string thought_tail = thought_formatter_.flush();
+                const StyledText thought_tail = thought_formatter_.flush();
 
                 if ( !thought_tail.empty() )
                     renderer_.streamText( true, thought_tail );
             }
 
-            const std::string answer_tail = answer_formatter_.flush();
+            const StyledText answer_tail = answer_formatter_.flush();
 
             if ( !answer_tail.empty() )
                 renderer_.streamText( false, answer_tail );
@@ -571,7 +610,7 @@ namespace Mila::ChatApp
             {
                 if ( showThoughts() )
                 {
-                    const std::string tail = thought_formatter_.flush();
+                    const StyledText tail = thought_formatter_.flush();
 
                     if ( !tail.empty() )
                         renderer_.streamText( true, tail );

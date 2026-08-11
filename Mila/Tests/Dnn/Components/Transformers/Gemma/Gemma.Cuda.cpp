@@ -32,11 +32,6 @@
 #include <stdexcept>
 
 import Mila;
-// SlidingWindowKvCache is used directly (KV-cache policy wiring test) but is not
-// re-exported through the Mila umbrella; import the policy module directly, as the Src
-// consumers do. MSVC surfaced it transitively via import Mila, clang does not.
-import Dnn.Quantization.KvCache.Policy;
-import Dnn.Quantization.Weight.Policies;
 
 namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 {
@@ -173,7 +168,79 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
     {
         auto net = builtNet( allLocalConfig(), batch_, seq_ );
 
-        EXPECT_GT( net->parameterCount(), 0u );
+        EXPECT_GT( net->parameterCount(), 0 );
+    }
+
+    // ====================================================================
+    // Required-memory contract at model level (MemoryFootprint.md 7, Gate A)
+    //
+    // Load-bearing rather than belt-and-braces (MemoryFootprint.md 4.4). A block does
+    // not cascade one BuildContext -- it derives seven, and getRequiredMemory pairs
+    // children to them by hand. A mispairing, a forgotten pooled buffer, or wrong RoPE
+    // deduplication all produce a PLAUSIBLE total, not an obviously wrong one. This
+    // comparison is the only thing that distinguishes them.
+    // ====================================================================
+
+    class GemmaRequiredMemoryCudaTests : public GemmaTransformerCudaTests
+    {
+    protected:
+        void expectPredictionMatchesBuild( const GemmaConfig& config, const char* label )
+        {
+            const BuildContext context( shape_t{ batch_, seq_ }, RuntimeMode::Inference );
+
+            GemmaCuda predictor( "gemma", config, Device::Cuda( 0 ) );
+            const MemoryStats predicted = predictor.getRequiredMemory( context );
+
+            GemmaCuda built( "gemma", config, Device::Cuda( 0 ) );
+            built.build( context );
+            const MemoryStats actual = built.getMemoryStats();
+
+            EXPECT_EQ( predicted.device_parameter_bytes, actual.device_parameter_bytes )
+                << label << ": parameters";
+            EXPECT_EQ( predicted.device_state_bytes, actual.device_state_bytes )
+                << label << ": state";
+            EXPECT_EQ( predicted.device_gradient_bytes, actual.device_gradient_bytes )
+                << label << ": gradients";
+        }
+    };
+
+    TEST_F( GemmaRequiredMemoryCudaTests, MatchesBuiltFootprint_AllLocalLayers )
+    {
+        expectPredictionMatchesBuild( allLocalConfig(), "all-local" );
+    }
+
+    // Heterogeneous layers exercise the two block instantiations, which differ in head_dim,
+    // KV heads and RoPE theta -- so they also exercise the two distinct RoPE cache keys the
+    // transformer must deduplicate rather than sum per layer.
+    TEST_F( GemmaRequiredMemoryCudaTests, MatchesBuiltFootprint_HeterogeneousLayers )
+    {
+        expectPredictionMatchesBuild( heterogeneousConfig(), "heterogeneous" );
+    }
+
+    // Four layers of one kind: with only one cache per key allocated, three of the four RoPE
+    // reports must be subtracted. Two layers cannot tell a correct deduplication from an
+    // off-by-one, so this case is the one that pins the arithmetic.
+    TEST_F( GemmaRequiredMemoryCudaTests, MatchesBuiltFootprint_FourLayersPinsRopeDeduplication )
+    {
+        expectPredictionMatchesBuild( fourLayerAllLocalConfig(), "four-layer" );
+    }
+
+    // Weight tying is the largest single correction: the head reports the shared table and
+    // the transformer subtracts it exactly once. Getting this wrong is a whole embedding
+    // table -- ~2.0 GB on a real 12B.
+    TEST_F( GemmaRequiredMemoryCudaTests, MatchesBuiltFootprint_TiedWordEmbeddings )
+    {
+        expectPredictionMatchesBuild(
+            allLocalConfig().withTieWordEmbeddings( true ), "tied" );
+    }
+
+    // The premise the model-level report rests on, asserted at model scale: a constructed
+    // graph holds no device memory, which is what makes prediction possible at all.
+    TEST_F( GemmaRequiredMemoryCudaTests, Construct_AllocatesNoDeviceMemory )
+    {
+        GemmaCuda unbuilt( "gemma", allLocalConfig(), Device::Cuda( 0 ) );
+
+        EXPECT_EQ( unbuilt.getMemoryStats().totalBytes(), 0u );
     }
 
     TEST_F( GemmaTransformerCudaTests, Build_ThrowsOnNonRank2Input )
@@ -197,7 +264,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         auto net = builtNet( heterogeneousConfig(), batch_, seq_ );
 
         EXPECT_TRUE( net->isBuilt() );
-        EXPECT_GT( net->parameterCount(), 0u );
+        EXPECT_GT( net->parameterCount(), 0 );
         EXPECT_EQ( net->getComponents().size(), static_cast<size_t>( kLayers + 3 ) );
     }
 
@@ -284,7 +351,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         net->synchronize();
 
         // Rewind to the split ([0, kSplit) stays resident) and prefill only the tail.
-        ASSERT_TRUE( net->rewindKvCache( static_cast<int>( kSplit ) ) );
+        ASSERT_TRUE( net->rewindKvCache( kSplit ) );
 
         auto& logits_incremental = net->prefillFrom( tokens, kSplit );
         HostTensor incremental_host( Device::Cpu(), logits_incremental.shape() );
@@ -311,8 +378,8 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
         net->prefill( tokens );
         net->synchronize();
 
-        EXPECT_TRUE( net->rewindKvCache( static_cast<int>( seq_ - 1 ) ) );
-        EXPECT_FALSE( net->rewindKvCache( static_cast<int>( seq_ + 10 ) ) );
+        EXPECT_TRUE( net->rewindKvCache( seq_ - 1 ) );
+        EXPECT_FALSE( net->rewindKvCache( seq_ + 10 ) );
     }
 
     TEST_F( GemmaTransformerCudaTests, PrefillFrom_ThrowsOnOffsetOutsidePrompt )
@@ -334,11 +401,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Gemma
 
         auto step = makeTokens( batch_, 1 );
 
-        // REVIEW: These static_casts are a smell that the public decode() interface
-        // is not well-aligned with the internal block contract (int vs int64_t).
-        // The public interface should be fixed to take int64_t (dim_t) and avoid these.
-
-        auto& logits = net->decode( step, static_cast<int>( seq_ - 1) );
+        auto& logits = net->decode( step, seq_ - 1 );
 
         EXPECT_EQ( logits.shape(), ( shape_t{ batch_, 1, kVocab } ) );
     }

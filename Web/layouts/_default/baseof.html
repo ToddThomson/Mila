@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{{/* The home title carries the category words a search has to match -- "Mila" alone collides with
+     the Montreal AI institute, so the qualifier is load-bearing, not decoration. */}}
+{{- $title := cond .IsHome (printf "%s - a C++23 reference implementation of LLM inference" .Site.Title) (printf "%s · %s" .Title .Site.Title) }}
+{{- $desc := or .Description .Site.Params.description }}
+<title>{{ $title }}</title>
+<meta name="description" content="{{ $desc }}">
+<link rel="canonical" href="{{ .Permalink }}">
+
+{{/* Link previews: without these a shared URL renders as bare text in forums and chat. */}}
+<meta property="og:type" content="{{ cond .IsPage "article" "website" }}">
+{{/* $title, not .Site.Title: on the home page the latter is the bare word "Mila", which is the one
+     string that must never ship unqualified -- it collides with the Montreal AI institute, and a
+     share card is exactly where that costs the most. */}}
+<meta property="og:title" content="{{ cond .IsHome $title .Title }}">
+<meta property="og:description" content="{{ $desc }}">
+<meta property="og:url" content="{{ .Permalink }}">
+<meta property="og:site_name" content="{{ .Site.Title }}">
+{{- if .IsPage }}<meta property="article:published_time" content="{{ .Date.Format "2006-01-02" }}">{{ end }}
+<meta name="twitter:card" content="summary">
+
+{{/* Structured data. Asserts authorship and dates that a crawler otherwise has to infer from
+     prose -- the one on-page signal a single-author technical site can state outright. The
+     writeups are TechArticle rather than BlogPosting: they are procedural engineering accounts,
+     which is the type search engines map to developer intent.
+
+     safeJS is required: Go's html/template treats a <script type="application/ld+json"> body as a
+     JSON data island and re-marshals whatever it emits. Without safeJS the jsonify string is
+     encoded a second time into a quoted JSON string, which crawlers reject as
+     "Invalid top level element string". safeJS marks the JSON as template.JS so it passes through
+     verbatim. */}}
+{{- if and .IsPage (eq .Section "blog") }}
+<script type="application/ld+json">{{ dict
+  "@context" "https://schema.org"
+  "@type" "TechArticle"
+  "headline" .Title
+  "description" $desc
+  "url" .Permalink
+  "mainEntityOfPage" .Permalink
+  "datePublished" (.Date.Format "2006-01-02")
+  "dateModified" (.Lastmod.Format "2006-01-02")
+  "author" (dict "@type" "Person" "name" "Todd Thomson" "url" "https://github.com/ToddThomson")
+  "isPartOf" (dict "@type" "Blog" "name" "Building Mila" "url" (printf "%sblog/" .Site.BaseURL))
+  | jsonify | safeJS }}</script>
+{{- else if .IsHome }}
+<script type="application/ld+json">{{ dict
+  "@context" "https://schema.org"
+  "@type" "SoftwareSourceCode"
+  "name" .Site.Title
+  "description" .Site.Params.description
+  "url" .Site.BaseURL
+  "codeRepository" .Site.Params.repo
+  "programmingLanguage" (slice "C++" "CUDA")
+  "runtimePlatform" "CUDA"
+  "license" "https://opensource.org/licenses/MIT"
+  "author" (dict "@type" "Person" "name" "Todd Thomson" "url" "https://github.com/ToddThomson")
+  | jsonify | safeJS }}</script>
+{{- end }}
+
+{{/* Cut from the new mark. The FULL mark rather than the crest alone: the crest is near enough
+     square and fills a favicon better, but it is the blue ink only, and blue sits at 2.25:1 on a
+     dark tab strip. Keeping the i means the teal (5.53:1) carries the icon where the blue sinks.
+     apple-touch-icon is square and OPAQUE by requirement -- iOS applies its own rounded mask and
+     renders alpha as black. */}}
+<link rel="icon" href="{{ "favicon.ico" | relURL }}" sizes="any">
+<link rel="icon" href="{{ "icon.png" | relURL }}" type="image/png">
+<link rel="apple-touch-icon" href="{{ "apple-touch-icon.png" | relURL }}">
+{{ with .OutputFormats.Get "rss" }}<link rel="alternate" type="application/rss+xml" title="{{ $.Site.Title }}" href="{{ .Permalink }}">{{ end }}
+<style>
+:root {
+  --fg: #17171a; --bg: #fff; --muted: #5d5d66; --rule: #e4e4e8; --faint: #fafafb;
+  /* Both accents come from the Mila mark, so the logo and the site are one palette rather than
+     two. #0a40c2 is the a -- carried forward from the Achilles crest the mark is built on, and
+     identical to the mark's ink here (deltaE 0.0). On the dark theme it lifts to #7ea3ff, which
+     is a different colour by necessity: #0a40c2 measures 2.25:1 on that ground. */
+  --accent: #0a40c2; --accent-soft: #dce4f9; --code-bg: #f6f6f8;
+  /* Secondary, from the i of the logo. The rule: --accent is STRUCTURE (kickers, section
+     labels, measured figures); --accent-2 is EVERYTHING CLICKABLE (links, buttons, hover
+     borders). Blue says what a thing is, teal says you can act on it.
+     NOT the logo's #0f9aa8: that is 3.38:1 on white and links are body-size text, which needs
+     4.5:1. This is the same hue (185.5deg) darkened to #0d818c, which measures 4.64:1. The mark
+     keeps its own ink and does not follow this token. */
+  --accent-2: #0d818c;
+  --k: #cf222e; --c: #57606a; --s: #0a3069; --n: #0550ae; --f: #6639ba;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e8e8ec; --bg: #121215; --muted: #9b9ba6; --rule: #2b2b33; --faint: #17171b;
+    /* Lifted from the mark's #0a40c2, which is far too dark to read on a dark ground. */
+    --accent: #7ea3ff; --accent-soft: #1a2340; --code-bg: #1a1a1f;
+    /* Lifted the same way the blue is, and far enough to clear 4.5:1 as link text on this
+       ground: #13c1d3 measures 8.55:1. The logo keeps its own #0f9aa8 either way. */
+    --accent-2: #13c1d3;
+    --k: #ff7b72; --c: #8b949e; --s: #a5d6ff; --n: #79c0ff; --f: #d2a8ff;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 17px/1.7 system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-synthesis: none;
+}
+.wrap { max-width: 47rem; margin: 0 auto; padding: 0 1.5rem; }
+
+/* Full-bleed bands. The landing page is a stack of these so each section reads as its own
+   block; every other page is a single .wrap inside main. */
+.band { padding: 3rem 0; border-bottom: 1px solid var(--rule); }
+.band.alt { background: var(--faint); }
+.band:last-child { border-bottom: none; }
+.band h2 { margin-top: 0; border-bottom: none; padding-bottom: 0; font-size: 1.5rem; }
+.band .sub { max-width: 38rem; }
+main > .wrap { padding-top: 3rem; padding-bottom: 2rem; }
+
+header { padding: 1.75rem 0 1.1rem; border-bottom: 1px solid var(--rule); text-align: center; }
+/* Every item on ONE baseline: the mark's feet, the wordmark, and the tag. Previously this row
+   centred three boxes of different heights against each other, which read as three different
+   alignments. */
+header .name { display: flex; align-items: baseline; justify-content: center; gap: .7rem; flex-wrap: wrap; }
+
+/* THE LOCKUP -- mark + wordmark, read as one object.
+   The mark's viewBox is trimmed to its ink, so the SVG's bottom edge IS the mark's baseline.
+   A replaced element's baseline is its bottom margin edge, so `align-items: baseline` seats the
+   mark's feet on the wordmark's baseline with no nudge values anywhere.
+   Both dimensions are expressed in em so the lockup scales as one unit: set font-size and the
+   mark follows. --mark-h is the mark's height in ems of the wordmark.
+   Mark and wordmark stand the SAME HEIGHT -- but optically, not arithmetically. Measured off
+   the rendered font, not guessed: cap height (M) is .699em and the ascender (l, the tallest
+   glyph in "Mila") is .735em. The mark is .76em, roughly 3% above the ascender. That overshoot
+   exists because the mark's apex is a sharp point, and a point set flush to a flat top always
+   reads short -- the same reason a typeface draws A, O and S above cap height. Set this to
+   .735em and it becomes measurably equal and visibly wrong.
+   The gap is measured at the BASELINE, which is the tightest point: the i's slanted edge only
+   reaches its bounding box down there, so the optical gap opens up towards the cap. That is why
+   .12em is enough here and .16em read as loose. */
+/* line-height:1 is load-bearing -- body sets 1.7, and inherited into a 54px wordmark that is a
+   92px line box wrapping a 39px word. It padded the lockup with phantom space above and below. */
+.lockup { --mark-h: .76em; display: inline-flex; align-items: baseline; gap: .12em;
+  line-height: 1; color: var(--fg); text-decoration: none; font-weight: 700;
+  letter-spacing: -.03em; }
+.lockup img { height: var(--mark-h); width: auto; display: block; }
+header .name .lockup { font-size: 1.2rem; }
+header .tag { color: var(--muted); font-size: .82rem; }
+nav { margin-top: .7rem; font-size: .93rem; display: flex; justify-content: center; gap: 1.3rem; flex-wrap: wrap; }
+nav a { color: var(--muted); text-decoration: none; }
+nav a:hover { color: var(--accent-2); }
+
+/* Collapsing menu. CSS-only via a hidden checkbox -- no script, and it keeps working if
+   one ever fails to load. The toggle is hidden entirely at desktop width. */
+.navbtn { display: none; }
+@media (max-width: 44rem) {
+  .navbtn { display: inline-flex; align-items: center; gap: .45rem; cursor: pointer;
+    margin-top: .9rem; padding: .4rem .8rem; border: 1px solid var(--rule); border-radius: 7px;
+    font-size: .9rem; color: var(--fg); user-select: none; }
+  .navbtn:hover { border-color: var(--accent-2); }
+  nav { display: none; flex-direction: column; gap: .9rem; margin-top: 1.1rem;
+    padding-bottom: .4rem; }
+  #navtoggle:checked ~ nav { display: flex; }
+  nav a { font-size: 1rem; }
+}
+
+a { color: var(--accent-2); text-underline-offset: 2px; }
+h1 { font-size: 2.1rem; line-height: 1.2; letter-spacing: -.03em; margin: 0 0 .8rem; }
+h2 { font-size: 1.28rem; letter-spacing: -.01em; margin: 3rem 0 .9rem; padding-bottom: .35rem; border-bottom: 1px solid var(--rule); }
+h3 { font-size: 1.06rem; margin: 2rem 0 .5rem; }
+p { margin: 0 0 1.15rem; }
+.lede { font-size: 1.16rem; line-height: 1.55; letter-spacing: -.01em; }
+.lede strong { font-weight: 650; }
+.meta { color: var(--muted); font-size: .9rem; margin: -.2rem 0 2.4rem; }
+.meta a { color: var(--muted); }
+
+/* Hero -- headline, one line, two buttons. Everything else dives down from here. */
+.hero { padding: 3.5rem 0 2.75rem; text-align: center; }
+/* The logo above the headline. Same .lockup as the header, only larger -- one object, one set
+   of proportions, scaled by font-size alone. Matched to the h1's own clamp so the logo and the
+   headline are the same size rather than the logo sitting under it. */
+.hero .lockup { font-size: clamp(2.3rem, 6.5vw, 3.4rem); margin-bottom: 1.4rem; }
+.hero h1 { font-size: clamp(2.3rem, 6.5vw, 3.4rem); line-height: 1.06; margin-bottom: 1.1rem; }
+.hero .lede { max-width: 36rem; color: var(--muted); margin: 0 auto 2rem; }
+.hero .cta { justify-content: center; }
+/* The claim boxes below the hero keep their own left-aligned text. */
+.hero .feats { text-align: left; }
+
+/* Wider measure for the landing bands that carry two columns. */
+.wrap.wide { max-width: 62rem; }
+
+/* The three claims, side by side -- scanned in one pass, not read. Static by design: the
+   destination boxes below are the way deeper, and clickable claims competed with them. */
+.feats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 3rem; }
+@media (max-width: 52rem) { .feats { grid-template-columns: 1fr; } }
+.feat { display: block; padding: 1.2rem 1.3rem; border: 1px solid var(--rule); border-radius: 9px;
+  background: var(--faint); color: var(--fg); }
+.feat b { display: block; font-size: 1.15rem; letter-spacing: -.015em; margin-bottom: .25rem; }
+.feat p { margin: 0; color: var(--muted); font-size: .93rem; line-height: 1.55; }
+.feat p strong { color: var(--fg); font-weight: 600; }
+.band.alt .feat { background: var(--bg); }
+
+/* The code demonstration under the claim row. The landing page carries no prose, so this is where
+   the "Compile-time" claim is proved -- a type a C++ reader recognises rather than reads. Left
+   aligned inside the centred hero, like .feats. */
+/* The fourth claim. Same furniture as .feat, but full width so the declaration fits on one line
+   -- at a third of the row it would need breaking across four lines to fit. */
+.demo { margin-top: 1rem; text-align: left; padding: 1.2rem 1.3rem; border: 1px solid var(--rule);
+  border-radius: 9px; background: var(--faint); }
+.demo b { display: block; font-size: 1.15rem; letter-spacing: -.015em; margin-bottom: .25rem; }
+.demo > p { margin: 0 0 .9rem; color: var(--muted); font-size: .93rem; line-height: 1.55; }
+.demo pre { margin: 0; }
+/* --c is the palette's comment colour, theme-aware in both schemes. */
+.demo .cmt { color: var(--c); font-style: italic; }
+.band.alt .demo { background: var(--bg); }
+
+/* Model chips -- the validated surface as a grid rather than a table of prose. */
+.chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .8rem; margin: 1.8rem 0 0; }
+.chip { display: block; border: 1px solid var(--rule); border-radius: 8px; padding: .9rem 1rem;
+  background: var(--bg); text-decoration: none; color: var(--fg);
+  transition: border-color .15s, transform .15s; }
+.chip:hover { border-color: var(--accent-2); transform: translateY(-2px); }
+.chip .n { font-weight: 650; font-size: .97rem; letter-spacing: -.01em; display: block; }
+/* Precision badges are evidence, not navigation -- they state what was validated -- so they
+   take --accent-2. This is the first use of the secondary colour; extend it to measured figures,
+   not to chrome. */
+.chip .p { display: inline-block; margin-top: .45rem; font-size: .75rem; font-weight: 600;
+  letter-spacing: .03em; color: var(--accent); background: var(--accent-soft);
+  padding: .16rem .5rem; border-radius: 4px; }
+/* The architecture note. On a reference implementation the mechanism IS the interesting part,
+   so the chip states it rather than leaving the name to stand alone. */
+.chip .d { display: block; margin-top: .55rem; color: var(--muted); font-size: .84rem; line-height: 1.45; }
+.band.alt .chip { background: var(--bg); }
+.note { color: var(--muted); font-size: .9rem; margin-top: 1.6rem; }
+/* Bylines -- a statement per line, not a paragraph. */
+.byline { font-size: 1.1rem; margin: 0 0 .3rem; letter-spacing: -.01em; }
+.byline + .byline { color: var(--muted); font-size: 1rem; margin-bottom: 1.8rem; }
+.cta { display: flex; gap: .7rem; flex-wrap: wrap; }
+.btn { display: inline-block; padding: .6rem 1.15rem; border-radius: 7px; font-size: .94rem;
+  font-weight: 550; text-decoration: none; border: 1px solid var(--rule); color: var(--fg);
+  transition: border-color .15s, background .15s; }
+.btn:hover { border-color: var(--accent-2); }
+.btn.primary { background: var(--accent-2); border-color: var(--accent-2); color: #fff; }
+.btn.primary:hover { filter: brightness(1.08); }
+
+.sub { color: var(--muted); margin: -.35rem 0 1.5rem; }
+p.tail { color: var(--muted); font-size: .95rem; margin-top: 2.5rem; }
+p.tail p { margin: 0; }
+
+/* Top-level destination boxes on the landing page. Larger than post cards, and the only
+   navigation the front page needs -- the blog's own grid is one click down. */
+.boxes { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; margin: 2.5rem 0 1rem; }
+/* A band that opens straight onto boxes has no h2 to absorb that 2.5rem, so it stacked on the
+   band's own padding and sat 40px lower than every other section. Scoped to the headless case --
+   in the Contact band the boxes follow a heading and the margin is doing real work. */
+.wrap > .boxes:first-child { margin-top: 0; }
+.box { display: flex; flex-direction: column; gap: .45rem; padding: 1.4rem 1.45rem 1.25rem;
+  border: 1px solid var(--rule); border-radius: 10px; background: var(--faint);
+  text-decoration: none; color: var(--fg); transition: border-color .15s, transform .15s; }
+.box:hover { border-color: var(--accent-2); transform: translateY(-2px); }
+.box-kicker { font-size: .73rem; font-weight: 650; text-transform: uppercase; letter-spacing: .07em; color: var(--accent); }
+.box-title { font-size: 1.2rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; }
+.box-desc { font-size: .9rem; line-height: 1.55; color: var(--muted); flex: 1; margin-top: .15rem; }
+.box-more { font-size: .87rem; font-weight: 550; color: var(--accent-2); margin-top: .5rem; }
+
+/* Card grid -- the writeups, promoted. */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(15.5rem, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.card { display: flex; flex-direction: column; gap: .4rem; padding: 1.15rem 1.25rem 1rem;
+  border: 1px solid var(--rule); border-radius: 9px; background: var(--faint);
+  text-decoration: none; color: var(--fg); transition: border-color .15s, transform .15s; }
+.card:hover { border-color: var(--accent-2); transform: translateY(-2px); }
+.card-date { font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.card-title { font-size: 1.01rem; font-weight: 650; line-height: 1.35; letter-spacing: -.01em; }
+.card-desc { font-size: .89rem; line-height: 1.5; color: var(--muted); flex: 1; }
+.card-more { font-size: .86rem; font-weight: 550; color: var(--accent-2); margin-top: .3rem; }
+
+/* Stat row -- the measured numbers, stated once, near the top. */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1px;
+  background: var(--rule); border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; margin: 2rem 0; }
+.stat { background: var(--faint); padding: .85rem 1rem; }
+.stat b { display: block; font-size: 1.32rem; letter-spacing: -.02em; color: var(--accent); font-weight: 700; }
+.stat span { display: block; color: var(--muted); font-size: .8rem; line-height: 1.35; margin-top: .15rem; }
+
+code { background: var(--code-bg); padding: .12em .36em; border-radius: 3px; font-size: .88em; }
+pre { background: var(--code-bg); border: 1px solid var(--rule); padding: .95rem 1.1rem; border-radius: 7px;
+  overflow-x: auto; font-size: .855rem; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: inherit; }
+.chroma .k, .chroma .kd, .chroma .kn, .chroma .kt, .chroma .kr, .chroma .cp { color: var(--k); }
+.chroma .c, .chroma .c1, .chroma .cm, .chroma .cs { color: var(--c); font-style: italic; }
+.chroma .s, .chroma .s1, .chroma .s2, .chroma .sc { color: var(--s); }
+.chroma .m, .chroma .mi, .chroma .mf, .chroma .mh, .chroma .o { color: var(--n); }
+.chroma .nf, .chroma .nb, .chroma .nd { color: var(--f); }
+.chroma .nc, .chroma .nn { color: var(--fg); }
+
+table { border-collapse: collapse; width: 100%; font-size: .91rem; margin: 1.4rem 0; }
+th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 650; font-size: .84rem; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+tbody tr:last-child td { border-bottom: none; }
+.scroll { overflow-x: auto; margin: 1.4rem 0; }
+.scroll table { margin: 0; }
+
+blockquote { margin: 1.4rem 0; padding: .1rem 0 .1rem 1.1rem; border-left: 3px solid var(--accent-soft); color: var(--muted); }
+hr { border: none; border-top: 1px solid var(--rule); margin: 2.5rem 0; }
+img { max-width: 100%; height: auto; }
+ul, ol { padding-left: 1.3rem; }
+li { margin-bottom: .35rem; }
+
+ul.posts { list-style: none; padding: 0; margin: 1.2rem 0 0; }
+ul.posts li { margin-bottom: 1.5rem; }
+ul.posts .t { font-size: 1.04rem; font-weight: 650; letter-spacing: -.01em; }
+ul.posts .t a { text-decoration: none; }
+ul.posts .t a:hover { text-decoration: underline; }
+ul.posts .d { color: var(--muted); font-size: .89rem; line-height: 1.5; margin-top: .15rem; }
+
+/* Post navigation. A reader who arrived from search has no history to go back to, and a
+   reader who finished one post needs somewhere to go next. */
+.backlink { display: inline-block; margin-bottom: 1.6rem; font-size: .9rem; color: var(--muted);
+  text-decoration: none; }
+.backlink:hover { color: var(--accent-2); }
+.postnav { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 3.5rem;
+  padding-top: 1.8rem; border-top: 1px solid var(--rule); }
+@media (max-width: 40rem) { .postnav { grid-template-columns: 1fr; } }
+.pn a { display: block; padding: .95rem 1.1rem; border: 1px solid var(--rule); border-radius: 9px;
+  background: var(--faint); text-decoration: none; color: var(--fg);
+  transition: border-color .15s, transform .15s; height: 100%; }
+.pn a:hover { border-color: var(--accent-2); transform: translateY(-2px); }
+.pn-next { text-align: right; }
+.pn-dir { display: block; font-size: .78rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--accent-2); font-weight: 650; margin-bottom: .25rem; }
+.pn-title { display: block; font-size: .95rem; font-weight: 600; line-height: 1.4;
+  letter-spacing: -.01em; }
+
+footer { border-top: 1px solid var(--rule); margin-top: 5rem; padding: 1.4rem 0 4rem;
+  color: var(--muted); font-size: .88rem; }
+footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="name">
+      {{/* .Site.Home.RelPermalink, not "/" | relURL -- relURL does not prepend the base path
+           to a leading-slash string, so "/" would resolve to the account root, not /Mila/. */}}
+      {{/* width/height carry the mark's intrinsic RATIO (79.7 x 62, scaled to integers) so the
+           browser reserves the right box before the SVG loads. CSS sets the rendered size. */}}
+      <a class="lockup" href="{{ .Site.Home.RelPermalink }}"><img src="{{ "mila-mark.svg" | relURL }}" alt="" width="797" height="620"><span class="word">Mila</span></a>
+      {{/* What before how. "local" is the constraint the whole architecture serves, and it implies
+           open weights -- the closed frontier models cannot run here at all. */}}
+      <span class="tag">local LLMs · C++23 · CUDA</span>
+    </div>
+    <input type="checkbox" id="navtoggle" hidden>
+    <label class="navbtn" for="navtoggle" aria-label="Toggle menu"><span aria-hidden="true">☰</span> Menu</label>
+    <nav>{{ range .Site.Params.nav }}<a href="{{ .url | relURL }}">{{ .name }}</a>{{ end }}</nav>
+  </div>
+</header>
+<main>
+{{ block "main" . }}{{ end }}
+</main>
+<footer>
+  <div class="wrap">
+    {{/* Sponsoring lives here rather than in the nav -- reachable from every page, costing no
+         attention on pages where nobody is looking for it. */}}
+    <p>Mila is a C++23 and CUDA reference implementation of LLM inference and training — built to be
+    read. Source on <a href="{{ .Site.Params.repo }}">GitHub</a>, MIT licensed. Currently in public
+    beta. Hardware and compute <a href="{{ "sponsor/" | relURL }}">sponsorship</a> welcome.</p>
+  </div>
+</footer>
+</body>
+</html>

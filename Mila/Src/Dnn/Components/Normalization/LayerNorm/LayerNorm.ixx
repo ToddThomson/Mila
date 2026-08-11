@@ -44,8 +44,10 @@ import Compute.OperationTraits;
 import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Serialization.ModelArchive;
+import Serialization.Metadata;
 import Serialization.Mode;
 import Serialization.Tensor;
+import Serialization.SafeTensors;
 
 // DEBUG:
 import Dnn.TensorOps;
@@ -207,10 +209,55 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
+        std::vector<std::string> getParameterNames() const override
+        {
+            if ( config_.hasBias() )
+            {
+                return { "weight", "bias" };
+            }
+
+            return { "weight" };
+        }
+
+        void saveFlatTensors(
+            Serialization::SafeTensorsWriter& writer,
+            const std::string& prefix,
+            Serialization::TensorSavePass pass ) const override
+        {
+            if ( weight_ )
+            {
+                this->saveParameterToWriter( writer, prefix + ".weight", *weight_, pass );
+            }
+
+            if ( bias_ )
+            {
+                this->saveParameterToWriter( writer, prefix + ".bias", *bias_, pass );
+            }
+        }
+
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
-            (void)archive;
             (void)mode;
+
+            SerializationMetadata meta;
+            meta.set( "type", "LayerNorm" )
+                .set( "version", int64_t( 1 ) )
+                .set( "name", this->getName() )
+                .set( "has_bias", config_.hasBias() );
+
+            archive.writeMetadata( "meta.json", meta );
+
+            for ( const auto& parameter_name : getParameterNames() )
+            {
+                if ( parameter_name == "weight" && weight_ )
+                {
+                    this->saveParameterToArchive( archive, parameter_name, *weight_ );
+                }
+                else if ( parameter_name == "bias" && bias_ )
+                {
+                    this->saveParameterToArchive( archive, parameter_name, *bias_ );
+                }
+            }
         }
 
         // ====================================================================
@@ -253,9 +300,9 @@ namespace Mila::Dnn
             return grads;
         }
 
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
-            size_t count = 0;
+            dim_t count = 0;
 
             if ( weight_ )
             {

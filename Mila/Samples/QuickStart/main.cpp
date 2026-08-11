@@ -20,7 +20,7 @@ int main()
 
     // Also exercises the version path: getAPIVersion() reads PUBLIC compile
     // definitions that must survive install + export to reach this consumer.
-    std::cout << "Mila QuickStart: framework initialized via find_package(Mila). "
+    std::cout << "Mila QuickStart: library initialized via FetchContent. "
               << "Version " << Mila::getAPIVersion().toString() << "\n";
 
     Mila::shutdown();

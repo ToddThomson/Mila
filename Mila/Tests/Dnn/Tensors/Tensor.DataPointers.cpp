@@ -56,11 +56,11 @@ namespace Mila::Tests::Dnn::Tensors
         // Verify type deduction returns raw pointer
         static_assert(std::is_same_v<decltype(data_ptr), int32_t*>);
 
-        for (size_t i = 0; i < t.size(); ++i) {
+        for (dim_t i = 0; i < t.size(); ++i) {
             data_ptr[i] = static_cast<int32_t>( i * 100 );
         }
 
-        for (size_t i = 0; i < t.size(); ++i) {
+        for (dim_t i = 0; i < t.size(); ++i) {
             EXPECT_EQ( data_ptr[i], static_cast<int32_t>( i * 100 ) );
         }
     }
@@ -134,12 +134,12 @@ namespace Mila::Tests::Dnn::Tensors
         auto* data_ptr = t.data();
 
         // Fill using pointer arithmetic
-        for (size_t i = 0; i < t.size(); ++i) {
+        for (dim_t i = 0; i < t.size(); ++i) {
             *(data_ptr + i) = static_cast<int32_t>( i * 10 );
         }
 
         // Verify using indexing
-        for (size_t i = 0; i < t.size(); ++i) {
+        for (dim_t i = 0; i < t.size(); ++i) {
             EXPECT_EQ( data_ptr[i], static_cast<int32_t>( i * 10 ) );
         }
     }
@@ -151,7 +151,7 @@ namespace Mila::Tests::Dnn::Tensors
 
         // Fill using iterator-style access
         float value = 1.5f;
-        for (size_t i = 0; i < t.size(); ++i) {
+        for (dim_t i = 0; i < t.size(); ++i) {
             data_ptr[i] = value;
             value += 0.5f;
         }
@@ -212,7 +212,7 @@ namespace Mila::Tests::Dnn::Tensors
 
         // Fill in row-major order
         int32_t value = 1;
-        for (size_t i = 0; i < t.size(); ++i) {
+        for (dim_t i = 0; i < t.size(); ++i) {
             data_ptr[i] = value++;
         }
 
@@ -233,7 +233,7 @@ namespace Mila::Tests::Dnn::Tensors
         auto* data_ptr = t.data();
 
         // Fill with sequential values
-        for (size_t i = 0; i < t.size(); ++i) {
+        for (dim_t i = 0; i < t.size(); ++i) {
             data_ptr[i] = static_cast<float>( i );
         }
 
@@ -277,7 +277,7 @@ namespace Mila::Tests::Dnn::Tensors
         std::fill( data_ptr, data_ptr + t.size(), 42.0f );
 
         // Verify
-        for (size_t i = 0; i < t.size(); ++i) {
+        for (dim_t i = 0; i < t.size(); ++i) {
             EXPECT_FLOAT_EQ( data_ptr[i], 42.0f );
         }
     }
@@ -288,7 +288,7 @@ namespace Mila::Tests::Dnn::Tensors
 
         // Fill source
         auto* src_ptr = src.data();
-        for (size_t i = 0; i < src.size(); ++i) {
+        for (dim_t i = 0; i < src.size(); ++i) {
             src_ptr[i] = static_cast<int32_t>( i * 10 );
         }
 
@@ -297,7 +297,7 @@ namespace Mila::Tests::Dnn::Tensors
         std::memcpy( dst_ptr, src_ptr, src.size() * sizeof( int32_t ) );
 
         // Verify
-        for (size_t i = 0; i < dst.size(); ++i) {
+        for (dim_t i = 0; i < dst.size(); ++i) {
             EXPECT_EQ( dst_ptr[i], src_ptr[i] );
         }
     }
@@ -316,7 +316,7 @@ namespace Mila::Tests::Dnn::Tensors
 
         // Verify
         auto* data_ptr = t.data();
-        for (size_t i = 0; i < t.size(); ++i) {
+        for (dim_t i = 0; i < t.size(); ++i) {
             EXPECT_EQ( data_ptr[i], 777 );
         }
     }
@@ -342,7 +342,7 @@ namespace Mila::Tests::Dnn::Tensors
         auto* data_ptr = t.data();
 
         // Fill large tensor
-        for (size_t i = 0; i < t.size(); ++i) {
+        for (dim_t i = 0; i < t.size(); ++i) {
             data_ptr[i] = static_cast<float>( i % 100 );
         }
 
@@ -359,12 +359,12 @@ namespace Mila::Tests::Dnn::Tensors
 
         // Can't use range-based for directly, but can create a span-like view
         int32_t value = 1;
-        for (size_t i = 0; i < t.size(); ++i) {
+        for (dim_t i = 0; i < t.size(); ++i) {
             data_ptr[i] = value++;
         }
 
         // Verify
-        for (size_t i = 0; i < t.size(); ++i) {
+        for (dim_t i = 0; i < t.size(); ++i) {
             EXPECT_EQ( data_ptr[i], static_cast<int32_t>( i + 1 ) );
         }
     }

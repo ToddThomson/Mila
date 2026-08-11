@@ -1,7 +1,18 @@
 name: Mila Docs
 
-# Doxygen API docs -> GitHub Pages. Master-only: docs are a release-surface concern,
-# not something to regenerate on every dev push or PR.
+# The Mila site (Hugo) + Doxygen API reference -> GitHub Pages. Publishes from `dev`.
+#
+# The authored site has its own content velocity -- prose, blog posts, SEO fixes -- that is
+# independent of the library's dev->master release cadence. Gating the site's publication on a
+# library release was wrong; a push to `dev` that touches the site (or the Doxyfile) builds,
+# validates, and deploys. The validate step gates the deploy: a broken build or malformed
+# structured data fails the build job, and the deploy job never runs.
+#
+# The API reference is folded into the SAME Pages artifact -- GitHub Pages serves one site per
+# repo, so the site and /api deploy together and cannot be published independently. It therefore
+# tracks `dev` as well. That is fine: the API reference is marked noindex, so "current with the
+# code" is preferable to "frozen at a release" and carries no SEO cost. (web.yml is the faster,
+# site-only build+validate gate for pull requests and ad-hoc checks; it never deploys.)
 #
 # The build runs Doxygen directly against the canonical Mila/Docs/Doxyfile -- no CMake
 # configure, no CUDA toolkit, no Graphviz (the docs describe the source; they compile
@@ -13,14 +24,28 @@ name: Mila Docs
 # runs git inside the runner and fails there ("not in a git directory"), which is exactly
 # what froze the published docs. deploy-pages never touches git in the workspace -- it
 # hands the uploaded artifact to the Pages API. Requires the repo Pages "Source" set to
-# "GitHub Actions" (not "Deploy from a branch").
+# "GitHub Actions" (not "Deploy from a branch"), and the `github-pages` environment's
+# deployment branch policy to permit `dev`.
 
 on:
   push:
-    branches: [master]
-  # Manual re-publish (e.g. refresh the site without a code change, or re-run after a
-  # transient deploy failure).
+    branches: [dev]
+    # Only the surfaces this workflow publishes. A pure source change on `dev` does not
+    # auto-republish (the API reference refreshes on the next site publish or a manual run);
+    # dispatch below covers an on-demand API refresh.
+    paths:
+      - 'Web/**'
+      - 'Mila/Docs/Doxyfile'
+      - '.github/workflows/docs.yml'
+  # Manual re-publish (refresh the API reference after a code change, re-run after a transient
+  # deploy failure, or publish from another branch). The deploy is LIVE, so use publish=false
+  # first to build and inspect the artifact without replacing the site.
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish to Pages (uncheck to build and inspect the artifact only)'
+        type: boolean
+        default: true
 
 # Pages deployment needs write to Pages and an OIDC token to prove the deploy
 # originates from this workflow; the build only reads the repo.
@@ -60,15 +85,108 @@ jobs:
           mkdir -p build/docs   # Doxygen does not create nested OUTPUT_DIRECTORY parents
           doxygen Mila/Docs/Doxyfile
 
-      # HTML lands in build/docs/html (OUTPUT_DIRECTORY=build/docs in the Doxyfile).
+      # Hugo builds the authored site (landing page + writeups). Pinned like Doxygen above:
+      # the site must not change shape because a runner picked up a new release.
+      #
+      # Standard edition, deliberately. The extended edition only adds WebP encoding, Sass
+      # transpilation, and cloud-bucket deployment -- the site uses none of them (its CSS is
+      # written inline in layouts/_default/baseof.html), and extended would pull a Dart Sass
+      # prerequisite for nothing.
+      - name: Install Hugo 0.164.0
+        run: |
+          wget -q https://github.com/gohugoio/hugo/releases/download/v0.164.0/hugo_0.164.0_linux-amd64.tar.gz
+          tar -xzf hugo_0.164.0_linux-amd64.tar.gz hugo
+          sudo mv hugo /usr/local/bin/
+          hugo version
+
+      # --destination is resolved relative to --source, hence the ../ climb back to the
+      # repo root. --minify strips whitespace; --gc drops stale cache entries.
+      - name: Build site
+        run: hugo --source Web --destination ../build/site --minify --gc
+
+      # The API reference is folded in as a subtree. The Doxyfile is untouched -- its output
+      # is relocated here, which keeps this reversible.
+      - name: Fold in the API reference
+        run: |
+          mkdir -p build/site/api
+          cp -r build/docs/html/* build/site/api/
+
+      # Doxygen output is thin, near-duplicate generated HTML: indexing it dilutes the site
+      # and competes with the pages that should rank. Marking the pages themselves is kept
+      # deliberately over a robots.txt -- robots.txt only asks crawlers not to *fetch*, which
+      # does not stop a linked URL being indexed, whereas noindex is honoured after the fetch.
+      # (Before the move to mila.toddt.me a robots.txt was not even an option: the site lived
+      # at a subpath of a domain we did not control.)
+      - name: Mark the API reference noindex
+        run: |
+          find build/site/api -name '*.html' -exec \
+            sed -i 's|<head>|<head><meta name="robots" content="noindex,follow">|I' {} +
+
+      # Fail loudly rather than publishing a broken site: the deploy below replaces the live
+      # site wholesale, and there is no staging environment to catch this later.
+      - name: Verify the assembled site
+        run: |
+          set -e
+          for f in build/site/index.html build/site/blog/index.html \
+                   build/site/api/index.html build/site/sitemap.xml; do
+            test -s "$f" || { echo "MISSING OR EMPTY: $f"; exit 1; }
+          done
+          grep -q 'noindex' build/site/api/index.html \
+            || { echo "api/index.html was not marked noindex"; exit 1; }
+          grep -q 'mila.toddt.me/blog/' build/site/sitemap.xml \
+            || { echo "sitemap does not list the blog section"; exit 1; }
+          ! grep -q 'mila.toddt.me/api/' build/site/sitemap.xml \
+            || { echo "sitemap must not list the API reference"; exit 1; }
+          echo "--- assembled tree ---"
+          find build/site -maxdepth 2 -not -path '*/api/*' | sort
+
+      # Structured-data validation. A bare hugo build exits 0 on JSON-LD that is malformed as
+      # structured data (e.g. double-encoded into a JSON string, which crawlers reject as
+      # "Invalid top level element string"). Parse every emitted ld+json block on the authored
+      # pages and require the top-level element to be a JSON object. This gates the deploy below.
+      # (web.yml runs the identical check on pull requests; docs.yml repeats it so the deploy is
+      # self-gating regardless of what ran upstream.) The /api/ subtree is Doxygen HTML with no
+      # structured data, so it is skipped.
+      - name: Validate JSON-LD structured data
+        run: |
+          python3 - <<'PY'
+          import re, json, sys, pathlib
+          root = pathlib.Path("build/site")
+          bad = []
+          checked = 0
+          for html in root.rglob("index.html"):
+              if "/api/" in html.as_posix():
+                  continue
+              text = html.read_text(encoding="utf-8")
+              for block in re.findall(r'<script type="?application/ld\+json"?>(.*?)</script>', text, re.S):
+                  checked += 1
+                  try:
+                      value = json.loads(block)
+                  except json.JSONDecodeError as e:
+                      bad.append(f"{html}: not valid JSON ({e})")
+                      continue
+                  if not isinstance(value, dict):
+                      bad.append(f"{html}: top-level element is {type(value).__name__}, expected object")
+          if bad:
+              print("Invalid JSON-LD:")
+              for b in bad:
+                  print("  " + b)
+              sys.exit(1)
+          print(f"OK: {checked} JSON-LD block(s) validated as objects")
+          PY
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: build/docs/html
+          path: build/site
 
   deploy:
     name: Deploy to GitHub Pages
     needs: build
+    # A push to `dev` (already path-filtered to the published surfaces) always publishes. A
+    # manual dispatch only publishes when asked, so the build can be exercised and its artifact
+    # inspected without replacing the live site.
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)
     runs-on: ubuntu-24.04
     environment:
       name: github-pages

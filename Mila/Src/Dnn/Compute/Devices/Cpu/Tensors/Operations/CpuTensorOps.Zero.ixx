@@ -13,6 +13,7 @@ module;
 export module Compute.CpuTensorOps:Zero;
 
 import Dnn.Tensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Compute.ExecutionContext;
@@ -50,7 +51,7 @@ namespace Mila::Dnn::Compute::Cpu
 			static_assert(std::is_trivially_copyable_v<NativeType>, "Zero path requires trivially copyable native type");
 
 			void* dst = tensor.data();
-			const std::size_t bytes = tensor.size() * sizeof( NativeType );
+			const std::size_t bytes = static_cast<std::size_t>( tensor.size() ) * sizeof( NativeType );
 
 			std::memset( dst, 0, bytes );
 		}

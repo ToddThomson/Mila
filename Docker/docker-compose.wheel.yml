@@ -1,0 +1,30 @@
+# The PyPI wheel builder, deliberately in its own compose file rather than a second
+# service in docker-compose.yml: that file is what the dev container builds from, and a
+# service pointing at a different base image has no business being parsed on the path
+# that starts the everyday dev environment.
+#
+# Ubuntu 24.04, not the dev image's 26.04 -- auditwheel takes the manylinux tag from the
+# glibc linked against, so the build distro is the floor. No GPU reservation: building
+# the wheel needs nvcc, not a device.
+services:
+  mila-wheel:
+    build:
+      context: ..
+      dockerfile: Docker/Dockerfile.wheel
+    image: mila-wheel:latest
+    container_name: mila-wheel
+    volumes:
+      # Source in, finished wheel out under out/wheel -- both across this bind mount.
+      - ..:/mila
+      # Packaging scratch (the copied package tree) off the bind mount. The CMake build
+      # tree lives under out/build/linux-wheel, matching the linux-wheel preset.
+      - mila-wheel-build:/build
+      - mila-wheel-ccache:/ccache
+    working_dir: /mila
+    # Keep it alive so VS can attach to it as a dev container; the packaging step is
+    # `mila-build-wheel`, run inside.
+    command: sleep infinity
+
+volumes:
+  mila-wheel-build:
+  mila-wheel-ccache:

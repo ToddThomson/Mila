@@ -25,12 +25,15 @@ import Dnn.Component;
 import Dnn.ComponentFactory;
 import Dnn.ITensor;
 import Dnn.TensorDataType;
+import Dnn.TensorTypes;
 import Compute.Device;
 import Compute.DeviceId;
 import Compute.DeviceType;
 import Compute.IExecutionContext;
 import Serialization.ModelArchive;
+import Serialization.Metadata;
 import Serialization.Mode;
+import Serialization.SafeTensors;
 
 namespace Mila::Dnn
 {
@@ -482,7 +485,7 @@ namespace Mila::Dnn
          *
          * @throws std::runtime_error if called before build()
          */
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             if ( !this->isBuilt() )
             {
@@ -491,7 +494,7 @@ namespace Mila::Dnn
                 );
             }
 
-            size_t count = 0;
+            dim_t count = 0;
 
             for ( const auto& component : child_components_ )
             {
@@ -581,7 +584,7 @@ namespace Mila::Dnn
                 );
             }
 
-            size_t total_count = 0;
+            dim_t total_count = 0;
 
             for ( const auto& component : child_components_ )
             {
@@ -589,7 +592,7 @@ namespace Mila::Dnn
             }
 
             std::vector<ITensor*> params;
-            params.reserve( total_count );
+            params.reserve( static_cast<size_t>( total_count ) );
 
             for ( const auto& component : child_components_ )
             {
@@ -624,7 +627,7 @@ namespace Mila::Dnn
                 );
             }
 
-            size_t total_count = 0;
+            dim_t total_count = 0;
 
             for ( const auto& component : child_components_ )
             {
@@ -632,7 +635,7 @@ namespace Mila::Dnn
             }
 
             std::vector<ITensor*> grads;
-            grads.reserve( total_count );
+            grads.reserve( static_cast<size_t>( total_count ) );
 
             for ( const auto& component : child_components_ )
             {
@@ -645,6 +648,39 @@ namespace Mila::Dnn
             }
 
             return grads;
+        }
+
+        /**
+         * @brief Recurse into children, extending the flat dotted prefix.
+         *
+         * A composite contributes no tensors of its own. It exists here to turn the component
+         * tree into the flat vocabulary the pretrained format uses -- the same dotted paths
+         * loadParameters() splits with parseParameterPath() and resolves with findComponent(),
+         * so what this writes is exactly what that reads.
+         *
+         * Children carry fully qualified names ("gemma.tf_layer_0.qkv_proj"), so the relative
+         * segment is recovered by stripping this composite's own name. Calling the root with an
+         * empty prefix therefore drops the model name and yields "tf_layer_0.qkv_proj",
+         * matching the converter's naming rather than a Mila-internal path.
+         *
+         * child_components_ rather than child_component_map_: the map is unordered, and the
+         * writer requires bodies in declaration order, so an unordered walk would produce a
+         * file whose data region disagrees with its own index.
+         *
+         * Public, unlike save_() which is public on Component but protected here -- an
+         * asymmetry already filed as a defect. A flat save is driven from outside the tree,
+         * so repeating it would force every caller through a forwarder.
+         */
+        void saveFlatTensors(
+            Serialization::SafeTensorsWriter& writer,
+            const std::string& prefix,
+            Serialization::TensorSavePass pass ) const override
+        {
+            for ( const auto& component : child_components_ )
+            {
+                component->saveFlatTensors(
+                    writer, childFlatPrefix( prefix, component->getName() ), pass );
+            }
         }
 
     protected:
@@ -752,6 +788,17 @@ namespace Mila::Dnn
          * @param archive Archive to write to
          * @param mode What to save (Checkpoint, WeightsOnly, Architecture)
          */
+        /**
+         * @brief No-op override: a composite names no parameters of its own.
+         *
+         * parameterCount() on a composite sums its children, so the base implementation
+         * would demand names this component never owns. Each child is checked individually
+         * by the recursion in save_().
+         */
+        void requireSerializableParameters() const override
+        {
+        }
+
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
             if ( !this->isBuilt() )
@@ -761,33 +808,103 @@ namespace Mila::Dnn
                 );
             }
 
-            archive.addMetadata( "type", this->getName() );
-            archive.addMetadata( "version", "1" );
-            archive.addMetadata( "child_count", std::to_string( child_components_.size() ) );
+            // meta.json, not addMetadata(): addMetadata writes the unscoped archive-global
+            // path "metadata/<key>", so every composite in the model would overwrite the
+            // same four keys. writeMetadata goes through scopedPath() and lands under this
+            // composite.
+            // child_components_ rather than child_component_map_ -- the map is unordered, so
+            // iterating it makes both the recorded child order and the write order vary
+            // between runs. The vector preserves registration order and the two containers
+            // hold the same children under the same names (addComponent keys the map on
+            // component->getName()).
+            std::vector<std::string> child_names;
+            child_names.reserve( child_components_.size() );
 
-            std::ostringstream names_stream;
-            bool first = true;
-
-            for ( const auto& [name, _] : child_component_map_ )
+            for ( const auto& component : child_components_ )
             {
-                if ( !first )
-                {
-                    names_stream << ",";
-                }
-
-                names_stream << name;
-                first = false;
+                child_names.push_back( component->getName() );
             }
 
-            archive.addMetadata( "child_names", names_stream.str() );
+            SerializationMetadata meta;
+            meta.set( "type", this->getName() )
+                .set( "version", int64_t( 1 ) )
+                .set( "child_count", static_cast<int64_t>( child_components_.size() ) )
+                .set( "child_names", child_names );
 
-            for ( const auto& [name, component] : child_component_map_ )
+            archive.writeMetadata( "meta.json", meta );
+
+            // Each child owns a nested scope. Without this every descendant writes into its
+            // parent's scope, so in a 48-block transformer every Linear would write
+            // tensors/weight/data.bin at the same path, each overwriting the last.
+            for ( const auto& component : child_components_ )
             {
+                ModelArchive::ScopedScope scope( archive, component->getName() );
+
+                component->requireSerializableParameters();
                 component->save_( archive, mode );
             }
         }
 
+        /**
+         * @brief Restore children from their nested scopes, mirroring save_().
+         *
+         * Walks the same children in the same order under the same scopes, so a child's
+         * blobs are read from exactly the paths they were written to. Restores into the
+         * live graph -- the composite and its children must already be constructed and
+         * built.
+         *
+         * @param archive Archive to read from, scoped to this composite.
+         * @param mode    Serialization mode (passed to children).
+         *
+         * @throws std::runtime_error if the composite is not built.
+         */
+        void load_( ModelArchive& archive, SerializationMode mode ) override
+        {
+            if ( !this->isBuilt() )
+            {
+                throw std::runtime_error(
+                    "Cannot load into an unbuilt CompositeComponent"
+                );
+            }
+
+            for ( const auto& component : child_components_ )
+            {
+                ModelArchive::ScopedScope scope( archive, component->getName() );
+
+                component->requireSerializableParameters();
+                component->load_( archive, mode );
+            }
+        }
+
     private:
+
+        /**
+         * @brief Build a child's flat prefix from this composite's.
+         *
+         * addComponent() keys children on their own getName(), which is fully qualified, so
+         * a child's name always begins with this composite's name followed by a dot. What
+         * remains is the segment the flat format wants. An empty parent prefix yields the
+         * bare relative path, which is how the root's own name is dropped.
+         *
+         * @param parent_prefix This composite's flat prefix; empty at the root.
+         * @param child_name    Child's fully qualified component name.
+         */
+        std::string childFlatPrefix(
+            const std::string& parent_prefix, const std::string& child_name ) const
+        {
+            const std::string my_name = this->getName();
+
+            std::string relative = child_name.starts_with( my_name + "." )
+                ? child_name.substr( my_name.size() + 1 )
+                : child_name;
+
+            if ( parent_prefix.empty() )
+            {
+                return relative;
+            }
+
+            return parent_prefix + "." + relative;
+        }
 
         /**
          * @brief Child components in insertion order.

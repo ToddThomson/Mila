@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mila-llm"
+# Derived from the repository's Version.txt by the CMake build, not written here: a
+# hand-maintained copy drifted 18 builds behind before this was fixed. The SemVer ->
+# PEP 440 mapping and the reasoning behind .devN (never .postN) live in
+# cmake/MilaVersion.cmake; setup.py reads the generated VERSION file.
+dynamic = ["version"]
+description = "The LLM stack you can read and understand: Gemma 4 and Llama on CUDA, built from explicit C++23 components."
+readme = "README.md"
+# One wheel per interpreter, because pybind11 cannot use Py_LIMITED_API -- there is no
+# abi3 build that would cover a range with a single file. The floor is 3.12 (Ubuntu
+# 24.04 LTS's system Python, so the version a user is most likely to have without
+# choosing it); the ceiling excludes 3.14 only because nothing has been built against it
+# yet. Widening means building the wheels first: this range must never promise an
+# interpreter out/wheel does not carry, or pip reports "no matching distribution"
+# instead of naming the supported versions.
+requires-python = ">=3.12,<3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Todd Thomson" }]
+keywords = ["llm", "cuda", "inference", "gemma", "llama", "transformer"]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Environment :: GPU :: NVIDIA CUDA :: 13",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+]
+
+# The CUDA runtime libraries the extension links, as NVIDIA's own wheels. This is
+# what makes `pip install mila-llm` work on a machine with no CUDA Toolkit, which is
+# the entire point of shipping a wheel. Unsuffixed names: the -cu13 spellings are
+# deprecated stubs that redirect here. Both publish win_amd64 and manylinux wheels.
+# An installed Toolkit still works and is used as the fallback (see mila/__init__.py).
+dependencies = [
+    "nvidia-cublas>=13.0,<14.0",
+    "nvidia-curand>=10.4,<11.0",
+    # Linux only, and the marker is not a guess: the extension's DT_NEEDED carries
+    # libcudart.so.13 there, while on Windows no cudart DLL is loaded at all -- nvcc
+    # links the runtime statically on one platform and dynamically on the other. Without
+    # this, a Linux install on a machine with no CUDA Toolkit resolves every other
+    # library from the wheels and then dies on `libcudart.so.13: cannot open shared
+    # object file`. Measured on a CUDA-free image, not inferred.
+    "nvidia-cuda-runtime>=13.0,<14.0; sys_platform == 'linux'",
+]
+
+[project.urls]
+Homepage = "https://mila.toddt.me"
+Source = "https://github.com/toddthomson/Mila"
+Issues = "https://github.com/toddthomson/Mila/issues"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+# The compiled extension is produced by the CMake build (target MilaPy) and staged
+# into src/mila; it is not built by this backend. Building the wheel is therefore a
+# packaging step over an existing build, not a second build system.
+zip-safe = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mila = ["_mila*.pyd", "_mila*.so", "py.typed"]

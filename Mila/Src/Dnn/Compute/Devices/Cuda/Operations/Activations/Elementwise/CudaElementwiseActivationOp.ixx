@@ -20,6 +20,7 @@ export module Compute.CudaElementwiseActivationOp;
 import Dnn.Components.ActivationConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.Component;
@@ -79,7 +80,7 @@ namespace Mila::Dnn::Compute::Cuda::Activation
 
             auto X = static_cast<const NativeType*>( input.rawData() );
             auto Y = static_cast<NativeType*>( output.rawData() );
-            int N = static_cast<int>( input.size() );
+            const int N = narrowToKernelIndex( input.size() );
 
             launch_elementwise_forward<NativeType, TFunctor>( Y, X, N, functor_, stream );
         }
@@ -98,7 +99,7 @@ namespace Mila::Dnn::Compute::Cuda::Activation
             const NativeType* X = static_cast<const NativeType*>( input.rawData() );
             const NativeType* dY = static_cast<const NativeType*>( output_gradient.rawData() );
             NativeType* dX = static_cast<NativeType*>( input_gradient.rawData() );
-            int N = static_cast<int>( input.size() );
+            const int N = narrowToKernelIndex( input.size() );
 
             launch_elementwise_backward<NativeType, TFunctor>( dX, X, dY, N, functor_, stream );
         }

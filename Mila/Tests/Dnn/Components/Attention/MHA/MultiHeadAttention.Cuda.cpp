@@ -166,7 +166,7 @@ namespace Mila::Tests::Dnn::Components::Attention::MHA
         HostFp32 spreadHost( const shape_t& shape, float phase )
         {
             HostFp32 host( Device::Cpu(), shape );
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = std::sin( 0.2f * static_cast<float>( i ) + phase );
             }
@@ -252,7 +252,7 @@ namespace Mila::Tests::Dnn::Components::Attention::MHA
         ASSERT_EQ( out.shape(), ( shape_t{ B, T, kModelDim } ) );
         ASSERT_EQ( out.size(), expected.size() );
 
-        for ( size_t i = 0; i < out.size(); ++i )
+        for ( dim_t i = 0; i < out.size(); ++i )
         {
             const float tolerance = TypeParam::atol + TypeParam::rtol * std::fabs( expected[ i ] );
             EXPECT_NEAR( out.data()[ i ], expected[ i ], tolerance ) << "attention mismatch at index " << i;
@@ -338,7 +338,7 @@ namespace Mila::Tests::Dnn::Components::Attention::MHA
     {
         auto mha = this->builtMha( shape_t{ 2, 3, 3 * kModelDim }, RuntimeMode::Inference );
 
-        EXPECT_EQ( mha->parameterCount(), 0u );
+        EXPECT_EQ( mha->parameterCount(), 0 );
         EXPECT_TRUE( mha->getParameters().empty() );
     }
 

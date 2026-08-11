@@ -169,8 +169,8 @@ namespace Mila::Dnn
                 if ( !cache_initialized_ )
                 {
                     kv_cache_op_->initializeKvCache(
-                        static_cast<int>(max_input_shape_[ 0 ]),
-                        static_cast<int>(max_input_shape_[ 1 ]) );
+                        max_input_shape_[ 0 ],
+                        max_input_shape_[ 1 ] );
                     cache_initialized_ = true;
                 }
 
@@ -231,7 +231,7 @@ namespace Mila::Dnn
          * @param position_offset Absolute position of the first token in this chunk.
          * @return Reference to component-owned output tensor.
          */
-        TensorType& prefill( const TensorType& q, const TensorType& k, const TensorType& v, int position_offset )
+        TensorType& prefill( const TensorType& q, const TensorType& k, const TensorType& v, dim_t position_offset )
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error(
@@ -247,8 +247,8 @@ namespace Mila::Dnn
                 throw std::runtime_error(
                     "GroupedQueryAttention: KV cache must be initialized before prefill()." );
 
-            const int64_t B = q.shape()[ 0 ];
-            const int64_t T_actual = q.shape()[ 1 ];
+            const dim_t B = q.shape()[ 0 ];
+            const dim_t T_actual = q.shape()[ 1 ];
             shape_t output_shape = { B, T_actual, config_.getModelDim() };
 
             if ( output_view_->shape() != output_shape )
@@ -278,7 +278,7 @@ namespace Mila::Dnn
          * @param position_offset Absolute position of the token (0-based).
          * @return Reference to component-owned single-token output tensor.
          */
-        TensorType& decode( const TensorType& q, const TensorType& k, const TensorType& v, int position_offset )
+        TensorType& decode( const TensorType& q, const TensorType& k, const TensorType& v, dim_t position_offset )
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error(
@@ -391,7 +391,7 @@ namespace Mila::Dnn
          *
          * @return true when the underlying operation accepted the rewind.
          */
-        bool rewindKvCache( int position )
+        bool rewindKvCache( dim_t position )
         {
             if ( !kv_cache_op_ || !cache_initialized_ )
                 return false;
@@ -403,10 +403,11 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
-        void save_( ModelArchive& archive, SerializationMode mode ) const override
+        void save_( ModelArchive&, SerializationMode ) const override
         {
-            (void)archive;
-            (void)mode;
+            // Deliberately empty: parameterCount() is 0. The projections that carry the
+            // weights are Linear components owned by the enclosing block, and they save
+            // themselves.
         }
 
         // ====================================================================
@@ -442,7 +443,7 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
         }
 
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             return 0;
         }
@@ -467,6 +468,50 @@ namespace Mila::Dnn
             output_installed_ = true;
         }
 
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * The KV cache -- the dominant, context-scaling term -- is reported by the
+         * operation, which is where it is allocated.
+         * See Specifications/MemoryFootprint.md.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            const auto& input_shape = context.inputShape();
+
+            validateConcatenatedQKVShape( input_shape );
+
+            const dim_t batch = input_shape[ 0 ];
+            const dim_t model_dim = config_.getModelDim();
+
+            MemoryStats stats;
+
+            stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
+
+            if ( context.isInferenceMode() )
+            {
+                // Decode output is T=1 and always component-owned -- never pooled.
+                stats.device_state_bytes += storageBytes<TComputePrecision>( batch * model_dim );
+
+                // Prefill output is one chunk wide, not the whole context.
+                if ( !output_installed_ && !context.hasInstalledOutput() )
+                {
+                    stats.device_state_bytes +=
+                        storageBytes<TComputePrecision>( batch * context.getPrefillSize() * model_dim );
+                }
+            }
+            else
+            {
+                shape_t output_shape = input_shape;
+                output_shape.back() = model_dim;
+
+                stats.device_state_bytes +=
+                    storageBytes<TComputePrecision>( elementCount( output_shape ) );
+            }
+
+            return stats;
+        }
+
         MemoryStats getMemoryStats() const override
         {
             MemoryStats stats;
@@ -488,8 +533,8 @@ namespace Mila::Dnn
 
         std::string toString() const override
         {
-            const int64_t head_dim = config_.getModelDim() / config_.getNumHeads();
-            const int64_t group_size = config_.getNumHeads() / config_.getNumKvHeads();
+            const dim_t head_dim = config_.getModelDim() / config_.getNumHeads();
+            const dim_t group_size = config_.getNumHeads() / config_.getNumKvHeads();
 
             std::ostringstream oss;
             oss << "--------------------\n";
@@ -510,15 +555,15 @@ namespace Mila::Dnn
         // Config accessors
         // ====================================================================
 
-        int64_t getModelDim()   const noexcept
+        dim_t getModelDim()   const noexcept
         {
             return config_.getModelDim();
         }
-        int64_t getNumHeads()   const noexcept
+        dim_t getNumHeads()   const noexcept
         {
             return config_.getNumHeads();
         }
-        int64_t getNumKvHeads() const noexcept
+        dim_t getNumKvHeads() const noexcept
         {
             return config_.getNumKvHeads();
         }
@@ -560,10 +605,7 @@ namespace Mila::Dnn
                 // KV cache sized to full context_length at build time.
                 if ( kv_cache_op_ )
                 {
-                    // REVIEW: int? Should be dim_t?
-                    kv_cache_op_->initializeKvCache(
-                        static_cast<int>(B),
-                        static_cast<int>(T) );
+                    kv_cache_op_->initializeKvCache( B, T );
                     cache_initialized_ = true;
                 }
 
@@ -576,7 +618,7 @@ namespace Mila::Dnn
 
                 if ( output_installed_ )
                 {
-                    int64_t needed = 1;
+                    dim_t needed = 1;
                     for ( auto d : output_shape )
                         needed *= d;
 
@@ -663,9 +705,9 @@ namespace Mila::Dnn
                     "GroupedQueryAttention: expected 3D model-layout shape [B, T, features]" );
             }
 
-            const int64_t head_dim = config_.getModelDim() / config_.getNumHeads();
-            const int64_t trailing = shape.back();
-            const int64_t expected = (config_.getNumHeads() + 2 * config_.getNumKvHeads()) * head_dim;
+            const dim_t head_dim = config_.getModelDim() / config_.getNumHeads();
+            const dim_t trailing = shape.back();
+            const dim_t expected = (config_.getNumHeads() + 2 * config_.getNumKvHeads()) * head_dim;
 
             if ( trailing != expected )
             {

@@ -35,7 +35,7 @@ namespace Mila::Tests::Dnn::Components::Connections
 
         void fillRamp( TensorFp32& t, float start, float step )
         {
-            for ( size_t i = 0; i < t.size(); ++i )
+            for ( dim_t i = 0; i < t.size(); ++i )
             {
                 t.data()[ i ] = start + step * static_cast<float>( i );
             }
@@ -101,7 +101,7 @@ namespace Mila::Tests::Dnn::Components::Connections
 
         ASSERT_EQ( output.size(), a.size() );
 
-        for ( size_t i = 0; i < output.size(); ++i )
+        for ( dim_t i = 0; i < output.size(); ++i )
         {
             EXPECT_NEAR( output.data()[ i ], a.data()[ i ] + b.data()[ i ], 1e-5f )
                 << "sum mismatch at index " << i;
@@ -145,7 +145,7 @@ namespace Mila::Tests::Dnn::Components::Connections
         ASSERT_EQ( db.size(), grad.size() );
 
         // d(a+b)/da = d(a+b)/db = 1, so both gradients equal the upstream gradient.
-        for ( size_t i = 0; i < grad.size(); ++i )
+        for ( dim_t i = 0; i < grad.size(); ++i )
         {
             EXPECT_NEAR( da.data()[ i ], grad.data()[ i ], 1e-5f ) << "da mismatch at " << i;
             EXPECT_NEAR( db.data()[ i ], grad.data()[ i ], 1e-5f ) << "db mismatch at " << i;
@@ -195,7 +195,7 @@ namespace Mila::Tests::Dnn::Components::Connections
     {
         auto residual = builtResidual( shape_t{ 2, 4 }, RuntimeMode::Inference );
 
-        EXPECT_EQ( residual->parameterCount(), 0u );
+        EXPECT_EQ( residual->parameterCount(), 0 );
         EXPECT_TRUE( residual->getParameters().empty() );
         EXPECT_TRUE( residual->getGradients().empty() );
     }

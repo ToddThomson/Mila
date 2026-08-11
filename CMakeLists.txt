@@ -8,6 +8,14 @@ cmake_minimum_required (VERSION 4.0)
 # add_subdirectory'd by a consumer.
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MilaVersion.cmake")
 mila_read_version("${CMAKE_CURRENT_SOURCE_DIR}/Version.txt" MILA_VERSION_NUMERIC MILA_PRERELEASE_TAG)
+mila_pep440_version("${MILA_VERSION_NUMERIC}" "${MILA_PRERELEASE_TAG}" MILA_PEP440_VERSION)
+
+# Version.txt is read at configure time, which creates no dependency on it by itself --
+# so a version bump would otherwise leave the generated wheel version stale until
+# something else forced a reconfigure. That is the exact failure this derivation exists
+# to end, so make the bump itself trigger one.
+set_property(DIRECTORY APPEND PROPERTY
+    CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Version.txt")
 
 # CUDA is enabled on demand via enable_language(CUDA) in the backend-detection
 # block below, gated on MILA_ENABLE_CUDA + a found toolkit. Declaring it here would
@@ -57,12 +65,30 @@ endif()
 # pulls googletest. The genuinely heavy gates (full install + subproject rebuild) are a
 # separate opt-in: MILA_ENABLE_PACKAGING_TEST, off by default, enabled by x64-validate.
 option(MILA_ENABLE_TESTING "Enable Mila Library tests." ${PROJECT_IS_TOP_LEVEL})
-option(MILA_ENABLE_PYTHON_BINDINGS "Build the MilaPy pybind11 extension module." ON)
+# Same rule, and it is load-bearing rather than tidiness: MilaPy is a MODULE library, so an
+# embedded build links the vendored static libcurl into a shared object. Those objects are not
+# built PIC, which ELF rejects outright -- the FetchContent gate fails at the MilaPy link while
+# the consumer's own target has already linked cleanly. Windows has no equivalent constraint, so
+# this reproduces only on Linux.
+option(MILA_ENABLE_PYTHON_BINDINGS "Build the MilaPy pybind11 extension module." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_PROFILING "Enable Mila Library profiling." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_SAMPLES "Enable Mila Library samples." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_ADAPTORS "Build the first-class Mila adaptors (Chat CLI)." ${PROJECT_IS_TOP_LEVEL})
 option(MILA_ENABLE_DOCS "Build Doxygen API documentation. Requires Doxygen and Graphviz." ON)
 option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
+
+# Mila's own HTTP transport. OFF drops libcurl and nothing else: the store, packaging,
+# install, pull, and every HuggingFace URL, token rule and status meaning are still compiled,
+# so such a build knows everything about the hub except how to reach it -- and a caller that
+# supplies its own transport loses nothing at all.
+#
+# The reason is TLS, not the library: manylinux permits a wheel to vendor libcurl statically,
+# but curl links the system OpenSSL, which is not whitelisted. Vendoring OpenSSL instead means
+# owning its CVEs and shipping a CA bundle, losing the system trust store. So the Linux wheel
+# builds with this OFF and supplies the transport from Python, which already has one.
+# See Specifications/ModelDistribution.md.
+option(MILA_ENABLE_LIBCURL "Build Mila's libcurl HTTP transport." ON)
+
 # PARKED: find_package(Mila) is parked in favor of FetchContent. A C++23 module library is a
 # source distribution (BMIs are not portable -- a consumer recompiles the module graph either
 # way), so find_package's prebuilt-binary benefit is void while its install/export layout is
@@ -71,6 +97,7 @@ option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
 # -DMILA_INSTALL=ON only to exercise the parked find_package path. See Mila/Tests/Packaging/
 # CMakeLists.txt and RELEASING/BACKLOG.
 option(MILA_INSTALL "Generate Mila install/export rules (PARKED find_package consumption; default OFF -- FetchContent is the supported path)." OFF)
+
 option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
 
 # The Metal and ROCm backends are currently for internal testing only. Please leave them disabled.
@@ -225,11 +252,61 @@ CPMAddPackage(
 #        "SPM_BUILD_TEST OFF"
 #)
 
+if(MILA_ENABLE_LIBCURL)
+    # Vendored and pinned on both platforms. Windows has no linkable OS libcurl, so it is
+    # built there regardless; building it on Linux too buys one known version everywhere
+    # rather than whatever the distribution shipped.
+    #
+    # TLS comes from the OS on both sides -- Schannel on Windows, system OpenSSL on Linux --
+    # so there is no CA bundle to ship or keep current, and a corporate proxy with an
+    # injected root just works.
+    #
+    # Protocols are cut to HTTP/HTTPS. No nghttp2, brotli or zstd either: HuggingFace serves
+    # LFS blobs uncompressed over HTTP/1.1, so each would be a dependency that buys nothing.
+    #
+    # REVIEW: 8.21 is the latest GH release
+    CPMAddPackage(
+        NAME curl
+        GITHUB_REPOSITORY curl/curl
+        GIT_TAG curl-8_11_1
+        OPTIONS
+            "BUILD_SHARED_LIBS OFF"
+            "BUILD_STATIC_LIBS ON"
+            "BUILD_CURL_EXE OFF"
+            "BUILD_TESTING OFF"
+            "BUILD_EXAMPLES OFF"
+            "CURL_DISABLE_INSTALL ON"
+            "CURL_USE_SCHANNEL ${WIN32}"
+            "CURL_USE_LIBSSH2 OFF"
+            "CURL_USE_LIBPSL OFF"
+            "CURL_ZLIB OFF"
+            "CURL_BROTLI OFF"
+            "CURL_ZSTD OFF"
+            "USE_NGHTTP2 OFF"
+            "USE_LIBIDN2 OFF"
+            "ENABLE_UNIX_SOCKETS OFF"
+            "CURL_DISABLE_LDAP ON"
+            "CURL_DISABLE_LDAPS ON"
+            "CURL_DISABLE_TELNET ON"
+            "CURL_DISABLE_DICT ON"
+            "CURL_DISABLE_GOPHER ON"
+            "CURL_DISABLE_SMTP ON"
+            "CURL_DISABLE_POP3 ON"
+            "CURL_DISABLE_IMAP ON"
+            "CURL_DISABLE_RTSP ON"
+            "CURL_DISABLE_TFTP ON"
+            "CURL_DISABLE_MQTT ON"
+            "CURL_DISABLE_SMB ON"
+            "CURL_DISABLE_FTP ON"
+            "CURL_DISABLE_FILE ON"
+    )
+endif()
+
 if(MILA_ENABLE_PYTHON_BINDINGS)
     CPMAddPackage(
         NAME pybind11
         GITHUB_REPOSITORY pybind/pybind11
-        GIT_TAG v3.0.4
+        GIT_TAG v3.1.0
         OPTIONS
             "PYBIND11_INSTALL OFF"
             "PYBIND11_TEST OFF"

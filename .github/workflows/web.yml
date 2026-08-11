@@ -1,0 +1,98 @@
+name: Mila Web
+
+# Build-and-validate the authored site on demand and on every change to it -- WITHOUT
+# deploying. This is the staging gate that docs.yml (the live-deploy workflow) deliberately
+# lacks: docs.yml replaces the published site wholesale with no dry run, so a broken build or
+# malformed structured data only surfaces after it is live. This workflow catches that on the
+# `dev` commit or PR that introduces it.
+#
+# It builds only the Hugo site (no Doxygen, no API reference) -- fast, and enough to prove the
+# authored content renders and its machine-readable metadata is well-formed. Deployment stays
+# entirely in docs.yml.
+
+on:
+  push:
+    paths:
+      - 'Web/**'
+      - '.github/workflows/web.yml'
+  pull_request:
+    paths:
+      - 'Web/**'
+      - '.github/workflows/web.yml'
+  # Build the site at any time, from any branch, to inspect the artifact.
+  workflow_dispatch:
+
+# Build only -- this workflow never touches Pages.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Hugo (build + validate)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      # Pinned to match docs.yml exactly: the staging build must reproduce what the deploy
+      # build produces, or this gate validates a different site than the one that ships.
+      # Standard edition (not extended) for the same reason as docs.yml -- the site uses no
+      # Sass, WebP, or cloud deploy.
+      - name: Install Hugo 0.164.0
+        run: |
+          wget -q https://github.com/gohugoio/hugo/releases/download/v0.164.0/hugo_0.164.0_linux-amd64.tar.gz
+          tar -xzf hugo_0.164.0_linux-amd64.tar.gz hugo
+          sudo mv hugo /usr/local/bin/
+          hugo version
+
+      # --minify matches docs.yml so the validated output is byte-for-byte what deploys.
+      - name: Build site
+        run: hugo --source Web --destination ../build/site --minify --gc
+
+      # Structural sanity: the pages that must exist, exist and are non-empty.
+      - name: Verify the built site
+        run: |
+          set -e
+          for f in build/site/index.html build/site/blog/index.html build/site/sitemap.xml; do
+            test -s "$f" || { echo "MISSING OR EMPTY: $f"; exit 1; }
+          done
+
+      # Structured-data validation. A bare `hugo` build exits 0 on JSON-LD that is malformed as
+      # structured data (e.g. double-encoded into a JSON string, which crawlers reject as
+      # "Invalid top level element string"). Parse every emitted ld+json block and require the
+      # top-level element to be a JSON object -- the exact regression this gate exists to stop.
+      - name: Validate JSON-LD structured data
+        run: |
+          python3 - <<'PY'
+          import re, json, sys, pathlib
+          root = pathlib.Path("build/site")
+          bad = []
+          checked = 0
+          for html in root.rglob("index.html"):
+              if "/api/" in html.as_posix():
+                  continue
+              text = html.read_text(encoding="utf-8")
+              for block in re.findall(r'<script type="?application/ld\+json"?>(.*?)</script>', text, re.S):
+                  checked += 1
+                  try:
+                      value = json.loads(block)
+                  except json.JSONDecodeError as e:
+                      bad.append(f"{html}: not valid JSON ({e})")
+                      continue
+                  if not isinstance(value, dict):
+                      bad.append(f"{html}: top-level element is {type(value).__name__}, expected object")
+          if bad:
+              print("Invalid JSON-LD:")
+              for b in bad:
+                  print("  " + b)
+              sys.exit(1)
+          print(f"OK: {checked} JSON-LD block(s) validated as objects")
+          PY
+
+      # The built site, downloadable from the run's Summary page for inspection. This is a plain
+      # build artifact, NOT a Pages artifact -- it cannot be deployed from here.
+      - name: Upload built site
+        uses: actions/upload-artifact@v5
+        with:
+          name: mila-web-site
+          path: build/site
+          retention-days: 14

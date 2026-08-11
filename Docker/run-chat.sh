@@ -7,10 +7,9 @@
 # current_path(), since the GetModuleFileName path is Windows-only. The POST_BUILD
 # step copies Data/ next to the binary in /build, so we cd there before exec.
 #
-# Model weights resolve through the compiled-in MODELS_DIR (/mila/Data/Models), which
-# the bind-mounted repo supplies. The default model (gemma-12b) needs:
-#   /mila/Data/Models/gemma/gemma4_12b_it_bf16.bin
-#   /mila/Data/Models/gemma/gemma_tokenizer.bin
+# Models come from the local Mila store at MILA_CACHE_DIR (/mila/Data/Models/Store, set
+# in the image), which the bind-mounted repo supplies and MIS shares. Chat opens on an
+# empty store: install the default with `/install gemma-4-12b-it-fp4` at the prompt.
 # Any argument (e.g. --config Data/other.json, --help) is forwarded to ChatApp.
 set -euo pipefail
 

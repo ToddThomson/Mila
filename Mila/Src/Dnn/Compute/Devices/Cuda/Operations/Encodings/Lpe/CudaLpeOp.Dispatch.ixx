@@ -144,10 +144,10 @@ namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
          * @param C    Embedding dimension.
          */
         static void backward(
-            half* dwte, half* dwpe,
-            const int32_t* X, const half* dY,
-            int B, int T, int C,
-            cudaStream_t stream )
+            half* /*dwte*/, half* /*dwpe*/,
+            const int32_t* /*X*/, const half* /*dY*/,
+            int /*B*/, int /*T*/, int /*C*/,
+            cudaStream_t /*stream*/ )
         {
             // REVIEW: See REVIEW: above
             // cuda_encoder_backward_fp16( dwte, dwpe, dY, X, B, T, C, stream );
@@ -165,10 +165,10 @@ namespace Mila::Dnn::Compute::Cuda::Lpe::Detail
          * @param C        Embedding dimension.
          */
         static void decode(
-            half* Y, const int32_t* X,
-            const half* wte, const half* wpe,
-            int B, int position, int C,
-            cudaStream_t stream )
+            half* /*Y*/, const int32_t* /*X*/,
+            const half* /*wte*/, const half* /*wpe*/,
+            int /*B*/, int /*position*/, int /*C*/,
+            cudaStream_t /*stream*/ )
         {
             // REVIEW: See REVIEW: above
             // cuda_encoder_decode_fp16( Y, X, wte, wpe, B, position, C, stream );

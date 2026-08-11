@@ -24,10 +24,15 @@
  */
 
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <chrono>
 #include <cstdint>
+#include <filesystem>
+#include <format>
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <system_error>
 
 import Mila;
 
@@ -35,6 +40,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
 {
     using namespace Mila::Dnn;
     using namespace Mila::Dnn::Compute;
+    using namespace Mila::Dnn::Serialization;
 
     namespace
     {
@@ -88,7 +94,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
             TokenTensor host( Device::Cpu(), shape_t{ batch, seq } );
             auto* data = host.data();
 
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 data[ i ] = static_cast<int32_t>( i % static_cast<size_t>( kVocab ) );
             }
@@ -135,7 +141,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
     {
         auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
 
-        EXPECT_GT( net->parameterCount(), 0u );
+        EXPECT_GT( net->parameterCount(), 0 );
     }
 
     TEST_F( LlamaTransformerCudaTests, Build_ThrowsOnNonRank2Input )
@@ -235,7 +241,7 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
     {
         auto net = builtNet( batch_, seq_, RuntimeMode::Inference );
 
-        EXPECT_GT( net->parameterCount(), 0u );
+        EXPECT_GT( net->parameterCount(), 0 );
     }
 
     // ====================================================================
@@ -265,5 +271,106 @@ namespace Mila::Tests::Dnn::Components::Transformers::Llama
         // Structural kind is Network; the Llama architecture identity is ModelType.
         EXPECT_EQ( net.getType(), ComponentType::Network );
         EXPECT_EQ( net.getModelType(), ModelType::Llama );
+    }
+
+    // ====================================================================
+    // K. Serialization round trip
+    // ====================================================================
+    //
+    // LlamaBlock had a hand-rolled save_ that pushed no scope per child, so every
+    // child of every block wrote its tensors to one path; it also listed ten children
+    // where eleven are registered, so one was never written at all. Both are invisible
+    // to a mock-composite test -- only a real network shows them. This is also the
+    // only coverage of RmsNorm's and TokenEmbedding's getParameterNames(), which the
+    // GPT stack does not use.
+
+    namespace
+    {
+        std::filesystem::path makeTempArchivePath( const std::string& tag )
+        {
+            const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
+            return std::filesystem::temp_directory_path()
+                / std::format( "mila_test_llama_{}_{}.mila", tag, stamp );
+        }
+    }
+
+    TEST_F( LlamaTransformerCudaTests, SaveThenLoad_RestoresEveryParameterAcrossBlocks )
+    {
+        const auto path = makeTempArchivePath( "roundtrip" );
+        std::error_code ec;
+        std::filesystem::remove( path, ec );
+
+        auto source = builtNet( batch_, seq_, RuntimeMode::Inference );
+
+        // Distinct value per tensor so a collision or cross-wired restore names itself.
+        float value = 0.5f;
+
+        for ( auto* parameter : source->getParameters() )
+        {
+            fill( *static_cast<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>*>( parameter ), value );
+            value += 0.25f;
+        }
+
+        const auto parameter_count = source->getParameters().size();
+        ASSERT_GT( parameter_count, 8u ) << "fixture too small to exercise nesting";
+
+        {
+            ModelArchive archive( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Write );
+            source->save( archive, SerializationMode::Checkpoint );
+        }
+
+        ModelArchive reader( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Read );
+
+        // One blob per parameter. The unscoped hand-rolled walk produced a single blob
+        // regardless of how many parameters the network held.
+        const auto files = reader.listFiles();
+        const auto blob_count = std::count_if( files.begin(), files.end(),
+            []( const std::string& name )
+            {
+                return name.ends_with( "/data.bin" );
+            } );
+
+        EXPECT_EQ( static_cast<size_t>( blob_count ), parameter_count );
+
+        auto target = builtNet( batch_, seq_, RuntimeMode::Inference );
+
+        for ( auto* parameter : target->getParameters() )
+        {
+            fill( *static_cast<Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>*>( parameter ), -1.0f );
+        }
+
+        target->load( reader, SerializationMode::Checkpoint );
+
+        const auto source_parameters = source->getParameters();
+        const auto target_parameters = target->getParameters();
+
+        ASSERT_EQ( source_parameters.size(), target_parameters.size() );
+
+        // Device tensors: compare through a host copy of each pair.
+        for ( size_t i = 0; i < source_parameters.size(); ++i )
+        {
+            using DeviceTensor = Tensor<TensorDataType::FP32, CudaDeviceMemoryResource>;
+            using HostTensor = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+
+            const auto* expected = static_cast<const DeviceTensor*>( source_parameters[ i ] );
+            const auto* actual = static_cast<const DeviceTensor*>( target_parameters[ i ] );
+
+            ASSERT_EQ( expected->size(), actual->size() ) << "parameter " << i;
+
+            HostTensor expected_host( Device::Cpu(), expected->shape() );
+            HostTensor actual_host( Device::Cpu(), actual->shape() );
+
+            copy( *expected, expected_host );
+            copy( *actual, actual_host );
+
+            for ( dim_t element = 0; element < expected->size(); ++element )
+            {
+                ASSERT_EQ( expected_host.data()[ element ], actual_host.data()[ element ] )
+                    << "parameter " << i << " element " << element;
+            }
+        }
+
+        std::filesystem::remove( path, ec );
     }
 }

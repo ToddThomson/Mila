@@ -1,0 +1,21 @@
+{{ define "main" }}
+<div class="wrap">
+
+<a class="backlink" href="{{ .Site.Home.RelPermalink }}">← Home</a>
+
+<h1>{{ .Title }}</h1>
+{{ with .Content }}<div class="sub">{{ . }}</div>{{ end }}
+
+<div class="cards">
+  {{ range .Pages.ByDate.Reverse }}
+  <a class="card" href="{{ .RelPermalink }}">
+    <span class="card-date">{{ .Date.Format "January 2006" }}</span>
+    <span class="card-title">{{ .Title }}</span>
+    <span class="card-desc">{{ .Description | truncate 150 }}</span>
+    <span class="card-more">Read →</span>
+  </a>
+  {{ end }}
+</div>
+
+</div>
+{{ end }}

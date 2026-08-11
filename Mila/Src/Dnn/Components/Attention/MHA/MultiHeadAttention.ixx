@@ -143,8 +143,8 @@ namespace Mila::Dnn
                 if ( !cache_initialized_ )
                 {
                     kv_cache_op_->initializeKvCache(
-                        static_cast<int>(max_input_shape_[ 0 ]),
-                        static_cast<int>(max_input_shape_[ 1 ]) );
+                        max_input_shape_[ 0 ],
+                        max_input_shape_[ 1 ] );
                     cache_initialized_ = true;
                 }
 
@@ -206,7 +206,7 @@ namespace Mila::Dnn
          * @param position Current sequence position (0-based).
          * @return Reference to component-owned single-token output tensor.
          */
-        TensorType& decode( const TensorType& input, int position )
+        TensorType& decode( const TensorType& input, dim_t position )
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error(
@@ -245,10 +245,11 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
-        void save_( ModelArchive& archive, SerializationMode mode ) const override
+        void save_( ModelArchive&, SerializationMode ) const override
         {
-            (void)archive;
-            (void)mode;
+            // Deliberately empty: parameterCount() is 0. The projections that carry the
+            // weights are Linear components owned by the enclosing block, and they save
+            // themselves.
         }
 
         // ====================================================================
@@ -283,7 +284,7 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
         }
 
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             return 0;
         }

@@ -1,12 +1,19 @@
 # Bindings — Mila's Python projection
 
 The `mila` pybind11 extension: a **runtime-adjacent** binding surface that projects the
-Mila C++ runtime into Python. Module `Mila.Bindings`; built target `MilaPy` → `mila.pyd`.
+Mila C++ runtime into Python. Module `Mila.Bindings`; built target `MilaPy` → `_mila`,
+the private half of the `mila` package published to PyPI as `mila-llm`.
 
-It is a peer of the runtime, **not an adaptor**. It is consumer-blind — it exposes only
-model-intrinsic surface (`Tokenizer`, `LlamaSession` / `GemmaSession`: load, `generate`,
-`generateStreaming`, `getConfig`) and knows nothing about HTTP, chat, or any wire protocol.
-That is why it lives here beside `Src` rather than under `Adaptors/`.
+It is a peer of the runtime, **not an adaptor**. It is consumer-blind: everything it
+exposes is model-intrinsic (`Tokenizer`, `LlamaSession` / `GemmaSession`: load, `generate`,
+`generateStreaming`, `getConfig`) or store-intrinsic (`ModelStoreHandle`), and none of it
+knows about chat, agents, or any wire protocol. That is why it lives here beside `Src`
+rather than under `Adaptors/`.
+
+It does carry HTTP *types* — `HttpResponseInfo`, `HttpFetchDelegate` — and that is not a
+contradiction: the delegate exists so a build with no HTTP client at all can still pull,
+by having Python move the bytes. The knowledge stays in the library (which URL, which
+token, which digest); the binding projects a byte pipe, not a protocol.
 
 Two consumers today, which is the point:
 
@@ -17,10 +24,12 @@ Two consumers today, which is the point:
 
 ## Build
 
-Gated by `MILA_ENABLE_PYTHON_BINDINGS` (default ON) and requires CUDA. The build drops
-`mila.pyd` into the MIS server directory as a convenience so `python main.py` imports it
-without PYTHONPATH setup — the one consumer-specific reach the binding still makes; a neutral
-output location that both consumers pull from is a recorded follow-up.
+Gated by `MILA_ENABLE_PYTHON_BINDINGS` (default ON) and requires CUDA. The build stages the
+extension into two neutral places and no consumer-specific one: the wheel source tree
+(`Package/src/mila/`, so `pip install -e Mila/Bindings/Package` tracks every rebuild) and
+`<build dir>/python/` (put on `sys.path` and `import mila` works). The MIS-specific copy was
+removed — the server directory is first on `sys.path`, so it shadowed any installed
+`mila-llm`.
 
 ## Design note
 

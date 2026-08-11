@@ -1,12 +1,18 @@
 # Mila — Changelog
 
-Completed, validated work, newest first. Each entry is the release notes for one `dev -> master`
-release, generated from that PR's commit range (see [RELEASING.md](RELEASING.md) for the mechanics).
+One short entry per **production (unsuffixed) release**, newest first, generated from that release's
+commit range at release time (see [RELEASING.md](RELEASING.md) for the mechanics).
+
+**Nothing is written here during a cycle.** The git history is the record of what changed; this file
+is the summary a consumer reads to decide whether to upgrade, and it is not hand-maintained.
+Pre-release detail (`alpha.N`, `beta.N`, `rc.N`) does not earn its own entry.
 
 - **Open tasks** live in [BACKLOG.md](BACKLOG.md).
 - **Release narrative and success criteria** live in [ROADMAP.md](ROADMAP.md).
 
-Versions are the `Version.txt` stamp at the time the work landed.
+The `Alpha.*` and `Beta.1` sections below predate this rule and are the v0.20 line's pre-release
+history; they collapse into the single `v0.20.0` entry when it ships. Versions are the `Version.txt`
+stamp at the time the work landed.
 
 ---
 

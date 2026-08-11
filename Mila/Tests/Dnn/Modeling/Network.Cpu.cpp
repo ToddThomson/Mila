@@ -291,7 +291,7 @@ namespace Mila::Tests::Dnn::Modeling
 
         static void fillSpread( TensorFp32& t )
         {
-            for ( size_t i = 0; i < t.size(); ++i )
+            for ( dim_t i = 0; i < t.size(); ++i )
             {
                 t.data()[ i ] = static_cast<float>( i ) / t.size() * 4.0f - 2.0f;
             }
@@ -430,7 +430,7 @@ namespace Mila::Tests::Dnn::Modeling
 
         ASSERT_EQ( output.size(), expected.size() );
 
-        for ( size_t i = 0; i < output.size(); ++i )
+        for ( dim_t i = 0; i < output.size(); ++i )
         {
             EXPECT_NEAR( output.data()[ i ], static_cast<float>( expected[ i ] ), 1e-4f )
                 << "forward mismatch at index " << i;
@@ -450,7 +450,7 @@ namespace Mila::Tests::Dnn::Modeling
         TensorFp32 output_grad( Device::Cpu(), shape_t{ kBatch, kOut } );
         fillSpread( input );
 
-        for ( size_t i = 0; i < output_grad.size(); ++i )
+        for ( dim_t i = 0; i < output_grad.size(); ++i )
         {
             output_grad.data()[ i ] = 0.1f * static_cast<float>( i + 1 );
         }
@@ -494,7 +494,7 @@ namespace Mila::Tests::Dnn::Modeling
         }
 
         ASSERT_EQ( input_grad.size(), expected_dx.size() );
-        for ( size_t i = 0; i < input_grad.size(); ++i )
+        for ( dim_t i = 0; i < input_grad.size(); ++i )
         {
             EXPECT_NEAR( input_grad.data()[ i ], static_cast<float>( expected_dx[ i ] ), 1e-3f )
                 << "input-gradient mismatch at index " << i;
@@ -587,7 +587,7 @@ namespace Mila::Tests::Dnn::Modeling
             auto& y = net->forward( input );
 
             double loss = 0.0;
-            for ( size_t i = 0; i < y.size(); ++i )
+            for ( dim_t i = 0; i < y.size(); ++i )
             {
                 const double d = static_cast<double>( y.data()[ i ] ) - target[ i ];
                 loss += d * d;

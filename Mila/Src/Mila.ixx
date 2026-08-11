@@ -204,6 +204,19 @@ export import Dnn.Components.TokenEmbedding;
 // Compute - Base note) -- consumers instantiating any component need it visible.
 export import Compute.OperationTraits;
 
+// The quantization policies are PUBLIC for the same reason, and the rule is the one recorded
+// when the export surface was frozen: a type in a public template's interface must be VISIBLE,
+// not merely reachable, at instantiation. TWeightQuantization is Linear's third template
+// parameter and TKvPolicy is GroupedQueryAttention's, so both policy families are part of a
+// public interface.
+//
+// The omission was easy to miss because it fails asymmetrically: `Linear<Cuda, BF16>` compiles
+// through this umbrella since a DEFAULT template argument only needs its type reachable, while
+// `Linear<Cuda, BF16, PerChannelFp8<>>` -- the spelling the quantization design is documented in
+// terms of -- did not, until these two lines.
+export import Dnn.Quantization.Weight.Policies;
+export import Dnn.Quantization.KvCache.Policy;
+
 export import Dnn.Components.Linear;
 
 export import Dnn.Components.Residual;
@@ -264,8 +277,35 @@ export import Serialization.Mode;
 export import Serialization.OpenMode;
 export import Serialization.Metadata;
 export import Serialization.ModelArchive;
+// Component::loadParameter takes an ITensorBlob, so this module's types are part of the
+// public API whether or not they were exported. Without this, a consumer can call nothing
+// that names one and cannot override loadParameter at all.
+export import Serialization.Tensor;
 export import Serialization.ArchiveSerializer;
 export import Serialization.ZipSerializer;
+export import Serialization.SafeTensors;
+export import Serialization.PretrainedReader;
+
+// ============================================================================
+// Distribution - the store, pull, and HuggingFace itself, none of which move bytes
+// ============================================================================
+export import Distribution.Sha256;
+export import Distribution.Environment;
+export import Distribution.ModelCoordinate;
+export import Distribution.ModelManifest;
+export import Distribution.ModelPackage;
+export import Distribution.ModelStore;
+export import Distribution.ModelHub;
+export import Distribution.ModelResolver;
+export import Distribution.HttpTransport;
+export import Distribution.HttpClient;
+export import Distribution.HuggingFaceHub;
+
+// The transport, chosen by CMake between two source files: the libcurl backend re-exports the
+// client with it, the null backend re-exports nothing. Selecting it here would take an #ifdef,
+// which would make this module's exported interface -- and its BMI -- depend on a preprocessor
+// define rather than on the build configuration.
+export import Distribution.HttpTransportBackend;
 
 // ============================================================================
 // Data - Core

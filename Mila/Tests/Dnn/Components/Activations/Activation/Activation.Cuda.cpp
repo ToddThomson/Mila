@@ -119,7 +119,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Activation
         {
             HostFp32 host( Device::Cpu(), shape );
 
-            for ( size_t i = 0; i < host.size(); ++i )
+            for ( dim_t i = 0; i < host.size(); ++i )
             {
                 host.data()[ i ] = static_cast<float>( i ) / host.size() * 4.0f - 2.0f;
             }
@@ -177,7 +177,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Activation
 
         ASSERT_EQ( host_out.size(), host_in.size() );
 
-        for ( size_t i = 0; i < host_out.size(); ++i )
+        for ( dim_t i = 0; i < host_out.size(); ++i )
         {
             const float expected = siluRef( rounded_in.data()[ i ] );
 
@@ -195,7 +195,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Activation
         auto host_in = this->spreadHost( shape );
 
         typename TestFixture::HostFp32 host_grad( Device::Cpu(), shape );
-        for ( size_t i = 0; i < host_grad.size(); ++i )
+        for ( dim_t i = 0; i < host_grad.size(); ++i )
         {
             host_grad.data()[ i ] = 1.0f;
         }
@@ -214,7 +214,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Activation
 
         ASSERT_EQ( host_in_grad.size(), host_in.size() );
 
-        for ( size_t i = 0; i < host_in_grad.size(); ++i )
+        for ( dim_t i = 0; i < host_in_grad.size(); ++i )
         {
             const float expected = siluDf( rounded_in.data()[ i ] ) * rounded_grad.data()[ i ];
 
@@ -257,7 +257,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Activation
             const shape_t shape{ 2, 3, 4 };
 
             HostFp32 host_in( Device::Cpu(), shape );
-            for ( size_t i = 0; i < host_in.size(); ++i )
+            for ( dim_t i = 0; i < host_in.size(); ++i )
             {
                 host_in.data()[ i ] = static_cast<float>( i ) / host_in.size() * 4.0f - 2.0f;
             }
@@ -275,7 +275,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Activation
 
             auto host_out = toHost<TensorDataType::FP32>( device_out, cuda_context_.get() );
 
-            for ( size_t i = 0; i < host_out.size(); ++i )
+            for ( dim_t i = 0; i < host_out.size(); ++i )
             {
                 EXPECT_NEAR( host_out.data()[ i ], reference( host_in.data()[ i ] ), 1e-4f )
                     << "forward mismatch at index " << i;

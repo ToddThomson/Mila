@@ -165,9 +165,9 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
-        void save_( ModelArchive& archive, SerializationMode mode ) const override
+        void save_( ModelArchive&, SerializationMode ) const override
         {
-            (void)archive;
+            // Deliberately empty: parameterCount() is 0, so there is nothing to serialize.
         }
 
         /*void load( ModelArchive& archive, SerializationMode mode ) override
@@ -205,7 +205,7 @@ namespace Mila::Dnn
             this->getExecutionContext()->synchronize();
         }
 
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             // No trainable parameters in fused softmax+cross-entropy
             return 0;

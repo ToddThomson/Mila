@@ -203,6 +203,43 @@ namespace Mila::Dnn::Compute
         }
 
         /**
+         * @brief Current free and total device memory, read from the driver.
+         *
+         * cudaMemGetInfo reports for the *current* device, so this sets it first. Under
+         * WDDM this is the only usable reading -- nvidia-smi reports idle figures while
+         * gigabytes are resident.
+         *
+         * Returns zeros rather than throwing if the query fails: a footprint pre-flight is
+         * advisory, and losing the free figure should degrade the advice, not the load.
+         */
+        DeviceMemoryInfo getMemoryInfo() const override
+        {
+            int previous_device = 0;
+
+            if ( cudaGetDevice( &previous_device ) != cudaSuccess )
+            {
+                return {};
+            }
+
+            const int device_id = getDeviceId().index;
+
+            if ( previous_device != device_id && cudaSetDevice( device_id ) != cudaSuccess )
+            {
+                return {};
+            }
+
+            DeviceMemoryInfo info;
+            const cudaError_t status = cudaMemGetInfo( &info.free_bytes, &info.total_bytes );
+
+            if ( previous_device != device_id )
+            {
+                cudaSetDevice( previous_device );
+            }
+
+            return status == cudaSuccess ? info : DeviceMemoryInfo{};
+        }
+
+        /**
          * @brief Gets the shared memory per block in bytes.
          *
          * @return size_t Shared memory per block in bytes.

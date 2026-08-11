@@ -6,7 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. It is in public beta (currently **`0.20.0-beta.1`** — feature-frozen, hardening toward the v0.20 first production release). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
+Mila is a C++23 module-based library for open LLMs (CUDA/CPU) — inference and training, built from explicit neural-network components. It is in public beta (currently **`0.20.0-beta.2`**, hardening toward the v0.20 first production release). The design philosophy: device and precision are compile-time decisions, every forward pass is explicit, and there is no hidden execution engine. Breaking changes are acceptable — backward compatibility is not a goal.
+
+### Two different "freezes" — do not conflate them
+
+- **The feature freeze covers `Mila/Src` only.** Everything outside it — `Mila/Adaptors` (Chat, MIS), `Mila/Bindings`, `Mila/Samples`, `Mila/Tools`, `Web/`, and every document — is polish and hardening by definition and is **in** v0.20 scope. Never cite the freeze at work outside `Mila/Src`. An adaptor adds no capability to the library, it only exposes what the library already has, so a gap between what Mila can do and what Chat or MIS reaches is a defect in the demonstration, not a feature request. When such work genuinely is blocked, the blocker is the new `Mila/Src` capability it needs — name that, never the freeze. Model Distribution is a deliberate carve-in and is pre-beta code, so changes to it inside `Mila/Src` are justified rather than exceptions.
+- **A release-window hold is not the feature freeze.** During a release the user may close `dev` to *all* commits so that built artifacts (wheels, tagged trees) stay valid. That is temporary, covers the whole tree regardless of scope, and lifts when the tag is pushed. Say which one is blocking a change; "the tree is frozen" is ambiguous and has caused this exact error more than once.
 
 Primary validated targets: Llama 3.2 3B Instruct (BF16, FP8, FP4), Llama 3.1 8B Instruct (FP4 default, FP8 alternative), and Gemma 4 12B Instruct (FP4). The chat CLI default is Gemma 4 12B FP4.
 
@@ -60,7 +65,8 @@ Mila/
                       OperationType.ixx, OperationBase.ixx
     Models/           GptModel.ixx, LlamaModel.ixx, LlamaModelConfig.ixx
     Quantization/     Weight/Policies.ixx (NoWeightQuant, PerChannelFp8<>, PerGroupFp4<>)
-                      KvCache/Policy.ixx (NoKvCompression, PerChannelKvFp8<>)
+                      KvCache/Policy.ixx (NoKvCompression, SlidingWindowKvCache;
+                      PerChannelKvFp8<> is planned for Qwen 3, not yet a type)
     Tensors/          Tensor<T, MR> and memory resources
     Serialization/    Model weight loading from binary blobs
   Tests/Dnn/          GTest unit tests — mirrors Src/Dnn tree
@@ -79,8 +85,9 @@ Mila/
 Data/
   Models/             Binary weight files (llama32_3b_instruct_bf16.bin, llama31_8b_instruct_bf16.bin, etc.)
   Scripts/            Python dev/conversion scripts
-Dev/Scripts/          Python virtual environment and dev utilities
 ```
+
+`Dev/` is gitignored and is not part of the project. Do not read from it or reference it.
 
 ---
 
@@ -165,6 +172,8 @@ Module partition files (`:Cuda`, `:Cpu` suffixes) are used to separate backend s
 ## Code Style
 
 - **No abbreviations in identifiers.** All names must be spelled out in full: `Quantization` not `Quant`, `Parameter` not `Param`, `Context` not `Ctx`, `Index` not `Idx`, `Implementation` not `Impl`. Template parameters follow the same rule: `TWeightQuantization` not `TWeightQuant`. Exception: established acronyms like `Kv` (Key-Value), `Gqa`, `Mha`, `Mlp`, `Lpe`, `Bpe` are acceptable.
+- **`dim_t` is the type of anything that describes a tensor axis** — its extent, a position within it, or a count of its elements — at every API, config, component, and operation-interface boundary. `size_t` never describes a dimension. Narrowing to the 32-bit index that kernels use happens exactly **once per call path**, at the kernel launch site, through `narrowToKernelIndex()` (`Tensor.Types.ixx`); kernel internals and the `*.Dispatch`/`*.Plans` layers stay `int`. Token ids are values, not extents, and are out of scope for this rule.
+- **`size_t` begins where element counts become bytes, or cross into a CUDA/std API.** Mila-owned helpers that only forward an element count keep `dim_t`. So `Tensor::size()` and `Component::parameterCount()` are `dim_t`, while `TensorBuffer` is `size_t` throughout (allocation layer — its overflow guards depend on unsigned semantics), and the `TensorOps` helpers carry `dim_t` and convert at the `cudaMemcpy` / `launch_*_kernel` edge. Note `TensorShape::size()` is the **rank** (a count of axes, not of elements) and stays `size_t`.
 - No column alignment with extra spaces — single-space formatting throughout.
 - Blank line before control flow blocks (`if`, `for`, `while`, `switch`).
 - Blank line after closing brace of blocks.
@@ -195,20 +204,27 @@ Module partition files (`:Cuda`, `:Cpu` suffixes) are used to separate backend s
 
 ## Work-Tracking Docs
 
-Four files at the repo root stay **mutually consistent**, updated in the **same commit** as the
-work they describe — never deferred to "later":
+**The git history is the record of what changed.** No work-tracking file duplicates it. The four
+files below stay **mutually consistent**, updated in the **same commit** as the work they describe —
+never deferred to "later":
 
 - **`ROADMAP.md`** — the durable **narrative + success criteria** of each release, organized by
   **theme** (not milestone). Shows the release in flight plus a single **Future** tail. **Narrative
   only — no task lists, checkboxes, or status** (they drift; point to BACKLOG). When a release ships,
   its section moves to CHANGELOG.
-- **`BACKLOG.md`** — the working task list. `## Current release` holds one **theme bucket** per
-  ROADMAP theme (matching names — the only join) with a 3-state gauge (`[ ]` open / `[~]` in progress /
-  `[x]` done); `## Future` is a flat, coarse parking list. `[x]` is pruned **only at a production
-  (unsuffixed) release**; open items carry forward. Detailed tasking is for the current release only.
-  Not GitHub Issues (a decoupled, requester-authored end-user layer — see RELEASING).
-- **`CHANGELOG.md`** — the permanent record, newest first. Each entry is the release notes for one
-  `dev -> master` PR, generated from its commit range (not hand-authored).
+- **`BACKLOG.md`** — the **open** task list, and nothing else. `## Current release` holds one **theme
+  bucket** per ROADMAP theme (matching names — the only join); `## Future` is a flat, coarse parking
+  list. Not GitHub Issues (a decoupled, requester-authored end-user layer — see RELEASING). Four
+  rules keep it usable:
+  - **An item is three lines** — what, why it matters, `file:line`. Five if genuinely complex.
+  - **Status lives in the checkbox**, `[ ]` open or `[~]` in progress, and never in the prose. No
+    dates, no "GREEN", no findings, no measurement tables.
+  - **Done means deleted**, in the same commit as the work. There is no `[x]` state. The commit that
+    landed the work is the record; a finding worth reusing goes to the owning spec or to memory.
+  - **Past ~300 lines it has stopped being a task list** and needs a prune.
+- **`CHANGELOG.md`** — one short entry per **production (unsuffixed) release**, generated from its
+  commit range at release time. Nothing is written to it during a cycle, and pre-release detail
+  (`alpha.N`/`beta.N`/`rc.N`) never earns its own entry.
 - **`Version.txt`** — `MAJOR.MINOR.PATCH-stage.N`, bumped **before committing** (see
   [RELEASING.md](RELEASING.md) for the scheme). GitHub Milestones/Issues/Labels are an end-user triage
   layer, decoupled from this workflow.
@@ -220,6 +236,7 @@ work they describe — never deferred to "later":
 Design decisions are documented under `Mila/Specifications/`:
 - `OperationDispatch.md` — the full `OperationTraits` design, migration checklist, file layout
 - `Quantization.V2.md` — quantization policy design and scope table
+- `ModelSerialization.md` — checkpoint vs distribution artifact, the `ModelArchive` defects, phased build plan
 - `PromptCaching.md`, `TokenSampling.md`, `ToolCalling.md` — planned features
 
 Work is tracked across `ROADMAP.md` / `BACKLOG.md` / `CHANGELOG.md` — see **Work-Tracking Docs** above.

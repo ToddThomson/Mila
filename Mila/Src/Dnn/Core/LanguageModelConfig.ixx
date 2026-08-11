@@ -92,6 +92,27 @@ namespace Mila::Dnn
         FP4,    ///< Per-group FP4 weight quantization -- future target.
     };
 
+    /**
+     * @brief The scheme name recorded in an artifact and in its manifest.
+     *
+     * It lives beside the enum because it is written by the model that saves the artifact and
+     * read by the tool that packages it, and those two must agree exactly: the load side
+     * refuses an artifact whose scheme disagrees with the build's compile-time policy, since
+     * the bytes are packed differently per scheme and reinterpreting them produces a model
+     * that runs and is wrong. It was previously spelled out in both places.
+     */
+    export inline std::string weightQuantizationName( WeightQuantization quantization )
+    {
+        switch ( quantization )
+        {
+            case WeightQuantization::FP4: return "per_group_fp4_128";
+            case WeightQuantization::FP8: return "per_channel_fp8_e4m3";
+            case WeightQuantization::None:
+            default:
+                return "none";
+        }
+    }
+
     // =========================================================================
     // KvCacheCompression
     // =========================================================================

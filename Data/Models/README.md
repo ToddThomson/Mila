@@ -1,51 +1,57 @@
 # Models Directory
 
-This directory contains pretrained open-source models converted to Mila binary format for use in C++ inference.
+Working space for **locally converted** model weights. Nothing here is tracked in git.
 
-## Overview
+This is not where installed models live. A model you install with `/install` goes into the **model
+store**, which is a separate location — see below.
 
-All models in this directory are:
-- **Pretrained checkpoints** from HuggingFace
-- **Converted via** the tools in `Mila/Tools/Converters/`
-- **Ready for C++ consumption** in Mila's native binary format
-- **Not tracked in git** — generate locally by running the appropriate converter
+## The store, and why it is usually elsewhere
 
-## Current Models
+The store is what `/models`, `/install` and every `from_store` load read. Its root resolves in this
+order (`Mila/Src/Distribution/ModelStore.ixx`):
 
-### GPT-2
+1. `MILA_CACHE_DIR`, if set
+2. `%LOCALAPPDATA%\Mila` (Windows)
+3. `$XDG_CACHE_HOME/mila`, then `$HOME/.cache/mila` (Linux)
+
+So on a normal Windows or Linux machine the store is **outside the repository**. The one place it
+lands here is the container: the image sets `MILA_CACHE_DIR=/mila/Data/Models/Store`, which sits on
+the repo bind mount, so a model installed from either side is the same store and survives
+`run --rm`.
+
+## What belongs in this directory
+
+Output from `Mila/Tools/Converters/` — the fallback path, for a family Mila does not publish, a
+variant it has not published, or your own fine-tune. Published models need none of this; install
+them by name instead.
+
+The converters write BF16 only. Quantized variants (FP8, FP4) are produced by Mila at load time, so
+there is no quantized `.bin` to keep here. Organize by family, as the converter examples do:
 
 ```
-Gpt2/
-  gpt2_small_fp32.bin
+Gpt2/gpt2_small_fp32.bin
+Llama/llama_tokenizer.bin            — shared across all Llama 3.x variants
+Llama/llama32_3b_instruct_bf16.bin
 ```
 
-Converter: `Mila/Tools/Converters/Gpt2/convert_weights.py`
+## A loose .bin is not yet a model Mila can name
 
-### Llama
+Nothing loads a bare `.bin` by name. To make a converted checkpoint a first-class model — listed by
+`/models`, loadable exactly like a published one — put it through the store:
 
 ```
-Llama/
-  llama_tokenizer.bin               — shared across all Llama 3.x variants
-  llama32_1b_instruct_bf16.bin
-  llama32_3b_instruct_bf16.bin
-  llama31_8b_instruct_bf16.bin
+ExportArtifact <source>.bin <artifact>.safetensors
+ExportArtifact --package <dir> --weights <artifact>.safetensors --instruct
+ExportArtifact --install <dir>
 ```
 
-Converter: `Mila/Tools/Converters/Llama/convert_weights.py` and `convert_tokenizer.py`
+`--instruct` is not implied by the model's name; omitting it writes `instruct: false` and every
+consumer then applies the wrong prompt template.
 
-See `Mila/Tools/Converters/README.md` for full setup and usage instructions.
-
-## Planned Models
-
-- `Qwen3/` — Qwen 3 variants (Future — the presumptive next release)
-- `Mistral/` — Ministral 3B and 8B variants (Future)
-
-## Model Organization
-
-Models are organized by family. As the collection grows, a versioning structure may be added to handle fine-tuned variants and quantized checkpoints.
+See `Mila/Tools/Converters/README.md` for converter setup, and `getting-started.md` section 5 for
+the whole path from nothing to a running model.
 
 ## Notes
 
-- Model files are large — ensure adequate storage before converting
-- Original model licenses apply to converted formats; verify before any production use
-- Quantized variants (FP8, FP4) are produced at load time by Mila — only BF16 source files are stored here
+- Model files are large — check free space before converting.
+- Original model licenses apply to converted weights; verify before any production use.

@@ -15,6 +15,7 @@ module;
 export module Dnn.TensorOps:Random;
 
 import Dnn.Tensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorOps.Base;
@@ -59,8 +60,8 @@ namespace Mila::Dnn
         requires isValidTensor<TDataType, TMemoryResource> && TensorDataTypeTraits<TDataType>::is_float_type
     void xavier(
         Tensor<TDataType, TMemoryResource>& tensor,
-        size_t fan_in,
-        size_t fan_out,
+        dim_t fan_in,
+        dim_t fan_out,
         IExecutionContext* exec_context = nullptr )
     {
         const float limit = std::sqrt( 6.0f / static_cast<float>( fan_in + fan_out ) );

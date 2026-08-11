@@ -2,4 +2,6 @@
 # Only `custom:` is used (it points at SPONSORING.md). No cash providers
 # (github, patreon, ko_fi, open_collective, ...) are enabled, by design —
 # enabling `github:` would turn on GitHub Sponsors (cash), which is off the table.
-custom: ["https://github.com/ToddThomson/Mila/blob/master/SPONSORING.md"]
+# Points at the site page rather than the repo markdown: it presents better than a raw file
+# view, and the site is rebuilt from master on every push.
+custom: ["https://mila.toddt.me/sponsor/"]

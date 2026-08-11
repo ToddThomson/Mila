@@ -29,6 +29,7 @@ export module Dnn.Components.RopeConfig;
 
 import Dnn.Component;
 import Dnn.ComponentConfig;
+import Dnn.TensorTypes;
 import Serialization.Metadata;
 
 namespace Mila::Dnn
@@ -47,7 +48,7 @@ namespace Mila::Dnn
          * @param n_kv_heads   Number of key/value heads (GQA: <= n_heads).
          * @param max_seq_len  Maximum sequence length for cos/sin cache precomputation.
          */
-        RopeConfig( size_t channels, size_t n_heads, size_t n_kv_heads, size_t max_seq_len )
+        RopeConfig( dim_t channels, dim_t n_heads, dim_t n_kv_heads, dim_t max_seq_len )
             : channels_( channels ), n_heads_( n_heads ), n_kv_heads_( n_kv_heads ), max_seq_len_( max_seq_len )
         {}
 
@@ -76,7 +77,7 @@ namespace Mila::Dnn
          * Default: 0 -- the full head_dim is rotated.
          */
         template <typename Self>
-        decltype(auto) withRotaryDim( this Self&& self, size_t rotary_dim )
+        decltype(auto) withRotaryDim( this Self&& self, dim_t rotary_dim )
         {
             self.rotary_dim_ = rotary_dim;
             return std::forward<Self>( self );
@@ -86,17 +87,17 @@ namespace Mila::Dnn
         // Accessors
         // ====================================================================
 
-        size_t getEmbeddingDim() const noexcept
+        dim_t getEmbeddingDim() const noexcept
         {
             return channels_;
         }
 
-        size_t getNumHeads() const noexcept
+        dim_t getNumHeads() const noexcept
         {
             return n_heads_;
         }
 
-        size_t getNumKVHeads() const noexcept
+        dim_t getNumKVHeads() const noexcept
         {
             return n_kv_heads_;
         }
@@ -106,7 +107,7 @@ namespace Mila::Dnn
          *
          * Valid only after validate() has confirmed consistency.
          */
-        size_t getHeadDim() const noexcept
+        dim_t getHeadDim() const noexcept
         {
             return (n_heads_ > 0) ? (channels_ / n_heads_) : 0;
         }
@@ -115,13 +116,13 @@ namespace Mila::Dnn
          * @brief Returns the training maximum sequence length.
          * @return The maximum sequence length.
          */
-        size_t getMaxSequenceLength() const noexcept
+        dim_t getMaxSequenceLength() const noexcept
         {
             // REVIEW: See LlamaConfig::withMaxSequenceLength() for discussion on naming and semantics of this parameter.
             return max_seq_len_;
         }
 
-        size_t getRotaryDim() const noexcept
+        dim_t getRotaryDim() const noexcept
         {
             return rotary_dim_;
         }
@@ -146,17 +147,17 @@ namespace Mila::Dnn
          */
         void validate() const override
         {
-            if ( channels_ == 0 )
+            if ( channels_ <= 0 )
             {
                 throw std::invalid_argument( "RopeConfig: channels must be > 0" );
             }
 
-            if ( n_heads_ == 0 )
+            if ( n_heads_ <= 0 )
             {
                 throw std::invalid_argument( "RopeConfig: n_heads must be > 0" );
             }
 
-            if ( n_kv_heads_ == 0 )
+            if ( n_kv_heads_ <= 0 )
             {
                 throw std::invalid_argument( "RopeConfig: n_kv_heads must be > 0" );
             }
@@ -166,7 +167,7 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "RopeConfig: channels must be divisible by n_heads" );
             }
 
-            const size_t head_dim = channels_ / n_heads_;
+            const dim_t head_dim = channels_ / n_heads_;
 
             if ( head_dim % 2 != 0 )
             {
@@ -178,7 +179,7 @@ namespace Mila::Dnn
                 throw std::invalid_argument( "RopeConfig: n_kv_heads must be <= n_heads" );
             }
 
-            if ( max_seq_len_ == 0 )
+            if ( max_seq_len_ <= 0 )
             {
                 throw std::invalid_argument( "RopeConfig: max_sequence_length must be > 0" );
             }
@@ -186,6 +187,11 @@ namespace Mila::Dnn
             if ( base_ <= 0.0f )
             {
                 throw std::invalid_argument( "RopeConfig: base must be > 0" );
+            }
+
+            if ( rotary_dim_ < 0 )
+            {
+                throw std::invalid_argument( "RopeConfig: rotary_dim must be >= 0 (0 = full head_dim)" );
             }
 
             if ( rotary_dim_ != 0 && rotary_dim_ > head_dim )
@@ -220,22 +226,22 @@ namespace Mila::Dnn
         {
             if ( auto v = meta.tryGetInt( "channels" ) )
             {
-                channels_ = static_cast<size_t>(*v);
+                channels_ = static_cast<dim_t>(*v);
             }
 
             if ( auto v = meta.tryGetInt( "n_heads" ) )
             {
-                n_heads_ = static_cast<size_t>(*v);
+                n_heads_ = static_cast<dim_t>(*v);
             }
 
             if ( auto v = meta.tryGetInt( "n_kv_heads" ) )
             {
-                n_kv_heads_ = static_cast<size_t>(*v);
+                n_kv_heads_ = static_cast<dim_t>(*v);
             }
 
             if ( auto v = meta.tryGetInt( "max_sequence_length" ) )
             {
-                max_seq_len_ = static_cast<size_t>(*v);
+                max_seq_len_ = static_cast<dim_t>(*v);
             }
 
             if ( auto v = meta.tryGetFloat( "base" ) )
@@ -245,7 +251,7 @@ namespace Mila::Dnn
 
             if ( auto v = meta.tryGetInt( "rotary_dim" ) )
             {
-                rotary_dim_ = static_cast<size_t>(*v);
+                rotary_dim_ = static_cast<dim_t>(*v);
             }
         }
 
@@ -266,13 +272,11 @@ namespace Mila::Dnn
 
     private:
 
-        // REVIEW: Establishing dim_t as the canonical type for model dimension parameters
-        // is the right library-wide rule: if a field describes the size of a tensor axis, it is dim_t.
-        size_t channels_{ 0 };
-        size_t n_heads_{ 0 };
-        size_t n_kv_heads_{ 0 };
-        size_t max_seq_len_{ 0 };
-        size_t rotary_dim_{ 0 };       ///< 0 = use full head_dim
-        float  base_{ 10000.0f };
+        dim_t channels_{ 0 };
+        dim_t n_heads_{ 0 };
+        dim_t n_kv_heads_{ 0 };
+        dim_t max_seq_len_{ 0 };
+        dim_t rotary_dim_{ 0 };        ///< 0 = use full head_dim
+        float base_{ 10000.0f };
     };
 }

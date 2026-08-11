@@ -8,7 +8,7 @@ Mila is built for researchers, engineers, and developers who find high-level fra
 and write kernels that do precisely what they intend. No autograd engine. No runtime
 dispatch magic. Just C++23, CUDA, and full control.
 
-> *Currently in public beta (`0.20.0-beta.1`) — feature-frozen and hardening toward the v0.20 first
+> *Currently in public beta (`0.20.0-beta.2`) — feature-frozen and hardening toward the v0.20 first
 > production release. Pre-1.0: the API is not yet stable.*
 > *Active development lands on the [`dev`](https://github.com/ToddThomson/Mila/tree/dev) branch; `master` tracks tagged releases.*
 > *See the [Roadmap](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md) for current status and trajectory.*
@@ -129,7 +129,7 @@ place to read one token's journey end to end.
 
 ---
 
-## Current Status — Beta.1 (feature-frozen, hardening)
+## Current Status — Beta.2 (feature-frozen, hardening)
 
 Mila is in public beta, hardening toward a craft-complete first release (v0.20). The alpha
 phase built and validated the core architecture against known-good reference implementations; the
@@ -138,7 +138,9 @@ recovering the full GPT-2 / training foundation — so the first release ships e
 built, inference and training, as one coherent, tested, documented package.
 
 **Hardening through beta (Production Hardening)**
-Feature-frozen: validation, packaging, and documentation only. The v0.20 workstreams still in flight
+Feature-frozen: validation, packaging, and documentation only. **Model distribution is the one
+deliberate carve-in**, landed in `beta.2` — a release nobody can get a model for is not an onboarding
+story, and it was an alpha omission rather than a new idea. The v0.20 workstreams still in flight
 are test-suite revival, training revival (the MNIST and Bard GPT-2 samples re-aligned to the current
 API — Llama 3.1/3.2 training is not part of this release), API documentation, and production
 hardening itself, from which the `beta.X` and `rc.X` tags are cut. See
@@ -170,9 +172,14 @@ tokenizers, and tooling beneath them.
 | HuggingFace Gemma weight converter | Complete |
 | HuggingFace Llama weight converter | Complete |
 | HuggingFace GPT-2 weight converter | Complete |
+| Model store — install, list, remove; shared by Chat and MIS as separate processes | Complete |
+| Model retrieval from HuggingFace — digest-verified pull | Validated — pulled independently on Windows (C++) and Linux (Python), byte-identical blobs |
+| Published models — Gemma 4 12B FP4, Llama 3.1 8B FP4, Llama 3.2 3B FP4 (`mila-llm`) | Complete — ungated; licence and notice travel with the weights |
+| Model packaging and publishing — manifest, package, publish | Complete |
 | Instruction following — Llama 3.2 3B Instruct | Validated |
 | Tool calling framework | Complete |
 | Chat CLI | Complete |
+| Mila Inference Server (MIS) — OpenAI/Anthropic wire | Validated — Codex and Claude Code CLI round-trips on Gemma 4 12B FP4 |
 | MNIST training — ~97.9% test accuracy | Complete |
 | AdamW optimizer | Complete |
 | cuBLASLt Linear — forward + backward | Complete |
@@ -192,8 +199,8 @@ tokenizers, and tooling beneath them.
 ## Adaptors
 
 The runtime plus a small family of adaptors, each closing the generation loop for a
-different consumer. See [Mila/Adaptors/README.md](Mila/Adaptors/README.md) and the full
-positioning in [MilaProductFamily.md](Mila/Specifications/MilaProductFamily.md).
+different consumer. See [Mila/Adaptors/README.md](https://github.com/ToddThomson/Mila/blob/dev/Mila/Adaptors/README.md) and the full
+positioning in [MilaProductFamily.md](https://github.com/ToddThomson/Mila/blob/dev/Mila/Specifications/MilaProductFamily.md).
 
 ### Chat — a human at a prompt
 
@@ -206,7 +213,9 @@ Mila: It stores the key and value tensors from earlier tokens so each new token 
 Located under `Mila/Adaptors/Chat`. An instruction-following chat harness that closes the
 loop in-process with a human in the gate — the default model is Gemma 4 12B Instruct at FP4,
 loaded via the two-phase (prefill + decode) KV-cache pipeline, with model hot-switching
-(`/model <alias> [quant]`) and tool calling. On a 12 GB card, Gemma 4 12B FP4 runs a large context
+(`/model <name> [quant]`) and tool calling. Models come from the local store: `/models --online`
+lists what Mila publishes, `/install <name>` downloads one, and `/models` shows what is installed and
+what each costs in memory. On a 12 GB card, Gemma 4 12B FP4 runs a large context
 window — its two memory-fit gates, weight-tying and the bounded-KV sliding-window ring cache, landed
 in the alpha.6 line.
 
@@ -236,8 +245,8 @@ current API as part of v0.20 Training Revival.
 
 Located under `Mila/Samples/QuickStart`. A standalone downstream project showing how to depend on Mila
 with `FetchContent` (the supported consumption path for a C++23 module library) and call its public
-API. See [getting-started.md §7](getting-started.md) and the sample's
-[README](Mila/Samples/QuickStart/README.md).
+API. See [getting-started.md §7](https://github.com/ToddThomson/Mila/blob/dev/getting-started.md) and the sample's
+[README](https://github.com/ToddThomson/Mila/blob/dev/Mila/Samples/QuickStart/README.md).
 
 ---
 
@@ -325,20 +334,24 @@ ctest --test-dir out/build/linux-release
 
 VS Code users can instead **Reopen in Container** — see `.devcontainer/`.
 
-Model weights are not included; they are converted offline on the host (see
-`Mila/Tools/Converters/`), and the repo bind mount makes the converted `.bin` files
-available inside the container automatically.
+Model weights are not included. The image sets `MILA_CACHE_DIR=/mila/Data/Models/Store`, which sits
+on the repo bind mount, so a model installed with `/install` survives `run --rm` and is the same
+store the host uses — install it once from either side.
 
 > A slim, published runtime image — `docker run … mila` for users who only want to run
-> inference without building — is planned for the beta release. See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md).
+> inference without building — is planned for the v0.20 release. See [ROADMAP.md](https://github.com/ToddThomson/Mila/blob/dev/ROADMAP.md).
 
 ---
 
 ## Documentation
 
-API reference: https://toddthomson.github.io/Mila
+Site: https://mila.toddt.me — including the
+[blog](https://mila.toddt.me/blog/) on the CUDA kernels and architecture work.
 
-Updated automatically on every push to master.
+API reference: https://mila.toddt.me/api/
+
+Both are rebuilt automatically on every push to `dev`, so the API reference tracks the code rather
+than the last release.
 
 ---
 
@@ -357,14 +370,14 @@ is a well-scoped, self-contained first contribution, not a gap to apologize for.
 4. Open a pull request targeting dev
 
 New contributors: [getting-started.md](https://github.com/ToddThomson/Mila/blob/dev/getting-started.md) walks through a fresh clone,
-build, model weight conversion, running inference, and opening your first PR.
+build, running inference, and opening your first PR.
 See CONTRIBUTING.md for coding standards and the pull request process.
 
 ---
 
 ## Attributions
 
-For research and open-source acknowledgements, see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
+For research and open-source acknowledgements, see [ATTRIBUTIONS.md](https://github.com/ToddThomson/Mila/blob/dev/ATTRIBUTIONS.md).
 
 ---
 

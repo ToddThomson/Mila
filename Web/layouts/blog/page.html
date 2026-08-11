@@ -1,0 +1,33 @@
+{{ define "main" }}
+<div class="wrap">
+
+{{/* Works however the reader arrived -- a direct hit from search has no history to go back to. */}}
+<a class="backlink" href="{{ .Parent.RelPermalink }}">← All posts</a>
+
+<article>
+  <h1>{{ .Title }}</h1>
+  <p class="meta">
+    {{ .Date.Format "2 January 2006" }}
+    {{ with .Params.discussion }} · <a href="{{ . }}">Discuss on GitHub</a>{{ end }}
+  </p>
+  {{ .Content }}
+</article>
+
+{{ $prev := .PrevInSection }}{{ $next := .NextInSection }}
+{{ if or $prev $next }}
+<nav class="postnav">
+  <div class="pn pn-prev">
+    {{ with $prev }}
+    <a href="{{ .RelPermalink }}"><span class="pn-dir">← Previous</span><span class="pn-title">{{ .Title }}</span></a>
+    {{ end }}
+  </div>
+  <div class="pn pn-next">
+    {{ with $next }}
+    <a href="{{ .RelPermalink }}"><span class="pn-dir">Next →</span><span class="pn-title">{{ .Title }}</span></a>
+    {{ end }}
+  </div>
+</nav>
+{{ end }}
+
+</div>
+{{ end }}

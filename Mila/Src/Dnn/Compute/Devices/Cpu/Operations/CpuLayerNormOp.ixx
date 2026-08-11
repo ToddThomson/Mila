@@ -207,9 +207,7 @@ namespace Mila::Dnn::Compute
 
             const auto& shape = input.shape();
 
-            validateShapeConsistency( shape );
-
-            const int64_t outer_size = outer_size_;
+            const int64_t outer_size = sliceCountFor( shape );
             const int64_t dim_size = dim_size_;
             const int64_t inner_size = inner_size_;
 
@@ -293,9 +291,7 @@ namespace Mila::Dnn::Compute
 
             const auto& shape = input.shape();
 
-            validateShapeConsistency( shape );
-
-            const int64_t outer_size = outer_size_;
+            const int64_t outer_size = sliceCountFor( shape );
             const int64_t dim_size = dim_size_;
             const int64_t inner_size = inner_size_;
 
@@ -477,9 +473,19 @@ namespace Mila::Dnn::Compute
         }
 
         /**
-         * @brief Validate input shape consistency with cached build-time dimensions.
+         * @brief Number of normalization slices in this input, bounded by the build.
+         *
+         * The build sizes the buffers for the widest input; a narrower one is the normal
+         * case, not a mismatch. LayerNorm.ixx:132-146 hands this op the whole output
+         * buffer and views the result down to the input's shape afterwards, so anything
+         * shorter than the built context arrives here routinely -- a prefill extracting a
+         * single position is the obvious one. Only an input WIDER than the build has
+         * nowhere to land, and that is what this rejects.
+         *
+         * The returned count is what the caller must iterate. Reading outer_size_ instead
+         * walks off the end of a narrower input.
          */
-        void validateShapeConsistency( const shape_t& shape ) const
+        int64_t sliceCountFor( const shape_t& shape ) const
         {
             const int64_t ndim = static_cast<int64_t>(shape.size());
 
@@ -492,10 +498,13 @@ namespace Mila::Dnn::Compute
             for ( int64_t i = 0; i < axis_; ++i )
                 computed_outer *= static_cast<int64_t>( shape[ i ] );
 
-            if ( computed_outer != outer_size_ )
+            if ( computed_outer > outer_size_ )
             {
-                throw std::runtime_error( "CpuLayerNormOp - input shape mismatch since build()" );
+                throw std::runtime_error(
+                    "CpuLayerNormOp - input has more normalization slices than build() sized" );
             }
+
+            return computed_outer;
         }
     };
 

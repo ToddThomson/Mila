@@ -66,7 +66,7 @@ namespace Mila::Tests::Dnn::Components::Normalization
 
         void fillSpread( TensorFp32& t )
         {
-            for ( size_t i = 0; i < t.size(); ++i )
+            for ( dim_t i = 0; i < t.size(); ++i )
             {
                 t.data()[ i ] = static_cast<float>( i ) / t.size() * 4.0f - 2.0f;
             }
@@ -144,7 +144,7 @@ namespace Mila::Tests::Dnn::Components::Normalization
 
         ASSERT_EQ( output.size(), expected.size() );
 
-        for ( size_t i = 0; i < output.size(); ++i )
+        for ( dim_t i = 0; i < output.size(); ++i )
         {
             EXPECT_NEAR( output.data()[ i ], expected[ i ], 1e-5f ) << "forward mismatch at index " << i;
         }
@@ -189,7 +189,7 @@ namespace Mila::Tests::Dnn::Components::Normalization
         TensorFp32 output_grad( Device::Cpu(), shape );
         TensorFp32 input_grad( Device::Cpu(), shape );
         fillSpread( input );
-        for ( size_t i = 0; i < output_grad.size(); ++i )
+        for ( dim_t i = 0; i < output_grad.size(); ++i )
         {
             output_grad.data()[ i ] = 0.1f * static_cast<float>( ( i % 7 ) + 1 );
         }
@@ -198,7 +198,7 @@ namespace Mila::Tests::Dnn::Components::Normalization
         // and the op accumulates into input_grad, so produce Y and zero the
         // accumulation target first.
         softmax->forward( input, output );
-        for ( size_t i = 0; i < input_grad.size(); ++i )
+        for ( dim_t i = 0; i < input_grad.size(); ++i )
         {
             input_grad.data()[ i ] = 0.0f;
         }
@@ -227,7 +227,7 @@ namespace Mila::Tests::Dnn::Components::Normalization
         }
 
         ASSERT_EQ( input_grad.size(), expected_dx.size() );
-        for ( size_t i = 0; i < input_grad.size(); ++i )
+        for ( dim_t i = 0; i < input_grad.size(); ++i )
         {
             EXPECT_NEAR( input_grad.data()[ i ], expected_dx[ i ], 1e-5f ) << "dX mismatch at index " << i;
         }
@@ -241,7 +241,7 @@ namespace Mila::Tests::Dnn::Components::Normalization
     {
         auto softmax = builtSoftmax( shape_t{ kRows, kChannels }, RuntimeMode::Inference );
 
-        EXPECT_EQ( softmax->parameterCount(), 0u );
+        EXPECT_EQ( softmax->parameterCount(), 0 );
         EXPECT_TRUE( softmax->getParameters().empty() );
         EXPECT_TRUE( softmax->getGradients().empty() );
     }

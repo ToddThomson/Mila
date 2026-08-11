@@ -11,7 +11,7 @@ from protocols.base import ResponsesCapable
 from protocols.utils import DEFAULT_SYSTEM_PROMPT, MODEL_NAME, extract_content
 from protocols.openai.tool_bridge import build_tool_injection, parse_tool_call
 from prompt import build_instruct_prompt
-from config import settings, ModelFamily
+from config import settings, loaded, ModelFamily
 import gemma_protocol
 
 
@@ -35,7 +35,7 @@ class OpenAIResponsesAdapter(ResponsesCapable):
             _input_shapes = [(m.get("type", "message"), m.get("role")) for m in raw_input]
             print("[MIS DEBUG] input items:", json.dumps(_input_shapes), flush=True)
 
-        if settings.model_family == ModelFamily.gemma:
+        if loaded.family == ModelFamily.gemma:
             prompt_str = self._build_gemma_prompt(raw_input, instructions, tools)
         else:
             prompt_str = self._build_llama_prompt(raw_input, instructions, tools)
@@ -188,13 +188,13 @@ class OpenAIResponsesAdapter(ResponsesCapable):
 
     def parse_tool_call_from_text(self, text: str) -> dict | None:
         """Expose the tool-call parser to the streaming factory path (family-aware)."""
-        if settings.model_family == ModelFamily.gemma:
+        if loaded.family == ModelFamily.gemma:
             return gemma_protocol.parse_tool_call(text)
         return parse_tool_call(text)
 
     def clean_response_text(self, text: str) -> str:
         """Reduce raw model output to the user-facing answer (Gemma channel-aware)."""
-        if settings.model_family == ModelFamily.gemma:
+        if loaded.family == ModelFamily.gemma:
             return gemma_protocol.extract_answer(text)
         return text
 

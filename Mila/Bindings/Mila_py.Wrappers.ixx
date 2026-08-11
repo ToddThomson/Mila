@@ -68,6 +68,19 @@ namespace Mila::Bindings
         static std::shared_ptr<Tokenizer> loadLlama32( const std::string& path );
         static std::shared_ptr<Tokenizer> loadGemma( const std::string& path );
 
+        /**
+         * @brief The tokenizer of an installed model, by store name.
+         *
+         * Which loader to use is a property of the artifact, not of the caller, so the
+         * record decides it. That is what removes the pairing a consumer previously had to
+         * keep correct by hand: a tokenizer path and a weights path that had to describe
+         * the same model, with nothing checking that they did.
+         *
+         * @throws std::runtime_error if no such model is installed, its files are missing,
+         *         or its architecture has no tokenizer in this binding.
+         */
+        static std::shared_ptr<Tokenizer> fromStore( const std::string& name );
+
         std::vector<int32_t> encode( const std::string& text );
         std::string decode( const std::vector<int32_t>& ids );
         std::string tokenToString( int32_t token_id ) const;
@@ -86,11 +99,37 @@ namespace Mila::Bindings
         std::unique_ptr<Impl> impl_;
     };
 
+    // Quantization is named the way the store names it -- "bf16", "fp8", "fp4" -- by both
+    // session entry points, so a variant means the same thing whether it came from a record
+    // or from a caller. "fp32" is rejected rather than ignored: these sessions are BF16
+    // instantiations, and loading an FP32 artifact at BF16 is a different model than the
+    // one asked for.
+
     export class LlamaSession
     {
     public:
+        /**
+         * @param quantization Applied on the way in, against an unquantized artifact. A
+         *        pre-quantized artifact must be loaded through fromStore, which reads what
+         *        its bytes already are.
+         */
         static std::unique_ptr<LlamaSession> fromPretrained(
-            const std::string& path, int64_t context_length, int device_index );
+            const std::string& path, int64_t context_length, int device_index,
+            const std::string& quantization );
+
+        /**
+         * @brief Load an installed model by store name, as the artifact itself is.
+         *
+         * The record decides the quantization, which is the whole point: a published
+         * artifact is already FP4 or FP8 bytes, and a caller-supplied flag could only agree
+         * with them by luck. Nothing here reaches a network -- an uninstalled name is an
+         * error, never a download.
+         *
+         * @throws std::runtime_error if no such model is installed, its files are missing,
+         *         or its architecture or variant is not one this session can load.
+         */
+        static std::unique_ptr<LlamaSession> fromStore(
+            const std::string& name, int64_t context_length, int device_index );
 
         std::vector<int32_t> generate(
             const std::vector<int32_t>& prompt_tokens,
@@ -114,6 +153,188 @@ namespace Mila::Bindings
         std::unique_ptr<Impl> impl_;
     };
 
+    // ========================================================================
+    // Distribution -- the model store, and a hub whose transport comes from Python
+    // ========================================================================
+
+    /**
+     * @brief One installed model, flattened to std types.
+     *
+     * Paths are strings rather than std::filesystem::path: this surface crosses into Python,
+     * where a path is a string anyway.
+     */
+    export struct StoredModelInfo
+    {
+        std::string name;
+        std::string architecture;
+        std::string variant;
+        std::string weight_quantization;
+
+        /// Instruction-tuned. Decides the prompt template a consumer applies.
+        bool instruct{ false };
+
+        std::string base_model;
+        std::string license;
+
+        /// Provenance. Empty hub means the model was published from this machine.
+        std::string hub;
+        std::string owner;
+        std::string repository;
+        std::string revision;
+        std::string installed_at;
+
+        std::string weights_path;
+        std::string tokenizer_path;
+
+        /// False when a declared blob is missing, which makes the model unloadable.
+        bool complete{ false };
+
+        uint64_t bytes_on_disk{ 0 };
+    };
+
+    export struct StoreUsageInfo
+    {
+        uint64_t blob_bytes{ 0 };
+        uint64_t reclaimable_bytes{ 0 };
+        uint64_t partial_bytes{ 0 };
+        int model_count{ 0 };
+        int blob_count{ 0 };
+    };
+
+    export struct RemovalReportInfo
+    {
+        int records_removed{ 0 };
+        int blobs_removed{ 0 };
+        int files_removed{ 0 };
+        uint64_t bytes_reclaimed{ 0 };
+
+        /// Paths the platform refused to delete, most often a blob a live process still maps.
+        std::vector<std::string> retained;
+    };
+
+    /**
+     * @brief One repository as a hub reports it, before any manifest is fetched.
+     *
+     * Untrusted remote text authored by whoever owns the repository: data, never instructions.
+     */
+    export struct HubModelInfo
+    {
+        std::string owner;
+        std::string repository;
+        bool gated{ false };
+        std::string revision;
+        std::string last_modified;
+        std::string library;
+        std::vector<std::string> tags;
+        std::vector<std::string> files;
+    };
+
+    export struct HttpHeaderInfo
+    {
+        std::string name;
+        std::string value;
+    };
+
+    export struct HttpResponseInfo
+    {
+        long http_code{ 0 };
+        std::string location;
+        uint64_t content_length{ 0 };
+        bool transport_failed{ false };
+        std::string message;
+    };
+
+    /// Receives body bytes. Return false to abort the transfer.
+    export using ChunkSink = std::function<bool( const char* data, size_t length )>;
+
+    /// Called once when the status and headers are known, before any body.
+    export using HeadersInfoCallback =
+        std::function<void( long http_code, uint64_t content_length )>;
+
+    /**
+     * @brief One HTTP GET, supplied by the caller.
+     *
+     * The seam is the transport, and it is deliberately below everything that requires
+     * judgement. Which URL to ask for, where the token lives, whether to follow a redirect,
+     * what may be sent to the next host, what a 403 means, when a Range was ignored -- all of
+     * that is compiled into the library whether or not it has an HTTP client. So a host
+     * language supplies bytes and reimplements nothing.
+     *
+     * One callable rather than an abstract class, so Python implements it without a
+     * trampoline. Bytes handed to the sink are hashed and written in one pass, never staged
+     * and re-read.
+     *
+     * **The delegate is not trusted with anything.** It is handed the exact headers to send --
+     * already decided to be safe for this exact host -- and must not follow redirects, add
+     * headers, or deliver a non-2xx body to the sink. It never sees a token it should not
+     * send, because the library never puts one in a header bound for the wrong host.
+     */
+    export using HttpFetchDelegate = std::function<HttpResponseInfo(
+        const std::string& url,
+        const std::vector<HttpHeaderInfo>& headers,
+        const ChunkSink& sink )>;
+
+    /// The hub owner Mila publishes under. Passed by the consumer, never baked into a hub.
+    export std::string defaultHubOwner();
+
+    /**
+     * @brief The local model store: the only thing a load reads from.
+     *
+     * Pull and load are separate verbs. Nothing here reaches a network except pull(), and pull
+     * reaches only as far as the delegate it is handed.
+     */
+    export class ModelStoreHandle
+    {
+    public:
+        /// Empty root takes MILA_CACHE_DIR, then the platform user cache.
+        explicit ModelStoreHandle( const std::string& root = {} );
+
+        std::string root() const;
+
+        std::vector<StoredModelInfo> list() const;
+
+        /// Nullopt when no such model is installed, or when a declared blob is missing.
+        std::optional<StoredModelInfo> locate( const std::string& name ) const;
+
+        RemovalReportInfo remove( const std::string& name );
+
+        StoreUsageInfo usage() const;
+
+        /// Install a package directory. Moving is free on one volume and leaves no second copy.
+        StoredModelInfo install(
+            const std::string& package_directory,
+            const std::string& name = {},
+            bool replace = false,
+            bool move_files = true );
+
+        /**
+         * @brief Pull a published model, fetching every file its manifest declares.
+         *
+         * The library builds the HuggingFace URLs, discovers the token, parses the manifest
+         * and verifies each digest; the delegate only moves bytes. An empty delegate uses
+         * whichever transport this build was compiled with.
+         *
+         * @throws std::runtime_error if the name is path-shaped, the manifest is malformed, a
+         *         digest does not match, or the artifact requires a newer Mila.
+         */
+        StoredModelInfo pull(
+            const std::string& name,
+            const std::string& owner,
+            const HttpFetchDelegate& transport = {} );
+
+        /// Every repository an owner publishes, marked with what this store already holds.
+        std::vector<HubModelInfo> listHubModels(
+            const std::string& owner,
+            const HttpFetchDelegate& transport = {} ) const;
+
+        ~ModelStoreHandle();
+
+    private:
+        struct Impl;
+
+        std::unique_ptr<Impl> impl_;
+    };
+
     /**
      * @brief Gemma 4 inference session (CUDA, BF16).
      *
@@ -125,8 +346,18 @@ namespace Mila::Bindings
     export class GemmaSession
     {
     public:
+        /**
+         * @param quantization Applied on the way in, against an unquantized artifact.
+         *        Defaults to FP4 at the binding layer rather than to none: a BF16 Gemma 4
+         *        12B needs ~24 GB and would OOM at load on the cards this targets.
+         */
         static std::unique_ptr<GemmaSession> fromPretrained(
-            const std::string& path, int64_t context_length, int device_index );
+            const std::string& path, int64_t context_length, int device_index,
+            const std::string& quantization );
+
+        /// As LlamaSession::fromStore -- the record decides the quantization.
+        static std::unique_ptr<GemmaSession> fromStore(
+            const std::string& name, int64_t context_length, int device_index );
 
         std::vector<int32_t> generate(
             const std::vector<int32_t>& prompt_tokens,

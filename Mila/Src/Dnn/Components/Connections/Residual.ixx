@@ -180,8 +180,18 @@ namespace Mila::Dnn
             }
 
             // Zero BOTH owned input gradient buffers before backward pass.
-            // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed
-            // buffers to prevent gradient buildup across calls.
+            //
+            // The reason is CpuResidualOp, which accumulates (dX1[i] += dY[i]) and so
+            // needs a clean buffer; CudaResidualOp assigns (dA[idx] = grad) and does not.
+            // It is NOT to combine gradients arriving from several paths: each of these
+            // buffers has exactly one producer, and where the residual stream forks the
+            // summation is explicit in the owning block -- see GptBlock::backward, which
+            // does `zero(d_res1_accum_); add(d_res1_from_res2, d_res1_from_ln2, ...)`.
+            //
+            // Assign and accumulate-into-zero are therefore equivalent here, which is why
+            // the two backends disagree without any observable difference. Reconciling
+            // them (and dropping the zeroing for a full-overwrite op) is an API Coherence
+            // question parked in BACKLOG, not a defect.
             zero( *input_a_grad_ /*, this->getExecutionContext() */);
             zero( *input_b_grad_ /*, this->getExecutionContext() */);
 
@@ -211,11 +221,9 @@ namespace Mila::Dnn
          * Placeholder; concrete implementations should write named parameter
          * tensors into the archive.
          */
-        void save_( ModelArchive& archive, SerializationMode mode ) const override
+        void save_( ModelArchive&, SerializationMode ) const override
         {
-            // No-op placeholder; serialize parameter tensors if needed
-            (void)archive;
-            (void)mode;
+            // Deliberately empty: parameterCount() is 0, so there is nothing to serialize.
         }
 
         // ====================================================================
@@ -256,7 +264,7 @@ namespace Mila::Dnn
          *
          * @return 0
          */
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
             return 0;
         }
@@ -323,6 +331,38 @@ namespace Mila::Dnn
             return stats;
         }
 
+        /**
+         * @brief What onBuilding() would allocate for this context, without allocating.
+         *
+         * See Specifications/MemoryFootprint.md.
+         */
+        MemoryStats getRequiredMemory( const BuildContext& context ) const override
+        {
+            const auto& input_shape = context.inputShape();
+            const dim_t elements = elementCount( input_shape );
+
+            MemoryStats stats;
+
+            // An installed shared output slot is owned and counted by the installer.
+            if ( !output_installed_ && !context.hasInstalledOutput() )
+            {
+                stats.device_state_bytes += storageBytes<TPrecision>( elements );
+            }
+
+            if ( operation_ )
+            {
+                stats.device_state_bytes += operation_->getRequiredStateMemorySize( context );
+            }
+
+            if ( context.isTrainingMode() )
+            {
+                // Two inputs, two input gradients.
+                stats.device_gradient_bytes += 2 * storageBytes<TPrecision>( elements );
+            }
+
+            return stats;
+        }
+
     protected:
 
         /**
@@ -366,7 +406,7 @@ namespace Mila::Dnn
 
             if ( output_installed_ )
             {
-                int64_t needed = 1;
+                dim_t needed = 1;
                 for ( auto d : input_shape )
                     needed *= d;
 

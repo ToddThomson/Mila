@@ -111,14 +111,20 @@ namespace Dnn::Compute::Registry::Tests
 
 	TEST_F( DeviceRegistryTest, ThreadSafeDeviceOperations )
 	{
-        // TJT: This test fails intermittently. Determine root cause.
 		auto& registry = DeviceRegistry::instance();
 
 		constexpr int num_threads = 20;
 		constexpr int operations_per_thread = 50;
 
 		std::vector<std::thread> threads;
-		std::vector<bool> results( num_threads, false );
+
+		// Not std::vector<bool>: that specialization packs elements into bits, so
+		// distinct indices are not distinct memory locations and the per-thread
+		// writes below become a read-modify-write race on the same word -- one
+		// thread's result silently overwrites another's. This test failed
+		// intermittently for exactly that reason, in the harness rather than in the
+		// registry it is meant to exercise. char gives each thread its own byte.
+		std::vector<char> results( num_threads, 0 );
 
 		for ( int i = 0; i < num_threads; ++i )
 		{
@@ -158,7 +164,7 @@ namespace Dnn::Compute::Registry::Tests
 					std::this_thread::sleep_for( std::chrono::microseconds( 1 ) );
 				}
 
-				results[i] = thread_success;
+				results[i] = thread_success ? 1 : 0;
 				} );
 		}
 
@@ -166,7 +172,7 @@ namespace Dnn::Compute::Registry::Tests
 
 		for ( int i = 0; i < num_threads; ++i )
 		{
-			EXPECT_TRUE( results[i] ) << "Thread " << i << " failed";
+			EXPECT_NE( results[i], 0 ) << "Thread " << i << " failed";
 		}
 	}
 

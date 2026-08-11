@@ -50,13 +50,13 @@ namespace Mila::Dnn
          * @brief Chunked prefill: process [B, T_chunk, model_dim] at an absolute offset.
          * @return Reference to the block-owned output [B, T_chunk, model_dim].
          */
-        virtual TensorType& prefill( const TensorType& input, int position_offset ) = 0;
+        virtual TensorType& prefill( const TensorType& input, dim_t position_offset ) = 0;
 
         /**
          * @brief Single-token decode at an absolute position (T == 1).
          * @return Reference to the block-owned output [B, 1, model_dim].
          */
-        virtual TensorType& decode( const TensorType& input, int position ) = 0;
+        virtual TensorType& decode( const TensorType& input, dim_t position ) = 0;
 
         /**
          * @brief Wire the shared GQA transient workspace (owned by the transformer).
@@ -83,6 +83,6 @@ namespace Mila::Dnn
          * sliding-window ring refuses when the stale tail has overwritten the
          * window a continuation would attend to).
          */
-        virtual bool rewindKvCache( int position ) = 0;
+        virtual bool rewindKvCache( dim_t position ) = 0;
     };
 }

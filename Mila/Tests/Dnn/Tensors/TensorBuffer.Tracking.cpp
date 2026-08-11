@@ -18,12 +18,12 @@ namespace Tensors::Tests
     protected:
         void SetUp() override {
             // Reset global statistics before each test
-            MemoryStats::reset();
+            MemoryAllocationStats::reset();
         }
 
         void TearDown() override {
             // Reset statistics after each test
-            MemoryStats::reset();
+            MemoryAllocationStats::reset();
         }
     };
 
@@ -33,50 +33,50 @@ namespace Tensors::Tests
 
     TEST_F( TrackedMemoryResourceTests, MemoryStatsInitialization ) {
         // Verify initial state of memory statistics
-        EXPECT_EQ( MemoryStats::totalAllocated.load(), 0 );
-        EXPECT_EQ( MemoryStats::totalDeallocated.load(), 0 );
-        EXPECT_EQ( MemoryStats::currentUsage.load(), 0 );
-        EXPECT_EQ( MemoryStats::peakUsage.load(), 0 );
-        EXPECT_EQ( MemoryStats::allocationCount.load(), 0 );
-        EXPECT_EQ( MemoryStats::deallocationCount.load(), 0 );
-        EXPECT_EQ( MemoryStats::fillOperationCount.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::totalAllocated.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::totalDeallocated.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::currentUsage.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::peakUsage.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::allocationCount.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::deallocationCount.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::fillOperationCount.load(), 0 );
     }
 
     TEST_F( TrackedMemoryResourceTests, MemoryStatsReset ) {
         // Modify statistics
-        MemoryStats::totalAllocated = 1000;
-        MemoryStats::totalDeallocated = 500;
-        MemoryStats::currentUsage = 500;
-        MemoryStats::peakUsage = 800;
-        MemoryStats::allocationCount = 10;
-        MemoryStats::deallocationCount = 5;
-        MemoryStats::fillOperationCount = 3;
+        MemoryAllocationStats::totalAllocated = 1000;
+        MemoryAllocationStats::totalDeallocated = 500;
+        MemoryAllocationStats::currentUsage = 500;
+        MemoryAllocationStats::peakUsage = 800;
+        MemoryAllocationStats::allocationCount = 10;
+        MemoryAllocationStats::deallocationCount = 5;
+        MemoryAllocationStats::fillOperationCount = 3;
 
         // Reset should zero everything
-        MemoryStats::reset();
+        MemoryAllocationStats::reset();
 
-        EXPECT_EQ( MemoryStats::totalAllocated.load(), 0 );
-        EXPECT_EQ( MemoryStats::totalDeallocated.load(), 0 );
-        EXPECT_EQ( MemoryStats::currentUsage.load(), 0 );
-        EXPECT_EQ( MemoryStats::peakUsage.load(), 0 );
-        EXPECT_EQ( MemoryStats::allocationCount.load(), 0 );
-        EXPECT_EQ( MemoryStats::deallocationCount.load(), 0 );
-        EXPECT_EQ( MemoryStats::fillOperationCount.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::totalAllocated.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::totalDeallocated.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::currentUsage.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::peakUsage.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::allocationCount.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::deallocationCount.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::fillOperationCount.load(), 0 );
     }
 
     TEST_F( TrackedMemoryResourceTests, MemoryStatsPrint ) {
         // Set some statistics
-        MemoryStats::totalAllocated = 2048;
-        MemoryStats::totalDeallocated = 1024;
-        MemoryStats::currentUsage = 1024;
-        MemoryStats::peakUsage = 1536;
-        MemoryStats::allocationCount = 15;
-        MemoryStats::deallocationCount = 8;
-        MemoryStats::fillOperationCount = 5;
+        MemoryAllocationStats::totalAllocated = 2048;
+        MemoryAllocationStats::totalDeallocated = 1024;
+        MemoryAllocationStats::currentUsage = 1024;
+        MemoryAllocationStats::peakUsage = 1536;
+        MemoryAllocationStats::allocationCount = 15;
+        MemoryAllocationStats::deallocationCount = 8;
+        MemoryAllocationStats::fillOperationCount = 5;
 
         // Capture output
         std::ostringstream output;
-        MemoryStats::print( output );
+        MemoryAllocationStats::print( output );
 
         std::string result = output.str();
 
@@ -122,22 +122,22 @@ namespace Tensors::Tests
         EXPECT_NE( ptr, nullptr );
 
         // Verify statistics
-        EXPECT_EQ( MemoryStats::totalAllocated.load(), 1024 );
-        EXPECT_EQ( MemoryStats::currentUsage.load(), 1024 );
-        EXPECT_EQ( MemoryStats::peakUsage.load(), 1024 );
-        EXPECT_EQ( MemoryStats::allocationCount.load(), 1 );
-        EXPECT_EQ( MemoryStats::deallocationCount.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::totalAllocated.load(), 1024 );
+        EXPECT_EQ( MemoryAllocationStats::currentUsage.load(), 1024 );
+        EXPECT_EQ( MemoryAllocationStats::peakUsage.load(), 1024 );
+        EXPECT_EQ( MemoryAllocationStats::allocationCount.load(), 1 );
+        EXPECT_EQ( MemoryAllocationStats::deallocationCount.load(), 0 );
 
         // Deallocate memory
         tracked.deallocate( ptr, 1024, 64 );
 
         // Verify deallocation statistics
-        EXPECT_EQ( MemoryStats::totalAllocated.load(), 1024 );
-        EXPECT_EQ( MemoryStats::totalDeallocated.load(), 1024 );
-        EXPECT_EQ( MemoryStats::currentUsage.load(), 0 );
-        EXPECT_EQ( MemoryStats::peakUsage.load(), 1024 );
-        EXPECT_EQ( MemoryStats::allocationCount.load(), 1 );
-        EXPECT_EQ( MemoryStats::deallocationCount.load(), 1 );
+        EXPECT_EQ( MemoryAllocationStats::totalAllocated.load(), 1024 );
+        EXPECT_EQ( MemoryAllocationStats::totalDeallocated.load(), 1024 );
+        EXPECT_EQ( MemoryAllocationStats::currentUsage.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::peakUsage.load(), 1024 );
+        EXPECT_EQ( MemoryAllocationStats::allocationCount.load(), 1 );
+        EXPECT_EQ( MemoryAllocationStats::deallocationCount.load(), 1 );
     }
 
     TEST_F( TrackedMemoryResourceTests, MultipleAllocationTracking ) {
@@ -156,10 +156,10 @@ namespace Tensors::Tests
 
         // Verify cumulative statistics
         size_t expected_total = 512 + 1024 + 2048 + 256; // 3840
-        EXPECT_EQ( MemoryStats::totalAllocated.load(), expected_total );
-        EXPECT_EQ( MemoryStats::currentUsage.load(), expected_total );
-        EXPECT_EQ( MemoryStats::peakUsage.load(), expected_total );
-        EXPECT_EQ( MemoryStats::allocationCount.load(), 4 );
+        EXPECT_EQ( MemoryAllocationStats::totalAllocated.load(), expected_total );
+        EXPECT_EQ( MemoryAllocationStats::currentUsage.load(), expected_total );
+        EXPECT_EQ( MemoryAllocationStats::peakUsage.load(), expected_total );
+        EXPECT_EQ( MemoryAllocationStats::allocationCount.load(), 4 );
 
         // Deallocate in reverse order
         for ( int i = static_cast<int>(pointers.size()) - 1; i >= 0; --i ) {
@@ -167,11 +167,11 @@ namespace Tensors::Tests
         }
 
         // Verify final statistics
-        EXPECT_EQ( MemoryStats::totalAllocated.load(), expected_total );
-        EXPECT_EQ( MemoryStats::totalDeallocated.load(), expected_total );
-        EXPECT_EQ( MemoryStats::currentUsage.load(), 0 );
-        EXPECT_EQ( MemoryStats::peakUsage.load(), expected_total );
-        EXPECT_EQ( MemoryStats::deallocationCount.load(), 4 );
+        EXPECT_EQ( MemoryAllocationStats::totalAllocated.load(), expected_total );
+        EXPECT_EQ( MemoryAllocationStats::totalDeallocated.load(), expected_total );
+        EXPECT_EQ( MemoryAllocationStats::currentUsage.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::peakUsage.load(), expected_total );
+        EXPECT_EQ( MemoryAllocationStats::deallocationCount.load(), 4 );
     }
 
     TEST_F( TrackedMemoryResourceTests, PeakUsageTracking ) {
@@ -180,23 +180,23 @@ namespace Tensors::Tests
 
         // Allocate and track peak usage
         void* ptr1 = tracked.allocate( 1000, 32 );
-        EXPECT_EQ( MemoryStats::peakUsage.load(), 1000 );
+        EXPECT_EQ( MemoryAllocationStats::peakUsage.load(), 1000 );
 
         void* ptr2 = tracked.allocate( 500, 32 );
-        EXPECT_EQ( MemoryStats::peakUsage.load(), 1500 );
+        EXPECT_EQ( MemoryAllocationStats::peakUsage.load(), 1500 );
 
         void* ptr3 = tracked.allocate( 2000, 32 );
-        EXPECT_EQ( MemoryStats::peakUsage.load(), 3500 );
+        EXPECT_EQ( MemoryAllocationStats::peakUsage.load(), 3500 );
 
         // Deallocate middle allocation
         tracked.deallocate( ptr2, 500, 32 );
-        EXPECT_EQ( MemoryStats::currentUsage.load(), 3000 );
-        EXPECT_EQ( MemoryStats::peakUsage.load(), 3500 ); // Peak should remain
+        EXPECT_EQ( MemoryAllocationStats::currentUsage.load(), 3000 );
+        EXPECT_EQ( MemoryAllocationStats::peakUsage.load(), 3500 ); // Peak should remain
 
         // Allocate smaller amount - peak shouldn't change
         void* ptr4 = tracked.allocate( 200, 32 );
-        EXPECT_EQ( MemoryStats::currentUsage.load(), 3200 );
-        EXPECT_EQ( MemoryStats::peakUsage.load(), 3500 ); // Peak unchanged
+        EXPECT_EQ( MemoryAllocationStats::currentUsage.load(), 3200 );
+        EXPECT_EQ( MemoryAllocationStats::peakUsage.load(), 3500 ); // Peak unchanged
 
         // Cleanup
         tracked.deallocate( ptr1, 1000, 32 );
@@ -217,25 +217,25 @@ namespace Tensors::Tests
         // Test original fill method
         int32_t value = 42;
         tracked.fill( ptr, 256, &value, sizeof( value ) );
-        EXPECT_EQ( MemoryStats::fillOperationCount.load(), 1 );
+        EXPECT_EQ( MemoryAllocationStats::fillOperationCount.load(), 1 );
 
         // Test int32_t array fill
         std::vector<int32_t> int_values = { 1, 2, 3, 4, 5 };
         tracked.fill( ptr, 5, int_values.data(), TensorDataType::INT32 );
-        EXPECT_EQ( MemoryStats::fillOperationCount.load(), 2 );
+        EXPECT_EQ( MemoryAllocationStats::fillOperationCount.load(), 2 );
 
         // Test float array fill
         std::vector<float> float_values = { 1.1f, 2.2f, 3.3f };
         tracked.fill( ptr, 3, float_values.data(), TensorDataType::FP32 );
-        EXPECT_EQ( MemoryStats::fillOperationCount.load(), 3 );
+        EXPECT_EQ( MemoryAllocationStats::fillOperationCount.load(), 3 );
 
         // Test int32_t constant fill
         tracked.fill( ptr, 100, 123, TensorDataType::INT32 );
-        EXPECT_EQ( MemoryStats::fillOperationCount.load(), 4 );
+        EXPECT_EQ( MemoryAllocationStats::fillOperationCount.load(), 4 );
 
         // Test float constant fill
         tracked.fill( ptr, 50, 3.14159f, TensorDataType::FP32 );
-        EXPECT_EQ( MemoryStats::fillOperationCount.load(), 5 );
+        EXPECT_EQ( MemoryAllocationStats::fillOperationCount.load(), 5 );
 
         tracked.deallocate( ptr, 1024, 32 );
     }
@@ -249,10 +249,10 @@ namespace Tensors::Tests
 
         // Test memcpy - should not affect fill operation count
         tracked.memcpy( dst, src, 256 );
-        EXPECT_EQ( MemoryStats::fillOperationCount.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::fillOperationCount.load(), 0 );
 
         // Verify allocation tracking still works
-        EXPECT_EQ( MemoryStats::allocationCount.load(), 2 );
+        EXPECT_EQ( MemoryAllocationStats::allocationCount.load(), 2 );
 
         tracked.deallocate( src, 512, 32 );
         tracked.deallocate( dst, 512, 32 );
@@ -319,9 +319,9 @@ namespace Tensors::Tests
 
         // Verify statistics
         size_t expected_total = num_threads * allocations_per_thread * allocation_size;
-        EXPECT_EQ( MemoryStats::totalAllocated.load(), expected_total );
-        EXPECT_EQ( MemoryStats::currentUsage.load(), expected_total );
-        EXPECT_EQ( MemoryStats::allocationCount.load(), num_threads * allocations_per_thread );
+        EXPECT_EQ( MemoryAllocationStats::totalAllocated.load(), expected_total );
+        EXPECT_EQ( MemoryAllocationStats::currentUsage.load(), expected_total );
+        EXPECT_EQ( MemoryAllocationStats::allocationCount.load(), num_threads * allocations_per_thread );
 
         // Cleanup
         threads.clear();
@@ -338,8 +338,8 @@ namespace Tensors::Tests
         }
 
         // Verify final cleanup
-        EXPECT_EQ( MemoryStats::currentUsage.load(), 0 );
-        EXPECT_EQ( MemoryStats::deallocationCount.load(), num_threads * allocations_per_thread );
+        EXPECT_EQ( MemoryAllocationStats::currentUsage.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::deallocationCount.load(), num_threads * allocations_per_thread );
     }
 
     TEST_F( TrackedMemoryResourceTests, ConcurrentPeakUsageTracking ) {
@@ -379,8 +379,8 @@ namespace Tensors::Tests
 
         // Peak usage should reflect the maximum concurrent allocation
         size_t expected_peak = num_threads * large_allocation;
-        EXPECT_EQ( MemoryStats::peakUsage.load(), expected_peak );
-        EXPECT_EQ( MemoryStats::currentUsage.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::peakUsage.load(), expected_peak );
+        EXPECT_EQ( MemoryAllocationStats::currentUsage.load(), 0 );
     }
 
     // ============================================================================
@@ -392,26 +392,26 @@ namespace Tensors::Tests
         TensorBuffer<TensorDataType::FP32, CpuMemoryResource, true> tracked_buffer( 1000 );
 
         // Verify that memory tracking occurred during buffer creation
-        EXPECT_GT( MemoryStats::totalAllocated.load(), 0 );
-        EXPECT_GT( MemoryStats::allocationCount.load(), 0 );
-        EXPECT_EQ( MemoryStats::currentUsage.load(), MemoryStats::totalAllocated.load() );
+        EXPECT_GT( MemoryAllocationStats::totalAllocated.load(), 0 );
+        EXPECT_GT( MemoryAllocationStats::allocationCount.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::currentUsage.load(), MemoryAllocationStats::totalAllocated.load() );
 
-        auto initial_allocated = MemoryStats::totalAllocated.load();
-        auto initial_count = MemoryStats::allocationCount.load();
+        auto initial_allocated = MemoryAllocationStats::totalAllocated.load();
+        auto initial_count = MemoryAllocationStats::allocationCount.load();
 
         // Test fill operations through tracked buffer
         std::vector<float> test_values( 100, 3.14159f );
         tracked_buffer.fill( test_values.data(), 100 );
 
         // Verify fill operation was tracked
-        EXPECT_GT( MemoryStats::fillOperationCount.load(), 0 );
+        EXPECT_GT( MemoryAllocationStats::fillOperationCount.load(), 0 );
 
         // Test resize operation
         tracked_buffer.resize( 2000 );
 
         // Verify additional allocation was tracked
-        EXPECT_GT( MemoryStats::totalAllocated.load(), initial_allocated );
-        EXPECT_GT( MemoryStats::allocationCount.load(), initial_count );
+        EXPECT_GT( MemoryAllocationStats::totalAllocated.load(), initial_allocated );
+        EXPECT_GT( MemoryAllocationStats::allocationCount.load(), initial_count );
     }
 
     // ============================================================================
@@ -426,15 +426,15 @@ namespace Tensors::Tests
         void* ptr = tracked.allocate( 0, 32 );
 
         // allocationCount should ALWAYS be incremented for any allocate() call
-        EXPECT_EQ( MemoryStats::allocationCount.load(), 1 );
+        EXPECT_EQ( MemoryAllocationStats::allocationCount.load(), 1 );
 
         // totalAllocated should be 0 for zero-byte allocation
-        EXPECT_EQ( MemoryStats::totalAllocated.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::totalAllocated.load(), 0 );
 
         // Deallocate if pointer was returned
         if ( ptr != nullptr ) {
             tracked.deallocate( ptr, 0, 32 );
-            EXPECT_EQ( MemoryStats::deallocationCount.load(), 1 );
+            EXPECT_EQ( MemoryAllocationStats::deallocationCount.load(), 1 );
         }
     }
 
@@ -447,16 +447,16 @@ namespace Tensors::Tests
         // Test that fill operations are counted even with zero count
         float dummy_val = 0.0f;
         tracked.fill( ptr, 0, dummy_val, TensorDataType::FP32 );
-        EXPECT_EQ( MemoryStats::fillOperationCount.load(), 1 );
+        EXPECT_EQ( MemoryAllocationStats::fillOperationCount.load(), 1 );
 
         // Test fill with various data types
         float float_val = 1.0f;
         tracked.fill( ptr, 10, float_val, TensorDataType::FP32 );
-        EXPECT_EQ( MemoryStats::fillOperationCount.load(), 2 );
+        EXPECT_EQ( MemoryAllocationStats::fillOperationCount.load(), 2 );
 
         int32_t int_val = 42;
         tracked.fill( ptr, 10, int_val, TensorDataType::INT32 );
-        EXPECT_EQ( MemoryStats::fillOperationCount.load(), 3 );
+        EXPECT_EQ( MemoryAllocationStats::fillOperationCount.load(), 3 );
 
         tracked.deallocate( ptr, 100, 32 );
     }
@@ -508,8 +508,8 @@ namespace Tensors::Tests
         EXPECT_LT( overhead_ratio, 1.5 ); // Less than 50% overhead
 
         // Verify statistics accuracy
-        EXPECT_EQ( MemoryStats::allocationCount.load(), num_operations );
-        EXPECT_EQ( MemoryStats::deallocationCount.load(), num_operations );
-        EXPECT_EQ( MemoryStats::currentUsage.load(), 0 );
+        EXPECT_EQ( MemoryAllocationStats::allocationCount.load(), num_operations );
+        EXPECT_EQ( MemoryAllocationStats::deallocationCount.load(), num_operations );
+        EXPECT_EQ( MemoryAllocationStats::currentUsage.load(), 0 );
     }
 }

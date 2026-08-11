@@ -55,8 +55,10 @@ import Compute.DeviceTypeTraits.Cpu;
 import Compute.CpuMemoryResource;
 import Compute.ExecutionContextFactory;
 import Serialization.ModelArchive;
+import Serialization.Metadata;
 import Serialization.OpenMode;
 import Serialization.Mode;
+import Serialization.ZipSerializer;
 import Serialization.PretrainedReader;
 import Logging.Logger;
 
@@ -153,7 +155,8 @@ namespace Mila::Dnn
          */
         static std::unique_ptr<GptModel> fromCheckpoint(
             const std::filesystem::path& path,
-            DeviceId device_id = DeviceId{ TDeviceType, 0 } )
+            DeviceId device_id = DeviceId{ TDeviceType, 0 },
+            dim_t context_length = 0 )
         {
             if ( device_id.type != TDeviceType )
                 throw std::invalid_argument( std::format(
@@ -161,12 +164,64 @@ namespace Mila::Dnn
                     deviceTypeToString( TDeviceType ),
                     deviceTypeToString( device_id.type ) ) );
 
-            // NOT YET IMPLEMENTED: depends on the ModelArchive/ZipSerializer checkpoint path,
-            // which is unfinished (GptConfig::fromArchive and GptTransformer save/load do not
-            // exist). Use fromPretrained() instead.
-            throw std::runtime_error( std::format(
-                "GptModel::fromCheckpoint('{}'): Mila-native checkpoint loading is not yet "
-                "implemented; use fromPretrained().", path.string() ) );
+            ModelArchive archive( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Read );
+
+            GptConfig config = GptTransformerType::configFromArchive( archive );
+
+            // Default to the geometry the checkpoint was built with: a resumed run wants
+            // the shape it left off at, not a fresh guess. Fall back to the trained
+            // maximum when the archive recorded no build geometry.
+            if ( context_length <= 0 )
+            {
+                context_length = GptTransformerType::buildSequenceLengthFromArchive( archive );
+            }
+
+            if ( context_length <= 0 )
+            {
+                context_length = config.getMaxSequenceLength();
+            }
+
+            SerializationMetadata net_meta = archive.readMetadata( "network/meta.json" );
+            const std::string model_name = net_meta.has( "name" )
+                ? net_meta.getString( "name" ) : std::string( "gpt" );
+
+            auto network = std::make_unique<GptTransformerType>( model_name, config, device_id );
+
+            BuildContext build_context(
+                shape_t{ 1, static_cast<int64_t>( context_length ) },
+                RuntimeMode::Inference,
+                false );
+
+            network->build( build_context );
+
+            // The graph exists and is built; load restores weights into it.
+            network->load( archive, SerializationMode::Checkpoint );
+
+            return std::unique_ptr<GptModel>(
+                new GptModel( std::move( network ), config, context_length, RuntimeMode::Inference ) );
+        }
+
+        /**
+         * @brief Write a Mila-native archive that fromCheckpoint() can restore.
+         *
+         * Writes the network config, the component graph, and one blob per parameter.
+         * Weights only -- optimizer state belongs to the trainer, which owns its own
+         * archive scope.
+         *
+         * @param path Destination archive path (overwritten if it exists).
+         * @param mode Serialization mode recorded in the archive.
+         *
+         * @throws std::runtime_error if the archive cannot be opened or a component
+         *         cannot serialize its parameters.
+         */
+        void saveCheckpoint(
+            const std::filesystem::path& path,
+            SerializationMode mode = SerializationMode::Checkpoint ) const
+        {
+            ModelArchive archive( path.string(), std::make_unique<ZipSerializer>(), OpenMode::Write );
+
+            // this-> is required: network_ is a member of a dependent base.
+            this->network_->save( archive, mode );
         }
 
         // ====================================================================
@@ -187,7 +242,12 @@ namespace Mila::Dnn
             std::ostringstream oss;
             oss << "GptModel\n";
             oss << "Vocabulary: " << config_.getVocabSize() << " tokens\n";
-            oss << "Max sequence length: " << config_.getMaxSequenceLength() << "\n";
+
+            // Two different numbers, and only the first bounds generation: the session was
+            // built for context_length_, while config_ carries the maximum the checkpoint
+            // declares. Reporting only the latter overstates the usable window.
+            oss << "Context length: " << context_length_ << " tokens\n";
+            oss << "Architectural maximum: " << config_.getMaxSequenceLength() << " tokens\n";
             oss << "Embedding dim: " << config_.getEmbeddingSize() << "\n";
             oss << "Layers: " << config_.getNumLayers() << "\n";
             oss << "Heads: " << config_.getNumHeads() << "\n";
@@ -248,13 +308,21 @@ namespace Mila::Dnn
 
             on_token( next_token );
 
-            int position = static_cast<int>( seq_len );
+            dim_t position = seq_len;
             const int max_new = params.max_new_tokens.value_or( static_cast<int>( context_length_ ) );
 
             for ( int step = 1; step < max_new; ++step )
             {
                 if ( stop.stop_requested() )
                     return GenerateStatus::ClientCancelled;
+
+                // decode reads the learned positional embedding at `position`, and GPT-2 has
+                // exactly context_length_ of them -- so one step past the end is an
+                // out-of-bounds read, not a degraded answer. max_new defaults to the whole
+                // context without subtracting the prompt, so the default budget alone reaches
+                // here. Mirrors the cache_has_room guard in GemmaModel.
+                if ( position >= context_length_ )
+                    return GenerateStatus::ContextOverflow;
 
                 auto decode_input = makeTokenTensor( std::vector{ next_token } );
                 auto& decode_logits = this->getLanguageNetwork().decode( decode_input, position );
@@ -284,17 +352,17 @@ namespace Mila::Dnn
         /**
          * @brief Maximum sequence length from GPT config.
          */
-        int64_t maxSequenceLength() const noexcept override
+        dim_t maxSequenceLength() const noexcept override
         {
-            return static_cast<int64_t>(config_.getMaxSequenceLength());
+            return config_.getMaxSequenceLength();
         }
 
         /**
          * @brief Vocabulary size from GPT config.
          */
-        int64_t vocabSize() const noexcept override
+        dim_t vocabSize() const noexcept override
         {
-            return static_cast<int64_t>(config_.getVocabSize());
+            return config_.getVocabSize();
         }
 
         /**
@@ -363,18 +431,17 @@ namespace Mila::Dnn
 
         int32_t sampleFromLogits(
             const TensorType& logits,
-            int64_t position,
+            dim_t position,
             float temperature,
             int top_k,
             std::mt19937& rng ) const
         {
-            int64_t seq_len = logits.shape()[ 1 ];
+            dim_t seq_len = logits.shape()[ 1 ];
             shape_t shape = { 1, seq_len, config_.getVocabSize() };
             Tensor<TPrecision, CpuMemoryResource> cpu( Device::Cpu(), shape );
             copy( logits, cpu );
 
-            const float* last = cpu.data()
-                + static_cast<size_t>(position) * config_.getVocabSize();
+            const float* last = cpu.data() + position * config_.getVocabSize();
 
             return sampleToken( last,
                 static_cast<size_t>(config_.getVocabSize()),

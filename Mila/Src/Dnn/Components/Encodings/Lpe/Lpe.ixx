@@ -41,8 +41,10 @@ import Compute.MemoryResource;
 import Compute.CpuMemoryResource;
 import Compute.IPositionalDecode;
 import Serialization.ModelArchive;
+import Serialization.Metadata;
 import Serialization.Mode;
 import Serialization.Tensor;
+import Serialization.SafeTensors;
 
 // DEBUG:
 import Dnn.TensorOps;
@@ -152,7 +154,7 @@ namespace Mila::Dnn
             operation_->forward( input, *output_ );
 
             // Return view with actual output shape
-            shape_t actual_out_shape = { B, T, static_cast<dim_t>( config_.getEmbeddingDim() ) };
+            shape_t actual_out_shape = { B, T, config_.getEmbeddingDim() };
             current_output_view_ = std::make_unique<EmbeddingsTensorType>( output_->view( actual_out_shape ) );
 
             return *current_output_view_;
@@ -202,10 +204,16 @@ namespace Mila::Dnn
                 throw std::runtime_error( "Encoder: owned input-grad buffer not allocated" );
             }
 
-            // Zero input gradient buffer before backward pass. No exeptions.
-            // Backend ops use accumulation (atomicAdd/+=) which requires pre-zeroed buffers
-            // to prevent gradient buildup across calls. Without this, gradients grow linearly
-            // with each call -> explosion.
+            // Zero the input gradient buffer -- and here that is not hygiene before an
+            // accumulating op, it is the only thing that gives the buffer a value. Lpe's
+            // input is token indices, which are non-differentiable: CudaLpeOp::backward
+            // documents input_grad as "Unused" and never writes it. Without this zero the
+            // buffer returned below would hold uninitialized memory.
+            //
+            // The atomicAdd accumulation in the Lpe kernels targets wte_grad_/wpe_grad_,
+            // the PARAMETER gradients, which is a separate contract: those accumulate
+            // across backward calls and are cleared by zeroGradients() between optimizer
+            // steps.
             zero( *input_grad_ /*, this->getExecutionContext() */);
 
             operation_->backward( input, output_grad, *input_grad_ );
@@ -229,7 +237,7 @@ namespace Mila::Dnn
          *
          * @throws std::runtime_error if component is not built.
          */
-        EmbeddingsTensorType& decode( const TokenIndexType& input, int position )
+        EmbeddingsTensorType& decode( const TokenIndexType& input, dim_t position )
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error( "Lpe must be built before calling decode()." );
@@ -241,7 +249,7 @@ namespace Mila::Dnn
             decode_path_->decode( input, *output_, position );
 
             // Single token output shape [1, 1, C]
-            shape_t decode_out_shape = { 1, 1, static_cast<dim_t>(config_.getEmbeddingDim()) };
+            shape_t decode_out_shape = { 1, 1, config_.getEmbeddingDim() };
             current_output_view_ = std::make_unique<EmbeddingsTensorType>(
                 output_->view( decode_out_shape ) );
 
@@ -265,20 +273,56 @@ namespace Mila::Dnn
         // Serialization
         // ====================================================================
 
+        std::vector<std::string> getParameterNames() const override
+        {
+            return { "wte", "wpe" };
+        }
+
+        void saveFlatTensors(
+            Serialization::SafeTensorsWriter& writer,
+            const std::string& prefix,
+            Serialization::TensorSavePass pass ) const override
+        {
+            if ( wte_ )
+            {
+                this->saveParameterToWriter( writer, prefix + ".wte", *wte_, pass );
+            }
+
+            if ( wpe_ )
+            {
+                this->saveParameterToWriter( writer, prefix + ".wpe", *wpe_, pass );
+            }
+        }
+
         void save_( ModelArchive& archive, SerializationMode mode ) const override
         {
-            // Persist parameters if present
-            (void)archive;
             (void)mode;
+
+            SerializationMetadata meta;
+            meta.set( "type", "Lpe" )
+                .set( "version", int64_t( 1 ) )
+                .set( "name", this->getName() );
+
+            archive.writeMetadata( "meta.json", meta );
+
+            if ( wte_ )
+            {
+                this->saveParameterToArchive( archive, "wte", *wte_ );
+            }
+
+            if ( wpe_ )
+            {
+                this->saveParameterToArchive( archive, "wpe", *wpe_ );
+            }
         }
 
         // ====================================================================
         // Parameters and Gradients
         // ====================================================================
         
-        size_t parameterCount() const override
+        dim_t parameterCount() const override
         {
-            size_t count = 0;
+            dim_t count = 0;
 
             if ( wte_ )
                 count += wte_->size();
@@ -473,7 +517,7 @@ namespace Mila::Dnn
 
             // Allocate and cache component-owned output and input-grad tensors.
             auto device = this->getExecutionContext()->getDeviceId();
-            shape_t max_out_shape = { max_batch_size_, max_seq_len_, static_cast<dim_t>( config_.getEmbeddingDim() ) };
+            shape_t max_out_shape = { max_batch_size_, max_seq_len_, config_.getEmbeddingDim() };
 
             output_ = std::make_unique<EmbeddingsTensorType>( device, max_out_shape, this->getName() + ".output" );
 

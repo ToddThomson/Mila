@@ -23,6 +23,7 @@ module;
 export module Compute.CpuTensorOps:Math;
 
 import Dnn.Tensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorDataTypeMap;
@@ -174,9 +175,9 @@ namespace Mila::Dnn::Compute::Cpu
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
             const auto* in = static_cast<const HostType*>( input.data() );
             auto* out = static_cast<HostType*>( result.data() );
-            const size_t num_elements = input.size();
+            const dim_t num_elements = input.size();
 
-            for ( size_t i = 0; i < num_elements; ++i )
+            for ( dim_t i = 0; i < num_elements; ++i )
             {
                 out[ i ] = static_cast<HostType>( static_cast<float>( in[ i ] ) * scalar );
             }
@@ -266,10 +267,10 @@ namespace Mila::Dnn::Compute::Cpu
 
             using HostType = typename TensorHostTypeMap<TDataType>::host_type;
             const auto* data = static_cast<const HostType*>(tensor.data());
-            const size_t num_elements = tensor.size();
+            const dim_t num_elements = tensor.size();
 
             float result = 0.0f;
-            for (size_t i = 0; i < num_elements; ++i)
+            for (dim_t i = 0; i < num_elements; ++i)
             {
                 result += static_cast<float>( data[i] );
             }
@@ -345,7 +346,7 @@ namespace Mila::Dnn::Compute::Cpu
             const auto* b_typed = static_cast<const HostType*>(b_data);
             auto* result_typed = static_cast<HostType*>(result_data);
 
-            const size_t num_elements = a.size();
+            const dim_t num_elements = a.size();
 
             // Serial transform only: the parallel-STL overload pulls <execution>
             // into this module partition, which transitively includes <stop_token>

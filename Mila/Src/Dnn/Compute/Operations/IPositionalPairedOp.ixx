@@ -8,6 +8,7 @@ module;
 export module Compute.IPositionalPairedOp;
 
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 
 namespace Mila::Dnn::Compute
 {
@@ -39,7 +40,7 @@ namespace Mila::Dnn::Compute
         virtual void prefill(
             const ITensor& inputA, const ITensor& inputB,
             ITensor& outputA, ITensor& outputB,
-            int position_offset ) = 0;
+            dim_t position_offset ) = 0;
 
         /**
          * @brief Process a single token at an explicit sequence position.
@@ -53,7 +54,7 @@ namespace Mila::Dnn::Compute
         virtual void decode(
             const ITensor& inputA, const ITensor& inputB,
             ITensor& outputA, ITensor& outputB,
-            int position ) = 0;
+            dim_t position ) = 0;
 
         virtual ~IPositionalPairedOp() = default;
     };

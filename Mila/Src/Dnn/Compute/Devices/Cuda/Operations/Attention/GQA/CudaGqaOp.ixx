@@ -155,7 +155,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 v_out_decode_opt_ = static_cast<NativeType*>(state.v_out_decode->rawData());
         }
 
-        void initializeKvCache( int batch_size, int max_seq_length ) override
+        void initializeKvCache( dim_t batch_size, dim_t max_sequence_length ) override
         {
             if ( !this->isBuilt() )
                 throw std::runtime_error(
@@ -165,11 +165,11 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                 throw std::invalid_argument(
                     "CudaGroupedQueryAttentionOp::initializeKVCache batch size mismatch" );
 
-            if ( max_seq_length <= 0 || max_seq_length > T_ )
+            if ( max_sequence_length <= 0 || max_sequence_length > T_ )
                 throw std::invalid_argument(
-                    "CudaGroupedQueryAttentionOp::initializeKVCache max_seq_length out of range" );
+                    "CudaGroupedQueryAttentionOp::initializeKVCache max_sequence_length out of range" );
 
-            active_max_seq_len_ = max_seq_length;
+            active_max_seq_len_ = narrowToKernelIndex( max_sequence_length );
             cached_seq_len_ = 0;
             kv_cache_enabled_ = true;
         }
@@ -179,7 +179,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             cached_seq_len_ = 0;
         }
 
-        bool rewindKvCache( int position ) override
+        bool rewindKvCache( dim_t position ) override
         {
             if ( position < 0 || position > cached_seq_len_ )
                 return false;
@@ -197,7 +197,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
                     return false;
             }
 
-            cached_seq_len_ = position;
+            cached_seq_len_ = narrowToKernelIndex( position );
 
             return true;
         }
@@ -205,21 +205,21 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         void prefill(
             const ITensor& q, const ITensor& k, const ITensor& v,
             ITensor& output,
-            int position_offset ) override
+            dim_t position_offset ) override
         {
             ensureKVCacheEnabled();
 
-            prefill_optimized( q, k, v, output, position_offset );
+            prefill_optimized( q, k, v, output, narrowToKernelIndex( position_offset ) );
         }
 
         void decode(
             const ITensor& q, const ITensor& k, const ITensor& v,
             ITensor& output,
-            int position ) override
+            dim_t position ) override
         {
             ensureKVCacheEnabled();
 
-            decode_optimized( q, k, v, output, position );
+            decode_optimized( q, k, v, output, narrowToKernelIndex( position ) );
         }
 
         // ====================================================================
@@ -249,26 +249,7 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             const int64_t prefill_size = context.getPrefillSize();
             prefill_chunk_size_ = static_cast<int>( prefill_size > 0 ? prefill_size : T_ );
 
-            // Bounded sliding-window ring capacity (SlidingWindowKvCache.md D2). The
-            // cache need only hold a sliding layer's working set: the window plus one
-            // prefill chunk's worth of in-flight keys, never more than the context T_.
-            // The unbounded path keeps capacity == T_, so every downstream extent
-            // (allocation, plan inner dim, kernel bounds) is unchanged. The ring write
-            // wrap and slot->absolute-position softmask that make capacity < T_
-            // correct land in Phases 1-2; Phase 0 only computes and validates it.
-            if constexpr ( kBounded )
-            {
-                if ( window_ <= 0 )
-                    throw std::invalid_argument(
-                        "CudaGqaOp<bounded>: SlidingWindowKvCache requires a positive window; "
-                        "global/full-attention layers must use NoKvCompression" );
-
-                cache_capacity_ = std::min( T_, window_ + prefill_chunk_size_ - 1 );
-            }
-            else
-            {
-                cache_capacity_ = T_;
-            }
+            cache_capacity_ = resolveCacheCapacity( context );
 
             active_max_seq_len_ = T_;
             cached_seq_len_ = 0;
@@ -360,6 +341,29 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
         std::size_t getStateMemorySize() const override
         {
             return state_memory_size_;
+        }
+
+        /**
+         * @brief KV cache bytes build( context ) would allocate, without allocating.
+         *
+         * The term that scales with context length, and therefore the one the whole
+         * footprint mechanism exists to report. Mirrors initializeState_optimized():
+         * K and V, each [B, NKV, capacity, HS] in the compact NKV layout. All transient
+         * scratch is wired in via setState() from the transformer's shared workspace and
+         * is counted there, not here.
+         */
+        std::size_t getRequiredStateMemorySize( const BuildContext& context ) const override
+        {
+            const shape_t& input_shape = context.inputShape();
+
+            validateInputShape( input_shape );
+
+            const dim_t batch = input_shape[ 0 ];
+            const dim_t capacity = resolveCacheCapacity( context );
+            const dim_t kv_heads = config_.getNumKvHeads();
+            const dim_t head_dim = config_.getHeadDim();
+
+            return 2 * storageBytes<TPrecision>( batch * kv_heads * capacity * head_dim );
         }
 
         /**
@@ -531,6 +535,42 @@ namespace Mila::Dnn::Compute::Cuda::Gqa
             if ( s[ 1 ] != 1 )
                 throw std::invalid_argument(
                     "CudaGroupedQueryAttentionOp: decode input must have sequence length 1" );
+        }
+
+        /**
+         * @brief Bounded sliding-window ring capacity (SlidingWindowKvCache.md D2).
+         *
+         * The cache need only hold a sliding layer's working set: the window plus one
+         * prefill chunk's worth of in-flight keys, never more than the context T. The
+         * unbounded path keeps capacity == T, so every downstream extent (allocation,
+         * plan inner dim, kernel bounds) is unchanged.
+         *
+         * Shared by build() and getRequiredStateMemorySize() so the rule is stated once.
+         * Reads config_ rather than the window_/T_ members, which build() has not yet
+         * assigned when the footprint is asked for.
+         */
+        int resolveCacheCapacity( const BuildContext& context ) const
+        {
+            const int sequence_length = static_cast<int>( context.inputShape()[ 1 ] );
+            const int64_t prefill_size = context.getPrefillSize();
+            const int prefill_chunk =
+                static_cast<int>( prefill_size > 0 ? prefill_size : sequence_length );
+
+            if constexpr ( kBounded )
+            {
+                const int window = static_cast<int>( config_.getWindow() );
+
+                if ( window <= 0 )
+                    throw std::invalid_argument(
+                        "CudaGqaOp<bounded>: SlidingWindowKvCache requires a positive window; "
+                        "global/full-attention layers must use NoKvCompression" );
+
+                return std::min( sequence_length, window + prefill_chunk - 1 );
+            }
+            else
+            {
+                return sequence_length;
+            }
         }
 
         void ensureKVCacheEnabled() const

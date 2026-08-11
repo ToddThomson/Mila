@@ -16,6 +16,7 @@ module;
 export module Compute.CudaTensorOps:Zero;
 
 import Dnn.Tensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.TensorDataTypeMap;

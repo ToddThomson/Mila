@@ -102,13 +102,22 @@ namespace Mila::Dnn::Compute
             qkv_dim_ = static_cast<int>(input_shape[ 2 ]);
 
             embedding_dim_ = qkv_dim_ / 3;
-            NH_ = config_.getNumHeads();
-            HS_ = embedding_dim_ / NH_;
+            NH_ = static_cast<int>( config_.getNumHeads() );
 
-            if ( embedding_dim_ % NH_ != 0 )
+            // Checked before the division, not after it. MultiHeadAttentionConfig::validate()
+            // is the primary enforcement -- it rejects num_heads < 2 and a model_dim that
+            // does not divide by it, and the constructor calls it -- so this is currently
+            // unreachable. It is kept, and ordered correctly, because the previous form
+            // computed HS_ and then evaluated embedding_dim_ % NH_ to decide whether NH_ was
+            // usable: both divide by NH_, so a zero head count would fault in the guard
+            // meant to catch it. That is only latent while the config keeps its invariant.
+            if ( NH_ <= 0 || embedding_dim_ % NH_ != 0 )
             {
-                throw std::invalid_argument( "CpuAttentionOp: embedding_dim must be divisible by num_heads" );
+                throw std::invalid_argument(
+                    "CpuAttentionOp: num_heads must be > 0 and divide embedding_dim" );
             }
+
+            HS_ = embedding_dim_ / NH_;
 
             allocateStateTensors();
 
@@ -142,10 +151,12 @@ namespace Mila::Dnn::Compute
         }
 
         void backward(
-            const ITensor& input,
+            const ITensor& /*input*/,
             const ITensor& output_grad,
             ITensor& input_grad ) const
         {
+            // The permuted Q/K/V and attention weights cached by forward() carry
+            // everything the backward pass needs, so the input tensor is not re-read.
             assert( is_built_ && "CpuAttentionOp must be built before calling backward()" );
 
             const float* dY = static_cast<const float*>(output_grad.rawData());

@@ -240,25 +240,9 @@ namespace Mila::Dnn
             fc2_->zeroGradients();
         }
 
-        /**
-         * @brief Serialize parameters to a model archive.
-         *
-         * Saves child component parameters and state into the provided archive in a deterministic order.
-         *
-         * @param archive Serialization archive to write to.
-         * @param mode    Serialization mode (enum driven by Serialization::Mode).
-         */
-        void save_( ModelArchive& archive, SerializationMode mode ) const override
-        {
-            fc1_->save_( archive, mode );
-
-            if ( gelu_ )
-            {
-                gelu_->save_( archive, mode );
-            }
-
-            fc2_->save_( archive, mode );
-        }
+        // save_ is deliberately NOT overridden -- see the note in GptBlock. fc1_, gelu_ and
+        // fc2_ are all resolved out of the child registry by name, so the base traversal
+        // covers them and gives each its own scope.
 
         // ====================================================================
         // Identification and Description

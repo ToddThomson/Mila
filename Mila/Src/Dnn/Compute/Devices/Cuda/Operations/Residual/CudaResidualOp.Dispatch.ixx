@@ -33,7 +33,7 @@ namespace Mila::Dnn::Compute::Cuda::Residual
                 cuda_residual_forward_fp32( Y, X1, X2, scale, N, stream );
             }
 
-            static inline void backward( float* dX1, float* dX2, const float* dY, size_t N, cudaStream_t stream )
+            static inline void backward( float* dX1, float* dX2, const float* dY, int N, cudaStream_t stream )
             {
                 cuda_residual_backward_fp32( dX1, dX2, dY, N, stream );
             }

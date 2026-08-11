@@ -22,6 +22,7 @@ export module Compute.CudaGegluOp;
 import Dnn.Components.SwigluConfig;
 import Dnn.Tensor;
 import Dnn.ITensor;
+import Dnn.TensorTypes;
 import Dnn.TensorDataType;
 import Dnn.TensorDataTypeTraits;
 import Dnn.ComponentConfig;
@@ -62,7 +63,7 @@ namespace Mila::Dnn::Compute::Cuda::Geglu
                 throw std::invalid_argument( "CudaGegluOp: input must have an even element count (gate|up split)." );
             }
 
-            const size_t out_size = input.size() / 2;
+            const dim_t out_size = input.size() / 2;
             if ( output.size() != out_size )
             {
                 throw std::invalid_argument( "CudaGegluOp: output must be half the input size." );

@@ -149,7 +149,7 @@ namespace Mila::Data::Tests
         EXPECT_EQ( ids[ 0 ], static_cast<TokenId>(2u) );
     }
 
-    TEST( BpeTokenizerGemma, Encode_StartOfTurn_IsSingleAtomicToken )
+    TEST( BpeTokenizerGemma, Encode_ControlTokens_AreSingleAtomicTokens )
     {
         auto p = gemma_tokenizer_path();
 
@@ -160,11 +160,37 @@ namespace Mila::Data::Tests
 
         std::shared_ptr<BpeTokenizer> tokenizer = BpeTokenizer::loadGemma( p );
 
-        // REVIEW: This test is failing because the Gemma 4 tokenizer binary does not contain a <start_of_turn> token.
-        // Gemma 4 use <|turn> and <turn|> as special tokens for turn boundaries. The test should be updated to use the correct special tokens.
+        // The set BpeVocabulary::loadGemma registers from the checkpoint vocabulary.
+        // Stated literally rather than imported from the loader so the test is an
+        // independent expectation, not a restatement of the code under test.
+        const std::vector<std::string> control_tokens = {
+            "<|turn>", "<turn|>", "<|think|>",
+            "<|channel>", "<channel|>",
+            "<|tool>", "<tool|>", "<|tool_call>", "<tool_call|>",
+            "<|tool_response>", "<tool_response|>" };
 
-        // Registered from the loaded vocab, so it must match as one token, not subword.
-        auto ids = tokenizer->encode( "<start_of_turn>" );
-        EXPECT_EQ( ids.size(), 1u );
+        for ( const auto& token : control_tokens )
+        {
+            auto ids = tokenizer->encode( token );
+            EXPECT_EQ( ids.size(), 1u ) << "Control token not matched atomically: " << token;
+        }
+    }
+
+    TEST( BpeTokenizerGemma, Encode_Gemma3TurnMarkers_AreNotInTheVocabulary )
+    {
+        auto p = gemma_tokenizer_path();
+
+        if ( !fs::exists( p ) )
+        {
+            GTEST_SKIP() << "Gemma tokenizer binary not present at: " << p.string();
+        }
+
+        std::shared_ptr<BpeTokenizer> tokenizer = BpeTokenizer::loadGemma( p );
+
+        // Pins the Gemma 3 -> Gemma 4 protocol change that the previous version of
+        // this test asserted backwards: Gemma 4 replaced <start_of_turn>/<end_of_turn>
+        // with <|turn>/<turn|>, so the Gemma 3 markers encode as subword pieces.
+        EXPECT_GT( tokenizer->encode( "<start_of_turn>" ).size(), 1u );
+        EXPECT_GT( tokenizer->encode( "<end_of_turn>" ).size(), 1u );
     }
 }

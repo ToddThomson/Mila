@@ -78,7 +78,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
         {
             auto* data = t.data();
 
-            for ( size_t i = 0; i < t.size(); ++i )
+            for ( dim_t i = 0; i < t.size(); ++i )
             {
                 data[ i ] = static_cast<float>( i ) / t.size() * 4.0f - 2.0f;
             }
@@ -151,7 +151,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
 
         constexpr float tolerance = 1e-4f;
 
-        for ( size_t i = 0; i < input.size(); ++i )
+        for ( dim_t i = 0; i < input.size(); ++i )
         {
             const float expected = geluReference( input.data()[ i ] );
 
@@ -175,7 +175,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
         TensorFp32 output_grad( Device::Cpu(), shape );
         fillSpread( input );
 
-        for ( size_t i = 0; i < output_grad.size(); ++i )
+        for ( dim_t i = 0; i < output_grad.size(); ++i )
         {
             output_grad.data()[ i ] = 1.0f;
         }
@@ -187,7 +187,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
 
         constexpr float tolerance = 1e-3f;
 
-        for ( size_t i = 0; i < input.size(); ++i )
+        for ( dim_t i = 0; i < input.size(); ++i )
         {
             const float expected = geluGradientReference( input.data()[ i ] ) * output_grad.data()[ i ];
 
@@ -205,7 +205,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
         TensorFp32 output_grad( Device::Cpu(), shape );
         fillSpread( input );
 
-        for ( size_t i = 0; i < output_grad.size(); ++i )
+        for ( dim_t i = 0; i < output_grad.size(); ++i )
         {
             output_grad.data()[ i ] = static_cast<float>( i + 1 ) * 0.1f;
         }
@@ -215,7 +215,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
 
         constexpr float tolerance = 1e-3f;
 
-        for ( size_t i = 0; i < input.size(); ++i )
+        for ( dim_t i = 0; i < input.size(); ++i )
         {
             const float expected = geluGradientReference( input.data()[ i ] ) * output_grad.data()[ i ];
 
@@ -239,7 +239,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
         TensorFp32 output_grad( Device::Cpu(), shape );
         fillSpread( input );
 
-        for ( size_t i = 0; i < output_grad.size(); ++i )
+        for ( dim_t i = 0; i < output_grad.size(); ++i )
         {
             output_grad.data()[ i ] = static_cast<float>( i + 1 ) * 0.1f;
         }
@@ -268,7 +268,7 @@ namespace Mila::Tests::Dnn::Components::Activations::Gelu
     {
         auto gelu = builtGelu( shape_t{ 2, 4 }, RuntimeMode::Inference );
 
-        EXPECT_EQ( gelu->parameterCount(), 0u );
+        EXPECT_EQ( gelu->parameterCount(), 0 );
         EXPECT_TRUE( gelu->getParameters().empty() );
         EXPECT_TRUE( gelu->getGradients().empty() );
     }

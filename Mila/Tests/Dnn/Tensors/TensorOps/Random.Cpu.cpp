@@ -66,7 +66,7 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
         float actual_min = std::numeric_limits<float>::max();
         float actual_max = std::numeric_limits<float>::lowest();
 
-        for ( size_t i = 0; i < tensor.size(); ++i )
+        for ( dim_t i = 0; i < tensor.size(); ++i )
         {
             EXPECT_GE( data[ i ], min_val );
             EXPECT_LE( data[ i ], max_val );
@@ -168,8 +168,8 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
     {
         auto tensor = makeTensor();
 
-        const size_t fan_in = 784;   // MNIST input
-        const size_t fan_out = 10;   // MNIST output classes
+        const dim_t fan_in = 784;   // MNIST input
+        const dim_t fan_out = 10;   // MNIST output classes
         xavier( tensor, fan_in, fan_out );
 
         const float limit = std::sqrt( 6.0f / static_cast<float>( fan_in + fan_out ) );
@@ -178,7 +178,7 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
         float actual_min = std::numeric_limits<float>::max();
         float actual_max = std::numeric_limits<float>::lowest();
 
-        for ( size_t i = 0; i < tensor.size(); ++i )
+        for ( dim_t i = 0; i < tensor.size(); ++i )
         {
             EXPECT_GE( data[ i ], -limit );
             EXPECT_LE( data[ i ], limit );
@@ -194,15 +194,15 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
     {
         auto tensor = makeTensor();
 
-        const size_t fan_in = 10000;
-        const size_t fan_out = 1;
+        const dim_t fan_in = 10000;
+        const dim_t fan_out = 1;
         xavier( tensor, fan_in, fan_out );
 
         const float limit = std::sqrt( 6.0f / static_cast<float>( fan_in + fan_out ) );
         EXPECT_LT( limit, 0.1f );
 
         const float* data = tensor.data();
-        for ( size_t i = 0; i < tensor.size(); ++i )
+        for ( dim_t i = 0; i < tensor.size(); ++i )
         {
             EXPECT_GE( data[ i ], -limit );
             EXPECT_LE( data[ i ], limit );
@@ -226,7 +226,7 @@ namespace Mila::Tests::Dnn::Tensors::TensorOps
 
         const float* a = tensor1.data();
         const float* b = tensor2.data();
-        for ( size_t i = 0; i < tensor1.size(); ++i )
+        for ( dim_t i = 0; i < tensor1.size(); ++i )
         {
             EXPECT_FLOAT_EQ( a[ i ], b[ i ] ) << "same seed should reproduce values at index " << i;
         }
