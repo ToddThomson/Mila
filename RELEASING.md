@@ -62,11 +62,11 @@ sort *below* what is already released).
 | Stage | Meaning | Example |
 |---|---|---|
 | `alpha.X` | features still landing; unstable | `0.20.0-alpha.6+119` |
-| `beta.X` | feature-frozen; hardening only | `0.20.0-beta.2+N` (`dev` now, working toward the next checkpoint) |
+| `beta.X` | feature-frozen; hardening only | `0.20.0-beta.N+M` (the stage `dev` is in now) |
 | `rc.X` | release candidate | `0.20.0-rc.1+N` |
 | _(none)_ | production-tagged | `0.20.0` |
 
-Last checkpoint tagged: **`v0.20.0-beta.1`** (first public beta).
+Last checkpoint tagged: **`v0.20.0-beta.2`** (model distribution, and both wheels on PyPI).
 
 **`Version.txt`** at the repo root is the single source of truth. It feeds `project(VERSION ...)`
 (the numeric triple) and the prerelease label separately; see `cmake/MilaVersion.cmake` — which
@@ -176,7 +176,9 @@ The division that matters:
    ```
    ctest --test-dir out/build/x64-validate --output-on-failure
    ```
-   Expect: unit tests + `packaging_find_package_consumer` + `packaging_fetchcontent_consumer` green.
+   Expect: unit tests + `packaging_fetchcontent_consumer` green. FetchContent is the supported
+   consumption path; the `find_package` gate is retired in place (present on disk, behind a disabled
+   option) and does not run. `packaging_cpm_consumer` is a separate preset, at step 6.
 4. Commit and push to `dev`.
 
 `dev` is the CI-gated trunk; releases reach `master` only through a `dev -> master` PR (see
@@ -194,10 +196,11 @@ not by the Release. See the note below.
    metadata **dropped**: `0.20.0-beta.2+7` becomes `0.20.0-beta.2`. A tag never carries build
    metadata, so this is what lets step 4's drift check pass. If the checkpoint is being renamed from
    its working placeholder (`beta.2` -> `rc.1`), this is the commit that does it. Reconcile
-   BACKLOG / ROADMAP in the same commit, and **bump the stage strings the README names in prose**
-   (`README.md`'s status callout and its *Current Status* heading) — `master` is the branch a visitor
-   lands on, so a missed bump leaves the front page advertising the previous checkpoint for the whole
-   next cycle.
+   BACKLOG / ROADMAP in the same commit, and **bump every stage string written in prose**: the
+   `README.md` status callout and its *Current Status* heading, and **this document's own
+   "Last checkpoint tagged" line** above. `master` is the branch a visitor lands on, so a missed bump
+   leaves the front page advertising the previous checkpoint for the whole next cycle — and a
+   procedure that misreports the last release is worse than one that says nothing.
    **CHANGELOG only at a production (unsuffixed) release** — generate one short entry from the
    commit range since the previous production tag, and collapse that line's `alpha.N`/`beta.N`/`rc.N`
    sections into it. A pre-release flip writes nothing to CHANGELOG.

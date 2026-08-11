@@ -30,6 +30,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 #                 interpreter the mila binding is built against + MIS runs under
 #   python3-venv -- so mila-build-mis can create the MIS server venv (Debian/Ubuntu
 #                 split venv/ensurepip out of the base python3 package)
+#   libssl-dev -- curl's configure does find_package(OpenSSL) and fails the whole build
+#                 without it. This image builds Chat at the MILA_ENABLE_LIBCURL default
+#                 (ON), unlike Dockerfile.wheel which omits OpenSSL deliberately because
+#                 the wheel forces it OFF. Chat in the container needs a real transport:
+#                 /install pulls into the store on the bind mount.
 # gdb/less are dev-shell niceties. Dependencies (GoogleTest, nlohmann_json, miniz,
 # CUTLASS) are fetched by CPM/FetchContent at configure time and are not installed.
 RUN apt-get update \
@@ -43,6 +48,7 @@ RUN apt-get update \
         gcc-15 \
         g++-15 \
         clang-21 \
+        libssl-dev \
         python3 \
         python3-dev \
         python3-venv \

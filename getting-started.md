@@ -131,9 +131,14 @@ the C++23 modules, so on an older distro use Clang. The steps below target a rec
 3. **Install the build tools and a C++ compiler.**
    ```bash
    sudo apt-get update
-   sudo apt-get install -y build-essential ninja-build git wget ca-certificates cmake
+   sudo apt-get install -y build-essential ninja-build git wget ca-certificates cmake libssl-dev
    gcc --version                        # need GCC >= 15.3 (see the compiler matrix above)
    ```
+   `libssl-dev` is curl's, not Mila's: `MILA_ENABLE_LIBCURL` defaults ON, and on Linux the
+   vendored libcurl takes TLS from the system OpenSSL (`CURL_USE_SCHANNEL` is Windows-only),
+   so its `find_package(OpenSSL)` fails the whole configure without it. Omit it only if you
+   also configure with `-DMILA_ENABLE_LIBCURL=OFF`, which builds a Mila that can still list,
+   install, locate and load models but cannot pull one without a caller-supplied transport.
    `build-essential` installs the distro's default GCC. Mila needs **GCC ≥ 15.3** — Ubuntu
    26.04 currently ships 15.2, which is too old, so install a newer one and select it at
    configure time:

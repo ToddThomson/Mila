@@ -221,6 +221,29 @@ with no leaked control tokens; the C++/Python grammar duplication is resolved by
 Uncommitted work — no release, no date. An item **promotes** into the Current release, acquiring its
 own version, date, and tag, when it is scheduled.
 
+- **Muse Glimmer 30B — the named next target.** Meta's Apache 2.0, ungated 30B, chosen for *why it
+  exists* rather than for what it resembles: it is tuned for tool use, long tasks, and failure
+  recovery, which is the model an on-device agentic loop actually needs. The
+  [product definition](Mila/Specifications/MilaProductFamily.md) already reserves the **Agentic
+  adaptor** — the loop closing on itself, on-device — as the post-release member of the family, and
+  this is the model that makes it real rather than aspirational.
+  Its text tower is close enough to Gemma 4 that the chassis carries over: a repeating
+  local/local/local/global attention pattern, final logit softcapping, GQA, RMSNorm with a post-norm,
+  a SiLU-gated FFN, a bounded sliding-window ring, and per-layer RoPE. It is dense, so MoE is not a
+  prerequisite. Three details are new and each is silent if assumed away — a non-standard QK scale, an
+  output multiplier, and RoPE disabled on the global layers rather than merely retuned.
+  **The real work is that it is a vision-language model.** A fifty-layer ViT with window attention, 2D
+  position embeddings and its own RoPE feeds a projector into the text model, and Mila is text-only:
+  no patch embedding, no vision tower, no projector, no image-token path. That is a second
+  architecture, and it is what makes this a tentpole rather than a chassis extension.
+  **The binding constraint is hardware, not code.** Around 31B parameters is roughly 16 GB at FP4
+  before any KV cache, against 12 GB on the card every current Mila claim is validated on. Mila's bar
+  is token-for-token agreement with the HuggingFace reference, and that cannot be established on
+  hardware which cannot load the model — so this target and the compute ask in
+  [SPONSORING.md](SPONSORING.md) are one decision, not two.
+  Success bar: greedy text decode matches the reference token-for-token; image-conditioned generation
+  validated against the same oracle; tool calling driven end-to-end through MIS; and the Agentic
+  adaptor closing a multi-step task on-device.
 - **Qwen 3** — Mila's third architecture family: a Qwen 3 dense decoder with thinking mode,
   model-agnostic tool calling, and FP8 KV cache compression, validated on Qwen 3 8B Instruct at BF16
   and FP8. Reuses the Llama blocks (RMSNorm, SwiGLU, GQA, RoPE); the new work is the Chat layer (ChatML
@@ -244,8 +267,9 @@ own version, date, and tag, when it is scheduled.
   at its own tolerance. The BF16 optimizer machinery is in the tree and guarded by
   `AdamW.MixedPrecision.Cuda.cpp` — dormant and tested, in the same spirit as the GQA
   expanded-layout substrate — so this release starts from working parts rather than from repair.
-  **Sequencing is open:** this competes for the slot after v0.20 with Qwen 3 and with MoE, which was
-  decided on 2026-07-20 as the highest-leverage single investment. Pick deliberately.
+  **Sequencing:** the slot after v0.20 goes to Muse Glimmer, above. Training (advanced), Qwen 3 and
+  MoE all follow it rather than compete for it — MoE in particular is no longer a prerequisite for
+  anything on the critical path, since the Muse Glimmer decoder is dense.
 - **Architecture** — Mixture-of-Experts components (the `GatedMLP` reusable gated FFN, the grouped
   `MoeOp`, `Router` + `MixtureOfExperts`; foundation specified in `Specifications/FfnAndMoE.md`). The
   Gemma 4 dense chassis is the precursor to the 26B-A4B MoE model, which reuses the chassis and swaps

@@ -358,7 +358,7 @@ gtest_discover_tests( ChatRichTextTests
 # reached only through the MILA_ENABLE_TESTING-gated add_subdirectory(Tests). Default
 # OFF because each gate is a full install/subproject reconfigure + rebuild (900-1800s);
 # unit-test runs should not pay that. The x64-validate preset (and CI) turns it on.
-option(MILA_ENABLE_PACKAGING_TEST "Build the find_package + FetchContent packaging gates (install/embed Mila and build a consumer against it)." OFF)
+option(MILA_ENABLE_PACKAGING_TEST "Build the packaging gates (embed Mila via FetchContent and build a consumer against it; the find_package gate is retired in place and does not run)." OFF)
 
 if(MILA_ENABLE_PACKAGING_TEST)
     add_subdirectory(Packaging)

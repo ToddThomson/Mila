@@ -276,6 +276,15 @@ being a task list and needs a prune.
   `CudaOps.h:30`, `Linear.cuh:83`, `Component.ixx:299`, `CudaDeviceMemoryResource.ixx:139`.
 - [ ] **Guided reading path** — one token's journey (embed -> attend -> sample -> decode) through the
   real source, readable by a strong C++ dev unaided.
+- [ ] **The wheel VERSION file is still written into the source tree from any build.**
+  `Mila/Bindings/CMakeLists.txt:65` runs `file(WRITE ...Package/VERSION)` at configure time,
+  unguarded, so a FetchContent consumer writes into whatever tree Mila was fetched from — the same
+  class as the POST_BUILD staging now behind `PROJECT_IS_TOP_LEVEL`. Harmless today (same content,
+  gitignored) and left alone mid-release, but the two belong under one guard.
+- [ ] **CI jobs have no `timeout-minutes`, so a hang costs six hours.** Both jobs at `beta.2+47` hit
+  GitHub's 6h ceiling, the CPU one stalled in `Run CPU test suite` after a clean configure and build,
+  and it has not recurred. Against a normal ~45-minute round trip, a bound near 60 turns a repeat into
+  a legible failure instead of a day of runner time. `.github/workflows/build-pipeline.yml`
 - [ ] Add the Samples build to CI (only tests build today).
 - [ ] Published Docker runtime image — slim multi-stage GPU runtime, release-tagged, weights never baked in.
 - [ ] Broaden CI compiler coverage toward the supported matrix (adds MSVC + GCC 16 to clang-21).
@@ -512,4 +521,9 @@ Next-cycle work. Coarse by design — detailed tasking happens only when an item
 - **Model loading** — a load-time FP4 sidecar cache, and concurrent/async read I/O for real queue depth.
 - **Ungated GPT-2 zero-auth quick-start** — a first-run HTTPS weights fetch.
 - **`ComponentType` vitality** — does `getType()` earn its keep, or does the unused converter surface retire?
+- **Rewrite the compute ask in `SPONSORING.md` around a number.** After v0.20 tags, not before. The
+  present ask is an open-ended VRAM wish; Muse Glimmer makes it specific — ~31B parameters is ~16 GB
+  at FP4 before any KV cache, so 24 GB is the smallest card that runs the named next target. Keep the
+  distinction the current draft gets right: 24 GB enables develop/benchmark/explore, not
+  token-for-token validation, since the BF16 reference is ~63 GB and fits neither card.
 - **Discoverability** (internal, not a README theme) — the site is live at `mila.toddt.me`.

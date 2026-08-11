@@ -67,16 +67,26 @@ file(WRITE "${MILA_PACKAGE_SOURCE_DIR}/VERSION" "${MILA_PEP440_VERSION}\n")
 # 1. Into the package source tree, so `pip wheel Mila/Bindings/Package` packages a
 #    freshly built extension. The wheel build is a packaging step over the CMake
 #    build, not a second build system; setuptools never compiles anything here.
-add_custom_command(TARGET MilaPy POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        $<TARGET_FILE:MilaPy>
-        "${MILA_PACKAGE_SOURCE_DIR}/src/mila/$<TARGET_FILE_NAME:MilaPy>"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/License.md"
-        "${MILA_PACKAGE_SOURCE_DIR}/LICENSE"
-    COMMENT "Staging mila extension into the wheel source tree"
-    VERBATIM
-)
+#
+#    Top-level builds ONLY. This writes into the SOURCE tree, which a consumer that
+#    pulled Mila in via FetchContent has no business doing -- it would stage a wheel
+#    tree nobody in that build will package, into whatever directory Mila was fetched
+#    from. It also broke: PROJECT_SOURCE_DIR below was CMAKE_SOURCE_DIR, which is the
+#    TOP-LEVEL source dir, so under FetchContent it resolved to the consumer's root and
+#    looked for a License.md that is not there. That failed
+#    packaging_fetchcontent_consumer from 0.20.0-beta.2+17 until the guard was added.
+if(PROJECT_IS_TOP_LEVEL)
+    add_custom_command(TARGET MilaPy POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:MilaPy>
+            "${MILA_PACKAGE_SOURCE_DIR}/src/mila/$<TARGET_FILE_NAME:MilaPy>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PROJECT_SOURCE_DIR}/License.md"
+            "${MILA_PACKAGE_SOURCE_DIR}/LICENSE"
+        COMMENT "Staging mila extension into the wheel source tree"
+        VERBATIM
+    )
+endif()
 
 # 2. The neutral build-tree location, importable without installing anything: put
 #    ${CMAKE_BINARY_DIR}/python on sys.path and `import mila` works. Per build
