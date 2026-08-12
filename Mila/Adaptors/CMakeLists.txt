@@ -16,3 +16,10 @@ endif()
 # MIS is the wire adaptor: the Python inference server under Inference/Server. It is
 # not a CMake target -- it consumes the Mila Python binding, which is a runtime-adjacent
 # surface built from Mila/Bindings (added at the Mila/ level, not here), not an adaptor.
+#
+# CMake does write its version, for the same reason it writes the binding's: MIS ships as
+# mila-llm-server, and a hand-maintained number in pyproject.toml is the shape that had
+# already drifted 18 builds for the binding. One SemVer -> PEP 440 mapping serves both
+# (cmake/MilaVersion.cmake); generated, so it is gitignored and a `python -m build` on an
+# unconfigured checkout fails loudly rather than publishing a stale number.
+file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/Inference/Server/VERSION" "${MILA_PEP440_VERSION}\n")

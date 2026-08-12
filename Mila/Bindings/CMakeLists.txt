@@ -110,8 +110,9 @@ add_custom_command(TARGET MilaPy POST_BUILD
 )
 
 # There is deliberately no third destination. MIS used to receive its own copy of the
-# package beside main.py, which shadowed any installed mila-llm -- the server directory
-# is first on sys.path, so a stale copy always won over a correct install. MIS now
-# declares mila-llm as an ordinary dependency and a development checkout satisfies it
-# with an editable install of Package above, which picks up destination 1 on every
-# build. See Mila/Adaptors/Inference/Server/README.md.
+# package beside its entry point, which shadowed any installed mila-llm -- the server
+# directory was first on sys.path, so a stale copy always won over a correct install.
+# MIS now declares mila-llm as an ordinary dependency and ships as an src-layout package
+# of its own, so nothing it owns sits on sys.path ahead of site-packages; a development
+# checkout satisfies the dependency with an editable install of Package above, which
+# picks up destination 1 on every build. See Mila/Adaptors/Inference/Server/README.md.

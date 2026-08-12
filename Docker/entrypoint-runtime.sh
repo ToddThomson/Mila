@@ -24,9 +24,11 @@ case "${1:-chat}" in
         ;;
     serve)
         shift || true
-        # MIS reads its .env from the working directory, so the server tree is the CWD.
-        cd "${APP_DIR}/server"
-        exec "${APP_DIR}/venv/bin/python" main.py "$@"
+        # MIS is installed, not run in place, so there is no server tree to enter. Staying
+        # in APP_DIR is what makes a mounted /opt/mila/.env the one MIS reads; without one
+        # it starts on its own defaults, which is the intended behaviour for the image.
+        cd "${APP_DIR}"
+        exec "${APP_DIR}/venv/bin/mila-server" "$@"
         ;;
     *)
         exec "$@"

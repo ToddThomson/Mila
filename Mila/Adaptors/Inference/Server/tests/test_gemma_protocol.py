@@ -11,7 +11,7 @@ golden string here and the C++ counterpart must change in the same commit.
 Reference spec for the grammar is Google's canonical chat_template.jinja
 (https://huggingface.co/google/gemma-4-12B-it/raw/main/chat_template.jinja).
 """
-import gemma_protocol
+from mila_llm_server import gemma_protocol
 
 
 # Argument keys render SORTED, matching the template's `| dictsort` and the C++

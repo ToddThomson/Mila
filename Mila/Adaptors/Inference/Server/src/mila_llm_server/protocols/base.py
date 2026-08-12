@@ -4,7 +4,7 @@ depends only on this interface.
 """
 from abc import ABC, abstractmethod
 
-from schemas.internal import InferenceRequest, InferenceResponse
+from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
 
 
 class ProtocolAdapter(ABC):

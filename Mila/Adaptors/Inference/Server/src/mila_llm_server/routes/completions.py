@@ -6,51 +6,37 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 import mila
-from model_worker import worker
-from config import settings
-from prompt import build_instruct_prompt
+from mila_llm_server.model_worker import worker
+from mila_llm_server.config import settings
 
 router = APIRouter()
 
 
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-
-
-class ChatCompletionRequest(BaseModel):
-    messages: list[ChatMessage]
+class CompletionRequest(BaseModel):
+    prompt: str
     max_tokens: int = Field(settings.default_max_new_tokens, ge=1, le=4096)
     temperature: float = Field(settings.default_temperature, ge=0.0, le=2.0)
     top_k: int = Field(settings.default_top_k, ge=0)
     stream: bool = False
-    system_prompt: str = Field("You are a helpful assistant.")
 
 
-class ChatChoice(BaseModel):
-    message: ChatMessage
+class CompletionChoice(BaseModel):
+    text: str
     finish_reason: str
 
 
-class ChatCompletionResponse(BaseModel):
-    object: str = "chat.completion"
-    choices: list[ChatChoice]
+class CompletionResponse(BaseModel):
+    object: str = "text_completion"
+    choices: list[CompletionChoice]
 
 
-@router.post("/v1/chat/completions", response_model=ChatCompletionResponse)
-async def chat_completions(req: ChatCompletionRequest, http_req: Request):
-    history = [m.model_dump() for m in req.messages[:-1]]
-    user_message = req.messages[-1].content
-
-    prompt_str = build_instruct_prompt(user_message, req.system_prompt, history)
-    prompt_ids = await worker.encode(prompt_str)
-
-    print(f"Prompt token count: {len(prompt_ids)}")
-    print(f"First 10 tokens: {prompt_ids[:10]}")
+@router.post("/v1/completions", response_model=CompletionResponse)
+async def completions(req: CompletionRequest, http_req: Request):
+    prompt_ids = await worker.encode(req.prompt)
 
     if req.stream:
         return StreamingResponse(
-            _stream_chat(prompt_ids, req, http_req),
+            _stream_completion(prompt_ids, req, http_req),
             media_type="text/event-stream",
         )
 
@@ -60,17 +46,12 @@ async def chat_completions(req: ChatCompletionRequest, http_req: Request):
     new_ids = output_ids[len(prompt_ids):]
     text = await worker.decode(new_ids)
 
-    return ChatCompletionResponse(
-        choices=[ChatChoice(
-            message=ChatMessage(role="assistant", content=text),
-            finish_reason="stop",
-        )]
-    )
+    return CompletionResponse(choices=[CompletionChoice(text=text, finish_reason="stop")])
 
 
-async def _stream_chat(
+async def _stream_completion(
     prompt_ids: list[int],
-    req: ChatCompletionRequest,
+    req: CompletionRequest,
     http_req: Request,
 ) -> AsyncIterator[str]:
     queue: asyncio.Queue[int | None] = asyncio.Queue()

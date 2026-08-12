@@ -8,15 +8,16 @@ and the Anthropic Claude Code CLI.
 **This page covers the harnesses.** Installing and running the server itself lives in
 [`Server/README.md`](Server/README.md) — one copy, so the two cannot disagree.
 
-The short version: `pip install mila-llm`, install a model into the local Mila store, then
+The short version: `pip install mila-llm-server`, install a model into the local Mila store,
+then
 
 ```bash
-python main.py
+mila-server
 ```
 
-from `Mila/Adaptors/Inference/Server`. The server listens on `http://0.0.0.0:8000` by
-default. The model is chosen by store name (`MILA_MODEL`, default `gemma-4-12b-it-fp4`)
-and the protocol by `MILA_PROTOCOL`.
+The server listens on `http://0.0.0.0:8000` by default. The model is chosen by store name
+(`MILA_MODEL`, default `gemma-4-12b-it-fp4`) and the protocol by `MILA_PROTOCOL`, from the
+environment or a `.env` in the working directory.
 
 ---
 

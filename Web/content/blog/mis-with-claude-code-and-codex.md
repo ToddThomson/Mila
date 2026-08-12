@@ -40,11 +40,11 @@ MILA_PROTOCOL=openai
 
 The server does not execute tools. It parses requests, builds a correctly-formatted Llama 3.x instruct prompt, runs inference through the Mila C++ engine, and returns a structured response. Tool calling support is on the roadmap and is discussed at the end of this article.
 
-A minimal `.env` for getting started:
+A minimal `.env` for getting started. `MILA_MODEL` is the name of a model already installed in
+the local Mila store — MIS resolves it there and never downloads:
 
 ```env
-MILA_MODEL_PATH=C:\path\to\llama32_3b_instruct_bf16.bin
-MILA_TOKENIZER_PATH=C:\path\to\llama32_tokenizer.bin
+MILA_MODEL=Llama-3.2-3B-Instruct-fp4
 MILA_PROTOCOL=openai
 MILA_LOG_LEVEL=info
 MILA_CONTEXT_LENGTH=16384

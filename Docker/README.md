@@ -93,7 +93,7 @@ scripts/mis-run.{sh,ps1}        # mila-mis     (publishes the port to the host)
 The **Mila Inference Server** is the HTTP *wire adaptor*: it serves the `mila` binding under
 an OpenAI / Anthropic / Mila-native protocol, so a foreign harness (Codex CLI, Claude Code
 CLI, …) can use Mila as its model brain. The container is the easy path — on the host, MIS
-means reconciling a Python-3.13-locked binding against an isolated venv; in the container
+means reconciling a version-locked binding against an isolated venv; in the container
 there is one Python, so the binding and server always match.
 
 ```bash

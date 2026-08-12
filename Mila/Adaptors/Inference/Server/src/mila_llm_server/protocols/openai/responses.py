@@ -6,13 +6,13 @@ import json
 import time
 import uuid
 
-from schemas.internal import InferenceRequest, InferenceResponse
-from protocols.base import ResponsesCapable
-from protocols.utils import DEFAULT_SYSTEM_PROMPT, MODEL_NAME, extract_content
-from protocols.openai.tool_bridge import build_tool_injection, parse_tool_call
-from prompt import build_instruct_prompt
-from config import settings, loaded, ModelFamily
-import gemma_protocol
+from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
+from mila_llm_server.protocols.base import ResponsesCapable
+from mila_llm_server.protocols.utils import DEFAULT_SYSTEM_PROMPT, extract_content
+from mila_llm_server.protocols.openai.tool_bridge import build_tool_injection, parse_tool_call
+from mila_llm_server.prompt import build_instruct_prompt
+from mila_llm_server.config import settings, loaded, ModelFamily
+from mila_llm_server import gemma_protocol
 
 
 class OpenAIResponsesAdapter(ResponsesCapable):
@@ -253,7 +253,7 @@ class OpenAIResponsesAdapter(ResponsesCapable):
                 "id": response_id,
                 "object": "response",
                 "created_at": int(time.time()),
-                "model": MODEL_NAME,
+                "model": loaded.name,
                 "status": "completed",
                 "incomplete_details": None,
                 "error": None,
@@ -298,7 +298,7 @@ class OpenAIResponsesAdapter(ResponsesCapable):
             "id": response_id,
             "object": "response",
             "created_at": int(time.time()),
-            "model": MODEL_NAME,
+            "model": loaded.name,
             "status": status,
             "incomplete_details": None,
             "error": None,
@@ -317,7 +317,7 @@ class OpenAIResponsesAdapter(ResponsesCapable):
                 "id": response_id,
                 "object": "response",
                 "created_at": int(time.time()),
-                "model": MODEL_NAME,
+                "model": loaded.name,
                 "status": "in_progress",
                 "incomplete_details": None,
                 "error": None,
@@ -423,7 +423,7 @@ class OpenAIResponsesAdapter(ResponsesCapable):
                 "id": response_id,
                 "object": "response",
                 "created_at": int(time.time()),
-                "model": MODEL_NAME,
+                "model": loaded.name,
                 "status": "completed",
                 "incomplete_details": None,
                 "error": None,

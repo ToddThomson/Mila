@@ -14,12 +14,12 @@ import json
 import logging
 import uuid
 
-from schemas.internal import InferenceRequest, InferenceResponse
-from protocols.base import ProtocolAdapter
-from protocols.utils import DEFAULT_SYSTEM_PROMPT, MODEL_NAME, extract_content
-from prompt import build_instruct_prompt
-from config import settings, loaded, ModelFamily
-import gemma_protocol
+from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
+from mila_llm_server.protocols.base import ProtocolAdapter
+from mila_llm_server.protocols.utils import DEFAULT_SYSTEM_PROMPT, extract_content
+from mila_llm_server.prompt import build_instruct_prompt
+from mila_llm_server.config import settings, loaded, ModelFamily
+from mila_llm_server import gemma_protocol
 
 logger = logging.getLogger(__name__)
 
@@ -307,7 +307,7 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
             "type": "message",
             "role": "assistant",
             "content": content,
-            "model": MODEL_NAME,
+            "model": loaded.name,
             "stop_reason": stop_reason,
             "stop_sequence": None,
             "usage": {
@@ -327,7 +327,7 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
                 "type": "message",
                 "role": "assistant",
                 "content": [],
-                "model": MODEL_NAME,
+                "model": loaded.name,
                 "stop_reason": None,
                 "stop_sequence": None,
                 "usage": {"input_tokens": prompt_token_count, "output_tokens": 0},
@@ -387,7 +387,7 @@ class AnthropicMessagesAdapter(ProtocolAdapter):
                 "type": "message",
                 "role": "assistant",
                 "content": [],
-                "model": MODEL_NAME,
+                "model": loaded.name,
                 "stop_reason": None,
                 "stop_sequence": None,
                 "usage": {"input_tokens": prompt_token_count, "output_tokens": 0},

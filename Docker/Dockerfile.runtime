@@ -151,11 +151,20 @@ COPY --from=builder /out/Data ./Data
 # The binding package tree carries the extension MilaPy's POST_BUILD staged into it, so
 # an editable install here points at a real .so rather than fetching one from PyPI.
 COPY --from=builder /src/Mila/Bindings/Package /opt/mila/binding-package
-COPY --from=builder /src/Mila/Adaptors/Inference/Server /opt/mila/server
+COPY --from=builder /src/Mila/Adaptors/Inference/Server /opt/mila/server-package
 
-# MIS dependencies are installed EXPLICITLY rather than through the server's own
+# MIS dependencies are installed EXPLICITLY rather than resolved from the server's own
 # pyproject, for the reason Docker/build-mis.sh gives: Ubuntu 26.04 ships Python 3.14,
-# above that pyproject's requires-python ceiling.
+# above that pyproject's requires-python ceiling. The server package itself is still
+# installed (--no-deps), which is what puts mila_llm_server on the path and the
+# mila-server console script in the venv.
+#
+# BOTH staging trees are removed afterwards, and for MIS that is the point rather than
+# tidiness: the checkout's .env is a developer's tuning (anthropic, a 49152 context sized
+# for one 12 GB card), and leaving it in the image made it the default every container
+# user inherited on a card it may not fit. The image now ships no .env, so MIS starts on
+# its own defaults; a user who wants one mounts it over /opt/mila/.env, which the entry
+# point's working directory picks up.
 #
 # The binding needs --ignore-requires-python for the SAME collision, and it is not a
 # workaround: `>=3.12,<3.14` bounds the interpreters mila-llm ships WHEELS for, which is a
@@ -176,7 +185,9 @@ RUN python3 -m venv /opt/mila/venv \
         fastapi "uvicorn[standard]" pydantic pydantic-settings \
     && /opt/mila/venv/bin/pip install --no-cache-dir --no-deps --ignore-requires-python \
         /opt/mila/binding-package \
-    && rm -rf /opt/mila/binding-package
+    && /opt/mila/venv/bin/pip install --no-cache-dir --no-deps --ignore-requires-python \
+        /opt/mila/server-package \
+    && rm -rf /opt/mila/binding-package /opt/mila/server-package
 
 # FAIL THE BUILD, NOT THE FIRST RUN. The -runtime base is a bet that every CUDA library
 # Mila links is present without the toolkit; if that bet is wrong the symptom is
@@ -202,6 +213,12 @@ VOLUME ["/models"]
 # interfaces onto the same library rather than two artifacts.
 COPY Docker/entrypoint-runtime.sh /usr/local/bin/mila-entrypoint
 RUN chmod +x /usr/local/bin/mila-entrypoint
+
+# MIS's own default is 8000; the image serves on 6452 (distinctive, collision-unlikely --
+# "MILA" on a phone keypad), which is what EXPOSE and scripts/run-runtime-image.sh publish.
+# The variable and the EXPOSE must move together: without it MIS bound 8000 while 6452 was
+# published, so `serve` answered on no reachable port.
+ENV MILA_PORT=6452
 
 EXPOSE 6452
 

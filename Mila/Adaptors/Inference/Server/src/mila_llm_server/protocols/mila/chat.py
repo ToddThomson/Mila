@@ -7,9 +7,9 @@ import json
 import time
 import uuid
 
-from schemas.internal import InferenceRequest, InferenceResponse
-from protocols.base import ProtocolAdapter
-from prompt import build_instruct_prompt
+from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
+from mila_llm_server.protocols.base import ProtocolAdapter
+from mila_llm_server.prompt import build_instruct_prompt
 
 
 class MilaChatAdapter(ProtocolAdapter):

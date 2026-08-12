@@ -1,11 +1,10 @@
 # protocols/utils.py
-from config import settings
-
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 
-# The store name MIS was configured with, which is also the identifier reported to
-# clients: one name, so what a client sees in /v1/models is what it can install.
-MODEL_NAME = settings.model
+# The identifier clients see is config.loaded.name, read per request at the sites that
+# emit it. It was a constant here, bound to settings.model at import -- before the worker
+# had resolved anything -- so a store match that differed in case (the store matches
+# case-insensitively) reported a name that was not the one loaded.
 
 def extract_content(content: str | list) -> str:
     if isinstance(content, str):

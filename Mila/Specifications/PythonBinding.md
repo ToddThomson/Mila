@@ -88,13 +88,14 @@ directories, the extension's own directory, and `os.add_dll_directory`). The bin
 failed" on a machine with a correct CUDA install on `PATH`. The sample registers the toolkit's
 `bin\x64` and `bin` before importing.
 
-This is not sample-local. MIS handled it inline at the top of `main.py`, which covered the server and
-nothing else: importing `model_worker` or any route module directly still failed, as did the README's
-own `python -c "import mila"` verification step, and the inline version raised `FileNotFoundError` on
-a stale `CUDA_PATH`. Hoisted 2026-07-28 into `Server/cuda_runtime.py`, imported ahead of `mila` in all
-five modules that touch the binding. **Any future consumer of the binding needs the same three lines**
-— which is an argument for Tier 3 (a wheel) doing it once in a package `__init__`, rather than each
-consumer rediscovering it.
+This is not sample-local. MIS handled it inline at the top of its entry point, which covered the
+server and nothing else: importing `model_worker` or any route module directly still failed, as did
+the README's own `python -c "import mila"` verification step, and the inline version raised
+`FileNotFoundError` on a stale `CUDA_PATH`. Hoisted 2026-07-28 into a `Server/cuda_runtime.py`
+imported ahead of `mila` in all five modules that touched the binding — **any consumer of the
+binding needed the same three lines**, which was the argument for the wheel doing it once in the
+package `__init__`. That is where it lives now, and `Server/cuda_runtime.py` was deleted as
+redundant: a consumer gets the DLL directories by importing `mila` and nothing else.
 
 That argument was taken: `mila/__init__.py` now *loads* the pinned CUDA libraries before importing
 the extension, on both platforms, and does it better than the per-consumer version ever could —

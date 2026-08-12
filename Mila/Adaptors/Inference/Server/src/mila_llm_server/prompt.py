@@ -14,7 +14,7 @@ https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4
 
 import json
 
-from config import loaded, ModelFamily
+from mila_llm_server.config import loaded, ModelFamily
 
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 

@@ -12,8 +12,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 import mila
-from config import settings, loaded, ModelFamily
-from gemma_protocol import (
+from mila_llm_server.config import settings, loaded, ModelFamily
+from mila_llm_server.gemma_protocol import (
     strip_control_tokens as _strip_gemma_control_tokens,
     TOOL_CALL_CLOSE,
     TOOL_RESPONSE_OPEN,
@@ -86,8 +86,10 @@ class ModelWorker:
             raise RuntimeError(
                 f"No model named '{settings.model}' is installed in the Mila store "
                 f"({store.root}). Installed: {installed or 'nothing'}.\n"
-                "MIS loads only what is already installed -- install it with the chat "
-                "harness (/install <name>) or ExportArtifact --install, then start again."
+                "MIS loads only what is already installed. Install one with the chat "
+                "harness (/install <name>), or with ExportArtifact --install from a "
+                "source build, then start again. In a container, chat is a second "
+                "entrypoint of this same image and shares this store."
             )
 
         loaded.name = record.name

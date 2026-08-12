@@ -7,11 +7,11 @@ import json
 import time
 import uuid
 
-from schemas.internal import InferenceRequest, InferenceResponse
-from protocols.base import ProtocolAdapter
-from protocols.utils import DEFAULT_SYSTEM_PROMPT, MODEL_NAME, extract_content
-from prompt import build_instruct_prompt
-from config import settings
+from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
+from mila_llm_server.protocols.base import ProtocolAdapter
+from mila_llm_server.protocols.utils import DEFAULT_SYSTEM_PROMPT, extract_content
+from mila_llm_server.prompt import build_instruct_prompt
+from mila_llm_server.config import settings, loaded
 
 
 class OpenAIChatAdapter(ProtocolAdapter):
@@ -69,7 +69,7 @@ class OpenAIChatAdapter(ProtocolAdapter):
             "id": f"chatcmpl-{uuid.uuid4().hex}",
             "object": "chat.completion",
             "created": int(time.time()),
-            "model": MODEL_NAME,
+            "model": loaded.name,
             "choices": [
                 {
                     "index": 0,
@@ -92,7 +92,7 @@ class OpenAIChatAdapter(ProtocolAdapter):
             "id": f"cmpl-{uuid.uuid4().hex}",
             "object": "text_completion",
             "created": int(time.time()),
-            "model": MODEL_NAME,
+            "model": loaded.name,
             "choices": [
                 {
                     "text": response.text,
@@ -112,7 +112,7 @@ class OpenAIChatAdapter(ProtocolAdapter):
             "id": f"chatcmpl-{uuid.uuid4().hex}",
             "object": "chat.completion.chunk",
             "created": int(time.time()),
-            "model": MODEL_NAME,
+            "model": loaded.name,
             "choices": [
                 {
                     "index": 0,

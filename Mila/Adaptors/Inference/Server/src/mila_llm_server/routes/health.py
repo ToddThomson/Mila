@@ -4,7 +4,7 @@ Protocol-agnostic health and root endpoints.
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from config import settings
+from mila_llm_server.config import settings
 
 router = APIRouter()
 

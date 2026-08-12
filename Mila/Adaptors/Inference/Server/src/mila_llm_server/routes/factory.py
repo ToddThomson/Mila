@@ -13,10 +13,10 @@ import mila
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from model_worker import worker
-from protocols.base import ProtocolAdapter, ResponsesCapable, ModelsCapable
-from schemas.internal import InferenceRequest, InferenceResponse
-from config import settings, loaded, ModelFamily
+from mila_llm_server.model_worker import worker
+from mila_llm_server.protocols.base import ProtocolAdapter, ResponsesCapable, ModelsCapable
+from mila_llm_server.schemas.internal import InferenceRequest, InferenceResponse
+from mila_llm_server.config import settings, loaded, ModelFamily
 
 logger = logging.getLogger(__name__)
 

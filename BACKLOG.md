@@ -296,10 +296,10 @@ being a task list and needs a prune.
   that is the `Wheel clean room` workflow, now a 4-leg matrix, and it has never run on any wheel.
   Dispatching it needs `wheel-cleanroom.yml` on the default branch.
 - [ ] **Add 3.14 once 3.12 is proven.** It is the interpreter Ubuntu 26.04 ships, so it is what the
-  dev container's `python3` is — which is why `Docker/build-mis.sh:56` still has to restate MIS's
-  dependency list rather than `pip install -e .`. Widening to 3.12+3.13 did not retire that
-  duplication; only a 3.14 wheel will. Needs `uv python install 3.14` on Windows and one deadsnakes
-  line in `Dockerfile.wheel`.
+  dev container's `python3` is — which is why `Docker/build-mis.sh` still restates MIS's dependency
+  list and installs MIS itself with `--ignore-requires-python`. Widening to 3.12+3.13 did not retire
+  that duplication; only a 3.14 wheel will. Needs `uv python install 3.14` on Windows and one
+  deadsnakes line in `Dockerfile.wheel`.
 - [ ] **`Mila/Tools` has no off switch** — gated on `PROJECT_IS_TOP_LEVEL` alone
   (`Mila/CMakeLists.txt:1081`), so the wheel configure builds `tokenize` and `ExportArtifact`, neither
   of which can go in a wheel. Every other subdirectory has a `MILA_ENABLE_*`; this one costs build time
@@ -424,10 +424,6 @@ being a task list and needs a prune.
   means running the image in chat mode, typing at a prompt, then re-running it as `serve`. A third
   entrypoint verb — `docker run ... mila-llm install <name>` — is what makes the Docker Hub quick
   start three copy-paste lines instead of a paragraph about entering a REPL first.
-- [ ] **MIS's not-installed message names a tool the container does not have.**
-  `Server/model_worker.py:86` advises `/install <name>` "or ExportArtifact --install"; in the image
-  ExportArtifact is absent and Chat is a different entrypoint of the same image. Observed on the first
-  run of the runtime image, which is exactly the path a new container user takes.
 - [ ] **Decide the container tag scheme, including whether a pre-release gets `latest`.** RELEASING
   covers dropping `+build` (OCI forbids `+`) and nothing else. `latest` is what a bare
   `docker run toddthomson/mila-llm` resolves to, so pointing it at a beta makes the beta the default
@@ -483,11 +479,6 @@ being a task list and needs a prune.
   forgotten otherwise.** `pip install mila-llm` goes in once the Windows clean-room gate is green and
   beta.2's wheels are on PyPI; the footprint pre-flight goes in once GPT-2 has `getRequiredMemory` and
   Gate B has covered `NoWeightQuant` — until then it can only be claimed for Gemma 4 and Llama.
-- [ ] **The MIS blog post teaches the retired configuration.**
-  `Web/content/blog/mis-with-claude-code-and-codex.md:46-47` sets `MILA_MODEL_PATH` /
-  `MILA_TOKENIZER_PATH`, neither of which exists now — MIS takes a store name. It is the one page
-  that walks a reader through pointing a coding agent at Mila, so a `.env` that cannot work is the
-  first thing they hit.
 - [ ] **`ExportArtifact` has no `pull` verb** — it is the one store verb the tool lacks, so the cold
   download cannot be exercised from a C++-only machine without a human at the `/install` prompt.
   Python is already covered: `ModelStore.pull(name, owner, transport=None)` is bound
@@ -512,10 +503,6 @@ being a task list and needs a prune.
   `add_custom_command(TARGET MilaPy POST_BUILD)`, which runs only when `MilaPy` relinks — so editing
   only `__init__.py` leaves `<build dir>/python/mila/` stale and a sample fails with a missing
   attribute. Use `add_custom_command(OUTPUT ...)` with `DEPENDS` on the source.
-- [ ] **MIS's `mila-llm>=0.20.0b2.dev45` floor is unsatisfiable from PyPI until beta.2 publishes.**
-  `Mila/Adaptors/Inference/Server/pyproject.toml:16` — a clean machine cannot `pip install -e .`
-  without first installing the package tree editable, which is the documented development path but
-  not an obvious one. Re-read the floor at release: once `0.20.0b2` is on PyPI it resolves normally.
 - [ ] **Publish GPT-2 as the reference model.** Chat now refuses base models and MIS refuses the
   architecture, so it belongs to Bard, the training path and the completion sample — and its ~250 MB
   is the point: it is the only artifact small enough to exercise the whole
@@ -618,16 +605,6 @@ being a task list and needs a prune.
   a per-family constant that is honest only for GPT-2. The real answer is the largest context that
   fits the card, which `getRequiredMemory(BuildContext)` can already compute — open questions are the
   headroom fraction and the behaviour when even the minimum does not fit.
-- [ ] **`/v1/models` reports the configured name, not the loaded one.** `ModelInfo.id` defaults to
-  `settings.model` (`routes/models.py:11`) while the record's own name sits in `loaded.name`. The
-  store matches case-insensitively, so `MILA_MODEL=llama-3.1-8b-instruct-fp4` serves
-  `Llama-3.1-8B-Instruct-fp4` and reports the lowercase spelling — against the field's own stated
-  intent that "what a client sees is what is loaded".
-- [ ] **Nothing tests MIS's model resolution.** The 31 tests cover the Gemma grammar and the prompt
-  builder; `ModelWorker._load` — store lookup, the refuse-to-pull message, `_family_of` rejecting an
-  architecture MIS cannot serve — has no coverage at all, and it is now the only place a startup can
-  fail (`Mila/Adaptors/Inference/Server/model_worker.py:34`). A fake store object makes all three
-  testable without a GPU.
 - [ ] **Model capabilities belong in the manifest, not in a family switch — the second reasoning
   family breaks the current scheme.** `thinking_capable` and `streaming_capable` are both
   `family == Gemma` (`Chat.ModelCatalog.ixx`), and `defaultContextFor`/`maxContextFor` are per-family
@@ -658,17 +635,10 @@ being a task list and needs a prune.
   survivable for a recoverable model name, wrong for real config. Two shapes weighed (beside the
   store, or `MILA_CONFIG_DIR` with both paths under one volume mount); settle it once, since the
   `context_length` `auto` setting will want the same home.
-- [ ] **MIS has no install path, only a checkout path — publish it as `mila-llm-server`.** Decided:
-  a separate PyPI project, not a fold into `mila-llm`, because the runtime is four CUDA-built binary
-  wheels behind a clean room while MIS is one `py3-none-any` file, and folding would put
-  `uvicorn[standard]` behind every `import mila`. Not an upload but a restructure: `py-modules = []`
-  (`Server/pyproject.toml:40`) means the project ships no code today, so it needs a
-  `src/mila_llm_server/` layout, a `[project.scripts]` entry point in place of `python main.py`, and
-  defaults usable with no `.env` on disk. `scripts/mis-{build,run}.*`, `Docker/run-mis.sh` and both
-  MIS READMEs assume run-in-place and travel with it.
-- [ ] **MIS refuses an interpreter its own dependency supports.** `Server/pyproject.toml:11` pins
-  `>=3.13,<3.14` on the rationale that a wider range admits a Python that cannot import the binding —
-  true when written, expired when the cp312 wheels shipped. `mila-llm` is `>=3.12,<3.14`.
+- [ ] **Publish `mila-llm-server` to PyPI.** The restructure is done and the version now derives from
+  `Version.txt` like the binding's, so what remains is the release step: RELEASING covers the four
+  CUDA wheels and says nothing about MIS. It is one `py3-none-any` file, built from the configured
+  checkout with `python -m build`, and it goes beside the wheel upload in the same window.
 - [ ] **`main.cpp` re-checks what the store already guarantees** — after `resolveModel` succeeds it
   tests `exists()` on both paths, but `locate()` refuses an incomplete record. Harmless duplication,
   except `/model` has no equivalent check; if the guarantee is doubted, the check belongs in the store.
