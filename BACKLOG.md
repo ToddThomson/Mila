@@ -453,8 +453,8 @@ being a task list and needs a prune.
 - [ ] **`Web/content/start.md` §3 "Get model weights" is retired in every sentence** — conversion as
   the path, "there is no separate quantized checkpoint to manage" (mila-llm is exactly that), and
   "GPT-2 is the easiest first target: it is ungated... Llama and Gemma are gated and require auth",
-  which is now backwards: all three published models are ungated and need no account, and GPT-2 is
-  the one family *not* published. The page's front-matter description also sells "convert model
+  which is now backwards: all four published models are ungated and need no account, and `gpt2-small`
+  is published like the rest. The page's front-matter description also sells "convert model
   weights". This is the getting-started path on the primary marketing site.
 - [ ] **`scripts/` is a complete onboarding surface no document mentions.** Sixteen files covering
   build, run, wheel, Docker and MIS in both `.ps1` and `.sh` — a front door by every appearance, cited
@@ -466,9 +466,8 @@ being a task list and needs a prune.
 - [ ] **The site links GitHub and nothing else.** No HuggingFace, no PyPI, so the primary marketing
   site does not point at the model store or the package. See [[project_four_channel_roles]] —
   four channels, four jobs, and the site is the hub.
-- [ ] **Mila is a library, never a "runtime."** The noun names an engine you hand a model to, so it
-  argues with "no hidden execution engine" in the same breath. Four user-facing sites:
-  `Web/content/sponsor.md:3` (a page description, so it is what search results show),
+- [~] **Mila is a library, never a "runtime."** The noun names an engine you hand a model to, so it
+  argues with "no hidden execution engine" in the same breath. Three user-facing sites remain:
   `Web/content/docs.md:38`, `Web/content/blog/implementing-gemma-4.md:4` and
   `Web/content/blog/gemma-4-docker-openai-api.md:4`. Not a sweep: "at runtime", "runtime dispatch"
   and the two places naming what Mila is *not* (`flashattention-prefill-kernel.md:98`,
@@ -503,18 +502,18 @@ being a task list and needs a prune.
   `add_custom_command(TARGET MilaPy POST_BUILD)`, which runs only when `MilaPy` relinks — so editing
   only `__init__.py` leaves `<build dir>/python/mila/` stale and a sample fails with a missing
   attribute. Use `add_custom_command(OUTPUT ...)` with `DEPENDS` on the source.
-- [ ] **Publish GPT-2 as the reference model.** Chat now refuses base models and MIS refuses the
-  architecture, so it belongs to Bard, the training path and the completion sample — and its ~250 MB
-  is the point: it is the only artifact small enough to exercise the whole
-  distribution path (resolve, pull, verify, adopt, load) inside CI, which is what the headless-pull
-  item below is really blocked on. MIT, so no gating or attribution duty. Decide the precision
-  (training is FP32-validated, reading is fine at BF16) and whether it is one row or two.
-- [ ] **A GPT-2 row is the first published artifact with no quantization suffix**, so it lands on the
+- [ ] **`gpt2-small` is published but its installed record predates `kLicenseRole`.** The store copy
+  (installed 2026-08-03) declares weights and tokenizer only, so the hub repo carries LICENSE and the
+  local disk does not — the exact split the legal-files change exists to close. Reinstall from
+  `Data/Models/Packages/gpt2-small`; both blobs are already adopted, so it costs one small file.
+- [ ] **`gpt2-small` is the first published artifact with no quantization suffix**, so it lands on the
   `NoWeightQuant` path that Gate B has never checked, and on GPT-2's missing `getRequiredMemory` —
-  Chat's pre-flight says nothing for it. Both are open above; publishing is what forces them.
-- [ ] **The org card defines an artifact as "already quantized", which a GPT-2 row makes false.**
-  The catalogue becomes pre-quantized deployment artifacts *plus* a reference model for reading and
-  training. Say there that MIS does not serve GPT-2, so nobody files it as a bug.
+  Chat's pre-flight says nothing for it. Both are open above, and both are now live rather than
+  hypothetical.
+- [ ] **The org card defines an artifact as "already quantized", which `gpt2-small` makes false.**
+  The catalogue is now pre-quantized deployment artifacts *plus* a reference model for reading and
+  training. Say there that MIS does not serve GPT-2, so nobody files it as a bug. Card source is
+  `.internal/Marketing/HuggingFaceOrgCard.md`.
 - [ ] **`--instruct` is undocumented in `--package` mode, and its absence is silent.** The flag is
   parsed (`ExportArtifact.cpp:142`) but missing from the package-mode option list in the usage text
   (`:42-56`), so omitting it writes `instruct: false` into the manifest with no warning — changing
@@ -617,7 +616,7 @@ being a task list and needs a prune.
   build integration and Bard/MNIST are training, so "load a model, generate text in C++" is answered
   today only by reading a 2000-line chat harness. This is the front door to the guided reading path
   the release commits to in `MilaProductFamily.md`, so name it for what it teaches rather than for
-  the model it runs. Sequencing: it needs GPT-2 published first or it ships unrunnable.
+  the model it runs. `mila-llm/gpt2-small` is published, so the sequencing block is lifted.
 - [ ] **Decide whether a Python completion sample needs a `GptSession` before it can exist.**
   `Samples/Python/generate.py` already shows completion as a mode via `--raw`, so the only gap is
   GPT-2 itself — and the binding exposes just `LlamaModel` and `GemmaModel`. That is also why MIS
@@ -708,9 +707,4 @@ Next-cycle work. Coarse by design — detailed tasking happens only when an item
 - **Model loading** — a load-time FP4 sidecar cache, and concurrent/async read I/O for real queue depth.
 - **Ungated GPT-2 zero-auth quick-start** — a first-run HTTPS weights fetch.
 - **`ComponentType` vitality** — does `getType()` earn its keep, or does the unused converter surface retire?
-- **Rewrite the compute ask in `SPONSORING.md` around a number.** After v0.20 tags, not before. The
-  present ask is an open-ended VRAM wish; Muse Glimmer makes it specific — ~31B parameters is ~16 GB
-  at FP4 before any KV cache, so 24 GB is the smallest card that runs the named next target. Keep the
-  distinction the current draft gets right: 24 GB enables develop/benchmark/explore, not
-  token-for-token validation, since the BF16 reference is ~63 GB and fits neither card.
 - **Discoverability** (internal, not a README theme) — the site is live at `mila.toddt.me`.
