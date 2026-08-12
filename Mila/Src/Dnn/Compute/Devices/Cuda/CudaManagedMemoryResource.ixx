@@ -69,7 +69,7 @@ namespace Mila::Dnn::Compute
          * from both host and device code with automatic migration.
          *
          * @param bytes Number of bytes to allocate
-         * @param alignment Memory alignment requirement (ignored by CUDA)
+         * The alignment argument is ignored: CUDA allocations are already suitably aligned.
          * @return Pointer to allocated managed memory
          * @throws std::bad_alloc If allocation fails
          */
@@ -99,7 +99,7 @@ namespace Mila::Dnn::Compute
          * on the correct device.
          *
          * @param ptr Pointer to managed memory to deallocate
-         * @param alignment Alignment used during allocation (unused; kept for interface compatibility).
+         * The alignment argument is unused, and kept for interface compatibility.
          *
          * The size argument is unused and therefore intentionally unnamed.
          */

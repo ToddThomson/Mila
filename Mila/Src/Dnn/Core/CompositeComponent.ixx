@@ -778,17 +778,6 @@ namespace Mila::Dnn
         }
 
         /**
-         * @brief Save all child components recursively.
-         *
-         * Follows the component serialization contract:
-         * - Writes type, version, and configuration metadata
-         * - Recursively saves all children with scoped namespaces
-         * - Each child's save_() handles its own state
-         *
-         * @param archive Archive to write to
-         * @param mode What to save (Checkpoint, WeightsOnly, Architecture)
-         */
-        /**
          * @brief No-op override: a composite names no parameters of its own.
          *
          * parameterCount() on a composite sums its children, so the base implementation

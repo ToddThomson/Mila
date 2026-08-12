@@ -149,9 +149,11 @@ namespace Mila::Dnn
          * Reads a checkpoint or weights-only artifact produced by
          * GptTransformer::save() via ModelArchive.
          *
-         * @param path      Path to the Mila archive.
-         * @param device_id Target device.
-         * @return          Inference-ready GptModel.
+         * @param path           Path to the Mila archive.
+         * @param device_id      Target device.
+         * @param context_length Deployment context length. Zero takes the geometry the
+         *                       checkpoint was built with, falling back to the trained maximum.
+         * @return               Inference-ready GptModel.
          */
         static std::unique_ptr<GptModel> fromCheckpoint(
             const std::filesystem::path& path,

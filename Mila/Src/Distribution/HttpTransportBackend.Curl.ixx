@@ -4,7 +4,7 @@
  *
  * One of two candidate files for Distribution.HttpTransportBackend; CMake compiles this one
  * when MILA_ENABLE_LIBCURL is ON. Selecting by source file rather than by preprocessor keeps
- * both alternatives compiled code and keeps `import Mila;` free of an #ifdef.
+ * both alternatives compiled code and keeps `import Mila;` free of an `#ifdef`.
  */
 
 module;

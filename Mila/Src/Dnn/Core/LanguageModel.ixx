@@ -167,6 +167,8 @@ namespace Mila::Dnn
         using TokenTensor = Tensor<TensorDataType::INT32, MR>;
 
         /**
+         * @param network              The transformer stack this model owns.
+         * @param runtime_mode         Inference or Training, fixed for the model's lifetime.
          * @param source_metadata      The loaded artifact's metadata, written back verbatim by
          *                             savePretrained so the result loads by the same path.
          * @param weight_quantization  What the live weights actually are, which is a load-time

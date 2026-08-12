@@ -656,8 +656,8 @@ namespace Mila::Dnn
          * - Precision conversion (blob dtype -> parameter dtype)
          * - Device upload (CPU bytes -> target device)
          *
-         * @param name Parameter name used to locate the target tensor.
-         * @param blob Serialized tensor metadata and raw bytes.
+         * Takes the parameter name used to locate the target tensor, and a blob
+         * holding serialized tensor metadata and raw bytes.
          *
          * @throws std::runtime_error if component has no parameters to load.
          * @throws std::runtime_error if blob shape doesn't match parameter shape.
@@ -912,8 +912,8 @@ namespace Mila::Dnn
          * @note Implementations should either succeed fully or leave no partial
          *       state, as a failed build() may be retried.
          *
-         * @param config Build-time configuration. Use config.allocationSeqLen()
-         *               to obtain the correct output buffer sequence dimension.
+         * Takes the build-time configuration; use its allocationSeqLen() to obtain
+         * the correct output buffer sequence dimension.
          */
         virtual void onBuilding( const BuildContext& /*config*/ )
         {
@@ -929,7 +929,7 @@ namespace Mila::Dnn
          *
          * The default implementation is a no-op.
          *
-         * @param mode The incoming TrainingMode.
+         * Takes the incoming TrainingMode.
          */
         virtual void onTrainingModeChanging( TrainingMode /*mode*/ )
         {}

@@ -40,6 +40,8 @@ namespace Mila::Dnn
      *                         architecture property, not a deployment choice.
      * @tparam TResult         What the action returns -- a model, or a MemoryStats.
      *
+     * @param weight_quantization Runtime weight-quantization setting to resolve to a policy type.
+     * @param kv_cache_compression Runtime KV-cache setting accompanying it.
      * @param caller Prefix for error messages, e.g. "GemmaModel::fromPretrained".
      * @param action Invoked as action.template operator()<TWeightQuantization, TKvCachePolicy>().
      *

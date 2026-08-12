@@ -203,6 +203,20 @@ namespace Mila::Dnn::Compute
         }
 
         /**
+         * @brief High-water mark of the device scratch buffer, in bytes.
+         *
+         * The current size is the high-water by construction: the buffer grows on demand
+         * and is never shrunk, so device_scratch_size_ only ever increases until
+         * releaseResources(). Reported so the footprint tooling can attribute the gap
+         * between what a build allocates and what the driver says was consumed, rather
+         * than leaving it as an unexplained margin.
+         */
+        [[nodiscard]] std::size_t getScratchHighWaterBytes() const noexcept override
+        {
+            return device_scratch_size_;
+        }
+
+        /**
          * @brief Gets or grows a general-purpose device scratch buffer.
          *
          * Used by operations that need a temporary device buffer during forward passes
@@ -217,20 +231,6 @@ namespace Mila::Dnn::Compute
          * @return void* Device buffer of at least required_bytes.
          * @throws std::runtime_error If allocation fails.
          */
-        /**
-         * @brief High-water mark of the device scratch buffer, in bytes.
-         *
-         * The current size is the high-water by construction: the buffer grows on demand
-         * and is never shrunk, so device_scratch_size_ only ever increases until
-         * releaseResources(). Reported so the footprint tooling can attribute the gap
-         * between what a build allocates and what the driver says was consumed, rather
-         * than leaving it as an unexplained margin.
-         */
-        [[nodiscard]] std::size_t getScratchHighWaterBytes() const noexcept override
-        {
-            return device_scratch_size_;
-        }
-
         [[nodiscard]] void* getDeviceScratchBuffer( size_t required_bytes ) const
         {
             if ( required_bytes <= device_scratch_size_ )

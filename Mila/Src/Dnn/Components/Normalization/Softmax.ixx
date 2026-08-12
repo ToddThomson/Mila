@@ -207,8 +207,8 @@ namespace Mila::Dnn
          * - Module type and version metadata
          * - Configuration (axis)
          *
-         * @param archive Archive to write to.
-         * @param mode Serialization mode (currently unused for stateless components).
+         * Takes the archive to write to, and a serialization mode that is currently unused
+         * for stateless components.
          */
         void save_( ModelArchive&, SerializationMode ) const override
         {
