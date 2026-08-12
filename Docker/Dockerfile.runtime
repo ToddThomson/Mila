@@ -1,0 +1,209 @@
+# Mila published runtime image -- the artifact behind `docker run toddthomson/mila-llm`.
+#
+# DIFFERENT AUDIENCE FROM Docker/Dockerfile, which is the contributor build environment:
+# that one bind-mounts a checkout and builds it in place, and is never published. This
+# one COPYs the source in, builds it once, and ships only the results on a CUDA -runtime
+# base. A user of this image never sees a compiler, a checkout, or a CMake flag.
+#
+# Two stages, and the split IS the size saving: the -devel base carries nvcc, the headers
+# and the static libraries (multi-GB) purely to produce a handful of binaries. The
+# -runtime base carries the CUDA libraries Mila links (cudart / cuBLAS / cuBLASLt /
+# cuRAND) and nothing that compiles. NVTX needs no runtime library -- CUDA::nvtx3 is
+# header-only, so it leaves the builder behind with everything else.
+#
+# Weights are NEVER baked in. They are gigabytes, separately licensed, and installed by
+# name at first run into the store volume declared below.
+
+ARG CUDA_VERSION=13.3.0
+ARG UBUNTU_VERSION=ubuntu26.04
+
+# =============================================================================
+# Stage 1 -- builder
+# =============================================================================
+FROM nvidia/cuda:${CUDA_VERSION}-devel-${UBUNTU_VERSION} AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Same toolchain as Docker/Dockerfile, minus the interactive-shell niceties (gdb, less):
+# clang-21 for the C++23 module units, gcc-15 as nvcc's module-free host compiler,
+# libssl-dev because vendored curl's find_package(OpenSSL) fails the configure without it
+# and this image builds at the MILA_ENABLE_LIBCURL default (ON) -- the published image
+# must be able to pull a model with no caller-supplied transport.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        git \
+        wget \
+        ca-certificates \
+        ninja-build \
+        gcc-15 \
+        g++-15 \
+        clang-21 \
+        libssl-dev \
+        python3 \
+        python3-dev \
+        python3-venv \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN wget -q https://github.com/Kitware/CMake/releases/download/v4.2.3/cmake-4.2.3-linux-x86_64.tar.gz \
+    && tar --strip-components=1 -xz -C /usr/local -f cmake-4.2.3-linux-x86_64.tar.gz \
+    && rm -f cmake-4.2.3-linux-x86_64.tar.gz
+
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+
+# WHICH GPUs THIS IMAGE SERVES. `native` -- the default in every Docker/build-*.sh -- is
+# correct for a container built on the machine that runs it and WRONG here twice over: a
+# publish job builds on a GPU-less runner where native does not resolve, and an image is
+# pulled by hardware the builder never saw.
+#
+# The list is deliberately NOT the library's portable 75;80;86;89;90. Every model Mila
+# publishes is FP4, and FP8/FP4 need SM 8.9 or newer, so shipping Turing and Ampere
+# kernels would advertise cards that cannot run anything in the store. Ada (89) is the
+# validated target, Hopper (90) is the datacenter neighbour it costs little to keep, and
+# Blackwell (120) is the consumer generation that the library's own portable list still
+# omits. Each entry is a full compile of the CUDA sources -- this is the dominant build
+# time, and the one number to change if the compatibility promise changes.
+ARG MILA_IMAGE_CUDA_ARCHITECTURES="89;90;120"
+
+# Parallelism here is a MEMORY limit, not a core count: the heaviest module TUs cost
+# several GB each. See Docker/build-chat.sh for the full rationale.
+ARG MILA_BUILD_JOBS=4
+
+# Set to 1 to discard the cached build tree before configuring. A PUBLISH BUILD MUST PASS THIS:
+# `docker build --no-cache` invalidates layers but does NOT clear cache mounts, so without it a
+# published image can be assembled from objects left by an earlier, different source tree.
+ARG MILA_CLEAN_BUILD=0
+
+# Copied in three steps, least-volatile first, so the compile layer survives edits to everything
+# the build does not read. `COPY . /src` recompiled the whole library when BACKLOG.md changed.
+# .dockerignore keeps Data/Models (gigabytes), out/, .git and Dev/ out of the context.
+# License.md is not documentation here: MilaPy's POST_BUILD copies it into the binding package as
+# LICENSE (Mila/Bindings/CMakeLists.txt:84), so omitting it fails the build at the very last step.
+# README.md is deliberately absent -- only the docs target reads it, and this build sets
+# MILA_ENABLE_DOCS=OFF. Turning docs on here would need it added.
+COPY CMakeLists.txt Version.txt License.md /src/
+COPY cmake /src/cmake
+COPY Mila /src/Mila
+
+# ADAPTORS on for ChatApp, PYTHON_BINDINGS on for MilaPy (which MIS imports). Samples,
+# tests, profiling and docs are off: none of them ship, and each is build time a user
+# pays for in the image they pull.
+#
+# /build is a BuildKit cache mount, which is what makes an incremental rebuild incremental --
+# Ninja's module BMIs and CPM's fetched dependencies survive between builds. The consequence to
+# respect: a cache mount is NOT part of the image, so anything stage 2 needs has to be copied to
+# a real path here, inside the same RUN. Nothing under /build exists once this instruction ends.
+RUN --mount=type=cache,target=/build,sharing=locked \
+    if [ "${MILA_CLEAN_BUILD}" = "1" ]; then rm -rf /build/*; fi \
+    && cmake -S /src -B /build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_COMPILER=clang-21 \
+        -DCMAKE_CXX_COMPILER=clang++-21 \
+        -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
+        -DCUDAToolkit_ROOT=/usr/local/cuda \
+        -DCMAKE_CUDA_HOST_COMPILER=gcc-15 \
+        -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" \
+        -DCMAKE_CUDA_ARCHITECTURES="${MILA_IMAGE_CUDA_ARCHITECTURES}" \
+        -DMILA_LIBRARY_CUDA_ARCHITECTURES="${MILA_IMAGE_CUDA_ARCHITECTURES}" \
+        -DMILA_ENABLE_CUDA=ON \
+        -DMILA_ENABLE_ADAPTORS=ON \
+        -DMILA_ENABLE_PYTHON_BINDINGS=ON \
+        -DMILA_ENABLE_SAMPLES=OFF \
+        -DMILA_ENABLE_TESTING=OFF \
+        -DMILA_ENABLE_PROFILING=OFF \
+        -DMILA_ENABLE_DOCS=OFF \
+        -DMILA_INSTALL=OFF \
+    && cmake --build /build --target ChatApp MilaPy -- -j "${MILA_BUILD_JOBS}" \
+    && mkdir -p /out \
+    && cp /build/ChatApp /out/ChatApp \
+    && cp -r /build/Data /out/Data
+
+# =============================================================================
+# Stage 2 -- runtime
+# =============================================================================
+FROM nvidia/cuda:${CUDA_VERSION}-runtime-${UBUNTU_VERSION} AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# python3-venv only: MIS's server half is pure Python, and the binding it imports was
+# compiled in stage 1 against this same Ubuntu release's interpreter.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-venv \
+        ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# ChatApp resolves Data/session.json against the CURRENT WORKING DIRECTORY on Linux --
+# executable_directory() there is just current_path(), the GetModuleFileName path being
+# Windows-only. So the app directory is also the WORKDIR, and the entrypoint never
+# leaves it. A `docker run -w /elsewhere` would break config resolution; that is a
+# property of the app, recorded here because this image is where it becomes user-visible.
+WORKDIR /opt/mila
+
+COPY --from=builder /out/ChatApp ./ChatApp
+COPY --from=builder /out/Data ./Data
+
+# The binding package tree carries the extension MilaPy's POST_BUILD staged into it, so
+# an editable install here points at a real .so rather than fetching one from PyPI.
+COPY --from=builder /src/Mila/Bindings/Package /opt/mila/binding-package
+COPY --from=builder /src/Mila/Adaptors/Inference/Server /opt/mila/server
+
+# MIS dependencies are installed EXPLICITLY rather than through the server's own
+# pyproject, for the reason Docker/build-mis.sh gives: Ubuntu 26.04 ships Python 3.14,
+# above that pyproject's requires-python ceiling.
+#
+# The binding needs --ignore-requires-python for the SAME collision, and it is not a
+# workaround: `>=3.12,<3.14` bounds the interpreters mila-llm ships WHEELS for, which is a
+# different question from which interpreter this image runs. The extension here was
+# compiled in stage 1 against this exact python3, so it fits by construction -- and
+# widening the published range instead would promise PyPI an interpreter no wheel carries.
+# Measured, not assumed: without the flag this step fails with "Package 'mila-llm' requires
+# a different Python: 3.14.4 not in '<3.14,>=3.12'", and --no-deps does not suppress it.
+#
+# A regular install rather than editable: nothing rebuilds inside a published image, and a
+# real install puts honest metadata behind mila.__version__ (which otherwise reports the
+# "0.0.0+local" build-tree marker). --no-deps because CUDA comes from this image's own
+# libraries, not from NVIDIA's PyPI wheels. The staging tree goes once its contents are in
+# site-packages.
+RUN python3 -m venv /opt/mila/venv \
+    && /opt/mila/venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/mila/venv/bin/pip install --no-cache-dir \
+        fastapi "uvicorn[standard]" pydantic pydantic-settings \
+    && /opt/mila/venv/bin/pip install --no-cache-dir --no-deps --ignore-requires-python \
+        /opt/mila/binding-package \
+    && rm -rf /opt/mila/binding-package
+
+# FAIL THE BUILD, NOT THE FIRST RUN. The -runtime base is a bet that every CUDA library
+# Mila links is present without the toolkit; if that bet is wrong the symptom is
+# otherwise a loader error on a user's machine, hours after the image was pushed. ldd
+# prints "not found" for an unresolved NEEDED entry, so grepping for it turns the bet
+# into a build gate that names the missing library.
+RUN ldd /opt/mila/ChatApp > /tmp/ldd.txt 2>&1 \
+    && ldd /opt/mila/venv/lib/python3*/site-packages/mila/_mila*.so >> /tmp/ldd.txt 2>&1 \
+    ; if grep -q "not found" /tmp/ldd.txt; then \
+        echo "FATAL: unresolved shared libraries in the runtime stage:" >&2; \
+        grep "not found" /tmp/ldd.txt >&2; \
+        exit 1; \
+    fi; \
+    echo "Shared library check passed."
+
+# The store is a VOLUME, not the repo bind mount the contributor image uses -- a user of
+# this image has no checkout. Keeping it a declared volume is what stops a ~6 GB model
+# pull being discarded by `run --rm` and re-fetched on every start.
+ENV MILA_CACHE_DIR=/models
+VOLUME ["/models"]
+
+# One image, two entry points, per the product decision that Chat and MIS are two
+# interfaces onto the same library rather than two artifacts.
+COPY Docker/entrypoint-runtime.sh /usr/local/bin/mila-entrypoint
+RUN chmod +x /usr/local/bin/mila-entrypoint
+
+EXPOSE 6452
+
+ENTRYPOINT ["/usr/local/bin/mila-entrypoint"]
+CMD ["chat"]

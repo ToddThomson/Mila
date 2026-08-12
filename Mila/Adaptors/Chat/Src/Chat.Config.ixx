@@ -161,7 +161,12 @@ namespace Mila::ChatApp
         bool                  quantization_applied_at_load{ false };
         bool                  is_instruct{ false };
         bool                  streaming_capable{ false };  ///< Live token-streaming display (from the model catalog).
-        bool                  show_thinking{ false };  ///< Thinking mode: activate the model's reasoning (<|think|>).
+
+        /// Whether this model HAS a reasoning channel, from the model catalog. A capability, not a
+        /// preference: it is why show_thinking is no longer a session setting -- a config key
+        /// cannot give Llama a channel it does not have, and offering one only ever misreported.
+        bool                  thinking_capable{ false };
+        bool                  show_thinking{ false };  ///< Reasoning surfaced. Follows thinking_capable.
         int                   thinking_effort{ 3 };    ///< 1..5 token-budget scale for the reasoning (when thinking on).
         DetailLevel           detail{ DetailLevel::Off };  ///< Display verbosity: thoughts / tool calls / all.
         /// Catalog alias the current model came from. This, not the family/size/precision
@@ -186,7 +191,17 @@ namespace Mila::ChatApp
         size_t                max_new_tokens{ 2048 };
         float                 temperature{ 0.8f };
         int                   top_k{ 40 };
+
+        /// Nucleus truncation. 1.0 disables it, matching the runtime's own default -- Chat was the
+        /// only consumer of the sampler not passing this knob through.
+        float                 top_p{ 1.0f };
         size_t                context_length{ 0 };
+
+        /// What the session config asked for, kept apart from the live value because a model
+        /// switch rewrites the latter. 0 means the config named none, and the model's own default
+        /// stands. Without this a switch dropped to a family default -- 512 for Gemma -- silently
+        /// discarding the number the user actually configured.
+        size_t                configured_context_length{ 0 };
 
         std::optional<std::filesystem::path> config_path;
         std::optional<std::filesystem::path> system_prompt_path;

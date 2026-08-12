@@ -304,15 +304,22 @@ namespace Mila::ChatApp
                         if ( bad_token )
                             continue;
 
-                        config_.show_thinking = thinking;
+                        // Clamped to the capability: asking for thinking on a model with no
+                        // reasoning channel is a request that cannot be honoured, and reporting it
+                        // as enabled is how the session came to advertise an effort level for
+                        // Llama and GPT-2. A switch re-derives this anyway; the clamp is what makes
+                        // the no-reload path below agree with it.
+                        config_.show_thinking = thinking && config_.thinking_capable;
 
                         // Toggling only the thinking flag on the already-loaded model
                         // must not trigger a multi-GB weight reload.
                         if ( isCurrentModel( name, requested_quantization ) )
                         {
-                            renderer_.printInfo( thinking
+                            renderer_.printInfo( config_.show_thinking
                                 ? "Thinking display enabled."
-                                : "Thinking display disabled." );
+                                : ( thinking
+                                    ? "This model has no reasoning channel."
+                                    : "Thinking display disabled." ) );
                             continue;
                         }
 
@@ -951,6 +958,7 @@ namespace Mila::ChatApp
             gen_params.max_new_tokens = static_cast<int>( budget );
             gen_params.sampling.temperature = config_.temperature;
             gen_params.sampling.top_k = config_.top_k;
+            gen_params.sampling.top_p = config_.top_p;
 
             // Gemma 4's <|tool_call>/<tool_call|> pair is a native protocol element, not a
             // text convention (GemmaChatProtocol.md): the model expects the harness to stop
@@ -1156,9 +1164,9 @@ namespace Mila::ChatApp
         /**
          * @brief Build the token sequence for the current generation step.
          *
-         * Llama instruct models format the full structured history via
-         * MessageFormatter. GPT and Llama base models encode only the last
-         * user message content.
+         * Each family renders the full structured history into its own instruct template. There
+         * is no base-model branch: `resolveModel` refuses a non-instruct model, so history is
+         * always something the model was trained to read.
          *
          * @return Token ids ready to pass to generateAsync().
          */
@@ -1166,12 +1174,10 @@ namespace Mila::ChatApp
         {
             std::string prompt;
 
-            if ( config_.model_type == ModelType::Llama && config_.is_instruct )
-                prompt = MessageFormatter::format( history_ );
-            else if ( config_.model_type == ModelType::Gemma && config_.is_instruct )
+            if ( config_.model_type == ModelType::Gemma )
                 prompt = formatGemmaPrompt( history_, config_.show_thinking, config_.thinking_effort );
             else
-                prompt = history_.back().content;
+                prompt = MessageFormatter::format( history_ );
 
             auto token_ids = tokenizer_->encode( prompt );
 
@@ -1346,15 +1352,29 @@ namespace Mila::ChatApp
             config_.base_model        = resolved.base_model;
             config_.license           = resolved.license;
             config_.streaming_capable = resolved.streaming_capable;
+
+            // Thinking is the model's capability, so it re-derives on every switch rather than
+            // carrying a preference across a family that has no reasoning channel.
+            config_.thinking_capable  = resolved.thinking_capable;
+            config_.show_thinking     = resolved.thinking_capable;
             config_.quantization_mode = resolved.quantization;
             config_.quantization_applied_at_load = resolved.quantization_applied_at_load;
             config_.model_path        = resolved.weights;
             config_.tokenizer_path    = resolved.tokenizer;
 
-            // Preserve context_length across same-architecture switches; reset to the
-            // new model's default on an architecture change.
+            // Preserve context_length across same-architecture switches. On an architecture change
+            // the live value cannot carry (the ceilings differ), so fall back to what the session
+            // config asked for, clamped to what the new architecture can address, and only to the
+            // model's own default when the config named no context at all.
             if ( prev_type != config_.model_type )
-                config_.context_length = resolved.default_context;
+            {
+                const std::size_t ceiling = maxContextFor( config_.model_type );
+                const std::size_t configured = config_.configured_context_length;
+
+                config_.context_length = configured == 0
+                    ? resolved.default_context
+                    : ( configured < ceiling ? configured : ceiling );
+            }
 
             // Destroy the current model before allocating the replacement.
             // This returns VRAM to the CUDA pool before the new model is loaded,
@@ -1364,6 +1384,10 @@ namespace Mila::ChatApp
 
             loadActiveModel();
             clearHistory();
+
+            // Written only after the load succeeds, so a name that failed to load is never the
+            // one the next session opens with.
+            writeLastChosenModel( config_.model_name );
 
             renderer_.printInfo( had_model
                 ? "Model switched. Conversation history cleared."
@@ -1544,7 +1568,6 @@ namespace Mila::ChatApp
                 // No spinner: its redraws and the log lines fight for the same line.
                 initializeTokenizer();
                 loadModel();
-                announceCompletionMode();
 
                 return;
             }
@@ -1560,8 +1583,6 @@ namespace Mila::ChatApp
             loadModel();
 
             renderer_.stopSpinner();
-
-            announceCompletionMode();
         }
 
         /**
@@ -1585,26 +1606,6 @@ namespace Mila::ChatApp
                 : 0;
 
             return std::min( config_.max_new_tokens, remaining );
-        }
-
-        /**
-         * @brief Say plainly when the loaded model is not an instruct model.
-         *
-         * Chat renders turns and accumulates history, and a base model uses none of it: the
-         * prompt is the last line, raw. Saying so is the difference between a model that looks
-         * broken and one doing exactly what a base model does.
-         */
-        void announceCompletionMode() const
-        {
-            if ( config_.is_instruct )
-            {
-                return;
-            }
-
-            renderer_.printInfo( std::format(
-                "{} is a base model, so this is completion mode: no chat template, no system "
-                "prompt, and no history. Your line is the prompt and the model continues it.",
-                modelName() ) );
         }
 
         void printModelInfo() const
@@ -1645,16 +1646,24 @@ namespace Mila::ChatApp
                 "  Precision:    {}\n"
                 "  Quantization: {}\n"
                 "  Context:      {}\n"
-                "  Instruct:     {}\n"
-                "  Thinking:     {}\n"
-                "  Effort:       {} ({}, ~{} tokens)\n"
-                "  Detail:       {}\n",
+                "  Instruct:     {}\n",
                 (config_.precision == ModelPrecision::BF16) ? "bf16" : "fp32",
                 quantizationName( config_.quantization_mode ),
                 config_.context_length,
-                config_.is_instruct ? "yes" : "no",
-                config_.show_thinking ? "on" : "off",
-                config_.thinking_effort, effort.name, effort.budget,
+                config_.is_instruct ? "yes" : "no" );
+
+            // Reported only by a model that has the channel. An effort level beside a model with
+            // no reasoning mode describes a budget for tokens it will never emit.
+            if ( config_.thinking_capable )
+            {
+                std::cout << std::format(
+                    "  Thinking:     {}\n"
+                    "  Effort:       {} ({}, ~{} tokens)\n",
+                    config_.show_thinking ? "on" : "off",
+                    config_.thinking_effort, effort.name, effort.budget );
+            }
+
+            std::cout << std::format( "  Detail:       {}\n",
                 detailLevelName( config_.detail ) );
 
             // Measured off the device rather than taken from the model's own report: what is
@@ -1975,12 +1984,21 @@ namespace Mila::ChatApp
         {
             if ( modelIsResident() )
             {
-                const std::string thinking_display = config_.show_thinking
-                    ? std::string( thinkingEffort( config_.thinking_effort ).name )
-                    : "off";
+                // The thinking clause is omitted entirely for a model without the channel, rather
+                // than shown as "off" -- off reads as a setting the user could turn on.
+                if ( config_.thinking_capable )
+                {
+                    const std::string thinking_display = config_.show_thinking
+                        ? std::string( thinkingEffort( config_.thinking_effort ).name )
+                        : "off";
 
-                renderer_.printInfo( std::format( "  Model: {}  ·  Thinking: {}",
-                    modelName(), thinking_display ) );
+                    renderer_.printInfo( std::format( "  Model: {}  ·  Thinking: {}",
+                        modelName(), thinking_display ) );
+                }
+                else
+                {
+                    renderer_.printInfo( std::format( "  Model: {}", modelName() ) );
+                }
             }
 
             std::cout << "  Type /help for commands, /exit to quit.\n\n";
@@ -2031,12 +2049,6 @@ Examples:
         void clearHistory()
         {
             history_.clear();
-
-            // A base model never reads the system prompt -- buildInputTokens takes the last
-            // message verbatim -- so seeding one would be a persona the user configured and
-            // the model never sees.
-            if ( !config_.is_instruct )
-                return;
 
             if ( system_prompt_config_.system_prompt.empty() )
                 return;

@@ -15,6 +15,7 @@ module;
 #include <exception>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
@@ -28,6 +29,7 @@ import Chat.Ansi;
 import Chat.Config;
 import Chat.Footprint;
 import Mila;
+import nlohmann.json;
 
 namespace Mila::ChatApp
 {
@@ -56,6 +58,10 @@ namespace Mila::ChatApp
         bool instruct{ false };
         bool streaming_capable{ false };
 
+        /// Whether the model has a reasoning channel at all. Read as a capability so the session
+        /// never offers a thinking mode the weights cannot produce.
+        bool thinking_capable{ false };
+
         /// True when the quantization is a load-time choice rather than what the artifact already
         /// is. Both land in the same field, but only this one is a fact the model's name omits.
         bool quantization_applied_at_load{ false };
@@ -63,8 +69,72 @@ namespace Mila::ChatApp
         std::size_t default_context{ 4096 };
     };
 
-    /// The model a session loads when its config names none.
-    export inline constexpr std::string_view kDefaultModelName = "gemma-4-12b-it-fp4";
+    /**
+     * @brief Where the session remembers the model it was last told to use.
+     *
+     * Beside the STORE, not beside the executable, for three reasons that agree: the store is what
+     * actually holds models, it is the directory a container mounts as a volume so the choice
+     * survives `--rm`, and writing here never mutates a tracked file in a developer's checkout.
+     *
+     * This replaces a compiled-in default model. A fresh install has no model, so naming one
+     * reported a specific multi-gigabyte artifact as "missing" to a user who had never asked for
+     * it -- an empty store is not a failed lookup.
+     */
+    export inline std::filesystem::path chatStatePath()
+    {
+        return Mila::Distribution::resolveStoreRoot() / "chat-state.json";
+    }
+
+    /// The last model chosen, or nullopt when nothing has been chosen yet. Never throws: an
+    /// unreadable or malformed state file means "no choice recorded", which is the first-run state.
+    export inline std::optional<std::string> readLastChosenModel()
+    {
+        try
+        {
+            const std::filesystem::path path = chatStatePath();
+
+            if ( !std::filesystem::exists( path ) )
+                return std::nullopt;
+
+            std::ifstream file( path );
+            nlohmann::json state;
+            file >> state;
+
+            if ( state.contains( "model" ) && state[ "model" ].is_string() )
+            {
+                std::string name = state[ "model" ].get<std::string>();
+
+                if ( !name.empty() )
+                    return name;
+            }
+        }
+        catch ( const std::exception& )
+        {
+            // Deliberately swallowed -- see the contract above.
+        }
+
+        return std::nullopt;
+    }
+
+    /// Record the chosen model. Best-effort: a session that cannot write its state is still a
+    /// working session, so a failure here is never allowed to end one.
+    export inline void writeLastChosenModel( const std::string& name )
+    {
+        try
+        {
+            const std::filesystem::path path = chatStatePath();
+            std::filesystem::create_directories( path.parent_path() );
+
+            nlohmann::json state;
+            state[ "model" ] = name;
+
+            std::ofstream file( path );
+            file << state.dump( 2 ) << "\n";
+        }
+        catch ( const std::exception& )
+        {
+        }
+    }
 
     /**
      * @brief The attribution a license requires be displayed wherever the model is presented.
@@ -159,6 +229,26 @@ namespace Mila::ChatApp
             case ModelType::Gemma: return 512;
             case ModelType::Gpt:   return 1024;
             default:               return 4096;
+        }
+    }
+
+    /**
+     * @brief The largest context the architecture can address -- not the one it opens at.
+     *
+     * Only GPT-2's is a hard architectural limit: its positions are LEARNED embeddings with 1024
+     * rows, so a larger context indexes past the table and the load fails. The RoPE families
+     * extrapolate, so their ceiling is a memory question rather than a correctness one, and the
+     * pre-flight footprint check is what says no -- hence the generous value here.
+     *
+     * This exists because a session config carries ONE context_length across every model it may
+     * load. Without a clamp, a number chosen for a 12B model kills GPT-2 on startup.
+     */
+    export std::size_t maxContextFor( ModelType family )
+    {
+        switch ( family )
+        {
+            case ModelType::Gpt: return 1024;
+            default:             return 131072;
         }
     }
 
@@ -341,6 +431,22 @@ namespace Mila::ChatApp
 
         const auto& record = installed->record;
 
+        // Chat is an INSTRUCT harness -- turns, templates, a system prompt, history, tool calls.
+        // A base model uses none of them, and accommodating one meant switching all four off and
+        // explaining why the harness was not behaving like itself. That is a second convention
+        // inside one surface, so the model is refused here rather than special-cased throughout.
+        //
+        // Keyed on `instruct`, not on the architecture: a base Llama is as wrong here as GPT-2,
+        // and the store already records the answer.
+        if ( !record.instruct )
+        {
+            throw std::runtime_error( std::format(
+                "'{}' is a base model, and Chat is an instruct harness -- it renders turns, "
+                "applies a chat template and keeps history, none of which a base model reads.\n"
+                "Base models generate by continuing a prompt; that is what the completion sample "
+                "is for.", record.name ) );
+        }
+
         ResolvedModel resolved;
         resolved.name = record.name;
         resolved.weights = installed->weights_path;
@@ -361,6 +467,11 @@ namespace Mila::ChatApp
         // A harness capability, not a model one: only Gemma's tool calls are protocol tokens a
         // per-token router can see, so the others stay buffered.
         resolved.streaming_capable = ( resolved.family == ModelType::Gemma );
+
+        // A MODEL capability, unlike the line above: Gemma is the only family here trained to emit
+        // a reasoning channel. Same predicate today, different question -- one asks whether the
+        // display can route tokens live, this asks whether there is a thought to route.
+        resolved.thinking_capable = ( resolved.family == ModelType::Gemma );
 
         resolved.default_context = defaultContextFor( resolved.family );
 

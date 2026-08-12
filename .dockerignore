@@ -1,23 +1,47 @@
-# Docker build context excludes (repo root is the context — see Docker/docker-compose.yml).
-# The Dockerfile has no COPY today, so this is primarily about not shipping gigabytes of
-# build output and history to the daemon on every build. It also keeps the future
-# multi-stage runtime image clean once it starts COPYing source/artifacts.
+# Docker build context excludes (repo root is the context).
+#
+# Two consumers with different stakes. Docker/docker-compose.yml bind-mounts the repo and
+# COPYs nothing, so for it this is only about not shipping gigabytes to the daemon.
+# Docker/Dockerfile.runtime does `COPY . /src`, so for that one every path listed here is
+# a path that would otherwise land in a published image's builder layer. Anything private,
+# large, or generated belongs below.
+#
+# Pattern note: a pattern without `**` matches at the context root only, so `.vs/` and
+# `.venv/` need the `**/` prefix to catch nested copies.
 
 # Build outputs and caches
 out/
 build/
-.vs/
+# MilaPy's POST_BUILD stages the compiled extension INTO the source tree, so a developer's
+# checkout accumulates one per interpreter and platform it has ever built (untracked --
+# only __init__.py is in git). The builder stage compiles its own against the container's
+# interpreter, so shipping the host's copies would put stale Linux extensions and Windows
+# .pyd files in a Linux image.
+**/_mila*.so
+**/_mila*.pyd
+**/.vs/
 .ccache/
 **/.venv/
+**/__pycache__/
+**/*.egg-info/
+**/*.pyc
+TestResults/
 
 # Version control and CI metadata
 .git/
 .github/
 
-# Large data — model weights and datasets are converted offline and bind-mounted, never baked in
+# Private, gitignored trees. Dev/ is not part of Mila (~700 MB of local scratch) and
+# .internal/ holds unpublished marketing copy — neither is source, and a COPY that
+# swept them into a builder layer would be shipping them.
+Dev/
+.internal/
+
+# Large data — model weights and datasets are converted offline and bind-mounted, never
+# baked in. No .bin file is tracked, so the recursive exclude costs the build nothing.
 Data/Models/
 Data/Datasets/
-*.bin
+**/*.bin
 
 # Editor / tooling / OS noise
 .devcontainer/

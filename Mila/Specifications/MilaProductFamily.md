@@ -107,8 +107,10 @@ Runtime Library  (model, generation, sampling, KV cache, native token grammar)
 
 MIS sits on its own branch: it *exports* the loop to whoever holds the wire. Chat and Agentic
 share a **native agent core** and differ only by the gate — Chat has a human in it; Agentic
-replaces that human with a policy. The shared core (parse -> dispatch -> splice -> continue) is
-the code that must not be written twice. Today it exists once, informally, inside the Chat sample.
+replaces that human with a policy. Once escalate-to-human is a tool (see Agentic), the gate is not
+even a structural difference: Chat is the core under a policy that escalates before every tool. The
+shared core (parse -> dispatch -> splice -> continue) is the code that must not be written twice.
+Today it exists once, informally, inside the Chat sample.
 
 ## Layer Responsibilities
 
@@ -190,6 +192,42 @@ What it must own that neither MIS nor Chat fully does:
 - **Result extraction.** The agent must produce an artifact (a patch, an answer, a side effect)
   and *know* it is finished.
 
+**What a tool is.** Three shapes are available, and the choice decides whether "microsecond tool
+dispatch" survives contact with a real task. Compiled-in C++ functions — a callable plus a schema,
+registered at core construction — deliver the claim, at the cost that adding a tool means a rebuild.
+Subprocess tools declared in a manifest are what every other agent does; they forfeit the claim.
+Dynamically loaded modules are ruled out: ABI surface against a C++23 module library, for a middle
+ground neither end wants. *Leaning:* the compiled-in registry, with **the shell as one built-in
+tool** rather than as the tool mechanism. Everything that matters for latency (file read, grep,
+patch apply) stays a native call; open-ended capability arrives through a single door. The dividend
+is the guardrail model: with one door to the host, the jail, the allow-list, and the resource caps
+have exactly one place to live instead of being cross-cutting.
+
+**The autonomy policy is a runtime object, not a template parameter.** Mila's idiom points the other
+way — `TWeightQuantization`, `TKvPolicy` and `TRopePolicy` train the hand to reach for
+`Agent<TAutonomyPolicy>`. Compile-time policies exist here because they change types and select
+kernels. An autonomy policy does neither, and its content — step budget, token budget, allow-list —
+is per-task data that differs between two runs of the same binary. It is an object with a decision
+point (`shouldContinue` over the step trace), and templating it would buy nothing while making the
+budget a compile-time constant.
+
+**Semantic loop detection, concretely.** The phrase reads as an open research problem; most of it is
+mechanical. Three signals, cheapest first: **repeated call identity** — hash `(tool, normalized
+args)` and treat a repeat with no intervening state change as stuck; **no observable delta** — a run
+of N steps in which no tool changed anything (no file written, no new bytes read, no exit code
+moved) is a stuck signal regardless of what the model believes about its progress; and **thought
+similarity**, which needs embeddings and a forward pass per step and is therefore deferred. The
+first two catch the observed perseveration failure without any semantic machinery.
+
+**Unsupervised is not uninterruptible.** Removing the human gate does not remove the human. Three
+requirements follow. An interrupt must land on a **turn boundary, never mid-splice** — otherwise the
+KV cache is left describing a turn that did not happen. The trace must be **persisted, not
+in-memory**: for an unsupervised run it is not a debugging aid but the only artifact a human ever
+sees, which makes its format a versioned deliverable rather than a logging concern. And
+**escalate-to-human is itself a tool**, available under any policy. That last one collapses a
+distinction: Chat is then the native agent core under the policy "escalate before every tool", so
+the gate is one policy value rather than a structural difference between two adaptors.
+
 ## Forcing Functions (why the order matters)
 
 1. **Token-level splice becomes mandatory.** For Chat, splicing tool-result tokens straight into
@@ -212,8 +250,15 @@ with nobody to interrupt. Gemma has been observed perseverating on a single labe
 tokens; in supervised Chat that is an annoyance, in an unsupervised loop it is a runaway. So the
 guardrails and semantic loop-detection above are not polish — they are what make an edge-sized
 model *survivable* in autonomy. This is the central engineering risk of the agentic adaptor and it
-should be entered eyes-open. It also couples the adaptor's viability to model quality (MTP / MoE
-roadmap) without being blocked on it.
+should be entered eyes-open.
+
+**The model coupling is tighter than "advances in parallel"** (revised 2026-08-12). Muse Glimmer 30B
+is the post-v0.20 target, and it was picked because it is tuned for tool use, long tasks and failure
+recovery — the model roadmap's next step was chosen to serve *this* adaptor. Its DFlash drafter head
+also makes speculative decoding worth more here than in Chat: a hundred-turn unsupervised run has
+nobody waiting on the first token. The blocker is neither grammar nor loop but hardware — ~16 GB at
+FP4 before any KV cache, against a 12,282 MiB card — which puts the compute sponsorship ask on this
+adaptor's critical path rather than beside it.
 
 ## Positioning
 
@@ -224,8 +269,9 @@ philosophy *up through the loop*: no hidden engine, no hidden wire, the tool-cal
 cache-splice cycle all explicit and in one native artifact. That is where "there is nothing like
 Mila" stops being aspirational.
 
-This is a distinct track from the model-capability roadmap (MTP -> MoE). It is a product/adaptor
-axis, and it can advance in parallel.
+The adaptor axis and the model-capability axis are separable in code and converged in purpose: the
+work advances in parallel, but the next model target was chosen for this adaptor and the hardware
+that would validate it is shared. See Honest Risk.
 
 ## Decided
 
@@ -239,6 +285,14 @@ axis, and it can advance in parallel.
    answer; it is now explicit. String-level parse/format helpers still exist as the first
    deliverable and as the surface MIS consumes via pybind — the splice is the depth they are built
    on, not an alternative to them.
+
+   **How the structural claim gets measured** (added 2026-08-12): same model, same tools, two loops
+   — Agentic in-process against that identical model driven through MIS by a foreign harness on the
+   same task set. Same weights, so the experiment isolates the loop, which is the only thing the
+   adaptor is. The reported numbers are task pass rate, turns to completion, **prefill tokens per
+   turn** (where O(new tokens) against O(context) either shows up or does not), wall-clock, and
+   termination correctness split two ways — stopped when done, stopped when stuck. MIS is already
+   the correctness oracle; this makes it the control for the loop as well.
 
 2. **Chat is a first-class adaptor** (decided 2026-07-07). Chat and MIS are peer adaptors under
    `Mila/Adaptors/`; Chat is no longer a `Samples/` demo. It becomes a maintained surface (gains
@@ -257,10 +311,44 @@ axis, and it can advance in parallel.
    the two native adaptors depend on? *Leaning:* runtime-adjacent — a peer library depending on
    the runtime, never inside it. Same consumer-blind test as everywhere else: the core knows about
    sessions; the runtime must not.
+
+   **It has a second tenant, and a hard sequencing constraint (agreed 2026-08-12).** The same layer
+   should own **one typed model handle and one factory** mapping an architecture to its concrete
+   instantiation. That erasure exists three times today, in two languages — Chat's `ModelVariant`
+   (`Chat.ixx`), the binding's `LlamaSession`/`GemmaSession`, and MIS's `ModelFamily` enum — and the
+   duplication is not theoretical: GPT-2 is absent from MIS *because the second erasure was never
+   written for it* (`Server/model_worker.py:40`, "gpt2 has a record shape and no session"), a gap
+   that reads as a policy.
+
+   The cost is not the type list, which grows linearly under the crest-not-zoo selection rule. It is
+   the **six `std::visit` sites, today carrying zero `if constexpr`** — uniform only while every
+   model does the same things. The first chassis with a capability the others lack (a vision tower,
+   MTP) makes every one of them conditional, in each of the three places.
+
+   **Sequencing: after the v0.20 tag, and BEFORE the next chassis expansion.** Before, because the
+   chassis is what turns three erasures into four and six clean visits into six conditional ones.
+   After the tag, because it is structural rather than hardening. And after the manifest carries
+   model capabilities (a v0.20 item), so the factory reads them from the record instead of baking a
+   fourth family switch into the thing built to remove family switches.
+
+   This does not touch the thesis: "every forward pass explicit" is a claim about the forward pass,
+   and a handle erases one type at the session boundary — one virtual call per `generate()`, none
+   per layer or per token, everything inside still compile-time dispatched. Nor is it the
+   string-keyed `OperationRegistry` being phased out; that is per-operation dispatch, a different
+   layer, and `familyFromArchitecture` is already this pattern at model level.
 3. **Autonomy policy surface.** What is the minimal viable policy (termination + budget + semantic
-   loop guard) that makes an edge-sized model survivable unsupervised?
+   loop guard) that makes an edge-sized model survivable unsupervised? *Narrowed 2026-08-12:* the
+   policy is a runtime object rather than a template parameter, and the loop guard's first two
+   signals (repeated call identity, no observable delta) are settled as mechanical. Open: the
+   budget defaults, and whether the policy owns result extraction or merely tests for it.
 4. **Guardrail model.** Capability allow-list, filesystem jail, dry-run, resource caps — what is
-   the mandatory floor for a native binary with direct tool access?
+   the mandatory floor for a native binary with direct tool access? *Narrowed 2026-08-12:* if the
+   shell is one tool rather than the tool mechanism, the floor is that tool's argument validator
+   plus a jail rooted at a declared working set. Open: whether write access is dry-run by default.
+5. **Tool registration shape.** Compiled-in registry (leaning), subprocess manifest, or loadable
+   modules — see Agentic. The leaning makes adding a tool a rebuild; open whether that is
+   acceptable for the artifact Agentic is meant to be, or whether a declarative subprocess tool
+   is needed alongside the native ones.
 
 ## Related Specifications
 

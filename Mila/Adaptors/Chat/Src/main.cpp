@@ -47,12 +47,13 @@ static void printUsage( const char* prog_name )
         << "  --help, -h        Show this message.\n"
         << "\n"
         << "Session config keys:\n"
-        << "  model              Installed model name. Default: " << kDefaultModelName << ".\n"
+        << "  model              Installed model name, used until one is chosen with /model or\n"
+        << "                     /install. There is no default: a fresh store has no model.\n"
         << "  context_length     Maximum sequence length. Default: the model's own default.\n"
-        << "  thinking           true to surface Gemma's reasoning channel.\n"
         << "  thinking_effort    1-5 token-budget scale for reasoning (default 3 = balanced).\n"
+        << "                     Reasoning is surfaced whenever the model has that channel.\n"
         << "  verbose            display detail: off | thoughts | all (default off).\n"
-        << "  temperature, top_k, max_new_tokens, system_prompt_path.\n"
+        << "  temperature, top_k, top_p, max_new_tokens, system_prompt_path.\n"
         << "\n"
         << "  quantization       none | fp8 | fp4. Quantizes an unquantized artifact on load;\n"
         << "                     a name ending -fp4/-fp8 is already quantized and refuses it.\n"
@@ -141,9 +142,17 @@ static ChatConfig buildConfig( int argc, char* argv[] )
 
     // Resolve the model name against the store. There is no catalogue: what can be loaded is
     // what is installed, which is why this is a lookup rather than a table.
-    std::string name( kDefaultModelName );
+    //
+    // THERE IS NO DEFAULT MODEL. The last model chosen wins, because choosing one with /model or
+    // /install is an explicit act and should survive the session; a "model" key in the config is
+    // the fallback for a store that has never been chosen from. When neither exists the session
+    // opens with nothing selected, which is the honest description of a fresh install -- naming a
+    // model here reported a 6+ GB artifact as missing to a user who had never asked for it.
+    std::string name;
 
-    if ( j.contains( "model" ) && j[ "model" ].is_string() )
+    if ( const auto last_chosen = readLastChosenModel() )
+        name = *last_chosen;
+    else if ( j.contains( "model" ) && j[ "model" ].is_string() )
         name = j[ "model" ].get<std::string>();
 
     // Quantization is a deployment choice against an unquantized artifact, so it is settled
@@ -168,13 +177,22 @@ static ChatConfig buildConfig( int argc, char* argv[] )
     std::optional<ResolvedModel> resolved;
     std::string no_model_reason;
 
-    try
+    if ( name.empty() )
     {
-        resolved = resolveModel( name, requested_quantization );
+        // Nothing has ever been chosen, and that needs no explanation -- the session banner
+        // already tells an empty store what to do. A reason is for the other case, where a name
+        // WAS asked for and did not resolve; printing one here just said it twice.
     }
-    catch ( const std::exception& e )
+    else
     {
-        no_model_reason = e.what();
+        try
+        {
+            resolved = resolveModel( name, requested_quantization );
+        }
+        catch ( const std::exception& e )
+        {
+            no_model_reason = e.what();
+        }
     }
 
     ChatConfig config;
@@ -189,6 +207,11 @@ static ChatConfig buildConfig( int argc, char* argv[] )
         config.base_model        = resolved->base_model;
         config.license           = resolved->license;
         config.streaming_capable = resolved->streaming_capable;
+
+        // Thinking follows the model, not the config: a preference cannot give a model a
+        // reasoning channel, and offering the switch only ever misreported the ones without one.
+        config.thinking_capable  = resolved->thinking_capable;
+        config.show_thinking     = resolved->thinking_capable;
         config.quantization_mode = resolved->quantization;
         config.quantization_applied_at_load = resolved->quantization_applied_at_load;
         config.model_path        = resolved->weights;
@@ -200,11 +223,33 @@ static ChatConfig buildConfig( int argc, char* argv[] )
 
     config.config_path    = config_path;
 
+    // Clamped to what the architecture can address. One config serves every model the session may
+    // load, so a context chosen for a 12B model reaches GPT-2 as well -- and GPT-2's positions are
+    // a 1024-row learned table, so the oversized value is a failed load rather than a slow one.
     if ( j.contains( "context_length" ) && j[ "context_length" ].is_number_unsigned() )
-        config.context_length = j[ "context_length" ].get<std::size_t>();
+    {
+        const std::size_t requested = j[ "context_length" ].get<std::size_t>();
 
-    if ( j.contains( "thinking" ) && j[ "thinking" ].is_boolean() )
-        config.show_thinking = j[ "thinking" ].get<bool>();
+        config.configured_context_length = requested;
+
+        if ( resolved )
+        {
+            const std::size_t ceiling = maxContextFor( config.model_type );
+
+            if ( requested > ceiling )
+            {
+                std::cout << std::format(
+                    "Session config: context_length {} exceeds what {} can address; using {}.\n",
+                    requested, config.model_name, ceiling );
+            }
+
+            config.context_length = requested < ceiling ? requested : ceiling;
+        }
+        else
+        {
+            config.context_length = requested;
+        }
+    }
 
     if ( j.contains( "thinking_effort" ) && j[ "thinking_effort" ].is_number_integer() )
     {
@@ -237,6 +282,9 @@ static ChatConfig buildConfig( int argc, char* argv[] )
 
     if ( j.contains( "top_k" ) && j[ "top_k" ].is_number_integer() )
         config.top_k = j[ "top_k" ].get<int>();
+
+    if ( j.contains( "top_p" ) && j[ "top_p" ].is_number() )
+        config.top_p = j[ "top_p" ].get<float>();
 
     if ( j.contains( "system_prompt_path" ) && j[ "system_prompt_path" ].is_string() )
     {

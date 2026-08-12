@@ -1,0 +1,11 @@
+{
+  "model": "gemma-4-12b-it-fp4",
+  "context_length": 8192,
+  "max_new_tokens": 8192,
+  "temperature": 1.0,
+  "top_k": 60,
+  "top_p": 1.0,
+  "thinking_effort": 3,
+  "verbose": "off",
+  "system_prompt_path": "Data/assistant-chat.local.json"
+}

@@ -221,6 +221,27 @@ with no leaked control tokens; the C++/Python grammar duplication is resolved by
 Uncommitted work — no release, no date. An item **promotes** into the Current release, acquiring its
 own version, date, and tag, when it is scheduled.
 
+- **One model handle, before the family grows again.** The first work after the v0.20 tag, and a
+  precondition for every model entry below. Naming a model is a runtime act; loading one is a
+  compile-time type, and something has to bridge the two — today that bridge is written three times
+  in two languages: Chat's `ModelVariant`, the binding's per-family session classes, and the
+  inference server's own family enum. Nothing keeps them in step, and the drift is already visible:
+  GPT-2 runs in Chat and is refused by the server, not by decision but because the second bridge was
+  never written for it. A gap that reads as a policy.
+  What makes this urgent is not the number of models. Under Mila's selection rule — the leading crest
+  of open models that suit an agentic workflow on hardware you already own, not every model in
+  existence — that list grows slowly and deliberately. The pressure is that each of those bridges
+  currently assumes every model does the same things. That assumption holds exactly until a model
+  arrives that does not, and the next two candidates both break it: one carries a vision tower, and
+  both reason in a channel only Gemma has today. Then every dispatch site in all three places grows a
+  per-family branch, and the cost of a new architecture stops being one chassis and becomes an edit
+  to every consumer of one.
+  So it lands first, in the runtime-adjacent agent core that Chat and the future Agentic adaptor
+  share, reading the model's declared capabilities from its manifest rather than inferring them from
+  its family. It leaves the thesis intact: the erasure is one call when a session opens, not one per
+  layer or per token, and everything inside the forward pass stays exactly as explicit as it is now.
+  Success bar: a new architecture is added in one place; the inference server serves every
+  architecture the chat harness does; and no dispatch site carries a per-family branch.
 - **Muse Glimmer 30B — the named next target.** Meta's Apache 2.0, ungated 30B, chosen for *why it
   exists* rather than for what it resembles: it is tuned for tool use, long tasks, and failure
   recovery, which is the model an on-device agentic loop actually needs. The

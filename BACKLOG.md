@@ -258,6 +258,21 @@ being a task list and needs a prune.
   says GCC 16, `README.md:267` says "GCC 15.2 and earlier cannot" (implying 15.3 works), and
   `CLAUDE.md` says GCC 15.3+. What was actually validated is 16 works / 15.2 fails; 15.3 has never
   been built. State the measured floor in one place and stop implying the untested one.
+- [ ] **Both onboarding docs state the build-option defaults backwards.** `MILA_ENABLE_TESTING` is
+  `${PROJECT_IS_TOP_LEVEL}` and `MILA_ENABLE_DOCS` is `ON` (`CMakeLists.txt:67,77`), but
+  `README.md:282,296` and `getting-started.md:79,212` call both `OFF` — so "omit the flag for a
+  library-only build" changes nothing on a fresh clone. `getting-started.md:221` compounds it with
+  `find_package(Doxygen REQUIRED)`; the call is unqualified and `Mila/Docs/CMakeLists.txt:12` explains
+  at length why it must stay that way. Graphviz is sold for call graphs the Doxyfile disables.
+- [ ] **The preset list names four presets that do not exist and omits nine that do.**
+  `getting-started.md:207` offers `x86-debug`, `x86-release`, `linux-debug`, `macos-debug` — none are
+  in `CMakePresets.json`, and the real Linux entries are `linux-clang-{debug,release}` and
+  `linux-clang-cpu-{debug,release}`. `CLAUDE.md` repeats the `x86-*` pair. A reader following either
+  file gets "no such preset" on their first configure.
+- [ ] **`getting-started.md:229` pins the dev container a release behind** — CUDA 13.0 / Clang 19 /
+  CMake 4.x against the actual CUDA 13.3 / clang-21 / gcc-15 / CMake 4.2.3
+  (`Docker/Dockerfile:18,48,50,61`). `README.md:321` and `Docker/README.md:13` both have it right, so
+  this is the one file out of step.
 - [ ] **`CLAUDE.md` documents the retired Chat alias set** — "Model aliases: `gpt2`, `llama-1b`,
   `llama-3b`, `llama-8b`" plus the `llama31`/`llama32` filename-prefix rule. There is no catalogue and
   no filename construction; `/model` takes a store name. It is agent-facing rather than user-facing,
@@ -379,6 +394,44 @@ being a task list and needs a prune.
   already noted in RELEASING's versioning section. Name decided: **`toddthomson/mila-llm`** — a Docker
   namespace admits only lowercase letters and digits, so `mila-llm` can only be the repository half,
   which is where the name shared with HF and PyPI lands.
+- [ ] **Every container build path defaults to an arch a published image cannot use.**
+  `Docker/build-chat.sh:25` defaults `MILA_CUDA_ARCH=native` and passes it to both
+  `CMAKE_CUDA_ARCHITECTURES` and `MILA_LIBRARY_CUDA_ARCHITECTURES`, so the image carries kernels only
+  for the GPU that built it — and `native` does not resolve on the GPU-less builder a publish job runs
+  on. The publish pipeline must set the portable list explicitly; the failure it otherwise ships is
+  already in `Docker/README.md`'s troubleshooting section.
+- [ ] **The portable arch list stops before Blackwell.** `Mila/CMakeLists.txt:19` is `75;80;86;89;90`
+  — Turing through Hopper, no `120` — so a published image built with the default excludes every RTX
+  50-series card. Decide before the first push: add `120` and pay the build time and image size, or
+  state the exclusion on the Docker Hub Overview, which is the channel that owns what the image needs.
+- [ ] **`Docker/build-mis.sh:76` looks broken on the current image, by the defect that just failed
+  the runtime build.** It runs `pip install --no-deps -e Mila/Bindings/Package` under the container's
+  Python 3.14, and `mila-llm`'s `requires-python` is `>=3.12,<3.14`; `--no-deps` does not suppress
+  that check. The script's own comment shows the ceiling was handled for the server DEPS and missed
+  for the package itself. Verify in a container, then add `--ignore-requires-python` as the runtime
+  image now does.
+- [ ] **The binding's staged extensions accumulate in the source tree and nothing prunes them.**
+  MilaPy's POST_BUILD writes `_mila*.so`/`_mila*.pyd` into `Mila/Bindings/Package/src/mila/`, so a
+  checkout collects one per interpreter and platform ever built — four here, two of them Windows
+  `.pyd` — all untracked, and all swept into a Docker build context until `.dockerignore` excluded
+  them. Either clean stale ones on build or stage outside the source tree.
+- [ ] **`Docker/README.md:69` credits ChatApp with a compiled-in `MODELS_DIR`.** It has none —
+  the only `MODELS_DIR` in the tree is `Mila/Profiling/ProfileModel/CMakeLists.txt:22`. Chat resolves
+  models through `MILA_CACHE_DIR` and its config through the working directory, which is why the
+  published image can drop the bind mount at all. The claim reads as a hard dependency on `/mila`.
+- [ ] **The published image has no non-interactive way to install a model.** `/install` is a Chat REPL
+  command and `ExportArtifact --install` is not shipped in the runtime image, so getting a model in
+  means running the image in chat mode, typing at a prompt, then re-running it as `serve`. A third
+  entrypoint verb — `docker run ... mila-llm install <name>` — is what makes the Docker Hub quick
+  start three copy-paste lines instead of a paragraph about entering a REPL first.
+- [ ] **MIS's not-installed message names a tool the container does not have.**
+  `Server/model_worker.py:86` advises `/install <name>` "or ExportArtifact --install"; in the image
+  ExportArtifact is absent and Chat is a different entrypoint of the same image. Observed on the first
+  run of the runtime image, which is exactly the path a new container user takes.
+- [ ] **Decide the container tag scheme, including whether a pre-release gets `latest`.** RELEASING
+  covers dropping `+build` (OCI forbids `+`) and nothing else. `latest` is what a bare
+  `docker run toddthomson/mila-llm` resolves to, so pointing it at a beta makes the beta the default
+  for everyone who does not read the tag list.
 - [ ] **Docker Hub Overview page is an authored surface, so give it a source in the repo.** It is what
   search shows and it carries the container-distribution message; hand-editing it in the browser is how
   the HF org card came to need a rewrite. See [[project_four_channel_roles]] — five channels, five jobs.
@@ -407,6 +460,10 @@ being a task list and needs a prune.
   which is now backwards: all three published models are ungated and need no account, and GPT-2 is
   the one family *not* published. The page's front-matter description also sells "convert model
   weights". This is the getting-started path on the primary marketing site.
+- [ ] **`scripts/` is a complete onboarding surface no document mentions.** Sixteen files covering
+  build, run, wheel, Docker and MIS in both `.ps1` and `.sh` — a front door by every appearance, cited
+  by neither `README.md` nor `getting-started.md`. Either it joins the convergence as the
+  script-driven path or it moves somewhere that does not read as public.
 - [ ] **`Web/content/docs.md:28` states "quantization has no checkpoint format."** True when written,
   false now — every published model is a quantized checkpoint. The surrounding point (the type
   chooses the reduced-precision path) still stands and should survive the correction.
@@ -459,9 +516,9 @@ being a task list and needs a prune.
   `Mila/Adaptors/Inference/Server/pyproject.toml:16` — a clean machine cannot `pip install -e .`
   without first installing the package tree editable, which is the documented development path but
   not an obvious one. Re-read the floor at release: once `0.20.0b2` is on PyPI it resolves normally.
-- [ ] **Publish GPT-2 as the reference model, not a fourth chat row.** It is a base model with no
-  chat template and MIS refuses the architecture outright, so it belongs to Bard and the training
-  path — and its ~250 MB is the point: it is the only artifact small enough to exercise the whole
+- [ ] **Publish GPT-2 as the reference model.** Chat now refuses base models and MIS refuses the
+  architecture, so it belongs to Bard, the training path and the completion sample — and its ~250 MB
+  is the point: it is the only artifact small enough to exercise the whole
   distribution path (resolve, pull, verify, adopt, load) inside CI, which is what the headless-pull
   item below is really blocked on. MIT, so no gating or attribution duty. Decide the precision
   (training is FP32-validated, reading is fine at BF16) and whether it is one row or two.
@@ -555,10 +612,12 @@ being a task list and needs a prune.
 - [ ] **In-turn thoughts dropped between tool calls** — Google's multi-turn rule is to strip
   prior-turn thoughts and keep the current turn's.
 - [ ] Buffer Gemma Anthropic streaming only when tools are present.
-- [ ] **Chat reports "Thinking: balanced" for models that have no thinking mode.** `show_thinking` is a
-  session-config flag, but only Gemma routes a reasoning channel — the welcome banner and `/model`
-  show an effort level for Llama and GPT-2 regardless, reading as a capability they lack. The banner
-  prints it beside `Model: none` too, which is an effort level for a model that does not exist.
+- [ ] **Chat's `context_length` needs an `auto`, and the interim clamp is a placeholder.** One session
+  config serves every model a session loads, so the number is either too small for a 12B or fatal for
+  GPT-2's 1024-row learned positions; today it is clamped by `maxContextFor` (`Chat.ModelCatalog.ixx`),
+  a per-family constant that is honest only for GPT-2. The real answer is the largest context that
+  fits the card, which `getRequiredMemory(BuildContext)` can already compute — open questions are the
+  headroom fraction and the behaviour when even the minimum does not fit.
 - [ ] **`/v1/models` reports the configured name, not the loaded one.** `ModelInfo.id` defaults to
   `settings.model` (`routes/models.py:11`) while the record's own name sits in `loaded.name`. The
   store matches case-insensitively, so `MILA_MODEL=llama-3.1-8b-instruct-fp4` serves
@@ -569,6 +628,47 @@ being a task list and needs a prune.
   architecture MIS cannot serve — has no coverage at all, and it is now the only place a startup can
   fail (`Mila/Adaptors/Inference/Server/model_worker.py:34`). A fake store object makes all three
   testable without a GPU.
+- [ ] **Model capabilities belong in the manifest, not in a family switch — the second reasoning
+  family breaks the current scheme.** `thinking_capable` and `streaming_capable` are both
+  `family == Gemma` (`Chat.ModelCatalog.ixx`), and `defaultContextFor`/`maxContextFor` are per-family
+  constants, so two models of one family cannot differ and a non-Gemma reasoning model reads as
+  having no channel. `instruct` is already record-declared and is the proof of the pattern; the
+  manifest tolerates unknown fields, so adding `context_length` and a reasoning-channel declaration
+  is additive, with `minimum_mila_version` as the lever when a model needs a newer build. Doing this
+  BEFORE the next chassis is what stops it threading a second switch through every site.
+- [ ] **A minimal C++ completion sample — the tree has no inference-only C++ example.** QuickStart is
+  build integration and Bard/MNIST are training, so "load a model, generate text in C++" is answered
+  today only by reading a 2000-line chat harness. This is the front door to the guided reading path
+  the release commits to in `MilaProductFamily.md`, so name it for what it teaches rather than for
+  the model it runs. Sequencing: it needs GPT-2 published first or it ships unrunnable.
+- [ ] **Decide whether a Python completion sample needs a `GptSession` before it can exist.**
+  `Samples/Python/generate.py` already shows completion as a mode via `--raw`, so the only gap is
+  GPT-2 itself — and the binding exposes just `LlamaModel` and `GemmaModel`. That is also why MIS
+  refuses the architecture (`Server/model_worker.py:40`: "gpt2 has a record shape and no session"),
+  making this a binding decision, not a sample one. Session-depth, so consistent with the settled
+  binding scope; still net-new projection surface for a sample Python largely already has.
+- [ ] **Chat lost its fast test model when base models were refused.** `gpt2-small` loaded in
+  seconds and is what surfaced both the `context_length` crash and the thinking-row defect. Every
+  remaining model is multi-gigabyte, so without a fixture that needs no download, Chat's test path
+  is one nobody will run.
+- [ ] **Decide where a user's Chat config lives — a container user has nowhere to put settings.**
+  `session.json` ships inside the image layer, so changing `temperature` or `context_length` means
+  mounting a file over it; `--config` assumes a file you can already write. Related: `chat-state.json`
+  now sits in the store root, which `resolveStoreRoot()` resolves to a *cache* directory on Linux —
+  survivable for a recoverable model name, wrong for real config. Two shapes weighed (beside the
+  store, or `MILA_CONFIG_DIR` with both paths under one volume mount); settle it once, since the
+  `context_length` `auto` setting will want the same home.
+- [ ] **MIS has no install path, only a checkout path — publish it as `mila-llm-server`.** Decided:
+  a separate PyPI project, not a fold into `mila-llm`, because the runtime is four CUDA-built binary
+  wheels behind a clean room while MIS is one `py3-none-any` file, and folding would put
+  `uvicorn[standard]` behind every `import mila`. Not an upload but a restructure: `py-modules = []`
+  (`Server/pyproject.toml:40`) means the project ships no code today, so it needs a
+  `src/mila_llm_server/` layout, a `[project.scripts]` entry point in place of `python main.py`, and
+  defaults usable with no `.env` on disk. `scripts/mis-{build,run}.*`, `Docker/run-mis.sh` and both
+  MIS READMEs assume run-in-place and travel with it.
+- [ ] **MIS refuses an interpreter its own dependency supports.** `Server/pyproject.toml:11` pins
+  `>=3.13,<3.14` on the rationale that a wider range admits a Python that cannot import the binding —
+  true when written, expired when the cp312 wheels shipped. `mila-llm` is `>=3.12,<3.14`.
 - [ ] **`main.cpp` re-checks what the store already guarantees** — after `resolveModel` succeeds it
   tests `exists()` on both paths, but `locate()` refuses an incomplete record. Harmless duplication,
   except `/model` has no equivalent check; if the guarantee is doubted, the check belongs in the store.
@@ -579,6 +679,11 @@ being a task list and needs a prune.
 
 Next-cycle work. Coarse by design — detailed tasking happens only when an item promotes into a release.
 
+- **[gate] One typed model handle + factory, before ANY next chassis** — the architecture-to-concrete
+  erasure exists three times in two languages (Chat's `ModelVariant`, the binding's `*Session`
+  classes, MIS's `ModelFamily`), which is why GPT-2 is missing from MIS. Lands in the runtime-adjacent
+  native agent core; sequencing and reasoning in `MilaProductFamily.md` Open Decision 2. **After the
+  v0.20 tag, before the chassis expansion below** — the chassis is what multiplies the cost.
 - **Qwen 3** (presumptive next release) — the dense decoder, thinking-mode suppression, model-agnostic
   tool calling, and FP8 KV cache; the `OperationTraits<GqaOp, Cuda, BF16, PerChannelKvFp8<>>`
   specialization lands here.
