@@ -14,7 +14,3 @@ set_target_properties( tokenize PROPERTIES
 )
 
 target_link_libraries( tokenize PRIVATE Mila )
-
-install( TARGETS tokenize
-    RUNTIME DESTINATION bin
-)

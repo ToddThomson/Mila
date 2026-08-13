@@ -89,15 +89,6 @@ option(MILA_ENABLE_OPENMP "Enable OpenMP support." OFF)
 # See Specifications/ModelDistribution.md.
 option(MILA_ENABLE_LIBCURL "Build Mila's libcurl HTTP transport." ON)
 
-# PARKED: find_package(Mila) is parked in favor of FetchContent. A C++23 module library is a
-# source distribution (BMIs are not portable -- a consumer recompiles the module graph either
-# way), so find_package's prebuilt-binary benefit is void while its install/export layout is
-# pure maintenance surface. Default OFF so no install rules are generated; FetchContent
-# consumers never need them (they add_subdirectory the source and link Mila::Mila). Opt in with
-# -DMILA_INSTALL=ON only to exercise the parked find_package path. See Mila/Tests/Packaging/
-# CMakeLists.txt and RELEASING/BACKLOG.
-option(MILA_INSTALL "Generate Mila install/export rules (PARKED find_package consumption; default OFF -- FetchContent is the supported path)." OFF)
-
 option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
 
 # The Metal and ROCm backends are currently for internal testing only. Please leave them disabled.

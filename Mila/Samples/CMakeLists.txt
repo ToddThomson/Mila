@@ -15,16 +15,19 @@ endif()
 # Mila/Adaptors/Chat (see MilaProductFamily.md). Its build wiring lives in
 # Mila/Adaptors/CMakeLists.txt.
 
-# QuickStart is intentionally NOT add_subdirectory()'d here. It is a standalone
-# FetchContent(Mila) example/consumer -- it stands in for a downstream app that pulls
-# Mila in as a dependency, so it configures on its own and fetches Mila itself (an
-# in-tree add_subdirectory would be circular). The Tests/Packaging
-# packaging_fetchcontent_consumer gate validates the same mechanism against the local
-# tree. See QuickStart/README.md.
-
-# Python is not add_subdirectory()'d either: Samples/Python holds scripts over the
-# MilaPy extension, with nothing to build. They locate the extension at run time in
-# the neutral output directory MilaPy publishes to (see Bindings/CMakeLists.txt).
+# Nothing under QuickStart/ is add_subdirectory()'d. It is the onboarding set -- one
+# directory per path a newcomer can take to a first run -- and none of it builds here:
+#
+#   QuickStart/Cpp     a standalone FetchContent(Mila) project standing in for a
+#                      downstream app, so it configures on its own and fetches Mila
+#                      itself (an in-tree add_subdirectory would be circular). The
+#                      Tests/Packaging packaging_fetchcontent_consumer gate validates
+#                      the same mechanism against the local tree.
+#   QuickStart/Python  scripts over the MilaPy extension, with nothing to build. They
+#                      locate the extension at run time in the neutral output directory
+#                      MilaPy publishes to (see Bindings/CMakeLists.txt).
+#
+# See QuickStart/README.md.
 
 if(WIN32)
   #add_subdirectory(Viz)

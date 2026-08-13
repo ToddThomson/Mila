@@ -151,7 +151,7 @@ Doxygen's own warnings gated as errors so doc drift fails the build.
 
 The convergence workstream: prove the primary Llama and Gemma targets against the HuggingFace oracle as
 permanent regression tests, package Mila as a consumable source distribution (FetchContent is the
-supported path; `find_package` is parked), stand up the Linux/clang portability gates and the
+one supported path), stand up the Linux/clang portability gates and the
 reproducible container build, and land the contributor-facing surface (coding standards, onboarding, a
 guided reading path through one token's journey). Python consumption is the other half of the same
 question and a different kind of artifact: a C++ consumer builds Mila from source, while `pip install

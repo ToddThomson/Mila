@@ -75,7 +75,7 @@ costs.
 
 ### Tier 1 — one command, given a built `mila.pyd`
 
-**Delivered 2026-07-28.** With the neutral output location in place, `python Mila/Samples/Python/chat.py`
+**Delivered 2026-07-28.** With the neutral output location in place, `python Mila/Samples/QuickStart/Python/chat.py`
 is the whole command: the sample finds the extension under `out/build/*/python/` (or `MILA_PYD_DIR`),
 finds the weights under `Data/Models/` (or `MILA_MODEL_PATH`), and streams. Two failure modes get a
 sentence rather than a stack trace — an extension built for a different Python (the ABI tag is
@@ -219,7 +219,7 @@ distribution with additive backend extras (`mila-llm[rocm]`), so no user's pin e
 
 ## Samples
 
-Shipped 2026-07-28 at `Mila/Samples/Python/`. No pip dependencies — standard library only. The
+Shipped 2026-07-28 at `Mila/Samples/QuickStart/Python/`. No pip dependencies — standard library only. The
 absence of a `requirements.txt` is itself part of the message.
 
 - **`chat.py`** — the flagship. Load Gemma, tokenize, stream tokens to stdout, interrupt through

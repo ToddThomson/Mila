@@ -351,14 +351,14 @@ gtest_discover_tests( ChatRichTextTests
         VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
-# Packaging gates: the find_package(Mila) consumer (installs Mila, builds
-# Samples/QuickStart against the install) and the FetchContent subproject consumer.
-# Defined here, with the tests, rather than at the root: it is meaningful only when
-# MILA_ENABLE_TESTING is on, and that dependency is now structural -- this file is
-# reached only through the MILA_ENABLE_TESTING-gated add_subdirectory(Tests). Default
-# OFF because each gate is a full install/subproject reconfigure + rebuild (900-1800s);
-# unit-test runs should not pay that. The x64-validate preset (and CI) turns it on.
-option(MILA_ENABLE_PACKAGING_TEST "Build the packaging gates (embed Mila via FetchContent and build a consumer against it; the find_package gate is retired in place and does not run)." OFF)
+# Packaging gates: the FetchContent subproject consumer against the local tree, and the
+# opt-in CPM-by-tag consumer against a published release. Defined here, with the tests,
+# rather than at the root: it is meaningful only when MILA_ENABLE_TESTING is on, and that
+# dependency is now structural -- this file is reached only through the
+# MILA_ENABLE_TESTING-gated add_subdirectory(Tests). Default OFF because each gate is a
+# full subproject reconfigure + rebuild (up to 1800s); unit-test runs should not pay that.
+# The x64-validate preset (and CI) turns it on.
+option(MILA_ENABLE_PACKAGING_TEST "Build the packaging gates (embed Mila via FetchContent and build a consumer against it)." OFF)
 
 if(MILA_ENABLE_PACKAGING_TEST)
     add_subdirectory(Packaging)

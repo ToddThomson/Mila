@@ -90,7 +90,7 @@ endif()
 
 # 2. The neutral build-tree location, importable without installing anything: put
 #    ${CMAKE_BINARY_DIR}/python on sys.path and `import mila` works. Per build
-#    directory, so Debug and Release do not overwrite each other. Samples/Python
+#    directory, so Debug and Release do not overwrite each other. Samples/QuickStart/Python
 #    discovers it by glob; anything else can read MilaPy_PYTHON_DIR.
 set(MILA_PYTHON_PACKAGE_DIR "${CMAKE_BINARY_DIR}/python")
 

@@ -73,12 +73,10 @@ target_include_directories( Mila
 
 # Kernel headers and the vendored nlohmann header are pulled by file-relative quoted
 # includes (#include "Kernels/Foo.cuh", "../../Deps/nlohmann/json.hpp"), which resolve
-# relative to the including .ixx. The install tree mirrors the source tree (see the
-# install section), so those same relative includes resolve after install when the
-# consumer recompiles the module units. No source-side include changes are needed.
+# relative to the including .ixx. A subproject consumer compiles the module units in
+# place against this source tree, so those relative includes resolve unchanged.
 target_include_directories( Mila
     INTERFACE
-        $<INSTALL_INTERFACE:include>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Src>
 )
 
@@ -469,10 +467,6 @@ PUBLIC
         "Src/Dnn/Samplers/TokenSampler.ixx"
  "Src/Dnn/Models/GptModelConfig.ixx" "Src/Dnn/Core/GenerateStatus.ixx")
 
-# Initialize install file set args with core modules; backend blocks append to this.
-set( MILA_INSTALL_FILE_SET_ARGS
-    FILE_SET module_files DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
-
 # ----------------------------------------------------------------------------
 # CPU backend modules
 # ----------------------------------------------------------------------------
@@ -513,7 +507,6 @@ if(MILA_HAS_CPU)
     )
 
     target_compile_definitions( Mila PUBLIC MILA_HAS_CPU)
-    list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cpu_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
     message(STATUS "Added CPU backend modules")
 endif()
@@ -742,11 +735,10 @@ if(MILA_HAS_CUDA)
     )
 
     # PUBLIC (like the Metal/ROCm backends below), not PRIVATE: Mila is a STATIC
-    # library, so a find_package consumer must (1) resolve cudart/cublas/curand
-    # symbols from Mila's .cu objects at its own final link, and (2) get the CUDA
-    # toolkit include dir as a usage requirement so the synthetic target that
-    # recompiles Mila's CUDA module units can find <cuda_fp16.h> etc. CUDA::* are
-    # re-established consumer-side by find_dependency(CUDAToolkit) in MilaConfig.
+    # library, so a consumer must (1) resolve cudart/cublas/curand symbols from
+    # Mila's .cu objects at its own final link, and (2) get the CUDA toolkit include
+    # dir as a usage requirement so the target that compiles Mila's CUDA module
+    # units can find <cuda_fp16.h> etc.
     target_link_libraries( Mila PUBLIC
         CUDA::cudart
         CUDA::cublas
@@ -759,11 +751,6 @@ if(MILA_HAS_CUDA)
     target_include_directories(Mila PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/Src/Dnn/Compute/Devices/Cuda/Helpers"
     )
-
-    list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cuda_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
-    # Same destination root as the module file sets: the kernel headers must land at the
-    # same Src-relative offset so the module units' file-relative includes resolve.
-    list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET cuda_headers DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
     message(STATUS "Added CUDA backend modules")
 endif()
@@ -790,7 +777,6 @@ if(MILA_HAS_METAL)
     )
 
     target_compile_definitions(Mila PUBLIC MILA_HAS_METAL )
-    list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET metal_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
     message(STATUS "Added Metal backend module partition (STUB)")
 endif()
@@ -878,7 +864,6 @@ if(MILA_HAS_ROCM)
     )
     
     target_compile_definitions( Mila PUBLIC MILA_HAS_ROCM )
-    list(APPEND MILA_INSTALL_FILE_SET_ARGS FILE_SET rocm_modules DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules)
 
     message(STATUS "Added ROCm backend modules")
 endif()
@@ -927,15 +912,13 @@ target_link_libraries( Mila
     #sentencepiece-static
 )
 
-# ZipSerializer.ixx is re-exported by Mila.ixx, so find_package consumers recompile
-# it; it includes <miniz.h>, which is multi-header (pulls miniz_common/_tdef/_tinfl/
-# _zip.h) plus a generated miniz_export.h in miniz's build dir. Propagate both the
-# source and build include dirs for our own build, and the shipped copy for
-# installed consumers (headers installed in the install section below).
+# ZipSerializer.ixx is re-exported by Mila.ixx, so every consumer recompiles it; it
+# includes <miniz.h>, which is multi-header (pulls miniz_common/_tdef/_tinfl/_zip.h)
+# plus a generated miniz_export.h in miniz's build dir. Propagate both the source and
+# build include dirs so a subproject consumer's recompile resolves them.
 target_include_directories( Mila INTERFACE
     $<BUILD_INTERFACE:${miniz_SOURCE_DIR}>
     $<BUILD_INTERFACE:${miniz_BINARY_DIR}>
-    $<INSTALL_INTERFACE:include/mila/modules/Deps/miniz>
 )
 
 # =============================================================================
@@ -959,108 +942,6 @@ target_compile_definitions(Mila PUBLIC
     MILA_VERSION_PATCH=${PROJECT_VERSION_PATCH}
     MILA_VERSION_PRERELEASE_TAG="${MILA_PRERELEASE_TAG}"
 )
-
-# =============================================================================
-# Installation
-# =============================================================================
-#
-# Gated on MILA_INSTALL (defaults to PROJECT_IS_TOP_LEVEL). A FetchContent /
-# add_subdirectory consumer builds Mila in-tree and does not want Mila's
-# targets, export set, or config files leaking into its own install tree.
-if(MILA_INSTALL)
-
-include(GNUInstallDirs)
-include(CMakePackageConfigHelpers)
-
-install( TARGETS 
-    miniz
-    #sentencepiece-static
-    EXPORT MilaTargets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-)
-
-if(MILA_HAS_CPU)
-    install(TARGETS Mila_Cpu EXPORT MilaTargets)
-endif()
-
-if(MILA_HAS_CUDA)
-    install(TARGETS Mila_Cuda EXPORT MilaTargets)
-endif()
-
-if(MILA_HAS_METAL)
-    install(TARGETS Mila_Metal EXPORT MilaTargets)
-endif()
-
-if(MILA_HAS_ROCM)
-    install(TARGETS Mila_Rocm EXPORT MilaTargets)
-endif()
-
-# Kernel headers ship via the cuda_headers HEADERS file set (see the CUDA block),
-# installed alongside the module units by the install(TARGETS) below. The old
-# install(DIRECTORY Src/ FILES_MATCHING *.cuh *.h) glob is gone: it dropped headers
-# under include/ on a different tree than the modules under include/mila/modules/Src,
-# which is exactly what broke the file-relative includes on the consumer side.
-
-# The install tree must mirror the source tree so the module units' file-relative
-# quoted includes resolve post-install. One piece sits outside the file sets:
-#   - The vendored nlohmann header: json.ixx includes "../../Deps/nlohmann/json.hpp",
-#     which from .../mila/modules/Src/Utils/json.ixx resolves to .../mila/modules/Deps.
-# (Version no longer needs a shipped header: it travels as PUBLIC compile
-# definitions on the exported target -- see the Versioning block above.)
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Deps/
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules/Deps
-)
-
-# miniz headers for the recompiled ZipSerializer module: the 5 source headers plus
-# the generated miniz_export.h. Destination matches the INSTALL_INTERFACE include
-# dir set on the Mila target above.
-install(FILES
-    ${miniz_SOURCE_DIR}/miniz.h
-    ${miniz_SOURCE_DIR}/miniz_common.h
-    ${miniz_SOURCE_DIR}/miniz_tdef.h
-    ${miniz_SOURCE_DIR}/miniz_tinfl.h
-    ${miniz_SOURCE_DIR}/miniz_zip.h
-    ${miniz_BINARY_DIR}/miniz_export.h
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mila/modules/Deps/miniz
-)
-
-install(TARGETS Mila
-    EXPORT MilaTargets
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    ${MILA_INSTALL_FILE_SET_ARGS}
-)
-
-# Export targets
-install(EXPORT MilaTargets
-    FILE MilaTargets.cmake
-    NAMESPACE Mila::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Mila
-)
-
-# Generate config file
-configure_package_config_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/MilaConfig.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/MilaConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Mila
-)
-
-# Generate version file
-write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/MilaConfigVersion.cmake
-    VERSION ${MILA_SEMVER}
-    COMPATIBILITY SameMajorVersion
-)
-
-# Install config files
-install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/MilaConfig.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/MilaConfigVersion.cmake
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Mila
-)
-
-endif() # MILA_INSTALL
 
 # =============================================================================
 # Additional Targets and Subdirectories

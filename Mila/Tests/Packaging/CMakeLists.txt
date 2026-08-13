@@ -1,39 +1,17 @@
-# find_package(Mila) packaging gate -- PARKED (find_package parked in favor of FetchContent).
+# Packaging gates. FetchContent (subproject consumption) is the ONLY supported way to depend
+# on Mila; find_package and the install/export rules it needed were removed in 0.20.0-beta.3.
 #
-# A C++23 module library is a source distribution: module BMIs are not portable, so a
-# consumer recompiles Mila's module graph either way. That voids find_package's
-# prebuilt-binary benefit while carrying the whole install-layout apparatus (FILE_SETs,
-# kernel-header mirroring, the MilaTargets export) plus toolchain/ABI coupling between the
-# prebuilt .a and the consumer's recompiled modules. FetchContent compiles Mila ONCE, in the
-# consumer's own toolchain -- no BMI/ABI issue, no install machinery -- so it is the supported
-# consumption path (see packaging_fetchcontent_consumer below, now the primary packaging gate).
+# The reasoning, kept here because it is the thing to re-read before anyone proposes bringing
+# find_package back: a C++23 module library is a source distribution. Module BMIs are not
+# portable, so a consumer recompiles Mila's .ixx graph in its own toolchain either way, which
+# voids find_package's prebuilt-binary benefit. What it does NOT void is the cost -- the whole
+# install-layout apparatus (FILE_SET destinations, kernel-header mirroring, the MilaTargets
+# export, a generated config) plus toolchain/ABI coupling between the prebuilt archive and the
+# consumer's recompiled modules. FetchContent compiles Mila once, in one coherent toolchain.
 #
-# This gate + its fixture (Samples/QuickStart, drive_consumer.cmake) are retained on disk but
-# OFF by default so the install-layout path can still be exercised on demand without gating a
-# release. To run it: -DMILA_ENABLE_FIND_PACKAGE_GATE=ON AND -DMILA_INSTALL=ON (the install/
-# export rules are parked OFF by default too -- see Mila/CMakeLists.txt).
-option(MILA_ENABLE_FIND_PACKAGE_GATE "Run the PARKED find_package(Mila) install-consumption gate (opt-in; also needs MILA_INSTALL=ON). FetchContent is the supported path." OFF)
-
-if(MILA_ENABLE_FIND_PACKAGE_GATE)
-    add_test(
-        NAME packaging_find_package_consumer
-        COMMAND ${CMAKE_COMMAND}
-            -D "MILA_BINARY_DIR=${CMAKE_BINARY_DIR}"
-            -D "QUICKSTART_SOURCE_DIR=${CMAKE_SOURCE_DIR}/Mila/Samples/QuickStart"
-            -D "WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/work"
-            -D "GENERATOR=${CMAKE_GENERATOR}"
-            -D "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-            -D "CUDA_COMPILER=${CMAKE_CUDA_COMPILER}"
-            -D "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/drive_consumer.cmake"
-    )
-
-    # Generous timeout: the consumer recompiles Mila's module graph from source.
-    set_tests_properties(packaging_find_package_consumer PROPERTIES
-        TIMEOUT 900
-        LABELS "packaging"
-    )
-endif()
+# The honest trade, which the gate timeouts below record: a subproject consumer builds ALL of
+# Mila, every .cu kernel, not just the module interfaces. That is the price of the supported
+# path and it is paid knowingly.
 
 # FetchContent / subproject gate -- the PRIMARY (supported) packaging gate. Embeds the
 # Mila source tree via add_subdirectory and links the in-tree Mila::Mila target, proving
@@ -53,8 +31,8 @@ add_test(
         -P "${CMAKE_CURRENT_SOURCE_DIR}/drive_fetchcontent.cmake"
 )
 
-# Heavier than the find_package gate: a subproject build compiles ALL of Mila
-# in-tree (every .cu kernel), not just the module interfaces.
+# A subproject build compiles ALL of Mila in-tree (every .cu kernel), not just the
+# module interfaces -- hence the wide timeout.
 set_tests_properties(packaging_fetchcontent_consumer PROPERTIES
     TIMEOUT 1800
     LABELS "packaging"

@@ -176,9 +176,8 @@ The division that matters:
    ```
    ctest --test-dir out/build/x64-validate --output-on-failure
    ```
-   Expect: unit tests + `packaging_fetchcontent_consumer` green. FetchContent is the supported
-   consumption path; the `find_package` gate is retired in place (present on disk, behind a disabled
-   option) and does not run. `packaging_cpm_consumer` is a separate preset, at step 6.
+   Expect: unit tests + `packaging_fetchcontent_consumer` green. FetchContent is the only
+   supported consumption path. `packaging_cpm_consumer` is a separate preset, at step 6.
 4. Commit and push to `dev`.
 
 `dev` is the CI-gated trunk; releases reach `master` only through a `dev -> master` PR (see
@@ -201,6 +200,13 @@ not by the Release. See the note below.
    "Last checkpoint tagged" line** above. `master` is the branch a visitor lands on, so a missed bump
    leaves the front page advertising the previous checkpoint for the whole next cycle — and a
    procedure that misreports the last release is worse than one that says nothing.
+   **Bump the QuickStart pin to the tag being released** — the `GIT_TAG` in
+   `Mila/Samples/QuickStart/Cpp/CMakeLists.txt`, and in `Mila/Samples/QuickStart/Cpp/README.md` and
+   `getting-started.md` §7, where it appears in copy-paste blocks (the README also carries it in a
+   `URL` archive line). Nothing checks these strings: `packaging_fetchcontent_consumer` overrides
+   the ref with `SOURCE_DIR`, and `packaging_cpm_consumer` reads its tag from `Version.txt`, not from
+   the sample. They went stale once already, pointing at an unreleased `v0.20.0` — a downstream
+   consumer copying the sample got a checkout failure on their first build.
    **CHANGELOG only at a production (unsuffixed) release** — generate one short entry from the
    commit range since the previous production tag, and collapse that line's `alpha.N`/`beta.N`/`rc.N`
    sections into it. A pre-release flip writes nothing to CHANGELOG.

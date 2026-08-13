@@ -424,7 +424,7 @@ include(FetchContent)
 FetchContent_Declare(
     Mila
     GIT_REPOSITORY https://github.com/ToddThomson/Mila.git
-    GIT_TAG        v0.20.0           # pin to a published release tag
+    GIT_TAG        v0.20.0-beta.2    # pin to a published release tag
 )
 FetchContent_MakeAvailable(Mila)
 
@@ -439,12 +439,18 @@ target_link_libraries(my_app PRIVATE Mila::Mila)
 in `FetchContent_Declare`. Because C++23 module BMIs are not portable, your toolchain recompiles
 Mila's module units from source — inherent to consuming any module library, not specific to Mila.
 
-A complete, copy-paste starting point is in
-[`Mila/Samples/QuickStart`](Mila/Samples/QuickStart/README.md).
+**Budget for the first build**: your project builds all of Mila, every CUDA kernel included, so
+set `-DCMAKE_CUDA_ARCHITECTURES` to your own GPU's arch (`89` for Ada) as in Section 3 — the
+default multi-arch list compiles every kernel several times over. Rebuilds are incremental.
 
-> **`find_package(Mila)`?** Parked in favor of FetchContent: a module library is a source
-> distribution, so `find_package`'s prebuilt-binary benefit is void while its install layout is
-> pure maintenance surface. It remains on disk, opt-in only.
+A complete, copy-paste starting point is in
+[`Mila/Samples/QuickStart/Cpp`](Mila/Samples/QuickStart/Cpp/README.md) — a standalone project that
+consumes Mila exactly like this and then loads a model and streams a reply, so the `CMakeLists.txt`
+above is shown doing real work rather than printing a version.
+
+> **`find_package(Mila)`?** Not supported, and removed in 0.20.0-beta.3. A module library is a
+> source distribution, so `find_package`'s prebuilt-binary benefit is void while its install
+> layout costs real maintenance. FetchContent is the one supported path.
 
 ---
 

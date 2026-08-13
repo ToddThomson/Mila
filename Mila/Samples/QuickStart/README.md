@@ -1,73 +1,50 @@
-# Mila QuickStart
+# Quick Start
 
-The minimal example of consuming Mila from your own CMake project via **FetchContent** —
-the supported way to depend on Mila. It is referenced from `getting-started.md`.
+The shortest path to a running Mila, one directory per way in. Pick the one that matches how you
+want to use Mila.
 
-Unlike the other entries under `Samples/`, this is a **standalone project**: it is not part
-of the Mila build tree. It stands in for a downstream app that pulls Mila in as a dependency.
+Both do the same thing — one prompt in, generated tokens streamed out, same model, same
+template, same defaults — so you can read them side by side and see only the language differ.
 
-## Why FetchContent (and not `find_package`)
+| | Who it's for | What it costs |
+|---|---|---|
+| **[Python](Python/quickstart.py)** | I'm building in Python | `pip install mila-llm` and a model download. No compiler. Python 3.12 or 3.13, to match the published wheels. |
+| **[C++](Cpp/)** | I'm building a C++ app | A C++23 toolchain, CUDA, and a from-source build of Mila. Its `CMakeLists.txt` is also the worked example of depending on Mila. |
 
-A C++23 module library is a **source distribution**: module BMIs are not portable, so *any*
-consumer recompiles Mila's module units in its own toolchain. That voids `find_package`'s
-prebuilt-binary benefit while adding an install-layout apparatus and an ABI split between the
-prebuilt archive and the recompiled modules. FetchContent compiles Mila **once**, in your
-project's toolchain — no install step, no ABI coupling — and is the same mechanism Mila uses
-for its own dependencies (googletest, CUTLASS, nlohmann). `find_package` is parked (see the
-repo's Packaging notes).
+Both need the same two things underneath: **a CUDA GPU**, and **a model in the local store**.
+Models are not in git and nothing downloads one behind your back — installing is an explicit
+step, and pull and load are separate verbs.
 
-## Consuming Mila
+**Single-shot on purpose.** Neither has a conversation loop: history and a REPL teach nothing
+about Mila and are most of what makes a chat harness large. `Mila/Adaptors/Chat` is where
+multi-turn, channel routing and tool calls live — it is the payoff for going deeper, not the
+thing to read first.
 
-```cmake
-cmake_minimum_required(VERSION 4.0)
-project(MyApp LANGUAGES CXX CUDA)
+## Getting a model
 
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_SCAN_FOR_MODULES ON)   # your toolchain recompiles Mila's module units
+The store is shared: Chat, the inference server, and the Python binding all read the same place,
+so a model installed once is loadable by everything.
 
-include(FetchContent)
-FetchContent_Declare(
-    Mila
-    GIT_REPOSITORY https://github.com/ToddThomson/Mila.git
-    GIT_TAG        v0.20.0           # pin to a published release tag
-    # or, for a local working tree:  SOURCE_DIR /path/to/Mila
-    # or, for a release archive:     URL https://github.com/ToddThomson/Mila/archive/refs/tags/v0.20.0.zip
-)
-FetchContent_MakeAvailable(Mila)
+From Python:
 
-add_executable(my_app main.cpp)
-target_link_libraries(my_app PRIVATE Mila::Mila)
-
-# Clang consumers only (MSVC auto-configures module consumption):
-# target_compile_options(my_app PRIVATE -fno-implicit-modules -fno-implicit-module-maps)
+```python
+import mila
+mila.initialize("warning")
+mila.ModelStore().pull("gemma-4-12b-it-fp4", mila.default_hub_owner())
 ```
 
-```cpp
-import Mila;
+Or from the chat harness — `/models --online` to see what is published, `/install <name>` to take
+one. Published today: `gemma-4-12b-it-fp4` (~6.3 GB), `Llama-3.2-3B-Instruct-fp4`,
+`Llama-3.1-8B-Instruct-fp4`, and `gpt2-small`.
 
-int main()
-{
-    Mila::initialize();
-    // ... use Mila ...
-    Mila::shutdown();
-}
-```
+## After the quick start
 
-## Building it
+`Python/chat.py` is the multi-turn version — streaming with the reasoning channels filtered out.
+`Python/generate.py` covers the sampling knobs, `Python/store.py` the model store. In C++, the
+chat harness at `Mila/Adaptors/Chat` is the complete article: streaming channels, tool calls and
+model switching.
 
-```bash
-cmake -S . -B build -G Ninja
-cmake --build build
-```
-
-`FetchContent_MakeAvailable(Mila)` fetches Mila and `add_subdirectory()`'s it, so Mila builds
-as a subproject in your toolchain. Because module BMIs are not portable, your toolchain
-recompiles Mila's module units from source during this build — that is inherent to consuming a
-module library, not specific to Mila.
-
-## Automated gate
-
-`Tests/Packaging`'s `packaging_fetchcontent_consumer` gate automates exactly this against the
-local working tree (network-free) and fails CI if Mila stops being subproject-consumable. The
-opt-in `packaging_cpm_consumer` additionally proves a published tag is fetchable over the network.
+`Samples/Bard` and `Samples/MNIST` are the training samples — a full forward, backward and AdamW
+loop, which is the other half of what Mila does.
+[getting-started.md](../../../getting-started.md) is the long-form version of everything here,
+including building Mila itself from a clone.

@@ -230,23 +230,29 @@ double as a ruthless validation oracle.
 
 ## Samples
 
-### MNIST Classifier
+Everything lives under [`Mila/Samples`](https://github.com/ToddThomson/Mila/blob/dev/Mila/Samples/README.md),
+split by what it is for.
 
-Located under `Mila/Samples/MNIST`. Trains a 3-layer MLP on MNIST to ~97.9% test accuracy.
-Demonstrates the full training loop: data loading, forward pass, loss, backward pass, AdamW step.
+### Quick Start — getting Mila running
 
-### Bard — GPT-2 character-level training
+[`Mila/Samples/QuickStart`](https://github.com/ToddThomson/Mila/blob/dev/Mila/Samples/QuickStart/README.md)
+holds one directory per path to a first run. Both do the same thing — one prompt in, tokens
+streamed out, same model and template — so they read side by side with only the language
+differing. **Python** is `pip install mila-llm` and a script; **C++** is a standalone CMake
+project whose `CMakeLists.txt` doubles as the worked example of depending on Mila with
+`FetchContent`, the supported consumption path for a C++23 module library. Both need a CUDA GPU
+and a model in the local store. See also
+[getting-started.md](https://github.com/ToddThomson/Mila/blob/dev/getting-started.md) for the
+long-form version, including building Mila from a clone.
 
-Located under `Mila/Samples/Bard`. Trains a small GPT-2-style transformer on Tiny Shakespeare to
+### Demonstrations — what Mila does
+
+**MNIST Classifier** (`Mila/Samples/MNIST`) trains a 3-layer MLP to ~97.9% test accuracy —
+the full training loop: data loading, forward pass, loss, backward pass, AdamW step.
+
+**Bard** (`Mila/Samples/Bard`) trains a small GPT-2-style transformer on Tiny Shakespeare to
 coherent, Shakespeare-structured text — the transformer counterpart to MNIST's MLP, revived to the
 current API as part of v0.20 Training Revival.
-
-### QuickStart — consume Mila via FetchContent
-
-Located under `Mila/Samples/QuickStart`. A standalone downstream project showing how to depend on Mila
-with `FetchContent` (the supported consumption path for a C++23 module library) and call its public
-API. See [getting-started.md §7](https://github.com/ToddThomson/Mila/blob/dev/getting-started.md) and the sample's
-[README](https://github.com/ToddThomson/Mila/blob/dev/Mila/Samples/QuickStart/README.md).
 
 ---
 

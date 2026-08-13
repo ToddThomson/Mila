@@ -103,7 +103,7 @@ store.pull("gemma-4-12b-it-fp4", mila.default_hub_owner())
 print([model.name for model in store.list()])
 ```
 
-`Mila/Samples/Python/store.py` does the same from the command line.
+`Mila/Samples/QuickStart/Python/store.py` does the same from the command line.
 
 ---
 

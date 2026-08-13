@@ -432,3 +432,7 @@ FodyWeavers.xsd
 /Mila/Bindings/Package/VERSION
 /Mila/Adaptors/Inference/Server/VERSION
 /.claude/settings.local.json
+
+# Design scratch served by `hugo server` for side-by-side iteration against the real
+# site. Hugo copies static/ verbatim, so anything left here would ship on a publish.
+/Web/static/_mockup/

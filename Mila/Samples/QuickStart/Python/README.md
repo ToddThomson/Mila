@@ -1,11 +1,20 @@
 # Mila from Python
 
-Three samples over `mila`, Mila's pybind11 extension module. Standard library only —
-there is no `requirements.txt`, and that is the point: a local LLM in Python
-without a framework underneath it.
+Samples over `mila`, Mila's pybind11 extension module. Standard library only — there is
+no `requirements.txt`, and that is the point: a local LLM in Python without a framework
+underneath it.
+
+**Start with [`quickstart.py`](quickstart.py).** It is the whole thing in one screen, and
+its C++ twin at [`../Cpp/main.cpp`](../Cpp/main.cpp) does the same job with the same model
+and template, so the two read side by side.
+
+```bash
+python quickstart.py "Why is the sky blue?"
+```
 
 | | |
 |---|---|
+| [`quickstart.py`](quickstart.py) | One prompt in, tokens streamed out. Single-shot: no history, no REPL, thinking off. The smallest complete thing. |
 | [`chat.py`](chat.py) | Streaming chat with Gemma 4. The instruct template, the token loop, the channel filter, and cooperative Ctrl-C — the whole thing, in one file. |
 | [`generate.py`](generate.py) | Tokenizer round-trip and the sampling knobs (`temperature`, `top_k`, `top_p`), blocking generation, Gemma or Llama. |
 | [`store.py`](store.py) | What the model store holds — listing, locating, and what each model costs on disk. No network: pull and load are separate verbs. |
@@ -51,8 +60,8 @@ store.pull("gemma-4-12b-it-fp4", mila.default_hub_owner())
 `/install <name>` in the chat harness does the same thing. Then name it:
 
 ```bash
-python Mila/Samples/Python/chat.py --model gemma-4-12b-it-fp4
-python Mila/Samples/Python/store.py          # what is already installed
+python Mila/Samples/QuickStart/Python/chat.py --model gemma-4-12b-it-fp4
+python Mila/Samples/QuickStart/Python/store.py          # what is already installed
 ```
 
 `--model` defaults to `gemma-4-12b-it-fp4`. A store name is the whole key — the
@@ -77,11 +86,11 @@ unquantized; a published one already is, and its record says to what.
 ## Running
 
 ```bash
-python Mila/Samples/Python/chat.py
+python Mila/Samples/QuickStart/Python/chat.py
 ```
 
 ```bash
-python Mila/Samples/Python/generate.py --sweep
+python Mila/Samples/QuickStart/Python/generate.py --sweep
 ```
 
 `chat.py`: Ctrl-C stops the current response and keeps the session, `/clear`
@@ -89,7 +98,7 @@ forgets the conversation, `/exit` quits, `--stats` prints time-to-first-token an
 decode rate per turn.
 
 ```bash
-python Mila/Samples/Python/generate.py --model Llama-3.2-3B-Instruct-fp4
+python Mila/Samples/QuickStart/Python/generate.py --model Llama-3.2-3B-Instruct-fp4
 ```
 
 `generate.py`: `--model` picks an installed model and its template follows from the

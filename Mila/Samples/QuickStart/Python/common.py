@@ -17,8 +17,9 @@ import sys
 import sysconfig
 from pathlib import Path
 
-# .../Mila/Samples/Python/common.py -> the repository root.
-REPO_ROOT = Path(__file__).resolve().parents[3]
+# .../Mila/Samples/QuickStart/Python/common.py -> the repository root. Counted from this
+# file, so it moves with the directory depth -- verify it when relocating these samples.
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 # The published model the samples open by default. Fetch it with ModelStore.pull or
 # /install; nothing in these samples downloads anything.

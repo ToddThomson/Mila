@@ -204,8 +204,7 @@
         "MILA_ENABLE_SAMPLES": "OFF",
         "MILA_ENABLE_ADAPTORS": "OFF",
         "MILA_ENABLE_PROFILING": "OFF",
-        "MILA_ENABLE_DOCS": "OFF",
-        "MILA_INSTALL": "OFF"
+        "MILA_ENABLE_DOCS": "OFF"
       },
       "condition": {
         "type": "equals",

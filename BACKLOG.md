@@ -264,6 +264,15 @@ being a task list and needs a prune.
   library-only build" changes nothing on a fresh clone. `getting-started.md:221` compounds it with
   `find_package(Doxygen REQUIRED)`; the call is unqualified and `Mila/Docs/CMakeLists.txt:12` explains
   at length why it must stay that way. Graphviz is sold for call graphs the Doxyfile disables.
+- [ ] **A FetchContent consumer inherits Mila's `docs` target, aimed at the consumer's own source
+  tree.** `MILA_ENABLE_DOCS` defaults `ON` and is not gated on `PROJECT_IS_TOP_LEVEL`, so a
+  downstream configure prints "Doxygen documentation target 'docs' created" and offers a target
+  whose `WORKING_DIRECTORY` and output path are `${CMAKE_SOURCE_DIR}`
+  (`Mila/Docs/CMakeLists.txt:21-24`) — in a subproject build that is the *consumer's* root, so
+  building it would write `<their-repo>/build/docs` and run Mila's Doxyfile against their tree.
+  Observed on a real standalone consumer configure 2026-08-13, not inferred. Same
+  `CMAKE_SOURCE_DIR`-in-a-subproject class as the `tokenize` item; `MILA_ENABLE_SAMPLES` gets this
+  right and is the pattern to copy.
 - [ ] **The preset list names four presets that do not exist and omits nine that do.**
   `getting-started.md:207` offers `x86-debug`, `x86-release`, `linux-debug`, `macos-debug` — none are
   in `CMakePresets.json`, and the real Linux entries are `linux-clang-{debug,release}` and
@@ -301,9 +310,16 @@ being a task list and needs a prune.
   that duplication; only a 3.14 wheel will. Needs `uv python install 3.14` on Windows and one
   deadsnakes line in `Dockerfile.wheel`.
 - [ ] **`Mila/Tools` has no off switch** — gated on `PROJECT_IS_TOP_LEVEL` alone
-  (`Mila/CMakeLists.txt:1081`), so the wheel configure builds `tokenize` and `ExportArtifact`, neither
+  (`Mila/CMakeLists.txt:962`), so the wheel configure builds `tokenize` and `ExportArtifact`, neither
   of which can go in a wheel. Every other subdirectory has a `MILA_ENABLE_*`; this one costs build time
   on an artifact that discards it.
+- [ ] **`tokenize` writes its executable into the consumer's source tree.**
+  `Tools/Tokenize/CMakeLists.txt:13` sets `RUNTIME_OUTPUT_DIRECTORY` under `${CMAKE_SOURCE_DIR}`,
+  which in a subproject build is the *consumer's* root, not Mila's. `PROJECT_SOURCE_DIR` is the fix,
+  but the tool is run from `Data/Tools/<CONFIG>`, so moving it is a workflow change, not a rename.
+  Masked today by the `PROJECT_IS_TOP_LEVEL` gate above — it becomes live the moment Tools gets its
+  `MILA_ENABLE_*` switch. `CMAKE_SOURCE_DIR` vs `PROJECT_SOURCE_DIR` is the exact class
+  `packaging_fetchcontent_consumer` exists to catch, and it is getting past it.
 - [ ] **ProgressReporter** — an injected per-operation progress facility for long-lived ops (BPE vocab
   training, `PretrainedReader` load, load-time quantization). `BpeVocabulary.ixx:624` is the concrete
   call site: an every-100-merges elapsed-time print asking to become an async callback.
@@ -370,10 +386,13 @@ being a task list and needs a prune.
   re-check the rest at the same time, since the deprecation applies by action version, not by workflow.
   `.github/workflows/wheel-cleanroom.yml`
 - [ ] Add the Samples build to CI (only tests build today).
-- [ ] **Published Docker runtime image** — slim multi-stage GPU runtime, release-tagged, weights never
-  baked in. Model distribution is what makes it publishable: the image carries no weights and the user
-  installs one by name. Class 4 is the only user class with a README, a Dockerfile, three compose files
-  and no artifact — every path today builds from source.
+- [~] **Publish the Docker runtime image.** The image itself is now PROVEN, 2026-08-13: the committed
+  `Dockerfile.runtime` builds (first time ever), and all three entrypoint verbs were verified in a
+  container — `install gpt2-small` pulled 624 MB into a fresh volume; `chat` started and listed that
+  store; `serve` bound 6452 and answered a real `/v1/chat/completions` request with
+  `Llama-3.2-3B-Instruct-fp4` loaded from a read-only mount of the host store (`finish_reason: stop`).
+  The never-run `ENV MILA_PORT=6452` fix is correct — `config.py` sets `env_prefix="MILA_"`, and no
+  `.env` ships in the image, so `settings.port` resolves to 6452. What remains is the publish itself.
 - [ ] **ONE image holding all of Mila, with two entry points** — not one per adaptor. Chat and MIS are
   two interfaces onto the same runtime: same `libMila`, same binding, same store on the same mount, so
   splitting them would duplicate the library and make the user choose an artifact before they know which
@@ -419,11 +438,11 @@ being a task list and needs a prune.
   the only `MODELS_DIR` in the tree is `Mila/Profiling/ProfileModel/CMakeLists.txt:22`. Chat resolves
   models through `MILA_CACHE_DIR` and its config through the working directory, which is why the
   published image can drop the bind mount at all. The claim reads as a hard dependency on `/mila`.
-- [ ] **The published image has no non-interactive way to install a model.** `/install` is a Chat REPL
-  command and `ExportArtifact --install` is not shipped in the runtime image, so getting a model in
-  means running the image in chat mode, typing at a prompt, then re-running it as `serve`. A third
-  entrypoint verb — `docker run ... mila-llm install <name>` — is what makes the Docker Hub quick
-  start three copy-paste lines instead of a paragraph about entering a REPL first.
+- [ ] **A publish build of the runtime image has never been made.** Verification used a single-arch
+  (`89`) build; a published image must be `89;90;120` and needs `MILA_CLEAN_BUILD=1`, since
+  `--no-cache` leaves BuildKit cache mounts intact. Open decisions before any push: whether a
+  pre-release gets `latest` (a bare `docker run toddthomson/mila-llm` resolves to it), and the
+  Docker Hub Overview page needing a source in the repo rather than browser edits.
 - [ ] **Decide the container tag scheme, including whether a pre-release gets `latest`.** RELEASING
   covers dropping `+build` (OCI forbids `+`) and nothing else. `latest` is what a bare
   `docker run toddthomson/mila-llm` resolves to, so pointing it at a beta makes the beta the default
@@ -612,13 +631,48 @@ being a task list and needs a prune.
   manifest tolerates unknown fields, so adding `context_length` and a reasoning-channel declaration
   is additive, with `minimum_mila_version` as the lever when a model needs a newer build. Doing this
   BEFORE the next chassis is what stops it threading a second switch through every site.
-- [ ] **A minimal C++ completion sample — the tree has no inference-only C++ example.** QuickStart is
-  build integration and Bard/MNIST are training, so "load a model, generate text in C++" is answered
-  today only by reading a 2000-line chat harness. This is the front door to the guided reading path
-  the release commits to in `MilaProductFamily.md`, so name it for what it teaches rather than for
-  the model it runs. `mila-llm/gpt2-small` is published, so the sequencing block is lifted.
+- [ ] **`import Mila;` breaks the standard library in the consumer's translation unit.** Three
+  failures, all in a real standalone FetchContent consumer, all absent without the import:
+  (1) any C++ stream **input** fails — `std::getline(cin, string)` and `cin.getline(char*, n)` both
+  die on "'_Ok' uses undefined class `basic_istream::sentry`"; (2) instantiating any model fails
+  unless the consumer includes `<sstream>` **before** the import, because `Component::toString()` is
+  virtual so `GemmaModel::toString()`'s body compiles into the consumer via the vtable and uses
+  `std::ostringstream`; (3) putting `import Mila;` before the includes is fatal — C1116
+  "unrecoverable error importing module 'Compute.CpuDevice'", with MSVC's own report-a-modules-bug
+  note. Proven by compiling the identical `getline` call with and without the import: clean without.
+  Nothing caught this because Chat and the tests build *inside* the tree, and
+  `packaging_fetchcontent_consumer`'s fixture only calls `initialize()` and prints a version — it
+  never instantiates a model or reads input. `Samples/QuickStart/Cpp/main.cpp` carries two named
+  workarounds (`<sstream>`, and `std::fgets` instead of stream input) that should be deleted when
+  this is fixed. Likely a GMF-reachability problem; MSVC 14.51.36231, CUDA 13.3.
+- [ ] **Test whether `import std;` in the consumer clears the `import Mila;` std breakage.** Leading
+  hypothesis for the item above: with no textual std headers there is no include/import duality to
+  confuse ownership, and Microsoft's own C1116 page names mixing `import` and `#include` as a cause.
+  Not yet run — `import std` is still experimental in CMake 4.0.1 and `CMAKE_CXX_MODULE_STD` must be
+  set *before* `project()`, so it needs a fresh build directory and a full from-source Mila build
+  (~15 min). Two caveats if it works: it raises the consumer floor to an experimental CMake feature,
+  which is a lot to ask of a quickstart; and it only fixes the consumer side, since Mila's own
+  modules `#include` in their GMFs — if that is the root cause the real fix is in `Mila/Src`.
+  Searched 2026-08-13: no filed bug matches this signature, and MSVC emitted its own
+  report-a-modules-bug note, so it may be unreported.
+- [ ] **Make `packaging_fetchcontent_consumer` instantiate a model and read input.** Its fixture is
+  a version print, which is why the defect above sat undetected — the gate proves Mila *links*, not
+  that its module is *usable*. It needs no GPU and no model to catch all three failures: they are
+  compile-time. Cheapest possible guard for the entire C++ consumer story.
+- [ ] **The Python binding discards `GenerateStatus`, so the two quick starts cannot reach parity.**
+  `Mila_py.Wrappers.cpp:657` (Gemma) and `:553` (Llama) do `(void)impl_->model->generate(...)`, so a
+  Python caller cannot tell EOS from the `max_new_tokens` cap from context overflow from a
+  cancellation — which `LanguageModel::generate`'s own docstring calls the one outcome a caller
+  cannot reconstruct from the token stream. The C++ quick start prints `[stop]`; the Python one
+  prints nothing, and that gap is visible to anyone reading them side by side as the website's two
+  first tabs. Session-depth, so consistent with the settled binding scope.
+- [ ] **Nothing stops the quick starts rotting again — a single-shot sample is testable and the old
+  one never was.** Prompt in, tokens out, exit code is CI-shaped given a model in the store, which
+  is the only real defence; `packaging_fetchcontent_consumer` proves its own fixture compiles, not
+  this sample. Blocked on a fixture that needs no multi-gigabyte download — see the `gpt2-small`
+  Chat-test-model item above, which is the same gap.
 - [ ] **Decide whether a Python completion sample needs a `GptSession` before it can exist.**
-  `Samples/Python/generate.py` already shows completion as a mode via `--raw`, so the only gap is
+  `Samples/QuickStart/Python/generate.py` already shows completion as a mode via `--raw`, so the only gap is
   GPT-2 itself — and the binding exposes just `LlamaModel` and `GemmaModel`. That is also why MIS
   refuses the architecture (`Server/model_worker.py:40`: "gpt2 has a record shape and no session"),
   making this a binding decision, not a sample one. Session-depth, so consistent with the settled
