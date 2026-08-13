@@ -8,11 +8,11 @@ name: Mila Docs
 # validates, and deploys. The validate step gates the deploy: a broken build or malformed
 # structured data fails the build job, and the deploy job never runs.
 #
-# The API reference is folded into the SAME Pages artifact -- GitHub Pages serves one site per
-# repo, so the site and /api deploy together and cannot be published independently. It therefore
-# tracks `dev` as well. That is fine: the API reference is marked noindex, so "current with the
-# code" is preferable to "frozen at a release" and carries no SEO cost. (web.yml is the faster,
-# site-only build+validate gate for pull requests and ad-hoc checks; it never deploys.)
+# The API reference is folded into the SAME Pages artifact -- a Pages deployment replaces the
+# whole site, so publishing the authored site alone would delete /api from it. They therefore
+# deploy together and /api tracks `dev`, which is what you want for a reference generated from
+# the source. It is indexed. (web.yml is the faster, site-only build+validate gate for pull
+# requests and ad-hoc checks; it never deploys.)
 #
 # The build runs Doxygen directly against the canonical Mila/Docs/Doxyfile -- no CMake
 # configure, no CUDA toolkit, no Graphviz (the docs describe the source; they compile
@@ -111,16 +111,13 @@ jobs:
           mkdir -p build/site/api
           cp -r build/docs/html/* build/site/api/
 
-      # Doxygen output is thin, near-duplicate generated HTML: indexing it dilutes the site
-      # and competes with the pages that should rank. Marking the pages themselves is kept
-      # deliberately over a robots.txt -- robots.txt only asks crawlers not to *fetch*, which
-      # does not stop a linked URL being indexed, whereas noindex is honoured after the fetch.
-      # (Before the move to mila.toddt.me a robots.txt was not even an option: the site lived
-      # at a subpath of a domain we did not control.)
-      - name: Mark the API reference noindex
-        run: |
-          find build/site/api -name '*.html' -exec \
-            sed -i 's|<head>|<head><meta name="robots" content="noindex,follow">|I' {} +
+      # The API reference is indexable. It was marked noindex on the theory that thin generated
+      # HTML would dilute the site; the predecessor corpus on gh-pages had in fact been indexed
+      # and held first-position results, as an aggregate body of pages rather than through any
+      # single one. That is measured evidence against the theory, so the noindex step is gone.
+      # Discovery is via the nav link present on every page (hugo.toml params.nav) plus Doxygen's
+      # own dense internal linking; the pages are absent from sitemap.xml because Hugo generates
+      # it before the Doxygen tree is folded in, which slows discovery but does not prevent it.
 
       # Fail loudly rather than publishing a broken site: the deploy below replaces the live
       # site wholesale, and there is no staging environment to catch this later.
@@ -131,12 +128,10 @@ jobs:
                    build/site/api/index.html build/site/sitemap.xml; do
             test -s "$f" || { echo "MISSING OR EMPTY: $f"; exit 1; }
           done
-          grep -q 'noindex' build/site/api/index.html \
-            || { echo "api/index.html was not marked noindex"; exit 1; }
+          ! grep -q 'noindex' build/site/api/index.html \
+            || { echo "api/index.html is marked noindex; it is meant to be indexed"; exit 1; }
           grep -q 'mila.toddt.me/blog/' build/site/sitemap.xml \
             || { echo "sitemap does not list the blog section"; exit 1; }
-          ! grep -q 'mila.toddt.me/api/' build/site/sitemap.xml \
-            || { echo "sitemap must not list the API reference"; exit 1; }
           echo "--- assembled tree ---"
           find build/site -maxdepth 2 -not -path '*/api/*' | sort
 
