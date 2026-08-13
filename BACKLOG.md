@@ -157,10 +157,10 @@ being a task list and needs a prune.
 
 - [ ] **Tier 3 — semantic staleness** (retired-world prose). Folded into Test Suite Revival: fix a
   file's prose while it is already open for re-greening.
-- [ ] **Docs publish gate.** `docs.yml` publishes from `dev` behind a validation gate, but a Doxygen
-  doc-drift break from a `Src/**` or `README.md` change is not caught on the commit that causes it —
-  those paths deliberately do not trigger it. Add a non-deploying Doxygen check to
-  `build-pipeline.yml` (no CUDA, no CMake).
+- [ ] **Nothing checks Doxygen when doc drift is introduced.** A break from a `Src/**` or `README.md`
+  change is caught only by `publish-site.yml`, which is now manual — so nothing exercises Doxygen
+  between publishes at all. Seventy-five errors accumulated unseen from 2026-07-27 to 08-12 and then
+  blocked the site. Add a non-deploying Doxygen check to `build-pipeline.yml` (no CUDA, no CMake).
 - [ ] **The CPM gate silently validates the PREVIOUS release, and reports success.**
   `MILA_CPM_GIT_TAG` is set with `CACHE STRING`, which never overwrites an existing entry, so a build
   directory reused across releases keeps the tag it was first configured with. At beta.2 the gate ran in
@@ -252,7 +252,7 @@ being a task list and needs a prune.
   (Build/Test/Docs) table by passing `job=build`/`test`/`docs` to the badge endpoint, which has no
   such parameter — all six fetch identically (verified: `job=build` and `job=test` both return
   `Mila CI - passing`). `build-pipeline.yml`'s real jobs are `compile-and-gate` and `cpu-only-tests`,
-  and it has no docs job at all — docs are `docs.yml`. Two honest badges beat six that cannot fail
+  and it has no docs job at all — docs are `publish-site.yml`. Two honest badges beat six that cannot fail
   independently.
 - [ ] **Three different GCC floors are stated in the tree, and only one is measured.** `README.md:250`
   says GCC 16, `README.md:267` says "GCC 15.2 and earlier cannot" (implying 15.3 works), and

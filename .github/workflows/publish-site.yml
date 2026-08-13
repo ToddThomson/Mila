@@ -1,18 +1,22 @@
-name: Mila Docs
+name: Publish Mila Site
 
-# The Mila site (Hugo) + Doxygen API reference -> GitHub Pages. Publishes from `dev`.
+# Publishes mila.toddt.me: the Hugo site + Doxygen API reference -> GitHub Pages, from `dev`.
 #
-# The authored site has its own content velocity -- prose, blog posts, SEO fixes -- that is
-# independent of the library's dev->master release cadence. Gating the site's publication on a
-# library release was wrong; a push to `dev` that touches the site (or the Doxyfile) builds,
-# validates, and deploys. The validate step gates the deploy: a broken build or malformed
-# structured data fails the build job, and the deploy job never runs.
+# MANUAL ONLY, deliberately. Site changes accumulate on `dev` across as many commits as they
+# need, and publishing is a separate decision taken by running this workflow. An earlier version
+# auto-published on any push touching `Web/**`, which was wrong in both directions: it shipped
+# work that was not ready, and it stayed silent for two weeks while a Doxygen break in `Mila/Src`
+# blocked every run, because source paths deliberately do not trigger it. Doc-comment drift is a
+# source problem and belongs to a source check, not to the publish button.
+#
+# The validate step gates the deploy: a broken build or malformed structured data fails the
+# build job, and the deploy job never runs.
 #
 # The API reference is folded into the SAME Pages artifact -- a Pages deployment replaces the
 # whole site, so publishing the authored site alone would delete /api from it. They therefore
 # deploy together and /api tracks `dev`, which is what you want for a reference generated from
-# the source. It is indexed. (web.yml is the faster, site-only build+validate gate for pull
-# requests and ad-hoc checks; it never deploys.)
+# the source. It is indexed. (web.yml, "Mila Web", is the faster site-only build+validate gate
+# that runs automatically on site changes; it never deploys.)
 #
 # The build runs Doxygen directly against the canonical Mila/Docs/Doxyfile -- no CMake
 # configure, no CUDA toolkit, no Graphviz (the docs describe the source; they compile
@@ -28,24 +32,10 @@ name: Mila Docs
 # deployment branch policy to permit `dev`.
 
 on:
-  push:
-    branches: [dev]
-    # Only the surfaces this workflow publishes. A pure source change on `dev` does not
-    # auto-republish (the API reference refreshes on the next site publish or a manual run);
-    # dispatch below covers an on-demand API refresh.
-    paths:
-      - 'Web/**'
-      - 'Mila/Docs/Doxyfile'
-      - '.github/workflows/docs.yml'
-  # Manual re-publish (refresh the API reference after a code change, re-run after a transient
-  # deploy failure, or publish from another branch). The deploy is LIVE, so use publish=false
-  # first to build and inspect the artifact without replacing the site.
+  # There is no push trigger. Running this workflow IS the decision to publish, and the deploy
+  # replaces the live site wholesale. To build and inspect without publishing, use "Mila Web"
+  # (web.yml), which runs the same Hugo build and the same validation and never deploys.
   workflow_dispatch:
-    inputs:
-      publish:
-        description: 'Publish to Pages (uncheck to build and inspect the artifact only)'
-        type: boolean
-        default: true
 
 # Pages deployment needs write to Pages and an OIDC token to prove the deploy
 # originates from this workflow; the build only reads the repo.
@@ -139,7 +129,7 @@ jobs:
       # structured data (e.g. double-encoded into a JSON string, which crawlers reject as
       # "Invalid top level element string"). Parse every emitted ld+json block on the authored
       # pages and require the top-level element to be a JSON object. This gates the deploy below.
-      # (web.yml runs the identical check on pull requests; docs.yml repeats it so the deploy is
+      # (web.yml runs the identical check on pull requests; publish-site.yml repeats it so the deploy is
       # self-gating regardless of what ran upstream.) The /api/ subtree is Doxygen HTML with no
       # structured data, so it is skipped.
       - name: Validate JSON-LD structured data
@@ -178,10 +168,7 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     needs: build
-    # A push to `dev` (already path-filtered to the published surfaces) always publishes. A
-    # manual dispatch only publishes when asked, so the build can be exercised and its artifact
-    # inspected without replacing the live site.
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    # No condition: the workflow is manual-only, so reaching here means publishing was asked for.
     runs-on: ubuntu-24.04
     environment:
       name: github-pages

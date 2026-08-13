@@ -1,14 +1,14 @@
 name: Mila Web
 
 # Build-and-validate the authored site on demand and on every change to it -- WITHOUT
-# deploying. This is the staging gate that docs.yml (the live-deploy workflow) deliberately
-# lacks: docs.yml replaces the published site wholesale with no dry run, so a broken build or
+# deploying. This is the staging gate that publish-site.yml (the live-deploy workflow) deliberately
+# lacks: publish-site.yml replaces the published site wholesale with no dry run, so a broken build or
 # malformed structured data only surfaces after it is live. This workflow catches that on the
 # `dev` commit or PR that introduces it.
 #
 # It builds only the Hugo site (no Doxygen, no API reference) -- fast, and enough to prove the
 # authored content renders and its machine-readable metadata is well-formed. Deployment stays
-# entirely in docs.yml.
+# entirely in publish-site.yml.
 
 on:
   push:
@@ -33,9 +33,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Pinned to match docs.yml exactly: the staging build must reproduce what the deploy
+      # Pinned to match publish-site.yml exactly: the staging build must reproduce what the deploy
       # build produces, or this gate validates a different site than the one that ships.
-      # Standard edition (not extended) for the same reason as docs.yml -- the site uses no
+      # Standard edition (not extended) for the same reason as publish-site.yml -- the site uses no
       # Sass, WebP, or cloud deploy.
       - name: Install Hugo 0.164.0
         run: |
@@ -44,7 +44,7 @@ jobs:
           sudo mv hugo /usr/local/bin/
           hugo version
 
-      # --minify matches docs.yml so the validated output is byte-for-byte what deploys.
+      # --minify matches publish-site.yml so the validated output is byte-for-byte what deploys.
       - name: Build site
         run: hugo --source Web --destination ../build/site --minify --gc
 
