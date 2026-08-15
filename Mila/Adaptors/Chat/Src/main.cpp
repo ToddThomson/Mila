@@ -19,6 +19,7 @@
 import Mila;
 import Mila.Chat;
 import Chat.FamilyTraits;
+import Chat.Footprint;
 import Chat.Settings;
 import nlohmann.json;
 
@@ -128,7 +129,7 @@ static std::size_t requireCount( std::string_view value, std::string_view flag )
 
     if ( error != std::errc{} || stopped != end || parsed == 0 )
         throw UsageError( std::format(
-            "{} expects a positive integer, not '{}'.", flag, value ) );
+            "{} expects a positive integer or auto, not '{}'.", flag, value ) );
 
     return parsed;
 }
@@ -161,8 +162,14 @@ static CommandLine parseCommandLine( int argc, char* argv[] )
         }
         else if ( arg == "--context-length" )
         {
-            line.overrides[ "context_length" ] =
-                requireCount( requireValue( argc, argv, i, arg ), arg );
+            // "auto" because layer 6 must be able to express everything layer 1 can. A flag set
+            // that cannot say what the compiled default says is an incomplete override layer.
+            const std::string_view value = requireValue( argc, argv, i, arg );
+
+            if ( value == "auto" )
+                line.overrides[ "context_length" ] = "auto";
+            else
+                line.overrides[ "context_length" ] = requireCount( value, arg );
         }
         else if ( arg == "--system-prompt" )
         {
@@ -208,7 +215,8 @@ static void printUsage( const char* prog_name )
         << "  -p <prompt>            Answer one prompt and exit. The answer is the whole of\n"
         << "                         standard output, so it can be piped or redirected.\n"
         << "  --model <name>         Load this model, as 'mila models' lists it.\n"
-        << "  --context-length <n>   Maximum sequence length to build for.\n"
+        << "  --context-length <n>   Maximum sequence length to build for, or auto to take the\n"
+        << "                         largest that fits this device with room to spare.\n"
         << "  --system-prompt <path> JSON file holding a system_prompt and optional tools,\n"
         << "                         resolved against the working directory.\n"
         << "  --settings <path>      Session JSON config (default: Data/session.json).\n"
@@ -224,7 +232,9 @@ static void printUsage( const char* prog_name )
         << "Session config keys:\n"
         << "  model              Installed model name, used until one is chosen with /model or\n"
         << "                     /install. There is no default: a fresh store has no model.\n"
-        << "  context_length     Maximum sequence length. Default: the family's own default.\n"
+        << "  context_length     Maximum sequence length, or \"auto\" (the default) to measure\n"
+        << "                     the largest that fits this device. An explicit number is\n"
+        << "                     honoured as written, with a warning if it will not fit.\n"
         << "  thinking_effort    1-5 token-budget scale for reasoning (default 3 = balanced).\n"
         << "                     Reasoning is surfaced whenever the model has that channel.\n"
         << "  verbose            display detail: off | thoughts | all (default off).\n"
@@ -282,20 +292,28 @@ static nlohmann::json readSettingsFile( const std::filesystem::path& path )
 }
 
 /**
- * @brief Layer 1: the compiled defaults for an architecture.
+ * @brief Layer 1: the compiled defaults.
  *
  * Rule one of ChatConfiguration.md section 3 -- a run with no configuration file anywhere must
  * still produce a Chat that can answer -- is this function. It carries the one key that has no
  * working value without it: a context of zero is not a small context, it is a failed load.
  *
+ * Takes no family, which is the shape of the layer rather than an omission: the per-family facts
+ * are in familyTraits(), and the one compiled SETTING is now the same for every architecture.
+ *
  * The sampler defaults are deliberately not here. They already have a working value in
  * ChatConfig's member initializers, and repeating 0.8 in two places would be a second home for
  * one number rather than a second layer.
  */
-static SettingsPatch familyInvariants( ModelType family )
+static SettingsPatch familyInvariants()
 {
     nlohmann::json values;
-    values[ "context_length" ] = familyTraits( family ).default_context;
+
+    // "auto", not a number. No constant compiled into an adaptor can be right for an 8 GB card, a
+    // 12 GB card and a 24 GB one, which is what the 512 this replaces actually was: a constant
+    // chosen to be wrong safely. The family's own default survives as the floor auto lands on
+    // when there is no device to measure -- see familyTraits().
+    values[ "context_length" ] = "auto";
 
     return SettingsPatch{ .layer = SettingsLayer::FamilyInvariants, .values = std::move( values ) };
 }
@@ -350,6 +368,35 @@ static std::optional<std::size_t> readCount( const MergedSettings& settings, con
         throw badValue( settings, key, "a positive integer", *value );
 
     return value->get<std::size_t>();
+}
+
+/**
+ * @brief What the merged `context_length` asks for: a length, or a measurement of the device.
+ *
+ * The only key with two shapes, because it is the only one whose right answer is a property of
+ * the machine rather than of the model or the user. See ChatConfiguration.md section 6.
+ */
+struct ContextRequest
+{
+    bool present{ false };
+    bool automatic{ false };
+    std::size_t length{ 0 };
+};
+
+static ContextRequest readContextLength( const MergedSettings& settings )
+{
+    const nlohmann::json* value = findSetting( settings, "context_length" );
+
+    if ( !value )
+        return {};
+
+    if ( value->is_string() && value->get<std::string>() == "auto" )
+        return { .present = true, .automatic = true };
+
+    if ( !value->is_number_unsigned() || value->get<std::size_t>() == 0 )
+        throw badValue( settings, "context_length", "a positive integer or \"auto\"", *value );
+
+    return { .present = true, .automatic = false, .length = value->get<std::size_t>() };
 }
 
 /// A knob that may legitimately be zero -- top_k 0 disables it, thinking_effort is clamped.
@@ -529,7 +576,7 @@ static ChatConfig buildConfig( const CommandLine& line )
 
     if ( resolved )
     {
-        settings.apply( familyInvariants( resolved->family ) );
+        settings.apply( familyInvariants() );
 
         // Layer 2 -- what this checkpoint recommends, once ModelRecord carries
         // default_context_length and maximum_context_length. Publishing a model must not require
@@ -561,34 +608,54 @@ static ChatConfig buildConfig( const CommandLine& line )
         config.tokenizer_path    = resolved->tokenizer;
     }
 
-    if ( const auto requested = readCount( settings, "context_length" ) )
+    // The one value resolved after the merge rather than by it, because the device is not a layer:
+    // what fits the card is a value a key can TAKE, not a silent override that outranks what the
+    // user asked for. A user who writes 8192 gets 8192; a user who writes nothing gets "auto" from
+    // layer 1 and gets the card measured. ChatConfiguration.md section 6.
+    if ( const ContextRequest request = readContextLength( settings ); request.present )
     {
-        config.context_length = *requested;
+        const FamilyTraits traits = familyTraits( config.model_type );
 
-        // What was ASKED for, kept apart from the live value because a model switch rewrites the
-        // latter. Only a value from above the defaults is a preference: a family default that
-        // survived a switch would carry 512 into a family that opens at 4096.
-        const auto origin = settings.originOf( "context_length" );
-
-        if ( origin && origin->layer > SettingsLayer::ModelRecommendations )
-            config.configured_context_length = *requested;
-
-        // Clamped to what the architecture can address. One configuration serves every model the
-        // session may load, so a context chosen for a 12B model reaches GPT-2 as well -- and
-        // GPT-2's positions are a 1024-row learned table, so the oversized value is a failed load
-        // rather than a slow one.
-        if ( resolved )
+        if ( request.automatic && resolved )
         {
-            const std::size_t ceiling = familyTraits( config.model_type ).max_context;
+            const ResolvedContext measured = resolveAutomaticContext(
+                config.model_path, config.model_type, config.precision,
+                config.quantization_mode, traits.max_context, traits.default_context );
 
-            if ( *requested > ceiling )
+            config.context_length = measured.context_length;
+            config.context_is_automatic = true;
+            config.context_provenance = describeContextResolution( measured );
+        }
+        else if ( request.automatic )
+        {
+            // No model to measure, so nothing to measure it against. The session opens with
+            // nothing selected and /model resolves the context when one is chosen.
+            config.context_is_automatic = true;
+        }
+        else
+        {
+            config.context_length = request.length;
+
+            // What was ASKED for, kept apart from the live value because a model switch rewrites
+            // the latter. Only a value from above the defaults is a preference: a family default
+            // that survived a switch would carry 512 into a family that opens at 4096.
+            const auto origin = settings.originOf( "context_length" );
+
+            if ( origin && origin->layer > SettingsLayer::ModelRecommendations )
+                config.configured_context_length = request.length;
+
+            // Clamped to what the architecture can address. One configuration serves every model
+            // the session may load, so a context chosen for a 12B model reaches GPT-2 as well --
+            // and GPT-2's positions are a 1024-row learned table, so the oversized value is a
+            // failed load rather than a slow one.
+            if ( resolved && request.length > traits.max_context )
             {
                 std::cerr << std::format(
                     "context_length {} ({}) exceeds what {} can address; using {}.\n",
-                    *requested, settings.describeOrigin( "context_length" ),
-                    config.model_name, ceiling );
+                    request.length, settings.describeOrigin( "context_length" ),
+                    config.model_name, traits.max_context );
 
-                config.context_length = ceiling;
+                config.context_length = traits.max_context;
             }
         }
     }

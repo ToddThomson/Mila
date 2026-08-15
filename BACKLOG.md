@@ -428,10 +428,21 @@ being a task list and needs a prune.
   for the package itself. Verify in a container, then add `--ignore-requires-python` as the runtime
   image now does.
 - [~] **Rework Chat configuration to layered resolution** — design and phasing in
-  `Mila/Specifications/ChatConfiguration.md`. Phases 1-4 have landed (image directory, validation and
-  the exit path, the flag set, the family table and the layered merge with origins). Remaining: the
-  Gemma footprint fix, `context_length: "auto"`, the two `ModelRecord` fields, prompt resolution,
-  `resolveConfigRoot()`.
+  `Mila/Specifications/ChatConfiguration.md`. Phases 1-5 have landed (image directory, validation and
+  the exit path, the flag set, the family table and the layered merge with origins, the predictor's
+  failure reason, `context_length: "auto"`). Remaining: the two `ModelRecord` fields, prompt
+  resolution, `resolveConfigRoot()`.
+- [ ] **Auto picks a context that fits memory and prefills at the floor.** Measured: Gemma resolves
+  to 95232, where the prefill chunk has walked down to 64 rows, against roughly 54K for a full
+  1024-row chunk. The mechanism and the rung table are in ChatConfiguration.md section 6. Needs a
+  runtime capability first — a model answering what prefill chunk a context would get, beside
+  `getRequiredMemory` — since `resolvePrefillChunkSize` is private to the transformer
+  (`Gemma.ixx:1023`). Until then, decide whether auto ships as layer 1's default or stays opt-in.
+- [ ] **`/models` shows one dash for two different answers**, so a row that cannot be measured by
+  design reads the same as one where the prediction threw. That ambiguity is what made a swallowed
+  zero-context throw look like a Gemma predictor defect and earn its own phase. `predictFootprint`
+  now returns the reason and `footprintOf` drops it: `Chat.ModelCatalog.ixx:602`. Carry it into
+  `RowDeployment` and note the failing rows beneath the table.
 - [ ] **`--settings` and a found local config now BOTH apply**, where `--settings` used to replace the
   local config outright. That is the merge design (layer 4 then layer 6, key by key), so a named file
   need only hold what differs — but it means a key absent from the named file is inherited from

@@ -8,6 +8,7 @@
  */
 
 module;
+#include <algorithm>
 #include <cstddef>
 #include <exception>
 #include <filesystem>
@@ -159,6 +160,45 @@ namespace Mila::ChatApp
     }
 
     /**
+     * @brief A context length, and how it was arrived at.
+     *
+     * Carried structured rather than as a sentence because the two facts have two audiences: the
+     * startup line reads them as prose, the `--output-format json` payload as fields.
+     */
+    export struct ResolvedContext
+    {
+        std::size_t context_length{ 0 };
+
+        /// True when auto chose the number, whether by measurement or by falling back.
+        bool automatic{ false };
+
+        /// Device capacity auto measured against. Zero when there was no device to ask, which is
+        /// also how a caller tells a measured answer from a fallback.
+        std::size_t device_total_bytes{ 0 };
+
+        /// Why auto could not measure, from the predictor. Empty when it did.
+        std::string fallback_reason;
+    };
+
+    /**
+     * @brief A footprint, or why there is not one.
+     *
+     * The two consumers need different halves of the same answer. A pre-flight proceeds silently
+     * when nothing can be predicted, because it must never be the thing that stops a model from
+     * being tried. `context_length: "auto"` cannot: a derived number with no provenance is the
+     * complaint ChatConfiguration.md opens with, so it has to say what it fell back to and why.
+     * Carrying the reason costs the silent caller nothing.
+     */
+    export struct FootprintPrediction
+    {
+        std::optional<MemoryStats> required;
+
+        /// Why there is no prediction, phrased to read inside a parenthetical. Empty when
+        /// required holds one.
+        std::string unavailable_reason;
+    };
+
+    /**
      * @brief What a model would allocate at a context length, without allocating any of it.
      *
      * Costs nothing on the device: the graph is constructed, asked, and discarded without a
@@ -169,11 +209,11 @@ namespace Mila::ChatApp
      * answer depends on -- and because the two callers hold them in different shapes: a session
      * config on the load path, a store record on the listing path.
      *
-     * @return nullopt for a family with no footprint entry point, for a precision that has none,
-     *         and on any failure to read the artifact. A pre-flight must never be the thing that
-     *         stops a model from being tried, so a failure here is silence rather than a throw.
+     * @return No footprint for a family with no entry point, for a precision that has none, and
+     *         on any failure to read the artifact -- each with the reason. Never throws: a
+     *         pre-flight must never be the thing that stops a model from being tried.
      */
-    export inline std::optional<MemoryStats> predictFootprint(
+    export inline FootprintPrediction predictFootprint(
         const std::filesystem::path& weights,
         ModelType family,
         ModelPrecision precision,
@@ -181,6 +221,10 @@ namespace Mila::ChatApp
         dim_t context_length )
     {
         const DeviceId device{ DeviceType::Cuda, 0 };
+
+        // Shared by both families that have an entry point: it is one fact about what this build
+        // instantiates, not one about either architecture.
+        constexpr const char* bf16_only = "a footprint is predicted for BF16 deployments only";
 
         try
         {
@@ -190,7 +234,7 @@ namespace Mila::ChatApp
                 {
                     if ( precision != ModelPrecision::BF16 )
                     {
-                        return std::nullopt;
+                        return { std::nullopt, bf16_only };
                     }
 
                     LlamaModelConfig llama_config( context_length );
@@ -200,12 +244,20 @@ namespace Mila::ChatApp
                     else if ( quantization == QuantizationMode::FP4 )
                         llama_config.withFP4Quantization();
 
-                    return LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::getRequiredMemory(
-                        weights, llama_config, device );
+                    return { LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::getRequiredMemory(
+                        weights, llama_config, device ), {} };
                 }
 
                 case ModelType::Gemma:
                 {
+                    // The guard Llama has always had. Without it an FP32 deployment was answered
+                    // by the BF16 instantiation below, which reports a footprint no load would
+                    // produce -- a wrong number rather than a declined question.
+                    if ( precision != ModelPrecision::BF16 )
+                    {
+                        return { std::nullopt, bf16_only };
+                    }
+
                     GemmaModelConfig gemma_config( context_length );
 
                     if ( quantization == QuantizationMode::FP8 )
@@ -213,18 +265,158 @@ namespace Mila::ChatApp
                     else if ( quantization == QuantizationMode::FP4 )
                         gemma_config.withFP4Quantization();
 
-                    return GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::getRequiredMemory(
-                        weights, gemma_config, device );
+                    return { GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::getRequiredMemory(
+                        weights, gemma_config, device ), {} };
                 }
 
                 case ModelType::Gpt:
                 default:
-                    return std::nullopt;
+                    return { std::nullopt, "GPT-2 has no footprint entry point in this build" };
             }
         }
-        catch ( const std::exception& )
+        catch ( const std::exception& error )
         {
-            return std::nullopt;
+            // The reason the bare catch used to discard. Everything reachable from here names
+            // itself -- an unreadable artifact, a context past the trained maximum, a
+            // quantization the dispatcher has no specialization for.
+            return { std::nullopt, error.what() };
         }
+    }
+
+    /// The grid auto searches. Also the granularity it reports: a context of 83968 says it was
+    /// measured, where 84131 would suggest a precision the prediction does not have.
+    export inline constexpr std::size_t kContextStep = 1024;
+
+    /**
+     * @brief Silences library logging for the duration of a prediction scan.
+     *
+     * Constructing a graph logs, and the scan constructs one per candidate: Gemma warns that it
+     * cannot prefill efficiently at long context, which arrived 35 times at startup before this.
+     * A prediction is not a deployment. What a probe learns is returned, never printed -- the same
+     * contract predictFootprint already holds, extended to the library it calls into.
+     *
+     * Warnings from the LOAD are untouched, which is the point: the one at the context actually
+     * chosen is a fact about this session, where the other thirty-four were about contexts nobody
+     * asked for.
+     */
+    class ScopedLogSuppression
+    {
+    public:
+        ScopedLogSuppression()
+            : restore_( Logging::Logger::defaultLogger().getLevel() )
+        {
+            Logging::Logger::defaultLogger().setLevel( Logging::LogLevel::Error );
+        }
+
+        ~ScopedLogSuppression()
+        {
+            Logging::Logger::defaultLogger().setLevel( restore_ );
+        }
+
+        ScopedLogSuppression( const ScopedLogSuppression& ) = delete;
+        ScopedLogSuppression& operator=( const ScopedLogSuppression& ) = delete;
+
+    private:
+        Logging::LogLevel restore_;
+    };
+
+    /**
+     * @brief The largest context that fits comfortably on this device, or the floor and why not.
+     *
+     * **Searched from the ceiling downward, stopping at the first fit.** Not by bisection, and the
+     * difference is correctness rather than speed: bisection assumes the footprint rises with
+     * context, and Gemma's does not -- measured 2026-08-15 it climbs to 9.92 GB at 10240, drops to
+     * 9.37 at 12288 as prefill chunking caps the activation buffers, then resumes at a quarter of
+     * the slope. The first fit found from the top is the largest fitting context on any curve.
+     * See ChatConfiguration.md section 6 for the measurements.
+     *
+     * A probe that cannot be predicted does not end the search. Above a checkpoint's trained
+     * length `getRequiredMemory` throws, and until ModelRecord carries that length the ceiling
+     * passed here is the family's, which overshoots it -- so those probes are expected to fail and
+     * the scan simply walks down past them. Only a scan where nothing could be predicted at all
+     * falls back, carrying the last reason.
+     *
+     * @param ceiling The largest context worth trying: the family maximum today, tightened by the
+     *        checkpoint's own maximum once the manifest carries one.
+     * @param floor Where to land when nothing can be measured.
+     */
+    export inline ResolvedContext resolveAutomaticContext(
+        const std::filesystem::path& weights,
+        ModelType family,
+        ModelPrecision precision,
+        QuantizationMode quantization,
+        std::size_t ceiling,
+        std::size_t floor )
+    {
+        ResolvedContext resolved;
+        resolved.automatic = true;
+        resolved.context_length = floor;
+
+        const DeviceMemoryInfo memory = queryDeviceMemory();
+
+        if ( memory.total_bytes == 0 )
+        {
+            resolved.fallback_reason = "no CUDA device";
+
+            return resolved;
+        }
+
+        // Comfortably needs a number. 11.07 of 11.99 GB is a fit by arithmetic and a bad
+        // experience in practice -- a 92% claim on a card that also drives a display. The margin
+        // is what auto chooses for you, never a policy imposed on a length you chose yourself.
+        const std::size_t margin = std::max<std::size_t>(
+            memory.total_bytes / 10, std::size_t{ 512 } * 1024 * 1024 );
+
+        if ( memory.total_bytes <= margin )
+        {
+            resolved.fallback_reason = "device too small to reserve a margin on";
+
+            return resolved;
+        }
+
+        const std::size_t budget = memory.total_bytes - margin;
+
+        const ScopedLogSuppression quiet;
+
+        std::string last_reason;
+
+        for ( std::size_t candidate = ( ceiling / kContextStep ) * kContextStep;
+              candidate >= kContextStep;
+              candidate -= kContextStep )
+        {
+            const FootprintPrediction prediction = predictFootprint(
+                weights, family, precision, quantization, static_cast<dim_t>( candidate ) );
+
+            if ( !prediction.required )
+            {
+                last_reason = prediction.unavailable_reason;
+
+                continue;
+            }
+
+            // Weights do not shrink with context, so once they alone are over there is no shorter
+            // context to find and the remaining probes are all going to fail. This turns the
+            // slowest case -- a card that cannot hold the model at any length -- into the fastest.
+            if ( prediction.required->device_parameter_bytes > budget )
+            {
+                break;
+            }
+
+            if ( practicalDeviceBytes( *prediction.required ) <= budget )
+            {
+                resolved.context_length = candidate;
+                resolved.device_total_bytes = memory.total_bytes;
+
+                return resolved;
+            }
+        }
+
+        // Nothing fit, or nothing could be predicted. The two are worth telling apart: the first
+        // is a card too small for this model at any length, and no reason of ours explains it.
+        resolved.fallback_reason = last_reason.empty()
+            ? std::string( "no context fits this device" )
+            : last_reason;
+
+        return resolved;
     }
 }

@@ -287,6 +287,30 @@ namespace Mila::ChatApp
     }
 
     /**
+     * @brief Where a context length came from, as the parenthetical the startup line prints.
+     *
+     * Empty for a length a layer named: a number that was configured needs no provenance, and
+     * annotating it would say "you asked for this" on every startup. A DERIVED number is the one
+     * that needs it -- the complaint ChatConfiguration.md opens with is a 512 nobody could account
+     * for, and answering it behind a diagnostic flag would put the explanation where a user has to
+     * know to ask rather than where they already look.
+     */
+    export inline std::string describeContextResolution( const ResolvedContext& resolved )
+    {
+        if ( !resolved.automatic )
+        {
+            return {};
+        }
+
+        if ( resolved.device_total_bytes > 0 )
+        {
+            return std::format( "auto, {} device", formatBytes( resolved.device_total_bytes ) );
+        }
+
+        return std::format( "auto -> family default, {}", resolved.fallback_reason );
+    }
+
+    /**
      * @brief Two byte counts against one unit, as "part / whole unit".
      *
      * Formatted as a pair rather than by two formatBytes calls, because the scale is chosen from
@@ -596,9 +620,12 @@ namespace Mila::ChatApp
                     continue;
                 }
 
+                // The reason is dropped here on purpose: a listing has one column per deployment
+                // and no room to explain a dash per row, and the legend already says what a dash
+                // means. The load path is where a user is asking about one model.
                 deployment.required = predictFootprint( model.weights_path, family, precision,
                     requested[ column ] == QuantizationMode::None ? artifact : requested[ column ],
-                    context_length );
+                    context_length ).required;
 
                 deployment.verdict = gradeFootprint( deployment.required, available_bytes );
             }

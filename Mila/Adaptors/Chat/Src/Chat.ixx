@@ -666,6 +666,12 @@ namespace Mila::ChatApp
             payload[ "content" ] = answer;
             payload[ "model" ] = config_.model_name;
             payload[ "context_length" ] = config_.context_length;
+
+            // The scripted half of the provenance the startup line prints. A caller that asked for
+            // no context and got 83968 has the same right to know why as a reader of the banner.
+            payload[ "context_source" ] = config_.context_provenance.empty()
+                ? std::string( "configured" )
+                : config_.context_provenance;
             payload[ "tokens_generated" ] = tokens;
             payload[ "rounds" ] = last_turn_rounds_.size();
             payload[ "finish_reason" ] = finishReasonName( finishStatus() );
@@ -1532,9 +1538,27 @@ namespace Mila::ChatApp
             // loading a model of that same family skipped this and carried the zero into the load.
             // That is the container failure -- no session config, then a Llama, then
             // "context_length must be greater than zero". See ChatConfiguration.md section 2.
-            if ( prev_type != config_.model_type || config_.context_length == 0 )
+            const FamilyTraits traits = familyTraits( config_.model_type );
+
+            if ( config_.context_is_automatic )
             {
-                const FamilyTraits traits = familyTraits( config_.model_type );
+                // Auto means "whatever fits the card", and what fits depends on the model, so a
+                // switch re-measures rather than carrying a number derived for the model being
+                // replaced -- which is the defect configured_context_length exists to prevent,
+                // in the one shape that field cannot express.
+                //
+                // Measured before the outgoing model is released, deliberately: auto budgets
+                // against device CAPACITY rather than free memory, so what is currently resident
+                // does not change the answer.
+                const ResolvedContext measured = resolveAutomaticContext(
+                    config_.model_path, config_.model_type, config_.precision,
+                    config_.quantization_mode, traits.max_context, traits.default_context );
+
+                config_.context_length = measured.context_length;
+                config_.context_provenance = describeContextResolution( measured );
+            }
+            else if ( prev_type != config_.model_type || config_.context_length == 0 )
+            {
                 const std::size_t configured = config_.configured_context_length;
 
                 config_.context_length = configured == 0
@@ -1558,6 +1582,15 @@ namespace Mila::ChatApp
             renderer_.printInfo( had_model
                 ? "Model switched. Conversation history cleared."
                 : "Model loaded." );
+
+            // Said on a switch as well as at startup: under auto the context is re-measured for
+            // the model just loaded, and between two families that is a change of two orders of
+            // magnitude. Silent would be the same unaccountable number this replaced.
+            if ( config_.context_is_automatic )
+            {
+                renderer_.printInfo( std::format( "Context {} ({}).",
+                    config_.context_length, config_.context_provenance ) );
+            }
         }
 
         /**
@@ -1576,11 +1609,23 @@ namespace Mila::ChatApp
          */
         void reportFootprintBeforeLoad()
         {
-            std::optional<MemoryStats> required =
+            const FootprintPrediction prediction =
                 predictActiveFootprint( static_cast<dim_t>( config_.context_length ) );
+
+            const std::optional<MemoryStats>& required = prediction.required;
 
             if ( !required )
             {
+                // Silent by contract -- a pre-flight must never be what stops a model being
+                // tried. At All the user has asked to see everything, and an absence with no
+                // reason is what left the predictor's own failure undiagnosed for a week.
+                if ( config_.detail == DetailLevel::All )
+                {
+                    renderer_.printInfo( std::format(
+                        "No footprint prediction for {}: {}.",
+                        modelName(), prediction.unavailable_reason ) );
+                }
+
                 return;
             }
 
@@ -1667,8 +1712,8 @@ namespace Mila::ChatApp
             {
                 const std::size_t midpoint = low + ( ( high - low ) / 2 / 512 ) * 512;
 
-                std::optional<MemoryStats> required =
-                    predictActiveFootprint( static_cast<dim_t>( midpoint ) );
+                const std::optional<MemoryStats> required =
+                    predictActiveFootprint( static_cast<dim_t>( midpoint ) ).required;
 
                 if ( !required )
                 {
@@ -1970,7 +2015,7 @@ namespace Mila::ChatApp
          * makes this the load path's question: a prediction made under different settings
          * than the load would use describes a different model.
          */
-        std::optional<MemoryStats> predictActiveFootprint( dim_t context_length ) const
+        FootprintPrediction predictActiveFootprint( dim_t context_length ) const
         {
             return Mila::ChatApp::predictFootprint(
                 config_.model_path,
@@ -2172,6 +2217,14 @@ namespace Mila::ChatApp
         {
             if ( modelIsResident() )
             {
+                // A derived context says where it came from, here rather than behind a diagnostic
+                // flag: a number with no provenance is the complaint that produced this whole
+                // resolution order, and the answer belongs where every user already looks. A
+                // configured number carries nothing -- it needs no account of itself.
+                const std::string context_display = config_.context_provenance.empty()
+                    ? std::format( "{}", config_.context_length )
+                    : std::format( "{} ({})", config_.context_length, config_.context_provenance );
+
                 // The thinking clause is omitted entirely for a model without the channel, rather
                 // than shown as "off" -- off reads as a setting the user could turn on.
                 if ( config_.thinking_capable )
@@ -2180,12 +2233,13 @@ namespace Mila::ChatApp
                         ? std::string( thinkingEffort( config_.thinking_effort ).name )
                         : "off";
 
-                    renderer_.printInfo( std::format( "  Model: {}  ·  Thinking: {}",
-                        modelName(), thinking_display ) );
+                    renderer_.printInfo( std::format( "  Model: {}  ·  Context: {}  ·  Thinking: {}",
+                        modelName(), context_display, thinking_display ) );
                 }
                 else
                 {
-                    renderer_.printInfo( std::format( "  Model: {}", modelName() ) );
+                    renderer_.printInfo( std::format( "  Model: {}  ·  Context: {}",
+                        modelName(), context_display ) );
                 }
             }
 

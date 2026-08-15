@@ -9,6 +9,7 @@
 module;
 #include <filesystem>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <cstddef>
 
@@ -197,6 +198,17 @@ namespace Mila::ChatApp
         /// family's own default stands. Without this a switch dropped to a family default -- 512
         /// for Gemma -- silently discarding the number the user actually configured.
         size_t                configured_context_length{ 0 };
+
+        /// True when context_length was measured from the device rather than named by a layer.
+        /// A switch re-measures it: auto means "whatever fits the card", and what fits depends on
+        /// the model, so carrying a number derived for the previous one would be the same defect
+        /// configured_context_length exists to prevent.
+        bool                  context_is_automatic{ false };
+
+        /// How a derived context was arrived at, as the startup line prints it -- "auto, 11.99 GB
+        /// device", or "auto -> family default, no CUDA device". Empty when a layer named the
+        /// number, which needs no provenance.
+        std::string           context_provenance;
 
         std::optional<std::filesystem::path> system_prompt_path;
     };

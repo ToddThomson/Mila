@@ -216,10 +216,66 @@ targets leaving the greater of 10% of total device memory or 512 MB free**, meas
 A user who writes an explicit number is not held to this: the margin is what auto chooses for
 you, not a policy imposed on what you chose.
 
-Search by bisection over the candidate range in 1024-token steps. `predictFootprint` reads the
-artifact header and allocates nothing on the device, so eight or nine probes cost one file open
-and no VRAM — cheap enough to run at every startup, which matters because the answer legitimately
-changes between runs as other processes take and release memory.
+`predictFootprint` reads the artifact header and allocates nothing on the device. Measured
+2026-08-15: the `/models` listing's ten predictions cost about 25 ms in total, a few milliseconds
+each, so probing is cheap enough to run at every startup — which matters, because the answer
+legitimately changes between runs as other processes take and release memory.
+
+**Search must not be by bisection.** Bisection assumes the footprint rises with context, and
+Gemma's does not. Measured on `gemma-4-12b-it-fp4`, RTX 4070, 11.99 GB:
+
+| context | 4096 | 6144 | 8192 | 10240 | 12288 | 16384 | 20480 | 32768 | 65536 | 131072 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| GB | 9.35 | 9.54 | 9.73 | 9.92 | **9.37** | 9.52 | 9.62 | 9.93 | 10.35 | 11.68 |
+
+The curve rises at 0.095 GB per 1024 tokens to a local peak at 10240, **drops 0.55 GB at 12288**,
+then resumes at roughly a quarter of that slope. The shape is consistent with prefill chunking
+capping the activation and scratch buffers once the sequence passes a threshold, after which only
+the KV cache grows — and Gemma's is mostly sliding-window, so only the eight global layers of 48
+grow with context. A bisection against a budget between 9.4 and 9.9 GB lands wherever it happens to
+probe: the true answer is past the drop, and half the search space says it is not.
+
+Scan the 1024-token grid instead and take the largest fitting point. At a few milliseconds a probe,
+128 points cost well under a second, and the scan is correct on any curve rather than on a monotonic
+one.
+
+### What auto resolves to on a 12 GB card
+
+Leaving the greater of 10% or 512 MB free gives a 10.79 GB budget on the card above. Against the
+measured curve, `gemma-4-12b-it-fp4` fits between 65536 and 131072 — where the compiled default is
+**512**, which is the truncation defect this specification opens with. `Llama-3.1-8B-Instruct-fp4`,
+which has no sliding window and grows at 0.22 GB per 1024, lands between 4096 and 8192.
+
+### Fitting in memory is not the same as running well
+
+Measured 2026-08-15, with auto implemented: `gemma-4-12b-it-fp4` resolves to **95232**, loads, and
+answers. It is still the wrong number, and the reason is not memory.
+
+`GemmaTransformer::resolvePrefillChunkSize` (`Gemma.ixx:1023`) picks a prefill chunk from the rungs
+1024 / 512 / 256 / 128 / 64 rows, against an activation budget of 1536 MB **minus the global KV
+term, which grows with context**. So the effective budget shrinks as context grows, and the chunk
+walks down the rungs. With the measured row cost of 662464 bytes:
+
+| prefill chunk | needs global KV under | which holds to about |
+|---|---|---|
+| 1024 rows | 858 MB | 54K context |
+| 512 rows | 1197 MB | 76K |
+| 64 rows | 1494 MB | 95K |
+
+Past 95232 not even the 64-row floor fits and the transformer warns that it "cannot prefill
+efficiently". **Auto picked 95232 — the last context before that warning, where prefill runs at the
+64-row floor, sixteen times smaller than the 1024-row chunk.** The independently recorded live
+usable ceiling of 49-56K is not a disagreement with the predictor after all: it is the chunk-1024
+boundary in the table above, measured from the other direction.
+
+The memory budget is therefore necessary and not sufficient. Auto should take the largest context
+that still prefills at a full chunk, which on this card is roughly 54K rather than 95K.
+
+**Chat cannot compute that.** `resolvePrefillChunkSize` is private to the transformer, and the
+adaptor has no way to ask what chunk a context would get. The blocker is a runtime capability — a
+model answering "what prefill chunk would this context use", beside `getRequiredMemory`, which
+already answers the memory half of the same question. Until it exists, auto's number is a memory
+answer to a question that also has a throughput half.
 
 ### When auto cannot answer
 
@@ -240,15 +296,29 @@ Context 4096 (auto -> model default, no CUDA device)
 The same pair of facts appears in the `--output-format json` payload (§9), which covers the
 scripted case. Nothing else is needed: those are the two places a resolved context is read.
 
-### The predictor defect is a prerequisite, not a deferral
+### The predictor must be able to say why it has no answer
 
-`/models` reports `--` for `gemma-4-12b-it-fp4` — "a load that would work but goes unmeasured",
-per the legend at `Chat.ModelCatalog.ixx:727` — because `predictFootprint` returned `nullopt`
-for the default model and the bare `catch` at `Chat.ModelCatalog.ixx:647` discarded the reason.
-Auto cannot ship on a predictor that cannot describe the model Chat opens with, so **fixing it
-is the first half of this phase** rather than grounds for postponing the whole of it. Note that
-the Gemma branch at `Chat.Footprint.ixx:207` has no precision guard where Llama's `:191` does,
-so the `nullopt` is a swallowed throw, not a declined case.
+`/models` reported `--` for `gemma-4-12b-it-fp4` on 2026-08-14 — "a load that would work but goes
+unmeasured", per the legend at `Chat.ModelCatalog.ixx:727`. **That symptom no longer reproduces:**
+measured 2026-08-15 at 512, 4096 and 8192 context, the row reports 8.32, 9.35 and 9.73 GB. No commit
+in between touched `Chat.Footprint.ixx` or `GemmaModel.ixx`, so what changed was the input rather
+than the code — and `GemmaModel::getRequiredMemory` throws on a zero context length
+(`GemmaModel.ixx:201`, and `LlamaModel.ixx:196` alongside it), which the bare `catch` turned into a
+dash. That is the same zero-context state §2 blames for the container failure, and phase 4's layer 1
+removed it.
+
+Two things the episode leaves behind, and they are what this phase does:
+
+The reason was **discarded**, so a symptom whose cause was already documented in §2 was diagnosed as
+a second, separate defect. `predictFootprint` now returns the reason alongside the footprint. The
+contract at `Chat.Footprint.ixx:174` — "a pre-flight must never be the thing that stops a model from
+being tried, so a failure here is silence rather than a throw" — is correct for the pre-flight and
+wrong for auto, which must know why it got nothing in order to report the chain above. The silence
+stays for the caller that wants it.
+
+The Gemma branch had **no precision guard** where Llama's has one, so an FP32 deployment was answered
+by the BF16 instantiation: a wrong number rather than a declined question. Nothing exercises that
+path today, since every installed Gemma is BF16-activation, which is why it went unseen.
 
 The contract at `Chat.Footprint.ixx:174` — "a pre-flight must never be the thing that stops a
 model from being tried, so a failure here is silence rather than a throw" — is correct for the
@@ -439,7 +509,7 @@ it rather than held until they all exist.
 | 2 | Validate before construction; reject `context_length <= 0` by name; no path from a config file reaches `std::terminate` | makes a bad value legible instead of an abort, and is what the exit codes of phase 3 report |
 | 3 | Argument-vector launch in `Mila/Tools/Cli`; `--model`, `-p`, `--output-format`, `--version`, `--settings`; the exit-code contract | fixes live defects without waiting for the merge; the launch fix is a prerequisite for `-p` and for any exit code at all |
 | 4 | Family invariants table; layered merge with `merge_patch`, recording origins; `--system-prompt` and `--context-length` join as patch producers | layer 1 becomes a working configuration; origins are what §6 and §8 both resolve against, and what the remaining flags plug into |
-| 5 | Fix `predictFootprint` for Gemma; give it a failure reason | auto cannot ship on a predictor that cannot describe the default model |
+| 5 | Give `predictFootprint` a failure reason; close the Gemma precision guard | auto has to report what it fell back to and why, which a predictor that discards its reason cannot support |
 | 6 | `context_length: "auto"` (§6), as the layer 1 default and a `--context-length` value | the constant that caused the truncation defect stops existing |
 | 7 | `default_context_length` / `maximum_context_length` in `ModelRecord` | new models stop requiring adaptor changes, and auto gains its upper bound |
 | 8 | Prompt resolution and the `Prompts/` rename (§8) | needs phase 4's origins; retires `Data/` |
