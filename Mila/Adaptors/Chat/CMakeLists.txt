@@ -47,9 +47,12 @@ endif()
 # would be redundant in the first case and a hard error in the second.
 target_link_libraries( mila-chat PRIVATE Mila )
 
-# Copy chat session data to the output directory alongside the executable
+# The system prompts are content, and they are the ONLY thing the build places beside the
+# executable: no configuration ships, because the compiled defaults are a working configuration and
+# a shipped file would outrank the user's own. This directory is where a named prompt is searched
+# for after the user's config root -- see Specifications/ChatConfiguration.md section 8.
 add_custom_command( TARGET mila-chat POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/Data"
-        "$<TARGET_FILE_DIR:mila-chat>/Data"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Prompts"
+        "$<TARGET_FILE_DIR:mila-chat>/Prompts"
 )

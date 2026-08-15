@@ -28,16 +28,14 @@ using namespace Mila::ChatApp;
 /**
  * @brief Directory containing the running executable.
  *
- * The POST_BUILD step copies Data/ next to the executable, so resolving the
- * default session config against this directory makes the default model
- * independent of the process working directory (which the IDE/debugger may set
- * to the source tree or repo root rather than the binary output directory).
+ * The POST_BUILD step copies Prompts/ next to the executable, and a config may be found there
+ * too, so resolving both against this directory makes them independent of the process working
+ * directory -- which the IDE and debugger set to the source tree or the repo root rather than
+ * the binary output directory.
  *
- * Every supported platform must answer this for itself. Falling through to the
- * working directory does not implement the guarantee above, it silently drops
- * it -- which is how a container ended up loading no config at all, and why the
- * image documents its WORKDIR as a correctness requirement. See
- * Specifications/ChatConfiguration.md section 2.
+ * Every supported platform must answer this for itself. Falling through to the working directory
+ * does not implement the guarantee above, it silently drops it -- which is how a container ended
+ * up loading no config at all. See Specifications/ChatConfiguration.md sections 2 and 8.
  */
 static std::filesystem::path executable_directory()
 {
@@ -56,6 +54,45 @@ static std::filesystem::path executable_directory()
         return image.parent_path();
 #endif
     return std::filesystem::current_path();
+}
+
+/**
+ * @brief Where this user's own configuration lives, mirroring resolveStoreRoot().
+ *
+ * %APPDATA% and not %LOCALAPPDATA%: settings are small and personal and should roam, while the
+ * store correctly stays in Local because model blobs are large and machine-specific. A different
+ * variable, deliberately. macOS takes the Linux path for symmetry -- Apple's own convention is
+ * ~/Library/Application Support, worth revisiting only if a Metal backend ever makes macOS a real
+ * target.
+ *
+ * Here rather than beside resolveStoreRoot() in the library, which is what
+ * ChatConfiguration.md section 7 pictures: this resolves CHAT's configuration, and the library has
+ * none of its own to place. The moment a second adaptor wants the same convention is the moment it
+ * moves, and that is a library decision rather than this one.
+ *
+ * Empty when no variable answers, which callers read as "this platform has no config root" rather
+ * than falling back to a directory that is nobody's idea of one.
+ */
+static std::filesystem::path resolveConfigRoot()
+{
+    using Mila::Distribution::readEnvironmentVariable;
+
+    if ( const auto app_data = readEnvironmentVariable( "APPDATA" ) )
+    {
+        return std::filesystem::path( *app_data ) / "Mila";
+    }
+
+    if ( const auto xdg_config = readEnvironmentVariable( "XDG_CONFIG_HOME" ) )
+    {
+        return std::filesystem::path( *xdg_config ) / "mila";
+    }
+
+    if ( const auto home = readEnvironmentVariable( "HOME" ) )
+    {
+        return std::filesystem::path( *home ) / ".config" / "mila";
+    }
+
+    return {};
 }
 
 /**
@@ -217,19 +254,26 @@ static void printUsage( const char* prog_name )
         << "  --model <name>         Load this model, as 'mila models' lists it.\n"
         << "  --context-length <n>   Maximum sequence length to build for, or auto to take the\n"
         << "                         largest that fits this device with room to spare.\n"
-        << "  --system-prompt <path> JSON file holding a system_prompt and optional tools,\n"
-        << "                         resolved against the working directory.\n"
-        << "  --settings <path>      Session JSON config (default: Data/session.json).\n"
+        << "  --system-prompt <name> A prompt name, or a path to a JSON file holding a\n"
+        << "                         system_prompt and optional tools. A path resolves\n"
+        << "                         against the working directory.\n"
+        << "  --settings <path>      A JSON config file, read as part of this run.\n"
         << "  --output-format <fmt>  text (default) or json. With -p only.\n"
         << "  --version              Print the Mila version and exit.\n"
         << "  --help, -h             Show this message.\n"
         << "\n"
-        << "Settings merge key by key -- the family defaults, then the session config, then the\n"
-        << "model last chosen with /model, then a file named with --settings, then the flags\n"
-        << "above. Setting one key inherits the rest, so a config file need only hold what it\n"
-        << "changes. Overriding is not setting: a flag applies to this run and writes nothing.\n"
+        << "Settings merge key by key -- the compiled defaults, then your own config, then the\n"
+        << "one beside the executable, then the model last chosen with /model, then a file named\n"
+        << "with --settings, then the flags above. Setting one key inherits the rest, so a config\n"
+        << "file need only hold what it changes. Overriding is not setting: a flag applies to\n"
+        << "this run and writes nothing back.\n"
         << "\n"
-        << "Session config keys:\n"
+        << "Your config is read from, and a named prompt is searched for under:\n"
+        << "  " << ( resolveConfigRoot().empty()
+                        ? std::string( "(no config directory on this platform)" )
+                        : ( resolveConfigRoot() / "chat.json" ).string() ) << "\n"
+        << "\n"
+        << "Config keys:\n"
         << "  model              Installed model name, used until one is chosen with /model or\n"
         << "                     /install. There is no default: a fresh store has no model.\n"
         << "  context_length     Maximum sequence length, or \"auto\" (the default) to measure\n"
@@ -238,7 +282,10 @@ static void printUsage( const char* prog_name )
         << "  thinking_effort    1-5 token-budget scale for reasoning (default 3 = balanced).\n"
         << "                     Reasoning is surfaced whenever the model has that channel.\n"
         << "  verbose            display detail: off | thoughts | all (default off).\n"
-        << "  temperature, top_k, top_p, max_new_tokens, system_prompt_path.\n"
+        << "  system_prompt_path A prompt name (assistant, tools, tools-weather,\n"
+        << "                     tools-single), or a path. A relative path resolves against\n"
+        << "                     the directory of the file that set it.\n"
+        << "  temperature, top_k, top_p, max_new_tokens.\n"
         << "\n"
         << "  quantization       none | fp8 | fp4. Quantizes an unquantized artifact on load;\n"
         << "                     a name ending -fp4/-fp8 is already quantized and refuses it.\n"
@@ -314,6 +361,12 @@ static SettingsPatch familyInvariants()
     // chosen to be wrong safely. The family's own default survives as the floor auto lands on
     // when there is no device to measure -- see familyTraits().
     values[ "context_length" ] = "auto";
+
+    // The default persona, by NAME rather than by path, so it resolves the same from a checkout,
+    // an install and a container. Compiled rather than shipped in a file beside the executable:
+    // that file is layer 4, which OUTRANKS the user's own config, so naming the prompt there left
+    // a user unable to choose a different one from their own chat.json. Measured, not reasoned.
+    values[ "system_prompt_path" ] = "assistant";
 
     return SettingsPatch{ .layer = SettingsLayer::FamilyInvariants, .values = std::move( values ) };
 }
@@ -428,6 +481,95 @@ static std::optional<float> readNumber( const MergedSettings& settings, const st
 }
 
 /**
+ * @brief Resolve system_prompt_path to a file that exists, per ChatConfiguration.md section 8.
+ *
+ * Three rules, and the origin of the key is what selects between them.
+ *
+ * @return Nothing when the COMPILED default names a prompt this install does not have, which is
+ *         not the user's mistake and must not stop a session: rule one of section 3 is that a run
+ *         with no files anywhere still answers, and Prompts/ is a file.
+ *
+ * @throws ConfigError naming the prompt and where it was looked for, when any layer above the
+ *         compiled default asked for it. Never silently replaced: a user who asked for a persona
+ *         and got a different one has no way to discover that from the transcript.
+ */
+static std::optional<std::filesystem::path> resolveSystemPrompt(
+    const std::string& value,
+    const std::optional<SettingsOrigin>& origin,
+    const std::filesystem::path& config_root,
+    const std::string& described_origin )
+{
+    const std::filesystem::path written{ value };
+
+    // A bare name -- no separator, no extension -- is a NAMED prompt rather than a path, resolved
+    // through a search path. Written once, it works from a checkout, an install and a container
+    // alike, and a user shadows a shipped prompt by putting their own beside their config.
+    const bool is_named = value.find( '/' ) == std::string::npos
+        && value.find( '\\' ) == std::string::npos
+        && !written.has_extension();
+
+    if ( is_named )
+    {
+        const std::string file_name = value + ".json";
+
+        std::vector<std::filesystem::path> searched;
+
+        if ( !config_root.empty() )
+            searched.push_back( config_root / "prompts" / file_name );
+
+        searched.push_back( executable_directory() / "Prompts" / file_name );
+
+        for ( const auto& candidate : searched )
+        {
+            if ( std::filesystem::exists( candidate ) )
+                return candidate;
+        }
+
+        // The compiled default naming a prompt this install does not carry is our omission, not
+        // the user's request, so the session opens without a system prompt instead of refusing.
+        if ( origin && origin->layer == SettingsLayer::FamilyInvariants )
+        {
+            return std::nullopt;
+        }
+
+        std::string looked_in;
+
+        for ( const auto& candidate : searched )
+        {
+            looked_in += looked_in.empty() ? "" : ", ";
+            looked_in += candidate.string();
+        }
+
+        throw ConfigError( std::format(
+            "system_prompt_path ({}): no prompt named '{}'. Looked in {}.",
+            described_origin, value, looked_in ) );
+    }
+
+    std::filesystem::path resolved = written;
+
+    if ( resolved.is_relative() )
+    {
+        // A relative path resolves against the directory of the FILE that set the key -- the rule
+        // tsconfig, Cargo and every include-path system settles on, and the only one that survives
+        // the config root moving to %APPDATA%. A path typed on the command line is the exception:
+        // the user typed it against the working directory and tab-completed there.
+        const bool from_file = origin && !origin->file.empty();
+
+        if ( from_file )
+            resolved = origin->file.parent_path() / resolved;
+    }
+
+    if ( !std::filesystem::exists( resolved ) )
+    {
+        throw ConfigError( std::format(
+            "system_prompt_path ({}): no such file: {}",
+            described_origin, std::filesystem::absolute( resolved ).string() ) );
+    }
+
+    return resolved;
+}
+
+/**
  * @brief Resolve every setting for this run, from the layers of ChatConfiguration.md section 3.
  *
  * Each layer overrides the previous key by key, never file by file, so setting one key inherits
@@ -444,17 +586,32 @@ static ChatConfig buildConfig( const CommandLine& line )
 {
     std::vector<SettingsPatch> overrides;
 
-    // Layer 3 -- the user's own config. Its home, %APPDATA%\Mila\chat.json, arrives with
-    // resolveConfigRoot(); the slot is here so that adding it is a path rather than a reordering.
+    const std::filesystem::path config_root = resolveConfigRoot();
 
-    // Layer 4 -- the config that is FOUND: this checkout's, or this image's.
-    std::filesystem::path local_path{ "Data/session.json" };
+    // Layer 3 -- how this person likes Chat, wherever they run it from.
+    if ( !config_root.empty() )
+    {
+        const std::filesystem::path user_config = config_root / "chat.json";
+
+        if ( std::filesystem::exists( user_config ) )
+        {
+            overrides.push_back( SettingsPatch{
+                .layer = SettingsLayer::UserConfig,
+                .values = readSettingsFile( user_config ),
+                .file = user_config } );
+        }
+    }
+
+    // Layer 4 -- the config that is FOUND: this checkout's, or this image's. Named for what it
+    // configures rather than for a session, and the same name the user config carries: one file
+    // name, two ranks, which is the whole difference between them.
+    std::filesystem::path local_path{ "chat.json" };
 
     // Resolved next to the executable when it is not present relative to the working directory,
     // so what is found does not depend on where the process was launched from.
     if ( !std::filesystem::exists( local_path ) )
     {
-        const std::filesystem::path exe_relative = executable_directory() / "Data" / "session.json";
+        const std::filesystem::path exe_relative = executable_directory() / "chat.json";
 
         if ( std::filesystem::exists( exe_relative ) )
             local_path = exe_relative;
@@ -466,12 +623,6 @@ static ChatConfig buildConfig( const CommandLine& line )
             .layer = SettingsLayer::LocalConfig,
             .values = readSettingsFile( local_path ),
             .file = local_path } );
-    }
-    else if ( !line.settings_given )
-    {
-        std::cerr << "Settings: no config file found at "
-            << std::filesystem::absolute( local_path ).string()
-            << " - using defaults.\n";
     }
 
     // Layer 5 -- the model last chosen from inside a session, which is the one key it covers.
@@ -705,28 +856,11 @@ static ChatConfig buildConfig( const CommandLine& line )
     if ( const std::string prompt_path = readString( settings, "system_prompt_path" );
          !prompt_path.empty() )
     {
-        std::filesystem::path system_prompt = prompt_path;
-
-        const auto origin = settings.originOf( "system_prompt_path" );
-
-        // A path typed on the command line resolves against the working directory, because that
-        // is what the user tab-completed against. A path from a file does not: section 8 resolves
-        // it against the directory of the FILE that set it, which is what the origin above is
-        // for. Until then a file's relative path keeps the executable-directory fallback that the
-        // POST_BUILD copy of Data/ depends on.
-        const bool typed_on_command_line =
-            origin && origin->layer == SettingsLayer::CommandLine && origin->file.empty();
-
-        if ( !typed_on_command_line && system_prompt.is_relative() &&
-             !std::filesystem::exists( system_prompt ) )
-        {
-            const std::filesystem::path exe_relative = executable_directory() / system_prompt;
-
-            if ( std::filesystem::exists( exe_relative ) )
-                system_prompt = exe_relative;
-        }
-
-        config.system_prompt_path = system_prompt;
+        config.system_prompt_path = resolveSystemPrompt(
+            prompt_path,
+            settings.originOf( "system_prompt_path" ),
+            config_root,
+            settings.describeOrigin( "system_prompt_path" ) );
     }
 
     return config;
@@ -819,15 +953,6 @@ int main( int argc, char* argv[] )
 
                 return 4;
             }
-        }
-
-        if ( config.system_prompt_path.has_value() &&
-             !std::filesystem::exists( *config.system_prompt_path ) )
-        {
-            std::cerr << "Error: System prompt file not found: "
-                      << *config.system_prompt_path << "\n";
-
-            return 3;
         }
 
         Chat chat( std::move( config ) );

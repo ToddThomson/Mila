@@ -331,10 +331,26 @@ caller that wants it.
 ## 7. File Layout
 
 **The session files shrink; they do not collapse.** `session.json`, `session-dev.json`,
-`session-llama-3b-fp4.json` and `session-llama-8b-fp4.json` are near-identical today because
-each one must be complete — there is no merge, so every file repeats every key. Merge removes
-that duplication at the source: once layers 1 and 2 supply everything, a per-model file is the
-two or three keys that actually differ, and `--settings` (§9) selects one.
+`session-llama-3b-fp4.json` and `session-llama-8b-fp4.json` were near-identical because each one
+had to be complete — there was no merge, so every file repeated every key. Merge removed that
+duplication at the source: once layers 1 and 2 supply everything, a per-model file is the two or
+three keys that actually differ, and `--settings` (§9) selects one.
+
+They shrank to nothing, and **the install ships no configuration at all**. Every value they carried
+is now a compiled default or a measurement; the per-model files were development conveniences that
+`--model` and `--context-length` express on the command line, and a user who wants one writes the
+two keys that differ and passes `--settings`.
+
+**Nothing may ship at layer 4.** A `chat.json` beside the executable naming the default prompt was
+tried and reverted, on a measurement: layer 4 outranks layer 3, so an install file naming a key
+leaves the user unable to set that key in their own config at all. Any default the product wants to
+express belongs in layer 1, where every layer above can override it. Layer 4 remains for what it is
+named for — a deployment dropping a file into an image or a checkout — and the product is not a
+deployment.
+
+**One file name, two ranks.** The user's config (layer 3) and a local one (layer 4) are both
+`chat.json`; where it sits is the whole difference between them. A name that encoded its own rank
+would have to be renamed to move.
 
 No profile mechanism is introduced. Named sections plus a `current` key plus a second selector
 would be a second way to choose a configuration, solving a duplication problem that §3 has
@@ -383,15 +399,21 @@ Two cases sit outside that rule, both deliberately:
 
 - **A bare name with no separator and no extension is a named prompt**, resolved through a
   search path: the config root's `prompts/` first, then the install's `Prompts/`. So
-  `"system_prompt": "assistant"` is written once and works from a checkout, an install and a
-  container alike, and a user shadows a shipped prompt by putting their own next to their
-  config. This is what shipped configs should use.
+  `"system_prompt_path": "assistant"` is written once and works from a checkout, an install and
+  a container alike, and a user shadows a shipped prompt by putting their own next to their
+  config. This is what layer 1 supplies as the default persona: `"system_prompt_path":
+  "assistant"`, compiled rather than shipped in a file, per §7.
 - **`--system-prompt` on the command line resolves against the working directory**, because a
   user typed it there and tab-completed against it.
 
 A named prompt that cannot be found is rejected by name at validation (§4), alongside
 `context_length`. It is not silently replaced by a compiled-in default: a user who asked for a
 persona and got a different one has no way to discover that from the transcript.
+
+The one exception is the compiled default itself. When layer 1's `assistant` names a prompt this
+install does not carry, the session opens with no system prompt rather than refusing: that is our
+omission and not a request anybody made, and rule one of §3 — a run with no files anywhere still
+answers — makes `Prompts/` a file like any other.
 
 ### The files, renamed for their roles
 
@@ -407,14 +429,15 @@ this codebase and most others marks a file a user wrote and git ignores.
 | `Data/assistant.json` | `Prompts/tools-weather.json` | the tool-calling demonstration |
 | `Data/assistant-tools.json` | `Prompts/tools.json` | full tool set |
 | `Data/assistant-tools-one.json` | `Prompts/tools-single.json` | one-tool variant |
-| `Data/session*.json` | (deleted) | shrink to their differing keys, in the config root, §7 |
+| `Data/session*.json` | (deleted) | every key they held is now a default or a measurement, §7 |
 
 The default prompt is then the one whose name says default, and the name that reads like a user
 override belongs to a user. `Data/` is removed rather than emptied.
 
 This also finishes what §2 starts. After phase 1, Chat no longer needs the working directory to
-find its configuration; after this section it no longer needs it to find its prompts either, and
-the last reason `Mila/Tools/Cli` changes directory before launching Chat is gone.
+find its configuration; after this section it no longer needs it to find its prompts either. The
+runtime image's `WORKDIR` and the entrypoint's `cd` are both ordinary tidiness now, and were
+relaxed with this phase; `Mila/Tools/Cli` still changes directory and no longer needs to.
 
 ---
 

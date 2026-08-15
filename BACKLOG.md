@@ -430,8 +430,8 @@ being a task list and needs a prune.
 - [~] **Rework Chat configuration to layered resolution** — design and phasing in
   `Mila/Specifications/ChatConfiguration.md`. Phases 1-5 have landed (image directory, validation and
   the exit path, the flag set, the family table and the layered merge with origins, the predictor's
-  failure reason, `context_length: "auto"`). Remaining: the two `ModelRecord` fields, prompt
-  resolution, `resolveConfigRoot()`.
+  failure reason, `context_length: "auto"`, prompt resolution and the end of `Data/`, the config
+  root). Remaining: phase 7, the two `ModelRecord` fields, which touches Model Distribution.
 - [ ] **Auto picks a context that fits memory and prefills at the floor.** Measured: Gemma resolves
   to 95232, where the prefill chunk has walked down to 64 rows, against roughly 54K for a full
   1024-row chunk. The mechanism and the rung table are in ChatConfiguration.md section 6. Needs a
@@ -443,11 +443,6 @@ being a task list and needs a prune.
   zero-context throw look like a Gemma predictor defect and earn its own phase. `predictFootprint`
   now returns the reason and `footprintOf` drops it: `Chat.ModelCatalog.ixx:602`. Carry it into
   `RowDeployment` and note the failing rows beneath the table.
-- [ ] **`--settings` and a found local config now BOTH apply**, where `--settings` used to replace the
-  local config outright. That is the merge design (layer 4 then layer 6, key by key), so a named file
-  need only hold what differs — but it means a key absent from the named file is inherited from
-  `Data/session.json` rather than from the compiled default. Verify against the per-model files once
-  §7 shrinks them: `Mila/Adaptors/Chat/Src/main.cpp:416`.
 - [ ] **`Chat.Json` is a byte-for-byte duplicate of the `nlohmann.json` module** —
   `Mila/Adaptors/Chat/Src/Json.ixx` versus `Mila/Src/Utils/json.ixx`, both including the same header
   from their global module fragment. Chat imports one in `Chat.ixx` and the other in
@@ -462,10 +457,10 @@ being a task list and needs a prune.
   `cd /build` is redundant since `executable_directory()` reads `/proc/self/exe`. `Docker/Dockerfile:94`
   installs `run-chat.sh` as `/usr/local/bin/mila-chat`; the built binary is `/build/mila-chat`. Verify in
   a container, then either drop the wrapper for a symlink or keep it purely for the not-built message.
-- [ ] **`Dockerfile.runtime`'s WORKDIR is documented as a correctness requirement it no longer is.**
-  Line 147 explains the working directory as the only way Chat finds `Data/session.json` on Linux;
-  phase 1 of ChatConfiguration.md retired that. Confirm in a container run, then relax the comment and
-  the `cd` in `Docker/run-chat.sh`, which carries the same note.
+- [ ] **Confirm in a container that Chat no longer needs its working directory.** The runtime image's
+  WORKDIR comment and the entrypoint's `cd` were relaxed on the strength of `/proc/self/exe` and the
+  `Prompts/` move, without a container run to prove it. `Docker/run-chat.sh` still has the `cd`, kept
+  until that run happens, as does `Mila/Tools/Cli`.
 - [ ] **Installing a model then starting Chat leaves no model loaded**, so the two-command evaluation
   path does not reach an answer. Measured 2026-08-14: `install Llama-3.2-3B-Instruct-fp4` into a fresh
   volume, then `chat`, opens on "No model is loaded" — the user must also know to type `/model <name>`.
@@ -495,7 +490,7 @@ being a task list and needs a prune.
 - [ ] **A publish build of the runtime image has never been made.** Verification used a single-arch
   (`89`) build; a published image must be `89;90;120` and needs `MILA_CLEAN_BUILD=1`, since
   `--no-cache` leaves BuildKit cache mounts intact. **This is not theoretical — measured 2026-08-14:** a
-  changed `Data/session.json` did not reach a rebuilt image because `/build/Data` in the cache mount was
+  changed Chat config did not reach a rebuilt image because the copied tree in the cache mount was
   never re-copied, so the image silently shipped the previous tree's config and behaved to match. Stale
   cache-mount content has now produced two wrong images in one day (this and the missing binding
   extension), both silently. Open decisions before any push: whether a

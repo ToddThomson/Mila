@@ -124,7 +124,7 @@ RUN --mount=type=cache,target=/build,sharing=locked \
     && mkdir -p /out \
     && cp /build/mila-chat /out/mila-chat \
     && cp /build/mila /out/mila \
-    && cp -r /build/Data /out/Data \
+    && cp -r /build/Prompts /out/Prompts \
     && cp /build/python/mila/_mila*.so /out/
 
 # =============================================================================
@@ -144,15 +144,13 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# mila-chat resolves Data/session.json against the CURRENT WORKING DIRECTORY on Linux --
-# executable_directory() there is just current_path(), the GetModuleFileName path being
-# Windows-only. So the app directory is also the WORKDIR, and the entrypoint never
-# leaves it. A `docker run -w /elsewhere` would break config resolution; that is a
-# property of the app, recorded here because this image is where it becomes user-visible.
+# Ordinary tidiness now, not a correctness requirement. mila-chat reads /proc/self/exe on Linux, so
+# it finds its config and its prompts beside the binary from any working directory --
+# `docker run -w /elsewhere` is fine. See Specifications/ChatConfiguration.md sections 2 and 8.
 WORKDIR /opt/mila
 
 COPY --from=builder /out/mila-chat ./mila-chat
-COPY --from=builder /out/Data ./Data
+COPY --from=builder /out/Prompts ./Prompts
 
 # The binding package tree carries the extension MilaPy's POST_BUILD staged into it, so
 # an editable install here points at a real .so rather than fetching one from PyPI.

@@ -30,9 +30,8 @@ VENV_DIR="${MILA_VENV_DIR:-${APP_DIR}/venv}"
 case "${1:-chat}" in
     chat)
         shift || true
-        # Chat resolves Data/session.json against the working directory, which the image
-        # sets to APP_DIR. Staying here is a correctness requirement, not tidiness.
-        cd "${APP_DIR}"
+        # No cd: Chat finds its config and prompts beside the binary, from any working
+        # directory. That was a correctness requirement until it read /proc/self/exe.
         exec "${APP_DIR}/mila-chat" "$@"
         ;;
     serve)
