@@ -379,14 +379,14 @@ tables and per-model notes.
 
 ## 6. Run inference (Chat CLI)
 
-The chat sample builds as the `ChatApp` target. Its executable is written to the build root
-(e.g. `out/build/x64-release/ChatApp.exe`), with a `Data/` folder copied alongside it.
+The chat sample builds as the `mila-chat` target. Its executable is written to the build root
+(e.g. `out/build/x64-release/mila-chat.exe`), with a `Data/` folder copied alongside it.
 
 ```bash
-./out/build/x64-release/ChatApp.exe
+./out/build/x64-release/mila-chat.exe
 ```
 
-From Visual Studio, set **ChatApp** as the startup item and run. Chat opens on an empty store,
+From Visual Studio, set **mila-chat** as the startup item and run. Chat opens on an empty store,
 so a first run with nothing installed still reaches `/install`.
 
 A model is named, not aliased — what `/models` shows is what you type:

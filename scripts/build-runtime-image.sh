@@ -8,14 +8,19 @@ set -euo pipefail
 # MILA_CLEAN_BUILD=1 discards the cached build tree first. A publish build must set it:
 # `--no-cache` invalidates layers but leaves BuildKit cache mounts intact, so without it an image
 # can be assembled from objects left by a different source tree.
+#
+# MILA_IMAGE_TARGET selects which published image to build: `runtime` (Chat + the inference
+# server, no compiler) or `devel` (that build plus the toolchain, source and build tree).
 : "${MILA_RUNTIME_IMAGE_TAG:=mila-llm:local}"
 : "${MILA_IMAGE_CUDA_ARCHITECTURES:=89;90;120}"
+: "${MILA_IMAGE_TARGET:=runtime}"
 : "${MILA_CLEAN_BUILD:=0}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 docker build \
     -f "${REPO_ROOT}/Docker/Dockerfile.runtime" \
+    --target "${MILA_IMAGE_TARGET}" \
     --build-arg MILA_IMAGE_CUDA_ARCHITECTURES="${MILA_IMAGE_CUDA_ARCHITECTURES}" \
     --build-arg MILA_CLEAN_BUILD="${MILA_CLEAN_BUILD}" \
     -t "${MILA_RUNTIME_IMAGE_TAG}" \

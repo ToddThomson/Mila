@@ -18,7 +18,14 @@
 # and a build tree on a volume, neither of which exists here.
 set -euo pipefail
 
-APP_DIR=/opt/mila
+# The ENTRYPOINT of the `runtime` tag, installed as /usr/local/bin/mila-entrypoint. It is NOT
+# the `mila` command: that name belongs to the Mila/Tools/Cli binary in both tags, which reaches
+# the store directly and carries no chat verb. The verbs here are the IMAGE's interface, and the
+# image is where they belong -- it knows where it put the binaries, so it needs none of the
+# discovery a native front door would. MILA_APP_DIR lets the devel tag point at its build tree,
+# and the venv is addressed separately because devel's lives beside that tree, not inside it.
+APP_DIR="${MILA_APP_DIR:-/opt/mila}"
+VENV_DIR="${MILA_VENV_DIR:-${APP_DIR}/venv}"
 
 case "${1:-chat}" in
     chat)
@@ -26,7 +33,7 @@ case "${1:-chat}" in
         # Chat resolves Data/session.json against the working directory, which the image
         # sets to APP_DIR. Staying here is a correctness requirement, not tidiness.
         cd "${APP_DIR}"
-        exec "${APP_DIR}/ChatApp" "$@"
+        exec "${APP_DIR}/mila-chat" "$@"
         ;;
     serve)
         shift || true
@@ -34,7 +41,7 @@ case "${1:-chat}" in
         # in APP_DIR is what makes a mounted /opt/mila/.env the one MIS reads; without one
         # it starts on its own defaults, which is the intended behaviour for the image.
         cd "${APP_DIR}"
-        exec "${APP_DIR}/venv/bin/mila-server" "$@"
+        exec "${VENV_DIR}/bin/mila-server" "$@"
         ;;
     install)
         shift || true
@@ -50,7 +57,7 @@ case "${1:-chat}" in
         # Through the binding rather than a CLI: the store tooling (ExportArtifact) is a
         # build artifact this image does not ship, while the binding is already installed
         # for MIS. ModelStore.pull is the same call the Python quick start makes.
-        exec "${APP_DIR}/venv/bin/python" - "$@" <<'PYTHON'
+        exec "${VENV_DIR}/bin/python" - "$@" <<'PYTHON'
 import sys
 
 import mila

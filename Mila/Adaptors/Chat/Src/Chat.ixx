@@ -107,6 +107,79 @@ namespace Mila::ChatApp
             tool_handlers_.emplace( std::move( name ), std::move( handler ) );
         }
 
+        /**
+         * @brief Answer one prompt and return, without opening a session.
+         *
+         * Standard output carries the answer and nothing else -- no banner, no spinner, no
+         * session status -- so that `mila-chat -p "..." > answer.txt` yields an answer rather
+         * than an answer wearing a welcome box.
+         *
+         * @param answer_out The real standard output. main.cpp has already pointed std::cout at
+         *        standard error, because the diagnostics to be kept out of the answer include
+         *        the library's own log records and those are not written through this class.
+         *        Everything reaching std::cout below is therefore already diverted.
+         *
+         * @return An exit code from the contract in ChatConfiguration.md section 9.
+         */
+        int runOnce( const std::string& prompt, bool as_json, std::ostream& answer_out )
+        {
+            one_shot_ = true;
+            renderer_.setQuiet( true );
+
+            if ( config_.model_name.empty() )
+            {
+                std::cerr << "No model is loaded. Name one with --model, "
+                             "or install one with 'mila install <name>'.\n";
+
+                return 4;
+            }
+
+            try
+            {
+                loadActiveModel();
+            }
+            catch ( const std::exception& error )
+            {
+                std::cerr << std::format( "Could not load {}: {}\n",
+                    config_.model_name, error.what() );
+
+                return 5;
+            }
+
+            clearHistory();
+            history_.push_back( { MessageRole::User, prompt } );
+
+            std::string response;
+            response.reserve( 4096 );
+
+            generateResponse( response );
+            handleResponse( response );
+
+            // handleResponse pushes the parsed answer as the final Assistant turn, so the last
+            // entry is the answer after any tool round trip -- which is what a caller asked for,
+            // rather than the raw text with its channels still in it.
+            const std::string answer = history_.empty() ? std::string{} : history_.back().content;
+
+            if ( as_json )
+            {
+                emitOneShotJson( answer, answer_out );
+            }
+            else
+            {
+                answer_out << answer << '\n';
+
+                // A truncated answer is still an answer, so it is not a failure code. It is said
+                // once on stderr, where it cannot corrupt the thing being piped.
+                if ( finishStatus() == GenerateStatus::MaxNewTokensReached )
+                {
+                    std::cerr << "Note: response hit the token cap without a stop token "
+                                 "(finish: length).\n";
+                }
+            }
+
+            return 0;
+        }
+
         void run()
         {
             printBanner();
@@ -124,7 +197,26 @@ namespace Mila::ChatApp
             }
             else
             {
-                loadActiveModel();
+                // A load that fails is reported INTO the session, not out of it -- the commands
+                // that fix it (/model, /models, /install) are all inside. Leaving here is what
+                // turned a readable "context_length must be greater than zero" into an abort,
+                // and the session is perfectly able to run with nothing loaded.
+                try
+                {
+                    loadActiveModel();
+                }
+                catch ( const std::exception& error )
+                {
+                    renderer_.printError( std::format(
+                        "Could not load {}: {}", config_.model_name, error.what() ) );
+
+                    std::visit( []( auto& model ) { model.reset(); }, model_ );
+
+                    // An empty name IS the no-model state, tested in both places that ask.
+                    config_.model_name.clear();
+
+                    reportNoModel();
+                }
             }
 
             printSessionStatus();
@@ -541,6 +633,59 @@ namespace Mila::ChatApp
     private:
 
         /**
+         * @brief How the last round of the turn ended, or Success when nothing has run.
+         *
+         * The last round is the one that produced the answer: a tool round trip finishes its
+         * first round early by design, and reporting that as the turn's outcome would call a
+         * complete answer truncated.
+         */
+        GenerateStatus finishStatus() const
+        {
+            return last_turn_rounds_.empty()
+                ? GenerateStatus::Success
+                : last_turn_rounds_.back().finish_status;
+        }
+
+        /**
+         * @brief The one-shot answer as a JSON object on standard output.
+         *
+         * finish_reason is the field that earns this format: a response cut off at the token
+         * cap reads as a complete answer in plain text and is self-announcing here.
+         */
+        void emitOneShotJson( const std::string& answer, std::ostream& answer_out ) const
+        {
+            int tokens = 0;
+
+            for ( const RoundStats& round : last_turn_rounds_ )
+            {
+                tokens += round.tokens_generated;
+            }
+
+            nlohmann::json payload;
+            payload[ "content" ] = answer;
+            payload[ "model" ] = config_.model_name;
+            payload[ "context_length" ] = config_.context_length;
+            payload[ "tokens_generated" ] = tokens;
+            payload[ "rounds" ] = last_turn_rounds_.size();
+            payload[ "finish_reason" ] = finishReasonName( finishStatus() );
+
+            answer_out << payload.dump( 2 ) << '\n';
+        }
+
+        /**
+         * @brief Wire names for the generation outcome, in the vocabulary a caller expects.
+         */
+        static const char* finishReasonName( GenerateStatus status )
+        {
+            switch ( status )
+            {
+                case GenerateStatus::MaxNewTokensReached: return "length";
+                case GenerateStatus::ContextOverflow:     return "context_limit";
+                default:                                  return "stop";
+            }
+        }
+
+        /**
          * @brief Route a completed generation response through tool call handling.
          *
          * When ToolCallParser detects a <|python_tag|> block the response is treated
@@ -661,6 +806,16 @@ namespace Mila::ChatApp
             const std::string without_tool_spans = stripToolExchangeSpans( raw );
             const std::string clean = stripSpecialTokens( without_tool_spans );
             const ParsedResponse parsed = ChannelParser::parse( clean );
+
+            // One shot renders nothing: the caller gets the answer on standard output in the
+            // format it asked for, and a painted block would be in the middle of it.
+            if ( one_shot_ )
+            {
+                stream_display_.reset();
+                history_.push_back( { MessageRole::Assistant, parsed.answer } );
+
+                return;
+            }
 
             if ( stream_display_ != nullptr && renderer_.streamHasOutput() )
             {
@@ -981,7 +1136,9 @@ namespace Mila::ChatApp
             // tool rounds of the turn.
             stream_display_.reset();
 
-            if ( config_.streaming_capable && gemma_stream_tokens_.has_value() )
+            // Not in one shot: streaming paints tokens onto standard output as they arrive,
+            // which is the whole value at a prompt and pure corruption of a piped answer.
+            if ( config_.streaming_capable && gemma_stream_tokens_.has_value() && !one_shot_ )
                 stream_display_ = std::make_unique<StreamingResponseDisplay>(
                     renderer_, *gemma_stream_tokens_, config_.detail );
 
@@ -1103,8 +1260,10 @@ namespace Mila::ChatApp
 
                 // A capped round is indistinguishable from a hang while the buffered
                 // response builds (pegged GPU, silent spinner) -- say so explicitly.
-                if ( round_status == GenerateStatus::MaxNewTokensReached
-                    || round_status == GenerateStatus::ContextOverflow )
+                // One shot says it on standard error instead, or in finish_reason -- this line
+                // goes to standard output and would land inside the answer being piped.
+                if ( ( round_status == GenerateStatus::MaxNewTokensReached
+                    || round_status == GenerateStatus::ContextOverflow ) && !one_shot_ )
                 {
                     if ( stream_display_ )
                         stream_display_->suspendForTrace();
@@ -1366,7 +1525,13 @@ namespace Mila::ChatApp
             // the live value cannot carry (the ceilings differ), so fall back to what the session
             // config asked for, clamped to what the new architecture can address, and only to the
             // model's own default when the config named no context at all.
-            if ( prev_type != config_.model_type )
+            //
+            // A zero is not a live value to preserve, and the architecture test alone does not
+            // catch it: a session that opened with NO model holds the default model_type, so
+            // loading a model of that same family skipped this and carried the zero into the load.
+            // That is the container failure -- no session config, then a Llama, then
+            // "context_length must be greater than zero". See ChatConfiguration.md section 2.
+            if ( prev_type != config_.model_type || config_.context_length == 0 )
             {
                 const std::size_t ceiling = maxContextFor( config_.model_type );
                 const std::size_t configured = config_.configured_context_length;
@@ -1561,6 +1726,16 @@ namespace Mila::ChatApp
 
         void loadActiveModel()
         {
+            // Checked against the key a user can edit, before anything is constructed. The
+            // library's own guard is correct and names LanguageModelConfig, which is a type the
+            // reader of a session file has never heard of and cannot change.
+            if ( config_.context_length == 0 )
+            {
+                throw std::invalid_argument(
+                    "context_length is zero. Set a positive 'context_length' in the session "
+                    "config, or remove the key to take the model's own default." );
+            }
+
             reportFootprintBeforeLoad();
 
             if ( config_.detail == DetailLevel::All )
@@ -1579,8 +1754,20 @@ namespace Mila::ChatApp
                     modelName(), quantizationName( config_.quantization_mode ) )
                 : std::format( "Loading {}", modelName() ) );
 
-            initializeTokenizer();
-            loadModel();
+            // Stopped here rather than in each caller's catch: a load that throws left the
+            // spinner redrawing over the error message that explained it, and the hidden
+            // cursor never came back. The one place that starts it owns stopping it.
+            try
+            {
+                initializeTokenizer();
+                loadModel();
+            }
+            catch ( ... )
+            {
+                renderer_.stopSpinner();
+
+                throw;
+            }
 
             renderer_.stopSpinner();
         }
@@ -2144,5 +2331,9 @@ Examples:
         };
 
         std::vector<RoundStats> last_turn_rounds_;
+
+        // Set by runOnce: suppresses every display path, so standard output holds the answer
+        // alone. Not a detail level -- detail says how much to show, this says show nothing.
+        bool one_shot_{ false };
     };
 }

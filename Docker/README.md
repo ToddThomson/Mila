@@ -72,10 +72,10 @@ scripts/mis-run.{sh,ps1}        # mila-mis     (publishes the port to the host)
   *off* the bind mount — the C++23 module BMI I/O is metadata-heavy and slow across the
   host↔container filesystem boundary. `ccache` persists in the `mila-ccache` volume. Both
   survive `run --rm`, so rebuilds are incremental.
-- **`mila-build-chat`** configures + builds only the `ChatApp` target (no tests, samples,
+- **`mila-build-chat`** configures + builds only the `mila-chat` target (no tests, samples,
   profiling, docs, or Python binding) — the fast path when you just want to run Chat.
   **`mila-chat`** `cd`s into `/build` (where the POST_BUILD step copies `Data/`) and runs
-  `ChatApp`; arguments are forwarded.
+  `mila-chat`; arguments are forwarded.
 - **`mila-build-all`** configures + builds the full user-facing product set — library,
   samples, Chat, and the Python binding — for someone who wants more than Chat from the
   known environment. It builds for `MILA_CUDA_ARCH` (default `native` — CMake detects the

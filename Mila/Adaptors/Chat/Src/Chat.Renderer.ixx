@@ -26,6 +26,19 @@ namespace Mila::ChatApp
     {
     public:
 
+        /**
+         * @brief Stop the spinner, whatever else is unwinding.
+         *
+         * Without this a spinner running when a load fails outlives the renderer, and
+         * ~thread on a joinable thread calls std::terminate -- which is how a readable
+         * "context_length must be greater than zero" was followed by an abort. It also
+         * restores the cursor, which startSpinner() hid.
+         */
+        ~ConsoleRenderer()
+        {
+            stopSpinner();
+        }
+
         // ── User turn ─────────────────────────────────────────────────────────
 
         void printUserPrompt() const
@@ -60,8 +73,23 @@ namespace Mila::ChatApp
          * outlive the startSpinner()/stopSpinner() window. A ticking count shows
          * generation is alive; a frozen count distinguishes a hang from a long response.
          */
+        /**
+         * @brief Suppress the progress animation, for output that is not a terminal.
+         *
+         * The spinner writes carriage returns and escape sequences to standard output. That is
+         * right for a person at a prompt and wrong for `-p` feeding a file or a pipe, where the
+         * answer is the whole point of the stream.
+         */
+        void setQuiet( bool quiet )
+        {
+            quiet_ = quiet;
+        }
+
         void startSpinner( std::string_view label = {}, const std::atomic<int>* progress_counter = nullptr )
         {
+            if ( quiet_ )
+                return;
+
             if ( spinner_thread_.joinable() )
                 stopSpinner();
 
@@ -417,6 +445,7 @@ namespace Mila::ChatApp
 
     private:
 
+        bool              quiet_{ false };
         std::atomic<bool> spinning_{ false };
         std::thread       spinner_thread_;
         std::string       spinner_label_;

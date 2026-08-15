@@ -6,5 +6,5 @@
   "top_p": 1.0,
   "thinking_effort": 3,
   "verbose": "off",
-  "system_prompt_path": "Data/assistant.json"
+  "system_prompt_path": "Data/assistant-chat.local.json"
 }

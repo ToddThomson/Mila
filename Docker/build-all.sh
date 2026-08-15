@@ -3,11 +3,11 @@
 # Configure + build the FULL user-facing Mila product set inside the build container.
 #
 # This is the "give me everything" companion to build-chat.sh. Where build-chat.sh
-# trims to just the ChatApp target (the fast path for someone who only wants to run
+# trims to just the mila-chat target (the fast path for someone who only wants to run
 # Chat), this builds the whole set a user might want from the known-good environment:
 #   - the Mila library
 #   - the samples (MNIST, Bard) -- read and run them to learn the API
-#   - the Chat adaptor (ChatApp)
+#   - the Chat adaptor (mila-chat)
 #   - the Python binding (mila.pyd / Mila.Bindings) -- stand up the Inference Server
 #
 # PURPOSE: end-user convenience -- a completely known build environment that produces

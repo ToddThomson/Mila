@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <format>
 #include <stdexcept>
+#include <system_error>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -24,6 +25,12 @@ using namespace Mila::ChatApp;
  * default session config against this directory makes the default model
  * independent of the process working directory (which the IDE/debugger may set
  * to the source tree or repo root rather than the binary output directory).
+ *
+ * Every supported platform must answer this for itself. Falling through to the
+ * working directory does not implement the guarantee above, it silently drops
+ * it -- which is how a container ended up loading no config at all, and why the
+ * image documents its WORKDIR as a correctness requirement. See
+ * Specifications/ChatConfiguration.md section 2.
  */
 static std::filesystem::path executable_directory()
 {
@@ -33,18 +40,142 @@ static std::filesystem::path executable_directory()
 
     if ( length > 0 && length < MAX_PATH )
         return std::filesystem::path( buffer ).parent_path();
+#elif defined( __linux__ )
+    std::error_code unresolved;
+    const std::filesystem::path image =
+        std::filesystem::read_symlink( "/proc/self/exe", unresolved );
+
+    if ( !unresolved )
+        return image.parent_path();
 #endif
     return std::filesystem::current_path();
+}
+
+/**
+ * @brief A malformed command line: unknown flag, or a flag missing its value.
+ *
+ * Separate from a bad configuration VALUE so the two can exit with different codes -- a
+ * caller can tell "you typed it wrong" from "the file says something impossible".
+ */
+struct UsageError : std::invalid_argument
+{
+    using std::invalid_argument::invalid_argument;
+};
+
+/// @brief A configuration that parsed but cannot be honoured.
+struct ConfigError : std::runtime_error
+{
+    using std::runtime_error::runtime_error;
+};
+
+/// @brief A model name that named nothing the store holds.
+struct ModelNotFound : std::runtime_error
+{
+    using std::runtime_error::runtime_error;
+};
+
+/**
+ * @brief The command line, parsed once, before anything else happens.
+ *
+ * Flags are the last word over every configuration file -- see ChatConfiguration.md section 9.
+ * They are collected here rather than applied as they are read, so that the order they were
+ * typed in cannot change what they mean.
+ */
+struct CommandLine
+{
+    std::filesystem::path settings;
+    bool settings_given = false;
+
+    std::string model;
+    bool model_given = false;
+
+    std::string prompt;
+    bool one_shot = false;
+
+    bool json_output = false;
+    bool show_version = false;
+    bool show_help = false;
+};
+
+static std::string_view requireValue( int argc, char* argv[], int& index, std::string_view flag )
+{
+    if ( index + 1 >= argc )
+        throw UsageError( std::format( "{} requires a value.", flag ) );
+
+    return argv[ ++index ];
+}
+
+static CommandLine parseCommandLine( int argc, char* argv[] )
+{
+    CommandLine line;
+
+    for ( int i = 1; i < argc; ++i )
+    {
+        const std::string_view arg = argv[ i ];
+
+        if ( arg == "--help" || arg == "-h" )
+        {
+            line.show_help = true;
+        }
+        else if ( arg == "--version" )
+        {
+            line.show_version = true;
+        }
+        else if ( arg == "--settings" )
+        {
+            line.settings = requireValue( argc, argv, i, arg );
+            line.settings_given = true;
+        }
+        else if ( arg == "--model" )
+        {
+            line.model = requireValue( argc, argv, i, arg );
+            line.model_given = true;
+        }
+        else if ( arg == "-p" )
+        {
+            line.prompt = requireValue( argc, argv, i, arg );
+            line.one_shot = true;
+        }
+        else if ( arg == "--output-format" )
+        {
+            const std::string_view value = requireValue( argc, argv, i, arg );
+
+            if ( value == "json" )
+                line.json_output = true;
+            else if ( value != "text" )
+                throw UsageError( std::format(
+                    "Unknown output format '{}'. Use text or json.", value ) );
+        }
+        else
+        {
+            throw UsageError( std::format(
+                "Unknown option: '{}'. Run with --help for the available flags.", arg ) );
+        }
+    }
+
+    // Rejected rather than ignored: a caller that asked for JSON and got a painted session
+    // would discover the mistake by parsing a welcome box.
+    if ( line.json_output && !line.one_shot )
+        throw UsageError( "--output-format applies to -p only; an interactive session has no "
+                          "single response to format." );
+
+    return line;
 }
 
 static void printUsage( const char* prog_name )
 {
     std::cerr
-        << "Usage: " << prog_name << " [--config <path>]\n"
+        << "Usage: " << prog_name << " [options]\n"
         << "\n"
-        << "All settings live in the session JSON config (default: Data/session.json).\n"
-        << "  --config <path>   Use an alternate session JSON config file.\n"
-        << "  --help, -h        Show this message.\n"
+        << "  -p <prompt>            Answer one prompt and exit. The answer is the whole of\n"
+        << "                         standard output, so it can be piped or redirected.\n"
+        << "  --model <name>         Load this model, as 'mila models' lists it.\n"
+        << "  --settings <path>      Session JSON config (default: Data/session.json).\n"
+        << "  --output-format <fmt>  text (default) or json. With -p only.\n"
+        << "  --version              Print the Mila version and exit.\n"
+        << "  --help, -h             Show this message.\n"
+        << "\n"
+        << "Flags win over the session config. Remaining settings live in that file:\n"
         << "\n"
         << "Session config keys:\n"
         << "  model              Installed model name, used until one is chosen with /model or\n"
@@ -77,39 +208,19 @@ static void printUsage( const char* prog_name )
 /**
  * @brief Resolve the session config path, build a ChatConfig from it.
  *
- * The single source of truth is the session JSON: it names a model alias, which
- * the catalog resolves into the family/size/precision/paths, plus optional
- * overrides (quantization, context length) and runtime preferences. The only
- * command-line option is --config, selecting which JSON file to load.
+ * The session JSON names a model, which the catalog resolves into the
+ * family/size/precision/paths, plus optional overrides (quantization, context length) and
+ * runtime preferences. Flags from the command line are applied last and win.
  */
-static ChatConfig buildConfig( int argc, char* argv[] )
+static ChatConfig buildConfig( const CommandLine& line )
 {
-    std::filesystem::path config_path = "Data/session.json";
-    bool explicit_config = false;
-
-    for ( int i = 1; i < argc; ++i )
-    {
-        std::string_view arg = argv[ i ];
-
-        if ( arg == "--config" )
-        {
-            if ( i + 1 >= argc )
-                throw std::invalid_argument( "--config requires a value" );
-            config_path = argv[ ++i ];
-            explicit_config = true;
-        }
-        else
-        {
-            throw std::invalid_argument( std::format(
-                "Unknown option: '{}'. Only --config <path> is supported; all settings "
-                "live in the session JSON (run with --help).", arg ) );
-        }
-    }
+    std::filesystem::path config_path =
+        line.settings_given ? line.settings : std::filesystem::path( "Data/session.json" );
 
     // Resolve the default config next to the executable when it is not present
     // relative to the working directory, so the default does not depend on where
-    // the process was launched from. An explicit --config is honored as-is.
-    if ( !explicit_config && !std::filesystem::exists( config_path ) )
+    // the process was launched from. An explicit --settings is honored as-is.
+    if ( !line.settings_given && !std::filesystem::exists( config_path ) )
     {
         const std::filesystem::path exe_relative = executable_directory() / "Data" / "session.json";
 
@@ -129,15 +240,22 @@ static ChatConfig buildConfig( int argc, char* argv[] )
         }
         catch ( const nlohmann::json::parse_error& e )
         {
-            throw std::runtime_error( std::format(
+            throw ConfigError( std::format(
                 "Session config: JSON parse error in '{}': {}", config_path.string(), e.what() ) );
         }
     }
+    else if ( line.settings_given )
+    {
+        // A named file that is not there is a mistake, not a fallback: silently using defaults
+        // would answer with settings the caller explicitly asked to replace.
+        throw ConfigError( std::format(
+            "Settings file not found: {}", std::filesystem::absolute( config_path ).string() ) );
+    }
     else
     {
-        std::cout << "Session config: none found at "
+        std::cerr << "Session config: none found at "
             << std::filesystem::absolute( config_path ).string()
-            << " — using defaults.\n";
+            << " - using defaults.\n";
     }
 
     // Resolve the model name against the store. There is no catalogue: what can be loaded is
@@ -148,11 +266,28 @@ static ChatConfig buildConfig( int argc, char* argv[] )
     // the fallback for a store that has never been chosen from. When neither exists the session
     // opens with nothing selected, which is the honest description of a fresh install -- naming a
     // model here reported a 6+ GB artifact as missing to a user who had never asked for it.
+    //
+    // Explicitness of the invocation decides, and nothing here writes anything back: an
+    // override is for this run, while only an in-session /model or /install SETS the
+    // remembered choice (see switchModel).
+    //
+    //   --model                     always wins; the direct instruction for this run
+    //   model key of --settings     wins next; naming that file is also an act of this run
+    //   remembered choice           wins over the DEFAULT config, per the paragraph above
+    //   model key of default config the fallback for a store never chosen from
+    //
+    // Without the second rule, pointing at a settings file and being handed a different model
+    // than the one it names made the file mean different things depending on invisible state.
+    const bool config_names_model = j.contains( "model" ) && j[ "model" ].is_string();
     std::string name;
 
-    if ( const auto last_chosen = readLastChosenModel() )
+    if ( line.model_given )
+        name = line.model;
+    else if ( line.settings_given && config_names_model )
+        name = j[ "model" ].get<std::string>();
+    else if ( const auto last_chosen = readLastChosenModel() )
         name = *last_chosen;
-    else if ( j.contains( "model" ) && j[ "model" ].is_string() )
+    else if ( config_names_model )
         name = j[ "model" ].get<std::string>();
 
     // Quantization is a deployment choice against an unquantized artifact, so it is settled
@@ -165,7 +300,7 @@ static ChatConfig buildConfig( int argc, char* argv[] )
         const auto parsed = parseQuantization( value );
 
         if ( !parsed )
-            throw std::invalid_argument( std::format(
+            throw ConfigError( std::format(
                 "Unknown quantization '{}'. Use none, fp8, or fp4.", value ) );
 
         requested_quantization = *parsed;
@@ -191,6 +326,12 @@ static ChatConfig buildConfig( int argc, char* argv[] )
         }
         catch ( const std::exception& e )
         {
+            // Except when the user named it on the command line. Opening a session that ignored
+            // the one instruction it was given is worse than refusing, and a script that asked
+            // for a specific model needs to know it did not get one.
+            if ( line.model_given )
+                throw ModelNotFound( e.what() );
+
             no_model_reason = e.what();
         }
     }
@@ -321,16 +462,46 @@ int main( int argc, char* argv[] )
     }
 #endif
 
-    for ( int i = 1; i < argc; ++i )
-    {
-        const std::string_view arg = argv[ i ];
+    CommandLine line;
 
-        if ( arg == "--help" || arg == "-h" )
-        {
-            printUsage( argv[ 0 ] );
-            return 0;
-        }
+    try
+    {
+        line = parseCommandLine( argc, argv );
     }
+    catch ( const UsageError& error )
+    {
+        std::cerr << error.what() << "\n";
+
+        return 2;
+    }
+
+    // Answered before anything is initialized: a container user's first command is often one of
+    // these, and neither has an opinion about whether a model store or a device exists.
+    if ( line.show_version )
+    {
+        std::cout << Mila::getAPIVersion().toString() << "\n";
+
+        return 0;
+    }
+
+    if ( line.show_help )
+    {
+        printUsage( argv[ 0 ] );
+
+        return 0;
+    }
+
+    // In one shot, standard output belongs to the answer alone, and the writers that would
+    // otherwise share it are not all ours: ConsoleSink sends every record below Error to
+    // std::cout, and that is library code. So std::cout is pointed at standard error for the
+    // whole run and the answer is written through the buffer it used to hold. One redirect
+    // covers every writer, including ones added later; suppressing call sites one at a time
+    // could not have covered the tokenizer warning that found this.
+    std::streambuf* const standard_output = line.one_shot
+        ? std::cout.rdbuf( std::cerr.rdbuf() )
+        : std::cout.rdbuf();
+
+    std::ostream answer_out( standard_output );
 
     // Quiet by default — only warnings and errors. "verbose" in the session config
     // raises the level to Info to show tokenizer/model load logging.
@@ -339,7 +510,7 @@ int main( int argc, char* argv[] )
 
     try
     {
-        ChatConfig config = buildConfig( argc, argv );
+        ChatConfig config = buildConfig( line );
 
         if ( config.detail == DetailLevel::All )
             Mila::Logging::Logger::defaultLogger().setLevel( Mila::Logging::LogLevel::Info );
@@ -348,18 +519,20 @@ int main( int argc, char* argv[] )
         // the session opens anyway so /install can be reached.
         if ( !config.model_name.empty() )
         {
+            // The store named these, so a missing one is a broken installation rather than a
+            // typo. Not usage: printing the flag list here answered a question nobody asked.
             if ( !std::filesystem::exists( config.model_path ) )
             {
                 std::cerr << "Error: Model file not found: " << config.model_path << "\n";
-                printUsage( argv[ 0 ] );
-                return 1;
+
+                return 4;
             }
 
             if ( !std::filesystem::exists( config.tokenizer_path ) )
             {
                 std::cerr << "Error: Tokenizer file not found: " << config.tokenizer_path << "\n";
-                printUsage( argv[ 0 ] );
-                return 1;
+
+                return 4;
             }
         }
 
@@ -368,8 +541,8 @@ int main( int argc, char* argv[] )
         {
             std::cerr << "Error: System prompt file not found: "
                       << *config.system_prompt_path << "\n";
-            printUsage( argv[ 0 ] );
-            return 1;
+
+            return 3;
         }
 
         Chat chat( std::move( config ) );
@@ -381,9 +554,32 @@ int main( int argc, char* argv[] )
             return R"({"temperature_c": 18, "condition": "cloudy"})";
         } );
 
+        if ( line.one_shot )
+        {
+            return chat.runOnce( line.prompt, line.json_output, answer_out );
+        }
+
         chat.run();
 
         return 0;
+    }
+    catch ( const UsageError& e )
+    {
+        std::cerr << e.what() << "\n";
+
+        return 2;
+    }
+    catch ( const ConfigError& e )
+    {
+        std::cerr << e.what() << "\n";
+
+        return 3;
+    }
+    catch ( const ModelNotFound& e )
+    {
+        std::cerr << e.what() << "\n";
+
+        return 4;
     }
     catch ( const std::exception& e )
     {

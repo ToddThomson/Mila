@@ -1,15 +1,19 @@
-# Mila published runtime image -- the artifact behind `docker run toddthomson/mila-llm`.
+# Mila's published images -- both tags behind `docker run toddthomson/mila-llm`.
 #
 # DIFFERENT AUDIENCE FROM Docker/Dockerfile, which is the contributor build environment:
 # that one bind-mounts a checkout and builds it in place, and is never published. This
-# one COPYs the source in, builds it once, and ships only the results on a CUDA -runtime
-# base. A user of this image never sees a compiler, a checkout, or a CMake flag.
+# one COPYs the source in and builds it once, then ships that build two ways.
 #
-# Two stages, and the split IS the size saving: the -devel base carries nvcc, the headers
-# and the static libraries (multi-GB) purely to produce a handful of binaries. The
-# -runtime base carries the CUDA libraries Mila links (cudart / cuBLAS / cuBLASLt /
-# cuRAND) and nothing that compiles. NVTX needs no runtime library -- CUDA::nvtx3 is
-# header-only, so it leaves the builder behind with everything else.
+# THREE STAGES, TWO PUBLISHED TAGS. `builder` compiles Mila and is never shipped. From it:
+#   --target runtime  -> `:<version>-runtime`, Chat and the inference server on a CUDA
+#                        -runtime base. No compiler, no source. A user never sees a CMake
+#                        flag. This split IS the size saving: the -devel base carries nvcc,
+#                        the headers and the static libraries (multi-GB) purely to produce
+#                        a handful of binaries, and none of it ships here. NVTX needs no
+#                        runtime library -- CUDA::nvtx3 is header-only, so it stays behind.
+#   --target devel    -> `:<version>-devel`, the same build plus the toolchain, the source
+#                        and the build tree, so a user compiles their own program against
+#                        Mila with nothing installed on their host.
 #
 # Weights are NEVER baked in. They are gigabytes, separately licensed, and installed by
 # name at first run into the store volume declared below.
@@ -88,7 +92,7 @@ COPY CMakeLists.txt Version.txt License.md /src/
 COPY cmake /src/cmake
 COPY Mila /src/Mila
 
-# ADAPTORS on for ChatApp, PYTHON_BINDINGS on for MilaPy (which MIS imports). Samples,
+# ADAPTORS on for mila-chat, PYTHON_BINDINGS on for MilaPy (which MIS imports). Samples,
 # tests, profiling and docs are off: none of them ship, and each is build time a user
 # pays for in the image they pull.
 #
@@ -116,10 +120,12 @@ RUN --mount=type=cache,target=/build,sharing=locked \
         -DMILA_ENABLE_PROFILING=OFF \
         -DMILA_ENABLE_DOCS=OFF \
         -DMILA_INSTALL=OFF \
-    && cmake --build /build --target ChatApp MilaPy -- -j "${MILA_BUILD_JOBS}" \
+    && cmake --build /build --target mila-chat MilaPy mila -- -j "${MILA_BUILD_JOBS}" \
     && mkdir -p /out \
-    && cp /build/ChatApp /out/ChatApp \
-    && cp -r /build/Data /out/Data
+    && cp /build/mila-chat /out/mila-chat \
+    && cp /build/mila /out/mila \
+    && cp -r /build/Data /out/Data \
+    && cp /build/python/mila/_mila*.so /out/
 
 # =============================================================================
 # Stage 2 -- runtime
@@ -138,20 +144,27 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# ChatApp resolves Data/session.json against the CURRENT WORKING DIRECTORY on Linux --
+# mila-chat resolves Data/session.json against the CURRENT WORKING DIRECTORY on Linux --
 # executable_directory() there is just current_path(), the GetModuleFileName path being
 # Windows-only. So the app directory is also the WORKDIR, and the entrypoint never
 # leaves it. A `docker run -w /elsewhere` would break config resolution; that is a
 # property of the app, recorded here because this image is where it becomes user-visible.
 WORKDIR /opt/mila
 
-COPY --from=builder /out/ChatApp ./ChatApp
+COPY --from=builder /out/mila-chat ./mila-chat
 COPY --from=builder /out/Data ./Data
 
 # The binding package tree carries the extension MilaPy's POST_BUILD staged into it, so
 # an editable install here points at a real .so rather than fetching one from PyPI.
 COPY --from=builder /src/Mila/Bindings/Package /opt/mila/binding-package
 COPY --from=builder /src/Mila/Adaptors/Inference/Server /opt/mila/server-package
+
+# THE EXTENSION COMES FROM THE BUILD, NOT FROM THE SOURCE TREE. MilaPy's POST_BUILD stages a
+# copy into Mila/Bindings/Package/src/mila, but that is a side-effect a cache-warm compile
+# never re-runs, and .dockerignore rightly keeps _mila*.so out of the build context -- so the
+# copied tree can arrive with no extension and pip installs a package that cannot import.
+# /build/python/mila is where the build itself writes it, so take it from there.
+COPY --from=builder /out/_mila*.so /opt/mila/binding-package/src/mila/
 
 # MIS dependencies are installed EXPLICITLY rather than resolved from the server's own
 # pyproject, for the reason Docker/build-mis.sh gives: Ubuntu 26.04 ships Python 3.14,
@@ -194,14 +207,26 @@ RUN python3 -m venv /opt/mila/venv \
 # otherwise a loader error on a user's machine, hours after the image was pushed. ldd
 # prints "not found" for an unresolved NEEDED entry, so grepping for it turns the bet
 # into a build gate that names the missing library.
-RUN ldd /opt/mila/ChatApp > /tmp/ldd.txt 2>&1 \
-    && ldd /opt/mila/venv/lib/python3*/site-packages/mila/_mila*.so >> /tmp/ldd.txt 2>&1 \
+#
+# EXISTENCE FIRST. An unmatched glob makes the shell hand ldd a literal pattern, ldd answers
+# "No such file or directory", and a grep for "not found" does not match it -- so this gate
+# once reported "passed" over a missing extension, which is worse than having no gate. The
+# import is checked too: a present .so whose module still fails to load is the same defect
+# to a user, and it is the one the store tooling and the server both die on.
+RUN extension="$(ls /opt/mila/venv/lib/python3*/site-packages/mila/_mila*.so 2>/dev/null | head -1)" \
+    && if [ -z "${extension}" ]; then \
+        echo "FATAL: the mila extension is not in site-packages" >&2; \
+        exit 1; \
+    fi \
+    && ldd /opt/mila/mila-chat > /tmp/ldd.txt 2>&1 \
+    && ldd "${extension}" >> /tmp/ldd.txt 2>&1 \
     ; if grep -q "not found" /tmp/ldd.txt; then \
         echo "FATAL: unresolved shared libraries in the runtime stage:" >&2; \
         grep "not found" /tmp/ldd.txt >&2; \
         exit 1; \
     fi; \
-    echo "Shared library check passed."
+    /opt/mila/venv/bin/python -c "import mila" \
+    && echo "Shared library check passed, and the binding imports."
 
 # The store is a VOLUME, not the repo bind mount the contributor image uses -- a user of
 # this image has no checkout. Keeping it a declared volume is what stops a ~6 GB model
@@ -224,3 +249,101 @@ EXPOSE 6452
 
 ENTRYPOINT ["/usr/local/bin/mila-entrypoint"]
 CMD ["chat"]
+
+# =============================================================================
+# Stage 3 -- devel: the published development environment
+# =============================================================================
+# Derives from the builder, so the CUDA -devel base, clang-21, gcc-15, CMake, Ninja and
+# the source are already here. What it adds is the one thing the builder throws away.
+FROM builder AS devel
+
+# ARG scope does not cross FROM, so the arch list has to be named again to reach the
+# consumer project's configure below. Same default, same meaning.
+ARG MILA_IMAGE_CUDA_ARCHITECTURES="89;90;120"
+
+# THE BUILD TREE IS THE PRODUCT HERE, and the builder compiles into a cache mount that is
+# not part of any image (see the note on that RUN). Re-mounting the same target recovers
+# the tree the builder just produced, without compiling anything a second time.
+#
+# Guarded, in the spirit of the runtime stage's ldd gate: an empty mount would otherwise
+# produce an image whose "already built" promise is false, and the user would find out.
+RUN --mount=type=cache,target=/build,sharing=locked \
+    if [ ! -x /build/mila-chat ]; then \
+        echo "FATAL: no build tree in the cache mount -- devel cannot be assembled" >&2; \
+        exit 1; \
+    fi \
+    && mkdir -p /opt/mila \
+    && cp -a /build /opt/mila/build
+
+# An editor, because this image expects the user to change a file in it. The builder's
+# gdb/less are absent by design there; here they are the point.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends vim nano less gdb \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# The same venv the runtime tag builds, for the same reasons -- `mila install` reaches the
+# store through the binding, and `mila serve` needs MIS on a console script. The binding
+# package tree already carries the extension MilaPy staged into it during the build, so
+# this installs what was just compiled rather than fetching from PyPI. See the runtime
+# stage for why --ignore-requires-python is correct and not a workaround.
+# The extension is taken from the build tree for the reason the runtime stage gives: the copy
+# staged into the source tree is a POST_BUILD side-effect that a cache-warm compile skips.
+RUN cp /opt/mila/build/python/mila/_mila*.so /src/Mila/Bindings/Package/src/mila/ \
+    && python3 -m venv /opt/mila/venv \
+    && /opt/mila/venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/mila/venv/bin/pip install --no-cache-dir \
+        fastapi "uvicorn[standard]" pydantic pydantic-settings \
+    && /opt/mila/venv/bin/pip install --no-cache-dir --no-deps --ignore-requires-python \
+        /src/Mila/Bindings/Package \
+    && /opt/mila/venv/bin/pip install --no-cache-dir --no-deps --ignore-requires-python \
+        /src/Mila/Adaptors/Inference/Server \
+    && /opt/mila/venv/bin/python -c "import mila"
+
+# `mila` is a real binary here (Mila/Tools/Cli), not the entrypoint script: it reaches the
+# store through Distribution directly, so `install` needs no Python and cannot be broken by
+# a binding that failed to stage.
+RUN ln -sf /opt/mila/build/mila /usr/local/bin/mila
+
+# mila-chat and its Data/ live in the build tree here, not at /opt/mila as they do in the
+# runtime tag. The venv is addressed separately for that reason.
+ENV MILA_APP_DIR=/opt/mila/build
+ENV MILA_VENV_DIR=/opt/mila/venv
+
+# A project to start from, in the user's own home rather than under /opt/mila -- it is
+# theirs, not part of the install. main.cpp is the sample's, unchanged, so there is one
+# quick start rather than two; only the CMakeLists differs, because Mila is already on disk
+# here instead of being fetched. Deliberately NOT pre-built: building it compiles Mila into
+# this project's own tree (module BMIs are not portable), which would add a second full
+# compile and roughly 5 GB to this image. The first build costs the user ~15 minutes once.
+RUN mkdir -p /root/myapp
+COPY Docker/myapp/CMakeLists.txt /root/myapp/CMakeLists.txt
+RUN cp /src/Mila/Samples/QuickStart/Cpp/main.cpp /root/myapp/main.cpp \
+    && cmake -S /root/myapp -B /root/myapp/build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_COMPILER=clang-21 \
+        -DCMAKE_CXX_COMPILER=clang++-21 \
+        -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
+        -DCUDAToolkit_ROOT=/usr/local/cuda \
+        -DCMAKE_CUDA_HOST_COMPILER=gcc-15 \
+        -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" \
+        -DCMAKE_CUDA_ARCHITECTURES="${MILA_IMAGE_CUDA_ARCHITECTURES}" \
+        -DMILA_LIBRARY_CUDA_ARCHITECTURES="${MILA_IMAGE_CUDA_ARCHITECTURES}" \
+        -DMILA_ENABLE_SAMPLES=OFF \
+        -DMILA_ENABLE_TESTING=OFF \
+        -DMILA_ENABLE_PROFILING=OFF \
+        -DMILA_ENABLE_DOCS=OFF \
+        -DMILA_INSTALL=OFF
+
+# Same store contract as the runtime tag, so a volume filled by one is read by the other.
+ENV MILA_CACHE_DIR=/models
+VOLUME ["/models"]
+
+ENV MILA_PORT=6452
+EXPOSE 6452
+
+# The user lands in the Mila source, with the build beside it at /opt/mila/build. No
+# ENTRYPOINT: this image is a shell, not a verb dispatcher.
+WORKDIR /src
+
+CMD ["bash"]

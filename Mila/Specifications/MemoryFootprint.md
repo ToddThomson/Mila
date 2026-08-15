@@ -513,7 +513,7 @@ Two corrections that fell out of seeing it run:
   advice is quantization, named as the concrete command.
 
 Free VRAM reaches the adaptor through `Device::getMemoryInfo()` rather than
-`cudaMemGetInfo` in Chat: `ChatApp uses no CUDA APIs directly` is a stated property of
+`cudaMemGetInfo` in Chat: `mila-chat uses no CUDA APIs directly` is a stated property of
 that target, and the same accessor is what MIS and the `mila` CLI will need.
 
 ---

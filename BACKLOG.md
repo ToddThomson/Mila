@@ -406,11 +406,9 @@ being a task list and needs a prune.
   the built binaries, the binding, MIS and the store tooling — no compilers, toolkit or headers. That is
   where the size saving is, far more than any adaptor split. `Docker/Dockerfile` stays as it is: the
   contributor build environment, built from the repo and never published.
-- [ ] **Publish the image to BOTH Docker Hub and GHCR**, as one build with two pushes that fail
-  together; a partial push leaves the discovery channel serving the previous release. Docker Hub is the
-  registry user-facing docs cite (discovery); GHCR serves CI and GitHub-native users and needs no
-  credential beyond `GITHUB_TOKEN`. The image tag drops the `+build` metadata, which OCI forbids —
-  already noted in RELEASING's versioning section. Name decided: **`toddthomson/mila-llm`** — a Docker
+- [ ] **Publish the image to Docker Hub**, the one container channel. The image tag drops the `+build`
+  metadata, which OCI forbids — already noted in RELEASING's versioning section. Name decided:
+  **`toddthomson/mila-llm`** — a Docker
   namespace admits only lowercase letters and digits, so `mila-llm` can only be the repository half,
   which is where the name shared with HF and PyPI lands.
 - [ ] **Every container build path defaults to an arch a published image cannot use.**
@@ -429,6 +427,41 @@ being a task list and needs a prune.
   that check. The script's own comment shows the ceiling was handled for the server DEPS and missed
   for the package itself. Verify in a container, then add `--ignore-requires-python` as the runtime
   image now does.
+- [~] **Rework Chat configuration to layered resolution** — design and phasing in
+  `Mila/Specifications/ChatConfiguration.md`. Phases 1-3 have landed (image directory, validation and
+  the exit path, the flag set). Remaining: the layered merge with origins, the Gemma footprint fix,
+  `context_length: "auto"`, the two `ModelRecord` fields, prompt resolution, `resolveConfigRoot()`.
+- [ ] **`mila serve <args>` is broken on Windows and cannot report the server's exit code.**
+  `runProgram` (`Cli.ixx:100`) hands a concatenated string to `std::system`, so cmd.exe strips the
+  outer quotes of the whole command line — MEASURED 2026-08-15: `mila chat --help` died with
+  `'D:\...\mila-chat.exe" "--help' is not recognized`. No argument survives, and the code returned is
+  the shell's. Launch with an argument vector (`CreateProcessW` / `posix_spawn`) behind a
+  CMake-selected module partition, since module code carries no `#ifdef`.
+- [ ] **The devel image's `mila-chat` wrapper now shares its name with the binary it wraps**, and its
+  `cd /build` is redundant since `executable_directory()` reads `/proc/self/exe`. `Docker/Dockerfile:94`
+  installs `run-chat.sh` as `/usr/local/bin/mila-chat`; the built binary is `/build/mila-chat`. Verify in
+  a container, then either drop the wrapper for a symlink or keep it purely for the not-built message.
+- [ ] **`Dockerfile.runtime`'s WORKDIR is documented as a correctness requirement it no longer is.**
+  Line 147 explains the working directory as the only way Chat finds `Data/session.json` on Linux;
+  phase 1 of ChatConfiguration.md retired that. Confirm in a container run, then relax the comment and
+  the `cd` in `Docker/run-chat.sh`, which carries the same note.
+- [ ] **Installing a model then starting Chat leaves no model loaded**, so the two-command evaluation
+  path does not reach an answer. Measured 2026-08-14: `install Llama-3.2-3B-Instruct-fp4` into a fresh
+  volume, then `chat`, opens on "No model is loaded" — the user must also know to type `/model <name>`.
+  `beta.3+2` correctly stopped forcing a default, and nothing carries the choice across the two
+  commands. `--model` is now a workaround, not a fix: a store holding exactly ONE model has no
+  ambiguity to resolve, so either load it, or have `install` record it as current.
+- [~] **The runtime image ships a binding that cannot import, and the gate says it is fine.** Two
+  defects, measured 2026-08-14 on a clean `--target runtime` build: `site-packages/mila/` holds only
+  `__init__.py`, so `install` and `serve` both die on `ImportError: No module named 'mila._mila'`. The
+  extension reaches the image only as a `POST_BUILD` side-effect into the source tree, which a cache-warm
+  compile never re-runs, and `.dockerignore` (correctly) keeps `_mila*.so` out of the context. Install
+  from `/build/python/mila`, where the build actually writes it, rather than from the copied source tree.
+- [ ] **The `ldd` gate passes when the file it checks is absent.** `Dockerfile.runtime`'s runtime stage
+  greps for `"not found"`, but an unmatched glob makes the shell hand `ldd` a literal pattern and it
+  answers `"No such file or directory"` — so the gate printed "Shared library check passed" over a
+  missing extension. A gate that reports success on an absent artifact is worse than no gate. Assert the
+  file exists first, then check its NEEDED entries.
 - [ ] **The binding's staged extensions accumulate in the source tree and nothing prunes them.**
   MilaPy's POST_BUILD writes `_mila*.so`/`_mila*.pyd` into `Mila/Bindings/Package/src/mila/`, so a
   checkout collects one per interpreter and platform ever built — four here, two of them Windows
@@ -440,7 +473,11 @@ being a task list and needs a prune.
   published image can drop the bind mount at all. The claim reads as a hard dependency on `/mila`.
 - [ ] **A publish build of the runtime image has never been made.** Verification used a single-arch
   (`89`) build; a published image must be `89;90;120` and needs `MILA_CLEAN_BUILD=1`, since
-  `--no-cache` leaves BuildKit cache mounts intact. Open decisions before any push: whether a
+  `--no-cache` leaves BuildKit cache mounts intact. **This is not theoretical — measured 2026-08-14:** a
+  changed `Data/session.json` did not reach a rebuilt image because `/build/Data` in the cache mount was
+  never re-copied, so the image silently shipped the previous tree's config and behaved to match. Stale
+  cache-mount content has now produced two wrong images in one day (this and the missing binding
+  extension), both silently. Open decisions before any push: whether a
   pre-release gets `latest` (a bare `docker run toddthomson/mila-llm` resolves to it), and the
   Docker Hub Overview page needing a source in the repo rather than browser edits.
 - [ ] **Decide the container tag scheme, including whether a pre-release gets `latest`.** RELEASING
@@ -461,6 +498,24 @@ being a task list and needs a prune.
 
 ### Model Distribution
 
+- [ ] **A mistyped model name reports an authentication failure, but only to users without a token.**
+  `HuggingFaceHub.ixx:283` maps every 401 to "no valid HuggingFace token. Set HF_TOKEN, or run
+  'huggingface-cli login'." MEASURED both ways on 2026-08-14 with `gtp2-small`: an authenticated caller
+  gets 404 and the correct "no such repository" message, an anonymous one gets 401 and is sent to obtain
+  a token they do not need, which then fails identically. HuggingFace will not reveal repository
+  existence to a stranger. The defect is therefore invisible to anyone who has ever run
+  `huggingface-cli login` and hits only new users. When no token was sent and the owner is the public
+  `mila-llm` org, lead with the name being wrong and point at `mila models --online`.
+- [ ] **Publish `Llama-3.2-1B-Instruct-fp4` as the evaluation model** — sequenced AFTER the 3B path is
+  proven, not before. Roughly 0.7-0.9 GB against the 3B's 2.87, and it drops the evaluation path's VRAM
+  floor to about a gigabyte, so an 8 GB card stops being excluded from "does it work". Convert with
+  `Tools/Converters/convert_llama_weights.py`, export the FP4 artifact, validate GENERATION rather than
+  per-layer parity, publish with a card. Test it against the tools-free system prompt first: a 1B is more
+  prompt-sensitive than the 3B, which refused plain questions until the default prompt changed.
+- [ ] **`gpt2-small` installs and then cannot be used from Chat**, so it is the wrong first model for a
+  quick start: the walkthrough ends in a 623 MB download and no conversation. Chat refuses base models by
+  design ("a base model, and Chat is an instruct harness"). Either the getting-started paths name an
+  instruct model, or `/install` says so before the download rather than after it.
 - [ ] **Refactor `Web/content/start.md` around tabs: C++, Python, Docker** — the user picks a starting
   position rather than reading past two they do not want. The tabs match the user classes the QA sweep
   already uses. Two design constraints: tabs must be **selectable by URL fragment** (`/start/#docker`),
@@ -587,6 +642,19 @@ being a task list and needs a prune.
 
 ### Product Family — Adaptor Validation
 
+- [ ] **Gemma's default context makes every answer truncate when thinking is on.**
+  `Chat.ModelCatalog.ixx:229` opens Gemma at 512 when no session config is read, and effort level 3 is
+  "~512 tokens" of reasoning (`Chat.ixx:1228` scale) — the reasoning budget IS the whole context, so
+  every round ends on `length` with no stop token. Measured 2026-08-14: "Why is the sky blue?" capped at
+  352 tokens, `/model` reporting Context 512 and VRAM 9.86 / 11.99 GB, so the card had room. Hits exactly
+  the users who have no session.json, which is the Docker and getting-started path. Either the default
+  rises, or effort is clamped to a fraction of the context rather than set beside it.
+- [ ] **`/models` cannot measure the model it just loaded.** `gemma-4-12b-it-fp4` shows `--` in the
+  NATIVE column, which `Chat.ModelCatalog.ixx:727` defines as "no answer -- a load that would work but
+  goes unmeasured". NATIVE is always applicable, so `predictFootprint` returned nothing or threw into
+  the bare `catch` at `:647`, which discards the reason and leaves the display unable to say why. The
+  FP8/FP4 dashes beside it are correct by design (a pre-quantized artifact offers one deployment). Seen
+  2026-08-14 on a model that had loaded and generated in the same session.
 - [ ] **`ToolCallParser::parse` routes ANY response containing `[` into the tool-call parser** —
   `Chat.ToolCallParser.ixx:63` uses `response.find( '[' )` where the class's own doc comment at `:35`
   says "Leading `[`" and the nested `parseTagged` path at `:109` tests it correctly. Found on an
