@@ -27,6 +27,7 @@ export module Chat.ModelCatalog;
 
 import Chat.Ansi;
 import Chat.Config;
+import Chat.FamilyTraits;
 import Chat.Footprint;
 import Mila;
 import nlohmann.json;
@@ -65,8 +66,6 @@ namespace Mila::ChatApp
         /// True when the quantization is a load-time choice rather than what the artifact already
         /// is. Both land in the same field, but only this one is a fact the model's name omits.
         bool quantization_applied_at_load{ false };
-
-        std::size_t default_context{ 4096 };
     };
 
     /**
@@ -212,43 +211,6 @@ namespace Mila::ChatApp
             throw std::runtime_error( std::format(
                 "Variant '{}' is not one this build can load. Expected bf16, fp32, fp8 or fp4.",
                 variant ) );
-        }
-    }
-
-    /**
-     * @brief Context length to build for, when the session config does not say.
-     *
-     * A deployment decision rather than a model property: Gemma 4 12B is conservative because
-     * its KV cache is the primary VRAM lever on a 12 GB card, not because the architecture
-     * cannot go further.
-     */
-    export std::size_t defaultContextFor( ModelType family )
-    {
-        switch ( family )
-        {
-            case ModelType::Gemma: return 512;
-            case ModelType::Gpt:   return 1024;
-            default:               return 4096;
-        }
-    }
-
-    /**
-     * @brief The largest context the architecture can address -- not the one it opens at.
-     *
-     * Only GPT-2's is a hard architectural limit: its positions are LEARNED embeddings with 1024
-     * rows, so a larger context indexes past the table and the load fails. The RoPE families
-     * extrapolate, so their ceiling is a memory question rather than a correctness one, and the
-     * pre-flight footprint check is what says no -- hence the generous value here.
-     *
-     * This exists because a session config carries ONE context_length across every model it may
-     * load. Without a clamp, a number chosen for a 12B model kills GPT-2 on startup.
-     */
-    export std::size_t maxContextFor( ModelType family )
-    {
-        switch ( family )
-        {
-            case ModelType::Gpt: return 1024;
-            default:             return 131072;
         }
     }
 
@@ -464,16 +426,13 @@ namespace Mila::ChatApp
                 record.name, record.variant, *requested_quantization, resolved );
         }
 
-        // A harness capability, not a model one: only Gemma's tool calls are protocol tokens a
-        // per-token router can see, so the others stay buffered.
-        resolved.streaming_capable = ( resolved.family == ModelType::Gemma );
+        // Both from the family table, where they sit in one row: streaming is a harness
+        // capability and thinking is a model one, they agree today, and reading them from
+        // adjacent fields is what makes a future disagreement visible.
+        const FamilyTraits traits = familyTraits( resolved.family );
 
-        // A MODEL capability, unlike the line above: Gemma is the only family here trained to emit
-        // a reasoning channel. Same predicate today, different question -- one asks whether the
-        // display can route tokens live, this asks whether there is a thought to route.
-        resolved.thinking_capable = ( resolved.family == ModelType::Gemma );
-
-        resolved.default_context = defaultContextFor( resolved.family );
+        resolved.streaming_capable = traits.streaming_capable;
+        resolved.thinking_capable = traits.thinking_capable;
 
         return resolved;
     }

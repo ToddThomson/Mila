@@ -16,6 +16,8 @@ PUBLIC
         "Src/Chat.RichText.ixx"
         "Src/Chat.StreamingDisplay.ixx"
 	    "Src/Chat.Config.ixx"
+        "Src/Chat.FamilyTraits.ixx"
+        "Src/Chat.Settings.ixx"
         "Src/Chat.Footprint.ixx"
         "Src/Chat.ModelCatalog.ixx"
         "Src/Chat.Message.ixx"

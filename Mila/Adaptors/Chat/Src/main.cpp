@@ -1,3 +1,5 @@
+#include <charconv>
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <optional>
@@ -7,6 +9,8 @@
 #include <format>
 #include <stdexcept>
 #include <system_error>
+#include <utility>
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -14,6 +18,8 @@
 
 import Mila;
 import Mila.Chat;
+import Chat.FamilyTraits;
+import Chat.Settings;
 import nlohmann.json;
 
 using namespace Mila::ChatApp;
@@ -80,13 +86,22 @@ struct ModelNotFound : std::runtime_error
  * Flags are the last word over every configuration file -- see ChatConfiguration.md section 9.
  * They are collected here rather than applied as they are read, so that the order they were
  * typed in cannot change what they mean.
+ *
+ * A flag that overrides a SETTING lands in @c overrides under the key it overrides, and is merged
+ * like any other layer rather than assigned to a ChatConfig member. Adding one is then a branch
+ * here and nothing else: no precedence rule of its own, and origin recording for free. The plain
+ * members below are the other kind of flag -- what to do this run, not how to be configured.
  */
 struct CommandLine
 {
+    nlohmann::json overrides = nlohmann::json::object();
+
     std::filesystem::path settings;
     bool settings_given = false;
 
-    std::string model;
+    /// Whether --model was typed. The name itself lives in @c overrides; this says it was an
+    /// instruction rather than something a file happened to mention, which is what makes a name
+    /// that does not resolve fatal instead of a session that opens on something else.
     bool model_given = false;
 
     std::string prompt;
@@ -103,6 +118,19 @@ static std::string_view requireValue( int argc, char* argv[], int& index, std::s
         throw UsageError( std::format( "{} requires a value.", flag ) );
 
     return argv[ ++index ];
+}
+
+static std::size_t requireCount( std::string_view value, std::string_view flag )
+{
+    std::size_t parsed = 0;
+    const char* const end = value.data() + value.size();
+    const auto [stopped, error] = std::from_chars( value.data(), end, parsed );
+
+    if ( error != std::errc{} || stopped != end || parsed == 0 )
+        throw UsageError( std::format(
+            "{} expects a positive integer, not '{}'.", flag, value ) );
+
+    return parsed;
 }
 
 static CommandLine parseCommandLine( int argc, char* argv[] )
@@ -128,8 +156,18 @@ static CommandLine parseCommandLine( int argc, char* argv[] )
         }
         else if ( arg == "--model" )
         {
-            line.model = requireValue( argc, argv, i, arg );
+            line.overrides[ "model" ] = std::string( requireValue( argc, argv, i, arg ) );
             line.model_given = true;
+        }
+        else if ( arg == "--context-length" )
+        {
+            line.overrides[ "context_length" ] =
+                requireCount( requireValue( argc, argv, i, arg ), arg );
+        }
+        else if ( arg == "--system-prompt" )
+        {
+            line.overrides[ "system_prompt_path" ] =
+                std::string( requireValue( argc, argv, i, arg ) );
         }
         else if ( arg == "-p" )
         {
@@ -170,17 +208,23 @@ static void printUsage( const char* prog_name )
         << "  -p <prompt>            Answer one prompt and exit. The answer is the whole of\n"
         << "                         standard output, so it can be piped or redirected.\n"
         << "  --model <name>         Load this model, as 'mila models' lists it.\n"
+        << "  --context-length <n>   Maximum sequence length to build for.\n"
+        << "  --system-prompt <path> JSON file holding a system_prompt and optional tools,\n"
+        << "                         resolved against the working directory.\n"
         << "  --settings <path>      Session JSON config (default: Data/session.json).\n"
         << "  --output-format <fmt>  text (default) or json. With -p only.\n"
         << "  --version              Print the Mila version and exit.\n"
         << "  --help, -h             Show this message.\n"
         << "\n"
-        << "Flags win over the session config. Remaining settings live in that file:\n"
+        << "Settings merge key by key -- the family defaults, then the session config, then the\n"
+        << "model last chosen with /model, then a file named with --settings, then the flags\n"
+        << "above. Setting one key inherits the rest, so a config file need only hold what it\n"
+        << "changes. Overriding is not setting: a flag applies to this run and writes nothing.\n"
         << "\n"
         << "Session config keys:\n"
         << "  model              Installed model name, used until one is chosen with /model or\n"
         << "                     /install. There is no default: a fresh store has no model.\n"
-        << "  context_length     Maximum sequence length. Default: the model's own default.\n"
+        << "  context_length     Maximum sequence length. Default: the family's own default.\n"
         << "  thinking_effort    1-5 token-budget scale for reasoning (default 3 = balanced).\n"
         << "                     Reasoning is surfaced whenever the model has that channel.\n"
         << "  verbose            display detail: off | thoughts | all (default off).\n"
@@ -206,102 +250,244 @@ static void printUsage( const char* prog_name )
 }
 
 /**
- * @brief Resolve the session config path, build a ChatConfig from it.
+ * @brief One layer's file, parsed and checked to be a settings object.
  *
- * The session JSON names a model, which the catalog resolves into the
- * family/size/precision/paths, plus optional overrides (quantization, context length) and
- * runtime preferences. Flags from the command line are applied last and win.
+ * @throws ConfigError on a parse error, or on a document that is not an object. The second is not
+ *         pedantry: an RFC 7386 merge patch that is not an object REPLACES what it is merged into,
+ *         so a file holding an array would not misconfigure one key -- it would erase every layer
+ *         beneath it.
+ */
+static nlohmann::json readSettingsFile( const std::filesystem::path& path )
+{
+    std::ifstream file( path );
+    nlohmann::json document;
+
+    try
+    {
+        file >> document;
+    }
+    catch ( const nlohmann::json::parse_error& e )
+    {
+        throw ConfigError( std::format(
+            "Settings: JSON parse error in '{}': {}", path.string(), e.what() ) );
+    }
+
+    if ( !document.is_object() )
+    {
+        throw ConfigError( std::format(
+            "Settings: '{}' must hold a JSON object of settings.", path.string() ) );
+    }
+
+    return document;
+}
+
+/**
+ * @brief Layer 1: the compiled defaults for an architecture.
+ *
+ * Rule one of ChatConfiguration.md section 3 -- a run with no configuration file anywhere must
+ * still produce a Chat that can answer -- is this function. It carries the one key that has no
+ * working value without it: a context of zero is not a small context, it is a failed load.
+ *
+ * The sampler defaults are deliberately not here. They already have a working value in
+ * ChatConfig's member initializers, and repeating 0.8 in two places would be a second home for
+ * one number rather than a second layer.
+ */
+static SettingsPatch familyInvariants( ModelType family )
+{
+    nlohmann::json values;
+    values[ "context_length" ] = familyTraits( family ).default_context;
+
+    return SettingsPatch{ .layer = SettingsLayer::FamilyInvariants, .values = std::move( values ) };
+}
+
+/// @brief The merged value of a key, or nullptr when no layer set it.
+static const nlohmann::json* findSetting( const MergedSettings& settings, const std::string& key )
+{
+    const auto found = settings.values().find( key );
+
+    return found == settings.values().end() ? nullptr : &*found;
+}
+
+/**
+ * @brief A key whose value is the wrong shape, named along with where it came from.
+ *
+ * The origin is in the message because a merged document has no single file to blame: a user told
+ * only that context_length must be a positive integer has three files to search.
+ */
+static ConfigError badValue(
+    const MergedSettings& settings,
+    const std::string& key,
+    std::string_view expected,
+    const nlohmann::json& value )
+{
+    return ConfigError( std::format( "{} ({}): expected {}, but found {}.",
+        key, settings.describeOrigin( key ), expected, value.dump() ) );
+}
+
+/// Empty when no layer set the key.
+static std::string readString( const MergedSettings& settings, const std::string& key )
+{
+    const nlohmann::json* value = findSetting( settings, key );
+
+    if ( !value )
+        return {};
+
+    if ( !value->is_string() )
+        throw badValue( settings, key, "a string", *value );
+
+    return value->get<std::string>();
+}
+
+/// A count that must be greater than zero -- context_length, max_new_tokens.
+static std::optional<std::size_t> readCount( const MergedSettings& settings, const std::string& key )
+{
+    const nlohmann::json* value = findSetting( settings, key );
+
+    if ( !value )
+        return std::nullopt;
+
+    if ( !value->is_number_unsigned() || value->get<std::size_t>() == 0 )
+        throw badValue( settings, key, "a positive integer", *value );
+
+    return value->get<std::size_t>();
+}
+
+/// A knob that may legitimately be zero -- top_k 0 disables it, thinking_effort is clamped.
+static std::optional<int> readInteger( const MergedSettings& settings, const std::string& key )
+{
+    const nlohmann::json* value = findSetting( settings, key );
+
+    if ( !value )
+        return std::nullopt;
+
+    if ( !value->is_number_integer() || value->get<long long>() < 0 )
+        throw badValue( settings, key, "a whole number of zero or more", *value );
+
+    return value->get<int>();
+}
+
+/// temperature and top_p, where zero is greedy decoding rather than an omission.
+static std::optional<float> readNumber( const MergedSettings& settings, const std::string& key )
+{
+    const nlohmann::json* value = findSetting( settings, key );
+
+    if ( !value )
+        return std::nullopt;
+
+    if ( !value->is_number() || value->get<double>() < 0.0 )
+        throw badValue( settings, key, "a number of zero or more", *value );
+
+    return value->get<float>();
+}
+
+/**
+ * @brief Resolve every setting for this run, from the layers of ChatConfiguration.md section 3.
+ *
+ * Each layer overrides the previous key by key, never file by file, so setting one key inherits
+ * every other. The model NAME is an ordinary merged key like any other, which is what removes the
+ * ladder of special cases that used to decide it -- the ranking of the layers already says which
+ * name wins.
+ *
+ * The upper layers are merged twice, deliberately. Layers 1 and 2 describe a model, and which
+ * model that is comes from the layers above them, so the name is read first and the whole order
+ * is then merged in rank sequence. The layers are captured before either pass, so both see the
+ * same bytes.
  */
 static ChatConfig buildConfig( const CommandLine& line )
 {
-    std::filesystem::path config_path =
-        line.settings_given ? line.settings : std::filesystem::path( "Data/session.json" );
+    std::vector<SettingsPatch> overrides;
 
-    // Resolve the default config next to the executable when it is not present
-    // relative to the working directory, so the default does not depend on where
-    // the process was launched from. An explicit --settings is honored as-is.
-    if ( !line.settings_given && !std::filesystem::exists( config_path ) )
+    // Layer 3 -- the user's own config. Its home, %APPDATA%\Mila\chat.json, arrives with
+    // resolveConfigRoot(); the slot is here so that adding it is a path rather than a reordering.
+
+    // Layer 4 -- the config that is FOUND: this checkout's, or this image's.
+    std::filesystem::path local_path{ "Data/session.json" };
+
+    // Resolved next to the executable when it is not present relative to the working directory,
+    // so what is found does not depend on where the process was launched from.
+    if ( !std::filesystem::exists( local_path ) )
     {
         const std::filesystem::path exe_relative = executable_directory() / "Data" / "session.json";
 
         if ( std::filesystem::exists( exe_relative ) )
-            config_path = exe_relative;
+            local_path = exe_relative;
     }
 
-    nlohmann::json j;
-
-    if ( std::filesystem::exists( config_path ) )
+    if ( std::filesystem::exists( local_path ) )
     {
-        std::ifstream file( config_path );
-
-        try
-        {
-            file >> j;
-        }
-        catch ( const nlohmann::json::parse_error& e )
-        {
-            throw ConfigError( std::format(
-                "Session config: JSON parse error in '{}': {}", config_path.string(), e.what() ) );
-        }
+        overrides.push_back( SettingsPatch{
+            .layer = SettingsLayer::LocalConfig,
+            .values = readSettingsFile( local_path ),
+            .file = local_path } );
     }
-    else if ( line.settings_given )
+    else if ( !line.settings_given )
     {
-        // A named file that is not there is a mistake, not a fallback: silently using defaults
-        // would answer with settings the caller explicitly asked to replace.
-        throw ConfigError( std::format(
-            "Settings file not found: {}", std::filesystem::absolute( config_path ).string() ) );
-    }
-    else
-    {
-        std::cerr << "Session config: none found at "
-            << std::filesystem::absolute( config_path ).string()
+        std::cerr << "Settings: no config file found at "
+            << std::filesystem::absolute( local_path ).string()
             << " - using defaults.\n";
     }
 
-    // Resolve the model name against the store. There is no catalogue: what can be loaded is
-    // what is installed, which is why this is a lookup rather than a table.
-    //
-    // THERE IS NO DEFAULT MODEL. The last model chosen wins, because choosing one with /model or
-    // /install is an explicit act and should survive the session; a "model" key in the config is
-    // the fallback for a store that has never been chosen from. When neither exists the session
-    // opens with nothing selected, which is the honest description of a fresh install -- naming a
-    // model here reported a 6+ GB artifact as missing to a user who had never asked for it.
-    //
-    // Explicitness of the invocation decides, and nothing here writes anything back: an
-    // override is for this run, while only an in-session /model or /install SETS the
-    // remembered choice (see switchModel).
-    //
-    //   --model                     always wins; the direct instruction for this run
-    //   model key of --settings     wins next; naming that file is also an act of this run
-    //   remembered choice           wins over the DEFAULT config, per the paragraph above
-    //   model key of default config the fallback for a store never chosen from
-    //
-    // Without the second rule, pointing at a settings file and being handed a different model
-    // than the one it names made the file mean different things depending on invisible state.
-    const bool config_names_model = j.contains( "model" ) && j[ "model" ].is_string();
-    std::string name;
+    // Layer 5 -- the model last chosen from inside a session, which is the one key it covers.
+    // Choosing a model with /model or /install is an explicit act and should survive the session;
+    // a fresh store has nothing to remember, and that is the honest description of a new install.
+    if ( const auto last_chosen = readLastChosenModel() )
+    {
+        nlohmann::json remembered;
+        remembered[ "model" ] = *last_chosen;
 
-    if ( line.model_given )
-        name = line.model;
-    else if ( line.settings_given && config_names_model )
-        name = j[ "model" ].get<std::string>();
-    else if ( const auto last_chosen = readLastChosenModel() )
-        name = *last_chosen;
-    else if ( config_names_model )
-        name = j[ "model" ].get<std::string>();
+        overrides.push_back( SettingsPatch{
+            .layer = SettingsLayer::RememberedChoice, .values = std::move( remembered ) } );
+    }
+
+    // Layer 6 -- a file NAMED for this run was chosen exactly as a flag was, so it carries the
+    // same rank and outranks the remembered choice. Pointing at a file that names a model and
+    // being handed a different one made the file mean different things depending on invisible
+    // state. It writes nothing back either: overriding is not setting.
+    if ( line.settings_given )
+    {
+        // A named file that is not there is a mistake, not a fallback: silently using the layers
+        // beneath it would answer with settings the caller explicitly asked to replace.
+        if ( !std::filesystem::exists( line.settings ) )
+        {
+            throw ConfigError( std::format(
+                "Settings file not found: {}",
+                std::filesystem::absolute( line.settings ).string() ) );
+        }
+
+        overrides.push_back( SettingsPatch{
+            .layer = SettingsLayer::CommandLine,
+            .values = readSettingsFile( line.settings ),
+            .file = line.settings } );
+    }
+
+    // ...and the flags outrank the file they were typed beside.
+    if ( !line.overrides.empty() )
+    {
+        overrides.push_back( SettingsPatch{
+            .layer = SettingsLayer::CommandLine, .values = line.overrides } );
+    }
+
+    // Which model, and how to deploy it: read from the layers above the model, because the two
+    // layers below it cannot be built until the answer is known.
+    MergedSettings chosen;
+    chosen.applyAll( overrides );
+
+    const std::string name = readString( chosen, "model" );
 
     // Quantization is a deployment choice against an unquantized artifact, so it is settled
     // before the model resolves rather than being part of the name.
     std::optional<QuantizationMode> requested_quantization;
 
-    if ( j.contains( "quantization" ) && j[ "quantization" ].is_string() )
+    const std::string quantization = readString( chosen, "quantization" );
+
+    if ( !quantization.empty() )
     {
-        const std::string value = j[ "quantization" ].get<std::string>();
-        const auto parsed = parseQuantization( value );
+        const auto parsed = parseQuantization( quantization );
 
         if ( !parsed )
             throw ConfigError( std::format(
-                "Unknown quantization '{}'. Use none, fp8, or fp4.", value ) );
+                "quantization ({}): expected none, fp8 or fp4, but found '{}'.",
+                chosen.describeOrigin( "quantization" ), quantization ) );
 
         requested_quantization = *parsed;
     }
@@ -336,6 +522,22 @@ static ChatConfig buildConfig( const CommandLine& line )
         }
     }
 
+    // The whole order, in rank sequence. Layers 1 and 2 describe the model that just resolved, so
+    // with nothing resolved there is nothing for them to say and the session opens on what the
+    // files asked for -- a state /model repairs, since switching re-derives from the family.
+    MergedSettings settings;
+
+    if ( resolved )
+    {
+        settings.apply( familyInvariants( resolved->family ) );
+
+        // Layer 2 -- what this checkpoint recommends, once ModelRecord carries
+        // default_context_length and maximum_context_length. Publishing a model must not require
+        // editing a switch statement in a chat adaptor. See ChatConfiguration.md section 5.
+    }
+
+    settings.applyAll( overrides );
+
     ChatConfig config;
     config.no_model_reason = no_model_reason;
 
@@ -357,83 +559,99 @@ static ChatConfig buildConfig( const CommandLine& line )
         config.quantization_applied_at_load = resolved->quantization_applied_at_load;
         config.model_path        = resolved->weights;
         config.tokenizer_path    = resolved->tokenizer;
-
-        // Context length: explicit override, else the model's own default.
-        config.context_length = resolved->default_context;
     }
 
-    config.config_path    = config_path;
-
-    // Clamped to what the architecture can address. One config serves every model the session may
-    // load, so a context chosen for a 12B model reaches GPT-2 as well -- and GPT-2's positions are
-    // a 1024-row learned table, so the oversized value is a failed load rather than a slow one.
-    if ( j.contains( "context_length" ) && j[ "context_length" ].is_number_unsigned() )
+    if ( const auto requested = readCount( settings, "context_length" ) )
     {
-        const std::size_t requested = j[ "context_length" ].get<std::size_t>();
+        config.context_length = *requested;
 
-        config.configured_context_length = requested;
+        // What was ASKED for, kept apart from the live value because a model switch rewrites the
+        // latter. Only a value from above the defaults is a preference: a family default that
+        // survived a switch would carry 512 into a family that opens at 4096.
+        const auto origin = settings.originOf( "context_length" );
 
+        if ( origin && origin->layer > SettingsLayer::ModelRecommendations )
+            config.configured_context_length = *requested;
+
+        // Clamped to what the architecture can address. One configuration serves every model the
+        // session may load, so a context chosen for a 12B model reaches GPT-2 as well -- and
+        // GPT-2's positions are a 1024-row learned table, so the oversized value is a failed load
+        // rather than a slow one.
         if ( resolved )
         {
-            const std::size_t ceiling = maxContextFor( config.model_type );
+            const std::size_t ceiling = familyTraits( config.model_type ).max_context;
 
-            if ( requested > ceiling )
+            if ( *requested > ceiling )
             {
-                std::cout << std::format(
-                    "Session config: context_length {} exceeds what {} can address; using {}.\n",
-                    requested, config.model_name, ceiling );
-            }
+                std::cerr << std::format(
+                    "context_length {} ({}) exceeds what {} can address; using {}.\n",
+                    *requested, settings.describeOrigin( "context_length" ),
+                    config.model_name, ceiling );
 
-            config.context_length = requested < ceiling ? requested : ceiling;
+                config.context_length = ceiling;
+            }
+        }
+    }
+
+    if ( const auto effort = readInteger( settings, "thinking_effort" ) )
+    {
+        config.thinking_effort = *effort < 1 ? 1 : ( *effort > 5 ? 5 : *effort );
+    }
+
+    // "verbose" sets the display-detail level: a string (off/thoughts/all) or a bool
+    // (true -> all, false -> off) for backward compatibility.
+    if ( const nlohmann::json* verbose = findSetting( settings, "verbose" ) )
+    {
+        if ( verbose->is_boolean() )
+        {
+            config.detail = verbose->get<bool>() ? DetailLevel::All : DetailLevel::Off;
+        }
+        else if ( verbose->is_string() )
+        {
+            const auto level = parseDetailLevel( verbose->get<std::string>() );
+
+            // Named rather than ignored: a user who asked to see the reasoning and silently got
+            // the default has nothing in the transcript to tell them the key was misspelled.
+            if ( !level )
+                throw badValue( settings, "verbose", "off, thoughts or all", *verbose );
+
+            config.detail = *level;
         }
         else
         {
-            config.context_length = requested;
+            throw badValue( settings, "verbose", "off, thoughts or all", *verbose );
         }
     }
 
-    if ( j.contains( "thinking_effort" ) && j[ "thinking_effort" ].is_number_integer() )
+    if ( const auto tokens = readCount( settings, "max_new_tokens" ) )
+        config.max_new_tokens = *tokens;
+
+    if ( const auto temperature = readNumber( settings, "temperature" ) )
+        config.temperature = *temperature;
+
+    if ( const auto top_k = readInteger( settings, "top_k" ) )
+        config.top_k = *top_k;
+
+    if ( const auto top_p = readNumber( settings, "top_p" ) )
+        config.top_p = *top_p;
+
+    if ( const std::string prompt_path = readString( settings, "system_prompt_path" );
+         !prompt_path.empty() )
     {
-        const int level = j[ "thinking_effort" ].get<int>();
-        config.thinking_effort = level < 1 ? 1 : (level > 5 ? 5 : level);
-    }
+        std::filesystem::path system_prompt = prompt_path;
 
-    // "verbose" sets the display-detail level: a string (off/thoughts/tools/all)
-    // or a bool (true -> all, false -> off) for backward compatibility.
-    if ( j.contains( "verbose" ) )
-    {
-        if ( j[ "verbose" ].is_string() )
-        {
-            const auto level = parseDetailLevel( j[ "verbose" ].get<std::string>() );
+        const auto origin = settings.originOf( "system_prompt_path" );
 
-            if ( level )
-                config.detail = *level;
-        }
-        else if ( j[ "verbose" ].is_boolean() )
-        {
-            config.detail = j[ "verbose" ].get<bool>() ? DetailLevel::All : DetailLevel::Off;
-        }
-    }
+        // A path typed on the command line resolves against the working directory, because that
+        // is what the user tab-completed against. A path from a file does not: section 8 resolves
+        // it against the directory of the FILE that set it, which is what the origin above is
+        // for. Until then a file's relative path keeps the executable-directory fallback that the
+        // POST_BUILD copy of Data/ depends on.
+        const bool typed_on_command_line =
+            origin && origin->layer == SettingsLayer::CommandLine && origin->file.empty();
 
-    if ( j.contains( "max_new_tokens" ) && j[ "max_new_tokens" ].is_number_unsigned() )
-        config.max_new_tokens = j[ "max_new_tokens" ].get<std::size_t>();
-
-    if ( j.contains( "temperature" ) && j[ "temperature" ].is_number() )
-        config.temperature = j[ "temperature" ].get<float>();
-
-    if ( j.contains( "top_k" ) && j[ "top_k" ].is_number_integer() )
-        config.top_k = j[ "top_k" ].get<int>();
-
-    if ( j.contains( "top_p" ) && j[ "top_p" ].is_number() )
-        config.top_p = j[ "top_p" ].get<float>();
-
-    if ( j.contains( "system_prompt_path" ) && j[ "system_prompt_path" ].is_string() )
-    {
-        std::filesystem::path system_prompt = j[ "system_prompt_path" ].get<std::string>();
-
-        // Paths in the config assume the executable directory (where Data/ is copied);
-        // resolve there when not found relative to the working directory.
-        if ( system_prompt.is_relative() && !std::filesystem::exists( system_prompt ) )
+        if ( !typed_on_command_line && system_prompt.is_relative() &&
+             !std::filesystem::exists( system_prompt ) )
         {
             const std::filesystem::path exe_relative = executable_directory() / system_prompt;
 

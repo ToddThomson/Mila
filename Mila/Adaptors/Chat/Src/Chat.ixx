@@ -44,6 +44,7 @@ export import Chat.MessageFormatter;
 export import Chat.SystemPrompt;
 export import Chat.ToolCallParser;
 import Chat.ChannelParser;
+import Chat.FamilyTraits;
 import Chat.Footprint;
 import Chat.Json;
 import Chat.Renderer;
@@ -1522,9 +1523,9 @@ namespace Mila::ChatApp
             config_.tokenizer_path    = resolved.tokenizer;
 
             // Preserve context_length across same-architecture switches. On an architecture change
-            // the live value cannot carry (the ceilings differ), so fall back to what the session
-            // config asked for, clamped to what the new architecture can address, and only to the
-            // model's own default when the config named no context at all.
+            // the live value cannot carry (the ceilings differ), so fall back to what the merged
+            // configuration asked for, clamped to what the new architecture can address, and only
+            // to the new family's default when no layer above the defaults named a context.
             //
             // A zero is not a live value to preserve, and the architecture test alone does not
             // catch it: a session that opened with NO model holds the default model_type, so
@@ -1533,12 +1534,12 @@ namespace Mila::ChatApp
             // "context_length must be greater than zero". See ChatConfiguration.md section 2.
             if ( prev_type != config_.model_type || config_.context_length == 0 )
             {
-                const std::size_t ceiling = maxContextFor( config_.model_type );
+                const FamilyTraits traits = familyTraits( config_.model_type );
                 const std::size_t configured = config_.configured_context_length;
 
                 config_.context_length = configured == 0
-                    ? resolved.default_context
-                    : ( configured < ceiling ? configured : ceiling );
+                    ? traits.default_context
+                    : ( configured < traits.max_context ? configured : traits.max_context );
             }
 
             // Destroy the current model before allocating the replacement.

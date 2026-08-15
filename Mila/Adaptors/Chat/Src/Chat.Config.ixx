@@ -134,14 +134,9 @@ namespace Mila::ChatApp
      * ## context_length
      *
      * Maximum sequence length allocated at model build time, and the primary VRAM
-     * lever. Defaults to the selected model's per-model default (catalog
-     * default_context); the session config "context_length" key overrides it.
-     *
-     * ## config_path
-     *
-     * Path to the JSON session config the run was built from (the single startup
-     * source of truth). Selected with --config; otherwise the default
-     * Data/session.json next to the executable.
+     * lever. Resolved by merging the layers of ChatConfiguration.md section 3: the
+     * family default, then any file or flag that names the key, clamped to what the
+     * architecture can address.
      *
      * ## system_prompt_path
      *
@@ -197,13 +192,12 @@ namespace Mila::ChatApp
         float                 top_p{ 1.0f };
         size_t                context_length{ 0 };
 
-        /// What the session config asked for, kept apart from the live value because a model
-        /// switch rewrites the latter. 0 means the config named none, and the model's own default
-        /// stands. Without this a switch dropped to a family default -- 512 for Gemma -- silently
-        /// discarding the number the user actually configured.
+        /// What was asked for, kept apart from the live value because a model switch rewrites the
+        /// latter. 0 means no layer above the compiled defaults named a context, so the new
+        /// family's own default stands. Without this a switch dropped to a family default -- 512
+        /// for Gemma -- silently discarding the number the user actually configured.
         size_t                configured_context_length{ 0 };
 
-        std::optional<std::filesystem::path> config_path;
         std::optional<std::filesystem::path> system_prompt_path;
     };
 }

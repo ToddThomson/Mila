@@ -428,9 +428,19 @@ being a task list and needs a prune.
   for the package itself. Verify in a container, then add `--ignore-requires-python` as the runtime
   image now does.
 - [~] **Rework Chat configuration to layered resolution** — design and phasing in
-  `Mila/Specifications/ChatConfiguration.md`. Phases 1-3 have landed (image directory, validation and
-  the exit path, the flag set). Remaining: the layered merge with origins, the Gemma footprint fix,
-  `context_length: "auto"`, the two `ModelRecord` fields, prompt resolution, `resolveConfigRoot()`.
+  `Mila/Specifications/ChatConfiguration.md`. Phases 1-4 have landed (image directory, validation and
+  the exit path, the flag set, the family table and the layered merge with origins). Remaining: the
+  Gemma footprint fix, `context_length: "auto"`, the two `ModelRecord` fields, prompt resolution,
+  `resolveConfigRoot()`.
+- [ ] **`--settings` and a found local config now BOTH apply**, where `--settings` used to replace the
+  local config outright. That is the merge design (layer 4 then layer 6, key by key), so a named file
+  need only hold what differs — but it means a key absent from the named file is inherited from
+  `Data/session.json` rather than from the compiled default. Verify against the per-model files once
+  §7 shrinks them: `Mila/Adaptors/Chat/Src/main.cpp:416`.
+- [ ] **`Chat.Json` is a byte-for-byte duplicate of the `nlohmann.json` module** —
+  `Mila/Adaptors/Chat/Src/Json.ixx` versus `Mila/Src/Utils/json.ixx`, both including the same header
+  from their global module fragment. Chat imports one in `Chat.ixx` and the other in
+  `Chat.ModelCatalog.ixx`. Drop `Json.ixx` from the target and import `nlohmann.json` everywhere.
 - [ ] **`mila serve <args>` is broken on Windows and cannot report the server's exit code.**
   `runProgram` (`Cli.ixx:100`) hands a concatenated string to `std::system`, so cmd.exe strips the
   outer quotes of the whole command line — MEASURED 2026-08-15: `mila chat --help` died with
@@ -787,6 +797,15 @@ Next-cycle work. Coarse by design — detailed tasking happens only when an item
   seedable sampling, eager sampler, config-accessor propagation, `contextLength()` hoist), the
   Sample-API device-sampler migration for Llama/Gpt, and the Optimizer-dispatch migration onto
   `OperationTraits`. All `Mila/Src`, which is why they wait. Adaptor work does not.
+- **The library should own architectural identity** — the set of architectures is the set of model
+  classes `Mila/Src` implements, and it is held today as a compile-time type and an unvalidated
+  manifest string with nothing connecting them, so each consumer writes its own bridge
+  (`familyFromArchitecture` in `Chat.ModelCatalog.ixx:159`, `architecture == "gemma"` at
+  `Mila/Bindings/Mila_py.Wrappers.cpp:413`) and a fourth model class means editing all of them. Home
+  is `Distribution`, beside the manifest reader, not `Dnn`. The library owns the identity only:
+  traits merely keyed on it, such as Chat's `streaming_capable`, stay with the consumer they
+  describe. Chat's `Chat.FamilyTraits.ixx` is acknowledged as the wrong owner and is fine until this
+  lands.
 - **Model serialization** — the remaining checkpoint round-trip and distribution-artifact phases.
   Design, defect analysis and the phase plan are in `Specifications/ModelSerialization.md`.
 - **Python binding — numeric access, not component access.** Add a session-level `forward()` returning
