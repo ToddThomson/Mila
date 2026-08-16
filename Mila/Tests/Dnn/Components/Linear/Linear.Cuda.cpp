@@ -29,6 +29,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <cuda_runtime.h>
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -892,6 +893,110 @@ namespace Mila::Tests::Dnn::Components::Linear
         typename TestFixture::LinearType linear( "linear", config, Device::Cuda( 0 ) );
 
         EXPECT_EQ( linear.getType(), ComponentType::Linear );
+    }
+
+    /**
+     * @brief A row count that is not itself a plan bucket must not read past its staging buffer.
+     *
+     * The W4A8-FP8 prefill path stages its activations into the shared scratch, and the cuBLASLt
+     * plan comes from a cache that rounds the row count UP to a bucket. Sizing that staging by the
+     * actual row count therefore hands the kernel a buffer shorter than the M it was built for.
+     * Measured 2026-08-15: a 300-token prompt at prefill chunk 512 took bucket 512 and read
+     * 212 * 3072 bytes past the allocation, surfacing as cudaErrorIllegalAddress at the next
+     * deallocate -- a whole model load away from the kernel that caused it.
+     *
+     * 300 rows against a 512-row build is the measured reproducer, and it is the FIRST forward on
+     * a fresh context deliberately: the scratch is grow-only, so a later call inherits slack from
+     * an earlier larger one and the overrun lands inside the allocation instead of past it. That
+     * slack is why the defect presented as prompt-dependent rather than as a plain shape bug, and
+     * it is also this test's limit -- it asserts the fault is gone, where compute-sanitizer
+     * asserts the read is gone. Run it under the sanitizer when touching this path.
+     */
+    TEST( LinearCudaQuantizedTests, Forward_Fp4PrefillRowsBetweenPlanBucketsStayInBounds )
+    {
+        using QuantizedLinear =
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, Mila::Dnn::Quant::Weight::PerGroupFp4<128>>;
+        using HostFp32 = Tensor<TensorDataType::FP32, CpuMemoryResource>;
+        using DeviceBf16 = Tensor<TensorDataType::BF16, CudaDeviceMemoryResource>;
+
+        // The measured geometry. 512 builds the plan cache whose buckets jump 256 -> 512 on Ada
+        // (grain 16), and 300 falls in that gap.
+        constexpr int64_t kBuiltRows = 512;
+        constexpr int64_t kForwardRows = 300;
+        constexpr int64_t kInFeatures = 3072;
+        constexpr int64_t kOutFeatures = 3072;
+
+        std::unique_ptr<IExecutionContext> context;
+        try
+        {
+            context = createExecutionContext( Device::Cuda( 0 ) );
+        }
+        catch ( const std::exception& )
+        {
+            GTEST_SKIP() << "CUDA device not available";
+        }
+
+        std::vector<uint16_t> weight_bits( static_cast<size_t>( kOutFeatures * kInFeatures ) );
+
+        for ( int64_t o = 0; o < kOutFeatures; ++o )
+        {
+            for ( int64_t i = 0; i < kInFeatures; ++i )
+            {
+                const uint32_t bits = std::bit_cast<uint32_t>( weightValue( o, i ) );
+                const uint32_t rounding = 0x7FFF + ( ( bits >> 16 ) & 1 );
+                weight_bits[ o * kInFeatures + i ] = static_cast<uint16_t>( ( bits + rounding ) >> 16 );
+            }
+        }
+
+        const size_t blob_bytes = weight_bits.size() * sizeof( uint16_t );
+
+        LinearConfig config( kInFeatures, kOutFeatures );
+        config.withBias( false );
+
+        QuantizedLinear linear( "linear_fp4_bucket_gap", config, Device::Cuda( 0 ) );
+        linear.build( BuildContext( shape_t{ kBuiltRows, kInFeatures }, RuntimeMode::Inference, false ) );
+
+        Serialization::TensorMetadata weight_meta{
+            TensorDataType::BF16, shape_t{ kOutFeatures, kInFeatures }, blob_bytes };
+        Serialization::TensorBlobView weight_blob( weight_meta, weight_bits.data(), blob_bytes );
+        linear.loadParameter( "weight", weight_blob );
+        context->synchronize();
+
+        HostFp32 host_input( Device::Cpu(), shape_t{ kForwardRows, kInFeatures } );
+
+        for ( int64_t m = 0; m < kForwardRows; ++m )
+        {
+            for ( int64_t k = 0; k < kInFeatures; ++k )
+            {
+                host_input.data()[ m * kInFeatures + k ] =
+                    static_cast<float>( ( m * 31 + k * 17 ) % 257 ) / 128.0f - 1.0f;
+            }
+        }
+
+        DeviceBf16 device_input( Device::Cuda( 0 ), shape_t{ kForwardRows, kInFeatures } );
+        copy( host_input, device_input, context.get() );
+        context->synchronize();
+
+        auto& output = linear.forward( device_input );
+        linear.synchronize();
+
+        ASSERT_EQ( cudaGetLastError(), cudaSuccess )
+            << "a row count between plan buckets faulted the FP4 prefill GEMM";
+
+        auto host_output = toHost<TensorDataType::FP32>( output, context.get() );
+        context->synchronize();
+
+        // The rows the caller asked for must still be real numbers: the padding rows the plan
+        // computes are garbage by design, and must not bleed into these.
+        int64_t nonfinite = 0;
+
+        for ( int64_t index = 0; index < kForwardRows * kOutFeatures; ++index )
+        {
+            if ( !std::isfinite( host_output.data()[ index ] ) )
+                ++nonfinite;
+        }
+
+        EXPECT_EQ( nonfinite, 0 ) << "requested rows must be unaffected by the plan's padding rows";
     }
 
     // ================================================================

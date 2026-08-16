@@ -1,6 +1,7 @@
 /**
  * @file Component.MemoryStats.ixx
- * @brief Memory allocation statistics for component inspection.
+ * @brief Memory allocation statistics for component inspection, and the vocabulary for
+ *        describing what a deployment would cost before it is built.
  *
  * Provides a breakdown of GPU and host memory allocated by a component
  * across the three lifecycle-defined allocation categories: parameters,
@@ -196,4 +197,51 @@ namespace Mila::Dnn
         lhs += rhs;
         return lhs;
     }
+
+    /**
+     * @brief How a transformer would chunk a prefill pass at a given context length.
+     *
+     * Deliberately not a field of MemoryStats: that type is summed across a component tree,
+     * and a chunk size is a single decision the transformer makes rather than a quantity
+     * children contribute to.
+     *
+     * Both families resolve the chunk by walking a rung table downward and taking the largest
+     * rung whose row cost fits an activation budget. The budget shrinks as context grows,
+     * because the KV cache it shares VRAM with grows, so a longer context can silently buy a
+     * smaller chunk. That is the fact this type exists to make askable.
+     */
+    export struct PrefillChunking
+    {
+        /// Rows per prefill chunk this context length would use.
+        dim_t chunk_rows{ 0 };
+
+        /// The largest rung this context length permits before the activation budget is
+        /// applied. Equal to chunk_rows when the budget did not reduce the chunk.
+        dim_t unconstrained_chunk_rows{ 0 };
+
+        /// False when even the floor rung exceeds the budget, so chunk_rows is the floor used
+        /// in spite of the budget rather than one that fits under it.
+        bool fits_activation_budget{ true };
+
+        /// True when the activation budget forced a smaller chunk than the context permits.
+        [[nodiscard]] bool isBudgetConstrained() const noexcept
+        {
+            return chunk_rows < unconstrained_chunk_rows;
+        }
+    };
+
+    /**
+     * @brief What a deployment would cost, and how it would prefill.
+     *
+     * Fitting in memory and running well are different questions, and a caller choosing a
+     * context length needs both: the largest context that fits can be one where the prefill
+     * chunk has walked down to its floor. The two answers come from one graph construction
+     * because they are two readings of the same arithmetic.
+     */
+    export struct DeploymentFootprint
+    {
+        MemoryStats memory;
+
+        PrefillChunking prefill;
+    };
 }

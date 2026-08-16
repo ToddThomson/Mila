@@ -185,10 +185,33 @@ namespace Mila::Dnn
             const LlamaModelConfig& model_config,
             DeviceId device_id = DeviceId{ TDeviceType, 0 } )
         {
+            return getDeploymentFootprint( path, model_config, device_id ).memory;
+        }
+
+        /**
+         * @brief The same prediction, plus how this deployment would chunk its prefill.
+         *
+         * One graph construction answers both, because they are two readings of the same
+         * arithmetic -- the chunk is resolved on the way to sizing the attention scratch
+         * getRequiredMemory reports, and was previously discarded there.
+         *
+         * The second half is what a caller choosing a context length needs and memory alone
+         * cannot tell it: the scratch cost per chunk row carries a 2 * context_length term, so
+         * a longer context buys a smaller chunk. See Specifications/ChatConfiguration.md
+         * section 6.
+         *
+         * @throws std::invalid_argument on device type mismatch or zero context length.
+         * @throws std::runtime_error    on an unreadable artifact or unsupported quantization.
+         */
+        static DeploymentFootprint getDeploymentFootprint(
+            const std::filesystem::path& path,
+            const LlamaModelConfig& model_config,
+            DeviceId device_id = DeviceId{ TDeviceType, 0 } )
+        {
             if ( device_id.type != TDeviceType )
             {
                 throw std::invalid_argument( std::format(
-                    "LlamaModel::getRequiredMemory: device type mismatch: expected {}, got {}",
+                    "LlamaModel::getDeploymentFootprint: device type mismatch: expected {}, got {}",
                     deviceTypeToString( TDeviceType ),
                     deviceTypeToString( device_id.type ) ) );
             }
@@ -196,20 +219,20 @@ namespace Mila::Dnn
             if ( model_config.getContextLength() == 0 )
             {
                 throw std::invalid_argument(
-                    "LlamaModel::getRequiredMemory: context_length must be greater than zero" );
+                    "LlamaModel::getDeploymentFootprint: context_length must be greater than zero" );
             }
 
             // Same dispatcher as fromPretrained, and deliberately so: the footprint path and
             // the load path must reach the identical template instantiation or a model reports
             // a figure it does not allocate.
             return dispatchWeightQuantization<
-                    TPrecision, LlamaKvPolicy, MemoryStats>(
+                    TPrecision, LlamaKvPolicy, DeploymentFootprint>(
                 model_config.getWeightQuantization(),
                 model_config.getKvCacheCompression(),
-                "LlamaModel::getRequiredMemory",
+                "LlamaModel::getDeploymentFootprint",
                 [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
                 {
-                    return requiredMemoryImpl<TWeightQuantization, TKvCachePolicy>(
+                    return deploymentFootprintImpl<TWeightQuantization, TKvCachePolicy>(
                         path, model_config, device_id );
                 } );
         }
@@ -449,7 +472,7 @@ namespace Mila::Dnn
          * @brief The footprint sibling of fromPretrainedImpl: same prologue, stops before build().
          */
         template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
-        static MemoryStats requiredMemoryImpl(
+        static DeploymentFootprint deploymentFootprintImpl(
             const std::filesystem::path& path,
             const LlamaModelConfig& model_config,
             DeviceId device_id )
@@ -462,7 +485,7 @@ namespace Mila::Dnn
             if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
             {
                 throw std::invalid_argument( std::format(
-                    "LlamaModel::getRequiredMemory: context_length {} exceeds max_seq_len {}",
+                    "LlamaModel::getDeploymentFootprint: context_length {} exceeds max_seq_len {}",
                     model_config.getContextLength(),
                     network_config.getMaxSequenceLength() ) );
             }
@@ -474,12 +497,16 @@ namespace Mila::Dnn
             auto network = std::make_unique<ConcreteTransformerType>(
                 metadata.model_name, network_config, device_id );
 
+            const dim_t context_length = static_cast<dim_t>( model_config.getContextLength() );
+
             BuildContext build_context(
-                shape_t{ 1, model_config.getContextLength() },
+                shape_t{ 1, context_length },
                 RuntimeMode::Inference,
                 false );
 
-            return network->getRequiredMemory( build_context );
+            return DeploymentFootprint{
+                network->getRequiredMemory( build_context ),
+                network->prefillChunking( 1, context_length ) };
         }
 
         LlamaConfig config_;

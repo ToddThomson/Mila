@@ -143,6 +143,23 @@ namespace Mila::Dnn::Compute::Cuda
             return it->second;
         }
 
+        /**
+         * @brief The M the plan returned by get() was actually built for.
+         *
+         * A caller that STAGES the GEMM's inputs into its own buffer must size them by this and
+         * not by its own batch size: get() rounds up to a bucket, and the kernel then reads that
+         * bucket's extent. Sizing by the batch size instead is an out-of-bounds read of
+         * (bucket - batch_size) * K elements, which lands in slack whenever the staging buffer
+         * happens to be large enough and faults when it does not.
+         *
+         * Callers whose inputs are real tensors built at the maximum batch size need not ask:
+         * a bucket never exceeds the max_batch_size the cache was constructed with.
+         */
+        int bucketFor( int batch_size ) const
+        {
+            return getBucket( buckets_, batch_size );
+        }
+
         bool empty() const
         {
             return cache_.empty();

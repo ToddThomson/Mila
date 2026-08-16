@@ -248,6 +248,12 @@ every block via `block_context` (`Gemma.ixx:473-483`). It is a pure function of
 (B, T_ctx). `getRequiredMemory` must run it before recursing, or every block's
 attention scratch is sized against a default.
 
+Because it must run it anyway, the chunk is a value the prediction already holds.
+`getDeploymentFootprint` returns it beside the memory answer rather than discarding it;
+`getRequiredMemory` forwards to that and keeps its own signature. Both families expose the
+resolution as `prefillChunking(B, T_ctx)`, which is where the rung table now lives once.
+A caller choosing a context length needs it: see ChatConfiguration.md section 6.
+
 ### 6.2 Sharing makes a naive child-sum overcount
 
 Gemma installs shared outputs and shared weights, and `Linear::onBuilding` skips

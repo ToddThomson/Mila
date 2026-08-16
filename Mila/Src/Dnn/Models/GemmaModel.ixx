@@ -190,10 +190,33 @@ namespace Mila::Dnn
             const GemmaModelConfig& model_config,
             DeviceId device_id = DeviceId{ TDeviceType, 0 } )
         {
+            return getDeploymentFootprint( path, model_config, device_id ).memory;
+        }
+
+        /**
+         * @brief The same prediction, plus how this deployment would chunk its prefill.
+         *
+         * One graph construction answers both, because they are two readings of the same
+         * arithmetic -- the chunk is resolved on the way to sizing the activation workspaces
+         * getRequiredMemory reports, and was previously discarded there.
+         *
+         * The second half is what a caller choosing a context length needs and memory alone
+         * cannot tell it: the largest context that fits can be one where the chunk has walked
+         * down to its floor, because the activation budget shrinks as the KV cache it shares
+         * VRAM with grows. See Specifications/ChatConfiguration.md section 6.
+         *
+         * @throws std::invalid_argument on device type mismatch or zero context length.
+         * @throws std::runtime_error    on an unreadable artifact or unsupported quantization.
+         */
+        static DeploymentFootprint getDeploymentFootprint(
+            const std::filesystem::path& path,
+            const GemmaModelConfig& model_config,
+            DeviceId device_id = DeviceId{ TDeviceType, 0 } )
+        {
             if ( device_id.type != TDeviceType )
             {
                 throw std::invalid_argument( std::format(
-                    "GemmaModel::getRequiredMemory: device type mismatch: expected {}, got {}",
+                    "GemmaModel::getDeploymentFootprint: device type mismatch: expected {}, got {}",
                     deviceTypeToString( TDeviceType ),
                     deviceTypeToString( device_id.type ) ) );
             }
@@ -201,20 +224,20 @@ namespace Mila::Dnn
             if ( model_config.getContextLength() == 0 )
             {
                 throw std::invalid_argument(
-                    "GemmaModel::getRequiredMemory: context_length must be greater than zero" );
+                    "GemmaModel::getDeploymentFootprint: context_length must be greater than zero" );
             }
 
             // Same dispatcher as fromPretrained, and deliberately so: the footprint path and
             // the load path must reach the identical template instantiation or a model reports
             // a figure it does not allocate.
             return dispatchWeightQuantization<
-                    TPrecision, GemmaSlidingKvPolicy, MemoryStats>(
+                    TPrecision, GemmaSlidingKvPolicy, DeploymentFootprint>(
                 model_config.getWeightQuantization(),
                 model_config.getKvCacheCompression(),
-                "GemmaModel::getRequiredMemory",
+                "GemmaModel::getDeploymentFootprint",
                 [&]<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>()
                 {
-                    return requiredMemoryImpl<TWeightQuantization, TKvCachePolicy>(
+                    return deploymentFootprintImpl<TWeightQuantization, TKvCachePolicy>(
                         path, model_config, device_id );
                 } );
         }
@@ -670,7 +693,7 @@ namespace Mila::Dnn
          * real load would apply, or the reported figure describes a model that would not load.
          */
         template<WeightQuantPolicy TWeightQuantization, KvCachePolicy TKvCachePolicy>
-        static MemoryStats requiredMemoryImpl(
+        static DeploymentFootprint deploymentFootprintImpl(
             const std::filesystem::path& path,
             const GemmaModelConfig& model_config,
             DeviceId device_id )
@@ -688,7 +711,7 @@ namespace Mila::Dnn
                 if ( artifact_quantization != requested )
                 {
                     throw std::runtime_error( std::format(
-                        "GemmaModel::getRequiredMemory: artifact '{}' is pre-quantized as '{}' "
+                        "GemmaModel::getDeploymentFootprint: artifact '{}' is pre-quantized as '{}' "
                         "but this query requested '{}'",
                         path.string(), artifact_quantization, requested ) );
                 }
@@ -699,7 +722,7 @@ namespace Mila::Dnn
             if ( model_config.getContextLength() > network_config.getMaxSequenceLength() )
             {
                 throw std::invalid_argument( std::format(
-                    "GemmaModel::getRequiredMemory: context_length {} exceeds trained max_seq_len {}",
+                    "GemmaModel::getDeploymentFootprint: context_length {} exceeds trained max_seq_len {}",
                     model_config.getContextLength(),
                     network_config.getMaxSequenceLength() ) );
             }
@@ -712,12 +735,16 @@ namespace Mila::Dnn
             auto network = std::make_unique<ConcreteTransformerType>(
                 metadata.model_name, network_config, device_id );
 
+            const dim_t context_length = static_cast<dim_t>( model_config.getContextLength() );
+
             BuildContext build_context(
-                shape_t{ 1, model_config.getContextLength() },
+                shape_t{ 1, context_length },
                 RuntimeMode::Inference,
                 false );
 
-            return network->getRequiredMemory( build_context );
+            return DeploymentFootprint{
+                network->getRequiredMemory( build_context ),
+                network->prefillChunking( 1, context_length ) };
         }
 
         // Architecture config (from checkpoint metadata): the trained network geometry.

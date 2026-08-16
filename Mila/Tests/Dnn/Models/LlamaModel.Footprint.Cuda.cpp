@@ -127,6 +127,47 @@ namespace Mila::Tests::Dnn::Models
             toGiB( large.device_state_bytes - small.device_state_bytes ) );
     }
 
+    // The Llama half of the prefill-chunk question. Its mechanism differs from Gemma's -- the
+    // scratch cost per chunk row carries a 2 * context_length term against a fixed cap, rather
+    // than a budget shrinking under a growing KV cache -- but the consequence is the same and is
+    // what `context_length: "auto"` bounds on: a longer context silently buys a smaller chunk.
+    //
+    // Device-independent by construction: cap and row cost both come from the checkpoint's
+    // geometry, so these numbers do not depend on which card runs the test.
+    TEST_F( LlamaFootprintCudaTests, GetDeploymentFootprint_ReportsPrefillChunkAndAgreesOnMemory )
+    {
+        auto footprintAt = []( const fs::path& path, dim_t context_length )
+        {
+            return LlamaModel<DeviceType::Cuda, TensorDataType::BF16>::getDeploymentFootprint(
+                path,
+                LlamaModelConfig( context_length )
+                    .withWeightQuantization( WeightQuantization::FP4 ) );
+        };
+
+        const DeploymentFootprint short_context = footprintAt( checkpoint_, 8192 );
+
+        EXPECT_EQ( short_context.memory.totalDeviceBytes(),
+                   predictAt( checkpoint_, 8192, WeightQuantization::FP4 ).totalDeviceBytes() )
+            << "the two entry points must answer from the same arithmetic";
+
+        EXPECT_GT( short_context.prefill.chunk_rows, 0 );
+        EXPECT_FALSE( short_context.prefill.isBudgetConstrained() )
+            << "8192 is expected to hold the top rung on this checkpoint";
+
+        const DeploymentFootprint long_context = footprintAt( checkpoint_, 131072 );
+
+        EXPECT_LT( long_context.prefill.chunk_rows, short_context.prefill.chunk_rows )
+            << "the prefill chunk must walk down as context grows";
+        EXPECT_TRUE( long_context.prefill.isBudgetConstrained() )
+            << "at the trained maximum the chunk is expected to be cap-bound";
+
+        std::cout << std::format(
+            "[prefill] ctx 8192   chunk {} of {} rows\n"
+            "[prefill] ctx 131072 chunk {} of {} rows\n",
+            short_context.prefill.chunk_rows, short_context.prefill.unconstrained_chunk_rows,
+            long_context.prefill.chunk_rows, long_context.prefill.unconstrained_chunk_rows );
+    }
+
     // The memory-gate limitation, measured rather than asserted from geometry.
     //
     // If every weight participated in FP4, quantized parameters would be about 0.266 of

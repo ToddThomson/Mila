@@ -23,6 +23,15 @@ being a task list and needs a prune.
 
 ### Models
 
+- [ ] **No build or CI step runs `compute-sanitizer`, and nothing else can find this class of defect.**
+  Measured 2026-08-15: `Mila/Src` carries 29 `cudaCheckStatus`/`cudaCheckLastError` calls across 7
+  files, all in allocation, transfer and setup paths — and **zero** across the 110 kernel launch
+  sites in 63 `.cu` files. That is a defensible design (an in-kernel fault is async, so catching it
+  near its cause costs a synchronize per launch), but it means an out-of-bounds access that does not
+  change any output is invisible: the W4A8 staging defect survived 32 days and 1606 passing tests,
+  and one sanitizer run named it. Add a sanitizer pass over a small CUDA test subset —
+  `CUDA/v13.3/compute-sanitizer/compute-sanitizer.exe --tool memcheck`, roughly 10x slowdown, so a
+  targeted filter rather than the whole suite.
 - [ ] **KNOWN LIMITATION — the Llama chassis never received Gemma's memory gates.** The embedding and
   `lm_head` ignore the weight-quantization policy and are untied, so Llama 3.1 8B FP4 costs *more*
   than Gemma 4 12B FP4 (9.73 vs 8.65 GiB at 8192, widening to 12.08 vs 8.83 at 32768). Three fixes,
@@ -432,12 +441,6 @@ being a task list and needs a prune.
   the exit path, the flag set, the family table and the layered merge with origins, the predictor's
   failure reason, `context_length: "auto"`, prompt resolution and the end of `Data/`, the config
   root). Remaining: phase 7, the two `ModelRecord` fields, which touches Model Distribution.
-- [ ] **Auto picks a context that fits memory and prefills at the floor.** Measured: Gemma resolves
-  to 95232, where the prefill chunk has walked down to 64 rows, against roughly 54K for a full
-  1024-row chunk. The mechanism and the rung table are in ChatConfiguration.md section 6. Needs a
-  runtime capability first — a model answering what prefill chunk a context would get, beside
-  `getRequiredMemory` — since `resolvePrefillChunkSize` is private to the transformer
-  (`Gemma.ixx:1023`). Until then, decide whether auto ships as layer 1's default or stays opt-in.
 - [ ] **`/models` shows one dash for two different answers**, so a row that cannot be measured by
   design reads the same as one where the prediction threw. That ambiguity is what made a swallowed
   zero-context throw look like a Gemma predictor defect and earn its own phase. `predictFootprint`
@@ -457,10 +460,12 @@ being a task list and needs a prune.
   `cd /build` is redundant since `executable_directory()` reads `/proc/self/exe`. `Docker/Dockerfile:94`
   installs `run-chat.sh` as `/usr/local/bin/mila-chat`; the built binary is `/build/mila-chat`. Verify in
   a container, then either drop the wrapper for a symlink or keep it purely for the not-built message.
-- [ ] **Confirm in a container that Chat no longer needs its working directory.** The runtime image's
-  WORKDIR comment and the entrypoint's `cd` were relaxed on the strength of `/proc/self/exe` and the
-  `Prompts/` move, without a container run to prove it. `Docker/run-chat.sh` still has the `cd`, kept
-  until that run happens, as does `Mila/Tools/Cli`.
+- [ ] **Drop the redundant `cd` from `Docker/run-chat.sh:24`.** CONFIRMED redundant 2026-08-15: the
+  runtime image ran `chat` correctly from `-w /tmp` and `-w /`, resolving both its config and a
+  `--system-prompt` by name, so `/proc/self/exe` carries it. The wrapper is devel-only, so the
+  confirmation is by the shared binary rather than a devel container run. `Mila/Tools/Cli` needs no
+  change at all — it never changed directory; `main.cpp:35` reads `/proc/self/exe` and
+  `current_path()` at `Cli.ixx:51` is an unreachable last-resort fallback on both shipped platforms.
 - [ ] **Installing a model then starting Chat leaves no model loaded**, so the two-command evaluation
   path does not reach an answer. Measured 2026-08-14: `install Llama-3.2-3B-Instruct-fp4` into a fresh
   volume, then `chat`, opens on "No model is loaded" — the user must also know to type `/model <name>`.

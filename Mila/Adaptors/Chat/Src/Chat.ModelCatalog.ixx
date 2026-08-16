@@ -304,6 +304,24 @@ namespace Mila::ChatApp
 
         if ( resolved.device_total_bytes > 0 )
         {
+            // Which constraint bound the answer, when it was not memory. Without it a user who
+            // knows the card has room reads a number that looks arbitrarily short -- the same
+            // unaccountable-number complaint, arrived at from the other direction.
+            if ( resolved.bounded_by_prefill )
+            {
+                return std::format( "auto, {} device, held to a full {}-row prefill chunk",
+                    formatBytes( resolved.device_total_bytes ),
+                    resolved.prefill.chunk_rows );
+            }
+
+            if ( resolved.prefill.isBudgetConstrained() )
+            {
+                return std::format( "auto, {} device, prefill chunk {} of {} rows",
+                    formatBytes( resolved.device_total_bytes ),
+                    resolved.prefill.chunk_rows,
+                    resolved.prefill.unconstrained_chunk_rows );
+            }
+
             return std::format( "auto, {} device", formatBytes( resolved.device_total_bytes ) );
         }
 

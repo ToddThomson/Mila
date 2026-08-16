@@ -140,6 +140,57 @@ namespace Mila::Tests::Dnn::Models
             toGiB( large.totalDeviceBytes() ) );
     }
 
+    // The chunk the prediction resolves on its way to sizing the activation workspaces, and
+    // used to discard. `context_length: "auto"` bounds on it, because memory alone cannot say
+    // that the largest context which fits is one where prefill has walked down toward its floor.
+    //
+    // Device-independent by construction: the budget is a fixed constant less the global KV
+    // term, both computed from the checkpoint's geometry, so these numbers do not depend on
+    // which card runs the test. See Specifications/ChatConfiguration.md section 6.
+    TEST_F( GemmaFootprintCudaTests, GetDeploymentFootprint_ReportsPrefillChunkAndAgreesOnMemory )
+    {
+        auto footprintAt = []( const fs::path& path, dim_t context_length )
+        {
+            GemmaModelConfig config;
+            config.withContextLength( context_length )
+                .withWeightQuantization( WeightQuantization::FP4 );
+
+            return GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::getDeploymentFootprint(
+                path, config );
+        };
+
+        GemmaModelConfig config;
+        config.withContextLength( 8192 )
+            .withWeightQuantization( WeightQuantization::FP4 );
+
+        const DeploymentFootprint short_context = footprintAt( checkpoint_, 8192 );
+        const MemoryStats memory_only =
+            GemmaModel<DeviceType::Cuda, TensorDataType::BF16>::getRequiredMemory(
+                checkpoint_, config );
+
+        EXPECT_EQ( short_context.memory.totalDeviceBytes(), memory_only.totalDeviceBytes() )
+            << "the two entry points must answer from the same arithmetic";
+
+        EXPECT_GT( short_context.prefill.chunk_rows, 0 );
+        EXPECT_LE( short_context.prefill.chunk_rows,
+                   short_context.prefill.unconstrained_chunk_rows );
+
+        // The property auto depends on. Without it the throughput bound would be a constant and
+        // the scan would have nothing to find.
+        const DeploymentFootprint long_context = footprintAt( checkpoint_, 131072 );
+
+        EXPECT_LT( long_context.prefill.chunk_rows, short_context.prefill.chunk_rows )
+            << "the prefill chunk must walk down as the KV cache eats the activation budget";
+        EXPECT_TRUE( long_context.prefill.isBudgetConstrained() )
+            << "at the trained maximum the chunk is expected to be budget-bound";
+
+        std::cout << std::format(
+            "[prefill] ctx 8192   chunk {} of {} rows\n"
+            "[prefill] ctx 131072 chunk {} of {} rows\n",
+            short_context.prefill.chunk_rows, short_context.prefill.unconstrained_chunk_rows,
+            long_context.prefill.chunk_rows, long_context.prefill.unconstrained_chunk_rows );
+    }
+
     // Gate B proper. Predict, then actually load, and hold the two against the driver's
     // own accounting. The printed residual is the deliverable as much as the assertions:
     // it is the size of everything a build-time contract cannot see.

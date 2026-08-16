@@ -248,8 +248,8 @@ which has no sliding window and grows at 0.22 GB per 1024, lands between 4096 an
 
 ### Fitting in memory is not the same as running well
 
-Measured 2026-08-15, with auto implemented: `gemma-4-12b-it-fp4` resolves to **95232**, loads, and
-answers. It is still the wrong number, and the reason is not memory.
+Measured 2026-08-15, with auto bounded on memory alone: `gemma-4-12b-it-fp4` resolved to **95232**,
+loaded, and answered. It was still the wrong number, and the reason was not memory.
 
 `GemmaTransformer::resolvePrefillChunkSize` (`Gemma.ixx:1023`) picks a prefill chunk from the rungs
 1024 / 512 / 256 / 128 / 64 rows, against an activation budget of 1536 MB **minus the global KV
@@ -268,14 +268,59 @@ efficiently". **Auto picked 95232 — the last context before that warning, wher
 usable ceiling of 49-56K is not a disagreement with the predictor after all: it is the chunk-1024
 boundary in the table above, measured from the other direction.
 
-The memory budget is therefore necessary and not sufficient. Auto should take the largest context
-that still prefills at a full chunk, which on this card is roughly 54K rather than 95K.
+The memory budget is therefore necessary and not sufficient. Auto takes the largest context that
+still prefills at a full chunk, which on this card is roughly 54K rather than 95K.
 
-**Chat cannot compute that.** `resolvePrefillChunkSize` is private to the transformer, and the
-adaptor has no way to ask what chunk a context would get. The blocker is a runtime capability — a
-model answering "what prefill chunk would this context use", beside `getRequiredMemory`, which
-already answers the memory half of the same question. Until it exists, auto's number is a memory
-answer to a question that also has a throughput half.
+**The capability that unblocked it was a visibility change, not a new one.** Both families already
+resolved the chunk inside `getRequiredMemory` — on the way to sizing the very activation workspaces
+it reports — and then discarded it (`Gemma.ixx:386`, `Llama.ixx:365`). Nothing new is computed.
+`getDeploymentFootprint` returns what one graph construction already knew: the memory answer beside
+a `PrefillChunking` carrying the chunk this context would use, the largest rung the context permits,
+and whether the budget forced the difference.
+
+**The same shape covers both families, though the mechanism differs.** Gemma's budget shrinks as the
+global KV term grows against a fixed activation cap; Llama's per-row scratch carries a
+`2 * context_length` term against the same cap. Either way a longer context buys a smaller chunk, so
+the overshoot was never a Gemma defect. Measured 2026-08-15 on an RTX 4070, 11.99 GB, before and
+after the bound:
+
+| model | auto, memory only | auto, chunk-bounded | chunk at the old number |
+|---|---|---|---|
+| `gemma-4-12b-it-fp4` | 95232 | **56320** | 64 of 1024 rows |
+| `Llama-3.2-3B-Instruct-fp4` | 43008 | **31744** | 256 of 512 rows |
+
+Both resolutions are device-independent arithmetic over the checkpoint geometry, which is what makes
+them testable without a particular card — the two footprint tests assert the rungs directly.
+
+**56320 is an independent confirmation, not just a smaller number.** The live usable ceiling for this
+model was separately recorded at 49–56K from generation runs, arrived at by measuring where the
+experience degraded rather than by predicting anything. The predictor now lands inside that range
+from the other direction.
+
+**What the bound buys, measured 2026-08-15** — the rung table's payoff is documented in
+Gemma4InferenceReview.md section 6.4; this is what it is worth at the two contexts auto chooses
+between. Same 6000-word prompt, `gemma-4-12b-it-fp4`, RTX 4070:
+
+| context | prefill chunk | prefill |
+|---|---|---|
+| 56320 | 1024 rows | 2446 ms |
+| 95232 | 64 rows | 9046 ms |
+
+**3.7x on prefill, with decode unchanged at 47.1 tok/s.** Isolated rather than inferred: pinning
+`kGemmaPrefillChunkOverride` to 64 with the context held at 56320 reproduces the full 9005 ms, so
+the effect is the chunk and nothing measurable belongs to the context length. That is the number
+justifying a bound that gives up 38912 tokens of context the card could have held.
+
+**The scan does not stop at the first memory fit.** It keeps that fit as a floor under the answer and
+continues down for the largest context whose chunk is also unconstrained, preferring the latter when
+one exists. When every fitting context is chunk-constrained the memory answer stands: a reduced chunk
+costs prefill throughput, where falling back to the family floor costs the length of the conversation.
+
+Auto's answers get smaller as a result, so the provenance line says which constraint bound them:
+
+```
+Context 56320 (auto, 11.99 GB device, held to a full 1024-row prefill chunk)
+```
 
 ### When auto cannot answer
 

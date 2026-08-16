@@ -657,15 +657,28 @@ namespace Mila::Dnn::Compute::Cuda::Linear
                         // share one scratch allocation, each 16-byte aligned for cuBLASLt.
                         // Fetched per-forward, never cached: the scratch buffer may be
                         // reallocated on grow.
+                        // THE GEMM READS THE PLAN'S M, NOT outer_size. get() rounds up to a bucket,
+                        // so a prompt whose length is not itself a bucket runs a kernel that reads
+                        // (bucket - outer_size) * in_features bytes beyond what outer_size would
+                        // stage. Sizing the staging region by outer_size therefore reads out of
+                        // bounds -- silently while the grow-only scratch happens to have that much
+                        // slack, and as cudaErrorIllegalAddress when it does not. Measured
+                        // 2026-08-15: a 300-token prompt at prefill chunk 512 takes bucket 512 and
+                        // overran by 212 * 3072 bytes. The rows between outer_size and the bucket
+                        // are read as garbage and their outputs discarded, which is what the plan
+                        // already assumed; only the allocation was short.
+                        const int plan_rows =
+                            fp8_forward_plan_cache_.bucketFor( static_cast<int>( outer_size ) );
+
                         const size_t weight_fp8_bytes = static_cast<size_t>( out_features_ )
                             * static_cast<size_t>( cached_in_features_ );
                         const size_t weight_fp8_bytes_aligned =
                             ( weight_fp8_bytes + 15u ) & ~static_cast<size_t>( 15u );
-                        const size_t activation_fp8_bytes = static_cast<size_t>( outer_size )
+                        const size_t activation_fp8_bytes = static_cast<size_t>( plan_rows )
                             * static_cast<size_t>( cached_in_features_ );
                         const size_t activation_fp8_bytes_aligned =
                             ( activation_fp8_bytes + 15u ) & ~static_cast<size_t>( 15u );
-                        const size_t token_scale_bytes = static_cast<size_t>( outer_size )
+                        const size_t token_scale_bytes = static_cast<size_t>( plan_rows )
                             * sizeof( float );
 
                         auto* scratch = static_cast<char*>( context_->getDeviceScratchBuffer(

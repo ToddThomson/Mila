@@ -70,28 +70,60 @@ namespace Mila::Dnn
     // (CUDA device caps / MemoryStats) can replace this fixed cap later.
     inline constexpr int64_t kPrefillScratchByteCap = int64_t{ 1536 } * 1024 * 1024;
 
+    // The chunk rungs, largest first, and the floor below them. Named once because two callers
+    // walk them: the resolution that sizes the workspaces at build time, and the query a caller
+    // uses to choose a context length before anything is built.
+    inline constexpr int64_t kLlamaPrefillChunkRungs[] = { 512, 256, 128 };
+    inline constexpr int64_t kLlamaPrefillChunkFloor = 128;
+
     // Largest prefill chunk in {512, 256, 128} whose attention scratch stays under
-    // kPrefillScratchByteCap. Self-adjusts to model width, context length, and
-    // compute precision. Floors at min(128, context_length) when even 128 exceeds
-    // the cap. Computed once at network build time; see LlamaTransformer::onBuilding.
-    inline int64_t computePrefillChunkSize(
+    // kPrefillScratchByteCap, alongside the largest rung the context permits at all.
+    // Self-adjusts to model width, context length, and compute precision. Floors at
+    // min(128, context_length) when even 128 exceeds the cap.
+    //
+    // The two answers differ exactly when the cap forced a smaller chunk than the context
+    // allows -- which a caller choosing a context length needs, because the scratch cost per
+    // row carries a 2 * context_length term, so a longer context silently buys a smaller chunk.
+    // Computed at network build time (see LlamaTransformer::onBuilding) and, without building,
+    // by the footprint query.
+    inline PrefillChunking computePrefillChunking(
         int64_t batch, int64_t num_heads, int64_t head_dim,
         int64_t context_length, int64_t precision_bytes )
     {
+        PrefillChunking chunking;
+
         // preatt + att dominate (each B*NH*chunk*T); q_permute + v_out add B*NH*chunk*HS.
         const int64_t scratch_per_chunk_row =
             batch * num_heads * ( 2 * context_length + 2 * head_dim ) * precision_bytes;
 
-        for ( int64_t candidate : { int64_t{ 512 }, int64_t{ 256 }, int64_t{ 128 } } )
+        for ( int64_t candidate : kLlamaPrefillChunkRungs )
         {
             if ( candidate > context_length )
                 continue;
 
+            // The first rung the context admits at all, cap aside. That it is reached before
+            // any cap test is what makes it the unconstrained answer.
+            if ( chunking.unconstrained_chunk_rows == 0 )
+                chunking.unconstrained_chunk_rows = candidate;
+
             if ( scratch_per_chunk_row * candidate <= kPrefillScratchByteCap )
-                return candidate;
+            {
+                chunking.chunk_rows = candidate;
+
+                return chunking;
+            }
         }
 
-        return std::min<int64_t>( 128, context_length );
+        // Either the context is shorter than the floor rung, in which case the whole context is
+        // one chunk and nothing was constrained, or nothing fit and the floor is used anyway.
+        chunking.chunk_rows = std::min<int64_t>( kLlamaPrefillChunkFloor, context_length );
+
+        if ( chunking.unconstrained_chunk_rows == 0 )
+            chunking.unconstrained_chunk_rows = chunking.chunk_rows;
+        else
+            chunking.fits_activation_budget = false;
+
+        return chunking;
     }
 
     /**
@@ -362,9 +394,7 @@ namespace Mila::Dnn
             const dim_t NH = config_.getNumHeads();
             const dim_t HS = config_.getModelDim() / NH;
 
-            const int64_t prefill_chunk = computePrefillChunkSize(
-                B, NH, HS, T,
-                static_cast<int64_t>( TensorDataTypeTraits<TPrecision>::size_in_bytes ) );
+            const int64_t prefill_chunk = prefillChunking( B, T ).chunk_rows;
 
             BuildContext block_context =
                 BuildContext( shape_t{ B, T, config_.getModelDim() },
@@ -423,6 +453,23 @@ namespace Mila::Dnn
                 std::max<dim_t>( config_.getNumLayers() - 1, 0 ) * ropeCacheBytes( HS );
 
             return stats;
+        }
+
+        /**
+         * @brief The prefill chunk this context length would use, and the one it could have used.
+         *
+         * Pure arithmetic over the config -- no device is touched and nothing is allocated -- so
+         * a caller may ask before the network is built. The geometry is read from the config here
+         * rather than passed, which is what lets a caller ask the question without knowing how
+         * this family measures attention scratch.
+         */
+        PrefillChunking prefillChunking( int64_t B, int64_t T_ctx ) const
+        {
+            const int64_t num_heads = config_.getNumHeads();
+
+            return computePrefillChunking(
+                B, num_heads, config_.getModelDim() / num_heads, T_ctx,
+                static_cast<int64_t>( TensorDataTypeTraits<TPrecision>::size_in_bytes ) );
         }
 
         std::string toString() const override
@@ -524,9 +571,7 @@ namespace Mila::Dnn
             // Tune the prefill chunk size once for the whole network and thread it down
             // to every block (and its GQA op) via block_context. Single source of truth
             // for prefill granularity; also reused by prefill() and the shared GQA workspace.
-            prefill_chunk_size_ = computePrefillChunkSize(
-                B, config_.getNumHeads(), config_.getModelDim() / config_.getNumHeads(),
-                T, static_cast<int64_t>( TensorDataTypeTraits<TPrecision>::size_in_bytes ) );
+            prefill_chunk_size_ = prefillChunking( B, T ).chunk_rows;
 
             // Blocks need full context_length so GQA can size the KV cache correctly.
             // LlamaBlock handles the prefill/decode split internally.
