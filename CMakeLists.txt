@@ -95,6 +95,14 @@ option(MILA_ENABLE_CUDA "Enable CUDA compute backend" ON)
 option(MILA_ENABLE_METAL "Enable Metal compute backend (macOS/iOS only)" OFF)
 option(MILA_ENABLE_ROCM "Enable ROCm compute backend" OFF)
 
+# Research chassis under Src/Experimental -- code that is deliberately NOT part of any release.
+# OFF by default, so a release tree carries the sources and never compiles them. The axis exists
+# rather than the simpler "leave it out of CMake" because an experimental tree that nothing builds
+# rots, and because a blog claim a reader cannot reproduce is not worth making: -DMILA_ENABLE_EXPERIMENTAL=ON
+# is the whole reproduction step. Enabling primitives (weight policies, kernels, general components)
+# do NOT live here -- only chassis that is unproven as a whole. See Specifications/Qwen3.8.md.
+option(MILA_ENABLE_EXPERIMENTAL "Build experimental research chassis (unsupported, not in any release)" OFF)
+
 # =============================================================================
 # Compute backend detection
 # =============================================================================
@@ -193,6 +201,19 @@ message(STATUS "  ROCm:    ${MILA_HAS_ROCM}  (NOTE: Internal testing only)")
 # is the load-bearing invariant for the day CPU becomes optional.
 if(NOT (MILA_HAS_CPU OR MILA_HAS_CUDA OR MILA_HAS_METAL OR MILA_HAS_ROCM))
     message(FATAL_ERROR "Mila requires at least one compute backend, but all are disabled.")
+endif()
+
+# Experimental chassis resolves the same way the Chat adaptor does: requested AND CUDA present.
+# Every experimental chassis to date is CUDA-only, so a CPU-only configure declines it rather than
+# failing -- the CPU-only CI job must stay green with the flag in either position.
+if(MILA_ENABLE_EXPERIMENTAL AND MILA_HAS_CUDA)
+    set(MILA_HAS_EXPERIMENTAL TRUE)
+    message(STATUS "Experimental chassis: enabled (UNSUPPORTED - not part of any release)")
+elseif(MILA_ENABLE_EXPERIMENTAL)
+    set(MILA_HAS_EXPERIMENTAL FALSE)
+    message(STATUS "Experimental chassis: disabled (requires CUDA)")
+else()
+    set(MILA_HAS_EXPERIMENTAL FALSE)
 endif()
 
 # Use CPM to manage dependencies. If the embedding consumer already provides CPM

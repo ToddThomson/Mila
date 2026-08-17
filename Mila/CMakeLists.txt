@@ -460,6 +460,10 @@ PUBLIC
         "Src/Dnn/Quantization/KvCache/Policy.ixx"
         "Src/Dnn/Quantization/KvCache/QuantPolicy.ixx"
         "Src/Dnn/Quantization/Quantization.ixx"
+
+        # Experimental -- outside the v0.20 surface (Specifications/Qwen3.8.md)
+        "Src/Experimental/Quantization/CodebookPolicies.ixx"
+        "Src/Experimental/Quantization/CodebookPacking.ixx"
         "Src/Dnn/Core/LanguageModelConfig.ixx"
         
         "Src/Dnn/Core/SamplerBase.ixx"
@@ -564,6 +568,8 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cu"
+            # Experimental -- outside the v0.20 surface (Specifications/Qwen3.8.md)
+            "Src/Experimental/Quantization/Kernels/CodebookGemv.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Fp32.cu"
@@ -617,6 +623,8 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cuh"
+                # Experimental -- outside the v0.20 surface (Specifications/Qwen3.8.md)
+                "Src/Experimental/Quantization/Kernels/CodebookGemv.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Geglu/Kernels/Geglu.cuh"
@@ -691,6 +699,8 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.Cache.ixx"
 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx"
+                # Experimental -- outside the v0.20 surface (Specifications/Qwen3.8.md)
+                "Src/Experimental/Quantization/CodebookGemv.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Geglu/CudaGegluOp.ixx"
@@ -866,6 +876,24 @@ if(MILA_HAS_ROCM)
     target_compile_definitions( Mila PUBLIC MILA_HAS_ROCM )
 
     message(STATUS "Added ROCm backend modules")
+endif()
+
+# ----------------------------------------------------------------------------
+# Experimental research chassis (MILA_ENABLE_EXPERIMENTAL, OFF by default)
+# ----------------------------------------------------------------------------
+# Unproven chassis only. The primitives an experiment needs -- weight policies, GEMM kernels,
+# general components -- land in the normal tree, because gating them would hide the half that is
+# useful to shipped models. Nothing here is supported. Promotion out of Src/Experimental is a
+# directory move plus a source-list edit.
+#
+# The Qwen3.8 storage track is entirely such primitives, so its sources sit in the unconditional
+# lists above and compile in every configuration. The flag therefore gates nothing today and only
+# defines the macro; the first source that a release tree must NOT compile is what gives it work.
+if(MILA_HAS_EXPERIMENTAL)
+    # Qwen3.8-27B: Gated DeltaNet hybrid attention on a 12 GiB card. Specifications/Qwen3.8.md.
+    message(STATUS "Experimental chassis: enabled (Qwen3.8 codebook quantization)")
+
+    target_compile_definitions(Mila PUBLIC MILA_HAS_EXPERIMENTAL)
 endif()
 
 # ============================================================================
