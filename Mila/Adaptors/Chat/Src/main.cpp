@@ -715,7 +715,7 @@ static ChatConfig buildConfig( const CommandLine& line )
     }
 
     // Layer 5 -- the model last chosen from inside a session, which is the one key it covers.
-    // Choosing a model with /model or /install is an explicit act and should survive the session;
+    // Choosing a model with /model load or /model install is an explicit act and should survive
     // a fresh store has nothing to remember, and that is the honest description of a new install.
     if ( const auto last_chosen = readLastChosenModel() )
     {
@@ -780,7 +780,7 @@ static ChatConfig buildConfig( const CommandLine& line )
     }
 
     // A name that does not resolve is reported into the session rather than out of it. The
-    // commands that fix it -- /install, /models, /model -- are all inside the session, so
+    // commands that fix it -- /model install, /model list, /model -- are all inside, so
     // exiting here is precisely what left a clean machine with no way to get its first model.
     std::optional<ResolvedModel> resolved;
     std::string no_model_reason;
@@ -855,6 +855,11 @@ static ChatConfig buildConfig( const CommandLine& line )
     if ( const ContextRequest request = readContextLength( settings ); request.present )
     {
         const FamilyTraits traits = familyTraits( config.model_type );
+
+        // Carried into the session so /context can report where the number came from. Recorded
+        // here because this is the only place that holds the merged document -- the origin knows
+        // the FILE a layer wrote from, which the layer alone cannot say.
+        config.context_origin = settings.describeOrigin( "context_length" );
 
         if ( request.automatic && resolved )
         {
@@ -1023,7 +1028,7 @@ int main( int argc, char* argv[] )
             Mila::Logging::Logger::defaultLogger().setLevel( Mila::Logging::LogLevel::Info );
 
         // Only when a model resolved: with nothing selected there are no paths to check, and
-        // the session opens anyway so /install can be reached.
+        // the session opens anyway so /model install can be reached.
         if ( !config.model_name.empty() )
         {
             // The store named these, so a missing one is a broken installation rather than a

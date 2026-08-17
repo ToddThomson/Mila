@@ -41,11 +41,11 @@ namespace Mila::ChatApp
         /// ceiling is a memory question that the footprint pre-flight answers.
         std::size_t max_context;
 
-        /// What to open at when no layer above says otherwise. Gemma's is a deployment judgement
-        /// wearing a family label -- 512 because a 12B model's KV cache is the primary VRAM lever
-        /// on a 12 GB card, which is a fact about one checkpoint on one card. Section 6 of the
-        /// specification replaces this default with a measurement of the device; the value
-        /// survives there as the floor auto falls back to when no device can be measured.
+        /// What to open at when no layer above says otherwise, and the floor auto falls back to
+        /// when no device can be measured (section 6 of the specification). It therefore has to be
+        /// a context that WORKS, not merely one that loads: Gemma's was 512, which is the balanced
+        /// reasoning budget exactly, so every round ended on `length` with no stop token for the
+        /// users who have no config file. A fallback must clear the same floor /context enforces.
         std::size_t default_context;
     };
 
@@ -58,7 +58,7 @@ namespace Mila::ChatApp
             .thinking_capable = true,
             .streaming_capable = true,
             .max_context = 131072,
-            .default_context = 512 };
+            .default_context = 4096 };
 
         constexpr FamilyTraits llama{
             .thinking_capable = false,

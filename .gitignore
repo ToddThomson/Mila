@@ -115,6 +115,12 @@ project.lock.json
 project.fragment.lock.json
 artifacts/
 
+# Qwen3.8 research inputs and outputs -- corpora and packed artifacts, not source.
+# At the ROOT because a branch-local .gitignore stops applying the moment you switch
+# away, while the ignored data survives every switch.
+Mila/Tools/Experimental/Qwen38/corpus/
+Mila/Tools/Experimental/Qwen38/artifacts/
+
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
 
@@ -252,6 +258,17 @@ PublishScripts/
 **/[Pp]ackages/*
 # except build/, which is used as an MSBuild target.
 !**/[Pp]ackages/build/
+
+# The NuGet rule above catches Data/Models/Packages/ incidentally, which is right for the
+# multi-gigabyte weight blobs and wrong for the model cards beside them: README.md is the copy
+# every new user reads first, on huggingface.co, and it had no source in the repo at all.
+#
+# Three rules, because git will not descend into an excluded DIRECTORY -- a bare
+# "!.../*/README.md" would never be reached. Re-include the model directories, re-exclude their
+# contents so the blobs stay out, then re-include the card.
+!Data/Models/Packages/*/
+Data/Models/Packages/*/*
+!Data/Models/Packages/*/README.md
 # Uncomment if necessary however generally it will be regenerated when needed
 #!**/[Pp]ackages/repositories.config
 # NuGet v3's project.json files produces more ignorable files

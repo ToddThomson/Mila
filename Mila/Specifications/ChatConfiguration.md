@@ -76,6 +76,7 @@ Each layer overrides the previous **key by key**, never file by file.
 | 4 | Local config (found) | this checkout, or this image |
 | 5 | Remembered choice | the model last chosen from inside a session |
 | 6 | Command line: flags, and a file named with `--settings` | this run |
+| 7 | Session override: `/context`, `/set` | the most recent thing the user said |
 
 Layer 5 covers one key, `model`, and it was the layer this specification originally failed to
 write down — it existed in the code, outranked every file, and appeared in no table. Naming it
@@ -98,6 +99,14 @@ gets `"auto"` from layer 1 and gets the card measured.
 **Overriding is not setting.** Layer 6 applies to one run and writes nothing back: `--model X`
 loads X and leaves the remembered choice alone, so the next run without the flag opens on what
 it opened on before. Only an in-session `/model` or `/install` writes layer 5.
+
+**Layer 7 outranks the command line and is never persisted, and those two facts depend on each
+other.** It wins because it is the most recent thing the user said — a `/context 8192` typed after
+launching with `--context-length auto` cannot lose to the flag. It writes nothing back for the same
+reason layer 6 does not, but the stakes are higher: a layer that outranks a file the user authored
+must not also survive the process that heard it, or an experiment silently becomes a preference the
+user then has to hunt for. `/model` is the deliberate exception and writes layer 5, because choosing
+a model is not an experiment. Only `model` earns that; a context or a temperature does not.
 
 **A file named on the command line is part of layer 6, not layer 4.** Layer 4 is the config
 that is *found* — this checkout's, or this image's. A file named with `--settings` was chosen
@@ -140,8 +149,14 @@ configuration file may reach `std::terminate`.
 
 ## 5. Family Invariants versus Model Recommendations
 
-The present code files a deployment judgement under architecture. `defaultContextFor` in
-`Chat.ModelCatalog.ixx:229` returns 512 for Gemma, and its own comment admits the reason:
+**Shipped.** The table is `Chat.FamilyTraits.ixx`, and `default_context` survives there as the
+fallback auto uses when no device can be measured. Gemma's value was **raised from 512 to 4096 on
+2026-08-17**: as a fallback it has to be a context that WORKS, and 512 is the balanced reasoning
+budget exactly, so a user with no config file got a context the reasoning consumed whole. The
+argument below is the record of why the value was wrong in the first place.
+
+The code this section was written against filed a deployment judgement under architecture.
+`defaultContextFor` returned 512 for Gemma, and its own comment admitted the reason:
 
 > "A deployment decision rather than a model property: Gemma 4 12B is conservative because its
 > KV cache is the primary VRAM lever on a 12 GB card, not because the architecture cannot go
@@ -162,10 +177,10 @@ publisher's to change:
 - template and tokenizer traits
 
 These are properties of the code that implements the architecture, so they belong beside it.
-They are also today scattered across four switch statements in one file — `:229`, `:250`,
-`:469`, `:474`. That scattering is not cosmetic: "Gemma is `thinking_capable`" and "Gemma
-defaults to 512 context" sit 245 lines apart, and nothing reconciles them. One table per
-family puts the contradiction where it cannot be missed.
+They were scattered across four switch statements in one file, two of them 245 lines apart, so
+"Gemma is `thinking_capable`" and "Gemma defaults to 512 context" had nothing reconciling them.
+One table per family puts the contradiction where it cannot be missed — which is how the 512
+was caught.
 
 **Model — carried in the manifest.** `ModelRecord` already carries checkpoint facts
 (`instruct`, `weight_quantization`, `architecture`, `base_model`, `minimum_mila_version`). It
@@ -370,6 +385,91 @@ model from being tried, so a failure here is silence rather than a throw" — is
 pre-flight and wrong for auto, which must know why it got nothing in order to report the chain
 above. The entry point gains a failure reason; the existing silent behaviour stays for the
 caller that wants it.
+
+### Setting it from inside the session: `/context`
+
+**Landed 2026-08-17.** Measuring a context the user cannot then ask for is advice with nowhere to
+go: the suggestion used to read "set `context_length` in the chat config", which meant leaving the
+session, editing a file and restarting, immediately after the number had been measured for them.
+`/context` closes that, in three forms:
+
+| Form | Effect |
+|---|---|
+| `/context` | reports the value, the layer that set it, the session's floor, and what auto measures **now** |
+| `/context <n>` | rebuilds at exactly *n* |
+| `/context auto` | rebuilds at the largest context that fits, by the same scan §6 describes |
+
+Four decisions, each following from something already settled here.
+
+**It rebuilds the model, and the conversation survives.** Context sizes the KV cache and the
+activation workspaces at build time and there is no in-place resize, so this is `switchModel`'s
+release-then-load path with the same weights. It differs from `/model` in the way the user notices:
+`/model` clears history because the tokenizer and the template change, and neither changes here, so
+the transcript stays and re-prefills on the next turn.
+
+**The number is passed through exactly.** Rounding a requested 8000 up to the 1024 grid the scan
+reports on would be the silent device override §3 rules out. A user who writes 8192 gets 8192.
+
+**Below a floor it is refused, and the floor is derived rather than compiled.** The minimum is the
+rendered transcript, plus the reasoning budget when thinking is on, plus room to answer — every part
+a fact the session already holds. A compiled 512 or 1024 would be a figure the user has to take on
+faith and would be wrong in both directions: too small for a Gemma turn at high effort, too large for
+GPT-2's 1024 addressable positions. The refusal shows the arithmetic, so it is arguable rather than
+an assertion. **The chassis imposes no minimum of its own and should not** — `ModelConfig` and
+`LanguageModelConfig` reject only zero, and the window and score-width calculations already clamp to
+`min(context, …)`, so a short context degrades rather than breaking. A floor in `Mila/Src` would be
+an arbitrary number forbidding legitimate synthetic test configurations.
+
+**Sampling rides the same layer but not the same machinery.** `/set temperature|top_k|top_p` is layer
+7 as well, and needs no rebuild — those reach the sampler per generate call. Bundling them into
+`/context`'s reload path would have made the cheap thing pay for the expensive one.
+
+### The command surface these settled into
+
+**Reworked 2026-08-17.** Model management is one noun with a closed set of verbs, and everything else
+is a verb of its own:
+
+```
+/model                       the loaded model
+/model <name>                that model, installed or only published
+/model list [--online]
+/model load <name> [quant]
+/model install <name>
+/model remove <name>
+/thinking [on|off]           /context [<n>|auto]     /set <key> <value>     /effort [1-5]
+```
+
+Three decisions in that, each of which replaced something worse:
+
+**A bare argument is a name, not a verb, and it REPORTS.** `/model <name>` used to load. Loading takes
+seconds, releases the resident weights and clears the conversation, so it is now spelled out — a
+half-remembered name costs a lookup instead of a multi-gigabyte reload. It also makes the noun form
+consistent: `/model` and `/model <name>` are one verb on two objects, exactly as `/context` and
+`/effort` already behave. The cost is that `list`, `load`, `install` and `remove` are reserved, so a
+model with one of those names is unreachable; repository names make that implausible.
+
+**`/models`, `/install` and `/rm` are gone rather than aliased.** An alias becomes the spelling people
+actually use, leaving the canonical form untested. `/models` in particular was one character from
+`/model` and treated any argument as a hub *owner*, so `/models <model-name>` silently listed a
+publisher that does not exist.
+
+**`thinking` left the load verb.** It was an argument to `/model <name>`, which needed a no-reload fast
+path so a boolean would not cost a weight reload. Once loading became explicit, `/model load <name>
+thinking` would have been a load that deliberately does not load.
+
+### Names resolve against one space, and case-folding is a correctness fix
+
+A hub repository name *is* the store name, so there is one name space with four populations: installed
+only, published only, both, neither. `load`, `remove` and `install` each scope to exactly one — `load`
+never consults a hub, because a load must not become a multi-gigabyte transfer. Only `/model <name>`
+spans both, store first so an installed model answers offline.
+
+`ModelStore::locate` resolves through `recordPath`, **a filesystem path**, so name matching inherited
+the filesystem's case rules: insensitive on Windows, sensitive on Linux. The same command therefore
+worked on a dev box and failed in the container, and the published names mix conventions
+(`gemma-4-12b-it-fp4` beside `Llama-3.1-8B-Instruct-fp4`). `resolveStoredName` folds an exact miss to a
+single case-insensitive match and reports the store's own spelling; two records differing only by case
+resolve to nothing, because guessing would pick differently on the two platforms.
 
 ---
 

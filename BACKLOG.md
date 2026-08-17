@@ -58,21 +58,43 @@ being a task list and needs a prune.
   catches every exception and returns `nullopt`; `reportFootprintBeforeLoad` then prints nothing, so
   an unreadable artifact header shows as silence followed by a confusing failure at load. One line at
   `verbose` naming the reason. See [[feedback_absent_output_is_evidence]].
-- [ ] **`defaultContextFor()` is a compiled-in guess at the question the footprint API now answers.**
-  `Chat.ModelCatalog.ixx` hard-codes 512 for Gemma, 1024 for GPT-2, 4096 otherwise, while
-  `suggestFittingContext()` derives the answer in milliseconds and no VRAM. Keep the constant only as
-  the no-CUDA fallback.
-- [ ] **The fitting-context suggestion cannot be acted on from inside the session.** It advises editing
-  the chat config JSON and restarting, immediately after measuring the answer. A `/context <n>` that
-  reloads would close it; `switchModel` already proves release-then-reload works.
-- [ ] **`/models` prices every row at the resident model's context, not at each row's own.** The
-  header names the basis, but the same command answered 8192 before Gemma loaded and 512 after,
-  moving `llama-3.1-8b-it` from 21.69 to 20.04 GB. A row's cost then depends on what happens to be
-  loaded rather than on what loading *that* row would cost, which is the question the table exists
-  to answer. Either price each row at its own default context, or fix the basis and say so.
-- [ ] **Time a `/models` footprint probe.** Each row costs an artifact-header read plus a constructed
-  graph, now up to three per row, and the number has never been taken. A dozen models on a 48-layer
-  architecture is 36 constructions per keystroke; if it bites, put the column set behind a flag.
+- [ ] **`FamilyTraits::default_context` is a compiled-in guess at the question the footprint API now
+  answers.** `Chat.FamilyTraits.ixx:61` hard-codes 512 for Gemma, 4096 for Llama, 1024 for GPT-2,
+  while `resolveAutomaticContext()` derives the answer in milliseconds and no VRAM. Keep the constant
+  only as the no-CUDA fallback, which is already the role `main.cpp:863` passes it in.
+- [ ] **The published model cards still say `/install`.** The sources are correct as of 2026-08-17,
+  but the live copies on huggingface.co only change on a re-publish, and they are what a new user
+  reads before they have Mila at all. Fold the card refresh into the next publish.
+- [ ] **`/context`, `/set`, `/thinking` and the `/model` subcommands have no tests.** They landed
+  2026-08-17 and are the first Chat commands that rebuild a model, refuse an input on derived
+  arithmetic, or resolve a name case-insensitively. Cover the context floor (transcript + reasoning
+  + headroom), the ladder's fit search, and `resolveStoredName` — all pure functions of inputs a
+  test can supply. The last one matters most: it exists because store lookup is a filesystem path
+  lookup and therefore case-sensitive on Linux and not on Windows, so it is exactly the kind of
+  thing that passes on a dev box and fails in the container.
+- [ ] **An `unknown` GPU FIT verdict prints no reason anywhere.** `verdictFor` distinguishes
+  measured-and-too-big (`no`) from could-not-predict (`unknown`), but the reason is now discarded —
+  the table prints one note and nothing else, by design. `/verbose all` is where it belongs, matching
+  `reportFootprintBeforeLoad`, which already names a missing prediction only at that level; the
+  listing does not currently receive the detail level.
+- [ ] **`/models` measures a per-model context and then throws it away.** `LadderFit::context_length`
+  holds the largest fitting rung, and the column deliberately does not print it: the ladder tests
+  memory alone, so its top rung claimed `128K` for Gemma where the session actually runs 56320 —
+  `resolveAutomaticContext` also requires an unconstrained prefill chunk. A `CONTEXT` column needs
+  the chunk test on the ladder (`FootprintPrediction::prefill.isBudgetConstrained()`, already
+  returned) and rungs fine enough that Gemma does not read as 32K when the answer is 56320. Worth it
+  only if picking between models by context length turns out to be a thing users do.
+- [ ] **`temperature`/`top_k`/`top_p` still have no command-line flags.** `/set` reaches them in a
+  session and `session.json` at startup, so a `-p` one-shot cannot vary them at all -- which is the
+  invocation most likely to want a fixed temperature. `main.cpp:935` reads all three from settings
+  already, so this is three `--flag` producers, not a design.
+- [ ] **A footprint probe costs 1-2 ms, so per-row context resolution is affordable.** Measured
+  2026-08-17 from `*FootprintCudaTests.GetDeploymentFootprint_*` (3 predictions per test, warm):
+  Llama 32-layer 2-4 ms, Gemma 48-layer 5-7 ms, plus a one-off ~40 ms cold header read per
+  checkpoint. Today's whole six-row table is ~20 ms warm. A full `resolveAutomaticContext` scan is
+  1024-steps from the ceiling, so ~75-120 probes and 150-250 ms per row — affordable but not free;
+  a coarse ladder (4K/8K/16K/32K/64K/128K, 6 probes) buys a per-row context for ~12 ms and is sound
+  where bisection is not (`Chat.Footprint.ixx:347` — the curve is not monotonic).
 - [ ] **A per-row disk figure, if one ever returns, should be reclaimable bytes** — the blobs that model
   alone references. That is what deciding-what-to-delete wants, and prune's mark-and-sweep already
   computes the refcount; it is simply not exposed as a per-model query.
@@ -441,11 +463,6 @@ being a task list and needs a prune.
   the exit path, the flag set, the family table and the layered merge with origins, the predictor's
   failure reason, `context_length: "auto"`, prompt resolution and the end of `Data/`, the config
   root). Remaining: phase 7, the two `ModelRecord` fields, which touches Model Distribution.
-- [ ] **`/models` shows one dash for two different answers**, so a row that cannot be measured by
-  design reads the same as one where the prediction threw. That ambiguity is what made a swallowed
-  zero-context throw look like a Gemma predictor defect and earn its own phase. `predictFootprint`
-  now returns the reason and `footprintOf` drops it: `Chat.ModelCatalog.ixx:602`. Carry it into
-  `RowDeployment` and note the failing rows beneath the table.
 - [ ] **`Chat.Json` is a byte-for-byte duplicate of the `nlohmann.json` module** —
   `Mila/Adaptors/Chat/Src/Json.ixx` versus `Mila/Src/Utils/json.ixx`, both including the same header
   from their global module fragment. Chat imports one in `Chat.ixx` and the other in
@@ -496,14 +513,6 @@ being a task list and needs a prune.
   Windows dev box. If the parity fixtures are English-only, the divergence is untested rather than
   bounded, and the site states parity without qualification. Establish which it is, then either
   qualify the claim or fix the pre-tokenizer (a hand-written scanner, not `std::regex`).
-- [ ] **`/models` costs every row at the loaded model's context, so most rows warn falsely.**
-  `Chat.ixx:475` sets the table budget from `config_.context_length`. With Gemma loaded that is
-  56320, and all six rows are priced at it. Measured 2026-08-16: `Llama-3.2-3B-Instruct-fp4` shows
-  `12.77 GB!` and trips "Needs more than 11.99 GB", while the same model actually loads at its own
-  auto context of 31744 using ~10.7 GB. Three of six rows carry a warning that cannot happen. The
-  footer does say "Memory required with 56320 context size", but a `!` per row reads as a verdict on
-  the model, not on a hypothetical. When context is automatic, cost each row at the context THAT
-  model would resolve to.
 - [ ] **The download bar restarts per file and never says which file.** A model is a manifest, a
   tokenizer and the weights, so the user watches 0-100% twice with nothing distinguishing the runs --
   it reads as a restart. `ProgressCallback` is `(received, total)` only (`HttpClient.ixx:63`), so the
@@ -597,8 +606,9 @@ being a task list and needs a prune.
   prompt-sensitive than the 3B, which refused plain questions until the default prompt changed.
 - [ ] **`gpt2-small` installs and then cannot be used from Chat**, so it is the wrong first model for a
   quick start: the walkthrough ends in a 623 MB download and no conversation. Chat refuses base models by
-  design ("a base model, and Chat is an instruct harness"). Either the getting-started paths name an
-  instruct model, or `/install` says so before the download rather than after it.
+  design ("a base model, and Chat is an instruct harness"). Since 2026-08-17 `/models` says so in the row
+  ("not from Chat (base model)"), but that is *after* the download. Either the getting-started paths name
+  an instruct model, or `/install` says so before the transfer rather than after it.
 - [~] **Reconcile `Web/content/start.md` with the Get Started band now on the home page.** The four
   tabs (C++/Python/Docker/Clone) landed in `Web/layouts/index.html` as `#qs`, fragment-addressable
   per panel (`#p-docker`), so the channels have their deep-link target. What is unresolved is that
@@ -645,13 +655,17 @@ being a task list and needs a prune.
   Python is already covered: `ModelStore.pull(name, owner, transport=None)` is bound
   (`Mila_py.cpp:309`) and is what pulled 6.33 GB in the Linux clean room, so this is a gap in the
   tool, not in the product.
-- [ ] **`/models --online` still cannot answer "will it run here".** Download size now comes from each
-  manifest, but the fit question — the one `/models` answers for installed rows, `!` marker and all —
-  needs a real footprint. Take it from a `Range` read of the safetensors header (8-byte length then
-  JSON, both at the file's start) so the online row uses the *same* code as the installed row and one
-  number means one thing; an estimate in that column would quietly cost the table its credibility.
-  The transport is proven; the blocker is that the footprint path takes a path, not a byte range —
-  a `Mila/Src` change, which is what makes this the one online-listing item that is not adaptor work.
+- [ ] **`/models --online` answers SUPPORT but still cannot answer FIT, and only fit needs the
+  `Mila/Src` change.** Landed 2026-08-17: the column settles architecture, variant, `instruct` and
+  the one certain memory negative (download alone exceeds the card — sound because the download is a
+  *lower* bound on device weights, since FP4 unpacks and the unquantized tables ride along). What is
+  still unanswerable is how much context fits, because `ModelManifest` (`ModelManifest.ixx:53`)
+  carries **no geometry** — no layer count, no head dims — so there is nothing to predict from.
+  Two ways in, and they are different owners: a `Range` read of the safetensors header (8-byte length
+  then JSON, both at the file's start) so the online row runs the *same* `largestFittingContext` as
+  the installed row, blocked on the footprint path taking a path rather than a byte range; or
+  geometry fields in the manifest, which is Model Distribution's phase 7. Never an estimate in that
+  column — a yes there that a load then contradicts costs the whole table its credibility.
 - [ ] **`/models --online` costs one GET per listed model.** Invisible at one model, N+1 requests at N.
   Only worth revisiting if the published set grows; noted so the cause is known when it does.
 - [ ] **`NOTICE.md:33` omits curl, and may no longer need to.** The note treats notice-carrying as open
@@ -730,19 +744,6 @@ being a task list and needs a prune.
 
 ### Product Family — Adaptor Validation
 
-- [ ] **Gemma's default context makes every answer truncate when thinking is on.**
-  `Chat.ModelCatalog.ixx:229` opens Gemma at 512 when no session config is read, and effort level 3 is
-  "~512 tokens" of reasoning (`Chat.ixx:1228` scale) — the reasoning budget IS the whole context, so
-  every round ends on `length` with no stop token. Measured 2026-08-14: "Why is the sky blue?" capped at
-  352 tokens, `/model` reporting Context 512 and VRAM 9.86 / 11.99 GB, so the card had room. Hits exactly
-  the users who have no session.json, which is the Docker and getting-started path. Either the default
-  rises, or effort is clamped to a fraction of the context rather than set beside it.
-- [ ] **`/models` cannot measure the model it just loaded.** `gemma-4-12b-it-fp4` shows `--` in the
-  NATIVE column, which `Chat.ModelCatalog.ixx:727` defines as "no answer -- a load that would work but
-  goes unmeasured". NATIVE is always applicable, so `predictFootprint` returned nothing or threw into
-  the bare `catch` at `:647`, which discards the reason and leaves the display unable to say why. The
-  FP8/FP4 dashes beside it are correct by design (a pre-quantized artifact offers one deployment). Seen
-  2026-08-14 on a model that had loaded and generated in the same session.
 - [ ] **`ToolCallParser::parse` routes ANY response containing `[` into the tool-call parser** —
   `Chat.ToolCallParser.ixx:63` uses `response.find( '[' )` where the class's own doc comment at `:35`
   says "Leading `[`" and the nested `parseTagged` path at `:109` tests it correctly. Found on an
@@ -781,8 +782,9 @@ being a task list and needs a prune.
   headroom fraction and the behaviour when even the minimum does not fit.
 - [ ] **Model capabilities belong in the manifest, not in a family switch — the second reasoning
   family breaks the current scheme.** `thinking_capable` and `streaming_capable` are both
-  `family == Gemma` (`Chat.ModelCatalog.ixx`), and `defaultContextFor`/`maxContextFor` are per-family
-  constants, so two models of one family cannot differ and a non-Gemma reasoning model reads as
+  `family == Gemma` (`Chat.FamilyTraits.ixx`), and `default_context`/`max_context` are per-family
+  constants in the same table, so two models of one family cannot differ and a non-Gemma reasoning
+  model reads as
   having no channel. `instruct` is already record-declared and is the proof of the pattern; the
   manifest tolerates unknown fields, so adding `context_length` and a reasoning-channel declaration
   is additive, with `minimum_mila_version` as the lever when a model needs a newer build. Doing this

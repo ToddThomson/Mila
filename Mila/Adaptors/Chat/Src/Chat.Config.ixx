@@ -199,6 +199,12 @@ namespace Mila::ChatApp
         /// for Gemma -- silently discarding the number the user actually configured.
         size_t                configured_context_length{ 0 };
 
+        /// Which layer named the context, for /context to report. Carried as the rendered string
+        /// rather than the layer, because the merged settings know the FILE a layer wrote from and
+        /// the session does not hold them -- threading MergedSettings in to recover one string
+        /// would put the whole resolution order behind a display decision.
+        std::string           context_origin;
+
         /// True when context_length was measured from the device rather than named by a layer.
         /// A switch re-measures it: auto means "whatever fits the card", and what fits depends on
         /// the model, so carrying a number derived for the previous one would be the same defect

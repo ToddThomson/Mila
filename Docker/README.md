@@ -123,7 +123,7 @@ build with `mila-build-chat` from the integrated terminal.
 
 - **`Not installed in /mila/Data/Models/Store: <name>`** — nothing has been installed into
   the shared store yet, or you're running from a different repo checkout than the mount.
-  Install with the chat harness's `/install <name>`; MIS itself never downloads.
+  Install with the chat harness's `/model install <name>`; MIS itself never downloads.
 - **No GPU in the container / CUDA init fails** — the NVIDIA Container Toolkit isn't active.
   Verify with `docker compose -f Docker/docker-compose.yml run --rm mila-dev nvidia-smi`.
   If `run` doesn't attach the GPU on your Docker version, use `up -d` + `exec` instead.

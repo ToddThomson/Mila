@@ -93,7 +93,7 @@ never downloads: pull and load are separate verbs, and a server that fetched 6 G
 misspelled would be a worse failure than refusing to start. If the name is not installed, startup
 fails with a message listing what is.
 
-Install one with the chat harness (`/install gemma-4-12b-it-fp4`), with `ExportArtifact --install`
+Install one with the chat harness (`/model install gemma-4-12b-it-fp4`), with `ExportArtifact --install`
 from a package you built, or from Python:
 
 ```python

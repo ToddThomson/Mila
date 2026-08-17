@@ -37,6 +37,12 @@ namespace Mila::ChatApp
         LocalConfig,           ///< 4: this checkout, or this image. The config that is FOUND.
         RememberedChoice,      ///< 5: the model last chosen from inside a session.
         CommandLine,           ///< 6: flags, and a file named with --settings.
+
+        /// 7: set from inside the running session, by /context or /set. Outranks the command line
+        /// because it is the most recent thing the user said, and is deliberately NOT persisted --
+        /// a value that outranks a file the user authored must not also survive the process that
+        /// heard it, or an experiment silently becomes a preference.
+        SessionOverride,
     };
 
     export constexpr std::string_view layerName( SettingsLayer layer )
@@ -49,6 +55,7 @@ namespace Mila::ChatApp
             case SettingsLayer::LocalConfig:          return "the local config";
             case SettingsLayer::RememberedChoice:     return "the remembered model choice";
             case SettingsLayer::CommandLine:          return "the command line";
+            case SettingsLayer::SessionOverride:      return "this session";
         }
 
         return "the command line";
