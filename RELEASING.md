@@ -266,13 +266,20 @@ step below exists to prevent, and why it is not optional.
 1. **Build all four wheels** from the tagged tree — one per interpreter (3.12, 3.13) per platform.
    Each script clears only its own platform's wheels from `out/wheel`, because all four land there
    and all four are published from one glob.
-   - Windows: `scripts/build-wheel-windows.ps1` — enters the VS developer shell, then configures the
+   - Windows: `scripts/pypi/build-wheel-windows.ps1` — enters the VS developer shell, then configures the
      `x64-wheel` preset once per interpreter and packages from a copy of the package tree. The
      interpreter list is `$interpreters` at the top of the script and must match `requires-python`
      in `pyproject.toml`.
-   - Linux: `scripts/build-wheel.ps1` — builds and runs the wheel container. It must be the **wheel**
-     container (Ubuntu 24.04), not the dev container: `auditwheel` derives the manylinux tag from the
-     build distro, so 26.04 would produce a wheel that locks out the current LTS.
+   - Linux: from `Docker/`, build and run the wheel container —
+
+     ```bash
+     docker compose -f docker-compose.wheel.yml build
+     docker compose -f docker-compose.wheel.yml run --rm mila-wheel mila-build-wheel
+     ```
+
+     It must be the **wheel** container (Ubuntu 24.04), not the dev container: `auditwheel` derives
+     the manylinux tag from the build distro, so 26.04 would produce a wheel that locks out the
+     current LTS.
 2. **Check what is actually in `out/wheel`** — exactly four files, all carrying the release version
    and nothing else. A leftover wheel from an earlier build is published alongside the intended one by
    the same glob, and that cannot be withdrawn. Expect the directory to hold the previous
@@ -282,7 +289,7 @@ step below exists to prevent, and why it is not optional.
 4. **Dispatch the `Wheel clean room` workflow** (Actions -> Wheel clean room -> Run workflow) with the
    exact version (`0.20.0b2`) and index `testpypi`. It runs a four-leg matrix — `windows-latest` and
    `ubuntu-latest` x Python 3.12 and 3.13, one leg per published wheel, none of them carrying a CUDA
-   Toolkit — and runs `scripts/verify_wheel_cleanroom.py`, which asserts that absence *before* it
+   Toolkit — and runs `scripts/pypi/verify_wheel_cleanroom.py`, which asserts that absence *before* it
    asserts anything else. A developer machine cannot answer this question, because a wheel quietly
    leaning on a host Toolkit passes there exactly the way a correct one does.
    All four legs must be green. The version is pinned exactly because PyPI carries an older

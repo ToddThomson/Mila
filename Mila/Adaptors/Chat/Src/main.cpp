@@ -11,6 +11,8 @@
 #include <system_error>
 #include <utility>
 #include <vector>
+#include <functional>
+#include <source_location>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -21,9 +23,96 @@ import Mila.Chat;
 import Chat.FamilyTraits;
 import Chat.Footprint;
 import Chat.Settings;
+import Chat.Renderer;
 import nlohmann.json;
 
 using namespace Mila::ChatApp;
+
+namespace
+{
+    /**
+     * @brief A ConsoleSink that shares the console with the spinner instead of overwriting it.
+     *
+     * The stock sink writes the moment a record arrives, which during a model load is mid-frame
+     * of a spinner that redraws every 80 ms. What an evaluator saw on the published quick start
+     * was "Loading Llama-3.2-3B-Instruct-fp415:49:42.425 [WARN ] BpeTokenizer.ixx:378:...".
+     *
+     * Source location is off for the same audience reason: `file:line:function` is for whoever
+     * is fixing Mila, not for someone deciding whether to try it. Timestamps stay -- they say
+     * whether a warning belongs to the step still running.
+     */
+    class SpinnerAwareConsoleSink final : public Mila::Logging::ConsoleSink
+    {
+    public:
+
+        explicit SpinnerAwareConsoleSink( Mila::Logging::LogLevel level )
+            : ConsoleSink( level )
+        {
+            setIncludeSourceLocation( false );
+        }
+
+        void log_trace( std::string_view message, const std::source_location& location ) override
+        {
+            around( Mila::Logging::LogLevel::Trace,
+                [&] { ConsoleSink::log_trace( message, location ); } );
+        }
+
+        void log_debug( std::string_view message, const std::source_location& location ) override
+        {
+            around( Mila::Logging::LogLevel::Debug,
+                [&] { ConsoleSink::log_debug( message, location ); } );
+        }
+
+        void log_info( std::string_view message, const std::source_location& location ) override
+        {
+            around( Mila::Logging::LogLevel::Info,
+                [&] { ConsoleSink::log_info( message, location ); } );
+        }
+
+        void log_warning( std::string_view message, const std::source_location& location ) override
+        {
+            around( Mila::Logging::LogLevel::Warning,
+                [&] { ConsoleSink::log_warning( message, location ); } );
+        }
+
+        void log_error( std::string_view message, const std::source_location& location ) override
+        {
+            around( Mila::Logging::LogLevel::Error,
+                [&] { ConsoleSink::log_error( message, location ); } );
+        }
+
+        void log_critical( std::string_view message, const std::source_location& location ) override
+        {
+            around( Mila::Logging::LogLevel::Critical,
+                [&] { ConsoleSink::log_critical( message, location ); } );
+        }
+
+        void log( std::string_view message, Mila::Logging::LogLevel level,
+            const std::source_location& location ) override
+        {
+            around( level, [&] { ConsoleSink::log( message, level, location ); } );
+        }
+
+    private:
+
+        /**
+         * @brief Erase the spinner's line only for a record that will actually be written.
+         *
+         * The base sink drops records below its level, but it drops them AFTER being called --
+         * so routing every record through the erase blanked the spinner for each discarded one,
+         * leaving the line empty until the next frame up to 80 ms later. Measured as runs of
+         * bare CR-plus-erase in the raw output. Filtering here means a suppressed record costs
+         * nothing and never touches the console.
+         */
+        void around( Mila::Logging::LogLevel level, const std::function<void()>& emit )
+        {
+            if ( !isEnabled( level ) )
+                return;
+
+            ConsoleRenderer::writeAroundSpinner( emit );
+        }
+    };
+}
 
 /**
  * @brief Directory containing the running executable.
@@ -775,7 +864,6 @@ static ChatConfig buildConfig( const CommandLine& line )
 
             config.context_length = measured.context_length;
             config.context_is_automatic = true;
-            config.context_provenance = describeContextResolution( measured );
         }
         else if ( request.automatic )
         {
@@ -924,7 +1012,7 @@ int main( int argc, char* argv[] )
 
     // Quiet by default — only warnings and errors. "verbose" in the session config
     // raises the level to Info to show tokenizer/model load logging.
-    auto sink = std::make_shared<Mila::Logging::ConsoleSink>( Mila::Logging::LogLevel::Warning );
+    auto sink = std::make_shared<SpinnerAwareConsoleSink>( Mila::Logging::LogLevel::Warning );
     Mila::initialize( 0, std::move( sink ) );
 
     try

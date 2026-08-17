@@ -669,9 +669,7 @@ namespace Mila::ChatApp
 
             // The scripted half of the provenance the startup line prints. A caller that asked for
             // no context and got 83968 has the same right to know why as a reader of the banner.
-            payload[ "context_source" ] = config_.context_provenance.empty()
-                ? std::string( "configured" )
-                : config_.context_provenance;
+            payload[ "context_source" ] = config_.context_is_automatic ? "auto" : "configured";
             payload[ "tokens_generated" ] = tokens;
             payload[ "rounds" ] = last_turn_rounds_.size();
             payload[ "finish_reason" ] = finishReasonName( finishStatus() );
@@ -1555,7 +1553,6 @@ namespace Mila::ChatApp
                     config_.quantization_mode, traits.max_context, traits.default_context );
 
                 config_.context_length = measured.context_length;
-                config_.context_provenance = describeContextResolution( measured );
             }
             else if ( prev_type != config_.model_type || config_.context_length == 0 )
             {
@@ -1588,8 +1585,7 @@ namespace Mila::ChatApp
             // magnitude. Silent would be the same unaccountable number this replaced.
             if ( config_.context_is_automatic )
             {
-                renderer_.printInfo( std::format( "Context {} ({}).",
-                    config_.context_length, config_.context_provenance ) );
+                renderer_.printInfo( std::format( "Context {} (auto).", config_.context_length ) );
             }
         }
 
@@ -1854,35 +1850,43 @@ namespace Mila::ChatApp
 
             const ThinkingEffort& effort = thinkingEffort( config_.thinking_effort );
 
-            std::cout << std::format( "  Model:        {}\n", modelName() );
+            std::cout << std::format( "  Model:          {}\n", modelName() );
 
             // Lineage before the deployment axes: a redistributed model's attribution belongs
             // beside its identity, not below its settings.
             if ( !config_.base_model.empty() )
             {
-                std::cout << std::format( "  Base model:   {}\n", config_.base_model );
+                std::cout << std::format( "  Base model:     {}\n", config_.base_model );
             }
 
             if ( !config_.license.empty() )
             {
-                std::cout << std::format( "  License:      {}\n", config_.license );
+                std::cout << std::format( "  License:        {}\n", config_.license );
             }
 
             const std::string_view attribution = requiredAttributionFor( config_.license );
 
             if ( !attribution.empty() )
             {
-                std::cout << std::format( "  Attribution:  {}\n", attribution );
+                std::cout << std::format( "  Attribution:    {}\n", attribution );
             }
 
+            // Whether it was derived, not the derivation. "auto, 11.99 GB device, held to a full
+            // 1024-row prefill chunk" answers a question nobody in a chat session is asking; that
+            // it was not a number they chose is the part that changes how they read it. The full
+            // account still reaches a caller through the -p JSON payload's context_source.
+            const std::string context_line = config_.context_is_automatic
+                ? std::format( "{} (auto)", config_.context_length )
+                : std::format( "{}", config_.context_length );
+
             std::cout << std::format(
-                "  Precision:    {}\n"
-                "  Quantization: {}\n"
-                "  Context:      {}\n"
-                "  Instruct:     {}\n",
+                "  Precision:      {}\n"
+                "  Quantization:   {}\n"
+                "  Context window: {}\n"
+                "  Instruct:       {}\n",
                 (config_.precision == ModelPrecision::BF16) ? "bf16" : "fp32",
                 quantizationName( config_.quantization_mode ),
-                config_.context_length,
+                context_line,
                 config_.is_instruct ? "yes" : "no" );
 
             // Reported only by a model that has the channel. An effort level beside a model with
@@ -1890,13 +1894,13 @@ namespace Mila::ChatApp
             if ( config_.thinking_capable )
             {
                 std::cout << std::format(
-                    "  Thinking:     {}\n"
-                    "  Effort:       {} ({}, ~{} tokens)\n",
+                    "  Thinking:       {}\n"
+                    "  Effort:         {} ({}, ~{} tokens)\n",
                     config_.show_thinking ? "on" : "off",
                     config_.thinking_effort, effort.name, effort.budget );
             }
 
-            std::cout << std::format( "  Detail:       {}\n",
+            std::cout << std::format( "  Detail:         {}\n",
                 detailLevelName( config_.detail ) );
 
             // Measured off the device rather than taken from the model's own report: what is
@@ -1906,7 +1910,7 @@ namespace Mila::ChatApp
 
             if ( memory.total_bytes > 0 )
             {
-                std::cout << std::format( "  VRAM:         {}\n",
+                std::cout << std::format( "  VRAM:           {}\n",
                     formatBytesOf( memory.total_bytes - memory.free_bytes, memory.total_bytes ) );
             }
         }
@@ -2217,13 +2221,11 @@ namespace Mila::ChatApp
         {
             if ( modelIsResident() )
             {
-                // A derived context says where it came from, here rather than behind a diagnostic
-                // flag: a number with no provenance is the complaint that produced this whole
-                // resolution order, and the answer belongs where every user already looks. A
-                // configured number carries nothing -- it needs no account of itself.
-                const std::string context_display = config_.context_provenance.empty()
-                    ? std::format( "{}", config_.context_length )
-                    : std::format( "{} ({})", config_.context_length, config_.context_provenance );
+                // "(auto)" says the number was not one they chose, which changes how they read it.
+                // How it was derived does not, and is not shown anywhere.
+                const std::string context_display = config_.context_is_automatic
+                    ? std::format( "{} (auto)", config_.context_length )
+                    : std::format( "{}", config_.context_length );
 
                 // The thinking clause is omitted entirely for a model without the channel, rather
                 // than shown as "off" -- off reads as a setting the user could turn on.
@@ -2233,12 +2235,12 @@ namespace Mila::ChatApp
                         ? std::string( thinkingEffort( config_.thinking_effort ).name )
                         : "off";
 
-                    renderer_.printInfo( std::format( "  Model: {}  ·  Context: {}  ·  Thinking: {}",
+                    renderer_.printInfo( std::format( "  Model: {}  ·  Context window: {}  ·  Thinking: {}",
                         modelName(), context_display, thinking_display ) );
                 }
                 else
                 {
-                    renderer_.printInfo( std::format( "  Model: {}  ·  Context: {}",
+                    renderer_.printInfo( std::format( "  Model: {}  ·  Context window: {}",
                         modelName(), context_display ) );
                 }
             }

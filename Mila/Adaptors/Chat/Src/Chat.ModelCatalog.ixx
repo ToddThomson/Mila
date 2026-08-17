@@ -287,48 +287,6 @@ namespace Mila::ChatApp
     }
 
     /**
-     * @brief Where a context length came from, as the parenthetical the startup line prints.
-     *
-     * Empty for a length a layer named: a number that was configured needs no provenance, and
-     * annotating it would say "you asked for this" on every startup. A DERIVED number is the one
-     * that needs it -- the complaint ChatConfiguration.md opens with is a 512 nobody could account
-     * for, and answering it behind a diagnostic flag would put the explanation where a user has to
-     * know to ask rather than where they already look.
-     */
-    export inline std::string describeContextResolution( const ResolvedContext& resolved )
-    {
-        if ( !resolved.automatic )
-        {
-            return {};
-        }
-
-        if ( resolved.device_total_bytes > 0 )
-        {
-            // Which constraint bound the answer, when it was not memory. Without it a user who
-            // knows the card has room reads a number that looks arbitrarily short -- the same
-            // unaccountable-number complaint, arrived at from the other direction.
-            if ( resolved.bounded_by_prefill )
-            {
-                return std::format( "auto, {} device, held to a full {}-row prefill chunk",
-                    formatBytes( resolved.device_total_bytes ),
-                    resolved.prefill.chunk_rows );
-            }
-
-            if ( resolved.prefill.isBudgetConstrained() )
-            {
-                return std::format( "auto, {} device, prefill chunk {} of {} rows",
-                    formatBytes( resolved.device_total_bytes ),
-                    resolved.prefill.chunk_rows,
-                    resolved.prefill.unconstrained_chunk_rows );
-            }
-
-            return std::format( "auto, {} device", formatBytes( resolved.device_total_bytes ) );
-        }
-
-        return std::format( "auto -> family default, {}", resolved.fallback_reason );
-    }
-
-    /**
      * @brief Two byte counts against one unit, as "part / whole unit".
      *
      * Formatted as a pair rather than by two formatBytes calls, because the scale is chosen from

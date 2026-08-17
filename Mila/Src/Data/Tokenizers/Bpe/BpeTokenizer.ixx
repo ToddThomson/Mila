@@ -165,6 +165,8 @@ namespace Mila::Data
          */
         std::vector<TokenId> encode( const std::string& text ) override
         {
+            warnIfNonAsciiUnderFallback( text );
+
             std::vector<TokenId> out;
             const auto& special_list = vocab_.getSpecialTokenList();
 
@@ -310,6 +312,50 @@ namespace Mila::Data
         BpeVocabulary              vocab_;
         std::optional<std::regex>  pre_tokenization_regex_;
         bool                       is_sentencepiece_ = false;
+        bool                       ascii_fallback_active_ = false;
+
+        /**
+         * @brief Warn the first time text that the ASCII fallback cannot handle is encoded.
+         *
+         * The fallback is chosen at construction but only matters when a non-ASCII byte arrives,
+         * so this is where the warning belongs: it then describes something that has just
+         * happened rather than something that might. A session of English prompts stays silent.
+         *
+         * Once per process rather than per tokenizer or per call -- a standing limitation
+         * repeated every turn reads as noise. The scan is a byte compare over one prompt and is
+         * skipped entirely when the Unicode pattern compiled.
+         */
+        void warnIfNonAsciiUnderFallback( std::string_view text ) const
+        {
+            if ( !ascii_fallback_active_ )
+                return;
+
+            bool has_non_ascii = false;
+
+            for ( const unsigned char byte : text )
+            {
+                if ( byte >= 0x80 )
+                {
+                    has_non_ascii = true;
+                    break;
+                }
+            }
+
+            if ( !has_non_ascii )
+                return;
+
+            static std::once_flag fallback_warning_flag;
+
+            std::call_once( fallback_warning_flag, []
+                {
+                    Logging::Logger::warning(
+                        "Non-ASCII text tokenized through the ASCII fallback: std::regex on this "
+                        "toolchain has no Unicode property support, so this text WILL tokenize "
+                        "differently from the HuggingFace reference. Permanent, not occasional. "
+                        "Affects GPT-2 and Llama 3; SentencePiece models (Gemma) do not use this "
+                        "path." );
+                } );
+        }
 
         // ====================================================================
         // Initialization
@@ -319,7 +365,8 @@ namespace Mila::Data
          * @brief Build the pre-tokenization regex from the vocabulary config.
          *
          * Attempts to compile the Unicode pattern first. If std::regex rejects it
-         * (MSVC ECMAScript mode does not support \p{L} / \p{N}), falls back to the
+         * (no standard std::regex supports \p{L} / \p{N} -- Unicode property escapes are an
+         * ECMAScript 2018 feature, and the grammar C++ adopted predates them), falls back to the
          * ASCII-only approximation for the detected mode. Llama3Regex and Gpt2Regex
          * each have a dedicated ASCII fallback; an unrecognised pattern that fails
          * compilation is treated as a hard error.
@@ -365,23 +412,15 @@ namespace Mila::Data
                         "and no ASCII fallback is defined for this mode: " + pattern );
                 }
 
-                // Once per process, not once per tokenizer. This fires on EVERY
-                // construction -- MSVC's std::regex has no \p{...}, so the Unicode
-                // pattern never compiles there -- and a warning repeated that often
-                // reads as background noise rather than as the standing limitation it
-                // describes. Measured at 52 of 416 first-chance exceptions across the
-                // test suite, a 100% hit rate.
-                static std::once_flag fallback_warning_flag;
-
-                std::call_once( fallback_warning_flag, []
-                    {
-                        Logging::Logger::warning(
-                            "Unicode regex not supported by std::regex; using the ASCII fallback "
-                            "for BPE pre-tokenization. On this toolchain that is permanent, not "
-                            "occasional: non-ASCII text WILL tokenize differently from the "
-                            "HuggingFace reference. Affects GPT-2 and Llama 3; SentencePiece "
-                            "models (Gemma) do not use this path." );
-                    } );
+                // Recorded, not announced. The fallback is selected on EVERY construction and on
+                // EVERY platform -- observed 2026-08-16 in the published Linux container under
+                // clang-21, not just under MSVC, because \p{...} is absent from the ECMAScript
+                // grammar C++ adopted rather than from any one vendor's library -- but it only
+                // CHANGES anything once non-ASCII text is actually tokenized.
+                // Warning at construction told every user of an English prompt about a
+                // divergence they will never meet, as the first line of a session. See
+                // warnIfNonAsciiUnderFallback, which fires when the claim becomes true.
+                ascii_fallback_active_ = true;
 
                 pre_tokenization_regex_ = std::regex( fallback, std::regex::ECMAScript );
             }

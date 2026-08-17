@@ -51,26 +51,13 @@ case "${1:-chat}" in
             exit 2
         fi
 
-        cd "${APP_DIR}"
-
-        # Through the binding rather than a CLI: the store tooling (ExportArtifact) is a
-        # build artifact this image does not ship, while the binding is already installed
-        # for MIS. ModelStore.pull is the same call the Python quick start makes.
-        exec "${VENV_DIR}/bin/python" - "$@" <<'PYTHON'
-import sys
-
-import mila
-
-mila.initialize("warning")
-
-store = mila.ModelStore()
-owner = mila.default_hub_owner()
-
-for name in sys.argv[1:]:
-    print(f"Installing {name} from {owner} ...", flush=True)
-    store.pull(name, owner)
-    print(f"Installed {name}.", flush=True)
-PYTHON
+        # Through the C++ CLI, not the binding. Both reach the same store, but only this one
+        # reports download progress: it drives Distribution's (received, total) callback, while
+        # the binding's pull() exposes no progress parameter -- so the Python route printed
+        # "Installing <name> ..." and then nothing at all for several GB, which on the first
+        # command of the published quick start reads as a hang. It also takes Python out of the
+        # install path entirely, which is what this CLI was built for.
+        exec "${APP_DIR}/mila" install "$@"
         ;;
     *)
         exec "$@"

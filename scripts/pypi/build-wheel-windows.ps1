@@ -9,7 +9,7 @@
 # Run it from anywhere; it locates the repository from its own path.
 $ErrorActionPreference = "Stop"
 
-$repo = Split-Path -Path (Split-Path -Path $MyInvocation.MyCommand.Path -Parent) -Parent
+$repo = Split-Path -Path (Split-Path -Path (Split-Path -Path $MyInvocation.MyCommand.Path -Parent) -Parent) -Parent
 $build = Join-Path $repo "out\build\x64-wheel"
 $stage = Join-Path $repo "out\wheel-stage"
 $out = Join-Path $repo "out\wheel"

@@ -86,6 +86,9 @@
      keeps its own ink and does not follow this token. */
   --accent-2: #0d818c;
   --k: #cf222e; --c: #57606a; --s: #0a3069; --n: #0550ae; --f: #6639ba;
+  /* Status flags on a path that does not yet do what it promises. Tinted from the palette's
+     existing red rather than importing a hue for one component. */
+  --note-bg: #fff6f5; --note-rule: #f3cfcc;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -96,6 +99,7 @@
        ground: #13c1d3 measures 8.55:1. The logo keeps its own #0f9aa8 either way. */
     --accent-2: #13c1d3;
     --k: #ff7b72; --c: #8b949e; --s: #a5d6ff; --n: #79c0ff; --f: #d2a8ff;
+    --note-bg: #241a19; --note-rule: #4a2b28;
   }
 }
 * { box-sizing: border-box; }
@@ -212,6 +216,89 @@ p { margin: 0 0 1.15rem; }
 /* --c is the palette's comment colour, theme-aware in both schemes. */
 .demo .cmt { color: var(--c); font-style: italic; }
 .band.alt .demo { background: var(--bg); }
+
+/* THE QUICK START TABS. Four ways in, one panel at a time, no script -- the site ships none and
+   this is not the thing that changes that.
+   Driven by :target, not by the #navtoggle checkbox pattern, because the panel has to be
+   reachable by URL: every distribution channel links to its own tab (Docker Hub -> #p-docker),
+   and a checkbox cannot be set by a fragment, so an inbound link would strand every reader on
+   the C++ tab. :has() supplies the default when nothing is targeted. */
+.qs { margin-top: 1.9rem; }
+.qstrip { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; }
+@media (max-width: 46rem) { .qstrip { grid-template-columns: repeat(2, 1fr); } }
+
+/* The four state colours travel as custom properties so selection sets four values in one place
+   rather than restyling three elements in six blocks. */
+.qstab { --tab-rule: var(--rule); --tab-bg: var(--bg); --tab-name: var(--fg); --tab-who: var(--muted);
+  display: flex; flex-direction: column; gap: .15rem; padding: .8rem .95rem;
+  border: 1px solid var(--tab-rule); border-radius: 9px; background: var(--tab-bg);
+  text-decoration: none; color: var(--fg); transition: border-color .15s, background .15s; }
+.qstab:hover { --tab-rule: var(--accent-2); }
+.qstab:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+.qs-name { font-weight: 650; font-size: 1rem; letter-spacing: -.01em; color: var(--tab-name); }
+/* The audience line is the tab's real payload -- two tabs share a cost, so this is what
+   separates them. Muted until selected, so the strip stays scannable. */
+.qs-who { font-size: .82rem; line-height: 1.35; color: var(--tab-who); }
+
+/* scroll-margin-top keeps the strip on screen when a fragment jumps to a panel; without it the
+   browser puts the panel's top edge at the viewport top and scrolls the tabs out of view. */
+.qspanel { display: none; border: 1px solid var(--rule); border-radius: 10px;
+  background: var(--bg); padding: 1.5rem 1.6rem 1.4rem; margin-top: 1rem;
+  scroll-margin-top: 18rem; }
+.qspanel:target { display: block; }
+/* C++ is the default panel, shown while nothing on the page is targeted. */
+.qs:not(:has(.qspanel:target)) #p-cpp { display: block; }
+
+/* Selection: teal border + teal name, because the active tab is the control you just acted on.
+   The last selector is the untargeted default. */
+.qs:has(#p-cpp:target)    .qstab[href="#p-cpp"],
+.qs:has(#p-python:target) .qstab[href="#p-python"],
+.qs:has(#p-docker:target) .qstab[href="#p-docker"],
+.qs:has(#p-clone:target)  .qstab[href="#p-clone"],
+.qs:not(:has(.qspanel:target)) .qstab[href="#p-cpp"] {
+  --tab-rule: var(--accent-2); --tab-bg: var(--faint);
+  --tab-name: var(--accent-2); --tab-who: var(--fg);
+}
+
+/* The panel's own furniture. */
+.qs-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--rule);
+  border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; margin-bottom: 1.5rem; }
+@media (max-width: 40rem) { .qs-meta { grid-template-columns: 1fr; } }
+.qs-meta div { background: var(--faint); padding: .8rem 1rem; }
+.qs-meta dt { font-size: .73rem; font-weight: 650; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--accent); margin: 0 0 .2rem; }
+.qs-meta dd { margin: 0; font-size: .93rem; line-height: 1.5; }
+
+/* Numbered because these ARE a sequence -- you cannot pull a model before you have installed
+   the thing that pulls it. */
+.qs-step { display: grid; grid-template-columns: 1.6rem 1fr; gap: 0 .9rem; margin-bottom: 1.3rem; }
+.qs-num { grid-row: span 2; width: 1.6rem; height: 1.6rem; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent); font-size: .8rem; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; margin-top: .18rem; }
+.qs-step h4 { margin: 0 0 .5rem; font-size: .99rem; font-weight: 650; letter-spacing: -.01em; }
+.qs-step .qs-body { grid-column: 2; }
+.qs-step p { margin: .55rem 0 0; font-size: .9rem; color: var(--muted); line-height: 1.55; }
+
+.qs-out { margin-top: 1.4rem; padding-top: 1.2rem; border-top: 1px solid var(--rule);
+  font-size: .93rem; color: var(--muted); }
+.qs-out strong { color: var(--fg); font-weight: 600; }
+
+/* The evaluation band. Its own section rather than a tab, because the reader asking "is this
+   real" has not chosen a tab yet. */
+.eval { max-width: 44rem; }
+.eval .note { margin: 1.2rem 0 0; font-size: .9rem; color: var(--muted); }
+
+/* Both components set their own pre margins -- the base pre rule leaves the UA's 1em, which the
+   step grid and the paired eval commands both need gone. --c is the palette's comment colour. */
+.qspanel pre, .eval pre { margin: 0; }
+.eval pre + pre { margin-top: .7rem; }
+.qspanel .cmt, .eval .cmt { color: var(--c); font-style: italic; }
+
+/* Flags a path that does not yet do what the tab promises. */
+.qs-flag { display: flex; gap: .7rem; align-items: flex-start; margin-bottom: 1.4rem;
+  padding: .85rem 1rem; border: 1px solid var(--note-rule); background: var(--note-bg);
+  border-radius: 8px; font-size: .89rem; line-height: 1.55; }
+.qs-flag b { color: var(--k); font-weight: 650; }
 
 /* Model chips -- the validated surface as a grid rather than a table of prose. */
 .chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .8rem; margin: 1.8rem 0 0; }
@@ -345,7 +432,7 @@ footer a { color: var(--muted); }
       <a class="lockup" href="{{ .Site.Home.RelPermalink }}"><img src="{{ "mila-mark.svg" | relURL }}" alt="" width="797" height="620"><span class="word">Mila</span></a>
       {{/* What before how. "local" is the constraint the whole architecture serves, and it implies
            open weights -- the closed frontier models cannot run here at all. */}}
-      <span class="tag">local LLMs · C++23 · CUDA</span>
+      <span class="tag">Local LLMs · C++23 · CUDA</span>
     </div>
     <input type="checkbox" id="navtoggle" hidden>
     <label class="navbtn" for="navtoggle" aria-label="Toggle menu"><span aria-hidden="true">☰</span> Menu</label>

@@ -205,11 +205,6 @@ namespace Mila::ChatApp
         /// configured_context_length exists to prevent.
         bool                  context_is_automatic{ false };
 
-        /// How a derived context was arrived at, as the startup line prints it -- "auto, 11.99 GB
-        /// device", or "auto -> family default, no CUDA device". Empty when a layer named the
-        /// number, which needs no provenance.
-        std::string           context_provenance;
-
         std::optional<std::filesystem::path> system_prompt_path;
     };
 }

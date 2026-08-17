@@ -128,7 +128,10 @@ namespace Mila::Tools::Cli
             auto progress = [&reported_total, &last_percent](
                 std::uint64_t received, std::uint64_t total ) -> bool
                 {
-                    if ( total == 0 )
+                    // A manifest is a few hundred bytes, so a bar for it renders as
+                    // "83%  0.0 MB / 0.0 MB" and then vanishes -- noise that reads like a
+                    // glitch. Below a megabyte there is nothing to wait for.
+                    if ( total < 1'000'000 )
                     {
                         return true;
                     }
@@ -167,6 +170,13 @@ namespace Mila::Tools::Cli
             {
                 try
                 {
+                    // Says what is happening BEFORE the bar appears. Without it the first thing
+                    // a user sees is a bare "16%  469.0 MB / 2.86 GB" with nothing naming what is
+                    // being fetched or from where -- and in the container that lands straight
+                    // after Docker's own pull narrative, reading as a continuation of it.
+                    std::cout << std::format( "Installing {} from {} ...\n",
+                        name, Mila::Distribution::kDefaultHubOwner ) << std::flush;
+
                     const auto pulled = resolver.pull(
                         std::string( name ),
                         std::string( Mila::Distribution::kDefaultHubOwner ) );

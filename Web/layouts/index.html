@@ -14,12 +14,14 @@
     <p class="lede">Gemma 4, Llama 3.x and GPT-2 — built from explicit C++23 components and
     hand-written CUDA kernels you can read and understand, on the consumer hardware you already
     own.</p>
-    {{/* No CTA row here. Nav, buttons and the destination boxes were three navigation systems
-         pointing at the same places; the boxes win because they carry a description ("Get started"
-         means provisioning CUDA 13 and VS 2026 -- the box says so, a button label cannot), and
-         because a row of CTAs is the most marketing-shaped element available to a page whose whole
-         thesis is that it is not marketing. The friction ordering the buttons carried now lives in
-         the box order below. Removing the row also lifts the code demonstration above the fold. */}}
+    {{/* The CTA row was removed once, when nav, buttons and the destination boxes all pointed at
+         the same off-page places. These two do not: both are bands on this page, and neither the
+         nav nor the boxes can reach them. */}}
+    <div class="cta">
+      <a class="btn primary" href="#qs">Get started</a>
+      <a class="btn" href="#evaluate">Try it</a>
+    </div>
+
     <div class="feats">
       {{ range .Site.Params.features }}
       <div class="feat">
@@ -36,12 +38,297 @@
          Plain <pre>, not a fenced block, so it inherits --code-bg and stays theme-correct
          (hugo.toml sets noClasses, which hardcodes a dark chroma background). */}}
     <div class="demo">
-      <b>Typed components</b>
-      <p>Every component is templated on device and precision, with concept-constrained policies —
-      weight quantization, KV-cache compression — on the layers that use them.</p>
-<pre><code><span class="cmt">// The type is the configuration - no config object, no runtime dispatch.</span>
+      <b>The type is the configuration</b>
+      <p>Device, precision and weight quantization are template parameters, not fields on a config
+      object. A combination with no kernel behind it does not compile — you find out at build time,
+      not when a model loads.</p>
+<pre><code><span class="cmt">// No config object, no runtime dispatch.</span>
 using QuantizedProjection =
     Linear&lt;DeviceType::Cuda, TensorDataType::BF16, PerGroupFp4&lt;128&gt;&gt;;</code></pre>
+    </div>
+  </div>
+</section>
+
+{{/* Get started, on the page rather than behind a link. The four tabs are the user classes, and
+     the audience line under each name is what separates them -- two tabs can share a cost and
+     still be for different people. /start/ keeps the toolchain reference the tabs do not carry.
+     Each panel id is a public URL -- Docker Hub links straight to #p-docker -- so renaming one
+     breaks an inbound link from another channel. */}}
+<section class="band alt" id="qs">
+  <div class="wrap wide">
+    <h2>Get started</h2>
+    <p class="sub">Four ways in, all ending at the same place: a model answering you on your own
+    GPU. They differ in who you are, not in what you get — pick the tab that describes you.</p>
+
+    <div class="qs">
+      <div class="qstrip">
+        <a class="qstab" href="#p-cpp"><span class="qs-name">C++</span><span class="qs-who">I'm building a C++ app</span></a>
+        <a class="qstab" href="#p-python"><span class="qs-name">Python</span><span class="qs-who">I'm building in Python</span></a>
+        <a class="qstab" href="#p-docker"><span class="qs-name">Docker</span><span class="qs-who">I want a ready-made development environment</span></a>
+        <a class="qstab" href="#p-clone"><span class="qs-name">Clone</span><span class="qs-who">I want to read or contribute to Mila</span></a>
+      </div>
+
+      {{/* ── C++ — the default panel when no tab is targeted ──────────────── */}}
+      <div class="qspanel" id="p-cpp">
+        <dl class="qs-meta">
+          <div><dt>What you get</dt><dd>A model answering prompts, from your own CMake project.</dd></div>
+          <div><dt>What it costs</dt><dd>A C++23 toolchain, CUDA, and a from-source build of Mila. Budget for the first one.</dd></div>
+        </dl>
+        <div class="qs-step">
+          <span class="qs-num">1</span>
+          <div class="qs-body">
+            <h4>Declare the dependency</h4>
+<pre><code>include(FetchContent)
+FetchContent_Declare(
+    Mila
+    GIT_REPOSITORY https://github.com/ToddThomson/Mila.git
+    GIT_TAG        v0.20.0-beta.2
+)
+FetchContent_MakeAvailable(Mila)
+
+add_executable(my_app main.cpp)
+target_link_libraries(my_app PRIVATE Mila::Mila)</code></pre>
+            <p>Pin a tag, not a branch — Mila is pre-1.0 and breaking changes are expected. Your
+            project compiles all of Mila, every CUDA kernel included, so set
+            <code>CMAKE_CUDA_ARCHITECTURES</code> to your own GPU's arch; the default multi-arch list
+            compiles every kernel several times over.</p>
+          </div>
+        </div>
+        <div class="qs-step">
+          <span class="qs-num">2</span>
+          <div class="qs-body">
+            <h4>Load a model and generate</h4>
+<pre><code><span class="cmt">// A module import, not a header.</span>
+import Mila;
+
+Mila::initialize();
+
+<span class="cmt">// The store is the only source -- loading never downloads.</span>
+auto installed = ModelStore{}.locate( "gemma-4-12b-it-fp4" );
+auto tokenizer = BpeTokenizer::loadGemma( installed-&gt;tokenizer_path );
+
+GemmaModelConfig config( 4096 );
+config.withFP4Quantization();
+
+<span class="cmt">// Device and precision are template arguments: the type IS the configuration.</span>
+auto model = GemmaModel&lt;DeviceType::Cuda, TensorDataType::BF16&gt;::fromPretrained(
+    installed-&gt;weights_path, config );
+
+<span class="cmt">// The model owns the decode loop and pushes each token to your callback.</span>
+auto status = model-&gt;generate( prompt_tokens, [&amp;]( int32_t id ) {
+    std::cout &lt;&lt; tokenizer-&gt;decode( std::span( &amp;id, 1 ) ) &lt;&lt; std::flush;
+}, params );</code></pre>
+          </div>
+        </div>
+        <div class="qs-step">
+          <span class="qs-num">3</span>
+          <div class="qs-body">
+            <h4>Run it</h4>
+<pre><code>./build/mila_quickstart "Why is the sky blue?"</code></pre>
+<pre><code>Mila 0.20.0-beta.3
+Loading gemma-4-12b-it-fp4 ...
+
+The sky appears blue because of a phenomenon called Rayleigh
+scattering, where the atmosphere's gases and particles scatter
+shorter blue wavelengths of sunlight more effectively than longer
+red wavelengths. This scattering occurs in all directions, causing
+the entire sky to take on a blue hue.
+
+[stop]</code></pre>
+          </div>
+        </div>
+        <p class="qs-out"><strong>You end up with</strong> a local LLM answering prompts inside your
+        own C++ application — no execution engine, no runtime dispatch, your <code>main()</code>.</p>
+      </div>
+
+      {{/* ── Python ───────────────────────────────────────────────────────── */}}
+      <div class="qspanel" id="p-python">
+        <dl class="qs-meta">
+          <div><dt>What you get</dt><dd>A model answering prompts, and a script you can take apart.</dd></div>
+          <div><dt>What it costs</dt><dd>A pip install and a model download. No compiler.</dd></div>
+        </dl>
+        <div class="qs-step">
+          <span class="qs-num">1</span>
+          <div class="qs-body">
+            <h4>Install Mila</h4>
+<pre><code>pip install mila-llm</code></pre>
+            <p>A compiled extension carrying its own CUDA. Python 3.12 or 3.13, on Windows or Linux.</p>
+          </div>
+        </div>
+        <div class="qs-step">
+          <span class="qs-num">2</span>
+          <div class="qs-body">
+            <h4>Install a model</h4>
+<pre><code>import mila
+mila.initialize("warning")
+mila.ModelStore().pull("gemma-4-12b-it-fp4", mila.default_hub_owner())</code></pre>
+            <p>Roughly 6.3 GB, ungated — no account, no access request, no token. Pull and load are
+            separate verbs, so nothing downloads behind your back later.</p>
+          </div>
+        </div>
+        <div class="qs-step">
+          <span class="qs-num">3</span>
+          <div class="qs-body">
+            <h4>Talk to it</h4>
+<pre><code>python quickstart.py "Why is the sky blue?"</code></pre>
+<pre><code>Loading gemma-4-12b-it-fp4 ...
+
+The sky appears blue because of a phenomenon called Rayleigh
+scattering, where the Earth's atmosphere scatters shorter
+wavelengths of light more effectively. Because blue and violet
+light waves are shorter, they scatter more across the atmosphere,
+making the sky appear blue to our eyes.</code></pre>
+            <p>The same program as the C++ tab — same model, same template, same defaults — so the
+            two read side by side with only the language differing. Standard library only: no
+            framework underneath it.</p>
+          </div>
+        </div>
+        <p class="qs-out"><strong>You end up with</strong> Gemma 4 streaming in your terminal, plus
+        <code>chat.py</code> for multi-turn and two more scripts covering sampling and the store.</p>
+      </div>
+
+      {{/* ── Docker ───────────────────────────────────────────────────────── */}}
+      <div class="qspanel" id="p-docker">
+        <div class="qs-flag">
+          <span><b>Not published yet.</b> Both tags are still local, so the commands below start
+          working the day the images ship. Sizes are estimates until a publish build is made.</span>
+        </div>
+        <dl class="qs-meta">
+          <div><dt>What you get</dt><dd>A configured Linux environment with Mila already compiled: the library, the source, the samples, Chat, the inference server and the C++23 toolchain. Your host can be Windows or Linux.</dd></div>
+          <div><dt>What it costs</dt><dd>Docker — on Windows, Docker Desktop with the WSL2 backend. Then one download of roughly 12 GB, and an NVIDIA GPU.</dd></div>
+        </dl>
+        <div class="qs-step">
+          <span class="qs-num">1</span>
+          <div class="qs-body">
+            <h4>Start the environment</h4>
+<pre><code>docker run --gpus all -it -v mila-store:/models \
+  toddthomson/mila-llm:0.20.0-beta.3-devel</code></pre>
+            <p>You land in a shell, in a Mila tree that is already built. Your host supplies the GPU
+            driver through the NVIDIA Container Toolkit; on Windows, Docker Desktop with the WSL2
+            backend provides it.</p>
+          </div>
+        </div>
+        <div class="qs-step">
+          <span class="qs-num">2</span>
+          <div class="qs-body">
+            <h4>Install a model</h4>
+<pre><code>mila install gemma-4-12b-it-fp4</code></pre>
+            <p>About 6.3 GB, ungated. The volume keeps it, so every later run starts with it in
+            place.</p>
+          </div>
+        </div>
+        <div class="qs-step">
+          <span class="qs-num">3</span>
+          <div class="qs-body">
+            <h4>Write your own program against Mila</h4>
+<pre><code>cd ~/myapp        <span class="cmt"># a CMake project, already configured</span>
+vim main.cpp      <span class="cmt"># import Mila;</span>
+cmake --build build
+
+./build/myapp "Why is the sky blue?"</code></pre>
+            <p>Mila is already compiled in that build tree, so your first build takes seconds — the
+            same program on your own machine costs a C++23 toolchain, a CUDA install and a 15-minute
+            build of Mila first. What you get is a Linux binary; to build for Windows, use the C++
+            tab.</p>
+          </div>
+        </div>
+        <p class="qs-out"><strong>You end up with</strong> every part of Mila working — your own
+        program linking it, the chat harness, and an HTTP endpoint on port 6452.</p>
+      </div>
+
+      {{/* ── Clone ────────────────────────────────────────────────────────── */}}
+      <div class="qspanel" id="p-clone">
+        <dl class="qs-meta">
+          <div><dt>What you get</dt><dd>All of it — the chat harness, the tests, the samples, and the source you came to read.</dd></div>
+          <div><dt>What it costs</dt><dd>A C++23 toolchain, CUDA, and a full build.</dd></div>
+        </dl>
+        <div class="qs-step">
+          <span class="qs-num">1</span>
+          <div class="qs-body">
+            <h4>Clone and build</h4>
+<pre><code>git clone https://github.com/toddthomson/mila.git
+cd mila
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build</code></pre>
+            <p>Ninja, not MSBuild — C++23 modules need it. On Windows, open the folder in Visual
+            Studio 2026 instead and pick a preset.</p>
+          </div>
+        </div>
+        <div class="qs-step">
+          <span class="qs-num">2</span>
+          <div class="qs-body">
+            <h4>Run the chat harness</h4>
+<pre><code>./build/ChatApp
+
+<span class="cmt">/models --online          what is published</span>
+<span class="cmt">/install gemma-4-12b-it-fp4</span></code></pre>
+            <p>Chat opens on an empty store, so a first run with nothing installed still reaches
+            <code>/install</code>.</p>
+          </div>
+        </div>
+        <p class="qs-out"><strong>You end up with</strong> the most complete thing Mila has —
+        streaming, tool calls, model switching — and the source that produced it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+{{/* The evaluation band. Its own section rather than a fifth tab, because the reader asking "is
+     this real" has not chosen a tab yet. */}}
+<section class="band" id="evaluate">
+  <div class="wrap wide">
+    <h2>Evaluating Mila?</h2>
+    <p class="sub">See it running first. Two commands, no toolchain, and a model answering you on your
+    own GPU.</p>
+
+    {{/* Same furniture as the Get Started panels -- what you get, what it costs, then numbered
+         steps -- because this is the same kind of thing and a reader who came from the tabs should
+         not have to re-learn the layout. The precondition lives in "What it costs", above step 1,
+         for the same reason it does there: this band is where the "Try it" button lands, so its
+         reader is the least likely to be set up already. */}}
+    <div class="eval">
+      <dl class="qs-meta">
+        <div><dt>What you get</dt><dd>A published instruct model answering your prompts on your own GPU, with nothing compiled locally.</dd></div>
+        {{/* Both figures, because they answer different questions and one alone misleads: 1.5 GB is
+             the wait (measured off the registry manifest, 25 layers), 4 GB is the disk it needs
+             after extraction. The earlier copy gave only the second and called it the image size. */}}
+        <div><dt>What it costs</dt><dd>Docker — on Windows, Docker Desktop with the WSL2 backend. Then a 1.5 GB download (4 GB on disk), a 2.87 GB model, and an NVIDIA GPU.</dd></div>
+      </dl>
+
+      <div class="qs-step">
+        <span class="qs-num">1</span>
+        <div class="qs-body">
+          <h4>Install a model</h4>
+{{/* --rm on both commands: the model lives in the volume, so the container is disposable, and
+     without it every run leaves a stopped one behind until `docker image rm` fails on a conflict
+     the reader has no context for. The Docker TAB deliberately omits it -- that image is an
+     environment the reader edits, not a disposable one. */}}
+<pre><code>docker run --rm --gpus all -v mila-store:/models \
+  toddthomson/mila-llm:0.20.0-beta.3-runtime install Llama-3.2-3B-Instruct-fp4</code></pre>
+          <p>2.87 GB — the smallest instruct model Mila publishes, ungated. The volume keeps it, so
+          every later run starts with it in place.</p>
+        </div>
+      </div>
+
+      <div class="qs-step">
+        <span class="qs-num">2</span>
+        <div class="qs-body">
+          <h4>Talk to it</h4>
+<pre><code>docker run --rm --gpus all -it -v mila-store:/models \
+  toddthomson/mila-llm:0.20.0-beta.3-runtime chat --model Llama-3.2-3B-Instruct-fp4</code></pre>
+          {{/* The model is named rather than inferred from a store that happens to hold one: Chat
+               switches models at runtime, so a command that guessed would change meaning the moment
+               a second model was installed. The reasoning stays here -- a reader running the command
+               has no question for it to answer. */}}
+        </div>
+      </div>
+
+      <p class="qs-out"><strong>You end up with</strong> Llama 3.2 answering on your own GPU — the
+      same library the C++ and Python tabs build against, with no toolchain on your machine.</p>
+
+      <p class="note">This tag runs models and nothing else. To write your own program against Mila,
+      <a href="#qs">Get started</a> ships the full environment — a different CUDA base, so it is a
+      separate download rather than a top-up.</p>
     </div>
   </div>
 </section>
@@ -53,7 +340,7 @@ using QuantizedProjection =
          friction ascending. Do not sort these alphabetically or by section. */}}
     <div class="boxes">
       <a class="box" href="{{ "docs/" | relURL }}">
-        <span class="box-kicker">Documentation</span>
+        <span class="box-kicker">Design</span>
         <span class="box-title">How it works</span>
         {{/* A promise, not a table of contents. The old version listed the page's own headings; the
              reason to click is what the design buys. */}}

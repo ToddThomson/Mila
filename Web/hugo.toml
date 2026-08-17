@@ -81,13 +81,15 @@ enableRobotsTXT = false
   note = 'Where Mila started, and its training reference.'
 
 # Nav mirrors the hero's intent order: understand -> read -> build, then reference material.
-# "Documentation" is the NARRATIVE section (what Mila is, how it works, the reading path); the
-# generated Doxygen is "API reference". Pointing "Documentation" at a generated class index is a
-# mislabel -- it is not what a developer scanning that word expects to find.
+# "Design" and NOT "Documentation": that page argues a position -- the type is the configuration,
+# a library not a framework, what it buys and costs -- and carries no reference material at all.
+# Labelling it "Documentation" made it appear to CONTAIN "API reference", which is the only
+# reference material on the site, and delivered an essay to anyone who clicked expecting one.
+# The page has always titled itself "How Mila works"; the nav now agrees with it.
 # Contact dropped: it was only an anchor to the foot of the home page, and Discussions, Issues and
 # GitHub already cover reaching a person.
 [[params.nav]]
-  name = 'Documentation'
+  name = 'Design'
   url = 'docs/'
 [[params.nav]]
   name = 'Blog'

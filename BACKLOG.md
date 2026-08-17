@@ -466,12 +466,67 @@ being a task list and needs a prune.
   confirmation is by the shared binary rather than a devel container run. `Mila/Tools/Cli` needs no
   change at all — it never changed directory; `main.cpp:35` reads `/proc/self/exe` and
   `current_path()` at `Cli.ixx:51` is an unreachable last-resort fallback on both shipped platforms.
-- [ ] **Installing a model then starting Chat leaves no model loaded**, so the two-command evaluation
-  path does not reach an answer. Measured 2026-08-14: `install Llama-3.2-3B-Instruct-fp4` into a fresh
-  volume, then `chat`, opens on "No model is loaded" — the user must also know to type `/model <name>`.
-  `beta.3+2` correctly stopped forcing a default, and nothing carries the choice across the two
-  commands. `--model` is now a workaround, not a fix: a store holding exactly ONE model has no
-  ambiguity to resolve, so either load it, or have `install` record it as current.
+- [ ] **Library log output collides with Chat's spinner, and the first thing an evaluator reads is a
+  corrupted line.** Measured 2026-08-16 on the website's Evaluating path: the spinner is mid-line when
+  the BPE warning fires, so the console shows `Loading Llama-3.2-3B-Instruct-fp415:49:42.425 [WARN ]
+  BpeTokenizer.ixx:378:operator: ...`. `main.cpp:927` installs a stock `ConsoleSink` that knows nothing
+  about the renderer. `ConsoleSink` derives from `Logger` and `Mila::initialize()` takes a sink, so
+  Chat can supply a spinner-aware one that erases the line, writes, and lets the spinner redraw --
+  adaptor-side, no library change. The same sink should drop `file:line:function` from user-facing
+  output; that is developer detail in a product surface.
+- [ ] **The BPE ASCII-fallback warning fires for every Llama and GPT-2 session, including the ones it
+  does not apply to.** `BpeTokenizer.ixx:378` warns at construction under `std::call_once`, so an
+  evaluator typing English is told non-ASCII "WILL tokenize differently from the HuggingFace
+  reference" about a path they never take -- as the first thing on screen after the welcome box. The
+  claim is true and should not be softened; it should be *timely*. Warn on first non-ASCII input
+  instead of at construction, so it fires exactly when it is true. Touches `Mila/Src` and needs
+  agreement. Cheaper interim: one line on the console, detail in the docs.
+- [ ] **The Evaluating band's commands leave a stopped container behind on every run.** No `--rm`, so
+  QA on 2026-08-16 accumulated four in an afternoon and `docker image rm` then failed with a
+  conflict the user has no context for. Nothing is lost by adding it: the model lives in the named
+  volume, which is why the volume exists. `Web/layouts/index.html`, the `#evaluate` steps.
+  **The devel tab must NOT get `--rm`** -- that image is a configured environment where the reader
+  edits `~/myapp`, and removing the container discards their work. That panel has the opposite gap:
+  nothing tells them how to re-enter the container they already have.
+- [ ] **Is the token-for-token parity claim tested with non-ASCII input?** Established 2026-08-16:
+  the BPE ASCII fallback is active on EVERY platform, including the published Linux container under
+  clang-21 -- `\p{L}`/`\p{N}` are ECMAScript 2018 and absent from the grammar C++ adopted, so no
+  standard `std::regex` compiles the Unicode pattern. Llama 3 and GPT-2 therefore pre-tokenize
+  non-ASCII differently from the HuggingFace reference *in the shipping image*, not merely on a
+  Windows dev box. If the parity fixtures are English-only, the divergence is untested rather than
+  bounded, and the site states parity without qualification. Establish which it is, then either
+  qualify the claim or fix the pre-tokenizer (a hand-written scanner, not `std::regex`).
+- [ ] **`/models` costs every row at the loaded model's context, so most rows warn falsely.**
+  `Chat.ixx:475` sets the table budget from `config_.context_length`. With Gemma loaded that is
+  56320, and all six rows are priced at it. Measured 2026-08-16: `Llama-3.2-3B-Instruct-fp4` shows
+  `12.77 GB!` and trips "Needs more than 11.99 GB", while the same model actually loads at its own
+  auto context of 31744 using ~10.7 GB. Three of six rows carry a warning that cannot happen. The
+  footer does say "Memory required with 56320 context size", but a `!` per row reads as a verdict on
+  the model, not on a hypothetical. When context is automatic, cost each row at the context THAT
+  model would resolve to.
+- [ ] **The download bar restarts per file and never says which file.** A model is a manifest, a
+  tokenizer and the weights, so the user watches 0-100% twice with nothing distinguishing the runs --
+  it reads as a restart. `ProgressCallback` is `(received, total)` only (`HttpClient.ixx:63`), so the
+  CLI cannot label what it is drawing. Adding the file name, or a (index, count) pair, is a library
+  signature change and needs agreement. The sub-megabyte manifest is already suppressed in
+  `Mila/Tools/Cli/Cli.ixx`, which removes the worst of it.
+- [ ] **A model name that does not exist is reported as an authentication failure.** Measured
+  2026-08-16: `install NoSuchModel-xyz` exits 1 with "no valid HuggingFace token. Set HF_TOKEN, or
+  run 'huggingface-cli login'." Every published Mila model is ungated and needs no token -- the site
+  says so three times -- so this sends a user who merely typo'd a name to set up authentication they
+  will never need. The store request 404s (or 401s, since HF hides existence on private repos) and
+  the token branch is being taken for both. Reached from the C++ CLI, so it affects the devel image
+  too; the runtime image's `install` now shares it. Distinguish "no such model" from "not
+  authorised" before the first publish -- a typo is the likeliest failure on the evaluation path.
+- [ ] **A non-interactive `chat` must name its model, and only the interactive surfaces are exempt.**
+  Settled 2026-08-16: naming it is correct, not a workaround. Chat switches models at runtime, so
+  inferring one from a store that happens to hold exactly one would change the command's meaning
+  once a second is installed — and carrying the choice across two processes would persist it in
+  `chat-state.json`, which `resolveStoreRoot()` puts in a *cache* directory, so the quick start
+  would work then fail after an eviction. The site copy is fixed. What remains is the sweep: every
+  surface that shows a scripted `install` followed by `chat` names the model, and bare `chat`
+  keeps failing well ("No model is loaded. Name one with --model") rather than being made to guess.
+  `Dockerfile.runtime:249`'s `CMD ["chat"]` is fine — that path is interactive.
 - [~] **The runtime image ships a binding that cannot import, and the gate says it is fine.** Two
   defects, measured 2026-08-14 on a clean `--target runtime` build: `site-packages/mila/` holds only
   `__init__.py`, so `install` and `serve` both die on `ImportError: No module named 'mila._mila'`. The
@@ -492,6 +547,13 @@ being a task list and needs a prune.
   the only `MODELS_DIR` in the tree is `Mila/Profiling/ProfileModel/CMakeLists.txt:22`. Chat resolves
   models through `MILA_CACHE_DIR` and its config through the working directory, which is why the
   published image can drop the bind mount at all. The claim reads as a hard dependency on `/mila`.
+- [ ] **The devel tab's "roughly 12 GB" is an unmeasured estimate in the wrong unit.** The runtime
+  figures are now measured -- 1.54 GB compressed across 25 layers from the registry manifest, 4.11 GB
+  unpacked -- and the Evaluating band states both. Devel measured 7.34 GB compressed / 21.6 GB
+  unpacked at single-arch 89, but the published image is `89;90;120` and both grow by an unknown
+  amount, so there is no honest replacement number until a publish build exists. Take both figures
+  from that build (`docker manifest inspect` for the download, `docker images` for the disk) and
+  state them the same way. `Web/layouts/index.html`, the `#p-docker` cost cell.
 - [ ] **A publish build of the runtime image has never been made.** Verification used a single-arch
   (`89`) build; a published image must be `89;90;120` and needs `MILA_CLEAN_BUILD=1`, since
   `--no-cache` leaves BuildKit cache mounts intact. **This is not theoretical — measured 2026-08-14:** a
@@ -537,24 +599,29 @@ being a task list and needs a prune.
   quick start: the walkthrough ends in a 623 MB download and no conversation. Chat refuses base models by
   design ("a base model, and Chat is an instruct harness"). Either the getting-started paths name an
   instruct model, or `/install` says so before the download rather than after it.
-- [ ] **Refactor `Web/content/start.md` around tabs: C++, Python, Docker** — the user picks a starting
-  position rather than reading past two they do not want. The tabs match the user classes the QA sweep
-  already uses. Two design constraints: tabs must be **selectable by URL fragment** (`/start/#docker`),
-  because each of the five channels links to its own path and a non-addressable tab strands every
-  inbound link on C++; and tabs cover **only the install step**, with "install a model by name" and
-  "run your first prompt" shared below them — distribution collapsed that part of the funnel, and three
-  copies would drift the way §3 already has. Keep all panes in the DOM (CSS-hidden) for crawlers.
-  **Supersedes the §3 item below** — do not fix that section separately, the refactor owns it.
+- [~] **Reconcile `Web/content/start.md` with the Get Started band now on the home page.** The four
+  tabs (C++/Python/Docker/Clone) landed in `Web/layouts/index.html` as `#qs`, fragment-addressable
+  per panel (`#p-docker`), so the channels have their deep-link target. What is unresolved is that
+  the site now has two getting-started surfaces: the band, and `/start/`, which the nav and the
+  home-page "Get started" box still point at with the older clone-and-build content.
+  **Supersedes the §3 item below** — do not fix that section separately, the reconcile owns it.
 - [ ] **`Web/content/start.md` §3 "Get model weights" is retired in every sentence** — conversion as
   the path, "there is no separate quantized checkpoint to manage" (mila-llm is exactly that), and
   "GPT-2 is the easiest first target: it is ungated... Llama and Gemma are gated and require auth",
   which is now backwards: all four published models are ungated and need no account, and `gpt2-small`
   is published like the rest. The page's front-matter description also sells "convert model
   weights". This is the getting-started path on the primary marketing site.
-- [ ] **`scripts/` is a complete onboarding surface no document mentions.** Sixteen files covering
-  build, run, wheel, Docker and MIS in both `.ps1` and `.sh` — a front door by every appearance, cited
-  by neither `README.md` nor `getting-started.md`. Either it joins the convergence as the
-  script-driven path or it moves somewhere that does not read as public.
+- [ ] **The home page hardcodes `0.20.0-beta.3` in three places, so the site and the release tag must
+  ship naming the same version.** Two image tags in the Docker panel and the Evaluating band, plus the
+  FetchContent pin. Every later release breaks those commands until the copy is updated with it.
+  `Web/layouts/index.html` — the `#p-docker` panel and `#evaluate`.
+- [ ] **The C++ tab pins `v0.20.0-beta.2` but its sample output reads `Mila 0.20.0-beta.3`.** Carried
+  over verbatim from the approved mockup. One of the two is wrong to a reader who checks.
+  `Web/layouts/index.html`, `#p-cpp` steps 1 and 3.
+- [ ] **Nothing cites `scripts/dockerhub/`.** Four files remain, in two channel groups; `RELEASING.md`
+  and `wheel-cleanroom.yml` both reach into `pypi/`, but neither `README.md`, `getting-started.md` nor
+  `Docker/README.md` names the image half. `build-runtime-image.sh` is the one carrying the published
+  arch list, so it is undiscoverable knowledge until the publish script absorbs it.
 - [ ] **`Web/content/docs.md:28` states "quantization has no checkpoint format."** True when written,
   false now — every published model is a quantized checkpoint. The surrounding point (the type
   chooses the reduced-precision path) still stands and should survive the correction.

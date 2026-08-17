@@ -53,17 +53,6 @@ Chat, Python binding) in the same known environment:
 docker compose -f Docker/docker-compose.yml run --rm mila-dev mila-build-all
 ```
 
-Convenience wrappers under `scripts/` do the same (`.sh` and `.ps1`):
-
-```
-scripts/build-docker.{sh,ps1}   # docker compose build
-scripts/chat-build.{sh,ps1}     # mila-build-chat
-scripts/all-build.{sh,ps1}      # mila-build-all
-scripts/chat-run.{sh,ps1}       # mila-chat   (args forwarded, e.g. --help)
-scripts/mis-build.{sh,ps1}      # mila-build-mis
-scripts/mis-run.{sh,ps1}        # mila-mis     (publishes the port to the host)
-```
-
 ## How it fits together
 
 - **Source** is bind-mounted at `/mila`. The Chat build compiles `MODELS_DIR` in as the
@@ -105,8 +94,7 @@ docker compose -f Docker/docker-compose.yml run --rm --publish 6452:6452 \
     -e MILA_PORT=6452 mila-dev mila-mis
 ```
 
-The host wrappers `scripts/mis-build.{sh,ps1}` and `scripts/mis-run.{sh,ps1}` do the same
-(the run wrapper handles `--publish` for you). Then point a harness at
+Then point a harness at
 `http://localhost:6452` — e.g. an OpenAI-compatible client at `http://localhost:6452/v1`,
 or Claude Code at the Anthropic `/v1/messages` path (launch with `MILA_PROTOCOL=anthropic`).
 

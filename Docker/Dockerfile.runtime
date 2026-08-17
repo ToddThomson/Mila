@@ -152,6 +152,13 @@ WORKDIR /opt/mila
 COPY --from=builder /out/mila-chat ./mila-chat
 COPY --from=builder /out/Prompts ./Prompts
 
+# The store CLI, which the builder already produced and this stage used to leave behind. It is
+# what gives `install` a progress indicator: it reaches Distribution directly and passes the
+# (received, total) callback that makeDefaultModelHub takes, while the binding's pull() exposes
+# no such parameter -- so the Python route printed one line and then nothing for several GB.
+COPY --from=builder /out/mila ./mila
+RUN ln -sf /opt/mila/mila /usr/local/bin/mila
+
 # The binding package tree carries the extension MilaPy's POST_BUILD staged into it, so
 # an editable install here points at a real .so rather than fetching one from PyPI.
 COPY --from=builder /src/Mila/Bindings/Package /opt/mila/binding-package
@@ -217,6 +224,7 @@ RUN extension="$(ls /opt/mila/venv/lib/python3*/site-packages/mila/_mila*.so 2>/
         exit 1; \
     fi \
     && ldd /opt/mila/mila-chat > /tmp/ldd.txt 2>&1 \
+    && ldd /opt/mila/mila >> /tmp/ldd.txt 2>&1 \
     && ldd "${extension}" >> /tmp/ldd.txt 2>&1 \
     ; if grep -q "not found" /tmp/ldd.txt; then \
         echo "FATAL: unresolved shared libraries in the runtime stage:" >&2; \

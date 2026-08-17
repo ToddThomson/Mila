@@ -16,7 +16,7 @@ set -euo pipefail
 : "${MILA_IMAGE_TARGET:=runtime}"
 : "${MILA_CLEAN_BUILD:=0}"
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 docker build \
     -f "${REPO_ROOT}/Docker/Dockerfile.runtime" \
