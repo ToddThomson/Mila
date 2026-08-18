@@ -11,7 +11,7 @@
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 
-namespace Mila::Dnn::Experimental::Quantization::Kernels
+namespace Mila::Dnn::Compute::Cuda::Linear
 {
     /**
      * y[oc] = sum_c( x[c] * codebook[code(oc, c)] * scale(oc, c / group_size) ) + bias[oc]

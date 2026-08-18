@@ -103,9 +103,8 @@ add_executable( MilaTests
     "Dnn/Tensors/TensorOps/Math.Cpu.cpp"
     "Dnn/Tensors/TensorOps/Random.Cpu.cpp"
     "Dnn/Tensors/TensorOps/Zero.Cpu.cpp"
-    # Experimental -- outside the v0.20 surface (Specifications/Qwen3.8.md)
-    "Experimental/Quantization/CodebookOracle.Cpu.cpp"
-    "Experimental/Quantization/CodebookPacking.Cpu.cpp"
+    "Dnn/Quantization/CodebookOracle.Cpu.cpp"
+    "Dnn/Quantization/CodebookPacking.Cpu.cpp"
 
     # ==============================================================
     # Section 2 - Active, not yet revisited (pre-methodology)
@@ -209,8 +208,8 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Transformers/Gemma/Gemma.Block.Cuda.cpp"
         "Dnn/Components/Transformers/Gemma/Gemma.Cuda.cpp"
         "Dnn/Compute/Operations/OperationTraits.Cuda.cpp"
-        # Experimental -- outside the v0.20 surface (Specifications/Qwen3.8.md)
-        "Experimental/Quantization/CodebookGemv.Cuda.cpp"
+        "Dnn/Components/Linear/CodebookGemv.Cuda.cpp"
+        "Dnn/Components/Linear/CudaCodebookLinearOp.Cuda.cpp"
         # The saveParameterToArchive staging branch needs a device-only dtype (BF16),
         # so it is unreachable from the CPU companion in Dnn/Core/Component.cpp.
         "Dnn/Core/Component.Cuda.cpp"

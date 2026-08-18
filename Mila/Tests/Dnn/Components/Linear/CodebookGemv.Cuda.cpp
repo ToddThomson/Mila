@@ -16,11 +16,12 @@
 #include <vector>
 
 import Dnn.TensorTypes;
-import Experimental.Quantization.CodebookPacking;
-import Experimental.Quantization.CodebookGemv;
+import Dnn.Quantization.Weight.CodebookPacking;
+import Compute.Cuda.CodebookGemv;
 
 using namespace Mila::Dnn;
-using namespace Mila::Dnn::Experimental::Quantization;
+using namespace Mila::Dnn::Quant::Weight;
+using namespace Mila::Dnn::Compute::Cuda::Linear;
 
 namespace
 {

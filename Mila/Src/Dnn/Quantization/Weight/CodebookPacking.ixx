@@ -9,11 +9,11 @@ module;
 #include <bit>
 #include <cstdint>
 
-export module Experimental.Quantization.CodebookPacking;
+export module Dnn.Quantization.Weight.CodebookPacking;
 
 import Dnn.TensorTypes;
 
-namespace Mila::Dnn::Experimental::Quantization
+namespace Mila::Dnn::Quant::Weight
 {
     // -------------------------------------------------------------------------
     // Packed layout contract

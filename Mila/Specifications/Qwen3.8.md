@@ -364,15 +364,26 @@ Ordered by dependency, not priority. Nothing here is scheduled.
    the price of the 32K stretch (Section 5). Independently useful for Gemma and Llama.
 8. **Qwen block types, model, config, converter.** The checkpoint carries the MTP tensors
    (~0.45 B); the converter skips them.
+9. **Corpus perplexity through Mila's inference path.** Teacher-forced summed
+   log-likelihood over a fixed held-out corpus. Nothing in the tree does this —
+   `quality_gate.py` is Python fake-quantization and Bard's perplexity is a training loss —
+   and without it the Phase 5 gate is a judgement call. Perplexity needs a logit at every
+   position, which is exactly what the Section 5 prefill constraint forbids materializing at
+   once, so the evaluation accumulates log-likelihood chunk by chunk. Independently useful
+   for Gemma and Llama.
 
 ### Phasing
 
 The list above is inventory; this is the order it lands, with the gate each phase must pass
-before the next is worth starting. The C++ phases land under `Mila/Src/Experimental/` —
-outside the v0.20 surface, promoted into the main tree only if the experiment earns it. Two
-tracks are independent until Phase 4 joins them: the **storage track** (Phases 0-2) touches
-no Qwen code, and the **mixer track** (Phase 3) needs no quantization. Nothing here is
-scheduled.
+before the next is worth starting. **The branch is the isolation mechanism**, so the C++
+lands in the normal tree — policies beside the other weight policies, the operation beside
+the other Linear backends, kernels under that operation, dispatch rows in
+`OperationTraits.Cuda.ixx`. An earlier `Src/Experimental/` tree existed to keep this work
+separable while it sat on `dev`; once it moved to its own branch that tree was doing the
+same job twice and was retired (2026-08-17), along with the `MILA_ENABLE_EXPERIMENTAL`
+flag that gated it. Two tracks are independent until Phase 4 joins them: the **storage
+track** (Phases 0-2) touches no Qwen code, and the **mixer track** (Phase 3) needs no
+quantization. Nothing here is scheduled.
 
 **Phase 0 — quality gate** (item 0). Python only. *Exit:* the planned scheme — codebooks,
 group sizes, zero points — reaches IQ2_XXS-class generation quality on Llama 3.2 3B.
@@ -404,16 +415,57 @@ cannot run unquantized on this card, so the gate runs CPU-resident or layer-stre
 and matching last-position logits.
 
 **Phase 5 — the plan applied** (join of both tracks). Quantized load per Section 5 on the
-12 GiB card at the 16K baseline. *Exit:* coherent generation through headless chat, measured
-VRAM within the Section 5 table, decode rate measured against the 46 tok/s ceiling. The
-Section 9 quality question gets its first real answer here, and only here.
+12 GiB card at the 16K baseline. *Exit:* measured VRAM within the Section 5 table, decode
+rate measured against the 47 tok/s ceiling, and quality measured against the 16 GiB FP4
+oracle below — corpus perplexity ratio, the divergence point of matched greedy generations,
+and last-position logit divergence on a fixed prompt set. The Section 9 quality question
+gets its first real answer here, and only here.
 
 **Phase 6 — stretch** (item 7 plus margin). FP8 KV cache; spend the freed margin per
 Section 9 — bits or 32K; snapshot/restore prompt caching, recorded in `PromptCaching.md`.
 
+### The 16 GiB oracle (2026-08-17)
+
+An RTX 5060 Ti 16GB (Blackwell, sm_120) joins the rig alongside the 4070, headless. **The
+12 GiB card remains the target** — the claim under test is a 27B model on the card most
+people already own, and nothing in Sections 4-5 relaxes. The second card's role is
+measurement.
+
+It supplies the rung the evidence chain is missing. Today the chain steps from a 3B proxy's
+wikitext perplexity straight to a judgement about the 27B, because 53.8 GB of BF16 runs on
+neither card. At an estimated 15.0-15.5 GiB usable headless, uniform `PerGroupFp4<128>`
+fits — 12.31 GiB of weights, 14.25 GiB total at the 16K BF16-KV baseline — so the chain
+becomes:
+
+```
+HF reference (Phase 4, CPU-resident or layer-streamed)
+  -> 27B uniform FP4 on the 16 GiB card
+    -> 27B at 2.90 bits per Section 5 on the 12 GiB card
+```
+
+The middle rung is a **relative** oracle, not ground truth. Phase 4 is unchanged and still
+gates against the HF reference. What the card buys is a same-model, same-tree, same-kernel
+reference at a precision known to be near-lossless, for Phase 5 to measure the Section 5
+allocation against.
+
+Two prerequisites, in order:
+
+1. **Cross-arch kernel agreement, established on a model that fits both cards.** The oracle
+   runs sm_120 and the target sm_89, so a disagreement between them is ambiguous between
+   bits and architecture — and the 27B cannot disambiguate it, since the FP4 build does not
+   fit the 4070. Gemma 4 12B FP4 and Llama 3.2 3B FP4, token-for-token across both cards,
+   first.
+2. **Item 9.** Without it the Phase 5 gate has no number to report.
+
+Two properties of the oracle that are not regressions. It is **slower** than the target:
+448 GB/s against the 4070's 504, reading 12.31 GiB of weights per token instead of 8.65,
+for a ceiling near 32 tok/s. And Section 4's "the bit width is purely a storage decision" is
+a statement about SM 8.9 — sm_120 has FP4 hardware, so it does not hold on the oracle.
+Reaching that hardware needs the activation-quantization axis and is outside this track.
+
 ### Phase 0 first results (2026-08-16)
 
-Harness: `Mila/Tools/Experimental/Qwen38/quality_gate.py` (fake-quantization on Llama 3.2 3B
+Harness: `Mila/Tools/Qwen38/quality_gate.py` (fake-quantization on Llama 3.2 3B
 Instruct, greedy generation plus a small-text perplexity probe; ratios are against the BF16
 reference on the same probe).
 
@@ -499,11 +551,12 @@ a pure-torch DeltaNet forward path (a five-minute check, and the same dependency
 3 oracle carries), and the 54.7 GB checkpoint download happens only when Phase 4/5 needs
 the real artifact — the packer is proven on the Llama 3.2 3B proxy first.
 
-### Phase 1 status (2026-08-16)
+### Phase 1 status (2026-08-16, extended 2026-08-17)
 
-Built, green, and proven against each other, in `Mila/Src/Experimental/Quantization/` with
-tests under `Mila/Tests/Experimental/Quantization/` and tooling in
-`Mila/Tools/Experimental/Qwen38/`:
+Built, green, and proven against each other. Policies and the packed-layout codec sit in
+`Mila/Src/Dnn/Quantization/Weight/`, the operation and its kernels in
+`Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/`, tests mirror both, and the Python
+tooling is in `Mila/Tools/Qwen38/`:
 
 - **Policies** (`CodebookPolicies.ixx`): `PerGroupCodebook2<32>` / `PerGroupCodebook3<64>`,
   satisfying the production `WeightQuantPolicy` concept, FP16 scale dtype.
@@ -519,11 +572,142 @@ tests under `Mila/Tests/Experimental/Quantization/` and tooling in
   bit-for-bit to the weights the evaluated model carried (168 tensors, 0.84 GB payload,
   ~2.78 bits/weight with scales; quality through the artifact path: ratio 1.68).
 
-Remaining for the Phase 1 exit gate (end-to-end on the new policies **in Mila**): an
-experimental op/Linear path consuming the packed buffers via the decode GEMV (prefill may
-start on the two-phase dequant staging pattern at 3B scale; the fused W2/W3 prefill GEMM of
-item 2 replaces it before Qwen), the serialization record plus `loadParameter()` upload
-path, and a perf sanity of the GEMV against the qfp4 kernel.
+- **Operation and dispatch** (`CudaCodebookLinearOp.ixx`, `OperationTraits.Codebook.ixx`,
+  tests in `CodebookLinearOp.Cuda.cpp`): the policies resolve through the production
+  `OperationTraits` table to working decode and prefill forwards on real tensors. The
+  operation derives from the production `Operation` base and never quantizes —
+  `uploadPackedWeights()` takes the place of `quantize()`, which is the Phase 0 finding
+  expressed in the type.
+- **Two-phase prefill** (`Kernels/CodebookDequantize.cu`): packed codes expand into the
+  shared BF16 scratch, then a standard cuBLASLt GEMM with the bias epilogue — the same
+  structure as the proven FP4 baseline. It is the cheap route to end-to-end at 3B and does
+  not scale: one Qwen3.8 FFN matrix expands to 170 MiB per forward, which is the
+  constraint Section 5 already states.
+
+**The traits table is open for extension (measured 2026-08-17).** MSVC accepts a
+specialization of a template owned by another module, so a dispatch row can be registered
+from outside the module that declares the primary. This was measured while the codebook
+rows lived in a separate module and it remains true, but it is no longer load-bearing:
+the rows now sit in `OperationTraits.Cuda.ixx`, the documented single registration point,
+because this branch **is** the experiment and no longer needs a second isolation
+mechanism inside the tree. Recorded because it stays useful — it means an out-of-tree
+consumer could add a row without patching Mila — not because this code demonstrates it.
+
+**Decode is more accurate than prefill, and no prefill kernel can close the gap
+(measured 2026-08-17).** The GEMV multiplies `codebook[code] * scale` in an FP32 register
+and never stores it. A tensor-core prefill cannot, and the reason is a chain whose last
+link is forced by the first:
+
+1. Activations span a wide dynamic range — Linear's own oracle fixture spans fifteen
+   decades, and that is what caught the +98 incoherence.
+2. So the activation operand must be BF16; FP16 overflows above 65504.
+3. cuBLASLt requires both operands to carry the same type.
+4. Therefore the staged weight is BF16 as well — 8 mantissa bits, 2^-9 per weight.
+
+Measured over 4096 comparisons at 3072 columns: decode matched a double-precision
+reference everywhere within 1e-4 of the sum of absolute products, prefill needed 1.8e-4,
+and 93% of the gap vanished once the reference modelled BF16 weight rounding instead of
+FP32. **The fused W2/W3 GEMM of item 2 does not close it** — moving dequantization into
+the tile load changes where the BF16 conversion happens, not whether it happens; the MMA
+fragment is BF16 either way.
+
+Step 4 is the irritating one, because FP16 would otherwise be the better staging type:
+10 mantissa bits instead of 8, same two bytes, same tensor-core rate on Ada, and provably
+in range for these weights, since a codebook entry is normalized to [-1, 1] and the group
+scale is already FP16. The activations forbid it, not the weights. Reaching FP16 operands
+therefore means bounding the activations first — which is the per-token scaling machinery
+`Fp8ActivationPrefill.md` already built, and a different design than "two-phase, but
+fused". Blackwell moves this the wrong way: FP4/FP6 block-scaled MMA is lower operand
+precision, so the gap widens on sm_120 rather than closing.
+
+**This is a parity concern, not a quality one.** A 2^-9 representation error sits against a
+scheme whose own quantization error is 1.67x perplexity; it will never surface in
+generation. It surfaces when two paths are asked to agree numerically, which is what the
+Phase 4/5 gates do — so those must compare like with like, and a prompt reprocessed
+token-by-token will not reproduce its batched logits bit-for-bit.
+
+The production FP4 two-phase path has the same property, and already accounts for it:
+`Linear.Cuda.cpp`'s prefill-vs-decode oracle derives its budget from a bit-faithful CPU
+model of both paths including the BF16 epilogue, and records the BF16-staging worst
+deviation at 0.0073 of row absmax.
+
+**Owed:** the codebook op's test budget anchors on the L1 mass (sum of absolute products),
+while that same production comment records anchoring on L1 mass instead of row absmax as
+"measured and rejected -- same 2.6x row spread, so it buys nothing for a less obvious
+quantity." Re-derive the codebook budget against row absmax so the tree has one convention.
+
+**The decode GEMV is instruction-bound, not bandwidth-bound (measured 2026-08-17).**
+`CodebookLinearOp.Cuda.cpp`'s `DISABLED_DecodeBandwidth`, on a 3072x8192 projection,
+RTX 4070:
+
+| Path | Weight bytes | ms before | ms after | GB/s after |
+|---|---|---|---|---|
+| `PerGroupCodebook2<32>` | 7.9 MB | 0.0331 | 0.0302 | 260.5 |
+| `PerGroupCodebook3<64>` | 10.2 MB | 0.0552 | 0.0322 | 317.0 |
+| `PerGroupFp4<128>` (production, control) | 13.4 MB | 0.0270 | 0.0271 | 493.6 |
+
+**Read these figures as relative, not absolute.** At 8-13 MB the weight matrix fits inside
+the 4070's 36 MB L2, so the benchmark re-reads it from cache and every number here --
+including qfp4's -- overstates what DRAM can sustain. Real decode streams 8.65 GiB per
+token and is genuinely DRAM-bound. The comparison stays valid because all paths share the
+same residency, and qfp4 is the unchanged control that proves the harness stable.
+
+The cause was found by a variant probe rather than by profiling: a standalone kernel with
+each candidate changed one at a time.
+
+| Variant | 2-bit | 3-bit |
+|---|---|---|
+| baseline | 1.00x | 1.00x |
+| codebook lookup removed entirely | 1.87x | 3.13x |
+| lookup via `__shfl_sync` | 1.11x | 1.81x |
+| activations staged in shared memory | 0.99x | 0.98x |
+
+The runtime-indexed codebook lookup was 46% of the 2-bit kernel and 68% of the 3-bit one.
+**The local-memory theory was wrong** -- ptxas reports 0 bytes of stack frame and 0 spill
+stores at 37 registers. nvcc keeps the array in registers and lowers each lookup to a
+select chain instead, roughly 3 comparisons at 4 entries and 7 at 8, which is why cost
+tracked entry count. Holding one entry per lane and reading it back with a single
+`__shfl_sync` is worth 1.71x on the 3-bit format in the real harness. **Activation traffic
+was not a factor at all** -- staging `x` in shared memory measured neutral to negative, so
+that hypothesis is closed rather than parked. FP4 E2M1 never had the problem because its
+levels decode arithmetically instead of through a table.
+
+**A full-mask shuffle requires a warp-uniform trip count.** The first version kept the
+natural `for (c = threadIdx.x * 16; c < C; c += 512)` bound, under which lanes 0-1 run
+twice and lanes 2-31 once at C = 544. Harmless with a select chain; with a shuffle the
+surviving lanes wait forever on lanes that have already exited, and the kernel deadlocks
+rather than returning a wrong answer. The loop now runs `ceil(C / 512)` iterations on every
+lane and masks the tail. `CodebookGemvCuda.TwoBitGroup32WithBiasAndBlockTail` -- written
+for tail *correctness* at 544 columns -- is what caught it; every 3072-column test passed,
+so without that case the deadlock would have reached the first real layer of awkward width.
+
+**Still short of qfp4, and still instruction-bound.** 3-bit now takes about the same time
+as 2-bit (0.0322 vs 0.0302 ms) while moving 30% more bytes, which is the signature of an
+instruction limit rather than a memory one; the probe's lookup-free variant ran both at
+0.0178 ms, so roughly 1.7x remains in the shuffles themselves. Closing it needs a different
+kernel structure -- amortizing the unpack across several output rows per thread, or
+bucketing activations by code -- not another peephole.
+
+**What it costs the plan:** Section 5 derives ~47 tok/s from bytes per token, which assumes
+decode is bandwidth-bound. These kernels are not, so that ceiling stays **unverified**
+until they are measured against a DRAM-resident model rather than an L2-resident matrix.
+Correctness is unaffected throughout -- this is throughput, not numerics.
+
+The broader point outlives the bug: **fewer bits do not buy proportional decode speed.** The
+FMA count per token is fixed by the parameter count, so shrinking the weights raises
+arithmetic intensity until something other than DRAM becomes the limit. Any sub-4-bit
+decode plan has to show where that crossover sits rather than assume the byte count leads.
+
+Remaining for the Phase 1 exit gate (end-to-end on the new policies **in Mila**): the
+serialization record plus `loadParameter()` upload path, the fused W2/W3 prefill GEMM of
+item 2 replacing the staging path before Qwen, and closing the GEMV bandwidth gap above.
+
+One seam is deliberately still open. The operation is driven directly by its tests, because
+production `Linear::loadParameter()` calls `operation_->quantize()` and the codebook
+policies must not quantize. Whether that becomes a branch in production `Linear` or stays
+outside it is decided in Phase 2, where the precision plan forces the question anyway —
+the same reason Section 7 defers the `setState` generalization until there is a second
+instance to generalize over.
 
 **Owed, outside the phases:** `Web/content/blog/expressing-qwen38-in-types.md` is a `draft: true`
 post written before the 2026-08-16 revision of this document, so its figures are stale wherever
@@ -552,6 +736,13 @@ rather than in `BACKLOG.md`, which is `dev`'s task list and carries nothing abou
 - **Spend the FP8-KV margin on context or on bits?** At the 16K baseline, landing the FP8 KV
   policy frees ~0.5 GiB — enough for +0.25 bits across the whole FFN or +0.5 bits on its
   most sensitive rows (Section 5). Quality (Section 8 step 0) should decide, not memory.
+- **Is the GPTQ compensation slightly mismatched on the prefill path?** Compensation is
+  computed offline against exact `codebook[code] * scale` values. Decode reproduces those;
+  a tensor-core prefill reproduces them only to BF16 (Phase 1 status). So the correction
+  is fitted to weights one of the two paths does not quite multiply. At 2^-9 the residual
+  should be negligible against the quantization error it corrects, but that is an
+  expectation, not a measurement, and the converter's column walk is where it can be
+  checked cheaply.
 - **Does the quality survive?** The earliest possible measurement is Section 8 step 0, before
   any CUDA exists; final answer only when it runs. The plan sits at IQ2_XXS class, and the
   capabilities this model is valued for — agentic coding, long-horizon tool use — are the

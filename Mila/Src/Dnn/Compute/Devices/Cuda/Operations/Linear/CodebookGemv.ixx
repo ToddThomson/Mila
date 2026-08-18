@@ -7,11 +7,11 @@
 
 module;
 #include <cstdint>
-#include "Kernels/CodebookGemv.cuh"
+#include "Kernels/Codebook/CodebookGemv.cuh"
 
-export module Experimental.Quantization.CodebookGemv;
+export module Compute.Cuda.CodebookGemv;
 
-namespace Mila::Dnn::Experimental::Quantization
+namespace Mila::Dnn::Compute::Cuda::Linear
 {
     // Returns 0 on success, else the first cudaError_t as int. Activations, bias
     // and the returned outputs pass through BF16 exactly as inference will see them.
@@ -20,7 +20,7 @@ namespace Mila::Dnn::Experimental::Quantization
         const std::uint16_t* scaleBits, const float* codebook, const float* bias,
         float* output, int columns, int rows, int groupSize )
     {
-        return Kernels::run_codebook2_matvec_decode_host(
+        return run_codebook2_matvec_decode_host(
             activations, packedCodes, scaleBits, codebook, bias, output,
             columns, rows, groupSize );
     }
@@ -31,13 +31,13 @@ namespace Mila::Dnn::Experimental::Quantization
         const float* codebook, const float* bias, float* output,
         int columns, int rows, int groupSize )
     {
-        return Kernels::run_codebook3_matvec_decode_host(
+        return run_codebook3_matvec_decode_host(
             activations, planeTwoBits, planeOneBit, scaleBits, codebook, bias, output,
             columns, rows, groupSize );
     }
 
     export inline bool codebookGemvDeviceAvailable()
     {
-        return Kernels::codebook_gemv_device_available() != 0;
+        return codebook_gemv_device_available() != 0;
     }
 }

@@ -1,6 +1,6 @@
 /**
  * @file CodebookOracle.Cpu.cpp
- * @brief Bit-match between the Python packer (Tools/Experimental/Qwen38/packing.py)
+ * @brief Bit-match between the Python packer (Tools/Qwen38/packing.py)
  * and the C++ reference codec, over a generated fixture. A failure here means the
  * two implementations of the packed layout have diverged; CodebookPacking.ixx wins.
  */
@@ -10,13 +10,13 @@
 #include <cstdint>
 #include <vector>
 
-#include "Experimental/Quantization/CodebookOracle.Fixture.h"
+#include "Dnn/Quantization/CodebookOracle.Fixture.h"
 
 import Dnn.TensorTypes;
-import Experimental.Quantization.CodebookPacking;
+import Dnn.Quantization.Weight.CodebookPacking;
 
 using namespace Mila::Dnn;
-using namespace Mila::Dnn::Experimental::Quantization;
+using namespace Mila::Dnn::Quant::Weight;
 namespace Fixture = CodebookOracleFixture;
 
 namespace

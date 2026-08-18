@@ -11,11 +11,11 @@
 #include <vector>
 
 import Dnn.TensorTypes;
-import Experimental.Quantization.CodebookPolicies;
-import Experimental.Quantization.CodebookPacking;
+import Dnn.Quantization.Weight.Policies;
+import Dnn.Quantization.Weight.CodebookPacking;
 
 using namespace Mila::Dnn;
-using namespace Mila::Dnn::Experimental::Quantization;
+using namespace Mila::Dnn::Quant::Weight;
 
 namespace
 {
