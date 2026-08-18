@@ -571,7 +571,26 @@ namespace Mila::Dnn
             {
                 const shape_t expected_shape{ config_.getOutputFeatures(), config_.getInputFeatures() };
 
-                if constexpr ( kIsQuantized )
+                if constexpr ( HasCodebookTable<TWeightQuant> )
+                {
+                    // A codebook format has no quantize-on-load path at all: its codes
+                    // index a table fitted offline against calibration data, which the
+                    // weights alone cannot reconstruct, and data-free rounding at these
+                    // bit widths destroys the model. So the branch below is not merely
+                    // unused here -- these operations do not implement quantize(), and
+                    // compiling a call to it is what this guard prevents.
+                    if ( blob.getMetadata().dtype != kWeightDtype )
+                    {
+                        throw std::invalid_argument( std::format(
+                            "Linear '{}': a codebook policy loads pre-packed codes only, but "
+                            "the blob is {}; the artifact was not written for this policy",
+                            this->getName(),
+                            tensorDataTypeToString( blob.getMetadata().dtype ) ) );
+                    }
+
+                    this->loadParameterFromBlob( "weight", blob, *weight_, weight_->shape() );
+                }
+                else if constexpr ( kIsQuantized )
                 {
                     // The blob says which kind of source this is, so no external flag is
                     // needed: storage dtype means the weights are already packed and the

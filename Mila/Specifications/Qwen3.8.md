@@ -533,9 +533,10 @@ Codes and scales concatenate along the output axis without trouble -- packing is
 and rows are independent. **A codebook does not: it is one table per tensor, and a fused
 tensor can carry exactly one.**
 
-For `fc_gate_up` the answer is to fit both projections jointly. Measured on Llama 3.2 3B
-Instruct at 8 calibration samples and 65,536 eval tokens, identical BF16 reference of 10.988
-throughout:
+The map above is executable, in `Tools/Converters/common.py` (`LLAMA_LAYER_TENSORS` and
+`expand_llama_tensor_map`), so the packer and the BF16 converter name tensors from one
+source rather than two. `is_linear` on each entry is what lets the packer pick the
+quantization targets out of it.
 
 For `fc_gate_up` the answer is to fit both projections jointly, and it costs **0.77%**.
 Measured on Llama 3.2 3B Instruct, both arms deterministic, back to back on one build at 8
@@ -602,6 +603,36 @@ allocator holds freed blocks that `hessians.clear()` releases only by reference.
 `empty_cache()` per layer bounds it; without it the pass still completes but crawls once it
 spills.
 
+### Mila reads a Python-written safetensors file (verified 2026-08-18)
+
+The artifact design rests on Python writing the container and `PretrainedModelReader`
+reading it, and that had never been run. It works. A file written by the `safetensors` pip
+package (0.7.0, torch 2.11, the Converters venv) carrying the tensor set this artifact
+will carry -- U8 codes, FP32 scales, an FP32 codebook, a U8 high plane, a BF16 embedding,
+and `__metadata__` holding `mila_config` and `mila_quantization` -- read back through the
+container sniff, the header parse, the offset rebasing, `readTensorBlob()` byte-for-byte
+including BF16 bit patterns, and `streamTensorBlobs()`. `1e-06` survives the metadata
+parser's `stof`, and `num_heads` does not match inside `num_kv_heads`.
+
+Two properties of the Python writer the packer must respect:
+
+- **No I64, F64, U64, or BOOL.** Mila has no wire code for them, and the reject is loud at
+  construction (`safetensors: unsupported dtype 'I64'`). Torch defaults integer tensors to
+  int64, so any id or index tensor must be cast to int32 before `save_file`.
+- **The data region is not in insertion order.** The writer sorts by dtype size descending,
+  then by name, so a declared order is not a file order. Mila is indifferent because it
+  sorts by offset, but nothing downstream may assume otherwise.
+
+Verified separately because one sample does not cover them: headers with 0 through 7 bytes
+of the writer's trailing-space padding all read (the first sample happened to land
+8-aligned, the rare case), a rank-0 scalar reads at `ndim == 0`, and FP16 and INT8 both
+carry through.
+
+Run as a temporary probe against real generated files, then reverted -- this path has no
+regression cover yet. The durable form writes the Python container's byte layout in C++
+from the format definition, the way `SafeTensors.Cpu.cpp` already pins the MILA layout, so
+no Python is needed at test time and it rides the CPU-only CI gate.
+
 ### Converter quantization pipeline (design of record, 2026-08-16)
 
 The sub-4-bit half of item 8, designed now because Phase 1 needs its output as the kernel
@@ -656,6 +687,24 @@ tooling is in `Mila/Tools/Qwen38/`:
   every codebook tensor of the GPTQ-quantized Llama 3.2 3B and verifies each dequantizes
   bit-for-bit to the weights the evaluated model carried (168 tensors, 0.84 GB payload,
   ~2.78 bits/weight with scales; quality through the artifact path: ratio 1.68).
+- **The artifact now carries Mila names in the safetensors container** (2026-08-18): 196
+  tensors over 56 fused linears for Llama 3.2 3B, 0.73 GB. Tensor names come from the
+  converter's map (`Tools/Converters/common.py`), not a second copy, and every emitted
+  dtype and shape is checked against what `Linear::initializeParameters` allocates for
+  the policy before the file is written. Verified: all 196 read back through
+  `PretrainedModelReader` -- names, dtypes, shapes, the whole `streamTensorBlobs` walk --
+  and every primary weight names a tensor the BF16 converter also writes.
+
+  Two consequences worth stating plainly. `--emit-artifact` now turns on
+  `--fuse-gate-up-codebook` by itself, since `fc_gate_up` carries one table and is
+  otherwise inexpressible; the packer refuses to fuse sources whose fitted tables differ
+  rather than trusting the flag. And **the artifact is not the evaluated network**: it
+  holds the FFN codebook subset only, while the run's perplexity covers the research
+  allocation with attention quantized too.
+
+  Open: `mila_quantization` is one string and this artifact carries two policies, so the
+  per-tensor map rides beside it under `mila_codebook_policies`. Which of the two a Mila
+  loader should trust is decided when the codebook load path exists.
 
 - **Operation and dispatch** (`CudaCodebookLinearOp.ixx`, `OperationTraits.Codebook.ixx`,
   tests in `CodebookLinearOp.Cuda.cpp`): the policies resolve through the production
@@ -783,16 +832,42 @@ FMA count per token is fixed by the parameter count, so shrinking the weights ra
 arithmetic intensity until something other than DRAM becomes the limit. Any sub-4-bit
 decode plan has to show where that crossover sits rather than assume the byte count leads.
 
-Remaining for the Phase 1 exit gate (end-to-end on the new policies **in Mila**): the
-serialization record plus `loadParameter()` upload path, the fused W2/W3 prefill GEMM of
-item 2 replacing the staging path before Qwen, and closing the GEMV bandwidth gap above.
+Remaining for the Phase 1 exit gate: the fused W2/W3 prefill GEMM of item 2 replacing the
+staging path before Qwen, and closing the GEMV bandwidth gap above. The artifact half --
+emit the packed tensors, read them back, load them through `Linear` and decode correctly --
+is done and verified end to end (2026-08-18).
 
-One seam is deliberately still open. The operation is driven directly by its tests, because
-production `Linear::loadParameter()` calls `operation_->quantize()` and the codebook
-policies must not quantize. Whether that becomes a branch in production `Linear` or stays
-outside it is decided in Phase 2, where the precision plan forces the question anyway —
-the same reason Section 7 defers the `setState` generalization until there is a second
-instance to generalize over.
+**That seam is now closed (2026-08-18).** It was not merely unexercised: `Linear<Cuda,
+BF16, PerGroupCodebook2<32>>` did not compile at all. `loadParameter()`'s weight branch
+chose between the packed load and `operation_->quantize()` at **runtime**, so the call had
+to be well-formed for every quantized policy, and the codebook operations implement no
+`quantize()` — deliberately, since their codes come from an offline fit the weights cannot
+reconstruct. The fix is the smallest one that states the fact: `if constexpr
+( HasCodebookTable<TWeightQuant> )` selects a load-only branch that refuses a
+full-precision blob with a policy/artifact mismatch message. Every other policy compiles to
+exactly what it did before, and Phase 2 no longer inherits the question.
+
+Proven end to end: `CodebookLinearOpCuda.{TwoBit,ThreeBit}LoadsThroughLoadParameter` build
+a real `Linear`, push the four tensors through `loadParameter()` under the names
+`quality_gate.py` emits, and match the CPU codec. The emitted 3B artifact itself was loaded
+the same way through `PretrainedModelReader` — `tf_layer_13.fc_down`, all 3072 rows within
+1.7e-4 of the row L1 mass against a host dequantization of the same bytes. Full suite 1630
+passed / 1 pre-existing skip / 0 failed.
+
+Three things that ran differently from expectation:
+
+- **The component's output buffer is sized from the `BuildContext` shape.** A `Linear`
+  built for one row throws `View exceeds buffer bounds` on a batch-16 forward. Not a defect
+  — the allocation has to come from somewhere — but a decode-shaped component cannot serve
+  a prefill call, so any test comparing the two paths must build for the wider one.
+- **The decode GEMV really is reached through the component.** Batch-1 and row 0 of a
+  batch-16 forward over the identical vector agreed on only 1753 of 3072 outputs, and the
+  two paths share no kernel, so the disagreement is the evidence that both ran.
+- **The decode-vs-prefill reference split does not separate the paths at 3 bits on real
+  weights.** Against the artifact's own tensors the two references landed at 1.68e-4 and
+  1.94e-4 of row L1 mass — indistinguishable, because a 3-bit quantization step dwarfs a
+  BF16 rounding. The measurement above stands; it was taken on synthetic tensors at 3072
+  columns, and that is the condition under which the split is legible.
 
 **Owed, outside the phases:** `Web/content/blog/expressing-qwen38-in-types.md` is a `draft: true`
 post written before the 2026-08-16 revision of this document, so its figures are stale wherever

@@ -18,9 +18,11 @@ Examples:
 """
 
 import argparse
+import json
 import math
 import os
 import sys
+from pathlib import Path
 
 # Must be set before the CUDA context exists, hence before torch is imported. Without it
 # torch.use_deterministic_algorithms() refuses to run cuBLAS GEMMs at all.
@@ -28,8 +30,14 @@ os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import numpy as np
 import torch
+from safetensors.numpy import save_file
 
 import packing
+
+# The HF -> Mila tensor name map is the converter's, not this tool's: the packer and the
+# BF16 converter must name the same tensor the same way or the artifact will not load.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Converters"))
+from common import LLAMA_LAYER_TENSORS
 
 GENERATOR_SEED = 20260816
 
@@ -450,11 +458,59 @@ def gptq_quantize_tensor(weight, hessian, levels, group_size, divisor,
     return Q, codes, scale_bits
 
 
-def record_packed_tensor(artifact, name, policy, quantized, codes, scale_bits, levels,
-                         group_size):
+# ---------------------------------------------------------------------------
+# Mila artifact emission
+#
+# Only the FFN linears become codebook records. Mila fuses q/k/v into one
+# fc_qkv_proj, and the Phase 0 research allocation puts q/k at cb8 and v at cb4 --
+# two formats inside one tensor, which a single codebook cannot express. Section 8
+# step 5 settles it the other way round: attention and lm_head stay BF16 in the
+# artifact and quantize to FP4 at load, so the artifact carries codebook tensors only.
+# ---------------------------------------------------------------------------
+
+# Mila tensor stem -> the policy it is written with. The HF sources of each stem come
+# from the converter's name map, so the two tools cannot disagree about what fuses.
+ARTIFACT_POLICIES = {"fc_gate_up": "cb4", "fc_down": "cb8"}
+
+# Policy spelling as the C++ side names it, for the artifact's metadata.
+POLICY_TYPE_NAMES = {
+    "cb4": "PerGroupCodebook2<32>",
+    "cb8": "PerGroupCodebook3<64>",
+}
+
+
+def artifact_tensor_plan():
+    """[(mila_stem, (hf_module_suffix, ...), policy)] for the codebook tensors.
+
+    Derived from the converter's LLAMA_LAYER_TENSORS rather than restated, so the
+    fusion this packs matches the fusion the BF16 converter writes. HF names are
+    reduced to the module path a layer's named_modules() reports ('mlp.gate_proj'),
+    which is how gptq_apply keys its targets.
+    """
+    plan = []
+
+    for mapping in LLAMA_LAYER_TENSORS:
+        stem = mapping.mila.removeprefix("tf_layer_{i}.").removesuffix(".weight")
+        policy = ARTIFACT_POLICIES.get(stem)
+
+        if policy is None:
+            continue
+
+        modules = tuple(
+            source.removeprefix("model.layers.{i}.").removesuffix(".weight")
+            for source in mapping.sources)
+        plan.append((stem, modules, policy))
+
+    return plan
+
+
+def pack_codebook_tensor(name, policy, quantized, codes, scale_bits, levels, group_size):
     """Pack one GPTQ tensor through the normative layout and verify the packed form
     dequantizes bit-for-bit to the weights that entered the model. A failure here is
-    a layout or codec bug, never a tolerance question."""
+    a layout or codec bug, never a tolerance question.
+
+    Returns (plane_two, plane_one_or_None, scale_bits) as numpy arrays.
+    """
     codes_np = codes.cpu().numpy()
     scale_bits_np = scale_bits.cpu().numpy()
     codebook_np = levels.cpu().numpy().astype(np.float32)
@@ -478,21 +534,156 @@ def record_packed_tensor(artifact, name, policy, quantized, codes, scale_bits, l
     if not np.array_equal(dequantized, quantized.cpu().numpy()):
         raise AssertionError(f"{name}: packed dequantization differs from model weights")
 
-    artifact[f"{name}/plane_two_bits"] = plane_two
-    if plane_one is not None:
-        artifact[f"{name}/plane_one_bit"] = plane_one
-    artifact[f"{name}/scale_bits"] = scale_bits_np
-    artifact[f"{name}/codebook"] = codebook_np
-    artifact[f"{name}/group_size"] = np.int64(group_size)
+    return plane_two, plane_one, scale_bits_np
 
 
-def gptq_apply(model, tokenizer, calibration_text, device, args, artifact=None):
+def record_mila_tensor(artifact, name, policy, pieces, codebook, group_size,
+                       in_features):
+    """Assemble one Mila tensor from its per-HF-linear packed pieces.
+
+    Codes, scale bits and the high plane all concatenate along the output axis --
+    packing is row-major and rows are independent, so packing each source and
+    stacking is byte-identical to packing the fused matrix. The codebook cannot
+    concatenate, which is why the sources were fitted against one shared table.
+
+    The emitted shapes are checked against what Linear::initializeParameters
+    allocates for the policy; a mismatch here fails the load with a shape error
+    that says nothing about which side is wrong, so it is caught at the source.
+    """
+    planes_two = [piece[0] for piece in pieces]
+    planes_one = [piece[1] for piece in pieces]
+    scales = [piece[2] for piece in pieces]
+
+    weight = np.concatenate(planes_two, axis=0)
+    scale = np.concatenate(scales, axis=0).view(np.float16)
+    out_features = weight.shape[0]
+
+    expect_shape(name, "weight", weight,
+                 (out_features, in_features * 2 // 8), np.uint8)
+    expect_shape(name, "weight_scale", scale,
+                 (out_features, in_features // group_size), np.float16)
+
+    artifact[f"{name}.weight"] = weight
+    artifact[f"{name}.weight_scale"] = scale
+    artifact[f"{name}.weight_codebook"] = codebook.cpu().numpy().astype(np.float32)
+
+    if planes_one[0] is not None:
+        high_plane = np.concatenate(planes_one, axis=0)
+        expect_shape(name, "weight_high_plane", high_plane,
+                     (out_features, in_features // 8), np.uint8)
+        artifact[f"{name}.weight_high_plane"] = high_plane
+
+    entries = len(artifact[f"{name}.weight_codebook"])
+    expect_shape(name, "weight_codebook", artifact[f"{name}.weight_codebook"],
+                 (entries,), np.float32)
+
+
+def emit_mila_layer(artifact, policies, layer_index, targets, packed_pieces,
+                    fitted_levels):
+    """Assemble one decoder layer's Mila codebook tensors from its packed HF pieces."""
+    for stem, modules, policy in artifact_tensor_plan():
+        missing = [module for module in modules if module not in packed_pieces]
+
+        if missing:
+            raise AssertionError(
+                f"tf_layer_{layer_index}.{stem}: no packed record for {missing}")
+
+        # A fused tensor carries exactly one codebook, so its sources must have been
+        # fitted against one shared table. Compared by value rather than trusting the
+        # flag: a per-linear fit would otherwise emit the first source's table for both
+        # and produce an artifact that loads and decodes the second source wrongly.
+        tables = [fitted_levels[module] for module in modules]
+
+        for table in tables[1:]:
+            if not torch.equal(table, tables[0]):
+                raise AssertionError(
+                    f"tf_layer_{layer_index}.{stem}: sources were fitted against "
+                    f"different codebooks; a fused tensor can carry only one")
+
+        group_size = CODEBOOK_PARAMETERS[policy][1]
+        name = f"tf_layer_{layer_index}.{stem}"
+
+        record_mila_tensor(artifact, name, policy,
+                           [packed_pieces[module] for module in modules],
+                           tables[0], group_size,
+                           targets[modules[0]].weight.shape[1])
+
+        policies[name] = POLICY_TYPE_NAMES[policy]
+
+
+def expect_shape(name, suffix, array, shape, dtype):
+    if array.shape != shape or array.dtype != dtype:
+        raise AssertionError(
+            f"{name}.{suffix}: emitted {array.dtype} {array.shape}, "
+            f"Linear allocates {np.dtype(dtype)} {shape}")
+
+
+def artifact_metadata(model, policies):
+    """__metadata__ for the artifact: the architecture Mila's reader parses, plus the
+    per-tensor policy map.
+
+    kMilaQuantizationMetadataKey is a single string and this artifact carries two
+    policies, so the string names the scheme and the map names what each tensor
+    actually is. Which of the two a Mila loader should trust is still open -- the
+    load path for a codebook model does not exist yet.
+    """
+    config = model.config
+    head_dim = getattr(config, "head_dim", None) or (
+        config.hidden_size // config.num_attention_heads)
+
+    mila_config = {
+        "architecture": "llama",
+        "model_name": config.name_or_path.rsplit("/", 1)[-1].replace(".", "_"),
+        "vocab_size": config.vocab_size,
+        "max_seq_length": config.max_position_embeddings,
+        "embedding_dim": config.hidden_size,
+        "num_layers": config.num_hidden_layers,
+        "num_heads": config.num_attention_heads,
+        "num_kv_heads": config.num_key_value_heads,
+        "head_dim": head_dim,
+        "hidden_dim": config.intermediate_size,
+        "use_bias": False,
+        "tie_word_embeddings": config.tie_word_embeddings,
+        "activation": "silu",
+        "norm_type": "rmsnorm",
+        "attention_type": "gqa",
+        "positional_encoding": "rope",
+        "rope_theta": float(getattr(config, "rope_theta", 500000.0)),
+        "norm_epsilon": float(config.rms_norm_eps),
+    }
+
+    return {
+        "mila_config": json.dumps(mila_config),
+        "mila_quantization": "codebook",
+        "mila_codebook_policies": json.dumps(policies),
+    }
+
+
+def write_artifact(path, artifact, policies, model):
+    """Write the packed records as safetensors, which is the container Mila reads.
+
+    int64 has no Mila wire code and the writer orders the data region itself, so
+    nothing here may carry an index tensor or depend on emission order.
+    """
+    save_file(artifact, path, metadata=artifact_metadata(model, policies))
+
+    payload = sum(array.nbytes for array in artifact.values())
+    print(f"  artifact: {len(artifact)} tensors over {len(policies)} Mila linears, "
+          f"{payload / 1e9:.2f} GB packed payload, "
+          f"every tensor verified bit-exact -> {path}")
+
+
+def gptq_apply(model, tokenizer, calibration_text, device, args, artifact=None,
+               artifact_policies=None):
     """Sequential GPTQ over the decoder stack.
 
     Per layer: capture the layer's calibration inputs, accumulate per-linear
     Hessians, quantize each target linear with compensation, then recompute the
     layer's outputs with the quantized weights so the next layer calibrates
     against what it will actually see at inference.
+
+    artifact / artifact_policies are filled in place when an artifact is being
+    written: the Mila-named packed tensors, and the policy each one carries.
     """
     policy_by_suffix = SCHEMES["codebook"]
     layers = model.model.layers
@@ -523,6 +714,7 @@ def gptq_apply(model, tokenizer, calibration_text, device, args, artifact=None):
 
     total_params = 0
     total_bits = 0.0
+    skipped_layers = []
 
     for layer_index, layer in enumerate(layers):
         protected = (layer_index < args.protect_first
@@ -578,6 +770,9 @@ def gptq_apply(model, tokenizer, calibration_text, device, args, artifact=None):
                 shared_levels[gate_name] = shared
                 shared_levels[up_name] = shared
 
+        packed_pieces = {}
+        fitted_levels = {}
+
         for name, module in targets.items():
             policy = "fp4" if protected else policy_by_suffix[name.rsplit(".", 1)[-1]]
             levels, group_size, divisor, bits = GPTQ_FORMATS[policy]
@@ -592,12 +787,19 @@ def gptq_apply(model, tokenizer, calibration_text, device, args, artifact=None):
             quantized, codes, scale_bits = gptq_quantize_tensor(
                 weight, hessians[name], levels, group_size, divisor)
             if artifact is not None and policy in CODEBOOK_PARAMETERS:
-                record_packed_tensor(artifact, f"model.layers.{layer_index}.{name}",
-                                     policy, quantized, codes, scale_bits, levels,
-                                     group_size)
+                packed_pieces[name] = pack_codebook_tensor(
+                    f"model.layers.{layer_index}.{name}", policy, quantized, codes,
+                    scale_bits, levels, group_size)
+                fitted_levels[name] = levels
             module.weight.data = quantized.to(weight.dtype)
             total_params += weight.numel()
             total_bits += bits * weight.numel()
+
+        if artifact is not None and not protected:
+            emit_mila_layer(artifact, artifact_policies, layer_index, targets,
+                            packed_pieces, fitted_levels)
+        elif artifact is not None:
+            skipped_layers.append(layer_index)
 
         hessians.clear()
 
@@ -624,6 +826,9 @@ def gptq_apply(model, tokenizer, calibration_text, device, args, artifact=None):
           f"{average:.3f} average bits/weight over quantized tensors")
     if model.config.tie_word_embeddings:
         print("  lm_head is tied to embed_tokens on this model: left in BF16")
+    if skipped_layers:
+        print(f"  artifact carries no codebook record for protected layers "
+              f"{skipped_layers}: those stay BF16 and quantize to FP4 at load")
     return total_params, average
 
 
@@ -767,19 +972,28 @@ def evaluate_model(args, device):
                 calibration_text = handle.read()
         else:
             print("  WARNING: calibrating on the eval text; pass --calib-text")
+        artifact = {} if args.emit_artifact else None
+        artifact_policies = {} if args.emit_artifact else None
+
+        if artifact is not None and not args.fuse_gate_up_codebook:
+            # Mila's fc_gate_up is one tensor and carries one codebook, so the pair must
+            # be fitted jointly for the artifact to be expressible at all. Forced rather
+            # than refused, and stated because it moves the measured number: the joint
+            # fit costs 0.77% (spec section 8).
+            print("  --emit-artifact implies --fuse-gate-up-codebook: "
+                  "fc_gate_up carries one table for both projections")
+            args.fuse_gate_up_codebook = True
+
         label = (f"gptq codebook, {args.gptq_samples}x{args.gptq_seqlen} calibration"
                  + (f", protect {args.protect_first}+{args.protect_last}"
                     if args.protect_first or args.protect_last else ""))
         print(f"\n[candidate {label}]")
         torch.manual_seed(GENERATOR_SEED)
-        artifact = {} if args.emit_artifact else None
-        gptq_apply(model, tokenizer, calibration_text, device, args, artifact=artifact)
+        gptq_apply(model, tokenizer, calibration_text, device, args, artifact=artifact,
+                   artifact_policies=artifact_policies)
+
         if artifact is not None:
-            payload_bytes = sum(array.nbytes for array in artifact.values())
-            np.savez(args.emit_artifact, **artifact)
-            print(f"  artifact: {len(artifact)} arrays, "
-                  f"{payload_bytes / 1e9:.2f} GB packed payload, "
-                  f"every tensor verified bit-exact -> {args.emit_artifact}")
+            write_artifact(args.emit_artifact, artifact, artifact_policies, model)
     else:
         importance = None
         if args.calibrated:
@@ -842,8 +1056,8 @@ def main():
     parser.add_argument("--gptq-seqlen", type=int, default=1024,
                         help="tokens per GPTQ calibration sample")
     parser.add_argument("--emit-artifact", metavar="PATH",
-                        help="with --gptq: write packed codebook tensors (npz), "
-                             "verifying each against the model bit-for-bit")
+                        help="with --gptq: write the Mila-named FFN codebook tensors as "
+                             "safetensors, verifying each against the model bit-for-bit")
     parser.add_argument("--fuse-gate-up-codebook", action="store_true",
                         help="fit ONE codebook across the concatenated gate_proj/up_proj "
                              "pair, as a Mila fc_gate_up artifact would have to carry")

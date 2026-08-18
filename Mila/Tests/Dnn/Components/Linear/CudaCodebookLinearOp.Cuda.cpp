@@ -19,8 +19,10 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <memory>
 #include <random>
+#include <string>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -601,6 +603,96 @@ namespace Mila::Tests::Dnn::Quantization
         }
 
         std::printf( "\n" );
+    }
+
+    namespace
+    {
+        // The Phase 1 exit gate: the packed tensors reach the operation through the
+        // component's public load path rather than through setParameters(), which is the
+        // only route a real artifact has. Everything the op tests drive by hand --
+        // allocation, binding, the codebook and plane companions -- is Linear's job here.
+        template<typename TPolicy>
+        void runLoadParameterAndCompare(
+            dim_t rows, dim_t columns, int entries, unsigned seed )
+        {
+            constexpr dim_t kGroupSize = TPolicy::kQuantizationGroupSize;
+
+            auto context = makeContextOrSkip();
+
+            if ( context == nullptr )
+                GTEST_SKIP() << "CUDA device not available";
+
+            const PackedTensor packed =
+                makePackedTensor( rows, columns, kGroupSize, entries, seed );
+            const std::vector<float> expected =
+                referenceRowSums( packed, rows, columns, kGroupSize );
+
+            LinearConfig config( columns, rows );
+            config.withBias( false );
+
+            Mila::Dnn::Linear<DeviceType::Cuda, TensorDataType::BF16, TPolicy> linear(
+                "codebook_load", config, Device::Cuda( 0 ) );
+            linear.build( BuildContext( shape_t{ 1, columns }, RuntimeMode::Inference, false ) );
+
+            const auto load = [&]( const char* name, TensorDataType dtype,
+                const shape_t& shape, const void* bytes, std::size_t nbytes )
+            {
+                Serialization::TensorMetadata meta{ dtype, shape, nbytes };
+                Serialization::TensorBlobView blob( meta, bytes, nbytes );
+                linear.loadParameter( name, blob );
+            };
+
+            // Names and dtypes exactly as quality_gate.py emits them.
+            load( "weight", TensorDataType::UINT8, shape_t{ rows, columns / 4 },
+                packed.planeTwoBits.data(), packed.planeTwoBits.size() );
+
+            if constexpr ( TPolicy::kHasHighBitPlane )
+            {
+                load( "weight_high_plane", TensorDataType::UINT8, shape_t{ rows, columns / 8 },
+                    packed.planeOneBit.data(), packed.planeOneBit.size() );
+            }
+
+            load( "weight_scale", TensorDataType::FP16,
+                shape_t{ rows, groupsPerRow( columns, kGroupSize ) },
+                packed.scaleBits.data(), packed.scaleBits.size() * sizeof( std::uint16_t ) );
+
+            load( "weight_codebook", TensorDataType::FP32,
+                shape_t{ static_cast<dim_t>( TPolicy::kCodebookEntries ) },
+                packed.codebook.data(), packed.codebook.size() * sizeof( float ) );
+
+            linear.synchronize();
+
+            HostFp32 host_input( Device::Cpu(), shape_t{ 1, columns } );
+
+            for ( dim_t column = 0; column < columns; ++column )
+                host_input.data()[column] = packed.activations[static_cast<std::size_t>( column )];
+
+            DeviceBf16 device_input( Device::Cuda( 0 ), shape_t{ 1, columns } );
+            copy( host_input, device_input, context.get() );
+            context->synchronize();
+
+            const auto& device_output = linear.forward( device_input );
+            linear.synchronize();
+
+            auto host_output = toHost<TensorDataType::FP32>( device_output, context.get() );
+            context->synchronize();
+
+            for ( dim_t row = 0; row < rows; ++row ) {
+                const float reference = expected[static_cast<std::size_t>( row )];
+                const float tolerance = 0.01f + 0.005f * std::abs( reference );
+                EXPECT_NEAR( host_output.data()[row], reference, tolerance ) << "row " << row;
+            }
+        }
+    }
+
+    TEST( CodebookLinearOpCuda, TwoBitLoadsThroughLoadParameter )
+    {
+        runLoadParameterAndCompare<PerGroupCodebook2<32>>( 64, 512, 4, 20260823u );
+    }
+
+    TEST( CodebookLinearOpCuda, ThreeBitLoadsThroughLoadParameter )
+    {
+        runLoadParameterAndCompare<PerGroupCodebook3<64>>( 48, 3072, 8, 20260824u );
     }
 
     TEST( CodebookLinearOpCuda, RejectsAWeightTensorAndAMismatchedPlane )

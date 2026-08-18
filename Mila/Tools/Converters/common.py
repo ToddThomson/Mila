@@ -5,9 +5,107 @@
 
 import struct
 import numpy as np
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Tuple, BinaryIO
 import json
+
+
+# ============================================================================
+# HuggingFace -> Mila tensor name map
+# ============================================================================
+
+@dataclass(frozen=True)
+class TensorMapping:
+    """
+    One Mila tensor and the HuggingFace tensors it is built from.
+
+    `sources` carries more than one name wherever Mila fuses projections that
+    HuggingFace keeps separate; they concatenate along dim 0 in the order given,
+    which is the layout the consuming component expects (SwiGLU reads
+    fc_gate_up as [gate | up], GQA reads fc_qkv_proj as [Q | K | V]).
+
+    `is_linear` marks a Linear weight rather than a norm or an embedding. The
+    converter does not need the distinction -- it writes every tensor the same
+    way -- but a quantizing packer does, since only Linear weights are weight
+    quantization targets.
+    """
+    mila: str
+    sources: Tuple[str, ...]
+    is_linear: bool = False
+
+
+# Emitted before the layers.
+LLAMA_PRE_LAYER_TENSORS: Tuple[TensorMapping, ...] = (
+    TensorMapping('temb.wte', ('model.embed_tokens.weight',)),
+)
+
+# Emitted once per layer, with '{i}' resolved by expand_llama_tensor_map.
+#
+# HF names the two norms 'layernorm' historically even though the implementation
+# is LlamaRMSNorm. No transposition is needed anywhere: HF nn.Linear is already
+# [out, in], which is Mila's convention. There is no positional embedding tensor
+# (RoPE is computed) and no attention or MLP bias.
+LLAMA_LAYER_TENSORS: Tuple[TensorMapping, ...] = (
+    TensorMapping(
+        'tf_layer_{i}.rmsn_1.weight',
+        ('model.layers.{i}.input_layernorm.weight',)),
+    TensorMapping(
+        'tf_layer_{i}.fc_qkv_proj.weight',
+        ('model.layers.{i}.self_attn.q_proj.weight',
+         'model.layers.{i}.self_attn.k_proj.weight',
+         'model.layers.{i}.self_attn.v_proj.weight'),
+        is_linear=True),
+    TensorMapping(
+        'tf_layer_{i}.fc_out_proj.weight',
+        ('model.layers.{i}.self_attn.o_proj.weight',),
+        is_linear=True),
+    TensorMapping(
+        'tf_layer_{i}.rmsn_2.weight',
+        ('model.layers.{i}.post_attention_layernorm.weight',)),
+    TensorMapping(
+        'tf_layer_{i}.fc_gate_up.weight',
+        ('model.layers.{i}.mlp.gate_proj.weight',
+         'model.layers.{i}.mlp.up_proj.weight'),
+        is_linear=True),
+    TensorMapping(
+        'tf_layer_{i}.fc_down.weight',
+        ('model.layers.{i}.mlp.down_proj.weight',),
+        is_linear=True),
+)
+
+# Emitted after the layers. lm_head is written explicitly even when the model
+# ties it to the embedding, so Mila's loader needs no tying logic; a caller must
+# substitute 'model.embed_tokens.weight' when 'lm_head.weight' is absent from
+# the state dict (Llama 3.2 1B/3B tie, Llama 3.1 8B does not).
+LLAMA_POST_LAYER_TENSORS: Tuple[TensorMapping, ...] = (
+    TensorMapping('rmsn_final.weight', ('model.norm.weight',)),
+    TensorMapping('lm_head.weight', ('lm_head.weight',), is_linear=True),
+)
+
+
+def expand_llama_tensor_map(num_layers: int) -> List[TensorMapping]:
+    """
+    The full HF -> Mila map for a Llama model, with layer indices resolved.
+
+    Sequence order is the order a converter emits, and is kept stable so that a
+    rewritten converter can be checked byte-for-byte against an artifact it
+    produced earlier. It is not semantic: the MILA container's index carries an
+    explicit offset per tensor, and the safetensors writer orders the data
+    region itself.
+    """
+    mappings: List[TensorMapping] = list(LLAMA_PRE_LAYER_TENSORS)
+
+    for i in range(num_layers):
+        for mapping in LLAMA_LAYER_TENSORS:
+            mappings.append(TensorMapping(
+                mapping.mila.format(i=i),
+                tuple(source.format(i=i) for source in mapping.sources),
+                mapping.is_linear))
+
+    mappings.extend(LLAMA_POST_LAYER_TENSORS)
+
+    return mappings
 
 
 class MilaWeightWriter:

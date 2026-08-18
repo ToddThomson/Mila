@@ -31,13 +31,13 @@ python quality_gate.py --model meta-llama/Llama-3.2-3B-Instruct --gptq \
     --calib-text corpus/wiki.train.raw --protect-first 2 --protect-last 2 \
     --eval-text corpus/wiki.test.raw --ppl-tokens 131072
 
-# As above, additionally emitting the packed artifact (npz; artifacts/ is
+# As above, additionally emitting the Mila artifact (safetensors; artifacts/ is
 # gitignored). Every tensor is packed through packing.py and verified to
 # dequantize bit-for-bit to the weights that entered the evaluated model.
 python quality_gate.py --model meta-llama/Llama-3.2-3B-Instruct --gptq \
     --calib-text corpus/wiki.train.raw --protect-first 2 --protect-last 2 \
     --eval-text corpus/wiki.test.raw --ppl-tokens 131072 \
-    --emit-artifact artifacts/llama32_3b_gptq_codebook.npz
+    --emit-artifact artifacts/llama32_3b_gptq_codebook.safetensors
 
 # The pass line: a GGUF quantization through the identical probe
 python quality_gate.py --model meta-llama/Llama-3.2-3B-Instruct \
@@ -47,12 +47,39 @@ python quality_gate.py --model meta-llama/Llama-3.2-3B-Instruct \
 
 ```
 # One codebook across the gate_proj/up_proj pair, as a Mila fc_gate_up artifact
-# must carry. Measured free; see Qwen3.8.md "Mila's fused tensors".
+# must carry. Costs 0.77%; see Qwen3.8.md "Mila's fused tensors". --emit-artifact
+# turns this on by itself, because the fused tensor is otherwise inexpressible.
 python quality_gate.py --model meta-llama/Llama-3.2-3B-Instruct --gptq \
     --fuse-gate-up-codebook \
     --calib-text corpus/wiki.train.raw --protect-first 2 --protect-last 2 \
     --eval-text corpus/wiki.test.raw --ppl-tokens 131072
 ```
+
+## What the artifact contains
+
+Mila-named tensors, in the safetensors container Mila reads. Per unprotected decoder
+layer, seven tensors over two fused linears:
+
+| Tensor | Policy | dtype and shape |
+|---|---|---|
+| `tf_layer_N.fc_gate_up.weight` | `PerGroupCodebook2<32>` | U8 `[2*inter, hidden/4]` |
+| `tf_layer_N.fc_gate_up.weight_scale` | | F16 `[2*inter, hidden/32]` |
+| `tf_layer_N.fc_gate_up.weight_codebook` | | F32 `[4]` |
+| `tf_layer_N.fc_down.weight` | `PerGroupCodebook3<64>` | U8 `[hidden, inter/4]` |
+| `tf_layer_N.fc_down.weight_scale` | | F16 `[hidden, inter/64]` |
+| `tf_layer_N.fc_down.weight_codebook` | | F32 `[8]` |
+| `tf_layer_N.fc_down.weight_high_plane` | | U8 `[hidden, inter/8]` |
+
+Attention carries no codebook record. Mila fuses q/k/v into one `fc_qkv_proj` and the
+Phase 0 research allocation puts q/k at cb8 and v at cb4 -- two formats in one tensor,
+which one codebook cannot express. Section 8 step 5 settles it the other way: attention
+and `lm_head` stay BF16 and quantize to FP4 at load. **So the evaluated model and the
+artifact are not the same network** -- the perplexity a run reports covers the research
+allocation, including quantized attention, while the artifact is the FFN subset.
+
+Names come from the converter's map (`Tools/Converters/common.py`), so the packer and the
+BF16 converter cannot disagree about what fuses. Shapes are checked against what
+`Linear::initializeParameters` allocates before anything is written.
 
 ## Rules that keep the numbers honest
 
