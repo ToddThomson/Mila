@@ -460,6 +460,129 @@ namespace Mila::Tests::Dnn::Quantization
         }
     }
 
+    namespace
+    {
+        // Prefill walks the output channels in strips so the BF16 staging buffer stays under
+        // a cap instead of growing with the weight matrix (Qwen3.8.md sections 5 and 8).
+        // Every real shape in this file is far below the shipped 32 MiB cap, so without a
+        // constructed cap the striped path is dead code in the suite.
+        //
+        // The claim under test is the one the design rests on: striping changes only WHERE
+        // the dequantized weights live, never the arithmetic, because each output is a dot
+        // product over exactly one strip and is never summed across strips. So the check is
+        // not a tolerance -- it is BITWISE equality against the same operation run in one
+        // pass. A tolerance here would pass just as happily on a version that split the
+        // contraction instead, which would round partial sums to BF16 and is precisely the
+        // mistake this shape of striping avoids.
+        template<typename TPolicy>
+        void runStripedPrefillMatchesUnstriped(
+            dim_t rows, dim_t columns, int entries, unsigned seed,
+            std::size_t stagingCap, dim_t expectedStripRows, dim_t expectedTrailingRows )
+        {
+            constexpr dim_t kGroupSize = TPolicy::kQuantizationGroupSize;
+            constexpr dim_t kBatchRows = 16;
+
+            auto context = makeContextOrSkip();
+
+            if ( context == nullptr )
+                GTEST_SKIP() << "CUDA device not available";
+
+            const PackedTensor packed =
+                makePackedTensor( rows, columns, kGroupSize, entries, seed );
+
+            std::mt19937 generator( seed ^ 0x5721u );
+            std::normal_distribution<float> activationDistribution( 0.0f, 1.0f );
+
+            HostFp32 host_input( Device::Cpu(), shape_t{ kBatchRows, columns } );
+
+            for ( dim_t m = 0; m < kBatchRows; ++m )
+                for ( dim_t k = 0; k < columns; ++k )
+                    host_input.data()[m * columns + k] = activationDistribution( generator );
+
+            DeviceBf16 batch_input( Device::Cuda( 0 ), shape_t{ kBatchRows, columns } );
+            copy( host_input, batch_input, context.get() );
+            context->synchronize();
+
+            const auto runWithCap = [&]( std::size_t cap, dim_t* stripRows, dim_t* trailingRows )
+            {
+                LinearConfig config( columns, rows );
+                config.withBias( false );
+
+                CodebookOpFor<TPolicy> op( context.get(), config, cap );
+                auto tensors = uploadWeights<TPolicy>( packed, rows, columns );
+                bindWeights<TPolicy>( op, tensors );
+                op.build( BuildContext( shape_t{ kBatchRows, columns }, RuntimeMode::Inference, false ) );
+
+                *stripRows = op.getStripRows();
+                *trailingRows = op.getTrailingStripRows();
+
+                DeviceBf16 batch_output( Device::Cuda( 0 ), shape_t{ kBatchRows, rows } );
+                op.forward( batch_input, batch_output );
+                context->synchronize();
+
+                auto host = toHost<TensorDataType::FP32>( batch_output, context.get() );
+                context->synchronize();
+
+                return std::vector<float>( host.data(),
+                    host.data() + static_cast<std::size_t>( kBatchRows * rows ) );
+            };
+
+            dim_t wholeStrip = 0, wholeTrailing = 0;
+            const std::vector<float> unstriped =
+                runWithCap( std::size_t( 1 ) << 40, &wholeStrip, &wholeTrailing );
+
+            EXPECT_EQ( wholeStrip, rows ) << "a cap this large must not stripe at all";
+            EXPECT_EQ( wholeTrailing, rows );
+
+            dim_t stripRows = 0, trailingRows = 0;
+            const std::vector<float> striped = runWithCap( stagingCap, &stripRows, &trailingRows );
+
+            EXPECT_EQ( stripRows, expectedStripRows );
+            EXPECT_EQ( trailingRows, expectedTrailingRows );
+            ASSERT_GT( rows, stripRows ) << "the cap must actually force more than one strip";
+
+            ASSERT_EQ( unstriped.size(), striped.size() );
+
+            for ( dim_t m = 0; m < kBatchRows; ++m )
+                for ( dim_t row = 0; row < rows; ++row )
+                {
+                    const std::size_t index = static_cast<std::size_t>( m * rows + row );
+                    EXPECT_EQ( std::bit_cast<std::uint32_t>( striped[index] ),
+                        std::bit_cast<std::uint32_t>( unstriped[index] ) )
+                        << "batch row " << m << ", output " << row
+                        << " (strip " << ( row / stripRows ) << ")";
+                }
+        }
+    }
+
+    // 256 rows x 512 columns is 256 KiB staged whole; a 70 KiB cap asks for four strips and
+    // divides evenly, so every strip is the same width and none is trailing.
+    TEST( CodebookLinearOpCuda, TwoBitStripedPrefillMatchesUnstriped )
+    {
+        runStripedPrefillMatchesUnstriped<PerGroupCodebook2<32>>(
+            256, 512, 4, 20260901u, 70u * 1024, 64, 64 );
+    }
+
+    TEST( CodebookLinearOpCuda, ThreeBitStripedPrefillMatchesUnstriped )
+    {
+        runStripedPrefillMatchesUnstriped<PerGroupCodebook3<64>>(
+            256, 512, 8, 20260902u, 70u * 1024, 64, 64 );
+    }
+
+    // 200 rows does not divide into whole strips: three strips of 80 leaves a trailing 40,
+    // which is the case that needs its own cuBLASLt plan and a shorter final dequantize.
+    TEST( CodebookLinearOpCuda, TwoBitStripedPrefillHandlesARaggedTrailingStrip )
+    {
+        runStripedPrefillMatchesUnstriped<PerGroupCodebook2<32>>(
+            200, 512, 4, 20260903u, 70u * 1024, 80, 40 );
+    }
+
+    TEST( CodebookLinearOpCuda, ThreeBitStripedPrefillHandlesARaggedTrailingStrip )
+    {
+        runStripedPrefillMatchesUnstriped<PerGroupCodebook3<64>>(
+            200, 512, 8, 20260904u, 70u * 1024, 80, 40 );
+    }
+
     TEST( CodebookLinearOpCuda, TwoBitPrefillAndDecodeMatchCodec )
     {
         runPrefillAndDecodeAgainstCodec<PerGroupCodebook2<32>>( 256, 512, 4, 20260825u );

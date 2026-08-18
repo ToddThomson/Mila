@@ -264,8 +264,11 @@ Two implementation constraints follow directly and are easy to get wrong:
 1. **Prefill must compute logits for the last position only.** At 248,320 vocabulary a single
    FP32 logit row is 0.95 MiB; a 512-token chunk that materialized all of them would allocate
    0.48 GiB.
-2. **The FFN must use the fused tile-load dequantization path, never the two-phase staging
-   buffer.** Dequantizing one 5120x17408 matrix to BF16 is 170 MiB.
+2. **The FFN must never expand a whole weight matrix to BF16 at once.** Dequantizing one
+   5120x17408 matrix is 170 MiB, against the 461 MiB this section allots to all activations
+   and scratch. Either the fused tile-load path or a **striped** two-phase pass satisfies
+   this; striping was measured cheaper on both axes and is the standing answer (Section 8).
+   This constraint bounds the staging buffer, and does not name a kernel.
 
 ---
 
@@ -349,8 +352,12 @@ Ordered by dependency, not priority. Nothing here is scheduled.
    a **2-bit plane plus a 1-bit plane**, both byte-aligned, rather than 32 values in 12
    bytes: the planes keep tile loads aligned and let both policies share one kernel family.
    Validate against the step-0 oracle. Independently useful; carries no Qwen risk.
-2. **W2A16 and W3A16 GEMM and decode GEMV kernels**, following the existing W4A16 LUT
-   tile-load pattern.
+2. **W2A16 and W3A16 decode GEMV kernels**, plus a prefill path that respects the Section 5
+   staging bound. The GEMV is done. Prefill is a **striped** two-phase pass, not the fused
+   tile-load GEMM this item originally named: the fused kernel was priced against the
+   alternative and lost on both memory and speed (Section 8). A fused W2/W3 GEMM remains
+   worth building for prefill throughput, behind the tile ladder the W4A16 kernel also
+   needs, and is no longer part of this item.
 3. **The precision plan struct and concept** (Section 6), and threading it through `Linear`
    construction inside a block.
 4. **Depthwise causal `Conv1d`**, kernel 4. No convolution component exists in the tree.
@@ -817,25 +824,172 @@ so without that case the deadlock would have reached the first real layer of awk
 
 **Still short of qfp4, and still instruction-bound.** 3-bit now takes about the same time
 as 2-bit (0.0322 vs 0.0302 ms) while moving 30% more bytes, which is the signature of an
-instruction limit rather than a memory one; the probe's lookup-free variant ran both at
-0.0178 ms, so roughly 1.7x remains in the shuffles themselves. Closing it needs a different
-kernel structure -- amortizing the unpack across several output rows per thread, or
-bucketing activations by code -- not another peephole.
+instruction limit rather than a memory one. Closing it needs a different kernel structure
+-- amortizing the unpack across several output rows per thread, or bucketing activations by
+code -- not another peephole.
 
 **What it costs the plan:** Section 5 derives ~47 tok/s from bytes per token, which assumes
 decode is bandwidth-bound. These kernels are not, so that ceiling stays **unverified**
 until they are measured against a DRAM-resident model rather than an L2-resident matrix.
 Correctness is unaffected throughout -- this is throughput, not numerics.
 
+### The GEMV gap closed, and it was not the lookup (measured 2026-08-18)
+
+Reading the paragraph above against a fresh variant probe overturns two of its claims. Both
+errors came from comparing numbers taken under different conditions, which is the failure
+[[feedback_compare_arms_from_one_build]] names.
+
+**There was no 1.7x sitting in the shuffles.** The `0.0178 ms` lookup-free figure was
+measured on the pre-shuffle kernel and then read against the post-shuffle baseline. With
+baseline and floor control built together, deleting the codebook lookup entirely is worth
+**1.28x at 2 bits and nothing at all at 3 bits** -- the shuffle version had already taken
+what the lookup had to give. A shared-memory table indexed by several packed codes at once
+was measured as the replacement and **lost at both widths** (0.80x, 0.81x): a
+runtime-indexed shared load costs more here than the shuffle it replaces. That closes the
+lookup as an avenue rather than parking it.
+
+**The limit was memory-level parallelism.** A warp issued one code word per iteration and
+then waited on it, over only six to ten iterations. Walking several adjacent output rows in
+one warp issues that many independent code loads before consuming any, and it is worth
+1.10-1.32x depending on width and shape. Independent accumulators *within* a row -- the
+dependent-FADD-chain theory -- were measured and do nothing (1.00x); ptxas already
+reassociates. The counts differ by width because a 3-bit row costs two plane loads instead
+of one, so it saturates at 2 rows and regresses beyond, while 2-bit peaks at 4.
+
+Landed in `CodebookGemv.cu`: 4 rows per warp at 2 bits, 2 at 3 bits, 4 warps per block
+(was 8). **Bit-identical** to the previous kernel -- the accumulation order within a row is
+untouched, only the loads move -- so no numerics gate applies. Existing tail coverage
+already exercises the new edge case: 27 rows at 4 per warp and 17 at 2 per warp both leave
+a partial group.
+
+In-tree `DISABLED_DecodeBandwidth`, RTX 4070, with the qfp4 control unchanged at 0.0269 ms
+proving the harness stable:
+
+| Path | Weight bytes | ms before | ms after | GB/s after |
+|---|---|---|---|---|
+| `PerGroupCodebook2<32>` | 7.9 MB | 0.0302 | 0.0252 | 312.5 |
+| `PerGroupCodebook3<64>` | 10.2 MB | 0.0322 | 0.0292 | 349.8 |
+| `PerGroupFp4<128>` (control) | 13.4 MB | 0.0271 | 0.0269 | 497.6 |
+
+**qfp4 was never ahead on time, and the gap to it was an artifact of the metric.** All three
+kernels ran within 0.005 ms of each other before this change and qfp4 looked 1.9x better
+only because it moves 70% more bytes in that time. W2A16 is now *faster in wall time* than
+qfp4 while reading 41% fewer bytes, which is what a decode kernel is actually asked for. A
+GB/s figure divided by a time all three share measures the format, not the kernel.
+
+**The right ceiling is 455 GB/s, not the card's 504, and it must be measured
+DRAM-resident.** A read-only kernel streaming the same planes with the same layout sustains
+452-457 GB/s at the Qwen FFN shape; every table above it is L2-resident, so qfp4's 497.6
+sits *above* what DRAM can deliver and is not a bandwidth achievement. Against a rotating
+weight set larger than L2 the landed kernels reach **86% of that ceiling** at the Qwen shape
+(391 and 394 GB/s) and 82-88% at the Llama 3B shape, up from 60-76%. The remaining 12-18% is
+decode arithmetic overlapping the stream, and Section 5's ~47 tok/s ceiling is now
+supportable rather than unverified.
+
+**Tuning this on the L2-resident test would have picked the worst production
+configuration.** 8 and 16 rows per warp were the fastest L2 variants (1.41-1.44x) and are
+*slower than the baseline* under DRAM residency (0.76-0.87x). The two residencies rank the
+candidates differently, so a weight matrix small enough to cache is not a valid stand-in for
+a model that streams.
+
+### The fused prefill GEMM loses to striping the staging buffer (measured 2026-08-18)
+
+Section 5's second implementation constraint requires the fused tile-load path because
+dequantizing one 5120x17408 matrix to BF16 is 170 MiB. Priced properly, the fused kernel is
+the wrong way to satisfy it, and a third option nobody had named is better on both axes.
+
+**What fusion could win.** The dequantize pass costs 1.02 ms at 2 bits and 1.11 ms at 3, and
+is **chunk-independent** -- it expands the whole matrix whatever `M` is -- while the GEMM is
+linear in `M`. So two-phase carries a penalty that grows as chunks shrink, and Section 5's
+memory pressure pushes chunks small. cuBLASLt runs the BF16 GEMM at 62 TFLOP/s throughout.
+
+| Chunk `M` | GEMM alone | Two-phase, W2 | Most a perfect fused kernel could win |
+|---|---|---|---|
+| 128 | 0.42 ms | 1.44 ms | 3.42x |
+| 256 | 0.74 ms | 1.76 ms | 2.37x |
+| 512 | 1.48 ms | 2.50 ms | 1.69x |
+| 1024 | 2.95 ms | 3.97 ms | 1.34x |
+| 2048 | 5.94 ms | 6.96 ms | 1.17x |
+
+This is a much better case than the W4A16 attempt had -- there the fused win was ~12% -- for
+three compounding reasons: the expansion ratio is 6.4x at 2.5 bits against 3.9x at 4.125, the
+Qwen FFN matrix is 89 M elements, and the chunk is small.
+
+**What a fused kernel of this family actually delivers.** The tree's own Stage 2 cp.async
+double-buffered WMMA kernel, measured at this shape, runs **18.6 TFLOP/s -- a flat 3.34x
+below cuBLASLt** at every chunk. (That confirms the Stage 2 record with a number: chunk
+independence achieved, cuBLASLt not approached.) Set against the ceilings above it wins only
+at chunk 128 and below. FP4 decodes its levels arithmetically where a codebook must look
+them up, so **18.6 TFLOP/s is an upper bound on a codebook version of the same geometry** --
+the crossover would sit lower still. Winning at chunk 512 needs ~37 TFLOP/s, twice what this
+geometry gives, so the fa-5090 ladder (XOR swizzle, `ldmatrix`, 128x128 tiles) is not polish
+here but the entire task, and it is the step the W4A16 attempt stopped before.
+
+**Striping the staging buffer beats it without a new kernel.** Nothing requires expanding
+the whole matrix before one GEMM. Split the output into strips of `stripN` rows, dequantize
+one strip and GEMM it: staging becomes `stripN x K`, total dequantize work is unchanged,
+cuBLASLt keeps the GEMM, and the arithmetic is untouched so results stay bit-identical. At
+chunk 512:
+
+| Staging | Total | vs monolithic |
+|---|---|---|
+| 170.0 MiB (monolithic) | 2.44 ms | 1.00x |
+| 85.0 MiB (2 strips) | 2.52 ms | 1.03x |
+| 42.5 MiB (4 strips) | 2.80 ms | 1.15x |
+| 21.2 MiB (8 strips) | 3.00 ms | 1.23x |
+| 10.6 MiB (16 strips) | 3.19 ms | 1.31x |
+| ~0 MiB (fused, Stage 2 geometry) | 4.96 ms | 2.04x |
+
+**Eight strips dominate the fused kernel on both axes** -- 1.65x faster and down to 4.6% of
+the 461 MiB Section 5 allots to all activations and scratch. cuBLASLt handles `N` = 1088
+nearly as well as 17408 (the GEMM term grows only 18% across the whole range), so the cost is
+the dequantize pass losing parallelism per launch and the loss of overlap, not GEMM
+efficiency. Halving the buffer is nearly free at 1.03x.
+
+**Consequence for Section 5 and for Phase 1.** The constraint reads as a bound on the staging
+buffer, not a requirement for a particular kernel: the FFN must not expand a whole matrix at
+once. The fused GEMM stops being a Phase 1 exit item and becomes what it is -- a prefill
+*performance* project whose real content is the tile ladder, shared with FP4 and Gemma and
+Llama, and whose gate is 37 TFLOP/s rather than correctness.
+
+**Landed (2026-08-18).** `CudaCodebookLinearOp::forward` walks the output channels in strips
+sized to hold staging under a 32 MiB cap: six strips at 28 MiB for the Qwen FFN shape, two at
+24 MiB for Llama 3B. The cap is a **constructor parameter** defaulting to that constant,
+because a real budget belongs to whoever owns device memory rather than to one operation --
+and because nothing else can exercise the striped path at a testable shape.
+
+Two implementation notes. The dequantize kernel needed **no change**: it addresses every
+plane relative to row 0 of the pointers it is handed, so a strip is the row offset folded
+into each pointer plus a shorter row count. And each strip's `C` is a column slice of the
+full output, which needed one new thing outside the operation -- an optional
+`output_row_stride` on `build_linear_plan`, defaulting to `out_features` so every existing
+caller is unchanged, and rejected on the quantized FP8 path whose `C` is column-major.
+
+The tests assert **bitwise** equality against the same operation run in one pass, not a
+tolerance. A tolerance would pass equally on a version that split the contraction instead,
+which is the variant that rounds partial sums to BF16 between strips and is exactly what
+striping along the output dimension avoids. Ragged trailing strips get their own case (200
+rows into strips of 80 leaves 40) since that width needs its own cuBLASLt plan. Verified by
+mutation: dropping the per-strip scale offset fails all four.
+
+Not measured, worth knowing. Overlapping strip `i+1`'s dequantize with strip `i`'s GEMM on a
+second stream should recover most of the 1.23x, but the shared scratch buffer's safety
+argument rests on one stream per context (`CudaExecutionContext.ixx:224`), so that is a real
+change rather than a tuning knob.
+
 The broader point outlives the bug: **fewer bits do not buy proportional decode speed.** The
 FMA count per token is fixed by the parameter count, so shrinking the weights raises
 arithmetic intensity until something other than DRAM becomes the limit. Any sub-4-bit
 decode plan has to show where that crossover sits rather than assume the byte count leads.
 
-Remaining for the Phase 1 exit gate: the fused W2/W3 prefill GEMM of item 2 replacing the
-staging path before Qwen, and closing the GEMV bandwidth gap above. The artifact half --
-emit the packed tensors, read them back, load them through `Linear` and decode correctly --
-is done and verified end to end (2026-08-18).
+Both of the items this paragraph once listed as remaining for the Phase 1 exit gate are
+discharged (2026-08-18, both below). The GEMV gap is closed at 86% of the measured DRAM
+ceiling. The fused W2/W3 prefill GEMM is **removed from the exit gate**: striping the staging
+buffer satisfies the Section 5 constraint that motivated it, measured faster than the fused
+kernel and with no numerics change, so the fused path is reclassified as a prefill performance
+project. Striping is landed in the codebook operation. The artifact half -- emit the packed
+tensors, read them back, load them through `Linear` and decode correctly -- is done and
+verified end to end.
 
 **That seam is now closed (2026-08-18).** It was not merely unexercised: `Linear<Cuda,
 BF16, PerGroupCodebook2<32>>` did not compile at all. `loadParameter()`'s weight branch
