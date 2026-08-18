@@ -517,6 +517,91 @@ per-tensor codebooks for the sub-4-bit policies, and `loadParameter()` for these
 uploads codes rather than quantizing. Phase 1's kernel contract is unchanged — LUT
 dequantization of codes times FP16 group scales; what changes is where the codes come from.
 
+### Mila's fused tensors constrain what an artifact can carry (measured 2026-08-17)
+
+Mila fuses projections that HuggingFace keeps separate, and the packer quantizes per HF
+linear, so the two do not line up:
+
+| Mila tensor | HuggingFace source |
+|---|---|
+| `tf_layer_N.fc_gate_up` | `gate_proj` + `up_proj` |
+| `tf_layer_N.fc_qkv_proj` | `q_proj` + `k_proj` + `v_proj` |
+| `tf_layer_N.fc_down` | `down_proj` |
+| `tf_layer_N.fc_out_proj` | `o_proj` |
+
+Codes and scales concatenate along the output axis without trouble -- packing is row-major
+and rows are independent. **A codebook does not: it is one table per tensor, and a fused
+tensor can carry exactly one.**
+
+For `fc_gate_up` the answer is to fit both projections jointly. Measured on Llama 3.2 3B
+Instruct at 8 calibration samples and 65,536 eval tokens, identical BF16 reference of 10.988
+throughout:
+
+For `fc_gate_up` the answer is to fit both projections jointly, and it costs **0.77%**.
+Measured on Llama 3.2 3B Instruct, both arms deterministic, back to back on one build at 8
+calibration samples and 65,536 eval tokens, identical BF16 reference of 10.988:
+
+| Fit | PPL ratio vs BF16 |
+|---|---|
+| Per-HF-linear codebooks | 1.817 |
+| One codebook across the gate/up pair | 1.831 |
+
+Small, real, and in the direction theory requires -- one table serving two tensors has
+strictly less freedom than two fitted independently. Worth paying: it is 0.77% against a
+35% margin to the IQ2_XXS line, and the alternative is a format change (a table per row
+range) reaching the packing codec, the policy, both kernels and the operation.
+
+**This number only exists because the harness was made deterministic first.** Earlier
+non-deterministic runs put the shared fit *ahead* by 0.9%, which is impossible for a
+strictly less expressive fit and was the tell that the comparison was broken (next
+subsection).
+
+**Fit the pair jointly by sampling each tensor separately and concatenating the samples**,
+never the tensors: normalization makes three FP32 copies of its input, so concatenating
+first doubles the largest transient in the pass and pushed a 12 GiB card into PCIe spill.
+
+### The gate was not reproducible, and is now (measured 2026-08-17)
+
+Five runs of one identical configuration returned ratios 1.792, 1.807, 1.807, 1.847 and
+1.915 -- **sigma 2.7%, range 6.9%**. The seed is set before the layer walk, so the random
+subsampling was already identical run to run. The spread came from cuBLAS choosing GEMM
+algorithms by available workspace, which changes summation order in the Hessian
+accumulation; GPTQ then compounds it, because every layer quantizes against the previous
+layer's already-quantized outputs.
+
+`torch.use_deterministic_algorithms(True)` with `CUBLAS_WORKSPACE_CONFIG=:4096:8` fixes it
+completely: three repeats returned 1.831 exactly, with byte-identical generations. No
+operation in the path lacked a deterministic implementation. It costs about 35% throughput
+(5.6 min per run against 4.1 at these settings), which is the right trade for a harness
+whose output is a number of record. `enforce_determinism()` runs unconditionally.
+
+**What this costs the earlier figures.** Every Phase 0 number above -- 1.67 for the
+compensated scheme, 2.57 for the IQ2_XXS pass line, 2.99 without compensation -- is a single
+run of the non-deterministic harness and carries roughly +/-2.7%. The gaps those numbers
+establish are far larger than that (1.67 against 2.57 is about 13 sigma), so **the Phase 0
+pass verdict stands unchanged**. What was never resolvable, and must not be quoted as
+though it were, is any difference of a few percent. Re-run under determinism before
+tightening any of them.
+
+**What it demands of Phase 5.** That gate's exit criterion compares the 2.9-bit build
+against the FP4 oracle by perplexity. Determinism is a precondition for that comparison to
+mean anything, and the same discipline applies to the on-device perplexity path of item 9.
+
+`fc_qkv_proj` cannot be solved the same way, and does not need to be. The Phase 0 research
+scheme assigns q/k to `cb8` and v to `cb4` -- two *formats* in one fused tensor, which no
+shared table reconciles. But Section 5 puts full attention at `PerGroupFp4<128>`, and step 5
+below already keeps everything at 4 bits and above in BF16 in the artifact, quantized at
+load. FP4's level table is format-defined and identical for every tensor, so fusing FP4
+projections is trivially valid. **The artifact carries codebook tensors only**; attention
+and `lm_head` ride the existing quantize-on-load path. The research scheme that maximizes
+compression is not the deployment allocation, and the artifact follows the latter.
+
+**The gate needs a 12 GiB card.** Reserved memory climbs monotonically across the 28 layers
+-- 8.5 GB to 11.5 GB, spilling ~0.6 GB on the last layers -- because torch's caching
+allocator holds freed blocks that `hessians.clear()` releases only by reference. An
+`empty_cache()` per layer bounds it; without it the pass still completes but crawls once it
+spills.
+
 ### Converter quantization pipeline (design of record, 2026-08-16)
 
 The sub-4-bit half of item 8, designed now because Phase 1 needs its output as the kernel

@@ -45,6 +45,15 @@ python quality_gate.py --model meta-llama/Llama-3.2-3B-Instruct \
     --eval-text corpus/wiki.test.raw --ppl-tokens 131072
 ```
 
+```
+# One codebook across the gate_proj/up_proj pair, as a Mila fc_gate_up artifact
+# must carry. Measured free; see Qwen3.8.md "Mila's fused tensors".
+python quality_gate.py --model meta-llama/Llama-3.2-3B-Instruct --gptq \
+    --fuse-gate-up-codebook \
+    --calib-text corpus/wiki.train.raw --protect-first 2 --protect-last 2 \
+    --eval-text corpus/wiki.test.raw --ppl-tokens 131072
+```
+
 ## Rules that keep the numbers honest
 
 - Publish wikitext numbers only. The built-in short probe flatters (~2.45x where the
@@ -53,3 +62,13 @@ python quality_gate.py --model meta-llama/Llama-3.2-3B-Instruct \
   results and the harness warns when it happens.
 - The perplexity ratio (candidate / BF16 reference, same probe, same code path) is the
   comparison unit, never absolute perplexity.
+- Compare arms built by the SAME harness. Changing the fit changes how many draws the
+  RNG makes, so a number from an earlier build is not a baseline -- run both arms back to
+  back at matched settings and read only the delta.
+- Runs are deterministic and must stay that way. Before `enforce_determinism()` the same
+  configuration returned ratios spanning 1.792 to 1.915 (sigma 2.7%), which is wider than
+  most effects worth measuring. If a change makes the harness non-reproducible, that is a
+  defect in the change, not a cost of doing business.
+- Needs a 12 GiB card. Reserved memory climbs across the layer walk and spills into shared
+  memory near the end without the per-layer `empty_cache()`; a spilled pass still completes
+  but crawls.

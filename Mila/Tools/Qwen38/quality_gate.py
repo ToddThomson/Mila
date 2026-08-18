@@ -19,7 +19,12 @@ Examples:
 
 import argparse
 import math
+import os
 import sys
+
+# Must be set before the CUDA context exists, hence before torch is imported. Without it
+# torch.use_deterministic_algorithms() refuses to run cuBLAS GEMMs at all.
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import numpy as np
 import torch
@@ -27,6 +32,25 @@ import torch
 import packing
 
 GENERATOR_SEED = 20260816
+
+
+def enforce_determinism():
+    """Make a run reproducible, because this harness produces numbers of record.
+
+    MEASURED 2026-08-17, without this: five runs of one identical configuration returned
+    ratios 1.792, 1.807, 1.807, 1.847 and 1.915 -- sigma 2.7%, range 6.9%. The seed is set
+    before the layer walk, so the random subsampling is already identical run to run; the
+    spread comes from cuBLAS picking different algorithms depending on free workspace, and
+    GPTQ compounds it because each layer quantizes against the previous layer's already
+    quantized outputs. At that spread the gate cannot resolve anything below ~8%, which is
+    most of what it exists to measure.
+
+    Costs some throughput. A gate that is fast and irreproducible is worth less than one
+    that is slow and repeatable.
+    """
+    torch.use_deterministic_algorithms(True)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 # ---------------------------------------------------------------------------
@@ -135,12 +159,13 @@ def kmeans_1d(values, k, iterations=30, weights=None):
     return centroids
 
 
-def fit_codebook_levels(weight, k, group_size, importance=None, sample_limit=500_000):
-    """Fit a per-tensor k-entry codebook over group-normalized values.
+def codebook_samples(weight, group_size, importance=None, sample_limit=500_000):
+    """Group-normalized values and their importance weights, subsampled.
 
-    With importance (per-input-channel mean squared activation, [in]), the k-means
-    fit is weighted so that channels the model actually drives hard are represented
-    more accurately -- the data-dependent half of what IQ2-class formats do.
+    Split out so several tensors can be fitted jointly without materializing their
+    concatenation: the normalization makes three float32 tensors the size of the
+    input, so concatenating first doubles a peak that is already the largest
+    transient in the pass.
     """
     grouped, in_features = group_weight(weight.float(), group_size)
     absmax = grouped.abs().amax(-1, keepdim=True)
@@ -157,13 +182,46 @@ def fit_codebook_levels(weight, k, group_size, importance=None, sample_limit=500
 
     if flat.numel() > sample_limit:
         keep = torch.randperm(flat.numel(), device=flat.device)[:sample_limit]
-        sample = flat[keep]
-        sample_weights = flat_weights[keep] if flat_weights is not None else None
-    else:
-        sample = flat
-        sample_weights = flat_weights
+        return flat[keep], (flat_weights[keep] if flat_weights is not None else None)
+
+    return flat, flat_weights
+
+
+def fit_codebook_levels(weight, k, group_size, importance=None, sample_limit=500_000):
+    """Fit a per-tensor k-entry codebook over group-normalized values.
+
+    With importance (per-input-channel mean squared activation, [in]), the k-means
+    fit is weighted so that channels the model actually drives hard are represented
+    more accurately -- the data-dependent half of what IQ2-class formats do.
+    """
+    sample, sample_weights = codebook_samples(weight, group_size, importance, sample_limit)
 
     return kmeans_1d(sample, k, weights=sample_weights)
+
+
+def fit_codebook_levels_joint(weights, k, group_size, importance=None,
+                              sample_limit=500_000):
+    """One codebook over several tensors that share an input axis.
+
+    Each tensor is normalized and sampled on its own and only the samples are
+    concatenated, so peak memory matches the single-tensor fit rather than the sum.
+    The budget is split evenly, so the table represents both tensors equally
+    regardless of their relative size.
+    """
+    per_tensor = max(1, sample_limit // len(weights))
+    samples = []
+    sample_weights = []
+
+    for weight in weights:
+        drawn, drawn_weights = codebook_samples(weight, group_size, importance, per_tensor)
+        samples.append(drawn)
+        sample_weights.append(drawn_weights)
+
+    combined = torch.cat(samples)
+    combined_weights = (torch.cat(sample_weights)
+                        if sample_weights[0] is not None else None)
+
+    return kmeans_1d(combined, k, weights=combined_weights)
 
 
 def fake_codebook(weight, k, group_size, sample_limit=500_000, importance=None):
@@ -499,10 +557,33 @@ def gptq_apply(model, tokenizer, calibration_text, device, args, artifact=None):
         for hook in hooks:
             hook.remove()
 
+        # Mila fuses gate_proj and up_proj into one tensor (tf_layer_N.fc_gate_up), and a
+        # codebook is per tensor, so a fused artifact can carry only one table. Fitting the
+        # pair jointly is the cheapest way to make the artifact expressible; this measures
+        # what that costs. The two projections read the SAME input, so their Hessians and
+        # hence the importance vector are identical -- only the fit is shared. Off by
+        # default: the recorded Phase 0 numbers are per-HF-linear.
+        shared_levels = {}
+        if args.fuse_gate_up_codebook and not protected:
+            gate_name = next((n for n in targets if n.endswith("gate_proj")), None)
+            up_name = next((n for n in targets if n.endswith("up_proj")), None)
+            gate_policy = policy_by_suffix.get("gate_proj")
+
+            if gate_name and up_name and gate_policy in CODEBOOK_PARAMETERS:
+                k, fit_group = CODEBOOK_PARAMETERS[gate_policy]
+                importance = torch.diag(hessians[gate_name]) / counts[gate_name]
+                shared = fit_codebook_levels_joint(
+                    [targets[gate_name].weight.data, targets[up_name].weight.data],
+                    k, fit_group, importance=importance)
+                shared_levels[gate_name] = shared
+                shared_levels[up_name] = shared
+
         for name, module in targets.items():
             policy = "fp4" if protected else policy_by_suffix[name.rsplit(".", 1)[-1]]
             levels, group_size, divisor, bits = GPTQ_FORMATS[policy]
             weight = module.weight.data
+            if levels is None and name in shared_levels:
+                levels = shared_levels[name]
             if levels is None:
                 k = 4 if policy == "cb4" else 8
                 importance = torch.diag(hessians[name]) / counts[name]
@@ -519,6 +600,16 @@ def gptq_apply(model, tokenizer, calibration_text, device, args, artifact=None):
             total_bits += bits * weight.numel()
 
         hessians.clear()
+
+        # clear() drops the references but not the reservation: torch's caching allocator
+        # keeps freed blocks, so across 28 layers of differently-shaped Hessians and
+        # float32 fit transients the reserved pool creeps monotonically -- measured 8.5 GB
+        # climbing to 11.5 GB and spilling into shared memory on the last layers of a
+        # 12 GiB card. Returning the blocks each layer bounds it, at the cost of some
+        # reallocation, and is what lets this gate run on a smaller card at all.
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         with torch.no_grad():
             for i, (hidden, kwargs) in enumerate(captured):
                 output = layer(hidden, **kwargs)
@@ -753,6 +844,9 @@ def main():
     parser.add_argument("--emit-artifact", metavar="PATH",
                         help="with --gptq: write packed codebook tensors (npz), "
                              "verifying each against the model bit-for-bit")
+    parser.add_argument("--fuse-gate-up-codebook", action="store_true",
+                        help="fit ONE codebook across the concatenated gate_proj/up_proj "
+                             "pair, as a Mila fc_gate_up artifact would have to carry")
     parser.add_argument("--protect-first", type=int, default=0,
                         help="hold the first N decoder layers at fp4")
     parser.add_argument("--protect-last", type=int, default=0,
@@ -761,6 +855,7 @@ def main():
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
 
+    enforce_determinism()
     torch.manual_seed(GENERATOR_SEED)
     device = torch.device(args.device)
 
