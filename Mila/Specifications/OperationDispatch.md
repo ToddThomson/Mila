@@ -154,7 +154,7 @@ namespace Mila::Dnn::Compute
 
 `TPolicy` carries the quantization or cache policy for ops that need it
 (`WeightQuantPolicy` for Linear, `KvCachePolicy` for GQA, `void` for all others).
-No op needs both simultaneously — the scope table in `Quantization.V2.md` bounds this.
+No op needs both simultaneously — the scope table in `Quantization.md` bounds this.
 
 ### CUDA specializations — OperationTraits.Cuda.ixx
 

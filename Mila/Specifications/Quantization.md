@@ -1,8 +1,8 @@
-# Mila — Quantization Design v2
+# Mila — Quantization Design
 
-> **Status:** Alpha.5 — In Progress (weight quantization); Alpha.6 — Planned (KV cache compression)
+> **Status:** weight quantization shipped (FP8 per-channel, FP4 per-group, sub-4-bit codebook);
+> KV cache compression designed, no policy type in the tree
 > **Scope:** `Linear` component weight quantization; `GroupedQueryAttention` KV cache compression
-> **Supersedes:** Quantization Design v1
 
 ---
 
@@ -82,12 +82,18 @@ Src/
 
     Dnn/Quantization/
         Weight/
-            Policies.ixx            — NoWeightQuant, PerChannelFp8<>; WeightQuantPolicy concept
-            Quantizer.ixx           — IWeightQuantizer concept (future: pluggable host-side quantizers)
+            Policies.ixx            — NoWeightQuant, PerChannelFp8<>, PerGroupFp4<>,
+                                      PerGroupCodebook2<>/3<>; WeightQuantPolicy concept
+            CodebookPacking.ixx     — normative packed layout + CPU reference codec
+            PrecisionPlan.ixx       — per-role policy table for a block (Qwen3.8)
         KvCache/
             Policy.ixx              — KvCachePolicy concept; NoKvCompression identity struct
             QuantPolicy.ixx         — PerChannelKvFp8<>; satisfies KvCachePolicy
 ```
+
+The `Weight/` layout is the target shape as well as the current one: a policy, the codec
+that states its bytes, and nothing that runs a forward pass. `Fp4Packing.ixx` and
+`Fp8Packing.ixx` are the two files it is missing.
 
 ---
 
@@ -257,11 +263,15 @@ See implementation notes.
 
 ### Strategy
 
-FP8 quantization is a **load-time, one-way weight compression** strategy applied
-exclusively to the `Linear` component. Weights are loaded from a BF16 pretrained
-checkpoint and quantized to FP8_E4M3 during `initializeParameters()`. After
-quantization, only the FP8 representation lives on device. The BF16 source is never
-retained.
+Weight quantization is **one-way and offline**: the packed weights and their scales are
+decided when an artifact is built, and a load uploads bytes that are already what they
+will be. Only the `Linear` component quantizes. The full-precision source is never
+retained on device, and after the change described in *Fitting is offline, encoding is a
+codec* below it is not required on the machine that runs the model at all.
+
+Quantize-on-load is the shipped mechanism and the one this section's pipeline still
+describes. It is a transitional path, not the design of record — see that section for
+what replaces it and why.
 
 **FP8 format:** `E4M3` (`__nv_fp8_e4m3`). Higher precision (more mantissa bits) is
 correct for stored weights. `E5M2` (wider dynamic range) is reserved for gradients and
@@ -368,7 +378,29 @@ std::unique_ptr<TensorType>       weight_scales_{ nullptr };  // Tensor<Float32,
 
 `weight_scales_` is allocated and populated only when `kIsQuantized` is true.
 
-### Quantization Pipeline
+### Load Pipeline
+
+Two shapes reach the same device state. `Linear::loadParameter` picks between them on the
+blob's dtype: storage dtype means the bytes are already packed and the scales arrive as
+their own tensor; compute precision means a full-precision source that must be fitted here
+(`Linear.ixx:601`). Re-quantizing packed bytes would read nibbles as BF16 and produce a
+model that runs and is wrong, so the two must never be confused.
+
+**Pre-quantized (the target shape).** No fitting, no staging buffer, no device pass:
+
+```
+fromPretrained()
+    └── PretrainedModelReader — __metadata__["mila_quantization"] names the policy
+    └── the model refuses an artifact whose policy is not the one this build compiled
+    └── initializeParameters( reader )
+            └── loadParameter( "weight",        blob )  -> direct upload, packed layout
+            └── loadParameter( "weight_scale",  blob )  -> direct upload
+            └── loadParameter( "weight_codebook"/"weight_high_plane", ... )  -- format permitting
+                    └── operation_->onQuantizedWeightsLoaded()
+```
+
+**Quantize-on-load (transitional, FP8 and FP4 only).** Reads a full-precision blob and
+fits it on device:
 
 ```
 fromPretrained()
@@ -404,6 +436,120 @@ void quantize( const ITensorBlob& blob,
 
 `setWeightScales()` and `quantize()` are concrete methods on `CudaLinearOp` only.
 Non-quantized operations are entirely unaware they exist.
+
+---
+
+### Fitting is offline, encoding is a codec
+
+Decided 2026-08-19. "Quantization" names two operations with nothing in common, and
+conflating them is why the weight quantizer ended up bolted to an inference operation:
+
+- **Fitting** — choosing the scales, the codebook, the assignment of each weight to a
+  code. Data-dependent in general; data-free only for the absmax formats.
+- **Encoding** — value to code, code to bytes: layout, bit order, scale dtype.
+  Deterministic, bit-exact, and checkable without a device.
+
+**Fitting is offline for every format.** FP8 and FP4 acquired a load-time fitter because
+absmax is cheap enough to hide inside `loadParameter()`, not because that was where it
+belonged. Two consequences follow that the load-time form cannot deliver:
+
+1. **Provenance.** An artifact's bytes are fixed and hashed at package time, so the model
+   card's claim about what the weights are describes something a third party can verify.
+   Weights fitted in the user's process on their device are unreproducible by construction,
+   and no manifest can describe them.
+2. **The format stops being bounded by what a load-time kernel can do.** While fitting had
+   to run data-free during a load, the format could only ever be absmax rounding. The Qwen3.8
+   precision plan — per-tensor codebooks fitted with Hessian-diagonal importance and a
+   compensated column walk — cannot exist under that constraint, which is why the sub-4-bit
+   work went offline the moment it was real (`Qwen3.8.md` §8, *Converter quantization pipeline*).
+
+The rule does not extend to the KV cache. That compression is genuinely runtime and
+per-token; see Part III.
+
+**Encoding is a normative codec, owned by `Quantization/Weight/`.** The model is
+`CodebookPacking.ixx`, which states the packed layout once and resolves any disagreement
+between the CUDA kernels and the Python packer in its own favor — a generated fixture holds
+both to it in both directions. FP4 and FP8 have no such file: `cuda_quantize_fp4_per_group`
+is the only place the nibble order and the `/6.0f` scale convention are written down, which
+makes the wire format of two shipped artifacts unreadable from CPU-only CI and unstatable to
+anyone reading the spec. That is the defect underneath "the quantizer lives on the operation",
+and the codec files are the fix.
+
+Once encoding is normative, the fitter is an implementation choice rather than a format
+decision: the CUDA absmax path may stay as an optimization of the export tool, or move to
+Python beside the codebook packer, without either changing a byte on disk.
+
+### Where the tooling lives
+
+Decided 2026-08-19. **The fitter is Python and stays Python**, for every family — not only for
+the ones Mila cannot yet run. Three reasons, and the first is the weakest:
+
+1. GPTQ accumulates Hessians from activations produced by a reference forward pass, so a C++
+   fitter would require Mila to run an architecture before it could quantize it.
+2. **The ordering forbids it even where the chassis exists.** A new architecture's artifact must
+   exist before its kernels can be validated — `Qwen3.8.md` §8 designs the converter pipeline when
+   it does precisely because Phase 1 needs its output as the oracle. C++ can never be at the head
+   of that chain, so a C++ fitter is only ever available for the families that finished it, which
+   are the families that need it least.
+3. **Mila's forward must not be its own calibration oracle.** Calibration decides which channels
+   matter by watching activations; taking them from the implementation about to be validated lets
+   a bug in that forward shape the codebook it is then measured against. The same reason Gemma
+   parity used HF's `output_hidden_states` rather than Mila's own numbers.
+
+The Phase 0 research is the evidence: all of it ran on Llama 3.2 3B, a family Mila fully
+supports, and it ran in Python regardless.
+
+That machinery is general, not Qwen's, and lives in **`Tools/Quantization`**: `formats.py` (level
+sets, grouping, codebook fitting), `fit.py` (calibration and sequential GPTQ), `artifact.py`
+(Mila-named emission), `evaluate.py` (the harness that gates a scheme), `packing.py` (the codec),
+and a command line that only orchestrates. The scheme tables are keyed on HuggingFace module
+suffixes and are the one part that knows which family it is looking at.
+
+`Tools/ExportArtifact` becomes **`mila-compress`** and narrows to the artifact: export,
+fingerprint, transcode, package. The local-store verbs it accumulated — install, rename,
+validate — move to `mila`, which owns the store. `ExportArtifact --install` and `mila install`
+are today the same word for two different operations (adopt a local package; download a
+published model), and the split resolves that.
+
+The end state has one producer per stage: Python fits and encodes, `mila-compress` packages,
+`mila` installs and serves. Whether `mila-compress` then merges into `mila` is deferred — it
+is only a clean question once the fitter has left C++ and the two share a build gate.
+
+### Where the quantizer lives — and where it does not
+
+Two shapes were considered and rejected, recorded so they are not re-proposed:
+
+- **A new `OperationType`.** An `Operation` in Mila has a `forward()`, resolves through
+  `OperationTraits` on device x precision x policy, binds 1:1 to a component, and carries the
+  build/`setParameters`/`setGradients` lifecycle. A weight quantizer has none of that: it runs
+  exactly once, holds no per-call state, and has no component. Registering it would place a
+  load-time producer permanently in the inference dispatch table — encoding "quantization is
+  part of inference" in the type system at the moment that stopped being true — and would add
+  an entry to a surface `OperationDispatch.md` is narrowing.
+- **A tensor op.** `TensorOps` is elementwise and copy work over `Tensor<T, MR>`. This is not
+  that: the input is a host `ITensorBlob` owned by a reader, and the output is two or three
+  tensors in a policy-defined relationship — packed nibbles at halved physical columns, scales
+  at `[out, in / group]`, and for a codebook a table and a high plane. Calling that a tensor op
+  flattens the only part that matters, which is the layout contract.
+
+The codec is neither. It is a peer of the policy that defines it, and it lives beside it.
+
+### What stays on the operation
+
+`onQuantizedWeightsLoaded()` (`CudaLinearOp.ixx:402`) is not quantization and does not move.
+It derives `weight_fp8_scale_` from the group scales — a forward-path scalar that exists
+because of how this kernel stages weights, and which nothing else computes. It is the general
+hook every storage format needs: *the tensors have landed, derive what forward requires.* Its
+name undersells that.
+
+The `:Quantize` partition mostly survives as well. It is already a non-template NVCC bridge
+with no dependence on `CudaLinearOp` state, so it is re-homed rather than rewritten — what it
+gains is a layout file to be checked against.
+
+**The end state for `Linear::loadParameter` is one shape for every policy**: refuse a
+compute-precision blob, upload the packed bytes, bind, derive. The codebook path already has
+it (`Linear.ixx:574`), and FP4/FP8 converge onto it. The dtype sniff at `:601` disappears, and
+with it the class of defect it guards against.
 
 ---
 
@@ -571,10 +717,13 @@ Replaced by `TWeightQuant = NoWeightQuant`.
 
 - **Runtime quantization toggling.** A `Linear` or `GroupedQueryAttention` instance is
   either quantized/compressed or it is not. Fixed at compile time.
-- **Activation quantization.** Only weights and KV cache values are quantized.
-  Activations remain at compute precision throughout.
-- **Per-group weight scales.** Per-channel scales are the current target.
+- **Activation quantization as a policy axis.** Activations stay at compute precision as
+  far as the type system is concerned. The FP8 prefill path quantizes activations inside
+  one kernel as a private staging decision (`Fp8ActivationPrefill.md`); it is not a policy,
+  and nothing outside that kernel can observe it.
 - **Asymmetric K/V compression.** K and V use the same policy symmetrically.
+- **Fitting weights at load time.** Superseded — see *Fitting is offline, encoding is a
+  codec*. Quantize-on-load survives as a transitional FP8/FP4 path only.
 - **FP16 support.** BF16 supersedes FP16 for all Mila compute targets.
 - **Training with quantized weights or compressed KV cache.** Both are inference
   optimizations.

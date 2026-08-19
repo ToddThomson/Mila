@@ -287,7 +287,7 @@ rewrite when MoE lands.
    pack `E` experts into the grouped `[E, ...]` tensors (decision B).
 4. **Quantization on the expert Linears.** Experts are the bulk of MoE parameters,
    so FP8/FP4 matters most here; the grouped `MoeOp` must carry the same W4A16
-   dequant-in-GEMM the `Linear` path already has (see `Quantization.V2.md`).
+   dequant-in-GEMM the `Linear` path already has (see `Quantization.md`).
 
 ---
 

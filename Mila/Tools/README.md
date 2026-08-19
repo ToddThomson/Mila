@@ -5,14 +5,16 @@ FetchContent never configures it.
 
 | Directory | Language | What it does |
 |---|---|---|
+| `Cli/` | C++ | The `mila` command: the local model store and the server front door |
 | `Converters/` | Python | HuggingFace weights and tokenizers to Mila format, per family |
 | `ExportArtifact/` | C++ | Artifact, package and local-store lifecycle |
 | `Publishing/` | Python | Uploads a prepared model card directory to the HuggingFace Hub |
+| `Quantization/` | Python | Fits, encodes and gates a sub-4-bit weight quantization scheme |
 | `Tokenize/` | C++ | Trains, encodes and decodes vocabularies |
 
 ## Build
 
-`CMakeLists.txt` here adds the two C++ tools; the Python ones are run in place from a virtual
+`CMakeLists.txt` here adds the C++ tools; the Python ones are run in place from a virtual
 environment and are not part of any build.
 
 `Tokenize` always configures. `ExportArtifact` configures only under `MILA_ENABLE_CUDA` — it reads
@@ -24,8 +26,17 @@ level project and not when it is a subproject.
 ## Converters
 
 `convert_weights.py` and `convert_tokenizer.py` under `Gpt2/`, `Llama/` and `Gemma/`, over a shared
-`MilaWeightWriter` in `common.py`. Converters always write BF16; quantization happens later, at load
-time. Requires PyTorch and Transformers — see `Converters/README.md` for the interpreter constraint.
+`MilaWeightWriter` in `common.py`. Converters always write BF16; quantization is a separate offline
+step — `Quantization/` for the sub-4-bit formats, `ExportArtifact` for FP8 and FP4. Requires PyTorch
+and Transformers — see `Converters/README.md` for the interpreter constraint.
+
+## Quantization
+
+`quality_gate.py` drives four modules: `formats.py` (the level sets, grouping and codebook fitting),
+`fit.py` (activation calibration and sequential GPTQ), `artifact.py` (Mila-named safetensors
+emission) and `evaluate.py` (perplexity and greedy agreement against a BF16 reference).
+`packing.py` is the packed-layout codec, held to `Src/Dnn/Quantization/Weight/CodebookPacking.ixx`
+by a generated fixture the C++ oracle test bit-matches. Shares the `Converters/` virtual environment.
 
 ## ExportArtifact
 

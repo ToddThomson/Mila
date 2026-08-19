@@ -206,5 +206,5 @@ the industry-standard inference activation format — but it is the honest failu
 
 - Measured baselines, the stale-binary correction, and the FP8 microbench: [[project_w4a16_prefill_gemm]],
   worklog `WORKLOG.md`.
-- Existing FP4/FP8 quant pipeline: `Quantization.V2.md`, `CudaLinearOp.ixx`.
+- Existing FP4/FP8 quant pipeline: `Quantization.md`, `CudaLinearOp.ixx`.
 - Reusable FP8 GEMM microbenchmark: `scratchpad/fp8_gemm_bench.cu` (nvcc -arch=sm_89, cuBLASLt).

@@ -103,6 +103,12 @@ namespace Mila::Dnn
         using WeightTensorType      = Tensor<kWeightDtype, MR>;
         using WeightScaleTensorType = Tensor<TWeightQuant::kScaleDtype, MR>;
 
+        // Companion storage some quantized formats need beyond the packed weight and its
+        // scales. Both are absent unless the policy declares them; see the companion-tensor
+        // traits in Dnn.Quantization.Weight.Policies.
+        using CodebookTensorType  = Tensor<TensorDataType::FP32, MR>;
+        using HighBitPlaneTensorType = Tensor<TensorDataType::UINT8, MR>;
+
         /**
          * @brief Construct a Linear component.
          *
@@ -274,12 +280,27 @@ namespace Mila::Dnn
          */
         std::vector<std::string> getParameterNames() const override
         {
-            if ( hasBias() )
+            std::vector<std::string> names{ "weight" };
+
+            // Companions follow the weight and precede the bias, which is the order
+            // saveFlatTensors() emits them in. The writer requires bodies in declaration
+            // order, so the two must not drift.
+            if constexpr ( HasCodebookTable<TWeightQuant> )
             {
-                return { "weight", "bias" };
+                names.push_back( "weight_codebook" );
             }
 
-            return { "weight" };
+            if constexpr ( HasHighBitPlane<TWeightQuant> )
+            {
+                names.push_back( "weight_high_plane" );
+            }
+
+            if ( hasBias() )
+            {
+                names.push_back( "bias" );
+            }
+
+            return names;
         }
 
         /**
@@ -390,6 +411,24 @@ namespace Mila::Dnn
                 {
                     this->saveParameterToWriter(
                         writer, prefix + ".weight_scale", *weight_scales_, pass );
+                }
+            }
+
+            if constexpr ( HasCodebookTable<TWeightQuant> )
+            {
+                if ( owns_weight && weight_codebook_ )
+                {
+                    this->saveParameterToWriter(
+                        writer, prefix + ".weight_codebook", *weight_codebook_, pass );
+                }
+            }
+
+            if constexpr ( HasHighBitPlane<TWeightQuant> )
+            {
+                if ( owns_weight && weight_high_plane_ )
+                {
+                    this->saveParameterToWriter(
+                        writer, prefix + ".weight_high_plane", *weight_high_plane_, pass );
                 }
             }
 
@@ -532,7 +571,26 @@ namespace Mila::Dnn
             {
                 const shape_t expected_shape{ config_.getOutputFeatures(), config_.getInputFeatures() };
 
-                if constexpr ( kIsQuantized )
+                if constexpr ( HasCodebookTable<TWeightQuant> )
+                {
+                    // A codebook format has no quantize-on-load path at all: its codes
+                    // index a table fitted offline against calibration data, which the
+                    // weights alone cannot reconstruct, and data-free rounding at these
+                    // bit widths destroys the model. So the branch below is not merely
+                    // unused here -- these operations do not implement quantize(), and
+                    // compiling a call to it is what this guard prevents.
+                    if ( blob.getMetadata().dtype != kWeightDtype )
+                    {
+                        throw std::invalid_argument( std::format(
+                            "Linear '{}': a codebook policy loads pre-packed codes only, but "
+                            "the blob is {}; the artifact was not written for this policy",
+                            this->getName(),
+                            tensorDataTypeToString( blob.getMetadata().dtype ) ) );
+                    }
+
+                    this->loadParameterFromBlob( "weight", blob, *weight_, weight_->shape() );
+                }
+                else if constexpr ( kIsQuantized )
                 {
                     // The blob says which kind of source this is, so no external flag is
                     // needed: storage dtype means the weights are already packed and the
@@ -578,6 +636,39 @@ namespace Mila::Dnn
                         "Linear '{}': received 'weight_scale' but this build is unquantized; "
                         "the artifact was written with weight quantization",
                         this->getName() ) );
+                }
+            }
+            else if ( name == "weight_codebook" )
+            {
+                if constexpr ( HasCodebookTable<TWeightQuant> )
+                {
+                    this->loadParameterFromBlob(
+                        "weight_codebook", blob, *weight_codebook_, weight_codebook_->shape() );
+
+                    operation_->onQuantizedWeightsLoaded();
+                }
+                else
+                {
+                    throw std::invalid_argument( std::format(
+                        "Linear '{}': received 'weight_codebook' but this policy decodes "
+                        "without a table; the artifact was written for a codebook format",
+                        this->getName() ) );
+                }
+            }
+            else if ( name == "weight_high_plane" )
+            {
+                if constexpr ( HasHighBitPlane<TWeightQuant> )
+                {
+                    this->loadParameterFromBlob(
+                        "weight_high_plane", blob, *weight_high_plane_, weight_high_plane_->shape() );
+
+                    operation_->onQuantizedWeightsLoaded();
+                }
+                else
+                {
+                    throw std::invalid_argument( std::format(
+                        "Linear '{}': received 'weight_high_plane' but this policy stores "
+                        "every code bit in the primary tensor", this->getName() ) );
                 }
             }
             else if ( name == "bias" )
@@ -764,12 +855,12 @@ namespace Mila::Dnn
             }
             else
             {
-                // Packed nibble formats store 2 elements per byte, so the physical column
-                // count is halved here exactly as initializeParameters() halves it. The
-                // storage dtype is UINT8 for those formats, so the halving must happen on
-                // the extent and not a second time on the dtype.
-                const dim_t weight_cols = ( kIsQuantized && !TWeightQuant::kPerChannel )
-                    ? input_features / 2
+                // Derived from the policy's storage width exactly as
+                // initializeParameters() derives it -- the drift gate compares the two.
+                // The storage dtype is UINT8 for the packed formats, so the packing must
+                // be applied to the extent and not a second time on the dtype.
+                const dim_t weight_cols = kIsQuantized
+                    ? input_features * TWeightQuant::kStorageBitsPerElement / 8
                     : input_features;
 
                 stats.device_parameter_bytes +=
@@ -790,6 +881,20 @@ namespace Mila::Dnn
                         stats.device_parameter_bytes +=
                             storageBytes<TWeightQuant::kScaleDtype>( output_features * num_groups );
                     }
+                }
+
+                // Companions, mirroring initializeParameters() -- the drift gate compares
+                // this function against a real build.
+                if constexpr ( HasCodebookTable<TWeightQuant> )
+                {
+                    stats.device_parameter_bytes +=
+                        storageBytes<TensorDataType::FP32>( TWeightQuant::kCodebookEntries );
+                }
+
+                if constexpr ( HasHighBitPlane<TWeightQuant> )
+                {
+                    stats.device_parameter_bytes +=
+                        storageBytes<TensorDataType::UINT8>( output_features * ( input_features / 8 ) );
                 }
             }
 
@@ -852,6 +957,15 @@ namespace Mila::Dnn
             if constexpr ( kIsQuantized )
             {
                 operation_->setWeightScales( weight_scales_.get() );
+            }
+
+            if constexpr ( HasCodebookTable<TWeightQuant> )
+            {
+                // Borrowed, exactly as setParameters() and setWeightScales() borrow: the
+                // component owns every parameter tensor and the operation caches pointers.
+                operation_->setCodebookTensors(
+                    weight_codebook_.get(),
+                    HasHighBitPlane<TWeightQuant> ? weight_high_plane_.get() : nullptr );
             }
 
             operation_->build( context );
@@ -931,6 +1045,13 @@ namespace Mila::Dnn
         // by operation_->quantize() inside loadParameter(). shared_ptr so a tied lm_head
         // can adopt the token embedding's row scales via installSharedWeight (D4 Design B).
         std::shared_ptr<WeightScaleTensorType> weight_scales_{ nullptr };
+
+        // Companions for formats that need storage beyond the packed weight and its
+        // scales. Non-null only when the policy declares the matching trait; unlike the
+        // scales, nothing computes these at load time -- they arrive from the artifact,
+        // because a calibrated codebook cannot be derived from the weights it encodes.
+        std::shared_ptr<CodebookTensorType> weight_codebook_{ nullptr };
+        std::shared_ptr<HighBitPlaneTensorType> weight_high_plane_{ nullptr };
 
         // Bias always stored at activation precision.
         std::shared_ptr<TensorType> bias_{ nullptr };
@@ -1026,11 +1147,15 @@ namespace Mila::Dnn
                 return;
             }
 
-            // Packed nibble formats (INT4, FP4 E2M1) store 2 elements per UINT8 byte,
-            // so the physical column count is input_features/2.
-            // FP8 and unquantized formats store one element per storage byte -- full width.
-            const int64_t weight_cols = ( kIsQuantized && !TWeightQuant::kPerChannel )
-                ? input_features / 2
+            // The physical column count follows from the policy's storage width: FP8 and
+            // unquantized formats are 8 or more bits per element and stay full width, the
+            // nibble formats (INT4, FP4 E2M1) halve it, and a sub-4-bit format packs
+            // further still. This used to read kPerChannel as a proxy for "nibble-packed",
+            // which held only because every per-group policy in the tree happened to be
+            // 4-bit -- a 2-bit policy would have allocated twice what it needs and failed
+            // the shape check on load. getRequiredMemory() must derive it the same way.
+            const int64_t weight_cols = kIsQuantized
+                ? input_features * TWeightQuant::kStorageBitsPerElement / 8
                 : input_features;
 
             weight_ = std::make_shared<WeightTensorType>(
@@ -1051,6 +1176,24 @@ namespace Mila::Dnn
                     weight_scales_ = std::make_shared<WeightScaleTensorType>(
                         device, shape_t{ output_features, num_groups }, this->getName() + ".weight.scales" );
                 }
+            }
+
+            if constexpr ( HasCodebookTable<TWeightQuant> )
+            {
+                // One table per tensor, not per group -- it amortizes to nothing and is
+                // what lets the format carry asymmetry without a zero point.
+                weight_codebook_ = std::make_shared<CodebookTensorType>(
+                    device, shape_t{ TWeightQuant::kCodebookEntries },
+                    this->getName() + ".weight.codebook" );
+            }
+
+            if constexpr ( HasHighBitPlane<TWeightQuant> )
+            {
+                // One bit per element, byte-aligned per row -- its extent does NOT follow
+                // kStorageBitsPerElement, which describes the primary tensor only.
+                weight_high_plane_ = std::make_shared<HighBitPlaneTensorType>(
+                    device, shape_t{ output_features, input_features / 8 },
+                    this->getName() + ".weight.high_plane" );
             }
 
             if constexpr ( !kIsQuantized )

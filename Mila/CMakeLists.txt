@@ -1,4 +1,4 @@
-﻿# CMake configuration for the Mila library
+# CMake configuration for the Mila library
 
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
@@ -457,9 +457,12 @@ PUBLIC
         "Src/Logging/FileSink.ixx"
         
         "Src/Dnn/Quantization/Weight/Policies.ixx"
+        "Src/Dnn/Quantization/Weight/PrecisionPlan.ixx"
         "Src/Dnn/Quantization/KvCache/Policy.ixx"
         "Src/Dnn/Quantization/KvCache/QuantPolicy.ixx"
         "Src/Dnn/Quantization/Quantization.ixx"
+
+        "Src/Dnn/Quantization/Weight/CodebookPacking.ixx"
         "Src/Dnn/Core/LanguageModelConfig.ixx"
         
         "Src/Dnn/Core/SamplerBase.ixx"
@@ -564,6 +567,8 @@ if(MILA_HAS_CUDA)
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookGemv.cu"
+            "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookDequantize.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp16.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.Fp32.cu"
             "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.Fp32.cu"
@@ -617,6 +622,8 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/W4A16Gemm/CudaW4A16Gemm.Wmma.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp8WeightQuantization.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Quantization/CudaFp4WeightQuantization.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookGemv.cuh"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/Kernels/Codebook/CodebookDequantize.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/Kernels/Gelu.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/Kernels/Swiglu.cuh"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Geglu/Kernels/Geglu.cuh"
@@ -691,6 +698,7 @@ if(MILA_HAS_CUDA)
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Encodings/Rope/CudaRopeOp.Cache.ixx"
 
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CudaLinearOp.ixx"
+                "Src/Dnn/Compute/Devices/Cuda/Operations/Linear/CodebookGemv.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Gelu/CudaGeluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Swiglu/CudaSwigluOp.ixx"
                 "Src/Dnn/Compute/Devices/Cuda/Operations/Activations/Geglu/CudaGegluOp.ixx"

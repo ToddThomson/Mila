@@ -28,6 +28,7 @@ namespace Mila::Dnn::Quant::Weight
         static constexpr TensorDataType kStorageDtype = TensorDataType::FP32;
         static constexpr TensorDataType kScaleDtype = TensorDataType::FP32;
         static constexpr bool kPerChannel = false;
+        static constexpr int kStorageBitsPerElement = 32;
     };
 
     // -------------------------------------------------------------------------
@@ -50,6 +51,7 @@ namespace Mila::Dnn::Quant::Weight
         static constexpr TensorDataType kStorageDtype = TStorage;
         static constexpr TensorDataType kScaleDtype = TensorDataType::FP32;
         static constexpr bool kPerChannel = true;
+        static constexpr int kStorageBitsPerElement = 8;
     };
 
     // -------------------------------------------------------------------------
@@ -76,6 +78,7 @@ namespace Mila::Dnn::Quant::Weight
         static constexpr bool            kPerChannel            = false;  // per-group, not per-channel
         static constexpr int             kQuantizationGroupSize = kGroupSize;
         static constexpr bool            kIsFp4E2M1             = false;
+        static constexpr int             kStorageBitsPerElement = 4;      // two nibbles per byte
     };
 
     // -------------------------------------------------------------------------
@@ -110,6 +113,7 @@ namespace Mila::Dnn::Quant::Weight
         static constexpr bool            kPerChannel            = false;  // per-group, not per-channel
         static constexpr int             kQuantizationGroupSize = kGroupSize;
         static constexpr bool            kIsFp4E2M1             = true;
+        static constexpr int             kStorageBitsPerElement = 4;      // two nibbles per byte
     };
 
     // -------------------------------------------------------------------------
@@ -135,7 +139,101 @@ namespace Mila::Dnn::Quant::Weight
         {
             T::kPerChannel
         } -> std::convertible_to<bool>;
+        // Bits of the PRIMARY weight tensor per logical element -- what Linear needs to
+        // size the packed allocation. It states the fact the allocation used to infer from
+        // kPerChannel, which only ever meant "nibble-packed" because every per-group policy
+        // happened to be 4-bit. A policy whose format spills into a companion plane counts
+        // only the primary tensor here; the companion carries its own extent.
+        {
+            T::kStorageBitsPerElement
+        } -> std::convertible_to<int>;
     };
+
+    // -------------------------------------------------------------------------
+    // PerGroupCodebook2<kGroupSize> / PerGroupCodebook3<kGroupSize>
+    //
+    // Sub-4-bit codebook weight quantization (W2A16 / W3A16). Codes index a per-tensor
+    // codebook rather than a uniform step ladder, which is what lets the format absorb
+    // asymmetry without a zero point -- measured as both cheaper and materially better
+    // than a per-group zero (Specifications/Qwen3.8.md, Phase 0).
+    //
+    // Codes are produced OFFLINE by the converter with calibration and GPTQ error
+    // compensation; loadParameter() uploads them and never quantizes. Data-free
+    // round-to-nearest at these bit widths destroys the model outright, so unlike every
+    // other policy here there is no quantize-on-load path.
+    //
+    //   PerGroupCodebook2: 2-bit codes, 4-entry table, FP16 scale per group of 32
+    //                      -> 2 + 16/32 = 2.5 bits per weight
+    //   PerGroupCodebook3: 3-bit codes, 8-entry table, FP16 scale per group of 64
+    //                      -> 3 + 16/64 = 3.25 bits per weight
+    //
+    // The 3-bit format stores the low two bits of each code in the primary tensor and the
+    // third in a separate byte-aligned plane, so both policies share one kernel family and
+    // keep tile loads aligned. kStorageBitsPerElement describes the PRIMARY tensor only --
+    // 2 for both -- and the plane carries its own extent.
+    //
+    // The normative packed layout and its CPU reference codec are in CodebookPacking.ixx.
+    // -------------------------------------------------------------------------
+    export template<int kGroupSize = 32>
+        struct PerGroupCodebook2
+    {
+        static constexpr bool            kIsQuantized           = true;
+        static constexpr TensorDataType  kStorageDtype          = TensorDataType::UINT8;
+        static constexpr TensorDataType  kScaleDtype            = TensorDataType::FP16;
+        static constexpr bool            kPerChannel            = false;
+        static constexpr int             kQuantizationGroupSize = kGroupSize;
+        static constexpr bool            kIsFp4E2M1             = false;
+        static constexpr int             kStorageBitsPerElement = 2;
+        static constexpr bool            kIsCodebook            = true;
+        static constexpr int             kCodeBits              = 2;
+        static constexpr int             kCodebookEntries       = 4;
+        static constexpr bool            kHasHighBitPlane       = false;
+    };
+
+    export template<int kGroupSize = 64>
+        struct PerGroupCodebook3
+    {
+        static constexpr bool            kIsQuantized           = true;
+        static constexpr TensorDataType  kStorageDtype          = TensorDataType::UINT8;
+        static constexpr TensorDataType  kScaleDtype            = TensorDataType::FP16;
+        static constexpr bool            kPerChannel            = false;
+        static constexpr int             kQuantizationGroupSize = kGroupSize;
+        static constexpr bool            kIsFp4E2M1             = false;
+        static constexpr int             kStorageBitsPerElement = 2;  // primary plane only
+        static constexpr bool            kIsCodebook            = true;
+        static constexpr int             kCodeBits              = 3;
+        static constexpr int             kCodebookEntries       = 8;
+        static constexpr bool            kHasHighBitPlane       = true;
+    };
+
+    // -------------------------------------------------------------------------
+    // Companion-tensor traits
+    //
+    // A quantized format may need storage beyond the packed weight and its scales.
+    // Linear serves those companions without naming a format: it asks the policy what it
+    // declares. Detection is STRUCTURAL, so a policy defined outside this module -- a
+    // research format under Src/Experimental, which core must never import -- satisfies
+    // these without the core knowing the type exists.
+    //
+    // A policy that declares neither compiles to exactly what it compiled to before these
+    // existed; every consumer guards with if constexpr.
+    // -------------------------------------------------------------------------
+
+    /// The format decodes through a per-tensor table, which travels as its own tensor.
+    export template<typename T>
+        concept HasCodebookTable = requires
+    {
+        { T::kIsCodebook } -> std::convertible_to<bool>;
+        { T::kCodebookEntries } -> std::convertible_to<int>;
+    } && T::kIsCodebook;
+
+    /// The format spills one bit per element into a second byte-aligned plane, so the
+    /// primary tensor's kStorageBitsPerElement does not account for the whole code.
+    export template<typename T>
+        concept HasHighBitPlane = requires
+    {
+        { T::kHasHighBitPlane } -> std::convertible_to<bool>;
+    } && T::kHasHighBitPlane;
 
     // Verify all concrete policies satisfy the concept at definition time.
     static_assert(WeightQuantPolicy<NoWeightQuant>);
@@ -144,5 +242,19 @@ namespace Mila::Dnn::Quant::Weight
     static_assert(WeightQuantPolicy<PerGroupInt4<64>>);
     static_assert(WeightQuantPolicy<PerGroupFp4<>>);
     static_assert(WeightQuantPolicy<PerGroupFp4<64>>);
+    static_assert(WeightQuantPolicy<PerGroupCodebook2<>>);
+    static_assert(WeightQuantPolicy<PerGroupCodebook3<>>);
+    static_assert(WeightQuantPolicy<PerGroupCodebook2<64>>);
+    static_assert(WeightQuantPolicy<PerGroupCodebook3<128>>);
+
+    // The companion traits must select exactly the policies that declare them: a codebook
+    // policy allocating no table, or an FP4 policy allocating one, would both be silent.
+    static_assert(HasCodebookTable<PerGroupCodebook2<>>);
+    static_assert(HasCodebookTable<PerGroupCodebook3<>>);
+    static_assert(!HasCodebookTable<PerGroupFp4<>>);
+    static_assert(!HasCodebookTable<NoWeightQuant>);
+    static_assert(HasHighBitPlane<PerGroupCodebook3<>>);
+    static_assert(!HasHighBitPlane<PerGroupCodebook2<>>);
+    static_assert(!HasHighBitPlane<PerGroupFp4<>>);
 
 }

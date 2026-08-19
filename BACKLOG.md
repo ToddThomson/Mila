@@ -232,6 +232,13 @@ being a task list and needs a prune.
 
 ### Production Hardening
 
+- [ ] **The FP4 and FP8 wire formats are defined only by a CUDA kernel.** `cuda_quantize_fp4_per_group`
+  is the sole place the nibble order and the `/6.0f` scale convention are written down, so the byte
+  layout of every published artifact is unreadable from CPU-only CI and unstatable in the spec.
+  `CodebookPacking.ixx` is the shape to copy — normative layout plus a host codec, with a generated
+  fixture holding the kernel and the Python packer to it in both directions. Add `Fp4Packing.ixx` and
+  `Fp8Packing.ixx` beside it. Hardening a shipped format, not a new capability; see `Quantization.md`,
+  *Fitting is offline, encoding is a codec*.
 - [ ] **One concept, two names: the compute-precision template parameter is `TPrecision` in most of the
   tree and `TComputePrecision` in nine files.** Same axis, split along no principle — `Linear` and
   `GroupedQueryAttention` differ from their own siblings — and it cost two compile errors in one
@@ -590,6 +597,22 @@ being a task list and needs a prune.
 
 ### Model Distribution
 
+- [ ] **`ExportArtifact` becomes `mila-compress` and gives the store back to `mila`.** It grew
+  install/rename/validate verbs that duplicate the store tool — `ExportArtifact --install` adopts a
+  local package while `mila install` downloads a published one, the same word for two operations,
+  and Chat (`Chat.ModelCatalog.ixx:387`) and MIS (`model_worker.py:90`) both point users at the
+  wrong one. `mila-compress` keeps export, fingerprint, transcode, package. The name is in four
+  user-facing strings and five docs, two of them Python, so nothing catches them at compile time.
+- [ ] **Only Gemma refuses a pre-quantized artifact whose policy is not the one it compiled.**
+  `GemmaModel.ixx:640` (and `:704` for the footprint sibling) compares `reader.getWeightQuantization()`
+  against the requested policy; `LlamaModel::fromPretrainedImpl` and `GptModel` never read it. The
+  storage dtype cannot substitute — FP4 at group 128 and group 64 are both U8 — so a mismatch
+  reinterprets the nibble layout and produces a model that runs and is wrong. `ExportArtifact` already
+  emits Llama artifacts, so the hole is reachable today.
+- [ ] **`ModelSerialization.md` Phase 7 describes work that shipped.** The distribution artifact exists
+  end to end — `savePretrained` (`LanguageModel.ixx:116`), the `mila_quantization` metadata key, the
+  reader, the policy check, `Linear`'s pre-packed load branch, and `Tools/ExportArtifact` driving it.
+  The phase text still calls it unwritten and the freeze-boundary table still lists it out of bounds.
 - [ ] **A mistyped model name reports an authentication failure, but only to users without a token.**
   `HuggingFaceHub.ixx:283` maps every 401 to "no valid HuggingFace token. Set HF_TOKEN, or run
   'huggingface-cli login'." MEASURED both ways on 2026-08-14 with `gtp2-small`: an authenticated caller
@@ -650,11 +673,12 @@ being a task list and needs a prune.
   forgotten otherwise.** `pip install mila-llm` goes in once the Windows clean-room gate is green and
   beta.2's wheels are on PyPI; the footprint pre-flight goes in once GPT-2 has `getRequiredMemory` and
   Gate B has covered `NoWeightQuant` — until then it can only be claimed for Gemma 4 and Llama.
-- [ ] **`ExportArtifact` has no `pull` verb** — it is the one store verb the tool lacks, so the cold
-  download cannot be exercised from a C++-only machine without a human at the `/install` prompt.
-  Python is already covered: `ModelStore.pull(name, owner, transport=None)` is bound
-  (`Mila_py.cpp:309`) and is what pulled 6.33 GB in the Linux clean room, so this is a gap in the
-  tool, not in the product.
+- [ ] **No C++ tool has a `pull` verb**, so the cold download cannot be exercised from a C++-only
+  machine without a human at the `/install` prompt. Python is already covered:
+  `ModelStore.pull(name, owner, transport=None)` is bound (`Mila_py.cpp:309`) and is what pulled
+  6.33 GB in the Linux clean room, so this is a gap in the tool, not in the product. It lands on
+  `mila` with the other store verbs, and is **not** `ExportArtifact --fetch`, which is an HTTP-client
+  diagnostic that happens to write a file.
 - [ ] **`/models --online` answers SUPPORT but still cannot answer FIT, and only fit needs the
   `Mila/Src` change.** Landed 2026-08-17: the column settles architecture, variant, `instruct` and
   the one certain memory negative (download alone exceeds the card — sound because the download is a
@@ -888,6 +912,13 @@ Next-cycle work. Coarse by design — detailed tasking happens only when an item
   lands.
 - **Model serialization** — the remaining checkpoint round-trip and distribution-artifact phases.
   Design, defect analysis and the phase plan are in `Specifications/ModelSerialization.md`.
+- **Retire quantize-on-load — one load shape for every policy.** `Linear::loadParameter` refuses a
+  compute-precision blob, uploads packed bytes, binds, derives; the dtype sniff at `Linear.ixx:601`
+  and `CudaLinearOp::quantize()` go, and FP8/FP4 fitting joins the sub-4-bit fitter in
+  `Tools/Quantization` — one producer for every format, and artifact production stops needing a GPU.
+  The codebook path is already this shape (`:574`). Depends on the FP4/FP8 codecs, and takes Chat's
+  `/model <alias> fp8` load-time keyword and `quantization_applied_at_load` with it. An API change
+  to `Mila/Src`, which is why it waits. Rationale in `Quantization.md`.
 - **Python binding — numeric access, not component access.** Add a session-level `forward()` returning
   logits, plus final hidden states, to `LlamaSession`/`GemmaSession`; from Python a parity run can
   compare token ids and nothing else today. Component, tensor and training bindings are ruled out:
