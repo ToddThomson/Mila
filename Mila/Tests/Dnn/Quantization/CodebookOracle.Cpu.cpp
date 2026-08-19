@@ -1,6 +1,6 @@
 /**
  * @file CodebookOracle.Cpu.cpp
- * @brief Bit-match between the Python packer (Tools/Qwen38/packing.py)
+ * @brief Bit-match between the Python packer (Tools/Quantization/packing.py)
  * and the C++ reference codec, over a generated fixture. A failure here means the
  * two implementations of the packed layout have diverged; CodebookPacking.ixx wins.
  */

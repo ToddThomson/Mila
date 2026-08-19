@@ -1,11 +1,11 @@
 /**
- * @file CudaCodebookLinearOp.Cuda.cpp
+ * @file CudaLinearOp.Codebook.Cuda.cpp
  * @brief The Phase 1 dispatch gate: a codebook weight policy resolving through the
  * OperationTraits table to working decode and prefill forwards on real Mila tensors.
  *
  * CodebookGemv.Cuda.cpp already proves the kernels against the normative codec. What is
- * under test here is everything between: that the policies dispatch to their own
- * operation rather than to CudaLinearOp, that an operation can carry pre-quantized
+ * under test here is everything between: that the policies dispatch to the one Linear
+ * operation every other weight format uses, that that operation can carry pre-quantized
  * weights it never quantizes and owns none of them, and that the numbers survive the trip
  * through Tensor and ExecutionContext unchanged.
  *
@@ -33,7 +33,7 @@ import Compute.OperationTraits;
 import Serialization.Tensor;
 import Dnn.Quantization.Weight.CodebookPacking;
 import Dnn.Quantization.Weight.Policies;
-import Compute.CudaCodebookLinearOp;
+import Compute.CudaLinearOp;
 
 
 namespace Mila::Tests::Dnn::Quantization
@@ -50,18 +50,45 @@ namespace Mila::Tests::Dnn::Quantization
             OperationType::LinearOp, DeviceType::Cuda, TensorDataType::BF16, TPolicy>::type;
 
         // The dispatch claim, checked at compile time: the rows exist, and they name the
-        // codebook operation rather than the CudaLinearOp every other quantized policy
-        // resolves to. A missing row would not reach these assertions at all -- the tuple
-        // would name the undefined primary and the alias above would fail to compile,
-        // which is the diagnostic OperationTraits.Template.ixx promises.
+        // SAME CudaLinearOp every other weight policy resolves to -- the policy selects the
+        // decode kernel and the prefill strategy, not a second operation. A missing row
+        // would not reach these assertions at all: the tuple would name the undefined
+        // primary and the alias above would fail to compile, which is the diagnostic
+        // OperationTraits.Template.ixx promises.
         static_assert( OperationSupported<OperationType::LinearOp, DeviceType::Cuda,
             TensorDataType::BF16, PerGroupCodebook2<32>> );
         static_assert( OperationSupported<OperationType::LinearOp, DeviceType::Cuda,
             TensorDataType::BF16, PerGroupCodebook3<64>> );
         static_assert( std::is_same_v<CodebookOpFor<PerGroupCodebook2<32>>,
-            CudaCodebookLinearOp<TensorDataType::BF16, PerGroupCodebook2<32>>> );
+            CudaLinearOp<TensorDataType::BF16, PerGroupCodebook2<32>>> );
         static_assert( std::is_same_v<CodebookOpFor<PerGroupCodebook3<64>>,
-            CudaCodebookLinearOp<TensorDataType::BF16, PerGroupCodebook3<64>>> );
+            CudaLinearOp<TensorDataType::BF16, PerGroupCodebook3<64>>> );
+
+        // The consolidation's load-bearing property: a member a format has no meaning for
+        // is CONSTRAINED AWAY, not present and throwing. The two directions are asserted
+        // differently because MSVC treats a failed constraint on a NON-TEMPLATE member as a
+        // hard error rather than substitution failure, so the negative cannot be spelled as
+        // !requires{ op.member(...) } -- it fails to compile instead of evaluating false.
+        // The positive form works, and the discriminator that gates it is checked directly.
+        static_assert( requires( CudaLinearOp<TensorDataType::BF16, PerGroupFp4<128>> op,
+            const Mila::Dnn::Serialization::ITensorBlob& blob,
+            ITensor& weight, ITensor& scales, const shape_t& shape )
+        {
+            op.quantize( blob, weight, scales, shape );
+        } );
+        static_assert( requires( CudaLinearOp<TensorDataType::BF16, PerGroupCodebook3<64>> op,
+            ITensor* codebook, ITensor* plane )
+        {
+            op.setCodebookTensors( codebook, plane );
+        } );
+
+        static_assert( CudaLinearOp<TensorDataType::BF16, PerGroupCodebook2<32>>::kIsCodebookWeight );
+        static_assert( !CudaLinearOp<TensorDataType::BF16, PerGroupFp4<128>>::kIsCodebookWeight );
+
+        // Both formats reach the same striped two-phase prefill; only the cap differs, and
+        // only the expansion kernel inside it differs.
+        static_assert( CudaLinearOp<TensorDataType::BF16, PerGroupCodebook2<32>>::kUsesStagedPrefill );
+        static_assert( CudaLinearOp<TensorDataType::BF16, PerChannelFp8<>>::kUsesStagedPrefill );
 
         // A precision the GEMV kernels cannot honor must have no row at all, per the
         // OperationTraits contract -- a missing specialization, never a poisoned one.

@@ -210,7 +210,7 @@ if(MILA_ENABLE_CUDA)
         "Dnn/Components/Transformers/Gemma/Gemma.Cuda.cpp"
         "Dnn/Compute/Operations/OperationTraits.Cuda.cpp"
         "Dnn/Components/Linear/CodebookGemv.Cuda.cpp"
-        "Dnn/Components/Linear/CudaCodebookLinearOp.Cuda.cpp"
+        "Dnn/Components/Linear/CudaLinearOp.Codebook.Cuda.cpp"
         # The saveParameterToArchive staging branch needs a device-only dtype (BF16),
         # so it is unreachable from the CPU companion in Dnn/Core/Component.cpp.
         "Dnn/Core/Component.Cuda.cpp"

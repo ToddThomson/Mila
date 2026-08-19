@@ -472,7 +472,7 @@ Reaching that hardware needs the activation-quantization axis and is outside thi
 
 ### Phase 0 first results (2026-08-16)
 
-Harness: `Mila/Tools/Qwen38/quality_gate.py` (fake-quantization on Llama 3.2 3B
+Harness: `Mila/Tools/Quantization/quality_gate.py` (fake-quantization on Llama 3.2 3B
 Instruct, greedy generation plus a small-text perplexity probe; ratios are against the BF16
 reference on the same probe).
 
@@ -679,7 +679,7 @@ the real artifact — the packer is proven on the Llama 3.2 3B proxy first.
 Built, green, and proven against each other. Policies and the packed-layout codec sit in
 `Mila/Src/Dnn/Quantization/Weight/`, the operation and its kernels in
 `Mila/Src/Dnn/Compute/Devices/Cuda/Operations/Linear/`, tests mirror both, and the Python
-tooling is in `Mila/Tools/Qwen38/`:
+tooling is in `Mila/Tools/Quantization/`:
 
 - **Policies** (`CodebookPolicies.ixx`): `PerGroupCodebook2<32>` / `PerGroupCodebook3<64>`,
   satisfying the production `WeightQuantPolicy` concept, FP16 scale dtype.
@@ -713,17 +713,23 @@ tooling is in `Mila/Tools/Qwen38/`:
   per-tensor map rides beside it under `mila_codebook_policies`. Which of the two a Mila
   loader should trust is decided when the codebook load path exists.
 
-- **Operation and dispatch** (`CudaCodebookLinearOp.ixx`, `OperationTraits.Codebook.ixx`,
-  tests in `CodebookLinearOp.Cuda.cpp`): the policies resolve through the production
-  `OperationTraits` table to working decode and prefill forwards on real tensors. The
-  operation derives from the production `Operation` base and never quantizes —
-  `uploadPackedWeights()` takes the place of `quantize()`, which is the Phase 0 finding
-  expressed in the type.
-- **Two-phase prefill** (`Kernels/CodebookDequantize.cu`): packed codes expand into the
-  shared BF16 scratch, then a standard cuBLASLt GEMM with the bias epilogue — the same
-  structure as the proven FP4 baseline. It is the cheap route to end-to-end at 3B and does
-  not scale: one Qwen3.8 FFN matrix expands to 170 MiB per forward, which is the
-  constraint Section 5 already states.
+- **Operation and dispatch** (`CudaLinearOp.ixx`, rows in `OperationTraits.Cuda.ixx`,
+  tests in `CudaLinearOp.Codebook.Cuda.cpp`): the policies resolve through the production
+  `OperationTraits` table to working decode and prefill forwards on real tensors, and they
+  resolve to **the one CUDA Linear operation every other weight format uses**. The policy
+  selects the decode kernel, the scale element type and the prefill strategy; a member the
+  format has no meaning for is constrained away rather than present and throwing, so
+  `quantize()` is uncallable here — the Phase 0 finding expressed in the type — while
+  `setCodebookTensors()` is callable only on a format that has a table. Consolidated
+  2026-08-18: a `CudaCodebookLinearOp` existed for five commits and was retired, having
+  proven the drift a second operation causes (the striped staging below landed in it alone
+  and the production FP4/FP8 two-phase path did not get it).
+- **Two-phase prefill** (`Kernels/Codebook/CodebookDequantize.cu`): packed codes expand
+  into the shared BF16 scratch, then a standard cuBLASLt GEMM — the same structure as the
+  proven FP4 baseline, and after consolidation literally the same code, with bias added
+  post-GEMM by `cuda_add_bias` as every other staged path does. It is the cheap route to
+  end-to-end at 3B and does not scale unstriped: one Qwen3.8 FFN matrix expands to 170 MiB
+  per forward, which is the constraint Section 5 already states.
 
 **The traits table is open for extension (measured 2026-08-17).** MSVC accepts a
 specialization of a template owned by another module, so a dispatch row can be registered
@@ -952,11 +958,18 @@ once. The fused GEMM stops being a Phase 1 exit item and becomes what it is -- a
 *performance* project whose real content is the tile ladder, shared with FP4 and Gemma and
 Llama, and whose gate is 37 TFLOP/s rather than correctness.
 
-**Landed (2026-08-18).** `CudaCodebookLinearOp::forward` walks the output channels in strips
+**Landed (2026-08-18).** `CudaLinearOp::runStagedPrefill` walks the output channels in strips
 sized to hold staging under a 32 MiB cap: six strips at 28 MiB for the Qwen FFN shape, two at
-24 MiB for Llama 3B. The cap is a **constructor parameter** defaulting to that constant,
-because a real budget belongs to whoever owns device memory rather than to one operation --
-and because nothing else can exercise the striped path at a testable shape.
+24 MiB for Llama 3B. The cap is a **constructor parameter** defaulting to a per-policy
+constant, because a real budget belongs to whoever owns device memory rather than to one
+operation -- and because nothing else can exercise the striped path at a testable shape.
+
+Since the consolidation the same routine serves FP8 per-channel, FP4 E2M1 and both codebook
+formats; only the expansion kernel inside the loop differs. **Only the codebook formats set a
+real cap.** FP8 and FP4 default to an unbounded one, which yields a single strip and therefore
+the byte-for-byte prefill they had before, because capping them trades throughput for VRAM at
+shapes where the trade has not been measured. Making that trade is now one constant rather
+than a second operation.
 
 Two implementation notes. The dequantize kernel needed **no change**: it addresses every
 plane relative to row 0 of the pointers it is handed, so a strip is the row offset folded

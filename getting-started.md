@@ -531,7 +531,7 @@ coverage, and new encoding strategies under `Mila/Src/Dnn/Components/Encodings/`
 - [CLAUDE.md](CLAUDE.md) — architecture overview, type axes, dispatch, and code style.
 - `Mila/Specifications/` — design documents:
   [OperationDispatch.md](Mila/Specifications/OperationDispatch.md),
-  [Quantization.V2.md](Mila/Specifications/Quantization.V2.md), and the planned-feature
+  [Quantization.md](Mila/Specifications/Quantization.md), and the planned-feature
   specs (PromptCaching, TokenSampling, ToolCalling).
 - API reference: https://mila.toddt.me/api/ (regenerated on every push to master).
 

@@ -81,7 +81,7 @@ Mila/
   Tools/
     Converters/       Python scripts: convert_llama_weights.py, etc. (HuggingFace → Mila binary)
     Tokenize/         Tokenizer tools
-  Specifications/     Design documents (OperationDispatch.md, Quantization.V2.md, etc.)
+  Specifications/     Design documents (OperationDispatch.md, Quantization.md, etc.)
 Data/
   Models/             Binary weight files (llama32_3b_instruct_bf16.bin, llama31_8b_instruct_bf16.bin, etc.)
   Scripts/            Python dev/conversion scripts
@@ -99,7 +99,7 @@ Every component and operation is templated on two independent axes:
 
 - **`TDeviceType`** (`DeviceType::Cpu` or `DeviceType::Cuda`) — determines memory resource and kernel dispatch.
 - **`TPrecision`** (`TensorDataType::FP32`, `BF16`, etc.) — activation input and compute type. BF16 is the primary reduced-precision target; FP16 is not used.
-- **`TWeightQuant`** (on `Linear` only) — compile-time weight quantization policy. Defaults to `NoWeightQuant`. Setting `PerChannelFp8<>` or `PerGroupFp4<128>` quantizes weights at model load time — no quantized checkpoint format, no runtime config object.
+- **`TWeightQuant`** (on `Linear` only) — compile-time weight quantization policy. Defaults to `NoWeightQuant`. Setting `PerChannelFp8<>` or `PerGroupFp4<128>` selects the storage format the artifact must already carry — no runtime config object.
 
 ### Operation Dispatch — OperationTraits
 
@@ -127,9 +127,11 @@ Each component owns its parameters (weights, biases) and gradients. Composition 
 - `GptModel::fromPretrained(path, config)` — equivalent for GPT-2.
 - Both use a two-phase KV-cache: prefill (full sequence) + decode (one token at a time, outer_size == 1).
 
-### Quantization Pipeline (Alpha.5)
+### Quantization Pipeline
 
-Quantization happens at `loadParameter()` time inside `Linear`, not at checkpoint creation:
+Weight quantization is offline: `Tools/ExportArtifact` produces a pre-quantized safetensors artifact that declares its policy in `__metadata__["mila_quantization"]`, a load refuses an artifact whose policy is not the compiled one, and `Linear::loadParameter` uploads packed bytes directly. Sub-4-bit codebook formats have no other path — their tables are fitted offline against calibration data. Design of record: `Mila/Specifications/Quantization.md`.
+
+Quantize-on-load survives as a transitional path for FP8 and FP4 only, selected on the blob's dtype (`Linear.ixx:601`):
 1. Converter always writes BF16.
 2. `Linear<Cuda, BF16, PerChannelFp8<>>` calls `operation_->quantize()` during `loadParameter()`.
 3. For FP8: per-channel absmax scales computed host-side, FP8 weights + FP32 scales uploaded to device; cuBLASLt handles mixed-precision GEMM natively.
@@ -235,7 +237,7 @@ never deferred to "later":
 
 Design decisions are documented under `Mila/Specifications/`:
 - `OperationDispatch.md` — the full `OperationTraits` design, migration checklist, file layout
-- `Quantization.V2.md` — quantization policy design and scope table
+- `Quantization.md` — quantization policy design and scope table
 - `ModelSerialization.md` — checkpoint vs distribution artifact, the `ModelArchive` defects, phased build plan
 - `PromptCaching.md`, `TokenSampling.md`, `ToolCalling.md` — planned features
 

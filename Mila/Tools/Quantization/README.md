@@ -1,9 +1,31 @@
-# Qwen3.8 Phase 0 — quality gate harness
+# Mila weight quantization
 
-Phase 0 of `Mila/Specifications/Qwen3.8.md` (section 8): fake-quantization experiments that
-must pass IQ2_XXS-class generation quality before the sub-4-bit CUDA kernels are built.
-Results of record live in the spec ("Phase 0 first results"); this file is how to reproduce
-them.
+Fits, encodes and gates a sub-4-bit weight quantization scheme, offline. Nothing here is
+specific to one model family: it was written for the Qwen3.8-27B chassis
+(`Mila/Specifications/Qwen3.8.md`, section 8) and proven on a Llama 3.2 3B proxy, and the
+scheme tables are the only part that knows which family it is looking at.
+
+The gate is Phase 0 of that spec: fake-quantization experiments that must pass
+IQ2_XXS-class generation quality before the sub-4-bit CUDA kernels are built. Results of
+record live in the spec ("Phase 0 first results"); this file is how to reproduce them.
+
+## Layout
+
+| File | Holds |
+|---|---|
+| `formats.py` | grouping, the fake-quant level sets, k-means codebook fitting, the scheme tables |
+| `fit.py` | activation calibration (`collect_importance`) and sequential GPTQ |
+| `artifact.py` | Mila-named safetensors emission, shape checks, metadata |
+| `evaluate.py` | perplexity, greedy generation and agreement, the synthetic self-test |
+| `packing.py` | the packed-layout codec, and the C++ test fixture generator |
+| `quality_gate.py` | the command line, and the orchestration that wires the above |
+
+`packing.py` is held to `Src/Dnn/Quantization/Weight/CodebookPacking.ixx`, which is the
+normative statement of the layout; regenerate the fixture after any layout change:
+
+```
+python packing.py --emit-fixture ../../Tests/Dnn/Quantization/CodebookOracle.Fixture.h
+```
 
 ## Environment
 
