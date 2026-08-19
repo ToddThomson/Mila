@@ -41,6 +41,7 @@ namespace Mila::Dnn
         Dropout,
         MultiHeadAttention,
         GroupedQueryAttention,
+        AttentionOutputGate,
         Residual,
         TokenEmbedding,
         Lpe,
@@ -91,6 +92,8 @@ namespace Mila::Dnn
                 return "Softmax";
             case ComponentType::MultiHeadAttention:
                 return "MultiHeadAttention";
+            case ComponentType::AttentionOutputGate:
+                return "AttentionOutputGate";
             case ComponentType::Residual:
                 return "Residual";
             case ComponentType::Mlp:
@@ -145,6 +148,8 @@ namespace Mila::Dnn
             return ComponentType::Softmax;
         if ( low == "attention" )
             return ComponentType::MultiHeadAttention;
+        if ( low == "attentionoutputgate" )
+            return ComponentType::AttentionOutputGate;
         if ( low == "residual" )
             return ComponentType::Residual;
         if ( low == "mlp" )
@@ -197,6 +202,8 @@ namespace Mila::Dnn
                 return "mha";
             case ComponentType::GroupedQueryAttention:
                 return "gqa";
+            case ComponentType::AttentionOutputGate:
+                return "agate";
             case ComponentType::Residual:
                 return "res";
             case ComponentType::Mlp:
@@ -247,6 +254,10 @@ namespace Mila::Dnn
             return ComponentType::Softmax;
         if ( s == "mha" )
             return ComponentType::MultiHeadAttention;
+        if ( s == "gqa" )
+            return ComponentType::GroupedQueryAttention;
+        if ( s == "agate" )
+            return ComponentType::AttentionOutputGate;
         if ( s == "res" )
             return ComponentType::Residual;
         if ( s == "mlp" )

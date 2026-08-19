@@ -79,7 +79,7 @@ namespace Mila::Dnn::Quant::Weight
         AttentionPrecisionRoles<TPlan> && FeedForwardPrecisionRoles<TPlan>;
 
     /**
-     * @brief The embedding/head table, required at the network level rather than the block.
+     * @brief The embedding table, required at the network level rather than the block.
      *
      * Deliberately separate: no block instantiates the table, so folding it into
      * DecoderPrecisionPlan would make blocks reject plans over a role they never build.
@@ -88,6 +88,20 @@ namespace Mila::Dnn::Quant::Weight
         concept EmbeddingPrecisionRole =
         requires { typename TPlan::EmbeddingTable; }
         && WeightQuantPolicy<typename TPlan::EmbeddingTable>;
+
+    /**
+     * @brief The output (language-model head) table.
+     *
+     * Separate from EmbeddingTable because the two tables only share a policy when they
+     * share an allocation. A tied family (Gemma) names one policy twice and loses nothing;
+     * an untied one (Qwen 3.8, `tie_word_embeddings: false`) reads the head every decode
+     * step and gathers one row from the table, so the two are priced against different
+     * costs and land at different widths.
+     */
+    export template<typename TPlan>
+        concept LanguageModelHeadRole =
+        requires { typename TPlan::LanguageModelHead; }
+        && WeightQuantPolicy<typename TPlan::LanguageModelHead>;
 
     // -------------------------------------------------------------------------
     // UniformPrecisionPlan
@@ -109,6 +123,7 @@ namespace Mila::Dnn::Quant::Weight
         using FeedForwardGateUp = TPolicy;
         using FeedForwardDown = TPolicy;
         using EmbeddingTable = TPolicy;
+        using LanguageModelHead = TPolicy;
     };
 
     namespace Detail
@@ -144,5 +159,6 @@ namespace Mila::Dnn::Quant::Weight
     // accepting bare policies at whichever block requires the role that was forgotten.
     static_assert( DecoderPrecisionPlan<UniformPrecisionPlan<NoWeightQuant>> );
     static_assert( EmbeddingPrecisionRole<UniformPrecisionPlan<NoWeightQuant>> );
+    static_assert( LanguageModelHeadRole<UniformPrecisionPlan<NoWeightQuant>> );
     static_assert( DecoderPrecisionPlan<PrecisionPlanFor<NoWeightQuant>> );
 }

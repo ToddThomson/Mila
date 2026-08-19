@@ -38,6 +38,7 @@ namespace Mila::Tests::Dnn::Quantization
             using FeedForwardGateUp = PerGroupCodebook2<32>;
             using FeedForwardDown = PerGroupCodebook3<64>;
             using EmbeddingTable = PerGroupFp4<128>;
+            using LanguageModelHead = PerGroupFp4<128>;
         };
 
         // Names three of the four block roles. The omission is the test.
@@ -63,6 +64,12 @@ namespace Mila::Tests::Dnn::Quantization
 
     static_assert( DecoderPrecisionPlan<QwenAttentionLayerPlan> );
     static_assert( EmbeddingPrecisionRole<QwenAttentionLayerPlan> );
+    static_assert( LanguageModelHeadRole<QwenAttentionLayerPlan> );
+
+    // The two table roles are separate concepts because an untied family assigns them
+    // different policies. A plan naming only the embedding is complete for a tied network
+    // and incomplete for an untied one, and the concepts must be able to say so.
+    static_assert( !LanguageModelHeadRole<PlanMissingFeedForwardDown> );
 
     static_assert( std::is_same_v<QwenAttentionLayerPlan::FeedForwardGateUp, PerGroupCodebook2<32>> );
     static_assert( std::is_same_v<QwenAttentionLayerPlan::FeedForwardDown, PerGroupCodebook3<64>> );
@@ -93,6 +100,7 @@ namespace Mila::Tests::Dnn::Quantization
 
     static_assert( DecoderPrecisionPlan<LiftedFp4> );
     static_assert( EmbeddingPrecisionRole<LiftedFp4> );
+    static_assert( LanguageModelHeadRole<LiftedFp4> );
     static_assert( std::is_same_v<LiftedFp4::QkvProjection, PerGroupFp4<128>> );
     static_assert( std::is_same_v<LiftedFp4::FeedForwardDown, PerGroupFp4<128>> );
 

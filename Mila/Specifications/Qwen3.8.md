@@ -382,15 +382,20 @@ Ordered by dependency, not priority. Nothing here is scheduled.
 ### Phasing
 
 The list above is inventory; this is the order it lands, with the gate each phase must pass
-before the next is worth starting. **The branch is the isolation mechanism**, so the C++
-lands in the normal tree — policies beside the other weight policies, the operation beside
-the other Linear backends, kernels under that operation, dispatch rows in
-`OperationTraits.Cuda.ixx`. An earlier `Src/Experimental/` tree existed to keep this work
-separable while it sat on `dev`; once it moved to its own branch that tree was doing the
-same job twice and was retired (2026-08-17), along with the `MILA_ENABLE_EXPERIMENTAL`
-flag that gated it. Two tracks are independent until Phase 4 joins them: the **storage
-track** (Phases 0-2) touches no Qwen code, and the **mixer track** (Phase 3) needs no
-quantization. Nothing here is scheduled.
+before the next is worth starting. **The C++ lands in the normal tree** — policies beside the
+other weight policies, the operation beside the other Linear backends, kernels under that
+operation, dispatch rows in `OperationTraits.Cuda.ixx`.
+
+**Isolation comes from the work being inert, not from where it lives.** A new policy, codec or
+kernel costs nothing until a model instantiates it, and no shipped family does. Two earlier
+isolation mechanisms have been retired on that reasoning: `Src/Experimental/` with its
+`MILA_ENABLE_EXPERIMENTAL` flag (2026-08-17), and the `qwen3.8-quantization` branch, merged to
+`dev` and deleted 2026-08-19. Neither was buying anything the type system was not already
+providing, and both cost more than they saved — the branch in divergence, the flag in a second
+build configuration.
+
+Two tracks are independent until Phase 4 joins them: the **storage track** (Phases 0-2) touches
+no Qwen code, and the **mixer track** (Phase 3) needs no quantization. Nothing here is scheduled.
 
 **Phase 0 — quality gate** (item 0). Python only. *Exit:* the planned scheme — codebooks,
 group sizes, zero points — reaches IQ2_XXS-class generation quality on Llama 3.2 3B.
@@ -404,10 +409,26 @@ generation quality matches what the oracle predicts — the oracle defines the e
 degradation, so the gate is oracle parity, not absolute coherence. FP16 scales land here
 and benefit Gemma and Llama immediately.
 
-**Phase 2 — precision plan struct** (item 3). Proven on an existing block, not a Qwen one:
-instantiate a Llama or Gemma block from a mixed plan. *Exit:* per-role policies dispatch; a
-plan missing a role is a compile error at the block; the declaration-site alias reads —
-which is the property the experiment exists to demonstrate.
+**Phase 2 — precision plan struct** (item 3). Proven on the **Qwen family**, built the way the
+tree builds every family. *Exit:* per-role policies dispatch; a plan missing a role is a compile
+error at the block; the declaration-site alias reads — which is the property the experiment
+exists to demonstrate.
+
+> **Revision 2026-08-18:** this phase previously read "proven on an existing block, not a Qwen
+> one: instantiate a Llama or Gemma block from a mixed plan." That was wrong on three counts.
+> Gemma 4 is the token-parity oracle and the chat default, so editing it risks the thing every
+> other gate is measured against. Neither Gemma nor Llama gains anything from per-role precision,
+> so the plan would carry no load. And a Gemma block declared with a mixed plan is a *contrived*
+> declaration — it compiles and demonstrates nothing, which is the same failure Section 6 rejects
+> the variadic form for. Llama is a fallback only if the Qwen route proves impossible.
+>
+> Model the family on **Gemma**, for an architectural reason rather than recency: Gemma
+> interleaves global and sliding-window layers, so it already solves the problem Qwen has — a
+> transformer holding heterogeneous layer kinds (Qwen interleaves 3 linear : 1 full,
+> `full_attention_interval: 4`). Copy the transformer-level list, where `GemmaTransformer` builds
+> two block types and stores both as `IDecoderLayer*`. Do **not** copy Gemma's `bool kGlobal`
+> flag: that is right for one mixer with two geometries, and Qwen has two different mixers.
+> Llama is a uniform stack and teaches nothing here. This is reading Gemma, not editing it.
 
 **Phase 3 — Gated DeltaNet** (items 4, 5). Runs in parallel with the storage track. Conv1d
 first, then the mixer, at BF16 against the Python oracle on real checkpoint weights — ref
@@ -736,8 +757,8 @@ specialization of a template owned by another module, so a dispatch row can be r
 from outside the module that declares the primary. This was measured while the codebook
 rows lived in a separate module and it remains true, but it is no longer load-bearing:
 the rows now sit in `OperationTraits.Cuda.ixx`, the documented single registration point,
-because this branch **is** the experiment and no longer needs a second isolation
-mechanism inside the tree. Recorded because it stays useful — it means an out-of-tree
+because the work needs no isolation mechanism of its own — an unused dispatch row costs
+nothing. Recorded because it stays useful — it means an out-of-tree
 consumer could add a row without patching Mila — not because this code demonstrates it.
 
 **Decode is more accurate than prefill, and no prefill kernel can close the gap
@@ -1036,11 +1057,54 @@ Three things that ran differently from expectation:
   BF16 rounding. The measurement above stands; it was taken on synthetic tensors at 3072
   columns, and that is the condition under which the split is legible.
 
+### Phase 2 status (2026-08-19)
+
+**The exit gate is met.** Per-role policies dispatch, a plan missing a role is a compile error
+at the block, and the declaration-site alias reads:
+
+```cpp
+using QwenAttentionLayer = QwenAttentionBlock<DeviceType::Cuda, TensorDataType::BF16,
+    QwenPrecisionPlan>;
+```
+
+Built as a family, the way the tree builds every family: `Components/Transformers/Qwen/` holds
+`Qwen.PrecisionPlan.ixx` (the Section 5 table as types), `Qwen.Config.ixx`, `Qwen.Block.ixx`
+and `Qwen.ixx`; the output gate is a component of its own under
+`Components/Attention/OutputGate/`. Suite green at 1681 passed / 1 pre-existing skip.
+
+Five decisions the code now carries, worth stating because none is recoverable from a diff:
+
+- **`QwenTransformer` refuses the published interleave at construction**, naming Phase 3.
+  Only an all-full-attention configuration builds today. A transformer that quietly built 16
+  of 64 layers is the worst failure available here, and the refusal is checked before any
+  device memory is touched so it names the config rather than a build.
+- **The output gate composes rather than fuses**: the shared elementwise activation op, then
+  the TensorOps multiply in place over the gate's own output. Two launches on 16 of 64 layers.
+  A fused kernel needs a new operation type and a dispatch row, and nothing has measured it.
+- **The fused projection is `[query | gate | key | value]` with query and gate as contiguous
+  halves**, and the block performs two splits — 3-way then 2-way. The halves cannot be reached
+  as views instead: a row of the combined buffer is [query row | gate row], so the query rows
+  are strided by twice the query width. The converter (item 8) owns emitting that order.
+- **Untied tables forced a new role.** Gemma's single `TableQuantizationPolicy` exists to keep
+  one *shared* table consistent across two consumers; Qwen's tables are independent and
+  Section 5 prices them apart (BF16 host-resident against FP4), so the plan machinery gained
+  a `LanguageModelHead` role beside `EmbeddingTable`.
+- **QK-norm is absent, on this document's authority.** Section 1's table is recorded as
+  re-verified against the raw `config.json` and names `attn_output_gate` explicitly while
+  naming no QK-norm field, so the block wires none. The Qwen 3 family does carry it upstream;
+  if the published config does too, this is a two-component addition to `createGraph` and a
+  per-head view in the forward path, and Section 2's count does not disambiguate (the norm
+  weights would land in the "norms, conv, misc" row either way).
+
+`QwenModel` is deliberately absent. Its whole job is loading weights, and with no converter
+(item 8) and no DeltaNet layers it would be an entry point to a model that cannot load —
+which gets mistaken for one that works.
+
 **Owed, outside the phases:** `Web/content/blog/expressing-qwen38-in-types.md` is a `draft: true`
 post written before the 2026-08-16 revision of this document, so its figures are stale wherever
 they touch `attn_output_gate`, the GB/GiB rows, or the 16K baseline — including the "2.78 Bits per
 Weight" in its title. Reconcile it against this spec before the draft flag comes off. Tracked here
-rather than in `BACKLOG.md`, which is `dev`'s task list and carries nothing about this branch.
+rather than in `BACKLOG.md` because this document, not the task list, is the record for this track.
 
 ---
 

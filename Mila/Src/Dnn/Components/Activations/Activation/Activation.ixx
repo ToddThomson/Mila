@@ -57,7 +57,7 @@ namespace Mila::Dnn
      * non-elementwise value (e.g. ActivationType::Swiglu) is a hard compile error,
      * matching the "missing specialization = hard compile error" dispatch contract.
      */
-    template<ActivationType TFn>
+    export template<ActivationType TFn>
     struct functor_of;
 
     template<> struct functor_of<ActivationType::None> { using type = Activations::Identity; };
@@ -69,7 +69,10 @@ namespace Mila::Dnn
     template<> struct functor_of<ActivationType::LeakyRelu> { using type = Activations::LeakyRelu; };
     template<> struct functor_of<ActivationType::Mish> { using type = Activations::Mish; };
 
-    template<ActivationType TFn>
+    // Exported because it is the enum->functor bridge for the WHOLE tree, not just for this
+    // component: AttentionOutputGate reaches the same elementwise backend through it, and a
+    // second copy of the map would be a second place for an activation to go missing.
+    export template<ActivationType TFn>
     using functor_of_t = typename functor_of<TFn>::type;
 
     /**

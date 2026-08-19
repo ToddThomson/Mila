@@ -390,6 +390,11 @@ PUBLIC
         "Src/Dnn/Components/Transformers/Gemma/Gemma.ixx"
         "Src/Dnn/Components/Transformers/Gemma/Gemma.Protocol.ixx"
 
+        "Src/Dnn/Components/Transformers/Qwen/Qwen.PrecisionPlan.ixx"
+        "Src/Dnn/Components/Transformers/Qwen/Qwen.Config.ixx"
+        "Src/Dnn/Components/Transformers/Qwen/Qwen.Block.ixx"
+        "Src/Dnn/Components/Transformers/Qwen/Qwen.ixx"
+
         "Src/Data/Tokenizers/Tokenizer.ixx"
         "Src/Data/Tokenizers/TokenizerVocabulary.ixx"
         "Src/Data/Tokenizers/TokenizerType.ixx"
@@ -429,6 +434,9 @@ PUBLIC
         
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.ixx"
         "Src/Dnn/Components/Attention/GQA/GroupedQueryAttention.Config.ixx"
+
+        "Src/Dnn/Components/Attention/OutputGate/AttentionOutputGate.Config.ixx"
+        "Src/Dnn/Components/Attention/OutputGate/AttentionOutputGate.ixx"
         
         "Src/Dnn/Core/Component.MemoryStats.ixx"
         "Src/Dnn/Core/Model.RuntimeMode.ixx"

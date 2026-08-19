@@ -195,6 +195,7 @@ export import Dnn.Components.Lpe;
 export import Dnn.Components.Rope;
 export import Dnn.Components.Gelu;
 export import Dnn.Components.Activation;
+export import Dnn.Components.AttentionOutputGate;
 export import Dnn.Components.Swiglu;
 export import Dnn.Components.LayerNorm;
 export import Dnn.Components.RmsNorm;
@@ -216,6 +217,11 @@ export import Compute.OperationTraits;
 // terms of -- did not, until these two lines.
 export import Dnn.Quantization.Weight.Policies;
 export import Dnn.Quantization.KvCache.Policy;
+
+// Same rule, one level up: a per-role PLAN is QwenAttentionBlock's third template argument
+// and QwenTransformer's, so the plan concepts and the uniform lift are part of a public
+// interface and must be VISIBLE at instantiation, not merely reachable.
+export import Dnn.Quantization.Weight.PrecisionPlan;
 
 export import Dnn.Components.Linear;
 
@@ -240,6 +246,11 @@ export import Dnn.Components.IDecoderLayer;
 export import Dnn.Components.GemmaBlock;
 export import Dnn.Components.GemmaTransformer;
 export import Dnn.Components.GemmaProtocol;
+
+export import Dnn.Components.QwenPrecisionPlan;
+export import Dnn.Components.QwenConfig;
+export import Dnn.Components.QwenBlock;
+export import Dnn.Components.QwenTransformer;
 
 // ============================================================================
 // Models - Open Source Models

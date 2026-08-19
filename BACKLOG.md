@@ -23,6 +23,13 @@ being a task list and needs a prune.
 
 ### Models
 
+- [ ] **A consumer cannot instantiate a CUDA component without importing a non-public module.**
+  `Mila.ixx` exports `Compute.IExecutionContext` but not `Compute.ExecutionContext`, and instantiating
+  any CUDA block reaches `CudaGqaOp::build` (`CudaGqaOp.ixx:260`), which needs `ExecutionContext<Cuda>`
+  COMPLETE rather than merely reachable — so the instantiation fails with "use of undefined type".
+  Gemma escapes only because `GemmaModel` instantiates its block inside the library; `Qwen.Block.Cuda.cpp`
+  is the first consumer-side instantiation in the tree and had to `import Compute.ExecutionContext`
+  directly. Same rule as the `Mila.ixx:207` policy note — decide whether the umbrella exports it.
 - [ ] **No build or CI step runs `compute-sanitizer`, and nothing else can find this class of defect.**
   Measured 2026-08-15: `Mila/Src` carries 29 `cudaCheckStatus`/`cudaCheckLastError` calls across 7
   files, all in allocation, transfer and setup paths — and **zero** across the 110 kernel launch
